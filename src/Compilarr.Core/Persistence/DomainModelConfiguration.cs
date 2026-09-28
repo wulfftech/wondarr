@@ -48,7 +48,6 @@ internal static class DomainModelConfiguration
             entity.Property(x => x.Title).IsRequired();
             entity.Property(x => x.ArtistCredit).IsRequired();
             entity.Property(x => x.AddedBy).IsRequired();
-            entity.Property(x => x.Monitored).HasDefaultValue(true);
 
             entity.HasIndex(x => x.MbRecordingId).IsUnique();
             entity.HasIndex(x => x.DeezerId).IsUnique();
@@ -93,7 +92,6 @@ internal static class DomainModelConfiguration
             entity.Property(x => x.AlbumTitle).IsRequired();
             entity.Property(x => x.AlbumArtist).IsRequired();
             entity.Property(x => x.AlbumKey).IsRequired();
-            entity.Property(x => x.Sticky).HasDefaultValue(true);
 
             // One album context per song, and every song in a folder shares the album key.
             entity.HasIndex(x => x.SongId).IsUnique();
@@ -168,7 +166,6 @@ internal static class DomainModelConfiguration
             entity.Property(x => x.Layout).HasConversion<string>();
             entity.Property(x => x.AlbumPolicy).HasConversion<string>();
             entity.Property(x => x.SidecarOptions).HasDefaultValue("{}");
-            entity.Property(x => x.MinTracksPerRealAlbum).HasDefaultValue(2);
             entity.HasIndex(x => x.Name).IsUnique();
 
             entity.HasData(SeedData.Libraries);

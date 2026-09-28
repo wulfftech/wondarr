@@ -85,9 +85,7 @@ namespace Compilarr.Core.Persistence.Migrations
                         .HasColumnName("song_id");
 
                     b.Property<bool>("Sticky")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
-                        .HasDefaultValue(true)
                         .HasColumnName("sticky");
 
                     b.Property<int?>("TotalTracks")
@@ -197,9 +195,7 @@ namespace Compilarr.Core.Persistence.Migrations
                         .HasColumnName("layout");
 
                     b.Property<int>("MinTracksPerRealAlbum")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
-                        .HasDefaultValue(2)
                         .HasColumnName("min_tracks_per_real_album");
 
                     b.Property<string>("Name")
@@ -988,9 +984,7 @@ namespace Compilarr.Core.Persistence.Migrations
                         .HasColumnName("mb_work_id");
 
                     b.Property<bool>("Monitored")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
-                        .HasDefaultValue(true)
                         .HasColumnName("monitored");
 
                     b.Property<long>("PrimaryArtistId")
