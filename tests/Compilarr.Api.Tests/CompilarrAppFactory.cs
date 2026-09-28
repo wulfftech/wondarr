@@ -29,10 +29,18 @@ public sealed class CompilarrAppFactory : WebApplicationFactory<Program>
     };
 
     private readonly IReadOnlyDictionary<string, string?> _settings;
+    private readonly Action<IServiceCollection>? _configureServices;
 
-    public CompilarrAppFactory(IReadOnlyDictionary<string, string?>? settings = null)
+    /// <param name="settings">Configuration keys (for example <c>Server:UrlBase</c>) to apply.</param>
+    /// <param name="configureServices">
+    /// Extra registrations, appended after the app's own — used to swap in fake health checks.
+    /// </param>
+    public CompilarrAppFactory(
+        IReadOnlyDictionary<string, string?>? settings = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         _settings = settings ?? new Dictionary<string, string?>();
+        _configureServices = configureServices;
         ConfigDir = Path.Combine(Path.GetTempPath(), "compilarr-api-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(ConfigDir);
 
@@ -71,7 +79,12 @@ public sealed class CompilarrAppFactory : WebApplicationFactory<Program>
             builder.UseSetting(key, value);
         }
 
-        builder.ConfigureServices(services => services.AddSingleton<IStartupFilter, RemoteIpStartupFilter>());
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<IStartupFilter, RemoteIpStartupFilter>();
+
+            _configureServices?.Invoke(services);
+        });
     }
 
     protected override void Dispose(bool disposing)
