@@ -90,3 +90,36 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 1. **P1-01 Domain model and seed data** — EF entities + migration for `artist`, `song`, `song_artist`, `album_context`, `quality` (seeded from `docs/architecture/QUALITY_DEFINITIONS.md`, including the Opus tiers), `quality_profile` (defaults "Standard 320" with cutoff MP3-320 and "Lossless" with cutoff FLAC) and a default `library`, per `ARCHITECTURE.md` §5.4; repository tests; no API yet.
 2. **P1-02 MusicBrainz client** — typed `HttpClient` with a descriptive User-Agent, 1 req/s limiter, `Retry-After`, a `metadata_cache` table with TTLs; recording search, lookup by MBID and ISRC, releases-for-recording; contract tests against recorded fixtures under `tests/fixtures/musicbrainz/` (have the researcher agent verify the current WS/2 query syntax and response shapes first).
 3. **P1-03 Version-flag parser** — golden-tested parser for live/remix/acoustic/instrumental/radio edit/remaster/explicit/cover from title + MB disambiguation + release-group secondary types (`MATCHING_ENGINE.md`), cases in `tests/fixtures/version-flags.json`. Independent of 1 and 2, so it can run in parallel.
+
+### 2026-09-28 — Build session 2: Phase 1 (orchestrator on Opus 5.5, workers on DeepSeek V4.1 Flash)
+
+**Outcome.** Phase 1 gate **passed live** (50 pasted songs → 48 MusicBrainz recordings with the right duration and cover art (96 %), 1 via Deezer, 0 unresolved, every song with an album assignment; 363 s at MusicBrainz' 1 req/s) and is automated in CI: `scripts/smoke-test.sh` replays the recorded metadata (`tests/gate/replay`, via `scripts/metadata-replay.py`) inside the built image and fails on any unrecorded request (CI_RESULT). 14 worker tasks (13 planned + one fix task), all merged; 591 backend + 52 frontend tests. Worker spend **USD 1.69** of the USD 10 budget (key counter). Details: `docs/build/PROGRESS.md`; decisions: `docs/DECISIONS.md` "Build session 2" (#1–#12).
+
+**What exists now.**
+- Domain model (`artist`, `song`, `song_artist`, `album_context`, `song_file`, seeded `quality` 1–43, profiles "Standard 320"/"Lossless", default Plexamp library), plus `metadata_cache`, `history`, `blocklist`, `import_list`/`import_list_item`.
+- Metadata: MusicBrainz (search, lookup, ISRC, release browse, release), Cover Art Archive, Deezer, iTunes clients; per-host request spacing (MusicBrainz 1 req/s process-wide, retries inside the gate), SQLite response cache with TTLs, cover-art chain, version-flag parser (79 golden cases), album-policy engine (5 policies, sticky, 10 golden cases), identity resolver (Deezer reference → ISRC bridge → duration-bounded MB search, title-only retry, bootleg skip, Deezer-only fallback).
+- API: songs (CRUD, lookup, album contexts/override), artists, preview (fresh Deezer URL), bulk paste (`BulkAddSongs` command) + unresolved review, quality definitions/profiles, library, wanted (missing/cutoff), history, blocklist.
+- UI: Library, Add songs (search with disambiguation, length, types, cover, preview; paste with live progress), Unresolved review, Wanted, Activity (History/Blocklist), Settings (Quality profiles, Library). Checked in a real browser against live services.
+
+**Worker lessons (Phase 1).**
+1. *Turn cap still the main limit:* 7 of 14 tasks hit 50 (then 100) turns — usually with green, nearly finished work. Committing it myself was cheaper than a continuation run. Caps are now 100 turns / 60 min (owner).
+2. *Final newlines:* the worker's Write tool drops them; fixed repo-wide once, now checked at every merge.
+3. *Test infrastructure bugs surface under load, not in the task:* `ClearAllPools()` disposing other tests' SQLite connections, `WebApplicationFactory`'s re-entrant `Dispose`, jsdom lacking `ResizeObserver`, a fetch mock that could not see `Request` objects. Loop the whole suite (not one project) before merging.
+4. *Platform traps the tests did not show:* `InvariantGlobalization` makes `Normalize(FormD)` a no-op (diacritics never stripped); `Task.Delay` can wake ~15 ms early on Windows (rate gate now re-checks the clock).
+5. *Live data beats fixtures:* a live probe over the gate songs found three wrong recordings the fixture tests could not (a 1983 live take that *is* the album version, an "original studio mix" read as a remix, a bootleg-only recording); a browser pass found two UI bugs (disabled preview on the top result, stale paste counts).
+6. *The claude-terminals tabs run cmd.exe:* set caps with `set "VAR=…" &&`; continuation notes go into the worker's own worktree (see the session memory).
+
+**Open items / follow-ups.**
+- Known resolver gap: "Robyn - Dancing On My Own" resolves to the 218 s edit (Deezer has no reference for it) → add iTunes as a third duration reference.
+- Concurrent adds of the same recording surface as HTTP 500 (unique index) → map to 409.
+- Paste resolution takes ~7 s per line against live MusicBrainz (release browse pages at 1 req/s) — fine for 50, slow for 1000; consider fetching releases lazily or from the ISRC lookup's release list.
+- Version-flag badges show wire names (`radio_edit`).
+- The OpenRouter key has a lifetime limit of USD 10 and has used ~3.2.
+- Still open from Phase 0: forwarded headers, JSON-escaped secrets in the log redactor, Dependabot PR #2.
+- **Phase 1a (owner, 2026-09-28): rename Compilarr → Wondarr before Phase 2** — plan in `docs/build/PHASE_1A_TASKS.md`, decision in `docs/DECISIONS.md` #10.
+
+**Next: Phase 1a, then the first three Phase 2 tasks to spec** (write `docs/build/PHASE_2_TASKS.md` first, from `PHASES.md` Phase 2):
+1. **P2-01 Validate the Soulseek account on `ch01` and the slskd client for search** — start the image on `ch01` with `APP__SOULSEEK__USERNAME/PASSWORD` from `.env`, confirm `/api/v1/health` says "logged in as …" and watch for duplicate-login kicks (the account is the owner's own; ask for a dedicated one if kicks happen). Then the slskd search client: `POST /api/v0/searches`, `/hub/search` streaming with polling fallback, always-delete, 30 s wall clock, the global token bucket (30 searches / 4 min, ≤ 2 outstanding, ≥ 5 s apart).
+2. **P2-02 Candidate normalisation and Soulseek filename/path parsing** (`MATCHING_ENGINE.md` §6.1) — golden cases in `tests/fixtures/filenames.json`, reusing the P1-03 version-flag parser for bracketed hints.
+3. **P2-03 Decision engine v1** (§6.2–6.3) — hard rejections and the 0–1000 score with persisted reasons, golden cases in `tests/fixtures/decisions.json`; uses `QualityProfile.IsAllowed/MeetsCutoff/IsUpgrade` from P1-01.
+

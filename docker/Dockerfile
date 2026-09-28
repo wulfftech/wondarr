@@ -36,7 +36,9 @@ ARG VERSION=0.0.0-dev
 
 WORKDIR /src
 
-COPY global.json Directory.Build.props Directory.Packages.props Compilarr.sln ./
+# .editorconfig carries analyzer severities (e.g. CA1861 off for generated migrations): the image
+# must compile with the same rules as the repository.
+COPY .editorconfig global.json Directory.Build.props Directory.Packages.props Compilarr.sln ./
 COPY src/Compilarr.Api/Compilarr.Api.csproj src/Compilarr.Api/
 COPY src/Compilarr.Core/Compilarr.Core.csproj src/Compilarr.Core/
 COPY src/Compilarr.Sources.Slskd/Compilarr.Sources.Slskd.csproj src/Compilarr.Sources.Slskd/

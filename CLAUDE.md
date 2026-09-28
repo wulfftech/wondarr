@@ -38,7 +38,9 @@ docker compose -f docker/docker-compose.yml up --build
 python scripts/worker.py run docs/build/tasks/P0-01.md      # delegate a task to a cheap worker
 python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md
 python scripts/worker.py watch                               # follow running workers' live logs
-scripts/smoke-test.sh <image> ["sudo docker"]                # the phase gate against a built image
+scripts/smoke-test.sh <image> ["sudo docker"]                # Phase 0 + Phase 1 gates against a built image (SMOKE_METADATA=replay|record|live|off)
+python scripts/phase1-gate.py --url <base> --api-key <key>   # the Phase 1 gate against any running instance
+python scripts/metadata-replay.py --mode record|replay --dir tests/gate/replay   # record/replay MusicBrainz, CAA, Deezer, iTunes
 python scripts/check-notice.py [--fix]                       # ported-code attribution check (CI)
 ```
 
