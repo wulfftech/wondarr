@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
-# Phase 0 gate smoke test (docs/build/PHASES.md): runs an image and checks that
+# Phase gate smoke test (docs/build/PHASES.md): runs an image and checks
+# Phase 0:
 #   - the container starts on 1077 and turns healthy
 #   - the UI loads behind a URL base
 #   - the API key works (and is required)
 #   - health shows DB, folders and the bundled slskd process OK (logged out, no credentials)
 #   - a scheduled no-op job's last run survives a restart
 #   - files the app creates carry PUID/PGID, and the bundled tools run
+# Phase 1 (scripts/phase1-gate.py):
+#   - a pasted list of 50 songs resolves >= 90 % to MusicBrainz recordings with correct durations
+#     and cover art, the rest via Deezer or into the unresolved review, every song with an album
+#
+# Metadata services for the Phase 1 gate (SMOKE_METADATA):
+#   replay (default) - scripts/metadata-replay.py answers from tests/gate/replay; no network needed,
+#                      and any request without a recording fails the run (re-record then)
+#   record           - the proxy forwards to the real services and stores the answers
+#   live             - the app talks to the real services directly
+#   off              - skip the Phase 1 gate
 #
 # usage: scripts/smoke-test.sh <image> [docker command, e.g. "sudo docker"]
-# needs: bash, curl, jq
+# needs: bash, curl, jq, python3
 set -euo pipefail
 
 IMAGE="${1:?image}"
@@ -20,8 +31,13 @@ PUID_WANT="${SMOKE_PUID:-1234}"
 PGID_WANT="${SMOKE_PGID:-2345}"
 WORK="$(mktemp -d)"
 BASE="http://localhost:${PORT}${URL_BASE}"
+METADATA="${SMOKE_METADATA:-replay}"
+REPLAY_PORT="${SMOKE_REPLAY_PORT:-18099}"
+REPLAY_DIR="${SMOKE_REPLAY_DIR:-$(cd "$(dirname "$0")/.." && pwd)/tests/gate/replay}"
+REPLAY_PID=""
 
 cleanup() {
+    if [ -n "$REPLAY_PID" ]; then kill "$REPLAY_PID" 2> /dev/null || true; fi
     $DOCKER logs "$NAME" > "$WORK/container.log" 2>&1 || true
     $DOCKER rm -f "$NAME" > /dev/null 2>&1 || true
     if [ "${KEEP_WORK:-0}" != 1 ]; then
@@ -52,7 +68,35 @@ wait_healthy() {
 mkdir -p "$WORK/config" "$WORK/data"
 chmod 777 "$WORK/config" "$WORK/data"
 
+METADATA_ARGS=()
+case "$METADATA" in
+    replay | record)
+        python3 "$(dirname "$0")/metadata-replay.py" --mode "$METADATA" --dir "$REPLAY_DIR" --port "$REPLAY_PORT" \
+            > "$WORK/replay.log" 2>&1 &
+        REPLAY_PID=$!
+        for _ in $(seq 1 20); do
+            curl -fsS "http://localhost:${REPLAY_PORT}/__health" > /dev/null 2>&1 && break
+            sleep 0.5
+        done
+        curl -fsS "http://localhost:${REPLAY_PORT}/__health" > /dev/null || fail "metadata replay proxy did not start"
+        PROXY="http://host.docker.internal:${REPLAY_PORT}"
+        METADATA_ARGS=(--add-host=host.docker.internal:host-gateway
+            -e "APP__METADATA__MUSICBRAINZ_BASE_URL=${PROXY}/mb/ws/2/"
+            -e "APP__METADATA__COVER_ART_ARCHIVE_BASE_URL=${PROXY}/caa/"
+            -e "APP__METADATA__DEEZER_BASE_URL=${PROXY}/deezer/"
+            -e "APP__METADATA__ITUNES_BASE_URL=${PROXY}/itunes/")
+        # A replay answers instantly and is not musicbrainz.org: no need to wait a second per request.
+        # Recording talks to the real service through the proxy, so it keeps the 1 req/s spacing.
+        if [ "$METADATA" = replay ]; then
+            METADATA_ARGS+=(-e "APP__METADATA__MUSICBRAINZ_MIRROR_INTERVAL_MS=0")
+        fi
+        ;;
+    live | off) ;;
+    *) fail "SMOKE_METADATA must be replay, record, live or off (got '$METADATA')" ;;
+esac
+
 $DOCKER run -d --name "$NAME" \
+    "${METADATA_ARGS[@]}" \
     -p "${PORT}:1077" \
     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC \
     -e APP__SERVER__URL_BASE="$URL_BASE" \
@@ -129,3 +173,16 @@ $DOCKER exec -u "${PUID_WANT}:${PGID_WANT}" "$NAME" sh -c \
 pass "ffprobe, fpcalc, deno and slskd run inside the image"
 
 echo "PHASE 0 GATE: PASS ($IMAGE)"
+
+if [ "$METADATA" = off ]; then
+    echo "Phase 1 gate skipped (SMOKE_METADATA=off)"
+    exit 0
+fi
+python3 "$(dirname "$0")/phase1-gate.py" --url "$BASE" --api-key "$KEY" || fail "Phase 1 gate"
+if [ "$METADATA" = replay ]; then
+    MISSES="$(curl -fsS "http://localhost:${REPLAY_PORT}/__misses")"
+    [ "$(echo "$MISSES" | jq 'length')" = 0 ] \
+        || fail "the app asked for metadata tests/gate/replay has no recording of (re-record with SMOKE_METADATA=record): $MISSES"
+    pass "every metadata request was answered from the recording"
+fi
+echo "PHASE 1 GATE: PASS ($IMAGE, metadata: $METADATA)"

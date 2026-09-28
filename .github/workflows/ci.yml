@@ -88,5 +88,7 @@ jobs:
           name: compilarr-image-amd64
           path: compilarr-image-amd64.tar.gz
           retention-days: 3
-      - name: Phase 0 gate smoke test
+      # Phase 0 and Phase 1 gates. The Phase 1 gate pastes 50 songs; the metadata services answer from
+      # the recording in tests/gate/replay (scripts/metadata-replay.py), so CI never calls them.
+      - name: Phase gate smoke test (Phase 0 + Phase 1)
         run: scripts/smoke-test.sh compilarr:ci

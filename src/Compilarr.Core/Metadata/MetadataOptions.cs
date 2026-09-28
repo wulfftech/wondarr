@@ -24,6 +24,24 @@ public sealed class MetadataOptions
     public string ContactUrl { get; set; } = "https://github.com/wulfftech/compilarr";
 
     /// <summary>
+    /// Minimum gap between MusicBrainz requests, in milliseconds, for a <b>self-hosted mirror</b> (or
+    /// the gate's replay proxy). Ignored for <c>musicbrainz.org</c> itself, which always gets one
+    /// request per second as its rate-limiting rules require. Null keeps one second everywhere.
+    /// </summary>
+    public int? MusicBrainzMirrorIntervalMs { get; set; }
+
+    /// <summary>The spacing actually used for <see cref="MusicBrainzBaseUrl"/>.</summary>
+    public TimeSpan MusicBrainzRequestInterval =>
+        MusicBrainzMirrorIntervalMs is { } mirrorMs && !IsPublicMusicBrainz(MusicBrainzBaseUrl)
+            ? TimeSpan.FromMilliseconds(Math.Clamp(mirrorMs, 0, 60_000))
+            : TimeSpan.FromSeconds(1);
+
+    private static bool IsPublicMusicBrainz(string baseUrl) =>
+        Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+        && (uri.Host.Equals("musicbrainz.org", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".musicbrainz.org", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Base delay the MusicBrainz retry pipeline backs off with. Deliberately not bound from
     /// configuration: two seconds is the polite floor against MusicBrainz, and only tests lower it.
     /// </summary>

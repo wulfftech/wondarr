@@ -14,12 +14,13 @@ answers from the stored files only, so CI proves the gate without touching the r
 A request with no recording gets the service's own "not found" shape and is listed at /__misses.
 
 Standard library only. Usage:
-    python3 scripts/metadata-replay.py --mode replay --dir tests/gate/replay --port 8099
+    python3 scripts/metadata-replay.py --mode replay --dir tests/gate/replay --port 18099
 """
 
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import sys
@@ -78,7 +79,8 @@ class Store:
         return hashlib.sha1(f"{method} {service}{path_and_query}".encode("utf-8")).hexdigest()[:20]
 
     def file_for(self, method: str, service: str, path_and_query: str) -> Path:
-        return self.root / service / f"{self.key(method, service, path_and_query)}.json"
+        # gzip: MusicBrainz release browses are large and repetitive (18 MB of JSON, 2.8 MB gzipped).
+        return self.root / service / f"{self.key(method, service, path_and_query)}.json.gz"
 
     def wait_turn(self, service: str) -> None:
         interval = UPSTREAMS[service][1]
@@ -92,7 +94,7 @@ class Store:
     def fetch(self, method: str, service: str, path_and_query: str, user_agent: str | None):
         target = self.file_for(method, service, path_and_query)
         if target.exists():
-            saved = json.loads(target.read_text(encoding="utf-8"))
+            saved = json.loads(gzip.decompress(target.read_bytes()).decode("utf-8"))
             return saved["status"], saved["headers"], saved["body"].encode("utf-8")
 
         if self.mode == "replay":
@@ -114,14 +116,13 @@ class Store:
         if status in (429, 503) or status >= 500:
             return status, kept, body  # never record throttling or outages
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(
-                {"request": f"{method} /{service}{path_and_query}", "status": status, "headers": kept,
-                 "body": body.decode("utf-8", errors="replace")},
-                ensure_ascii=False, indent=1,
-            ) + "\n",
-            encoding="utf-8",
-        )
+        record = json.dumps(
+            {"request": f"{method} /{service}{path_and_query}", "status": status, "headers": kept,
+             "body": body.decode("utf-8", errors="replace")},
+            ensure_ascii=False, indent=1,
+        ) + "\n"
+        # mtime=0 keeps the file byte-identical when the same answer is recorded again.
+        target.write_bytes(gzip.compress(record.encode("utf-8"), mtime=0))
         return status, kept, body
 
 
@@ -169,7 +170,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", choices=("record", "replay"), required=True)
     parser.add_argument("--dir", type=Path, required=True)
-    parser.add_argument("--port", type=int, default=8099)
+    parser.add_argument("--port", type=int, default=18099)
     parser.add_argument("--bind", default="0.0.0.0")
     args = parser.parse_args()
 

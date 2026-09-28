@@ -66,7 +66,7 @@ public static class ServiceCollectionExtensions
         // Keyed, so every HttpClient the factory builds and every handler rotation share one gate
         // per host: MusicBrainz allows one request per second across the whole process.
         services.AddKeyedSingleton(MusicBrainzGateKey, (serviceProvider, _) => new RequestSpacingGate(
-            TimeSpan.FromSeconds(1),
+            serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value.MusicBrainzRequestInterval,
             serviceProvider.GetRequiredService<TimeProvider>()));
 
         var musicBrainz = services.AddHttpClient<IMusicBrainzClient, MusicBrainzClient>((serviceProvider, client) =>
