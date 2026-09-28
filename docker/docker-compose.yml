@@ -1,0 +1,21 @@
+# Compilarr — single-service reference compose (docs/architecture/DEPLOYMENT.md §9.3).
+# slskd is bundled inside the image, so there is nothing else to wire up.
+services:
+  compilarr:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/wulfftech/compilarr:develop
+    container_name: compilarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Etc/UTC
+    volumes:
+      - ./config:/config
+      - ./data:/data
+    ports:
+      - "1077:1077"
+      - "50300:50300"
+    restart: unless-stopped

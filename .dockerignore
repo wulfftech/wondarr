@@ -1,0 +1,10 @@
+**/bin
+**/obj
+**/node_modules
+.git
+.worktrees
+.worker
+.env*
+src/Compilarr.Api/wwwroot
+frontend/dist
+**/*.db
