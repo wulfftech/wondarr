@@ -7,9 +7,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 ### Added
 - Planning documentation set, ADRs, research reports, agentic build workflow and worker runner (2026-09-28).
 
-## [0.0.1-alpha.1]
+## [0.0.1-alpha.1] — 2026-09-28
 
-Phase 0 — skeleton, foundations and a runnable single-container image. (Release date to be set when the first image is published.)
+Phase 0 — skeleton, foundations and a runnable single-container image (`ghcr.io/wulfftech/compilarr:0.0.1-alpha.1`, amd64 + arm64).
 
 ### Added
 - Solution skeleton: `Compilarr.sln`, `src/Compilarr.Core`, `src/Compilarr.Api`, test projects, `global.json` pinning the .NET 10 SDK, `Directory.Build.props` and `Directory.Packages.props`.

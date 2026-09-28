@@ -4,7 +4,7 @@
 
 Conceptually it is Sonarr/Radarr/Lidarr for **one song at a time** — which Lidarr cannot do, by design (its unit is the album).
 
-> **Status (2026-09-28):** research and design complete; implementation starts with Phase 0. See `docs/HANDOVER.md` if you are picking this up, and `CLAUDE.md` if you are an AI coding session.
+> **Status (2026-09-28):** Phase 0 (skeleton, auth, jobs, UI shell, bundled slskd, image, CI) is done — `0.0.1-alpha.1`; Phase 1 (song identity and the Wanted list) is next. See `docs/HANDOVER.md` if you are picking this up, and `CLAUDE.md` if you are an AI coding session.
 
 ## Quick start (Docker)
 
