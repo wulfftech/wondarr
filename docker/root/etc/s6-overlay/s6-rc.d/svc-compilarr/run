@@ -1,0 +1,9 @@
+#!/command/with-contenv sh
+#
+# The app itself: API, UI, scheduler and import pipeline in one process. slskd is started by the
+# app as a child process, so it inherits this user.
+set -eu
+
+umask "${UMASK:-002}"
+cd /app
+exec s6-setuidgid compilarr dotnet /app/Compilarr.Api.dll

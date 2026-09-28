@@ -24,6 +24,21 @@ Bundling is the default from Phase 0 (owner decision): one container, one settin
 - Remote path mappings per download client and a Plex path mapping.
 - Multi-arch images (amd64, arm64) on GHCR on every tag: `:latest`, `:develop`, semver; Unraid Community Applications XML template in the repo.
 
+#### Image contents (Phase 0)
+
+One image, `linux/amd64` + `linux/arm64`, built framework-dependent on `mcr.microsoft.com/dotnet/aspnet:10.0-noble` (the SDK and Node stages run on `$BUILDPLATFORM`). Everything that comes from outside the repository is pinned by version **and** sha256, and verified at build time:
+
+| Component | Version | Where it lands |
+|---|---|---|
+| Compilarr (API + React UI in `wwwroot`) | `$VERSION` | `/app` |
+| s6-overlay | 3.2.3.2 (arch + noarch) | `/` (`/init`, `/etc/s6-overlay`) |
+| slskd (AGPL-3.0, unmodified, licence alongside) | 0.26.0 | `/opt/slskd` |
+| ffmpeg / ffprobe (static, `mwader/static-ffmpeg`) | 9.0.2 | `/usr/local/bin` |
+| fpcalc (static chromaprint) | 1.6.1 | `/usr/local/bin/fpcalc` |
+| Deno | 2.9.7 | `/usr/local/bin/deno` |
+
+s6-rc services: **`init-compilarr-user`** (oneshot) applies `PUID`/`PGID` to the `compilarr` account and creates `/config`, `/config/logs` and `/config/slskd`; **`svc-compilarr`** (longrun, depends on the oneshot) applies `UMASK` and runs `dotnet /app/Compilarr.Api.dll` as `compilarr`. PID 1 is s6-overlay's `/init`, so there is no shell-form `CMD` and signals reach the app; the image's `HEALTHCHECK` polls `/ping` on port 1077.
+
 ### 9.3 Compose example (Appendix A)
 
 The reference `docker-compose.yml` is a single service: the app image with slskd bundled, `/config` (including `/config/slskd`) and `/data` volumes, ports 1077 and 50300. An alternative snippet shows external-slskd mode.
