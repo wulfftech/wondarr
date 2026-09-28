@@ -1,5 +1,6 @@
 using Compilarr.Core.HealthCheck;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
@@ -82,6 +83,17 @@ public class HealthCheckServiceTests
         results.Select(result => result.Source).Should().ContainInOrder("First", "Second", "Third");
     }
 
-    private static HealthCheckService CreateService(TimeProvider timeProvider, params IHealthCheck[] checks) =>
-        new(checks, timeProvider, NullLogger<HealthCheckService>.Instance);
+    private static HealthCheckService CreateService(TimeProvider timeProvider, params IHealthCheck[] checks)
+    {
+        var services = new ServiceCollection();
+        foreach (var check in checks)
+        {
+            services.AddSingleton(check);
+        }
+
+        return new(
+            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            timeProvider,
+            NullLogger<HealthCheckService>.Instance);
+    }
 }
