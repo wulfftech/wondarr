@@ -78,7 +78,10 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 7. *Windows specifics:* SQLite pool locks on temp dirs, log-file sharing, CRLF from YamlDotNet, Git Bash path conversion (`MSYS_NO_PATHCONV=1`), `getaddrinfo` hiccups on `git push` (retry).
 
 **Open items / follow-ups.**
-- Owner inputs still needed for later phases: AcoustID key (Phase 2), dedicated Soulseek account (Phase 2), Plex token (Phase 3). The repo and GHCR package are private: pulling on another host needs a token, or use the CI image artifact (3 days).
+- **Owner update (2026-09-28, after the session):**
+  - The **repository will be made public before Phase 1 starts.** Check the GHCR package afterwards: a container package's visibility is set on the package (github.com/users/wulfftech/packages/container/compilarr → Package settings) and may still be private; once public, test hosts can `docker pull ghcr.io/wulfftech/compilarr:develop` without a token (until then use the CI image artifact, kept 3 days).
+  - **`.env` now holds `ACOUSTID_CLIENT_KEY`, `PLEX_TOKEN`, `SOULSEEK_USERNAME` and `SOULSEEK_PASSWORD`** (all set; never print them). They are for the orchestrator's opt-in live checks (`COMPILARR_LIVE_TESTS=1`, never in CI) and for running a test container: pass them as `APP__SOULSEEK__USERNAME` / `APP__SOULSEEK__PASSWORD` (the app reads its own config, not `.env`).
+  - **The Soulseek credentials are the owner's own account, not a dedicated one — still to be validated.** Soulseek allows one login per username: if the owner's desktop client is online with the same account, the bundled slskd and that client will keep kicking each other off. Validate early in Phase 2: start the image on `ch01` with the credentials, confirm `/api/v1/health` reports "logged in as …", and watch for duplicate-login kicks; if they happen, ask the owner for a dedicated account.
 - Forwarded headers are not configured (`UseForwardedHeaders` is a no-op) — set known proxies before anything relies on the client IP behind a reverse proxy.
 - A secret containing JSON-escaped characters would not be matched verbatim by the log redactor — relevant when Soulseek/Plex secrets land (Phase 2/3).
 - Dependabot PR #2 (Serilog 4.4) is open for review.

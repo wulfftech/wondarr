@@ -1,30 +1,23 @@
-# Next-session prompt (Phase 0 kickoff)
+# Next-session prompt (Phase 1 kickoff)
 
-Launch Claude Code in `D:\Code\compilarr` on the orchestrator model, e.g. `claude --model claude-opus-5-5` (or `/model claude-opus-5-5` once inside), then paste the prompt below as the first message. Before launching: `.env` exists with `OPENROUTER_API_KEY` filled (copy from `.env.example`); .NET 10 SDK, Node 22+, Python 3.10+, Docker Desktop and Git are installed.
+Launch Claude Code in `D:\Code\compilarr` on the orchestrator model (`/model claude-opus-5-5`), make sure the `claude-terminals` MCP server is connected (`/mcp`), then paste the prompt below as the first message. (The Phase 0 kickoff prompt is in this file's git history.)
 
 ---
 
-You are the **orchestrator** for Compilarr, working in this repository on Windows. Read, in this order, before doing anything else: `CLAUDE.md`, `docs/HANDOVER.md`, `docs/build/PROGRESS.md`, `docs/build/AGENT_WORKFLOW.md`, `docs/build/PHASE_0_TASKS.md`, `docs/build/CODING_STANDARDS.md`, `docs/build/REPO_LAYOUT.md`. Skim `docs/DECISIONS.md` and `docs/adr/README.md`; consult `docs/architecture/*.md` per task. Treat those documents as binding.
+You are the **orchestrator** for Compilarr (Windows, `D:\Code\compilarr`). Read first: `CLAUDE.md`, `docs/HANDOVER.md` (especially §7 Session log), `docs/build/PROGRESS.md`, `docs/build/AGENT_WORKFLOW.md`, `docs/build/PHASES.md` (Phase 1), `docs/build/CODING_STANDARDS.md`; skim `docs/DECISIONS.md` and consult `docs/architecture/*.md` per task. They are binding.
 
-**Goal of this session:** complete **Phase 0** (repository skeleton through CI) to its "done when" gate in `docs/build/PHASES.md`, using cheap workers for implementation, and leave the repo in a state the next session can continue from without you.
+**Goal:** complete **Phase 1 — song identity and the Wanted list** to its "done when" gate in `PHASES.md`, with cheap workers doing the implementation, and leave the repo ready for Phase 2.
 
-**Step 1 — Pre-flight (report results in one short message):**
-- Toolchain: `dotnet --version` (10.x), `node --version` (22+), `python --version` (3.10+), `docker --version`, `git --version`, and that `claude` is on PATH.
-- Secrets: `.env` exists and `OPENROUTER_API_KEY` is set (never print it).
-- Worker runner: `python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md` prints a sane command and environment.
-- If `COMPILARR_WORKER_MODEL` is empty, run the **bake-off** from `AGENT_WORKFLOW.md` §6 with a hard cap of USD 5: pick three tool-capable low-cost models from OpenRouter, run P0-01 with each (dry specs are ready), score, pin the winner in `.env`, and record the table in `docs/build/PROGRESS.md` and a dated entry in `docs/DECISIONS.md`. If the OpenRouter Anthropic endpoint returns 404s, set `OPENROUTER_ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1` and retry once.
+**Pre-flight (one short report):** toolchain as in Phase 0; `.env` has `OPENROUTER_API_KEY`, `COMPILARR_WORKER_MODEL`, `ACOUSTID_CLIENT_KEY`, `PLEX_TOKEN`, `SOULSEEK_USERNAME/PASSWORD` set (check presence only, never print values); CI green on `main`; the repo is public — check whether the GHCR package is public too and tell me if it is not; `worker.py --dry-run` shows 50 turns / 30 min.
 
-**Step 2 — Execute Phase 0 task by task** (P0-01 → P0-12, respecting the dependency column; run independent tasks in parallel worktrees where sensible):
-1. Write the task spec `docs/build/tasks/<id>.md` from `WORKER_TASK_TEMPLATE.md` (P0-01 already exists) with concrete acceptance criteria and allowed paths.
-2. Delegate with `python scripts/worker.py run docs/build/tasks/<id>.md`. Do not hand-write the implementation yourself except for small glue, spec fixes, or after a worker has failed twice.
-3. Review the worktree diff adversarially against the spec and `CODING_STANDARDS.md`; run `dotnet build -warnaserror`, `dotnet test`, and the frontend checks yourself. Use the `reviewer` agent for P0-04 (auth), P0-09 (slskd process control) and P0-10 (Docker).
-4. Fix via `--continue "…"` (max two rounds), then merge to `main` with `--no-ff`, update `docs/build/PROGRESS.md` (status, model, cost, notes) and any architecture doc the change affects, update `NOTICE.md` for ported code, commit with a Conventional Commit message, and **push to `origin main` after every merged task** so progress is never lost.
-5. Remove the worktree; keep `.worker/<id>/` reports until the phase closes.
+**Plan:** write `docs/build/PHASE_1_TASKS.md` (dependency table like Phase 0, tasks sized ≤ ~10 files), starting from the three tasks in HANDOVER §7 (P1-01 domain model + quality seeds, P1-02 MusicBrainz client, P1-03 version-flag parser). Use the researcher agent to verify MusicBrainz/Cover Art Archive/Deezer/iTunes API facts before specifying them. Show me the task table before delegating.
 
-**Rules that override convenience:** everything in `CLAUDE.md` "Non-negotiables"; never merge red; workers never touch `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, `.env*`; no secrets or AI identifiers in commits; keep per-run caps from `.env`; stop and ask me only for (a) a decision that would change an ADR, (b) spend beyond the Phase 0 budget of USD <set-me>, or (c) a blocker outside the repo (missing tool, failing external service). Everything else: decide, note it in `PROGRESS.md`, and continue.
+**Per task:** spec from `WORKER_TASK_TEMPLATE.md` with exact package versions and any API signatures that changed recently → commit the spec → launch the worker in its own **VS Code terminal tab** via `claude-terminals` (`python -u scripts/worker.py run docs/build/tasks/<id>.md`; completion via `.worker/<id>/runs.jsonl`) → review the diff adversarially, run `dotnet build -warnaserror`, `dotnet test` and the frontend checks yourself → loop any timing-sensitive tests several times → reviewer agent for concurrency, caches, auth, file moves or external rate limits → fix via `--continue` (max two rounds) or finish it yourself → merge `--no-ff`, update `PROGRESS.md` (status, cost from the key counter, notes), docs, `NOTICE.md` (`python scripts/check-notice.py --fix`), OpenAPI snapshot (`COMPILARR_UPDATE_OPENAPI=1`) → commit (Conventional Commits, no model names) → push. Run independent tasks in parallel tabs.
 
-**Working style:** brief status line at the start of each task and a one-paragraph summary after each merge; no narration in between. Windows: use PowerShell-compatible commands; keep worktrees under `.worktrees/`.
+**Verification beyond unit tests:** run the real app (and a browser for UI work) for anything user-facing; extend `scripts/smoke-test.sh` with the Phase 1 gate checks so CI proves the gate; live MusicBrainz calls only in opt-in tests (`COMPILARR_LIVE_TESTS=1`) and within 1 req/s.
 
-**Definition of done for this session:** the Phase 0 gate passes (container starts on port 1077, UI loads behind a URL base, API key works, health shows DB/folders/bundled slskd OK, a scheduled no-op job survives a restart, CI green on `main`, a `v0.0.1-alpha.1` tag builds a multi-arch image on GHCR), `PROGRESS.md` is complete for Phase 0 with costs, and `docs/HANDOVER.md` has a dated "Session log" entry describing what was built, what was learned about worker quality, and the first three tasks of Phase 1 to spec next. If you run out of time or budget before the gate, do the handover entry anyway and push.
+**Rules:** everything in `CLAUDE.md` "Non-negotiables"; never merge red; workers never touch `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, `.env*`; no secrets or AI identifiers in commits. Phase 1 worker budget: **USD 10** (Phase 0 used 1.12). Stop and ask me only for (a) a decision that would change an ADR, (b) spend beyond the budget, (c) a blocker outside the repo. Otherwise decide, record it in `PROGRESS.md`/`DECISIONS.md`, and continue.
 
-Begin with Step 1.
+**Style:** a status line when you start each task, one paragraph after each merge, no narration in between.
+
+**Done for this session:** the Phase 1 gate passes (and is automated in CI), `PROGRESS.md` has a complete Phase 1 section with costs, and `docs/HANDOVER.md` gets a dated Session log entry: what was built, worker lessons, and the first three Phase 2 tasks to spec (including validating the Soulseek account on `ch01`, see HANDOVER §7). If you run out of time or budget first, write the handover entry anyway and push.
