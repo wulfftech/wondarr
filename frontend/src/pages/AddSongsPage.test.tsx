@@ -48,6 +48,7 @@ interface RouteTable {
   add?: () => Response;
   /** How many times the command has been asked about, so it can finish on the second poll. */
   commands?: () => Response;
+  importList?: () => Response;
 }
 
 function install(routes: RouteTable = {}): FetchMock {
@@ -77,7 +78,7 @@ function install(routes: RouteTable = {}): FetchMock {
     }
 
     if (url.includes('/api/v1/importlist/')) {
-      return jsonResponse(IMPORT_LIST);
+      return (routes.importList ?? (() => jsonResponse(IMPORT_LIST)))();
     }
 
     if (url.includes('/api/v1/song')) {
@@ -178,6 +179,11 @@ describe('AddSongsPage', () => {
 
         return jsonResponse(polls === 1 ? COMMAND_RUNNING : COMMAND_COMPLETED);
       },
+      // As on the real server: until the command has run, every line of the list is still pending.
+      importList: () =>
+        jsonResponse(
+          polls < 2 ? { ...IMPORT_LIST, counts: { pending: 50, added: 0, unresolved: 0, skipped: 0 } } : IMPORT_LIST,
+        ),
     });
     const user = userEvent.setup();
 
