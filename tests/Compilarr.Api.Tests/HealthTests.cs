@@ -98,4 +98,23 @@ public sealed class HealthTests
                 Message: entry.GetProperty("message").GetString()!))
             .ToList();
     }
+
+    [Fact]
+    public async Task Health_results_are_shared_between_requests()
+    {
+        var calls = 0;
+        using var factory = new CompilarrAppFactory(configureServices: services => services.AddSingleton<IHealthCheck>(
+            new FakeHealthCheck("Counting", () =>
+            {
+                Interlocked.Increment(ref calls);
+                return new HealthCheck("Counting", HealthCheckResult.Ok, "fine", null);
+            })));
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", factory.ApiKey);
+
+        (await client.GetAsync(new Uri("/api/v1/health", UriKind.Relative))).EnsureSuccessStatusCode();
+        (await client.GetAsync(new Uri("/api/v1/health", UriKind.Relative))).EnsureSuccessStatusCode();
+
+        calls.Should().Be(1);
+    }
 }

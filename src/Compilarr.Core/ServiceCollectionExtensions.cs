@@ -29,7 +29,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
-        services.AddScoped<HealthCheckService>();
+        services.AddSingleton<HealthCheckService>();
 
         return services;
     }

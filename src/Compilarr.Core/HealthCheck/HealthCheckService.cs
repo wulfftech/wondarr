@@ -2,17 +2,22 @@
 // Adapted for Compilarr: no event aggregation, debouncing or scheduling — run every check, cache
 // the results for 60 seconds and hand them back.
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Compilarr.Core.HealthCheck;
 
-/// <summary>Runs every registered <see cref="IHealthCheck"/> and caches the results.</summary>
+/// <summary>
+/// Runs every registered <see cref="IHealthCheck"/> and caches the results. A singleton, so the cache is
+/// shared across requests; each run resolves the checks in a fresh DI scope because some (the
+/// database check) depend on scoped services.
+/// </summary>
 public sealed partial class HealthCheckService : IDisposable
 {
     /// <summary>How long a set of results is reused before the checks run again.</summary>
     public static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(60);
 
-    private readonly List<IHealthCheck> _checks;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<HealthCheckService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -22,15 +27,15 @@ public sealed partial class HealthCheckService : IDisposable
 
     /// <summary>Initialises a new instance of the <see cref="HealthCheckService"/> class.</summary>
     public HealthCheckService(
-        IEnumerable<IHealthCheck> checks,
+        IServiceScopeFactory scopeFactory,
         TimeProvider timeProvider,
         ILogger<HealthCheckService> logger)
     {
-        ArgumentNullException.ThrowIfNull(checks);
+        ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
-        _checks = checks.ToList();
+        _scopeFactory = scopeFactory;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -62,9 +67,11 @@ public sealed partial class HealthCheckService : IDisposable
                 return cached;
             }
 
-            var results = new List<HealthCheck>(_checks.Count);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var checks = scope.ServiceProvider.GetServices<IHealthCheck>().ToList();
+            var results = new List<HealthCheck>(checks.Count);
 
-            foreach (var check in _checks)
+            foreach (var check in checks)
             {
                 results.Add(await RunAsync(check, cancellationToken).ConfigureAwait(false));
             }
