@@ -1,12 +1,15 @@
 using System.Threading.Channels;
 using Compilarr.Core.Authentication;
+using Compilarr.Core.Blocklisting;
 using Compilarr.Core.Configuration;
 using Compilarr.Core.HealthCheck;
+using Compilarr.Core.History;
 using Compilarr.Core.Jobs;
 using Compilarr.Core.Logging;
 using Compilarr.Core.Messaging;
 using Compilarr.Core.Organizer;
 using Compilarr.Core.Persistence;
+using Compilarr.Core.Wanted;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,6 +51,11 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
+
+        // The read side of the song lifecycle: wanted lists, history and the blocklist.
+        services.AddScoped<IWantedService, WantedService>();
+        services.AddScoped<IHistoryService, HistoryService>();
+        services.AddScoped<IBlocklistService, BlocklistService>();
 
         services.AddSingleton<IScheduledTaskCatalog, ScheduledTaskCatalog>();
         services.AddScoped<IHandle<CommandUpdatedEvent>, JobTableUpdater>();

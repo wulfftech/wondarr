@@ -5,6 +5,44 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/wanted/missing": {
+      "get": {
+        "tags": [
+          "Wanted"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfSongResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wanted/cutoff": {
+      "get": {
+        "tags": [
+          "Wanted"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfSongResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/system/status": {
       "get": {
         "tags": [
@@ -100,6 +138,25 @@
             "description": "OK",
             "content": {
               "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/history": {
+      "get": {
+        "tags": [
+          "History"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfHistoryResource"
+                }
+              }
             }
           }
         }
@@ -212,6 +269,49 @@
       "delete": {
         "tags": [
           "Command"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/blocklist": {
+      "get": {
+        "tags": [
+          "Blocklist"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfBlocklistResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/blocklist/{id}": {
+      "delete": {
+        "tags": [
+          "Blocklist"
         ],
         "parameters": [
           {
@@ -374,6 +474,9 @@
   },
   "components": {
     "schemas": {
+      "AlbumContextKind": {
+        "type": "integer"
+      },
       "AuthUserResource": {
         "required": [
           "configured",
@@ -394,6 +497,57 @@
       },
       "AuthenticationMethod": {
         "type": "integer"
+      },
+      "BlocklistResource": {
+        "required": [
+          "id",
+          "songId",
+          "sourceType",
+          "blocklistKey",
+          "reason",
+          "date",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "blocklistKey": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
       },
       "CommandResource": {
         "required": [
@@ -501,7 +655,445 @@
       "CommandTrigger": {
         "type": "integer"
       },
+      "HistoryEventType": {
+        "type": "integer"
+      },
+      "HistoryResource": {
+        "required": [
+          "id",
+          "songId",
+          "song",
+          "eventType",
+          "date",
+          "sourceInstanceId",
+          "qualityId",
+          "data"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "song": {
+            "$ref": "#/components/schemas/SongResource"
+          },
+          "eventType": {
+            "$ref": "#/components/schemas/HistoryEventType"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sourceInstanceId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "qualityId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "data": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
       "JsonElement": {},
+      "PagingResourceOfBlocklistResource": {
+        "required": [
+          "page",
+          "pageSize",
+          "sortKey",
+          "sortDirection",
+          "totalRecords",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sortKey": {
+            "type": "string"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "totalRecords": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlocklistResource"
+            }
+          }
+        }
+      },
+      "PagingResourceOfHistoryResource": {
+        "required": [
+          "page",
+          "pageSize",
+          "sortKey",
+          "sortDirection",
+          "totalRecords",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sortKey": {
+            "type": "string"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "totalRecords": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryResource"
+            }
+          }
+        }
+      },
+      "PagingResourceOfSongResource": {
+        "required": [
+          "page",
+          "pageSize",
+          "sortKey",
+          "sortDirection",
+          "totalRecords",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sortKey": {
+            "type": "string"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "totalRecords": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SongResource"
+            }
+          }
+        }
+      },
+      "SongAlbumContextResource": {
+        "required": [
+          "kind",
+          "albumTitle",
+          "albumArtist",
+          "albumKey",
+          "mbReleaseId",
+          "mbReleaseGroupId",
+          "trackNo",
+          "discNo",
+          "totalTracks",
+          "date",
+          "originalDate",
+          "coverUrl",
+          "isVariousArtists"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/AlbumContextKind"
+          },
+          "albumTitle": {
+            "type": "string"
+          },
+          "albumArtist": {
+            "type": "string"
+          },
+          "albumKey": {
+            "type": "string"
+          },
+          "mbReleaseId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mbReleaseGroupId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "trackNo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "discNo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalTracks": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "date": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originalDate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "coverUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isVariousArtists": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SongResource": {
+        "required": [
+          "id",
+          "title",
+          "artistCredit",
+          "primaryArtistId",
+          "primaryArtistName",
+          "mbRecordingId",
+          "deezerId",
+          "isrcs",
+          "durationMs",
+          "versionFlags",
+          "monitored",
+          "qualityProfileId",
+          "libraryId",
+          "addedBy",
+          "added",
+          "hasFile",
+          "qualityId",
+          "albumContext"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artistCredit": {
+            "type": "string"
+          },
+          "primaryArtistId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "primaryArtistName": {
+            "type": "string"
+          },
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deezerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "isrcs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "versionFlags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "monitored": {
+            "type": "boolean"
+          },
+          "qualityProfileId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "libraryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "addedBy": {
+            "type": "string"
+          },
+          "added": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hasFile": {
+            "type": "boolean"
+          },
+          "qualityId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "albumContext": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SongAlbumContextResource"
+              }
+            ]
+          }
+        }
+      },
       "SystemResource": {
         "required": [
           "appName",
@@ -733,6 +1325,9 @@
   },
   "tags": [
     {
+      "name": "Wanted"
+    },
+    {
       "name": "System"
     },
     {
@@ -742,10 +1337,16 @@
       "name": "Ping"
     },
     {
+      "name": "History"
+    },
+    {
       "name": "Health"
     },
     {
       "name": "Command"
+    },
+    {
+      "name": "Blocklist"
     },
     {
       "name": "Authentication"
