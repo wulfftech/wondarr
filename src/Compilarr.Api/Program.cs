@@ -1,3 +1,5 @@
+using Compilarr.Api.Extensions;
+using Compilarr.Api.Middleware;
 using Compilarr.Core;
 using Compilarr.Core.Configuration;
 using Compilarr.Core.Logging;
@@ -19,6 +21,7 @@ builder.Configuration.AddCompilarrConfiguration(paths, environment);
 builder.Services.AddCompilarrConfiguration(builder.Configuration, paths);
 builder.Services.AddCompilarrPersistence($"Data Source={paths.DatabaseFile}");
 builder.Services.AddCompilarrCore();
+builder.Services.AddCompilarrApi(paths);
 builder.Services.AddCompilarrSlskd();
 builder.Services.AddCompilarrYouTube();
 builder.Services.AddCompilarrTorznab();
@@ -32,9 +35,9 @@ builder.Host.UseSerilog((_, services, loggerConfiguration) => LoggingSetup.Confi
     // Keep the process-wide Log.Logger untouched: several hosts (tests) can share one process.
     preserveStaticLogger: true);
 
-var serverOptions = builder.Configuration.GetSection("Server").Get<ServerOptions>() ?? new ServerOptions();
-var bindAddress = string.IsNullOrWhiteSpace(serverOptions.BindAddress) ? "*" : serverOptions.BindAddress;
-builder.WebHost.UseUrls($"http://{bindAddress}:{serverOptions.Port}");
+var configured = builder.Configuration.GetSection("Server").Get<ServerOptions>() ?? new ServerOptions();
+var bindAddress = string.IsNullOrWhiteSpace(configured.BindAddress) ? "*" : configured.BindAddress;
+builder.WebHost.UseUrls($"http://{bindAddress}:{configured.Port}");
 
 var app = builder.Build();
 
@@ -42,7 +45,11 @@ LoggingSetup.RegisterServerApiKey(
     app.Services.GetRequiredService<ISecretRegistry>(),
     app.Services.GetRequiredService<IOptionsMonitor<ServerOptions>>());
 
-// P0-04 (forwarded headers) has not landed yet, so the request logger goes first.
+// The *arr pipeline order (Lidarr's Startup.Configure): forwarded headers, request logging, URL
+// base, routing, authentication, authorization, then the URL-base redirect and the endpoints.
+var urlBase = app.Services.GetRequiredService<IOptions<ServerOptions>>().Value.UrlBase;
+
+app.UseForwardedHeaders();
 app.UseSerilogRequestLogging(options =>
 {
     options.Logger = app.Services.GetRequiredService<Serilog.ILogger>();
@@ -50,9 +57,12 @@ app.UseSerilogRequestLogging(options =>
     // Path only: the query string can carry ?apikey=.
     options.IncludeQueryInRequestPath = false;
 });
-
-// Health probe used by the container images and the *arr-style clients.
-app.MapGet("/ping", () => Results.Ok());
+app.UsePathBase(new PathString(urlBase));
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseMiddleware<UrlBaseMiddleware>(urlBase);
+app.MapControllers();
 
 app.Run();
 

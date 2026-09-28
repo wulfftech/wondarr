@@ -44,3 +44,7 @@ Answers from the owner to the round-1 questions, and what each changed in this p
 
 
 ---
+| 7 | .NET SDK | `global.json` pins 10.0.401 with `rollForward: latestPatch` | CI's runner resolved 10.0.401 while the dev box had 10.0.101; newer analyzers (CA1873) broke the CI build only. One feature band keeps local and CI equal |
+| 8 | Unauthenticated UI JSON | `/initialize.json` answers **401** (not the *arr 302-to-login) when the UI policy fails; HTML routes still redirect | .NET 10 cookie authentication no longer redirects for API endpoints (`[ApiController]`); a 401 is also what the SPA's `fetch` can act on |
+| 9 | Workflows are orchestrator-only | P0-11 (`.github/workflows/`) is written by the orchestrator, not a worker | Workers may not touch `.github/workflows/` (AGENT_WORKFLOW §7) |
+| 10 | NOTICE enforcement | `scripts/check-notice.py` runs in CI and fails when a file with a `Ported from` header is missing from `NOTICE.md` | Makes the attribution rule mechanical |

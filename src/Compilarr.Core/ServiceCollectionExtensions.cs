@@ -1,3 +1,4 @@
+using Compilarr.Core.Authentication;
 using Compilarr.Core.Configuration;
 using Compilarr.Core.Logging;
 using Compilarr.Core.Persistence;
@@ -17,7 +18,12 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Adds the domain, decision engine, import pipeline, metadata and persistence services.
     /// </summary>
-    public static IServiceCollection AddCompilarrCore(this IServiceCollection services) => services;
+    public static IServiceCollection AddCompilarrCore(this IServiceCollection services)
+    {
+        services.AddScoped<ICredentialStore, CredentialStore>();
+
+        return services;
+    }
 
     /// <summary>
     /// Registers the resolved paths and the validated, bound <see cref="ServerOptions"/>.

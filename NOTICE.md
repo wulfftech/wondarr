@@ -4,9 +4,24 @@ Compilarr is licensed under GPL-3.0 (see `LICENSE`). This file lists code ported
 
 ## Ported / adapted code
 
-| Source project | Licence | What | Where in this repo |
+Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless noted. `scripts/check-notice.py` (run in CI) fails when a file with a `Ported from` header is missing here.
+
+| Source project | Licence | Upstream path | Where in this repo |
 |---|---|---|---|
-| (none yet — Phase 0 adds the first entries) | | | |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/ApiKeyAuthenticationHandler.cs` | `src/Compilarr.Api/Authentication/ApiKeyAuthenticationHandler.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/AuthenticationBuilderExtensions.cs` | `src/Compilarr.Api/Authentication/AuthenticationBuilderExtensions.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/AuthenticationController.cs` | `src/Compilarr.Api/Authentication/AuthenticationController.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/BypassableDenyAnonymousAuthorizationRequirement.cs` | `src/Compilarr.Api/Authentication/BypassableDenyAnonymousAuthorizationRequirement.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Frontend/InitializeJsonController.cs` | `src/Compilarr.Api/Authentication/InitializeController.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/LoginResource.cs` | `src/Compilarr.Api/Authentication/LoginResource.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/NoAuthenticationHandler.cs` | `src/Compilarr.Api/Authentication/NoAuthenticationHandler.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/UiAuthorizationHandler.cs` | `src/Compilarr.Api/Authentication/UiAuthorizationHandler.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Authentication/UiAuthorizationPolicyProvider.cs` | `src/Compilarr.Api/Authentication/UiAuthorizationPolicyProvider.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Common/Extensions/IpAddressExtensions.cs` | `src/Compilarr.Api/Extensions/IpAddressExtensions.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Extensions/RequestExtensions.cs` | `src/Compilarr.Api/Extensions/RequestExtensions.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Middleware/UrlBaseMiddleware.cs` | `src/Compilarr.Api/Middleware/UrlBaseMiddleware.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Ping/PingController.cs` | `src/Compilarr.Api/Ping/PingController.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Common/Instrumentation/CleanseLogMessage.cs` | `src/Compilarr.Core/Logging/CleanseLogMessage.cs` |
 
 Planned sources (see ADR-0002): Lidarr, Prowlarr, Sonarr (GPL-3.0); SoulSync, spotDL (MIT). Sockseek and slskd are AGPL-3.0 and are **not** copied.
 
