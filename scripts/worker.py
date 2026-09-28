@@ -459,7 +459,12 @@ def run_api(args: argparse.Namespace) -> int:
         user += f"\n\n# FILE: {f}\n```\n{p.read_text(encoding='utf-8')}\n```"
     user += ("\n\nReturn complete file contents for every file you create or change, each in a fenced block "
              "preceded by a line `### path/to/file`. Do not return diffs. Finish with the done-report.")
-    system = SYSTEM_PROMPT.read_text(encoding="utf-8")
+    # The shared worker prompt assumes tools; in this mode there are none, so say so up front or the
+    # model answers with (unexecuted) tool calls instead of file contents.
+    system = ("SINGLE-SHOT MODE: you have no tools and cannot read or run anything. Every file you need is "
+              "inlined in the user message. Answer only with the complete contents of each file you create or "
+              "change, then the done-report. Ignore instructions below about reading files or running "
+              "commands.\n\n" + SYSTEM_PROMPT.read_text(encoding="utf-8"))
     print(f"[worker] api task={task_id} model={model} files={len(args.files or [])} key={redact(env('OPENROUTER_API_KEY'))}")
     if args.dry_run:
         print(f"[worker] dry run — would send {len(user)} chars to OpenRouter")

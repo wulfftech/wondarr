@@ -22,7 +22,7 @@ Updated by the orchestrator after every merged task. Status: `todo` · `in-progr
 | P0-09 | Bundled slskd supervisor (SlskdHost) | todo | | | |
 | P0-10 | Dockerfile, s6 init, compose | todo | | | |
 | P0-11 | CI and release workflows | todo | | | |
-| P0-12 | Contributor docs and NOTICE | todo | | | |
+| P0-12 | Contributor docs and NOTICE | done | deepseek/deepseek-v4.1-flash (single-shot) | ~0.01 | First attempt returned pseudo tool calls: the API mode now tells the model it has no tools. Orchestrator corrected CONTRIBUTING (smoke-test usage, no `dev.sh`), CHANGELOG claims that did not match the code, kept the generated NOTICE table and took only the bundled-programs section |
 
 Phase 0 gate (from `PHASES.md`): container starts on port 1077, UI loads behind a URL base, API key works, health shows DB, folders and the bundled slskd process OK (logged out until credentials are entered), a scheduled no-op job survives a restart.
 
