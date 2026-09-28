@@ -22,6 +22,8 @@ indent_size = 2
 trim_trailing_whitespace = false
 
 # EF Core migrations are generated (`dotnet ef migrations add`) and never edited by hand; the seed
-# rows it emits for InsertData trip CA1861.
+# rows it emits for InsertData trip CA1861, and a migration named after a table (AddSearchAndQueue)
+# trips the reserved-suffix rule CA1711.
 [src/Wondarr.Core/Persistence/Migrations/*.cs]
 dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1711.severity = none

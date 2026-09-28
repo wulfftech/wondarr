@@ -1,7 +1,9 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Wondarr.Core.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Wondarr.Core.Persistence;
@@ -28,6 +30,27 @@ internal static class DomainModelConfiguration
         (left, right) => SerializeItems(left) == SerializeItems(right),
         items => SerializeItems(items).GetHashCode(StringComparison.Ordinal),
         items => DeserializeItems(SerializeItems(items)));
+
+    /// <summary>
+    /// The search columns hold plain lists (<c>sources</c>, <c>queries</c>, <c>recent_failures</c>).
+    /// UTC is forced on the way in: the column is text, so a timestamp must come back as the same instant.
+    /// </summary>
+    private static readonly JsonSerializerOptions CollectionJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        Converters = { new UtcDateTimeJsonConverter() },
+    };
+
+    private static readonly ValueComparer<List<string>> StringListComparer = new(
+        (left, right) => SerializeStrings(left) == SerializeStrings(right),
+        list => SerializeStrings(list).GetHashCode(StringComparison.Ordinal),
+        list => DeserializeStrings(SerializeStrings(list)));
+
+    private static readonly ValueComparer<List<DateTime>> DateTimeListComparer = new(
+        (left, right) => SerializeInstants(left) == SerializeInstants(right),
+        list => SerializeInstants(list).GetHashCode(StringComparison.Ordinal),
+        list => DeserializeInstants(SerializeInstants(list)));
 
     /// <summary>Adds every domain entity to the model.</summary>
     public static void Configure(ModelBuilder modelBuilder)
@@ -238,6 +261,94 @@ internal static class DomainModelConfiguration
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<SearchRun>(entity =>
+        {
+            entity.ToTable("search_run");
+            entity.Property(x => x.Trigger).HasConversion<string>();
+            entity.Property(x => x.Outcome).HasConversion<string>();
+            ConfigureJsonList(entity.Property(x => x.Sources).IsRequired(), StringListComparer);
+            ConfigureJsonList(entity.Property(x => x.Queries).IsRequired(), StringListComparer);
+
+            // Backoff asks for a song's recent runs; the history screen lists the latest ones.
+            entity.HasIndex(x => x.SongId);
+            entity.HasIndex(x => x.StartedAt);
+
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CandidateRecord>(entity =>
+        {
+            entity.ToTable("candidate");
+            entity.Property(x => x.SourceType).IsRequired();
+            entity.Property(x => x.BlocklistKey).IsRequired();
+            entity.Property(x => x.DisplayName).IsRequired();
+            entity.Property(x => x.RemotePath).IsRequired();
+            entity.Property(x => x.Normalised).IsRequired().HasDefaultValue("{}");
+            entity.Property(x => x.ScoreBreakdown).IsRequired().HasDefaultValue("{}");
+            entity.Property(x => x.Rejections).IsRequired().HasDefaultValue("[]");
+
+            // The run's own list, the song's history, and "have we already refused this exact file".
+            entity.HasIndex(x => x.SearchRunId);
+            entity.HasIndex(x => x.SongId);
+            entity.HasIndex(x => new { x.SongId, x.BlocklistKey });
+
+            entity.HasOne(x => x.SearchRun)
+                .WithMany()
+                .HasForeignKey(x => x.SearchRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Quality>()
+                .WithMany()
+                .HasForeignKey(x => x.QualityId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<QueueItem>(entity =>
+        {
+            entity.ToTable("queue_item");
+            entity.Property(x => x.SourceType).IsRequired();
+            entity.Property(x => x.Destination).IsRequired();
+            entity.Property(x => x.State).HasConversion<string>();
+
+            // The queue screen filters by state, the search loop asks "is this song already in flight",
+            // and the poll resolves a source row by its handle.
+            entity.HasIndex(x => x.SongId);
+            entity.HasIndex(x => x.State);
+            entity.HasIndex(x => new { x.SourceType, x.Handle });
+
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A queue item is evidence of a candidate: deleting the candidate must not delete history.
+            entity.HasOne(x => x.Candidate)
+                .WithMany()
+                .HasForeignKey(x => x.CandidateId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<SearchRun>()
+                .WithMany()
+                .HasForeignKey(x => x.SearchRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SoulseekUser>(entity =>
+        {
+            entity.ToTable("soulseek_user");
+            entity.Property(x => x.Username).IsRequired().UseCollation("NOCASE");
+            ConfigureJsonList(entity.Property(x => x.RecentFailures).IsRequired(), DateTimeListComparer);
+            entity.HasIndex(x => x.Username).IsUnique();
+        });
+
         modelBuilder.Entity<Library>(entity =>
         {
             entity.ToTable("library");
@@ -258,4 +369,50 @@ internal static class DomainModelConfiguration
 
     private static List<QualityProfileItem> DeserializeItems(string json) =>
         JsonSerializer.Deserialize<List<QualityProfileItem>>(json, ProfileItemsJson) ?? [];
+
+    /// <summary>
+    /// Stores a list as JSON text. The default reference comparer would miss an edit that swaps one
+    /// list for another of equal length, so the serialized form is compared instead.
+    /// </summary>
+    private static void ConfigureJsonList<T>(PropertyBuilder<T> property, ValueComparer<T> comparer)
+        where T : class
+    {
+        property.HasConversion(
+            value => JsonSerializer.Serialize(value, CollectionJson),
+            json => JsonSerializer.Deserialize<T>(json, CollectionJson)!);
+
+        property.Metadata.SetValueComparer(comparer);
+    }
+
+    private static string SerializeStrings(List<string>? list) =>
+        JsonSerializer.Serialize(list, CollectionJson);
+
+    private static List<string> DeserializeStrings(string json) =>
+        JsonSerializer.Deserialize<List<string>>(json, CollectionJson) ?? [];
+
+    private static string SerializeInstants(List<DateTime>? list) =>
+        JsonSerializer.Serialize(list, CollectionJson);
+
+    private static List<DateTime> DeserializeInstants(string json) =>
+        JsonSerializer.Deserialize<List<DateTime>>(json, CollectionJson) ?? [];
+}
+
+/// <summary>
+/// Reads a JSON timestamp back as UTC. SQLite stores the column as text, so without this the instants
+/// in a JSON list would come back <see cref="DateTimeKind.Unspecified"/> and stop comparing correctly
+/// with <see cref="TimeProvider"/> values.
+/// </summary>
+internal sealed class UtcDateTimeJsonConverter : JsonConverter<DateTime>
+{
+    /// <inheritdoc />
+    public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        DateTime.SpecifyKind(reader.GetDateTime(), DateTimeKind.Utc);
+
+    /// <inheritdoc />
+    public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+
+        writer.WriteStringValue(value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime());
+    }
 }

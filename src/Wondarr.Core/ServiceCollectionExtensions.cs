@@ -13,6 +13,7 @@ using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Songs;
+using Wondarr.Core.Sources;
 using Wondarr.Core.Wanted;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -77,6 +78,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWantedService, WantedService>();
         services.AddScoped<IHistoryService, HistoryService>();
         services.AddScoped<IBlocklistService, BlocklistService>();
+
+        // What the search-and-grab loop records: the runs and their candidates, the download queue, and
+        // what we know about the Soulseek peers. All three read and write the scoped DbContext.
+        services.AddScoped<ISearchRunService, SearchRunService>();
+        services.AddScoped<IQueueService, QueueService>();
+        services.AddScoped<ISoulseekUserService, SoulseekUserService>();
 
         services.AddSingleton<IScheduledTaskCatalog, ScheduledTaskCatalog>();
         services.AddScoped<IHandle<CommandUpdatedEvent>, JobTableUpdater>();
