@@ -44,6 +44,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<SlskdStatus>();
         services.AddSingleton<IHealthCheck, SlskdHealthCheck>();
+        services.AddSingleton<IHealthCheck, SlskdDownloadFolderHealthCheck>();
+        services.AddSingleton<IHealthCheck, SoulseekSharingHealthCheck>();
         services.AddHostedService<SlskdHost>();
 
         return services;
