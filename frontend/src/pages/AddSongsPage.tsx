@@ -15,7 +15,7 @@ import {
   Title,
 } from '@mantine/core';
 import { CircleAlert, Disc3, Plus } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useQualityProfiles } from '../api/profiles';
 import { readEnum } from '../api/profiles';
@@ -272,6 +272,16 @@ function PasteTab() {
   const status = readEnum<CommandStatusName>(command.data?.status);
   const running = command.data !== undefined && status !== 'completed' && status !== 'failed' && status !== 'aborted';
   const counts = list.data?.counts;
+
+  // The summary is first read while the command is still queued (every line pending); read it again
+  // once the command has finished, or the counts and the review button would stay stale.
+  const finished = command.data !== undefined && !running;
+  const refetchList = list.refetch;
+  useEffect(() => {
+    if (finished) {
+      void refetchList();
+    }
+  }, [finished, refetchList]);
 
   const submit = () => {
     bulk.mutate(
