@@ -1,4 +1,5 @@
 using Compilarr.Api.Extensions;
+using Compilarr.Api.Frontend;
 using Compilarr.Api.Middleware;
 using Compilarr.Core;
 using Compilarr.Core.Configuration;
@@ -22,6 +23,7 @@ builder.Services.AddCompilarrConfiguration(builder.Configuration, paths);
 builder.Services.AddCompilarrPersistence($"Data Source={paths.DatabaseFile}");
 builder.Services.AddCompilarrCore();
 builder.Services.AddCompilarrApi(paths);
+builder.Services.AddCompilarrFrontend();
 builder.Services.AddCompilarrSlskd();
 builder.Services.AddCompilarrYouTube();
 builder.Services.AddCompilarrTorznab();
@@ -46,7 +48,8 @@ LoggingSetup.RegisterServerApiKey(
     app.Services.GetRequiredService<IOptionsMonitor<ServerOptions>>());
 
 // The *arr pipeline order (Lidarr's Startup.Configure): forwarded headers, request logging, URL
-// base, routing, authentication, authorization, then the URL-base redirect and the endpoints.
+// base, static files, routing, authentication, authorization, then the URL-base redirect and the
+// endpoints. The SPA fallback is registered last so it only sees paths no endpoint matched.
 var urlBase = app.Services.GetRequiredService<IOptions<ServerOptions>>().Value.UrlBase;
 
 app.UseForwardedHeaders();
@@ -58,11 +61,17 @@ app.UseSerilogRequestLogging(options =>
     options.IncludeQueryInRequestPath = false;
 });
 app.UsePathBase(new PathString(urlBase));
+app.UseCompilarrFrontend();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<UrlBaseMiddleware>(urlBase);
 app.MapControllers();
+
+// Behind the default API-key policy: the document describes the API, so it is served like the API.
+app.MapOpenApi("/docs/{documentName}/openapi.json");
+
+app.MapCompilarrSpa();
 
 app.Run();
 
