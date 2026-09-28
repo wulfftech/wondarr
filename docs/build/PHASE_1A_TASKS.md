@@ -18,3 +18,5 @@
 **Left as history (not renamed):** `docs/PLAN.md` (frozen planning record), `docs/research/**` (evidence), past entries in `docs/DECISIONS.md`, past Session log entries in `docs/HANDOVER.md`, and the `v0.0.1-alpha.1` tag. Each gets a one-line note at the top: "Wondarr was renamed Wondarr on 2026-09-28."
 
 **Done when:** the Phase 0 and Phase 1 gates pass on `ghcr.io/wulfftech/wondarr:develop`; an existing `wondarr.db` from `0.0.1-alpha.1` is picked up after upgrading; no `wondarr` remains outside the historical set and the upgrade shim.
+
+**Status (2026-09-29): done** — see `docs/build/PROGRESS.md` "Phase 1a". Left for the owner: renaming the local folder and re-adding the `claude-terminals` MCP for it.

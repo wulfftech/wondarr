@@ -102,6 +102,19 @@ The same `scripts/smoke-test.sh` passed on the test host `ch01` against the publ
 
 The UI was checked in a real browser (Playwright) against the running app with live services: Add songs (search, preview, add, paste with progress), Unresolved review, Library, Wanted, Settings.
 
+## Phase 1a — Rename Compilarr → Wondarr
+
+Plan: `docs/build/PHASE_1A_TASKS.md`; decision: `docs/DECISIONS.md` build session 2 #10. Done by the orchestrator (no worker spend): a case-preserving script renamed 302 paths and 348 files, historical records keep the old name with a note.
+
+| Task | Title | Status | Notes |
+|---|---|---|---|
+| P1a-01 | Decision record + name-collision check | done | Only prior use: a dormant single-commit 2018 repo `wondarr/wondarr` |
+| P1a-02 | Positioning (README, PRODUCT, GOALS, CHANGELOG) | done | Written by the orchestrator instead of a single-shot worker (a few paragraphs) |
+| P1a-03 | Mechanical rename | done | Solution, projects, namespaces, frontend package, Docker user and s6 services, workflows, image `ghcr.io/wulfftech/wondarr`, env names `WONDARR_*`, cookie `WondarrAuth`, OpenAPI title |
+| P1a-04 | Upgrade path | done | `compilarr.db` (+ `-wal`/`-shm`) adopted as `wondarr.db` on first start (tests); `COMPILARR_CONFIG_DIR` still read; `worker.py` falls back to `COMPILARR_*` keys |
+| P1a-05 | Outside the repo | done (owner: folder) | GitHub repo renamed `wulfftech/wondarr` (old URLs redirect), local remote updated, `ghcr.io/wulfftech/wondarr:develop` published and anonymously pullable, session memory copied for the new folder path, backlog items re-pointed. **Owner, between sessions:** rename the folder to `D:\Code\wondarr` and re-add the `claude-terminals` MCP for it |
+| P1a-06 | Verification | done | Backend 600 + frontend 52 tests green; Phase 0 + Phase 1 gates PASS in CI (run 36448123692, `wondarr:ci`) and on `ch01` with `ghcr.io/wulfftech/wondarr:develop` (pulled anonymously, app runs as `wondarr`); real upgrade on `ch01`: the old `compilarr:develop` wrote a song into `compilarr.db` (+ WAL), the new image renamed all three files, logged it once and served the song |
+
 ## Worker bake-off (2026-09-28)
 
 Task P0-01 for all three, same spec, 25 turns and USD 1.50 real cap per run, run in parallel worktrees; one continuation round each ("you ran out of turns — finish, build, test, commit").

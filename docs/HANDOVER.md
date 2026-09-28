@@ -32,7 +32,7 @@ Sanity check before delegating anything: `python scripts/worker.py --dry-run run
 ## 4. Things the owner still has to provide
 
 - A **dedicated Soulseek account** for the bundled slskd if the current one (the owner's own) gets kicked by duplicate logins — validate first (Phase 2, first task).
-- Setting the new **`ghcr.io/wulfftech/wondarr` package public** after its first push (package settings on GitHub).
+- Deleting the old `ghcr.io/wulfftech/compilarr` package when convenient (the new one is public already).
 - Optional: qBittorrent/SABnzbd/Prowlarr test instances for Phase 7.
 - Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), phase budget (USD 10), worker caps (100 turns / 60 min).
 
@@ -122,4 +122,17 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 1. **P2-01 Validate the Soulseek account on `ch01` and the slskd client for search** — start the image on `ch01` with `APP__SOULSEEK__USERNAME/PASSWORD` from `.env`, confirm `/api/v1/health` says "logged in as …" and watch for duplicate-login kicks (the account is the owner's own; ask for a dedicated one if kicks happen). Then the slskd search client: `POST /api/v0/searches`, `/hub/search` streaming with polling fallback, always-delete, 30 s wall clock, the global token bucket (30 searches / 4 min, ≤ 2 outstanding, ≥ 5 s apart).
 2. **P2-02 Candidate normalisation and Soulseek filename/path parsing** (`MATCHING_ENGINE.md` §6.1) — golden cases in `tests/fixtures/filenames.json`, reusing the P1-03 version-flag parser for bracketed hints.
 3. **P2-03 Decision engine v1** (§6.2–6.3) — hard rejections and the 0–1000 score with persisted reasons, golden cases in `tests/fixtures/decisions.json`; uses `QualityProfile.IsAllowed/MeetsCutoff/IsUpgrade` from P1-01.
+
+### 2026-09-29 — Build session 2 (continued): Phase 1a, the rename to Wondarr
+
+**Outcome.** The project is **Wondarr** — "the \*arr for one-hit wonders": it fetches the one stand-alone song you want without pulling in the artist's album of B-sides (owner, DECISIONS #10). Code, image (`ghcr.io/wulfftech/wondarr`), repository (`github.com/wulfftech/wondarr`, old URLs redirect) and living docs are renamed; the Phase 0 and Phase 1 gates pass on the renamed image in CI and on `ch01` (`ghcr.io/wulfftech/wondarr:develop`, public), and a real upgrade from the old image kept its data. Details: `docs/build/PROGRESS.md` "Phase 1a", plan `docs/build/PHASE_1A_TASKS.md`.
+
+**Upgrade path.** An existing `/config/compilarr.db` is renamed to `wondarr.db` (with its WAL/SHM) on first start; `COMPILARR_CONFIG_DIR` still works; users sign in once more (cookie `WondarrAuth`); `scripts/worker.py` reads `WONDARR_*` and falls back to the `COMPILARR_*` keys in an old `.env`.
+
+**For the owner, before the next session:**
+1. Nothing to do for GHCR: `ghcr.io/wulfftech/wondarr` is already public (it inherited the repository's visibility). The old `compilarr` package can be deleted whenever convenient.
+2. Close Claude Code, rename the folder `D:\Code\compilarr` → `D:\Code\wondarr` (the git remote already points at the new repository), and re-add the `claude-terminals` MCP server at local scope for the new path. The session memory has already been copied to the new path.
+3. Optionally rename the `.env` keys `COMPILARR_WORKER_*` → `WONDARR_WORKER_*` (both work).
+
+**Next:** unchanged — Phase 2, starting with validating the Soulseek account on `ch01` (see the Phase 1 entry above and `docs/build/NEXT_SESSION_PROMPT.md`).
 
