@@ -1,12 +1,12 @@
-# Compilarr — single-service reference compose (docs/architecture/DEPLOYMENT.md §9.3).
+# Wondarr — single-service reference compose (docs/architecture/DEPLOYMENT.md §9.3).
 # slskd is bundled inside the image, so there is nothing else to wire up.
 services:
-  compilarr:
+  wondarr:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ghcr.io/wulfftech/compilarr:develop
-    container_name: compilarr
+    image: ghcr.io/wulfftech/wondarr:develop
+    container_name: wondarr
     environment:
       - PUID=1000
       - PGID=1000

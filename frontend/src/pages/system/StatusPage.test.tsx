@@ -25,7 +25,7 @@ describe('StatusPage', () => {
 
     const table = await screen.findByTestId('system-status');
 
-    expect(within(table).getByText('Compilarr')).toBeInTheDocument();
+    expect(within(table).getByText('Wondarr')).toBeInTheDocument();
     expect(within(table).getByText('0.1.0-test')).toBeInTheDocument();
     expect(within(table).getByText('netcore 10.0.0')).toBeInTheDocument();
     expect(within(table).getByText('Linux 6.1.0')).toBeInTheDocument();

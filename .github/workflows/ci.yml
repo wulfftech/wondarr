@@ -73,7 +73,7 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64
           load: true
-          tags: compilarr:ci
+          tags: wondarr:ci
           build-args: VERSION=0.0.0-ci.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -81,14 +81,14 @@ jobs:
       # loaded on a test host without registry credentials there.
       - name: Export the image
         if: github.event_name == 'push'
-        run: docker save compilarr:ci | gzip -1 > compilarr-image-amd64.tar.gz
+        run: docker save wondarr:ci | gzip -1 > wondarr-image-amd64.tar.gz
       - uses: actions/upload-artifact@v7
         if: github.event_name == 'push'
         with:
-          name: compilarr-image-amd64
-          path: compilarr-image-amd64.tar.gz
+          name: wondarr-image-amd64
+          path: wondarr-image-amd64.tar.gz
           retention-days: 3
       # Phase 0 and Phase 1 gates. The Phase 1 gate pastes 50 songs; the metadata services answer from
       # the recording in tests/gate/replay (scripts/metadata-replay.py), so CI never calls them.
       - name: Phase gate smoke test (Phase 0 + Phase 1)
-        run: scripts/smoke-test.sh compilarr:ci
+        run: scripts/smoke-test.sh wondarr:ci

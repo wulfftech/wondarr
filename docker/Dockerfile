@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Compilarr — one multi-arch image (linux/amd64, linux/arm64): API + React UI with slskd, ffmpeg,
+# Wondarr — one multi-arch image (linux/amd64, linux/arm64): API + React UI with slskd, ffmpeg,
 # ffprobe, fpcalc and Deno bundled, supervised by s6-overlay with PUID/PGID/UMASK/TZ.
 #
 # Build context is the repository root:
@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS frontend
 
-# vite.config.ts resolves build.outDir to ../src/Compilarr.Api/wwwroot, so the repository layout
+# vite.config.ts resolves build.outDir to ../src/Wondarr.Api/wwwroot, so the repository layout
 # has to stay intact: /src is the repository root.
 WORKDIR /src/frontend
 
@@ -38,19 +38,19 @@ WORKDIR /src
 
 # .editorconfig carries analyzer severities (e.g. CA1861 off for generated migrations): the image
 # must compile with the same rules as the repository.
-COPY .editorconfig global.json Directory.Build.props Directory.Packages.props Compilarr.sln ./
-COPY src/Compilarr.Api/Compilarr.Api.csproj src/Compilarr.Api/
-COPY src/Compilarr.Core/Compilarr.Core.csproj src/Compilarr.Core/
-COPY src/Compilarr.Sources.Slskd/Compilarr.Sources.Slskd.csproj src/Compilarr.Sources.Slskd/
-COPY src/Compilarr.Sources.Torznab/Compilarr.Sources.Torznab.csproj src/Compilarr.Sources.Torznab/
-COPY src/Compilarr.Sources.YouTube/Compilarr.Sources.YouTube.csproj src/Compilarr.Sources.YouTube/
+COPY .editorconfig global.json Directory.Build.props Directory.Packages.props Wondarr.sln ./
+COPY src/Wondarr.Api/Wondarr.Api.csproj src/Wondarr.Api/
+COPY src/Wondarr.Core/Wondarr.Core.csproj src/Wondarr.Core/
+COPY src/Wondarr.Sources.Slskd/Wondarr.Sources.Slskd.csproj src/Wondarr.Sources.Slskd/
+COPY src/Wondarr.Sources.Torznab/Wondarr.Sources.Torznab.csproj src/Wondarr.Sources.Torznab/
+COPY src/Wondarr.Sources.YouTube/Wondarr.Sources.YouTube.csproj src/Wondarr.Sources.YouTube/
 
-RUN dotnet restore src/Compilarr.Api/Compilarr.Api.csproj -a "$TARGETARCH"
+RUN dotnet restore src/Wondarr.Api/Wondarr.Api.csproj -a "$TARGETARCH"
 
 COPY src/ src/
-COPY --from=frontend /src/src/Compilarr.Api/wwwroot/ src/Compilarr.Api/wwwroot/
+COPY --from=frontend /src/src/Wondarr.Api/wwwroot/ src/Wondarr.Api/wwwroot/
 
-RUN dotnet publish src/Compilarr.Api/Compilarr.Api.csproj \
+RUN dotnet publish src/Wondarr.Api/Wondarr.Api.csproj \
         -c Release \
         -a "$TARGETARCH" \
         --no-self-contained \
@@ -135,22 +135,22 @@ ARG VERSION=0.0.0-dev
 # Keeps the tzdata post-install from prompting for a timezone; TZ is applied at runtime.
 ARG DEBIAN_FRONTEND=noninteractive
 
-LABEL org.opencontainers.image.source="https://github.com/wulfftech/compilarr" \
-      org.opencontainers.image.title="Compilarr" \
+LABEL org.opencontainers.image.source="https://github.com/wulfftech/wondarr" \
+      org.opencontainers.image.title="Wondarr" \
       org.opencontainers.image.description="Self-hosted *arr for single songs: Soulseek, YouTube Music, torrents and usenet" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.version="$VERSION"
 
-# passwd is what the s6 init oneshot uses to apply PUID/PGID to the compilarr account. Ubuntu
-# 24.04 images ship an 'ubuntu' account on uid/gid 1000; it goes, so compilarr can own 1000.
+# passwd is what the s6 init oneshot uses to apply PUID/PGID to the wondarr account. Ubuntu
+# 24.04 images ship an 'ubuntu' account on uid/gid 1000; it goes, so wondarr can own 1000.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates passwd tzdata wget xz-utils \
  && rm -rf /var/lib/apt/lists/* \
  && (userdel --remove ubuntu 2>/dev/null || true) \
- && groupadd --gid 1000 compilarr \
- && useradd --uid 1000 --gid 1000 --home-dir /config --no-create-home --shell /usr/sbin/nologin compilarr \
+ && groupadd --gid 1000 wondarr \
+ && useradd --uid 1000 --gid 1000 --home-dir /config --no-create-home --shell /usr/sbin/nologin wondarr \
  && mkdir -p /config /data \
- && chown compilarr:compilarr /config /data
+ && chown wondarr:wondarr /config /data
 
 # s6-overlay, extracted over the filesystem root by the downloads stage.
 COPY --from=downloads /s6/ /
@@ -165,10 +165,10 @@ COPY docker/root/ /
 # The build context may arrive without the executable bit (Windows checkouts, shared folders);
 # s6 runs these scripts by path, so set it explicitly.
 RUN chmod 0755 \
-      /etc/s6-overlay/scripts/init-compilarr-user \
-      /etc/s6-overlay/s6-rc.d/svc-compilarr/run
+      /etc/s6-overlay/scripts/init-wondarr-user \
+      /etc/s6-overlay/s6-rc.d/svc-wondarr/run
 
-ENV COMPILARR_CONFIG_DIR=/config \
+ENV WONDARR_CONFIG_DIR=/config \
     PUID=1000 \
     PGID=1000 \
     UMASK=002 \

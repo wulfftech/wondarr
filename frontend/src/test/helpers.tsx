@@ -11,7 +11,7 @@ export function createTestConfig(overrides: Partial<AppConfig> = {}): AppConfig 
     // Not a real key: it only ever reaches a mocked fetch.
     apiKey: 'test-api-key',
     urlBase: '',
-    instanceName: 'Compilarr',
+    instanceName: 'Wondarr',
     version: '0.1.0-test',
     ...overrides,
   };

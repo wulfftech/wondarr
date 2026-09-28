@@ -23,5 +23,5 @@ trim_trailing_whitespace = false
 
 # EF Core migrations are generated (`dotnet ef migrations add`) and never edited by hand; the seed
 # rows it emits for InsertData trip CA1861.
-[src/Compilarr.Core/Persistence/Migrations/*.cs]
+[src/Wondarr.Core/Persistence/Migrations/*.cs]
 dotnet_diagnostic.CA1861.severity = none

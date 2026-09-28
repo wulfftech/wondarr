@@ -1,5 +1,7 @@
 # YouTube / YouTube Music as a secondary single-song source — research notes
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 Date: 2026-09-28. Prepared for the design doc of a Soulseek-first, single-song *arr-style app.
 Every claim carries a URL. "Primary" = project source code, READMEs, wiki markdown, changelogs, PyPI metadata.
 "Secondary" = third-party blogs/search snippets. Items marked **UNVERIFIED** could not be checked from this sandbox.
