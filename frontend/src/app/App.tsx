@@ -7,11 +7,13 @@ import { ApiProvider } from '../api/ApiProvider';
 import type { AppConfig } from '../api/bootstrap';
 import { AppLayout } from '../components/AppLayout';
 import { ActivityPage } from '../pages/ActivityPage';
+import { AddSongsPage } from '../pages/AddSongsPage';
 import { LibraryPage } from '../pages/LibraryPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { StatusPage } from '../pages/system/StatusPage';
 import { TasksPage } from '../pages/system/TasksPage';
+import { UnresolvedPage } from '../pages/UnresolvedPage';
 import { WantedPage } from '../pages/WantedPage';
 import { theme } from '../theme/theme';
 import { useEventStream } from './signalr';
@@ -23,6 +25,8 @@ const ROUTES: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/library" replace /> },
       { path: 'library', element: <LibraryPage /> },
+      { path: 'add', element: <AddSongsPage /> },
+      { path: 'add/unresolved', element: <UnresolvedPage /> },
       { path: 'wanted', element: <WantedPage /> },
       { path: 'wanted/:tab', element: <WantedPage /> },
       { path: 'activity', element: <ActivityPage /> },

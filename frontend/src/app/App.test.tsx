@@ -41,7 +41,7 @@ describe('App', () => {
 
     renderApp();
 
-    await waitFor(() => expect(screen.getByText('Arrives in Phase 1')).toBeInTheDocument());
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/library');
 
     await user.click(screen.getByRole('link', { name: 'Wanted' }));
@@ -63,7 +63,7 @@ describe('App', () => {
 
     renderApp();
 
-    await waitFor(() => expect(screen.getByText('Arrives in Phase 1')).toBeInTheDocument());
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/library');
   });
 
