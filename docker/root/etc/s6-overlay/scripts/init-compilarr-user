@@ -1,0 +1,34 @@
+#!/command/with-contenv sh
+#
+# Applies PUID/PGID to the bundled compilarr account and prepares the /config layout, the way
+# hotio/LinuxServer images do. Runs as an s6-rc oneshot, before svc-compilarr starts.
+#
+# /data is deliberately left alone: it is the user's own tree (and is usually a bind mount), so
+# ownership there is the user's business — only /config and its subdirectories are ours.
+set -eu
+
+: "${PUID:=1000}"
+: "${PGID:=1000}"
+
+case "$PUID" in
+    '' | *[!0-9]*)
+        echo "init-compilarr-user: PUID must be an integer, got '$PUID'" >&2
+        exit 1
+        ;;
+esac
+
+case "$PGID" in
+    '' | *[!0-9]*)
+        echo "init-compilarr-user: PGID must be an integer, got '$PGID'" >&2
+        exit 1
+        ;;
+esac
+
+groupmod -o -g "$PGID" compilarr
+usermod -o -u "$PUID" compilarr
+
+mkdir -p /config /config/logs /config/slskd
+chown compilarr:compilarr /config /config/logs /config/slskd
+chown -R compilarr:compilarr /config/logs /config/slskd
+
+echo "init-compilarr-user: compilarr now runs as uid $(id -u compilarr), gid $(id -g compilarr)"
