@@ -6,6 +6,7 @@ using Compilarr.Core.Jobs;
 using Compilarr.Core.Logging;
 using Compilarr.Core.Messaging;
 using Compilarr.Core.Persistence;
+using Compilarr.Core.Profiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +27,12 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddCompilarrCore(this IServiceCollection services)
     {
         services.AddScoped<ICredentialStore, CredentialStore>();
+
+        // Profiles and libraries are edited through the API and read by the decision engine; both use
+        // the scoped DbContext, so they are scoped too.
+        services.AddScoped<IQualityDefinitionService, QualityDefinitionService>();
+        services.AddScoped<IQualityProfileService, QualityProfileService>();
+        services.AddScoped<ILibraryService, LibraryService>();
 
         services.TryAddSingleton(TimeProvider.System);
 
