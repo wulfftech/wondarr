@@ -37,3 +37,7 @@ Thumbs.db
 # worker scratch (see docs/build/AGENT_WORKFLOW.md)
 .worktrees/
 .worker/
+
+# python
+__pycache__/
+*.pyc
