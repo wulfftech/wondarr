@@ -455,6 +455,18 @@ public sealed partial class SlskdHost : BackgroundService
     {
         Directory.CreateDirectory(_paths.SlskdDir);
 
+        // slskd refuses to start ("Invalid configuration") when a configured directory is missing,
+        // which is the normal state of a fresh /data volume. Found by the Phase 0 image smoke test.
+        Directory.CreateDirectory(options.DownloadsDir);
+        Directory.CreateDirectory(options.IncompleteDir);
+        if (options.ShareLibrary)
+        {
+            foreach (var folder in options.SharedFolders)
+            {
+                Directory.CreateDirectory(folder);
+            }
+        }
+
         SlskdRuntimeSecrets secrets;
         await using (var scope = _scopeFactory.CreateAsyncScope())
         {
