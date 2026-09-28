@@ -33,12 +33,16 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 
 Planned sources (see ADR-0002): Lidarr, Prowlarr, Sonarr (GPL-3.0); SoulSync, spotDL (MIT). Sockseek and slskd are AGPL-3.0 and are **not** copied.
 
-## Redistributed software (Docker image)
+## Bundled third-party programs
 
-| Software | Licence | Notes |
-|---|---|---|
-| slskd | AGPL-3.0 with additional terms | Redistributed unmodified as a separate program under `/opt/slskd`; licence, additional terms and a link to its source are shipped in the image |
-| ffmpeg / ffprobe (static build) | LGPL/GPL (build-dependent) | Unmodified binaries |
-| Chromaprint `fpcalc` | LGPL-2.1 | Unmodified binary |
-| Deno | MIT | Unmodified binary, required by yt-dlp's JavaScript challenge solver |
-| yt-dlp | Unlicense | Unmodified |
+These are redistributed unmodified as separate programs inside the Docker image, under their own licences.
+
+| Software | Version | Licence | Notes |
+|---|---|---|---|
+| slskd | 0.26.0 | AGPL-3.0 with additional terms | Unmodified binary, run as a separate process; licence, additional terms and a link to its source (https://github.com/slskd/slskd/tree/0.26.0) are shipped in the image |
+| ffmpeg / ffprobe (static builds) | 9.0.2 | GPL (build-dependent) | Unmodified binaries, via [mwader/static-ffmpeg](https://github.com/mwader/static-ffmpeg) |
+| Chromaprint `fpcalc` | 1.6.1 | LGPL-2.1+ / MIT components | Unmodified binary, used for AcoustID fingerprinting |
+| Deno | 2.9.7 | MIT | Unmodified binary, required by yt-dlp's JavaScript challenge solver |
+| s6-overlay | 3.2.3.2 | ISC | Init system, from https://github.com/just-containers/s6-overlay |
+
+yt-dlp (Unlicense) joins the image in Phase 4 (YouTube source).

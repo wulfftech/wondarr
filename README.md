@@ -6,10 +6,23 @@ Conceptually it is Sonarr/Radarr/Lidarr for **one song at a time** — which Lid
 
 > **Status (2026-09-28):** research and design complete; implementation starts with Phase 0. See `docs/HANDOVER.md` if you are picking this up, and `CLAUDE.md` if you are an AI coding session.
 
+## Quick start (Docker)
+
+Build and run everything (API, UI and the bundled slskd) with the Compose file in `docker/`:
+
+```bash
+docker compose -f docker/docker-compose.yml up --build
+```
+
+Then open **http://localhost:1077**. Persistent state lives in `/config`, the library in `/data`; `PUID`, `PGID`, `UMASK` and `TZ` control file ownership and time zone, and Soulseek needs port **50300** reachable for incoming connections. The first build downloads the pinned slskd, ffmpeg, `fpcalc` and Deno releases, so it needs network access and takes a few minutes.
+
 ## Documentation map
 
 | Read this | For |
 |---|---|
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Prerequisites, build/test commands, repository map and contribution rules |
+| [`NOTICE.md`](NOTICE.md) | Ported-code attributions and the third-party programs bundled in the image |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 | [`CLAUDE.md`](CLAUDE.md) | Instructions for AI coding sessions: the orchestrator/worker build workflow, rules, commands |
 | [`docs/HANDOVER.md`](docs/HANDOVER.md) | Where things stand and exactly how to start the next session |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) · [`docs/adr/`](docs/adr/) | Every decision taken with the owner, and the architectural ones as ADRs |
@@ -29,4 +42,4 @@ C# / .NET 10 (ASP.NET Core, EF Core + SQLite) with a React 19 + Vite front end, 
 
 ## Licence
 
-GPL-3.0 (see `LICENSE`). slskd is redistributed unmodified under its own AGPL-3.0 licence and additional terms.
+GPL-3.0 (see `LICENSE`). slskd is redistributed unmodified under its own AGPL-3.0 licence and additional terms. See [`NOTICE.md`](NOTICE.md) for the full attribution list (ported code and bundled third-party programs) and [`CHANGELOG.md`](CHANGELOG.md) for release notes.
