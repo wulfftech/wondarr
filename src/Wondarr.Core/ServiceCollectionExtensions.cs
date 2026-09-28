@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Wondarr.Core.Authentication;
 using Wondarr.Core.Blocklisting;
 using Wondarr.Core.Configuration;
+using Wondarr.Core.Decisions;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.History;
 using Wondarr.Core.ImportLists;
@@ -52,6 +53,9 @@ public static class ServiceCollectionExtensions
 
         // The album policy engine is pure; its only dependency is the source of synthetic album ids.
         services.AddSingleton<IAlbumPolicyEngine>(new AlbumPolicyEngine(Guid.NewGuid));
+
+        // The decision engine is pure and stateless: every candidate is judged from the context alone.
+        services.AddSingleton<DecisionEngine>();
 
         // The queue writes ids here and the executor drains it; both resolve the same instance, so
         // this must stay a singleton.
