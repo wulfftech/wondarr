@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\tests\fixtures\logging\**\*.json" Link="fixtures\logging\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Compilarr.Core\Compilarr.Core.csproj" />
   </ItemGroup>
 

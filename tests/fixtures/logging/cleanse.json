@@ -1,0 +1,56 @@
+{
+  "cases": [
+    {
+      "input": "Failed to log in: password=hunter2",
+      "expected": "Failed to log in: password=(removed)"
+    },
+    {
+      "input": "?username=shannon&password=hunter2",
+      "expected": "?username=(removed)&password=(removed)"
+    },
+    {
+      "input": "GET /library/sections?X-Plex-Token=abc123",
+      "expected": "GET /library/sections?X-Plex-Token=(removed)"
+    },
+    {
+      "input": "{\"api_key\":\"abc\"}",
+      "expected": "{\"api_key\":\"(removed)\"}"
+    },
+    {
+      "input": "Authorization: Bearer abc.def",
+      "expected": "Authorization: Bearer (removed)"
+    },
+    {
+      "input": "X-Api-Key: 0123456789abcdef0123456789abcdef",
+      "expected": "X-Api-Key: (removed)"
+    },
+    {
+      "input": "GET https://musicbrainz.org/ws/2/release?query=abc&key=deadbeefcafe",
+      "expected": "GET https://musicbrainz.org/ws/2/release?query=abc&key=(removed)"
+    },
+    {
+      "input": "Requesting https://api.example.com/track?id=42 for track 7",
+      "expected": "Requesting https://api.example.com/track?id=(removed) for track 7"
+    },
+    {
+      "input": "Webhook https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz sent",
+      "expected": "Webhook https://discord.com/api/webhooks/(removed)/(removed) sent"
+    },
+    {
+      "input": "Telegram https://api.telegram.org/bot123456:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/sendMessage",
+      "expected": "Telegram https://api.telegram.org/bot123456:(removed)/sendMessage"
+    },
+    {
+      "input": "C:\\Users\\shannon\\Music\\song.flac",
+      "expected": "C:\\Users\\(removed)\\Music\\song.flac"
+    },
+    {
+      "input": ",\"info_hash\":\"ABCDEF0123456789\",\"name\":\"x\"",
+      "expected": ",\"info_hash\":\"(removed)\",\"name\":\"x\""
+    },
+    {
+      "input": "Importing 'Bohemian Rhapsody' by Queen from YouTube Music",
+      "expected": "Importing 'Bohemian Rhapsody' by Queen from YouTube Music"
+    }
+  ]
+}

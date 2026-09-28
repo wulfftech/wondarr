@@ -37,8 +37,8 @@ public sealed partial class DatabaseMigrator
         {
             await using var command = connection.CreateCommand();
             command.CommandText = "PRAGMA journal_mode=WAL;";
-            var mode = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            LogJournalMode(mode?.ToString() ?? "unknown");
+            var mode = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+            LogJournalMode(mode ?? "unknown");
         }
         finally
         {
