@@ -24,6 +24,7 @@
   <ItemGroup>
     <None Include="..\..\tests\fixtures\logging\**\*.json" Link="fixtures\logging\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\tests\fixtures\version-flags.json" Link="fixtures\version-flags.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tests\fixtures\album-policy.json" Link="fixtures\album-policy.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
