@@ -12,6 +12,7 @@ Updated by the orchestrator after every merged task. Status: `todo` · `in-progr
 | P0-02 | Configuration loading | todo | | | |
 | P0-03 | Persistence (EF Core + SQLite + migrations) | todo | | | |
 | P0-04 | Auth, URL base, ping/status/health | todo | | | |
+| P0-04b | System status and health checks | todo | | | Split out of P0-04 |
 | P0-05 | Logging with redaction | todo | | | |
 | P0-06 | Command queue, scheduler, job table | todo | | | |
 | P0-07 | SignalR events hub | todo | | | |

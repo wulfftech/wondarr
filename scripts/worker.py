@@ -40,6 +40,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 WORKTREES = REPO / ".worktrees"
 REPORTS = REPO / ".worker"
+REFS = REPORTS / "ref"
 SYSTEM_PROMPT = REPO / "docs" / "build" / "WORKER_SYSTEM_PROMPT.md"
 STANDARDS = REPO / "docs" / "build" / "CODING_STANDARDS.md"
 PROTECTED = ("CLAUDE.md", "docs/DECISIONS.md", "docs/adr/", ".claude/", ".github/workflows/", ".env", "LICENSE")
@@ -256,6 +257,9 @@ def run_worker(args: argparse.Namespace) -> int:
         "--append-system-prompt-file", str(SYSTEM_PROMPT),
         "--no-session-persistence",
     ]
+    if REFS.is_dir():
+        # upstream sources checked out for porting (git-ignored); readable, not writable, by the worker
+        cmd += ["--add-dir", str(REFS)]
     if provider == "anthropic":
         cmd += ["--model", model]
     e = worker_env(provider, model)

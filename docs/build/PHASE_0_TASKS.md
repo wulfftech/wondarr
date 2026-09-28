@@ -8,6 +8,7 @@ Each task is sized for one cheap-worker run (see `AGENT_WORKFLOW.md`). Write the
 | P0-02 | Configuration loading (`/config/config.yml` + `APP__` env overrides, typed options, validation) | P0-01 | S | worker |
 | P0-03 | Persistence: EF Core + SQLite (WAL), `DbContext`, first migration (`setting`, `job`), startup migrate | P0-01 | M | worker |
 | P0-04 | Auth + host plumbing: API key (X-Api-Key / apikey / Bearer), Forms login with "disabled for local addresses", URL base, `/ping`, `/api/v1/system/status`, `/api/v1/health` | P0-02, P0-03 | M | worker (port from Lidarr) |
+| P0-04b | System status (Lidarr field set) + health-check framework and `/api/v1/health` (split out of P0-04 on 2026-09-28 to keep diffs reviewable) | P0-04 | S | worker (port from Lidarr) |
 | P0-05 | Serilog: JSON console + rolling files under `/config/logs`, secret redaction filter, request logging | P0-02 | S | worker |
 | P0-06 | Command queue + `/api/v1/command` (Lidarr-shaped), Quartz scheduler, job table, heartbeat job, "run now" | P0-03 | M | worker |
 | P0-07 | SignalR hub `/signalr/events` with typed events (health, job, queue placeholders); JS client wiring in P0-08 | P0-04 | S | worker |
