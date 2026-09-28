@@ -1,6 +1,7 @@
 using Compilarr.Api.Extensions;
 using Compilarr.Api.Frontend;
 using Compilarr.Api.Middleware;
+using Compilarr.Api.SignalR;
 using Compilarr.Core;
 using Compilarr.Core.Configuration;
 using Compilarr.Core.Logging;
@@ -67,6 +68,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<UrlBaseMiddleware>(urlBase);
 app.MapControllers();
+
+// Browsers cannot set headers on a WebSocket handshake, so the SignalR scheme also accepts the key
+// as ?access_token= — which is why the hub gets its own policy rather than the API fallback.
+app.MapHub<EventsHub>("/signalr/events").RequireAuthorization("SignalR");
 
 // Behind the default API-key policy: the document describes the API, so it is served like the API.
 app.MapOpenApi("/docs/{documentName}/openapi.json");

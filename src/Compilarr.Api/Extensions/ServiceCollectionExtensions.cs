@@ -3,7 +3,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Compilarr.Api.Authentication;
 using Compilarr.Api.Frontend;
+using Compilarr.Api.SignalR;
 using Compilarr.Core.Configuration;
+using Compilarr.Core.HealthCheck;
+using Compilarr.Core.Jobs;
+using Compilarr.Core.Messaging;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Authorization;
@@ -55,10 +59,34 @@ public static class ServiceCollectionExtensions
 
         services.AddAppAuthentication();
 
+        AddSignalREvents(services);
+
         // One document, "v1", snapshotted by tests/Compilarr.Api.Tests/OpenApiSnapshotTests.cs.
         services.AddOpenApi("v1", options =>
             options.AddDocumentTransformer(new CompilarrDocumentTransformer().TransformAsync));
 
         return services;
+    }
+
+    /// <summary>
+    /// Adds the events hub and the relays that feed it. The protocol is configured to match the REST
+    /// API exactly — camelCase names and enums as strings — so a resource looks the same whichever
+    /// way the UI received it.
+    /// </summary>
+    private static void AddSignalREvents(IServiceCollection services)
+    {
+        services.AddSignalR()
+            .AddJsonProtocol(options =>
+            {
+                options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+            });
+
+        services.AddSingleton<SignalRBroadcaster>();
+
+        // The relays are stateless and the aggregator resolves handlers from a scope, so registering
+        // them as singletons keeps one broadcaster call path for the whole process.
+        services.AddSingleton<IHandle<CommandUpdatedEvent>, CommandEventsRelay>();
+        services.AddSingleton<IHandle<HealthCheckCompletedEvent>, HealthEventsRelay>();
     }
 }
