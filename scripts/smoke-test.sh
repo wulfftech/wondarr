@@ -80,11 +80,11 @@ pass "API key required and accepted (header, query, bearer); system/status repor
 # The host reaches the container through the Docker bridge, a private address, so the
 # default "disabled for local addresses" lets the UI through without a login.
 HTML="$(curl -fsS "${BASE}/")"
-echo "$HTML" | grep -q "<base href=\"${URL_BASE}/\">" || fail "UI index.html lacks <base href=\"${URL_BASE}/\">"
+echo "$HTML" | grep -q "<base href=\"${URL_BASE}/\"" || fail "UI index.html lacks <base href=\"${URL_BASE}/\" />"
 ASSET="$(echo "$HTML" | grep -oE '(src|href)="\./assets/[^"]+\.js"' | head -1 | sed -E 's/.*"\.\/(assets[^"]+)"/\1/')"
 [ -n "$ASSET" ] || fail "no script asset referenced by index.html"
 curl -fsS -o /dev/null "${BASE}/${ASSET}" || fail "asset ${ASSET} not served under the URL base"
-curl -fsS "${BASE}/system/status" | grep -q "<base href=\"${URL_BASE}/\">" || fail "SPA deep link not served"
+curl -fsS "${BASE}/system/status" | grep -q "<base href=\"${URL_BASE}/\"" || fail "SPA deep link not served"
 curl -fsS "${BASE}/initialize.json" | jq -e --arg ub "$URL_BASE" '.urlBase == $ub and (.apiKey | length) == 32' > /dev/null \
     || fail "initialize.json"
 pass "UI, assets, deep links and initialize.json under ${URL_BASE}"
