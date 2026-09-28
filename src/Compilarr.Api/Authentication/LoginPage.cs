@@ -54,9 +54,12 @@ internal static class LoginPage
         """;
 
     /// <summary>Renders the page for the given URL base and state.</summary>
-    public static string Render(string urlBase, bool loginFailed, bool configured)
+    public static string Render(string urlBase, bool loginFailed, bool configured, string? returnUrl = null)
     {
-        var action = HtmlEncoder.Default.Encode($"{urlBase}/login");
+        // Carry returnUrl through the form so a retry still lands on the page first asked for;
+        // POST /login re-validates it as a local URL before redirecting.
+        var query = string.IsNullOrEmpty(returnUrl) ? string.Empty : $"?returnUrl={Uri.EscapeDataString(returnUrl)}";
+        var action = HtmlEncoder.Default.Encode($"{urlBase}/login{query}");
 
         var error = loginFailed
             ? """<p class="error">Incorrect username or password.</p>"""

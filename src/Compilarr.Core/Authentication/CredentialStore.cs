@@ -57,17 +57,21 @@ public sealed class CredentialStore : ICredentialStore
 
         var stored = await GetStoredAsync(cancellationToken).ConfigureAwait(false);
 
-        if (stored is null || !string.Equals(stored.Username, username, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
+        var usernameMatches = stored is not null
+            && string.Equals(stored.Username, username, StringComparison.OrdinalIgnoreCase);
 
-        var salt = Convert.FromBase64String(stored.Salt);
-        var expected = Convert.FromBase64String(stored.Hash);
+        // Always pay for the hash, against a dummy when the user is unknown, so response time
+        // does not reveal whether a username exists.
+        var salt = usernameMatches ? Convert.FromBase64String(stored!.Salt) : DummySalt;
+        var expected = usernameMatches ? Convert.FromBase64String(stored!.Hash) : DummyHash;
+        var iterations = usernameMatches ? stored!.Iterations : Iterations;
 
-        // Fixed time so a wrong password cannot be told from a wrong username by timing.
-        return CryptographicOperations.FixedTimeEquals(ComputeHash(password, salt, stored.Iterations), expected);
+        var passwordMatches = CryptographicOperations.FixedTimeEquals(ComputeHash(password, salt, iterations), expected);
+        return usernameMatches && passwordMatches;
     }
+
+    private static readonly byte[] DummySalt = new byte[SaltSize];
+    private static readonly byte[] DummyHash = new byte[HashSize];
 
     private Task<StoredCredentials?> GetStoredAsync(CancellationToken cancellationToken) =>
         _settings.GetAsync<StoredCredentials>(SettingsKey, cancellationToken);

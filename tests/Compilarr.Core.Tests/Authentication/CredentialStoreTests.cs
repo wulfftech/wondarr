@@ -72,4 +72,19 @@ public class CredentialStoreTests
         (await store.VerifyAsync("admin", Password, CancellationToken.None)).Should().BeFalse();
         (await store.VerifyAsync("someone-else", "a different password", CancellationToken.None)).Should().BeTrue();
     }
+
+    [Fact]
+    public async Task Rejects_an_unknown_username_even_with_the_right_password()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var store = new CredentialStore(new SettingsRepository(context));
+        await store.SetAsync("admin", Password, CancellationToken.None);
+
+        (await store.VerifyAsync("someone", Password, CancellationToken.None)).Should().BeFalse();
+        (await store.VerifyAsync("ADMIN", Password, CancellationToken.None)).Should().BeTrue();
+    }
 }
