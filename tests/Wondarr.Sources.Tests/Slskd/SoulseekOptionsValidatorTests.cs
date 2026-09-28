@@ -59,6 +59,59 @@ public class SoulseekOptionsValidatorTests
     }
 
     [Fact]
+    public void Accepts_the_default_search_budget()
+    {
+        _validator.Validate(null, new SoulseekOptions()).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Rejects_a_search_budget_above_what_soulseek_allows()
+    {
+        var result = _validator.Validate(null, new SoulseekOptions
+        {
+            Search = new SoulseekSearchOptions { MaxSearches = 31 },
+        });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().ContainSingle().Which.Should().StartWith("soulseek.search.max_searches:");
+    }
+
+    [Fact]
+    public void Rejects_a_submission_spacing_below_what_soulseek_allows()
+    {
+        var result = _validator.Validate(null, new SoulseekOptions
+        {
+            Search = new SoulseekSearchOptions { MinSpacingSeconds = 4 },
+        });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().ContainSingle().Which.Should().StartWith("soulseek.search.min_spacing_seconds:");
+    }
+
+    [Fact]
+    public void Rejects_every_search_knob_outside_its_range()
+    {
+        var result = _validator.Validate(null, new SoulseekOptions
+        {
+            Search = new SoulseekSearchOptions
+            {
+                MaxSearches = 0,
+                WindowSeconds = 239,
+                MaxOutstanding = 3,
+                MinSpacingSeconds = 0,
+                SearchTimeoutMs = 4999,
+                ResponseLimit = 501,
+                FileLimit = 0,
+                WallClockSeconds = 121,
+                PollIntervalMs = 99,
+            },
+        });
+
+        result.Failures.Should().HaveCount(9);
+        result.Failures.Should().OnlyContain(message => message.StartsWith("soulseek.search.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Rejects_a_password_without_a_username()
     {
         var result = _validator.Validate(null, new SoulseekOptions { Username = " ", Password = Password });
