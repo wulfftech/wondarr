@@ -20,15 +20,15 @@ cd D:\Code\compilarr
 copy .env.example .env      # then fill OPENROUTER_API_KEY and COMPILARR_WORKER_MODEL (see docs/build/AGENT_WORKFLOW.md §6)
 ```
 
-Prerequisites: .NET 10 SDK, Node 22+, Python 3.10+ (for `scripts/worker.py`), Docker Desktop (WSL 2), Git, the `claude` CLI on `PATH`.
+Prerequisites: .NET SDK 10.0.4xx (`global.json`), Node 22.12+ (24 LTS on the dev box), Python 3.10+ (for `scripts/worker.py`), Git, the `claude` CLI on `PATH`, and the `claude-terminals` MCP server connected for visible worker tabs. No local Docker is needed: the image is built and gate-tested in CI and on `ch01`.
 
-Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and paste the full kickoff prompt from `docs/build/NEXT_SESSION_PROMPT.md` (short form below):
+Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and paste the kickoff prompt from `docs/build/NEXT_SESSION_PROMPT.md` (Phase 1; short form below):
 
-> Read CLAUDE.md, docs/HANDOVER.md and docs/build/PROGRESS.md. Run the worker-model bake-off from docs/build/AGENT_WORKFLOW.md §6 (or skip it if COMPILARR_WORKER_MODEL is already pinned), then execute Phase 0 task by task using cheap workers via scripts/worker.py, reviewing every diff and keeping PROGRESS.md current. Stop at the Phase 0 gate and report.
+> Read CLAUDE.md, docs/HANDOVER.md and docs/build/PROGRESS.md, write docs/build/PHASE_1_TASKS.md, then execute Phase 1 task by task with cheap workers in VS Code tabs, reviewing every diff, keeping PROGRESS.md current and extending scripts/smoke-test.sh to the Phase 1 gate. Stop at the gate and report.
 
 Sanity check before delegating anything: `python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md` prints the exact command and environment (key redacted) that a worker would get.
 
-## 4. Things the owner still has to provide (not blockers for Phase 0)
+## 4. Things the owner still has to provide (status in §7 "Owner update")
 
 - An **AcoustID application key** (`acoustid.org/new-application`) for the verification pipeline (Phase 2 tests).
 - A **dedicated Soulseek account** for the bundled slskd (one login per username; do not reuse a personal client's account).
