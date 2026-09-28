@@ -5,6 +5,7 @@ using Compilarr.Core.HealthCheck;
 using Compilarr.Core.Jobs;
 using Compilarr.Core.Logging;
 using Compilarr.Core.Messaging;
+using Compilarr.Core.Organizer;
 using Compilarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -36,6 +37,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<HealthCheckService>();
 
         services.AddSingleton<IEventAggregator, EventAggregator>();
+
+        // The album policy engine is pure; its only dependency is the source of synthetic album ids.
+        services.AddSingleton<IAlbumPolicyEngine>(new AlbumPolicyEngine(Guid.NewGuid));
 
         // The queue writes ids here and the executor drains it; both resolve the same instance, so
         // this must stay a singleton.
