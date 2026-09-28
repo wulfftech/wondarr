@@ -248,7 +248,9 @@ def run_worker(args: argparse.Namespace) -> int:
     claude = find_claude()
     cmd = [
         claude or "claude", "-p", build_prompt(task_file, args.continue_note),
-        "--output-format", "json",
+        # stream-json so progress can be followed live (`worker.py watch`); the final "result"
+        # event is the same object `--output-format json` would print
+        "--output-format", "stream-json", "--verbose",
         "--max-turns", str(max_turns),
         "--max-budget-usd", f"{budget * scale:.2f}",
         "--permission-mode", "acceptEdits",
@@ -278,15 +280,16 @@ def run_worker(args: argparse.Namespace) -> int:
     out_dir.mkdir(exist_ok=True)
     started = _dt.datetime.now()
     usage_before = openrouter_key_usage() if provider == "openrouter" else None
-    try:
-        result = subprocess.run(cmd, cwd=str(worktree), env=e, text=True, encoding="utf-8", errors="replace",
-                                capture_output=True, timeout=timeout_min * 60)
-    except subprocess.TimeoutExpired:
+    run_no = len(list(out_dir.glob("stdout*.json"))) + 1
+    suffix = "" if run_no == 1 else f".{run_no}"
+    live = out_dir / "live.log"
+    returncode, result_json, stderr_text, timed_out = stream_worker(cmd, worktree, e, timeout_min * 60, live,
+                                                                    f"{task_id} run {run_no}")
+    if timed_out:
         (out_dir / "report.md").write_text(f"TIMEOUT after {timeout_min} minutes\n", encoding="utf-8")
         print(f"[worker] TIMEOUT after {timeout_min} minutes; worktree kept at {worktree}")
         return 124
-    run_no = len(list(out_dir.glob("stdout*.json"))) + 1
-    suffix = "" if run_no == 1 else f".{run_no}"
+    result = subprocess.CompletedProcess(cmd, returncode, result_json, stderr_text)
     (out_dir / f"stdout{suffix}.json").write_text(result.stdout, encoding="utf-8")
     (out_dir / f"stderr{suffix}.txt").write_text(result.stderr, encoding="utf-8")
     report_text, cost, turns, model_usage = extract_report(result.stdout)
@@ -309,6 +312,97 @@ def run_worker(args: argparse.Namespace) -> int:
     if protected_hits:
         print(f"[worker] WARNING protected paths touched: {protected_hits}")
     return result.returncode
+
+
+def stream_worker(cmd: list[str], cwd: Path, env_vars: dict[str, str], timeout_s: int, live: Path,
+                  label: str) -> tuple[int, str, str, bool]:
+    """Run the worker, echoing a readable line per event to stdout and `live`; return the result event."""
+    import threading
+
+    proc = subprocess.Popen(cmd, cwd=str(cwd), env=env_vars, text=True, encoding="utf-8", errors="replace",
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    timed_out = threading.Event()
+
+    def on_timeout() -> None:
+        timed_out.set()
+        proc.kill()
+
+    timer = threading.Timer(timeout_s, on_timeout)
+    timer.start()
+    stderr_chunks: list[str] = []
+    drain = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read() if proc.stderr else ""))
+    drain.start()
+    result_json = ""
+    turn = 0
+    with live.open("a", encoding="utf-8") as log:
+        def emit(text: str) -> None:
+            line = f"{_dt.datetime.now():%H:%M:%S} [{label}] {text}"
+            print(line, flush=True)
+            log.write(line + "\n")
+            log.flush()
+
+        emit("started")
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            try:
+                event = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            kind = event.get("type")
+            if kind == "assistant":
+                turn += 1
+                for block in event.get("message", {}).get("content", []):
+                    if block.get("type") == "text" and block.get("text", "").strip():
+                        emit(f"t{turn} says: {one_line(block['text'], 160)}")
+                    elif block.get("type") == "tool_use":
+                        emit(f"t{turn} {block.get('name')}: {describe_tool(block.get('input') or {})}")
+            elif kind == "user":
+                for block in event.get("message", {}).get("content", []) or []:
+                    if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
+                        emit(f"   ! tool error: {one_line(str(block.get('content')), 160)}")
+            elif kind == "result":
+                result_json = raw
+                emit(f"finished: {event.get('subtype')} after {event.get('num_turns')} turns")
+    proc.wait()
+    timer.cancel()
+    drain.join(timeout=5)
+    return proc.returncode, result_json, "".join(stderr_chunks), timed_out.is_set()
+
+
+def one_line(text: str, limit: int) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def describe_tool(tool_input: dict) -> str:
+    for key in ("command", "file_path", "pattern", "path"):
+        if tool_input.get(key):
+            return one_line(tool_input[key], 140)
+    return one_line(json.dumps(tool_input), 140)
+
+
+def run_watch(args: argparse.Namespace) -> int:
+    """Follow every worker's live.log (new lines only), like `tail -f` across tasks."""
+    import time
+
+    offsets: dict[Path, int] = {}
+    for existing in REPORTS.glob("*/live.log"):
+        offsets[existing] = existing.stat().st_size if not args.replay else 0
+    print(f"[watch] following {REPORTS}/*/live.log - Ctrl+C to stop", flush=True)
+    try:
+        while True:
+            for log in sorted(REPORTS.glob("*/live.log")):
+                size = log.stat().st_size
+                start = offsets.get(log, 0)
+                if size > start:
+                    with log.open("r", encoding="utf-8", errors="replace") as fh:
+                        fh.seek(start)
+                        sys.stdout.write(fh.read())
+                        sys.stdout.flush()
+                offsets[log] = size
+            time.sleep(1)
+    except KeyboardInterrupt:
+        return 0
 
 
 def extract_report(stdout: str) -> tuple[str, str, str, dict]:
@@ -404,6 +498,10 @@ def run_review(args: argparse.Namespace) -> int:
 
 # ----------------------------------------------------------------------------- main
 def main() -> int:
+    # model output is arbitrary Unicode; never let a cp1252 console crash the runner
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     load_dotenv(REPO / ".env")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="print what would run; touch nothing")
@@ -420,7 +518,11 @@ def main() -> int:
     p_rev = sub.add_parser("review", help="single-shot review of git diff main...<branch>")
     p_rev.add_argument("branch")
     p_rev.add_argument("--task")
+    p_watch = sub.add_parser("watch", help="follow all workers' live progress (run in a terminal you can see)")
+    p_watch.add_argument("--replay", action="store_true", help="print existing log content first")
     args = parser.parse_args()
+    if args.mode == "watch":
+        return run_watch(args)
     if args.mode == "run":
         return run_worker(args)
     if args.mode == "api":
