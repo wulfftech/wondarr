@@ -59,16 +59,17 @@ Environment notes: no local Docker on the dev PC — container checks run on `ch
 | P1-01 | Domain model, quality seeds, default profiles | done | deepseek/deepseek-v4.1-flash | ~0.05 | One run. Orchestrator: `HasDefaultValue(true)` on `monitored`/`sticky` made EF drop an explicit `false` on insert (unmonitored songs stored as monitored) → removed, migration regenerated, regression test (mutation-checked); CA1861 for generated migrations moved to `.editorconfig` |
 | P1-02 | MusicBrainz client, request spacing, metadata cache | done | deepseek/deepseek-v4.1-flash | ~0.09 | One run (83 turns; the cap counts differently from tool calls). Reviewer agent: MERGE, no blockers. Orchestrator: migration regenerated after AddDomainModel; final newlines; live tests run once (3 requests, pass). Later found under load: `Task.Delay` can end ~15 ms early on Windows, so the gate now re-checks the clock before releasing; pipeline timing tests allow 50 ms for the handler hop |
 | P1-03 | Version-flag parser | done | deepseek/deepseek-v4.1-flash | ~0.05 | One run, 26 turns; all 75 golden cases unchanged, table-driven keyword rules. Merged as is |
-| P1-04 | Cover art, Deezer and iTunes clients | todo | | | |
+| P1-04 | Cover art, Deezer and iTunes clients | done | deepseek/deepseek-v4.1-flash | ~0.08 | One run, hit the turn cap while adding final newlines with a green tree; committed by the orchestrator. Live tests pass (3 requests) |
 | P1-05 | Album-policy engine | done | deepseek/deepseek-v4.1-flash | ~0.05 | One run, 37 turns; all 10 golden cases unchanged plus 3 facts. Merged as is |
-| P1-06 | Identity resolver | todo | | | |
+| P1-06 | Identity resolver | done | deepseek/deepseek-v4.1-flash | ~0.09 | One run (27 min), cap hit with the resolver tests green. Orchestrator: diacritics were never stripped — `InvariantGlobalization` makes `Normalize(FormD)` a no-op for non-ASCII, silently breaking 'Sigur Rós'/'Björk' matching here **and** in P1-04's cover-art artist match → explicit Latin fold table `TextFolding`. Live probe over the 50 gate songs: 49 MusicBrainz, 1 Deezer-only; 3 wrong recordings → P1-06b |
+| P1-06b | Resolver ranking fixes from the live probe | todo | | | |
 | P1-07 | Song add service (Core) | todo | | | |
 | P1-07b | Song/Artist/lookup/preview API | todo | | | |
 | P1-08 | Quality/profile/library API | done | deepseek/deepseek-v4.1-flash | ~0.07 | One run; hit the turn cap on its commit turn with a green tree. Orchestrator: merge conflicts (service registration, OpenAPI snapshot regenerated), final newlines |
 | P1-09 | Bulk add and unresolved review | todo | | | |
 | P1-10 | Wanted, History, Blocklist API | done | deepseek/deepseek-v4.1-flash | ~0.06 | One run; hit the turn cap before committing, tree green — committed by the orchestrator instead of a paid continuation. Migration regenerated after AddMetadataCache; snapshot refreshed. A pre-existing test race surfaced here: test hosts called `SqliteConnection.ClearAllPools()`, disposing other parallel tests' connections (~1 in 5 runs) → each clears only its own pool |
 | P1-11 | Frontend: songs, add, paste, unresolved | todo | | | |
-| P1-12 | Frontend: Wanted, Activity, Profiles, Library | todo | | | |
+| P1-12 | Frontend: Wanted, Activity, Profiles, Library | done | deepseek/deepseek-v4.1-flash | ~0.11 | Two runs (cap both times). Orchestrator: `ResizeObserver` stub in the test setup (Mantine needs one, jsdom has none); the shared fetch mock now records the method/headers of the `Request` openapi-fetch passes — two tests were asserting on calls they could never see |
 | P1-13 | Phase 1 gate automation | todo | orchestrator | — | |
 
 Phase 1 gate (from `PHASES.md`): a pasted list of 50 songs resolves ≥ 90 % to MB recordings with correct durations and cover art; the rest resolve via Deezer or land in an "unresolved" review state; every song has an album assignment under the library's policy.
