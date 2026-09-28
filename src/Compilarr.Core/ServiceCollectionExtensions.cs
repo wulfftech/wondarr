@@ -4,6 +4,7 @@ using Compilarr.Core.Blocklisting;
 using Compilarr.Core.Configuration;
 using Compilarr.Core.HealthCheck;
 using Compilarr.Core.History;
+using Compilarr.Core.ImportLists;
 using Compilarr.Core.Jobs;
 using Compilarr.Core.Logging;
 using Compilarr.Core.Messaging;
@@ -59,6 +60,10 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
+        services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
+
+        // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
+        services.AddScoped<IPasteListService, PasteListService>();
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();

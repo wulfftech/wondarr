@@ -273,6 +273,133 @@ namespace Compilarr.Core.Persistence.Migrations
                     b.ToTable("history", (string)null);
                 });
 
+            modelBuilder.Entity("Compilarr.Core.Domain.ImportList", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_synced_at");
+
+                    b.Property<long>("LibraryId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("library_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Policy")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("policy");
+
+                    b.Property<long>("QualityProfileId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("quality_profile_id");
+
+                    b.Property<string>("Settings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("settings");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("type");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_import_list");
+
+                    b.HasIndex("LibraryId")
+                        .HasDatabaseName("ix_import_list_library_id");
+
+                    b.HasIndex("QualityProfileId")
+                        .HasDatabaseName("ix_import_list_quality_profile_id");
+
+                    b.ToTable("import_list", (string)null);
+                });
+
+            modelBuilder.Entity("Compilarr.Core.Domain.ImportListItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Candidates")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("candidates");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("external_id");
+
+                    b.Property<long>("ImportListId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("import_list_id");
+
+                    b.Property<string>("Raw")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("raw");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<long?>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_import_list_item");
+
+                    b.HasIndex("ImportListId")
+                        .HasDatabaseName("ix_import_list_item_import_list_id");
+
+                    b.HasIndex("SongId")
+                        .HasDatabaseName("ix_import_list_item_song_id");
+
+                    b.HasIndex("State")
+                        .HasDatabaseName("ix_import_list_item_state");
+
+                    b.ToTable("import_list_item", (string)null);
+                });
+
             modelBuilder.Entity("Compilarr.Core.Domain.Library", b =>
                 {
                     b.Property<long>("Id")
@@ -1544,6 +1671,43 @@ namespace Compilarr.Core.Persistence.Migrations
                     b.Navigation("Song");
                 });
 
+            modelBuilder.Entity("Compilarr.Core.Domain.ImportList", b =>
+                {
+                    b.HasOne("Compilarr.Core.Domain.Library", null)
+                        .WithMany()
+                        .HasForeignKey("LibraryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_import_list_libraries_library_id");
+
+                    b.HasOne("Compilarr.Core.Domain.QualityProfile", null)
+                        .WithMany()
+                        .HasForeignKey("QualityProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_import_list_quality_profile_quality_profile_id");
+                });
+
+            modelBuilder.Entity("Compilarr.Core.Domain.ImportListItem", b =>
+                {
+                    b.HasOne("Compilarr.Core.Domain.ImportList", "ImportList")
+                        .WithMany("Items")
+                        .HasForeignKey("ImportListId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_import_list_item_import_list_import_list_id");
+
+                    b.HasOne("Compilarr.Core.Domain.Song", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_import_list_item_song_song_id");
+
+                    b.Navigation("ImportList");
+
+                    b.Navigation("Song");
+                });
+
             modelBuilder.Entity("Compilarr.Core.Domain.QualityProfile", b =>
                 {
                     b.HasOne("Compilarr.Core.Domain.Quality", "CutoffQuality")
@@ -1622,6 +1786,11 @@ namespace Compilarr.Core.Persistence.Migrations
                     b.Navigation("Quality");
 
                     b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Compilarr.Core.Domain.ImportList", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Compilarr.Core.Domain.Song", b =>
