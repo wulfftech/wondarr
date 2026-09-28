@@ -28,6 +28,22 @@ public enum SlskdState
     Stopped,
 }
 
+/// <summary>
+/// Why the Soulseek login is not working, as slskd's own log reported it. slskd's API draws no
+/// distinction between "not configured" and "rejected", so only the log can say which it is.
+/// </summary>
+public enum SlskdLoginProblem
+{
+    /// <summary>No problem: slskd logged in, or nothing has been said about the login yet.</summary>
+    None,
+
+    /// <summary>The server rejected the account.</summary>
+    InvalidCredentials,
+
+    /// <summary>Another client logged in with the same account, so this session was disconnected.</summary>
+    DuplicateLogin,
+}
+
 /// <summary>An immutable snapshot of what the supervisor last observed about the bundled slskd.</summary>
 /// <param name="State">Lifecycle state.</param>
 /// <param name="ProcessId">Operating-system process id, when a process is running.</param>
@@ -39,6 +55,8 @@ public enum SlskdState
 /// <param name="RestartCount">How many times the supervisor has (re)started the process.</param>
 /// <param name="LastError">What went wrong, if anything — never a secret.</param>
 /// <param name="LastCheckedAt">When the state was last updated.</param>
+/// <param name="LoginProblem">The login problem slskd's log last reported, if any.</param>
+/// <param name="LoginProblemAt">When that problem was reported.</param>
 public sealed record SlskdStatusSnapshot(
     SlskdState State,
     int? ProcessId = null,
@@ -49,7 +67,9 @@ public sealed record SlskdStatusSnapshot(
     bool PendingRestart = false,
     int RestartCount = 0,
     string? LastError = null,
-    DateTimeOffset? LastCheckedAt = null)
+    DateTimeOffset? LastCheckedAt = null,
+    SlskdLoginProblem? LoginProblem = null,
+    DateTimeOffset? LoginProblemAt = null)
 {
     /// <summary>The state before the supervisor has looked at anything.</summary>
     public static SlskdStatusSnapshot NotConfigured { get; } = new(SlskdState.NotConfigured);

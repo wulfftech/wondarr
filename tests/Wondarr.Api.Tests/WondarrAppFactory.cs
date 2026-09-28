@@ -153,7 +153,19 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
             }
         }
 
-        var document = new YamlStream(new YamlDocument(new YamlMappingNode { { "server", server } }));
+        // The Soulseek storage health checks probe these directories for real, so they point into the
+        // temporary config directory: a test run must not depend on, or create, /data.
+        var soulseek = new YamlMappingNode
+        {
+            { "downloads_dir", new YamlScalarNode(Path.Combine(ConfigDir, "downloads", "slskd")) },
+            { "incomplete_dir", new YamlScalarNode(Path.Combine(ConfigDir, "downloads", "slskd", "incomplete")) },
+        };
+
+        var document = new YamlStream(new YamlDocument(new YamlMappingNode
+        {
+            { "server", server },
+            { "soulseek", soulseek },
+        }));
 
         using var writer = new StreamWriter(
             Path.Combine(ConfigDir, "config.yml"),

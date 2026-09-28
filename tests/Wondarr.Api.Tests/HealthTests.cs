@@ -83,7 +83,9 @@ public sealed class HealthTests
         using var response = await client.GetAsync(new Uri($"{HealthEndpoint}?refresh=true", UriKind.Relative));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await ReadEntriesAsync(response)).Should().HaveCount(4, "database, config folder, log folder and slskd");
+        (await ReadEntriesAsync(response)).Should().HaveCount(
+            6,
+            "database, config folder, log folder, slskd, its download folder and sharing");
     }
 
     private static async Task<List<(string Source, string Type, string Message)>> ReadEntriesAsync(HttpResponseMessage response)

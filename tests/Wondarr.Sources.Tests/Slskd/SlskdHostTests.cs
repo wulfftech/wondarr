@@ -320,4 +320,104 @@ public class SlskdHostTests
         replacement.HasExited.Should().BeFalse();
         harness.Launcher.Latest.Should().BeSameAs(replacement);
     }
+
+    [Fact]
+    public async Task An_unpreparable_download_folder_crashes_the_state_instead_of_the_host_and_is_retried()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        // A file stands where the downloads directory should go, so Directory.CreateDirectory fails
+        // on every platform — the same shape as an unwritable /data.
+        var blocker = Path.Combine(Path.GetTempPath(), $"wondarr-slskd-blocked-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(blocker, string.Empty);
+
+        try
+        {
+            harness.Options.DownloadsDir = Path.Combine(blocker, "downloads", "slskd");
+            harness.Options.IncompleteDir = Path.Combine(harness.Options.DownloadsDir, "incomplete");
+
+            // StartAsync would surface a faulted ExecuteAsync, so not throwing here is half the point.
+            await harness.StartAsync();
+
+            await SlskdHostHarness.AwaitAsync(
+                () => harness.Status.Current.State == SlskdState.Crashed,
+                "the preparation failure to be reported");
+
+            var status = harness.Status.Current;
+            status.LastError.Should().StartWith("Cannot prepare slskd: ");
+            status.LastError.Should().Contain(blocker, "the .NET message names the path it could not prepare");
+            harness.Launcher.Count.Should().Be(0, "nothing can be launched without its configuration");
+
+            // The host is still running and has scheduled the usual backoff: five seconds later it
+            // tries again (and fails again), rather than the host stopping in a restart loop.
+            var firstAttemptAt = status.LastCheckedAt;
+            harness.Time.Advance(TimeSpan.FromSeconds(4));
+            await Task.Delay(50);
+            harness.Status.Current.LastCheckedAt.Should().Be(firstAttemptAt, "the backoff has not elapsed yet");
+
+            harness.Time.Advance(TimeSpan.FromSeconds(1));
+
+            await SlskdHostHarness.AwaitAsync(
+                () => harness.Status.Current.LastCheckedAt > firstAttemptAt,
+                "the retry to be attempted");
+
+            harness.Status.Current.State.Should().Be(SlskdState.Crashed);
+            harness.Launcher.Count.Should().Be(0);
+        }
+        finally
+        {
+            File.Delete(blocker);
+        }
+    }
+
+    [Fact]
+    public async Task A_duplicate_login_kick_is_recorded_and_a_later_login_clears_it()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        harness.Launcher.Latest.Emit(
+            "[23:00:14 ERR] Disconnected from the Soulseek server: another client logged in using the same username");
+
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.LoginProblem == SlskdLoginProblem.DuplicateLogin,
+            "the kick to be recorded");
+
+        harness.Status.Current.LoginProblemAt.Should().Be(harness.Time.GetUtcNow());
+
+        harness.Launcher.Latest.Emit("[23:05:36 INF] Logged in to the Soulseek server as wondarr-soulseek");
+
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.LoginProblem == SlskdLoginProblem.None,
+            "the login to clear the kick");
+
+        harness.Status.Current.LoginProblemAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task An_invalid_login_is_recorded_and_a_later_login_clears_it()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        harness.Launcher.Latest.Emit("[23:00:14 ERR] Disconnected from the Soulseek server: invalid username or password");
+
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.LoginProblem == SlskdLoginProblem.InvalidCredentials,
+            "the rejected login to be recorded");
+
+        harness.Launcher.Latest.Emit("[23:05:36 INF] Logged in to the Soulseek server as wondarr-soulseek");
+
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.LoginProblem == SlskdLoginProblem.None,
+            "the login to clear the problem");
+    }
 }
