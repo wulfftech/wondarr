@@ -22,7 +22,7 @@ copy .env.example .env      # then fill OPENROUTER_API_KEY and COMPILARR_WORKER_
 
 Prerequisites: .NET 10 SDK, Node 22+, Python 3.10+ (for `scripts/worker.py`), Docker Desktop (WSL 2), Git, the `claude` CLI on `PATH`.
 
-Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and give it this first prompt:
+Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and paste the full kickoff prompt from `docs/build/NEXT_SESSION_PROMPT.md` (short form below):
 
 > Read CLAUDE.md, docs/HANDOVER.md and docs/build/PROGRESS.md. Run the worker-model bake-off from docs/build/AGENT_WORKFLOW.md §6 (or skip it if COMPILARR_WORKER_MODEL is already pinned), then execute Phase 0 task by task using cheap workers via scripts/worker.py, reviewing every diff and keeping PROGRESS.md current. Stop at the Phase 0 gate and report.
 
