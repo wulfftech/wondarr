@@ -9,6 +9,15 @@ namespace Wondarr.Core.Organizer;
 /// </summary>
 internal static class NativeMethods
 {
+    /// <summary>
+    /// The C library to call on Linux. Plain <c>libc</c> resolves to a linker script there, which
+    /// has no functions in it, so the versioned shared object is asked for by name.
+    /// </summary>
+    private const string LinuxLibc = "libc.so.6";
+
+    /// <summary>The C library to call on macOS and the BSDs, where <c>libc</c> is a real object.</summary>
+    private const string UnixLibc = "libc";
+
     /// <summary>Creates a hard link at <paramref name="newLink"/> pointing at <paramref name="existing"/>.</summary>
     [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -17,15 +26,38 @@ internal static class NativeMethods
         string existing,
         IntPtr securityAttributes);
 
-    /// <summary>POSIX <c>link(2)</c>: returns zero on success, -1 with <c>errno</c> set otherwise.</summary>
-    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
-    internal static extern int Link(
+    /// <summary>POSIX <c>link(2)</c>: zero on success, -1 with <c>errno</c> set otherwise.</summary>
+    internal static int Link(string existing, string newLink) =>
+        OperatingSystem.IsLinux() ? LinkLinux(existing, newLink) : LinkUnix(existing, newLink);
+
+    /// <summary>POSIX <c>stat(2)</c>: zero on success, -1 with <c>errno</c> set otherwise.</summary>
+    internal static int Stat(string path, out StatBuffer buffer)
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            return StatLinux(path, out buffer);
+        }
+
+        return StatUnix(path, out buffer);
+    }
+
+    [DllImport(LinuxLibc, EntryPoint = "link", SetLastError = true)]
+    private static extern int LinkLinux(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string existing,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string newLink);
 
-    /// <summary>POSIX <c>stat(2)</c>: returns zero on success, -1 with <c>errno</c> set otherwise.</summary>
-    [DllImport("libc", EntryPoint = "stat", SetLastError = true)]
-    internal static extern int Stat(
+    [DllImport(UnixLibc, EntryPoint = "link", SetLastError = true)]
+    private static extern int LinkUnix(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string existing,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string newLink);
+
+    [DllImport(LinuxLibc, EntryPoint = "stat", SetLastError = true)]
+    private static extern int StatLinux(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        out StatBuffer buffer);
+
+    [DllImport(UnixLibc, EntryPoint = "stat", SetLastError = true)]
+    private static extern int StatUnix(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
         out StatBuffer buffer);
 

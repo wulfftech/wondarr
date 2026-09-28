@@ -34,7 +34,7 @@ public sealed record PlacementRequest(
 /// <summary>What became of a placement. A failure carries whatever the caller still needs to know.</summary>
 /// <param name="Success">Whether the file is now at <paramref name="FinalPath"/> as asked.</param>
 /// <param name="FinalPath">Where the file ended up, when it reached the library at all.</param>
-/// <param name="RecycledPath">Where the replaced file went, when one was recycled.</param>
+/// <param name="RecycledPath">Where the replaced file went, when one was recycled and could not go back.</param>
 /// <param name="ModeUsed">How the bytes were transferred, when they were.</param>
 /// <param name="Error">What went wrong, when something did.</param>
 public sealed record PlacementResult(
@@ -53,8 +53,9 @@ public interface IFilePlacer
 
 /// <summary>
 /// The only code in Wondarr that puts a file into the library. It refuses to place anything outside
-/// the library root, never overwrites a file it did not put there, recycles what it replaces, and
-/// leaves the placed file alone when a later step fails: the caller decides what to do about it.
+/// the library root, never overwrites a file it did not put there, recycles what it replaces — and
+/// puts that file back when the placement then fails — and leaves the placed file alone when a later
+/// step fails: the caller decides what to do about it.
 /// </summary>
 public sealed class FilePlacer : IFilePlacer
 {
@@ -94,8 +95,8 @@ public sealed class FilePlacer : IFilePlacer
         var target = TargetFor(request);
 
         // The relative path comes from a naming template and the tags behind it: it never gets to
-        // point outside the library, however it is spelled.
-        if (!PathRules.IsInside(root, target))
+        // point outside the library, and never at the library root itself.
+        if (!PathRules.IsStrictlyInside(root, target))
         {
             return Failed($"'{request.RelativePathWithoutExtension}' resolves outside the library root.");
         }
@@ -105,36 +106,52 @@ public sealed class FilePlacer : IFilePlacer
             return Failed($"Source file '{request.SourcePath}' does not exist.");
         }
 
+        // Already there: placing the file the library already holds has nothing to do, and nothing
+        // to recycle — the file at the target is the source.
+        if (_disk.FileExists(target) && _disk.AreSameFile(target, request.SourcePath))
+        {
+            return new PlacementResult(true, target, null, request.Mode, null);
+        }
+
+        var replaces = request.ReplacesPath;
         string? recycled = null;
 
-        if (!string.IsNullOrEmpty(request.ReplacesPath) && _disk.FileExists(request.ReplacesPath))
+        if (!string.IsNullOrEmpty(replaces) && _disk.FileExists(replaces))
         {
+            // Only a file inside this library, and never the file being placed, may be replaced:
+            // anything else would park something the caller never meant to give up.
+            if (!PathRules.IsStrictlyInside(root, replaces) || _disk.AreSameFile(replaces, request.SourcePath))
+            {
+                return Failed($"'{replaces}' is not a file to replace inside the library root.");
+            }
+
             try
             {
                 recycled = await _recycleBin
-                    .RecycleAsync(request.ReplacesPath, root, cancellationToken)
+                    .RecycleAsync(replaces, root, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (IOException exception)
             {
                 // The old file is untouched, so the source is too: stop before anything moves.
-                return Failed($"Could not recycle '{request.ReplacesPath}': {exception.Message}");
+                return Failed($"Could not recycle '{replaces}': {exception.Message}");
             }
             catch (UnauthorizedAccessException exception)
             {
-                return Failed($"Could not recycle '{request.ReplacesPath}': {exception.Message}");
+                return Failed($"Could not recycle '{replaces}': {exception.Message}");
             }
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
+        // From here the replaced file is out of the way and has to be put back if anything fails, so
+        // the token is no longer consulted: a cancelled placement must not leave a hole in the library.
 
-        var resolved = ResolveCollision(target, request.SourcePath);
+        var resolved = ResolveCollision(target);
 
         if (resolved is null)
         {
             return Failed(
                 $"'{target}' is taken, and so is every name up to ({MaxCollisionSuffix}).",
-                recycled);
+                RollBack(recycled, replaces));
         }
 
         target = resolved;
@@ -143,7 +160,7 @@ public sealed class FilePlacer : IFilePlacer
 
         if (string.IsNullOrEmpty(directory))
         {
-            return Failed($"'{target}' has no directory to place a file in.", recycled);
+            return Failed($"'{target}' has no directory to place a file in.", RollBack(recycled, replaces));
         }
 
         List<string> createdDirectories;
@@ -154,28 +171,38 @@ public sealed class FilePlacer : IFilePlacer
         }
         catch (IOException exception)
         {
-            return Failed(exception.Message, recycled);
+            return Failed(exception.Message, RollBack(recycled, replaces));
         }
         catch (UnauthorizedAccessException exception)
         {
-            return Failed(exception.Message, recycled);
+            return Failed(exception.Message, RollBack(recycled, replaces));
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-
         TransferMode modeUsed;
+        bool hardLinked;
 
         try
         {
-            modeUsed = Transfer(request.SourcePath, target, request.Mode);
+            modeUsed = Transfer(request.SourcePath, target, request.Mode, out hardLinked);
+        }
+        catch (PlacementTransferException exception)
+        {
+            // The file reached the library and a later step failed: the target stays, and the caller
+            // decides what to do about a placed file whose download was not consumed.
+            return new PlacementResult(
+                false,
+                exception.FinalPath,
+                RollBack(recycled, replaces),
+                null,
+                exception.Message);
         }
         catch (IOException exception)
         {
-            return Failed(exception.Message, recycled);
+            return Failed(exception.Message, RollBack(recycled, replaces));
         }
         catch (UnauthorizedAccessException exception)
         {
-            return Failed(exception.Message, recycled);
+            return Failed(exception.Message, RollBack(recycled, replaces));
         }
 
         FilePlacerLog.Placed(_logger, request.SourcePath, target, modeUsed);
@@ -184,7 +211,7 @@ public sealed class FilePlacer : IFilePlacer
         // decides whether a wrongly-permissioned file is worse than a missing one.
         try
         {
-            ApplyPermissions(target, createdDirectories);
+            ApplyPermissions(target, createdDirectories, hardLinked);
         }
         catch (IOException exception)
         {
@@ -206,13 +233,10 @@ public sealed class FilePlacer : IFilePlacer
         return Path.GetFullPath(Path.Combine(request.LibraryRoot, relative + "." + request.Extension));
     }
 
-    /// <summary>
-    /// The first free name at or next to <paramref name="target"/>, or null when every suffix is
-    /// taken. A target that is already the same file as the source keeps its name.
-    /// </summary>
-    private string? ResolveCollision(string target, string source)
+    /// <summary>The first free name at or next to <paramref name="target"/>, or null when every suffix is taken.</summary>
+    private string? ResolveCollision(string target)
     {
-        if (!_disk.FileExists(target) || _disk.AreSameFile(target, source))
+        if (!_disk.FileExists(target))
         {
             return target;
         }
@@ -272,9 +296,14 @@ public sealed class FilePlacer : IFilePlacer
         return created;
     }
 
-    /// <summary>Moves, copies or links the file, and reports which of the three happened.</summary>
-    private TransferMode Transfer(string source, string target, TransferMode mode)
+    /// <summary>
+    /// Moves, copies or links the file, and reports which of the three happened.
+    /// <paramref name="hardLinked"/> is true only when the library holds the download's own inode.
+    /// </summary>
+    private TransferMode Transfer(string source, string target, TransferMode mode, out bool hardLinked)
     {
+        hardLinked = false;
+
         switch (mode)
         {
             case TransferMode.Move:
@@ -284,10 +313,30 @@ public sealed class FilePlacer : IFilePlacer
                 }
                 catch (IOException) when (!_disk.FileExists(target) && !_disk.AreSameFile(source, target))
                 {
-                    // Another device under the library (.NET normally handles EXDEV itself, the
-                    // filter above keeps the fallback) — copy first, and delete only once it landed.
+                    // Another device under the library: .NET normally handles EXDEV itself, and the
+                    // filter above keeps this fallback for the cases it does not. The filter is also
+                    // what keeps a plain "target is taken" failure from quietly copying.
                     _disk.CopyFile(source, target);
-                    _disk.DeleteFile(source);
+
+                    if (_disk.GetFileSize(target) != _disk.GetFileSize(source))
+                    {
+                        // What landed is not the download. Drop it and keep the download.
+                        _disk.DeleteFile(target);
+
+                        throw new IOException(
+                            $"Copied '{source}' to '{target}' with the wrong size; the download was kept.");
+                    }
+
+                    try
+                    {
+                        _disk.DeleteFile(source);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                    {
+                        throw new PlacementTransferException(
+                            $"Placed '{target}', but could not remove the download '{source}': {exception.Message}",
+                            target);
+                    }
                 }
 
                 return TransferMode.Move;
@@ -297,7 +346,9 @@ public sealed class FilePlacer : IFilePlacer
                 return TransferMode.Copy;
 
             case TransferMode.HardLinkOrCopy:
-                if (!_disk.TryCreateHardLink(source, target))
+                hardLinked = _disk.TryCreateHardLink(source, target);
+
+                if (!hardLinked)
                 {
                     // Another device, a file system without hard links, or Windows refusing: a copy
                     // is the answer, and the source keeps its own blocks.
@@ -311,8 +362,42 @@ public sealed class FilePlacer : IFilePlacer
         }
     }
 
+    /// <summary>
+    /// Puts a recycled file back where it came from, so a failed placement leaves the library as it
+    /// found it. Returns the bin path when the file could not go back — or null when there is
+    /// nothing left to report.
+    /// </summary>
+    private string? RollBack(string? recycled, string? replaces)
+    {
+        if (string.IsNullOrEmpty(recycled) || string.IsNullOrEmpty(replaces))
+        {
+            return recycled;
+        }
+
+        try
+        {
+            _disk.MoveFile(recycled, replaces);
+            return null;
+        }
+        catch (IOException exception)
+        {
+            return RollBackFailed(recycled, replaces, exception.Message);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            return RollBackFailed(recycled, replaces, exception.Message);
+        }
+    }
+
+    private string RollBackFailed(string recycled, string replaces, string reason)
+    {
+        FilePlacerLog.RollBackFailed(_logger, recycled, replaces, reason);
+
+        return recycled;
+    }
+
     /// <summary>Applies the configured modes to the placed file and to the folders it created.</summary>
-    private void ApplyPermissions(string target, IReadOnlyList<string> createdDirectories)
+    private void ApplyPermissions(string target, IReadOnlyList<string> createdDirectories, bool hardLinked)
     {
         var options = _options.CurrentValue;
 
@@ -321,7 +406,12 @@ public sealed class FilePlacer : IFilePlacer
             return;
         }
 
-        _disk.SetUnixFileMode(target, ImportOptions.ParseMode(options.FileMode));
+        // A hard link carries the download's own inode: a mode set here would be set on the download
+        // too, so the file keeps whatever the download gave it. The folders are Wondarr's own.
+        if (!hardLinked)
+        {
+            _disk.SetUnixFileMode(target, ImportOptions.ParseMode(options.FileMode));
+        }
 
         var folderMode = ImportOptions.ParseMode(options.FolderMode);
 
@@ -333,6 +423,13 @@ public sealed class FilePlacer : IFilePlacer
 
     private static PlacementResult Failed(string error, string? recycled = null, string? finalPath = null) =>
         new(false, finalPath, recycled, null, error);
+
+    /// <summary>The file reached the target, and the step after it failed: the target stays.</summary>
+    private sealed class PlacementTransferException(string message, string finalPath) : IOException(message)
+    {
+        /// <summary>Where the file did land.</summary>
+        internal string FinalPath { get; } = finalPath;
+    }
 }
 
 /// <summary>What the placer writes to the log. Source-generated, so a disabled log costs nothing.</summary>
@@ -343,4 +440,10 @@ internal static partial class FilePlacerLog
         Level = LogLevel.Information,
         Message = "Placed {Source} at {Target} using {Mode}")]
     internal static partial void Placed(ILogger logger, string source, string target, TransferMode mode);
+
+    /// <summary>A recycled file could not be put back after a later step failed.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Could not put the recycled file {Recycled} back at {Target}: {Reason}")]
+    internal static partial void RollBackFailed(ILogger logger, string recycled, string target, string reason);
 }

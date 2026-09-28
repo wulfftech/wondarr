@@ -39,10 +39,13 @@ public sealed class ImportOptions
     {
         ArgumentNullException.ThrowIfNull(paths);
 
-        return Path.GetFullPath(
-            string.IsNullOrWhiteSpace(RecycleBinPath)
-                ? Path.Combine(paths.ConfigDir, "recycle")
-                : RecycleBinPath);
+        // Without a trailing separator: every path built from this root is compared and walked as
+        // "inside the bin", and "recycle/" and "recycle" have to read as one place.
+        return Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(
+                string.IsNullOrWhiteSpace(RecycleBinPath)
+                    ? Path.Combine(paths.ConfigDir, "recycle")
+                    : RecycleBinPath));
     }
 
     /// <summary>Parses an octal mode string such as <c>0664</c> into a <see cref="UnixFileMode"/>.</summary>
@@ -87,6 +90,13 @@ public sealed partial class ImportOptionsValidator : IValidateOptions<ImportOpti
                 $"import.recycle_bin_cleanup_days: must be between 0 and 365 days (was '{options.RecycleBinCleanupDays}')");
         }
 
+        // A bin at the root of a volume would make the cleanup pass walk and delete the whole disk.
+        if (!string.IsNullOrWhiteSpace(options.RecycleBinPath) && IsFilesystemRoot(options.RecycleBinPath))
+        {
+            failures.Add(
+                $"import.recycle_bin_path: must not be a filesystem root (was '{options.RecycleBinPath}')");
+        }
+
         for (var index = 0; index < options.RemotePathMappings.Count; index++)
         {
             var mapping = options.RemotePathMappings[index];
@@ -105,6 +115,26 @@ public sealed partial class ImportOptionsValidator : IValidateOptions<ImportOpti
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+
+    /// <summary>Whether the configured bin is the root of a volume, such as <c>/</c> or <c>C:\</c>.</summary>
+    private static bool IsFilesystemRoot(string path)
+    {
+        try
+        {
+            var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+            return string.Equals(full, Path.GetPathRoot(full), PathRules.Comparison);
+        }
+        catch (ArgumentException)
+        {
+            // Not a path at all. The user finds that out when the bin is first used.
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private static void CheckMode(string key, string? value, List<string> failures)

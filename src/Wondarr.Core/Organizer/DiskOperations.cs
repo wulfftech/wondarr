@@ -42,7 +42,7 @@ public interface IDiskOperations
     /// <summary>Whether two paths are the same file, hard links included.</summary>
     bool AreSameFile(string first, string second);
 
-    /// <summary>Every file under <paramref name="directory"/>, recursively.</summary>
+    /// <summary>Every file under <paramref name="directory"/>, recursively, without following links.</summary>
     IEnumerable<string> EnumerateFiles(string directory);
 
     /// <summary>When the file at <paramref name="path"/> was last written, in UTC.</summary>
@@ -64,6 +64,16 @@ public sealed class DiskOperations : IDiskOperations
     /// <summary>The suffix a copy carries until it is complete.</summary>
     internal const string PartialSuffix = ".partial";
 
+    /// <summary>
+    /// How a directory walk behaves: every file below it, and symlinked directories left alone so a
+    /// link cannot lead a cleanup out of the tree it was told to look at.
+    /// </summary>
+    private static readonly EnumerationOptions Walk = new()
+    {
+        RecurseSubdirectories = true,
+        AttributesToSkip = FileAttributes.ReparsePoint,
+    };
+
     /// <inheritdoc />
     public bool FileExists(string path) => File.Exists(path);
 
@@ -82,12 +92,13 @@ public sealed class DiskOperations : IDiskOperations
     /// <inheritdoc />
     public void CopyFile(string source, string target)
     {
-        var partial = target + PartialSuffix;
-
-        File.Copy(source, partial, overwrite: true);
+        // A name of its own per attempt, so two placements into one folder never share a
+        // half-written file and a second copy never picks up a stranger's leftovers.
+        var partial = $"{target}.{Guid.NewGuid():N}{PartialSuffix}";
 
         try
         {
+            File.Copy(source, partial, overwrite: false);
             File.Move(partial, target, overwrite: false);
         }
         catch (IOException)
@@ -127,6 +138,10 @@ public sealed class DiskOperations : IDiskOperations
         {
             return false;
         }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />
@@ -159,21 +174,36 @@ public sealed class DiskOperations : IDiskOperations
             return true;
         }
 
-        if (!OperatingSystem.IsLinux()
-            || !File.Exists(firstFull)
-            || !File.Exists(secondFull)
-            || NativeMethods.Stat(firstFull, out var firstStat) != 0
-            || NativeMethods.Stat(secondFull, out var secondStat) != 0)
+        if (!OperatingSystem.IsLinux() || !File.Exists(firstFull) || !File.Exists(secondFull))
         {
             return false;
         }
 
-        return firstStat.Device == secondStat.Device && firstStat.Inode == secondStat.Inode;
+        try
+        {
+            return NativeMethods.Stat(firstFull, out var firstStat) == 0
+                && NativeMethods.Stat(secondFull, out var secondStat) == 0
+                && firstStat.Device == secondStat.Device
+                && firstStat.Inode == secondStat.Inode;
+        }
+        catch (DllNotFoundException)
+        {
+            // A platform that cannot answer: the path comparison above is the answer.
+            return false;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return false;
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />
     public IEnumerable<string> EnumerateFiles(string directory) =>
-        Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories);
+        Directory.EnumerateFiles(directory, "*", Walk);
 
     /// <inheritdoc />
     public DateTime GetLastWriteTimeUtc(string path) => File.GetLastWriteTimeUtc(path);
@@ -207,32 +237,52 @@ public sealed class DiskOperations : IDiskOperations
 }
 
 /// <summary>Path rules that differ between the platforms Wondarr runs on.</summary>
-internal static class PathRules
+public static class PathRules
 {
     /// <summary>
     /// How paths are compared: case-insensitively on Windows and macOS, whose file systems usually
     /// are, and case-sensitively elsewhere.
     /// </summary>
-    internal static StringComparison Comparison { get; } =
+    public static StringComparison Comparison { get; } =
         OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
-    /// <summary>Whether <paramref name="candidate"/> is <paramref name="root"/> or sits inside it.</summary>
-    internal static bool IsInside(string root, string candidate)
+    /// <summary>
+    /// Whether <paramref name="candidate"/> is <paramref name="root"/> or sits inside it, comparing
+    /// full paths and ignoring a trailing separator. A sibling that merely shares a prefix
+    /// (<c>/data/music2</c> under the root <c>/data/music</c>) does not count.
+    /// </summary>
+    public static bool IsInside(string root, string candidate)
     {
-        var normalizedRoot = Path.GetFullPath(root);
-        var normalizedCandidate = Path.GetFullPath(candidate);
+        var normalizedRoot = Normalize(root);
+        var normalizedCandidate = Normalize(candidate);
 
         if (string.Equals(normalizedCandidate, normalizedRoot, Comparison))
         {
             return true;
         }
 
+        // A root that is itself a separator ("/", "C:\") already ends with one.
         var prefix = normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
             ? normalizedRoot
             : normalizedRoot + Path.DirectorySeparatorChar;
 
         return normalizedCandidate.StartsWith(prefix, Comparison);
     }
+
+    /// <summary>
+    /// Sits inside <paramref name="root"/> and is not the root itself. This is what a caller with
+    /// something to delete or replace wants: the tree's own root is never the thing being acted on.
+    /// </summary>
+    public static bool IsStrictlyInside(string root, string candidate) =>
+        !AreEqual(root, candidate) && IsInside(root, candidate);
+
+    /// <summary>Whether two paths name the same place, a trailing separator aside.</summary>
+    public static bool AreEqual(string first, string second) =>
+        string.Equals(Normalize(first), Normalize(second), Comparison);
+
+    /// <summary>An absolute path without a trailing separator, so comparisons line up.</summary>
+    private static string Normalize(string path) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 }
