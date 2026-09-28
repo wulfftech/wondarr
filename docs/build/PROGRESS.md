@@ -62,7 +62,8 @@ Environment notes: no local Docker on the dev PC — container checks run on `ch
 | P1-04 | Cover art, Deezer and iTunes clients | todo | | | |
 | P1-05 | Album-policy engine | todo | | | |
 | P1-06 | Identity resolver | todo | | | |
-| P1-07 | Song add service + Song/Artist API | todo | | | |
+| P1-07 | Song add service (Core) | todo | | | |
+| P1-07b | Song/Artist/lookup/preview API | todo | | | |
 | P1-08 | Quality/profile/library API | todo | | | |
 | P1-09 | Bulk add and unresolved review | todo | | | |
 | P1-10 | Wanted, History, Blocklist API | todo | | | |

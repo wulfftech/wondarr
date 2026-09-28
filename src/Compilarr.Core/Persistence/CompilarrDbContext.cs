@@ -1,5 +1,6 @@
 using Compilarr.Core.Domain;
 using Compilarr.Core.Jobs;
+using Compilarr.Core.Metadata;
 using Microsoft.EntityFrameworkCore;
 
 namespace Compilarr.Core.Persistence;
@@ -52,6 +53,9 @@ public sealed class CompilarrDbContext : DbContext
     /// <summary>Gets the library table.</summary>
     public DbSet<Library> Libraries => Set<Library>();
 
+    /// <summary>Gets the metadata provider response cache.</summary>
+    public DbSet<MetadataCacheEntry> MetadataCache => Set<MetadataCacheEntry>();
+
     /// <summary>Gets the song lifecycle log.</summary>
     public DbSet<HistoryItem> History => Set<HistoryItem>();
 
@@ -75,6 +79,8 @@ public sealed class CompilarrDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfiguration(new MetadataCacheEntryConfiguration());
 
         modelBuilder.Entity<Setting>(entity =>
         {
