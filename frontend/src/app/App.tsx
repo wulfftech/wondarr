@@ -1,0 +1,70 @@
+import { MantineProvider } from '@mantine/core';
+import { Notifications } from '@mantine/notifications';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from 'react-router';
+import { ApiProvider } from '../api/ApiProvider';
+import type { AppConfig } from '../api/bootstrap';
+import { AppLayout } from '../components/AppLayout';
+import { ActivityPage } from '../pages/ActivityPage';
+import { LibraryPage } from '../pages/LibraryPage';
+import { NotFoundPage } from '../pages/NotFoundPage';
+import { SettingsPage } from '../pages/SettingsPage';
+import { StatusPage } from '../pages/system/StatusPage';
+import { TasksPage } from '../pages/system/TasksPage';
+import { WantedPage } from '../pages/WantedPage';
+import { theme } from '../theme/theme';
+import { useEventStream } from './signalr';
+
+const ROUTES: RouteObject[] = [
+  {
+    path: '/',
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <Navigate to="/library" replace /> },
+      { path: 'library', element: <LibraryPage /> },
+      { path: 'wanted', element: <WantedPage /> },
+      { path: 'activity', element: <ActivityPage /> },
+      { path: 'settings', element: <SettingsPage /> },
+      { path: 'system/status', element: <StatusPage /> },
+      { path: 'system/tasks', element: <TasksPage /> },
+      { path: '*', element: <NotFoundPage /> },
+    ],
+  },
+];
+
+/**
+ * The whole shell. Everything under the router reads its API client from `ApiProvider`, so no page
+ * builds a URL of its own and the URL base keeps working.
+ */
+export function App({ config }: { config: AppConfig }) {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            retry: false,
+            refetchOnWindowFocus: false,
+          },
+        },
+      }),
+  );
+
+  const router = useMemo(
+    () => createBrowserRouter(ROUTES, { basename: config.urlBase === '' ? '/' : config.urlBase }),
+    [config.urlBase],
+  );
+
+  useEventStream(config, queryClient);
+
+  return (
+    <MantineProvider theme={theme} defaultColorScheme="auto">
+      <Notifications />
+      <ApiProvider config={config}>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </ApiProvider>
+    </MantineProvider>
+  );
+}
