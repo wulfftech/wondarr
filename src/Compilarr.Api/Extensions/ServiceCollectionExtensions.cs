@@ -2,8 +2,10 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Compilarr.Api.Authentication;
+using Compilarr.Api.Frontend;
 using Compilarr.Core.Configuration;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
@@ -52,6 +54,10 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddAppAuthentication();
+
+        // One document, "v1", snapshotted by tests/Compilarr.Api.Tests/OpenApiSnapshotTests.cs.
+        services.AddOpenApi("v1", options =>
+            options.AddDocumentTransformer(new CompilarrDocumentTransformer().TransformAsync));
 
         return services;
     }
