@@ -24,7 +24,7 @@ builder.Services.AddCompilarrPersistence($"Data Source={paths.DatabaseFile}");
 builder.Services.AddCompilarrCore();
 builder.Services.AddCompilarrApi(paths);
 builder.Services.AddCompilarrFrontend();
-builder.Services.AddCompilarrSlskd();
+builder.Services.AddCompilarrSlskd(builder.Configuration);
 builder.Services.AddCompilarrYouTube();
 builder.Services.AddCompilarrTorznab();
 

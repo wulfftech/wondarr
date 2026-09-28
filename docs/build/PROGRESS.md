@@ -18,6 +18,7 @@ Updated by the orchestrator after every merged task. Status: `todo` · `in-progr
 | P0-07 | SignalR events hub | todo | | | |
 | P0-08a | SPA hosting behind the URL base + OpenAPI snapshot | done | deepseek/deepseek-v4.1-flash | ~0.12 | Three runs (turn caps). Orchestrator, verified on the running app: the catch-all SPA fallback also claimed asset paths (`/compilarr/assets/app.js` returned index.html) → `{*path:nonfile}`; renamed namespace `Compilarr.Api.System` → `SystemInfo` (it shadowed `System.*`); snapshot regenerated after merge |
 | P0-08 | Frontend shell | todo | | | |
+| P0-09a | Soulseek settings, slskd.yml rendering, client, fetch script | done | deepseek/deepseek-v4.1-flash | ~0.15 | Three runs (turn caps). Orchestrator finished: two test assertion fixes; renderer now always writes LF (YamlDotNet used CRLF on Windows, breaking the golden files after checkout); fetch script marked executable |
 | P0-09 | Bundled slskd supervisor (SlskdHost) | todo | | | |
 | P0-10 | Dockerfile, s6 init, compose | todo | | | |
 | P0-11 | CI and release workflows | todo | | | |
