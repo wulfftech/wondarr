@@ -30,6 +30,17 @@ Answers from the owner to the round-1 questions, and what each changed in this p
 | 7 | Match queue | Auto-accept above a high threshold, ask below | Unchanged (§7.6) |
 | 8 | Port | 1077 if free | **1077 adopted**: no *arr-family application uses it (Sonarr 8989, Radarr 7878, Lidarr 8686, Readarr 8787, Prowlarr 9696, Bazarr 6767, Whisparr 6969, Seerr 5055, Tautulli 8181, slskd 5030); it is above the privileged range; IANA lists 1077 for an unrelated game service, which is irrelevant on a LAN (§9.2) |
 
+### 2026-09-28 — Build session 1 (Phase 0 start)
+
+| # | Topic | Decision | Why |
+|---|---|---|---|
+| 1 | Worker model | **`deepseek/deepseek-v4.1-flash`** pinned in `.env` (`COMPILARR_WORKER_MODEL`) | Bake-off on P0-01 against `z-ai/glm-5.3-flash` and `qwen/qwen3-coder-next` (table in `docs/build/PROGRESS.md`): the only one to finish, commit and report within one continuation round, and the cheapest. Re-run the bake-off if a phase starts failing on worker quality |
+| 2 | Phase 0 budget | USD 10 of worker spend (owner), bake-off excluded (it cost USD 0.35) | Owner answer at session start |
+| 3 | Assertion library | **FluentAssertions 7.x** (7.2.2, Apache-2.0), not 8.x | FluentAssertions 8 moved to a commercial licence; 7.x keeps `CODING_STANDARDS.md` unchanged. AwesomeAssertions (MIT fork) is the drop-in if 7.x ever becomes a problem |
+| 4 | Worker cost accounting | Real cost = token usage × OpenRouter price list; the `--max-budget-usd` flag is scaled so `COMPILARR_WORKER_BUDGET_USD` means real USD | Claude Code bills unknown model ids at Opus rates (~30× over for flash models) |
+| 5 | Container test host | No Docker on the dev PC; container checks run on `ch01` over SSH with `sudo docker` (`compilarr-test`) | Owner answer; the other hosts do not accept the session's SSH key |
+| 6 | Line endings | `.gitattributes` forces LF in the working tree | s6 init scripts and `fetch-slskd.sh` break with CRLF; the dev PC has `core.autocrlf=true` |
+
 
 
 ---

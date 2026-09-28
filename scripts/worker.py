@@ -43,6 +43,15 @@ REPORTS = REPO / ".worker"
 SYSTEM_PROMPT = REPO / "docs" / "build" / "WORKER_SYSTEM_PROMPT.md"
 STANDARDS = REPO / "docs" / "build" / "CODING_STANDARDS.md"
 PROTECTED = ("CLAUDE.md", "docs/DECISIONS.md", "docs/adr/", ".claude/", ".github/workflows/", ".env", "LICENSE")
+# Bash patterns are matched per sub-command, so `cd x && dotnet build` needs both `cd` and `dotnet` allowed.
+# Read-only helpers are included because denied calls still burn a turn (see the P0-01 bake-off).
+WORKER_TOOLS = (
+    "Read", "Edit", "Write", "Grep", "Glob",
+    "Bash(dotnet *)", "Bash(npm *)", "Bash(npx *)", "Bash(node *)",
+    "Bash(cd *)", "Bash(pwd)", "Bash(ls*)", "Bash(mkdir *)", "Bash(echo *)",
+    "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)", "Bash(git add *)",
+    "Bash(git rm *)", "Bash(git mv *)", "Bash(git commit *)",
+)
 
 
 # ----------------------------------------------------------------------------- env
@@ -68,12 +77,72 @@ def env(name: str, default: str | None = None) -> str | None:
 def redact(value: str | None) -> str:
     if not value:
         return "<unset>"
-    return value[:6] + "…" + value[-4:] if len(value) > 12 else "***"
+    return value[:6] + "..." + value[-4:] if len(value) > 12 else "***"
+
+
+# ----------------------------------------------------------------------------- pricing
+# Claude Code prices model ids it does not recognise at Opus rates (USD per token), so its
+# total_cost_usd and --max-budget-usd are inflated for OpenRouter models. We compute real cost
+# from token usage and OpenRouter's price list, and scale the budget flag so the .env cap means real USD.
+CLAUDE_UNKNOWN_RATES = {"prompt": 5e-6, "completion": 25e-6, "input_cache_read": 0.5e-6, "input_cache_write": 6.25e-6}
+
+
+def openrouter_pricing(model: str) -> dict[str, float] | None:
+    try:
+        with urllib.request.urlopen("https://openrouter.ai/api/v1/models", timeout=60) as resp:
+            models = json.loads(resp.read().decode("utf-8"))["data"]
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+        return None
+    for m in models:
+        if m.get("id") == model:
+            return {k: float(v) for k, v in (m.get("pricing") or {}).items() if _is_number(v)}
+    return None
+
+
+def _is_number(value: object) -> bool:
+    try:
+        float(value)  # type: ignore[arg-type]
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def budget_scale(model: str, pricing: dict[str, float] | None) -> float:
+    """Factor by which Claude Code over-counts this model, so real spend stays within the cap."""
+    if pricing is None or "claude" in model or "anthropic" in model:
+        return 1.0
+    ratios = [CLAUDE_UNKNOWN_RATES[k] / pricing[k] for k in CLAUDE_UNKNOWN_RATES if pricing.get(k, 0) > 0]
+    return max(1.0, min(ratios)) if ratios else 1.0
+
+
+def real_cost(model_usage: dict, pricing: dict[str, float] | None) -> float | None:
+    if pricing is None or not model_usage:
+        return None
+    total = 0.0
+    for usage in model_usage.values():
+        write_rate = pricing.get("input_cache_write") or pricing.get("prompt", 0)
+        total += usage.get("inputTokens", 0) * pricing.get("prompt", 0)
+        total += usage.get("outputTokens", 0) * pricing.get("completion", 0)
+        total += usage.get("cacheReadInputTokens", 0) * (pricing.get("input_cache_read") or pricing.get("prompt", 0))
+        total += usage.get("cacheCreationInputTokens", 0) * write_rate
+    return round(total, 4)
+
+
+def openrouter_key_usage() -> float | None:
+    key = env("OPENROUTER_API_KEY")
+    if not key:
+        return None
+    req = urllib.request.Request("https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return float(json.loads(resp.read().decode("utf-8"))["data"]["usage"])
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+        return None
 
 
 # ----------------------------------------------------------------------------- git
 def git(*args: str, cwd: Path = REPO, check: bool = True) -> str:
-    result = subprocess.run(["git", *args], cwd=str(cwd), text=True, capture_output=True)
+    result = subprocess.run(["git", *args], cwd=str(cwd), text=True, encoding="utf-8", errors="replace", capture_output=True)
     if check and result.returncode != 0:
         raise SystemExit(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
     return result.stdout.strip()
@@ -149,7 +218,10 @@ def build_prompt(task_file: Path, continue_note: str | None) -> str:
         f"Implement the task in `{task_rel}`. Work only inside this worktree.",
         f"Before writing code, read the task file, `{STANDARDS.relative_to(REPO)}`, and the docs it references.",
         "Protected paths you must not modify: " + ", ".join(PROTECTED) + ".",
-        "When finished, commit on the current branch and print the done-report.",
+        "Your turn budget is small. Your working directory is already the worktree root: use relative paths and "
+        "never `cd` to an absolute path. Issue independent tool calls (reads, writes) in parallel in one turn. "
+        "You have no network tools: use the package versions the task gives; do not look versions up.",
+        "Commit as soon as the build and tests are green (a partial commit beats none), then print the done-report.",
     ]
     if continue_note:
         parts.insert(0, f"CONTINUATION of a previous run on this task. Address exactly this feedback first:\n{continue_note}\n")
@@ -160,33 +232,38 @@ def run_worker(args: argparse.Namespace) -> int:
     task_file = Path(args.task).resolve()
     if not task_file.exists():
         raise SystemExit(f"task file not found: {task_file}")
-    task_id = task_id_from(task_file)
+    task_id = args.id or task_id_from(task_file)
     provider = (env("COMPILARR_WORKER_PROVIDER", "openrouter") or "openrouter").lower()
     model = args.model or env("COMPILARR_WORKER_MODEL") or ("haiku" if provider == "anthropic" else None)
     if not model:
         raise SystemExit("COMPILARR_WORKER_MODEL is not set (pin it in .env after the bake-off)")
     max_turns = args.max_turns or int(env("COMPILARR_WORKER_MAX_TURNS", "25") or 25)
     timeout_min = int(env("COMPILARR_WORKER_TIMEOUT_MIN", "20") or 20)
-    budget = env("COMPILARR_WORKER_BUDGET_USD", "2.00")
+    budget = float(env("COMPILARR_WORKER_BUDGET_USD", "2.00") or 2.0)
+    pricing = openrouter_pricing(model) if provider == "openrouter" else None
+    scale = budget_scale(model, pricing)
     worktree = ensure_worktree(task_id, task_file, args.dry_run)
     claude = find_claude()
     cmd = [
         claude or "claude", "-p", build_prompt(task_file, args.continue_note),
         "--output-format", "json",
         "--max-turns", str(max_turns),
-        "--max-budget-usd", str(budget),
+        "--max-budget-usd", f"{budget * scale:.2f}",
         "--permission-mode", "acceptEdits",
-        "--allowedTools", "Read,Edit,Write,Grep,Glob,Bash(dotnet *),Bash(npm *),Bash(git status*),Bash(git diff*),Bash(git add *),Bash(git commit *)",
+        "--allowedTools", ",".join(WORKER_TOOLS),
+        # the worktree has no .env (git-ignored); keep the main checkout's secrets out of reach too
+        "--disallowedTools", f"Read(//{REPO.drive[:1].lower()}{REPO.as_posix()[len(REPO.drive):]}/.env*)",
         "--append-system-prompt-file", str(SYSTEM_PROMPT),
         "--no-session-persistence",
     ]
     if provider == "anthropic":
         cmd += ["--model", model]
     e = worker_env(provider, model)
-    print(f"[worker] task={task_id} provider={provider} model={model} turns={max_turns} budget=${budget} timeout={timeout_min}m")
+    print(f"[worker] task={task_id} provider={provider} model={model} turns={max_turns} budget=${budget:.2f} "
+          f"(claude flag x{scale:.1f}) timeout={timeout_min}m")
     print(f"[worker] base_url={e.get('ANTHROPIC_BASE_URL', '<claude default>')} key={redact(e.get('ANTHROPIC_API_KEY'))}")
     if args.dry_run:
-        print("[worker] dry run — command:")
+        print("[worker] dry run - command:")
         print("  " + " ".join(repr(c) if " " in c else c for c in cmd))
         return 0
     if not claude:
@@ -195,19 +272,32 @@ def run_worker(args: argparse.Namespace) -> int:
     out_dir = REPORTS / task_id
     out_dir.mkdir(exist_ok=True)
     started = _dt.datetime.now()
+    usage_before = openrouter_key_usage() if provider == "openrouter" else None
     try:
-        result = subprocess.run(cmd, cwd=str(worktree), env=e, text=True, capture_output=True, timeout=timeout_min * 60)
+        result = subprocess.run(cmd, cwd=str(worktree), env=e, text=True, encoding="utf-8", errors="replace",
+                                capture_output=True, timeout=timeout_min * 60)
     except subprocess.TimeoutExpired:
         (out_dir / "report.md").write_text(f"TIMEOUT after {timeout_min} minutes\n", encoding="utf-8")
         print(f"[worker] TIMEOUT after {timeout_min} minutes; worktree kept at {worktree}")
         return 124
-    (out_dir / "stdout.json").write_text(result.stdout, encoding="utf-8")
-    (out_dir / "stderr.txt").write_text(result.stderr, encoding="utf-8")
-    report_text, cost, turns = extract_report(result.stdout)
-    (out_dir / "report.md").write_text(report_text, encoding="utf-8")
+    run_no = len(list(out_dir.glob("stdout*.json"))) + 1
+    suffix = "" if run_no == 1 else f".{run_no}"
+    (out_dir / f"stdout{suffix}.json").write_text(result.stdout, encoding="utf-8")
+    (out_dir / f"stderr{suffix}.txt").write_text(result.stderr, encoding="utf-8")
+    report_text, cost, turns, model_usage = extract_report(result.stdout)
+    (out_dir / f"report{suffix}.md").write_text(report_text, encoding="utf-8")
     elapsed = (_dt.datetime.now() - started).total_seconds() / 60
+    usd = real_cost(model_usage, pricing) if provider == "openrouter" else (float(cost) if _is_number(cost) else None)
+    usage_after = openrouter_key_usage() if provider == "openrouter" else None
+    key_delta = round(usage_after - usage_before, 4) if usage_before is not None and usage_after is not None else None
+    summary = {"task": task_id, "run": run_no, "model": model, "exit": result.returncode, "turns": turns,
+               "elapsed_min": round(elapsed, 1), "cost_usd": usd, "claude_reported_cost": cost,
+               "key_usage_delta_usd": key_delta, "continue": bool(args.continue_note)}
+    with (out_dir / "runs.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(summary) + "\n")
     changed = git("diff", "--name-only", "main...HEAD", cwd=worktree, check=False) or "(no committed changes yet)"
-    print(f"[worker] exit={result.returncode} cost=${cost} turns={turns} elapsed={elapsed:.1f}m")
+    print(f"[worker] exit={result.returncode} cost=${usd} (claude-reported ${cost}; key delta ${key_delta}, "
+          f"includes any parallel runs) turns={turns} elapsed={elapsed:.1f}m")
     print(f"[worker] files changed vs main:\n{changed}")
     print(f"[worker] report: {out_dir / 'report.md'}")
     protected_hits = [p for p in changed.splitlines() if any(p.startswith(x.rstrip('/')) for x in PROTECTED)]
@@ -216,16 +306,18 @@ def run_worker(args: argparse.Namespace) -> int:
     return result.returncode
 
 
-def extract_report(stdout: str) -> tuple[str, str, str]:
+def extract_report(stdout: str) -> tuple[str, str, str, dict]:
     """Best-effort extraction from `claude -p --output-format json` output."""
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError:
-        return stdout, "?", "?"
-    text = data.get("result") if isinstance(data, dict) else None
-    cost = str(data.get("total_cost_usd", data.get("cost_usd", "?"))) if isinstance(data, dict) else "?"
-    turns = str(data.get("num_turns", "?")) if isinstance(data, dict) else "?"
-    return (text or json.dumps(data, indent=2)), cost, turns
+        return stdout, "?", "?", {}
+    if not isinstance(data, dict):
+        return json.dumps(data, indent=2), "?", "?", {}
+    text = data.get("result")
+    cost = str(data.get("total_cost_usd", data.get("cost_usd", "?")))
+    turns = str(data.get("num_turns", "?"))
+    return (text or json.dumps(data, indent=2)), cost, turns, data.get("modelUsage") or {}
 
 
 # ----------------------------------------------------------------------------- single-shot API modes
@@ -316,6 +408,7 @@ def main() -> int:
     p_run.add_argument("task")
     p_run.add_argument("--max-turns", type=int)
     p_run.add_argument("--continue", dest="continue_note", help="feedback for a continuation run on the same task")
+    p_run.add_argument("--id", help="override the task id (worktree/report name), e.g. to run one task with several models")
     p_api = sub.add_parser("api", help="single-shot OpenRouter call, no tools")
     p_api.add_argument("task")
     p_api.add_argument("--files", nargs="*")

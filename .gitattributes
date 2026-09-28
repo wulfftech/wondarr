@@ -1,0 +1,12 @@
+# LF everywhere in the working tree, whatever core.autocrlf says: the image's s6 init
+# scripts and scripts/*.sh break with CRLF, and Linux CI builds from the same files.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.flac binary
+*.mp3 binary
+*.m4a binary
+*.opus binary
+*.torrent binary
