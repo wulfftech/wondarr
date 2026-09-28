@@ -32,12 +32,13 @@ public sealed class AuthenticationController : Controller
     [HttpGet("login")]
     public async Task<IActionResult> LoginForm(
         [FromQuery] bool loginFailed,
+        [FromQuery] string? returnUrl,
         CancellationToken cancellationToken)
     {
         var configured = await _credentials.IsConfiguredAsync(cancellationToken).ConfigureAwait(false);
 
         return Content(
-            LoginPage.Render(_serverOptions.CurrentValue.UrlBase, loginFailed, configured),
+            LoginPage.Render(_serverOptions.CurrentValue.UrlBase, loginFailed, configured, Url.IsLocalUrl(returnUrl) ? returnUrl : null),
             "text/html; charset=utf-8");
     }
 
