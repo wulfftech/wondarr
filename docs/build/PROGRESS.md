@@ -70,11 +70,35 @@ Environment notes: no local Docker on the dev PC — container checks run on `ch
 | P1-10 | Wanted, History, Blocklist API | done | deepseek/deepseek-v4.1-flash | ~0.06 | One run; hit the turn cap before committing, tree green — committed by the orchestrator instead of a paid continuation. Migration regenerated after AddMetadataCache; snapshot refreshed. A pre-existing test race surfaced here: test hosts called `SqliteConnection.ClearAllPools()`, disposing other parallel tests' connections (~1 in 5 runs) → each clears only its own pool |
 | P1-11 | Frontend: songs, add, paste, unresolved | done | deepseek/deepseek-v4.1-flash | ~0.48 | One run, all 100 turns, 50/52 tests green (two shell tests still expected the Phase 0 placeholder). Checked in a real browser (Playwright) against the running app and live services: search/preview/add/paste/unresolved/Library/Wanted/Settings work; two bugs found and fixed with regression tests — the top ISRC-bridged search result had no Deezer id/ISRC so its preview was disabled, and the paste summary counts were read once while pending and never refreshed. Nit left: version-flag badges show wire names (`radio_edit`) |
 | P1-12 | Frontend: Wanted, Activity, Profiles, Library | done | deepseek/deepseek-v4.1-flash | ~0.11 | Two runs (cap both times). Orchestrator: `ResizeObserver` stub in the test setup (Mantine needs one, jsdom has none); the shared fetch mock now records the method/headers of the `Request` openapi-fetch passes — two tests were asserting on calls they could never see |
-| P1-13 | Phase 1 gate automation | in-progress | orchestrator | — | `tests/gate/phase1-songs.txt` (50 lines) + iTunes duration reference, `scripts/metadata-replay.py`, `scripts/phase1-gate.py`, smoke-test wiring; first live recording run was stopped by Claude Code for low system memory — waiting for the owner's go-ahead to rerun |
+| P1-13 | Phase 1 gate automation | done | orchestrator | — | `tests/gate/phase1-songs.txt` (50 lines) + independent iTunes duration reference, `scripts/metadata-replay.py` (record/replay, gzipped), `scripts/phase1-gate.py`, smoke-test + CI wiring, `metadata.musicbrainz_mirror_interval_ms`. The image build did not copy `.editorconfig` (analyzer severities differed from the repo build) — fixed in the Dockerfile |
 
 **Spend so far (2026-09-28): USD 1.69** by the OpenRouter key counter (3.16 now − 1.47 at the end of Phase 0); per-task figures are apportioned estimates. Workers ran at 50 turns / 30 min until P1-07b, then at 100 turns / 60 min (owner request).
 
 Phase 1 gate (from `PHASES.md`): a pasted list of 50 songs resolves ≥ 90 % to MB recordings with correct durations and cover art; the rest resolve via Deezer or land in an "unresolved" review state; every song has an album assignment under the library's policy.
+
+### Phase 1 gate — PASS (2026-09-28)
+
+Live, against MusicBrainz, Cover Art Archive, Deezer and iTunes (local app behind the recording proxy, 363 s at 1 req/s):
+
+```
+ok   BulkAddSongs completed in 363 s: 50 lines: 50 added, 0 already in the library, 0 unresolved, 0 skipped
+MB with correct duration and cover: 48/50 (96%); Deezer only: 1; unresolved: 0
+PHASE 1 GATE: PASS
+```
+
+The one MusicBrainz miss is "Robyn - Dancing On My Own" (the 218 s edit instead of the 287 s album version: Deezer has no reference for it); "Rosalía - Malamente" resolved via Deezer. Every song got an album assignment (with 50 different artists and `min_tracks_per_real_album` 2, each lands in its artist's Singles album, as the `fewest_albums` policy says). The recording replays in CI inside the built image, together with the Phase 0 gate (`scripts/smoke-test.sh`, run 36443741783):
+
+```
+PHASE 0 GATE: PASS (compilarr:ci)
+ok   BulkAddSongs completed in 18 s: 50 lines: 50 added, 0 already in the library, 0 unresolved, 0 skipped
+MB with correct duration and cover: 48/50 (96%); Deezer only: 1; unresolved: 0
+ok   every metadata request was answered from the recording
+PHASE 1 GATE: PASS (compilarr:ci, metadata: replay)
+```
+
+The same `scripts/smoke-test.sh` passed on the test host `ch01` against the published multi-arch image `ghcr.io/wulfftech/compilarr:develop` (pulled anonymously — the package is public), digest `sha256:f2d3b658…`.
+
+The UI was checked in a real browser (Playwright) against the running app with live services: Add songs (search, preview, add, paste with progress), Unresolved review, Library, Wanted, Settings.
 
 ## Worker bake-off (2026-09-28)
 
