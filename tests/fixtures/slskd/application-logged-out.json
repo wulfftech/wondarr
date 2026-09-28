@@ -1,0 +1,15 @@
+{
+  "version": {
+    "current": "0.26.0.0"
+  },
+  "server": {
+    "isLoggedIn": false,
+    "isConnected": false,
+    "state": "Disconnected"
+  },
+  "pendingRestart": true,
+  "pendingReconnect": true,
+  "user": {
+    "username": ""
+  }
+}

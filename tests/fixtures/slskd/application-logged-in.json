@@ -1,0 +1,15 @@
+{
+  "version": {
+    "current": "0.26.0.0"
+  },
+  "server": {
+    "isLoggedIn": true,
+    "isConnected": true,
+    "state": "Connected, LoggedIn"
+  },
+  "pendingRestart": false,
+  "pendingReconnect": false,
+  "user": {
+    "username": "compilarr-test"
+  }
+}
