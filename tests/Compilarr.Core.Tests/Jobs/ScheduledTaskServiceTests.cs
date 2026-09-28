@@ -254,7 +254,7 @@ public class ScheduledTaskServiceTests
             await _provider.DisposeAsync();
 
             // Windows keeps the file handle until the pooled connections are gone.
-            SqliteConnection.ClearAllPools();
+            SqliteConnection.ClearPool(new SqliteConnection($"Data Source={Path.Combine(_directory, "compilarr.db")}"));
 
             if (Directory.Exists(_directory))
             {

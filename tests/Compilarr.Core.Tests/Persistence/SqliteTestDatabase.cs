@@ -35,7 +35,7 @@ internal sealed class SqliteTestDatabase : IDisposable
     /// <summary>Reads the first column of every row returned by <paramref name="sql"/> on a fresh connection.</summary>
     public async Task<List<string>> ReadStringsAsync(string sql)
     {
-        SqliteConnection.ClearAllPools();
+        SqliteConnection.ClearPool(new SqliteConnection($"Data Source={FilePath}"));
 
         await using var connection = new SqliteConnection($"Data Source={FilePath}");
         await connection.OpenAsync();
@@ -56,7 +56,7 @@ internal sealed class SqliteTestDatabase : IDisposable
     public void Dispose()
     {
         // Windows keeps the file handle until the pooled connections are gone.
-        SqliteConnection.ClearAllPools();
+        SqliteConnection.ClearPool(new SqliteConnection($"Data Source={FilePath}"));
 
         if (Directory.Exists(_directory))
         {

@@ -94,7 +94,7 @@ public sealed class CompilarrAppFactory : WebApplicationFactory<Program>
         if (disposing)
         {
             // Pooled SQLite connections keep compilarr.db open on Windows until the pool is cleared.
-            SqliteConnection.ClearAllPools();
+            SqliteConnection.ClearPool(new SqliteConnection($"Data Source={Path.Combine(ConfigDir, "compilarr.db")}"));
 
             if (Directory.Exists(ConfigDir))
             {

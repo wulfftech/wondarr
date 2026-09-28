@@ -50,7 +50,22 @@ public sealed class RequestSpacingGate
         }
 
         return delay > TimeSpan.Zero
-            ? new ValueTask(Task.Delay(delay, _timeProvider, cancellationToken))
+            ? new ValueTask(WaitUntilAsync(now + delay, cancellationToken))
             : ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Waits until the clock reaches <paramref name="slot"/>. Timers run on the millisecond tick
+    /// count, which on Windows advances in ~15.6 ms steps, so a delay can end up to one step early by
+    /// the precise clock; check again and wait out the remainder rather than start early.
+    /// </summary>
+    private async Task WaitUntilAsync(DateTimeOffset slot, CancellationToken cancellationToken)
+    {
+        var remaining = slot - _timeProvider.GetUtcNow();
+        while (remaining > TimeSpan.Zero)
+        {
+            await Task.Delay(remaining, _timeProvider, cancellationToken).ConfigureAwait(false);
+            remaining = slot - _timeProvider.GetUtcNow();
+        }
     }
 }
