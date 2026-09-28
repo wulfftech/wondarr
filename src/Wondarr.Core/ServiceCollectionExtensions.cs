@@ -8,6 +8,7 @@ using Wondarr.Core.History;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
+using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -48,7 +49,19 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
+
+        // The media tools only answer once per process (MediaToolAvailability caches), so both it and
+        // the check that reads it are singletons like the folder checks.
+        services.AddSingleton<IHealthCheck, MediaToolsHealthCheck>();
         services.AddSingleton<HealthCheckService>();
+
+        // What the import pipeline asks of a downloaded file: what is it, does it decode, and what is
+        // its fingerprint. Their options (binary paths, timeout, decode check) are bound by
+        // AddWondarrMetadata, because AddWondarrCore has no IConfiguration to bind from.
+        services.AddSingleton<IProcessRunner, ProcessRunner>();
+        services.AddSingleton<IMediaProbe, MediaProbe>();
+        services.AddSingleton<IFingerprinter, Fingerprinter>();
+        services.AddSingleton<MediaToolAvailability>();
 
         services.AddSingleton<IEventAggregator, EventAggregator>();
 

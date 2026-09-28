@@ -5,6 +5,7 @@ using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.ITunes;
+using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -60,6 +61,14 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IValidateOptions<MetadataOptions>, MetadataOptionsValidator>();
         services.AddSingleton<IPostConfigureOptions<MetadataOptions>, MetadataOptionsPostConfigure>();
+
+        // The media tools section is bound here rather than in AddWondarrCore because that method takes
+        // no IConfiguration; MediaToolsOptions is registered exactly like MetadataOptions above.
+        services.AddOptions<MediaToolsOptions>()
+            .Bind(configuration.GetSection("Media"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<MediaToolsOptions>, MediaToolsOptionsValidator>();
 
         services.AddSingleton<IMetadataCache, MetadataCache>();
 
