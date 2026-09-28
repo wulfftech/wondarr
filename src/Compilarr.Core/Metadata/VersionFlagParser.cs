@@ -50,6 +50,9 @@ public static class VersionFlagParser
         @"\bfrom\s+[""'“”‘’]",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+    /// <summary>"album version" in a disambiguation: the canonical album take, whatever else it says.</summary>
+    private static readonly Regex AlbumVersionRegex = new(@"\balbum\s+version\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     /// <summary>A <c>&lt;4-digit year&gt; mix</c> — neutral, never a remix.</summary>
     private static readonly Regex NeutralYearMixRegex = new(@"\b\d{4}\s+mix\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
@@ -60,7 +63,7 @@ public static class VersionFlagParser
 
     /// <summary>Words that make a following <c>mix</c> neutral rather than a remix.</summary>
     private static readonly string[] NeutralMixPrefixes =
-        ["original", "radio", "extended", "mono", "stereo", "album", "single"];
+        ["original", "radio", "extended", "mono", "stereo", "album", "single", "studio"];
 
     /// <summary>
     /// The keyword table: a run of words → the flags it produces. A rule with
@@ -148,6 +151,7 @@ public static class VersionFlagParser
         new(["album", "mix"], VersionFlags.None),
         new(["single", "version"], VersionFlags.None),
         new(["single", "mix"], VersionFlags.None),
+        new(["studio", "mix"], VersionFlags.None),
         new(["mono", "version"], VersionFlags.None),
         new(["mono", "mix"], VersionFlags.None),
         new(["stereo", "version"], VersionFlags.None),
@@ -220,8 +224,17 @@ public static class VersionFlagParser
         if (!string.IsNullOrWhiteSpace(disambiguation))
         {
             var segment = Classify(disambiguation, isDisambiguation: true);
-            flags |= segment.Flags;
-            if (segment.Flags != VersionFlags.None)
+            var disambiguationFlags = segment.Flags;
+
+            // MusicBrainz marks some canonical album takes as live recordings ("live, 1983-08-03: First
+            // Avenue …, with overdubs; album version" is Purple Rain itself): the album version wins.
+            if (AlbumVersionRegex.IsMatch(disambiguation))
+            {
+                disambiguationFlags &= ~VersionFlags.Live;
+            }
+
+            flags |= disambiguationFlags;
+            if (disambiguationFlags != VersionFlags.None)
             {
                 hints.Add(disambiguation.Trim());
             }

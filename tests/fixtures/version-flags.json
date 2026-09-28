@@ -73,5 +73,9 @@
   { "title": "Under Pressure", "secondaryTypes": ["Remix"], "flags": ["remix"], "baseTitle": "Under Pressure" },
   { "title": "Under Pressure", "secondaryTypes": ["DJ-mix"], "flags": ["remix"], "baseTitle": "Under Pressure" },
   { "title": "Under Pressure", "secondaryTypes": ["Demo"], "flags": ["demo"], "baseTitle": "Under Pressure" },
-  { "title": "Under Pressure", "secondaryTypes": ["Compilation", "Soundtrack"], "flags": [], "baseTitle": "Under Pressure" }
+  { "title": "Under Pressure", "secondaryTypes": ["Compilation", "Soundtrack"], "flags": [], "baseTitle": "Under Pressure" },
+  { "title": "Here Comes the Sun", "disambiguation": "original studio mix", "flags": [], "baseTitle": "Here Comes the Sun" },
+  { "title": "Here Comes the Sun (Studio Mix)", "flags": [], "baseTitle": "Here Comes the Sun" },
+  { "title": "Purple Rain", "disambiguation": "live, 1983-08-03: First Avenue, Minneapolis, MN, USA, with overdubs; album version", "flags": [], "baseTitle": "Purple Rain" },
+  { "title": "Purple Rain", "disambiguation": "live, 1985-03-30: Carrier Dome, Syracuse, NY, USA", "flags": ["live"], "baseTitle": "Purple Rain" }
 ]

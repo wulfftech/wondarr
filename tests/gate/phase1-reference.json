@@ -401,7 +401,9 @@
    "trackName": "So What",
    "collection": "Kind of Blue",
    "durationMs": 547983
-  }
+  },
+  "toleranceMs": 20000,
+  "note": "Kind of Blue side one was speed-corrected in the 1997 reissue: iTunes carries the corrected 9:08, MusicBrainz' original recording 9:22-9:24; both are the same recording."
  },
  {
   "line": "Johnny Cash - Hurt",
