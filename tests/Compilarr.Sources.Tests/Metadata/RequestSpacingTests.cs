@@ -77,6 +77,13 @@ public sealed class RequestSpacingTests
             .Should().ThrowAsync<OperationCanceledException>();
     }
 
+    /// <summary>
+    /// The gate spaces the moments requests leave it; the stub stamps them one handler hop later, and
+    /// under a loaded test run that hop can take a few milliseconds longer for the first request than
+    /// for the second. 50 ms of slack still tells a gated retry (~1 s) from an ungated one (10 ms).
+    /// </summary>
+    private static readonly TimeSpan GatedGap = TimeSpan.FromMilliseconds(950);
+
     [Fact]
     public async Task Pipeline_honours_retry_after_and_returns_the_retried_result()
     {
@@ -96,7 +103,7 @@ public sealed class RequestSpacingTests
         recording!.Length.Should().Be(355106);
 
         handler.Timestamps.Should().HaveCount(2);
-        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(1));
+        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(GatedGap);
     }
 
     [Fact]
@@ -114,7 +121,7 @@ public sealed class RequestSpacingTests
         await client.GetRecordingAsync(BohemianRhapsodyId);
 
         handler.Timestamps.Should().HaveCount(2);
-        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(1));
+        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(GatedGap);
     }
 
     private static ServiceProvider BuildProvider(HttpMessageHandler primaryHandler, TimeSpan retryBaseDelay)

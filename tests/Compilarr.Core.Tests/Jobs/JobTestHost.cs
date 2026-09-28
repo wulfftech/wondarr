@@ -97,7 +97,8 @@ internal sealed class JobTestHost : IAsyncDisposable
         await _provider.DisposeAsync();
 
         // Windows keeps the file handle until the pooled connections are gone.
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearPool(
+            new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_directory, "compilarr.db")}"));
 
         if (Directory.Exists(_directory))
         {

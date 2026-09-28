@@ -191,7 +191,7 @@ public class JobTableUpdaterTests
         {
             await _provider.DisposeAsync();
 
-            SqliteConnection.ClearAllPools();
+            SqliteConnection.ClearPool(new SqliteConnection($"Data Source={Path.Combine(_directory, "compilarr.db")}"));
 
             if (Directory.Exists(_directory))
             {
