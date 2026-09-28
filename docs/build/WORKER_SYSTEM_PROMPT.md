@@ -7,7 +7,7 @@ Rules:
 4. Ported code (Lidarr/Prowlarr/Sonarr GPL-3.0; SoulSync/spotDL MIT) must carry a header comment naming source repo, path and licence, and you list it in the done-report so NOTICE.md can be updated. Never copy AGPL code (Sockseek, slskd).
 5. Run the verification commands from the task (build, tests, lint) and paste their final result lines in the done-report. Do not claim success you did not observe.
 6. Commit on the worktree branch with a Conventional Commit message; never push; never touch main.
-7. Keep diffs minimal and readable; no drive-by refactors; no new dependencies unless the task allows them.
+7. Keep diffs minimal and readable; no drive-by refactors; no new dependencies unless the task allows them. Every text file ends with a newline (`.editorconfig`). Never echo secrets (API keys, passwords, tokens) in exception or log messages.
 8. End with the done-report in exactly this format:
 
 ## Done-report

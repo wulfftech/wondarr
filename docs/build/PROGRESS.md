@@ -4,13 +4,13 @@ Updated by the orchestrator after every merged task. Status: `todo` · `in-progr
 
 ## Phase 0 — Repository and skeleton
 
-**Budget:** USD 10 of worker spend (owner, 2026-09-28), excluding the bake-off. **Spent:** see the cost column; costs are real OpenRouter USD from token usage × OpenRouter prices (`.worker/<id>/runs.jsonl`), cross-checked against the key's usage counter.
+**Budget:** USD 10 of worker spend (owner, 2026-09-28), excluding the bake-off. **Spent:** see the cost column. The OpenRouter key's usage counter is the ground truth (token × list-price estimates in `.worker/<id>/runs.jsonl` run ~5× low for DeepSeek because OpenRouter routes to pricier providers); per-task figures apportion the counter's deltas across tasks that ran in parallel.
 
 | Task | Title | Status | Worker model | Cost (USD) | Notes |
 |---|---|---|---|---|---|
 | P0-01 | Solution skeleton and build props | done | deepseek/deepseek-v4.1-flash | 0.02 | Bake-off winner (2 runs: the first hit the 25-turn cap). Orchestrator fix: FluentAssertions 8 → 7.2.2 (8.x is commercially licensed), `global.json` 10.0.101 → 10.0.100, final newlines |
-| P0-02 | Configuration loading | todo | | | |
-| P0-03 | Persistence (EF Core + SQLite + migrations) | todo | | | |
+| P0-02 | Configuration loading | done | deepseek/deepseek-v4.1-flash | ~0.08 | One run, all criteria met. Orchestrator fixes: validator no longer echoes an invalid API key; unused DataAnnotations package dropped; enum values written camelCase |
+| P0-03 | Persistence (EF Core + SQLite + migrations) | done | deepseek/deepseek-v4.1-flash | ~0.09 | Two runs (turn cap). Orchestrator: UTC `DateTime` converter + test; wired into `Program.cs`; shared `CompilarrAppFactory` for API tests (SQLite pool clearing on Windows) |
 | P0-04 | Auth, URL base, ping/status/health | todo | | | |
 | P0-04b | System status and health checks | todo | | | Split out of P0-04 |
 | P0-05 | Logging with redaction | todo | | | |
