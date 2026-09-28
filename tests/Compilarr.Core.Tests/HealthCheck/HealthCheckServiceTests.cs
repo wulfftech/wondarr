@@ -83,7 +83,52 @@ public class HealthCheckServiceTests
         results.Select(result => result.Source).Should().ContainInOrder("First", "Second", "Third");
     }
 
-    private static HealthCheckService CreateService(TimeProvider timeProvider, params IHealthCheck[] checks)
+    [Fact]
+    public async Task A_real_run_publishes_the_completion_event_once()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var aggregator = new RecordingEventAggregator();
+        using var service = CreateService(timeProvider, aggregator, new StubHealthCheck("Counter"));
+
+        await service.GetResultsAsync(forceRefresh: false, cancellationToken: CancellationToken.None);
+
+        aggregator.Completed.Should().ContainSingle();
+        aggregator.Completed[0].Results.Should().ContainSingle().Which.Source.Should().Be("Counter");
+    }
+
+    [Fact]
+    public async Task A_cached_read_publishes_nothing()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var aggregator = new RecordingEventAggregator();
+        using var service = CreateService(timeProvider, aggregator, new StubHealthCheck("Counter"));
+
+        await service.GetResultsAsync(forceRefresh: false, cancellationToken: CancellationToken.None);
+        await service.GetResultsAsync(forceRefresh: false, cancellationToken: CancellationToken.None);
+
+        aggregator.Completed.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_forced_refresh_publishes_again()
+    {
+        var timeProvider = new FakeTimeProvider();
+        var aggregator = new RecordingEventAggregator();
+        using var service = CreateService(timeProvider, aggregator, new StubHealthCheck("Counter"));
+
+        await service.GetResultsAsync(forceRefresh: false, cancellationToken: CancellationToken.None);
+        await service.GetResultsAsync(forceRefresh: true, cancellationToken: CancellationToken.None);
+
+        aggregator.Completed.Should().HaveCount(2);
+    }
+
+    private static HealthCheckService CreateService(TimeProvider timeProvider, params IHealthCheck[] checks) =>
+        CreateService(timeProvider, new RecordingEventAggregator(), checks);
+
+    private static HealthCheckService CreateService(
+        TimeProvider timeProvider,
+        RecordingEventAggregator aggregator,
+        params IHealthCheck[] checks)
     {
         var services = new ServiceCollection();
         foreach (var check in checks)
@@ -94,6 +139,7 @@ public class HealthCheckServiceTests
         return new(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
             timeProvider,
+            aggregator,
             NullLogger<HealthCheckService>.Instance);
     }
 }
