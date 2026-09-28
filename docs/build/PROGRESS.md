@@ -50,6 +50,28 @@ The UI was also checked in a real browser under `/compilarr` (status page, healt
 
 Environment notes: no local Docker on the dev PC — container checks run on `ch01.ad.wulff.com.au` over SSH (`sudo docker`, container name `compilarr-test`), per the owner. Node upgraded to 24.19.0 LTS for the frontend.
 
+## Phase 1 — Song identity and the Wanted list
+
+**Budget:** USD 10 of worker spend (owner, 2026-09-28). Plan and dependencies: `docs/build/PHASE_1_TASKS.md`. Costs from the OpenRouter key counter, apportioned across parallel runs.
+
+| Task | Title | Status | Worker model | Cost (USD) | Notes |
+|---|---|---|---|---|---|
+| P1-01 | Domain model, quality seeds, default profiles | todo | | | |
+| P1-02 | MusicBrainz client, request spacing, metadata cache | todo | | | |
+| P1-03 | Version-flag parser | todo | | | |
+| P1-04 | Cover art, Deezer and iTunes clients | todo | | | |
+| P1-05 | Album-policy engine | todo | | | |
+| P1-06 | Identity resolver | todo | | | |
+| P1-07 | Song add service + Song/Artist API | todo | | | |
+| P1-08 | Quality/profile/library API | todo | | | |
+| P1-09 | Bulk add and unresolved review | todo | | | |
+| P1-10 | Wanted, History, Blocklist API | todo | | | |
+| P1-11 | Frontend: songs, add, paste, unresolved | todo | | | |
+| P1-12 | Frontend: Wanted, Activity, Profiles, Library | todo | | | |
+| P1-13 | Phase 1 gate automation | todo | orchestrator | — | |
+
+Phase 1 gate (from `PHASES.md`): a pasted list of 50 songs resolves ≥ 90 % to MB recordings with correct durations and cover art; the rest resolve via Deezer or land in an "unresolved" review state; every song has an album assignment under the library's policy.
+
 ## Worker bake-off (2026-09-28)
 
 Task P0-01 for all three, same spec, 25 turns and USD 1.50 real cap per run, run in parallel worktrees; one continuation round each ("you ran out of turns — finish, build, test, commit").

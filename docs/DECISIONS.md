@@ -49,3 +49,17 @@ Answers from the owner to the round-1 questions, and what each changed in this p
 | 9 | Workflows are orchestrator-only | P0-11 (`.github/workflows/`) is written by the orchestrator, not a worker | Workers may not touch `.github/workflows/` (AGENT_WORKFLOW §7) |
 | 10 | NOTICE enforcement | `scripts/check-notice.py` runs in CI and fails when a file with a `Ported from` header is missing from `NOTICE.md` | Makes the attribution rule mechanical |
 | 11 | Worker caps | `COMPILARR_WORKER_MAX_TURNS` 25 → **50**, `COMPILARR_WORKER_TIMEOUT_MIN` 20 → **30** (owner, mid-Phase 0) | Nearly every Phase 0 task needed 45–60 turns; at 25 each needed 2–3 continuation runs, each re-reading context, and several were left half-finished for the orchestrator |
+
+### 2026-09-28 — Build session 2 (Phase 1)
+
+| # | Topic | Decision | Why |
+|---|---|---|---|
+| 1 | Identity chain for free text | Deezer search (plain `q=`, filtered client-side) gives an ISRC and a reference duration → MusicBrainz `/isrc/{isrc}` names the recording; otherwise MB recording search ranked on title, artist, version flags and duration against the Deezer reference; Deezer-only songs are kept; nothing found → "unresolved" | Live checks (research_metadata_plex §1.2.1): MB search returns many score-100 near-duplicates (snippets, DJ edits, remixes), and Deezer's field queries no longer work |
+| 2 | Release list for album choice | MB release **browse** by recording (official, ≤ 3 pages of 100); track/disc number from one release lookup of the chosen release | Recording lookups cap `inc=releases` at 25; browse media have no tracks |
+| 3 | Quality profile items | Ordered worst → best list of groups (`name?`, `qualityIds`, `allowed`); cutoff met when the file's group index ≥ the cutoff quality's group index. "Standard 320" puts AAC-256 in the MP3-320 group | Expresses "AAC-256 counts as met" (QUALITY_DEFINITIONS) without special cases; same model as Lidarr's grouped profiles. Quality ids 1–43 are a stable public contract |
+| 4 | No `song.file_id` | "Has a file" = a `song_file` row exists (unique `song_id`) | Avoids a circular FK between `song` and `song_file`; ARCHITECTURE §5.4 updated |
+| 5 | Pseudo-album | Title `Singles`, album artist = the artist, one synthetic UUID per artist, one date fixed at creation; the `compilation` policy uses one `Various Artists` album per library titled with the library name | One folder and one album id per pseudo-album (LIBRARY_OUTPUT §7.3); "Singles" reads cleanly under the artist in Plexamp |
+| 6 | Pasted lists | Stored as an import list of type `paste`; unresolved lines are `import_list_item` rows in state `unresolved` | The review state is the one Phase 6 import lists need anyway |
+| 7 | Deezer previews | Never stored; `GET /api/v1/preview` returns a fresh signed URL on demand | Preview URLs carry an `hdnea` token that expires after ~30 min |
+| 8 | Default library | "Music" at `/data/music`, layout `plexamp`, policy `fewest_albums`, min 2 tracks per real album | The product's primary target is Plex/Plexamp (LIBRARY_OUTPUT §7.2) |
+| 9 | Metadata base URLs are configuration | `metadata.*_base_url` in `config.yml` / `APP__METADATA__…` | Lets the CI gate replay recorded MusicBrainz/Deezer/CAA/iTunes responses instead of calling the live services |
