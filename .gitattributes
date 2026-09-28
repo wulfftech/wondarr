@@ -10,3 +10,4 @@
 *.m4a binary
 *.opus binary
 *.torrent binary
+*.gz binary
