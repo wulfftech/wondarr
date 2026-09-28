@@ -1,3 +1,4 @@
+using Compilarr.Core.Metadata;
 using System.Threading.Channels;
 using Compilarr.Core.Jobs;
 using Compilarr.Core.Messaging;
@@ -50,6 +51,9 @@ internal sealed class JobTestHost : IAsyncDisposable
         services.AddSingleton<TimeProvider>(timeProvider);
         services.AddCompilarrPersistence($"Data Source={databasePath}");
         services.AddCompilarrCore();
+
+        // Command handlers (BulkAddSongs) depend on the metadata services, as they do in the app.
+        services.AddCompilarrMetadata(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
         configure?.Invoke(services);
 
