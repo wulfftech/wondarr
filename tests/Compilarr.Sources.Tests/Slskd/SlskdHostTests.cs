@@ -46,6 +46,11 @@ public class SlskdHostTests
         health.Source.Should().Be(SlskdHealthCheck.CheckName);
         health.Type.Should().Be(HealthCheckResult.Ok);
         health.Message.Should().Be("slskd 0.26.0.0 running; Soulseek: not configured");
+
+        // slskd rejects a configuration whose directories do not exist, so the host creates them.
+        Directory.Exists(harness.Options.DownloadsDir).Should().BeTrue();
+        Directory.Exists(harness.Options.IncompleteDir).Should().BeTrue();
+        Directory.Exists(harness.Options.SharedFolders[0]).Should().BeTrue();
     }
 
     [Fact]
@@ -251,6 +256,9 @@ public class SlskdHostTests
             Username = "compilarr-soulseek",
             Password = "hunter2-not-a-real-password",
             BinaryPath = source.BinaryPath,
+            DownloadsDir = source.DownloadsDir,
+            IncompleteDir = source.IncompleteDir,
+            SharedFolders = [.. source.SharedFolders],
         };
 
         return copy;

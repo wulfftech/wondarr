@@ -43,6 +43,12 @@ public static class LoggingSetup
         return loggerConfiguration
             .MinimumLevel.Is(ParseLevel(options.Level))
             .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+            // Every SQL statement and every outgoing HTTP call at Information drowns the app's own
+            // messages (seen in the first container run); keep them for Warning and above.
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+            .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.Extensions.Http", LogEventLevel.Warning)
+            .MinimumLevel.Override("Polly", LogEventLevel.Warning)
             .Enrich.FromLogContext()
             .WriteTo.Console(consoleFormatter)
             .WriteTo.File(

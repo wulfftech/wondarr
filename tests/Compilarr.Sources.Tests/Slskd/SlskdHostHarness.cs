@@ -35,6 +35,9 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
         Paths = new CompilarrPaths(Path.Combine(_tempRoot, "config"));
         Options = options;
         Options.BinaryPath = Path.Combine(_tempRoot, binaryExists ? "slskd" : "not-here", "slskd");
+        Options.DownloadsDir = Path.Combine(_tempRoot, "data", "downloads", "slskd");
+        Options.IncompleteDir = Path.Combine(Options.DownloadsDir, "incomplete");
+        Options.SharedFolders = [Path.Combine(_tempRoot, "data", "media", "music")];
 
         if (binaryExists)
         {
