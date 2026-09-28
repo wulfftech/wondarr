@@ -4,343 +4,1185 @@
  */
 
 export interface paths {
-  '/api/v1/system/status': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            'application/json': components['schemas']['SystemResource'];
-          };
+    "/api/v1/wanted/missing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-      };
-    };
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/ping': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            'application/json': unknown;
-          };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfSongResource"];
+                    };
+                };
+            };
         };
-      };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            'application/json': unknown;
-          };
+    "/api/v1/wanted/cutoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-      };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfSongResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/health': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/v1/system/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SystemResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get: {
-      parameters: {
-        query?: {
-          refresh?: boolean;
+    "/api/v1/system/task": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            'application/json': unknown;
-          };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TaskResource"][];
+                    };
+                };
+            };
         };
-      };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/login': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/v1/system/task/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TaskResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get: {
-      parameters: {
-        query?: {
-          loginFailed?: boolean;
-          returnUrl?: string;
+    "/api/v1/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content?: never;
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LibraryResource"][];
+                    };
+                };
+            };
         };
-      };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    put?: never;
-    post: {
-      parameters: {
-        query?: {
-          returnUrl?: string;
+    "/api/v1/library/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody: {
-        content: {
-          'application/x-www-form-urlencoded': {
-            Username?: string;
-            Password?: string;
-            RememberMe?: string;
-          };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LibraryResource"];
+                    };
+                };
+            };
         };
-      };
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LibraryResource"];
+                    "application/*+json": components["schemas"]["LibraryResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LibraryResource"];
+                    };
+                };
+            };
         };
-      };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/logout': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content?: never;
+    "/api/v1/qualitydefinition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-      };
-    };
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/auth/user': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody?: never;
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content: {
-            'text/plain': components['schemas']['AuthUserResource'];
-            'application/json': components['schemas']['AuthUserResource'];
-            'text/json': components['schemas']['AuthUserResource'];
-          };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QualityDefinitionResource"][];
+                    };
+                };
+            };
         };
-      };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    put: {
-      parameters: {
-        query?: never;
-        header?: never;
-        path?: never;
-        cookie?: never;
-      };
-      requestBody: {
-        content: {
-          'application/json': components['schemas']['UpdateAuthUserResource'];
-          'text/json': components['schemas']['UpdateAuthUserResource'];
-          'application/*+json': components['schemas']['UpdateAuthUserResource'];
+    "/api/v1/qualityprofile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-      };
-      responses: {
-        /** @description OK */
-        200: {
-          headers: {
-            [name: string]: unknown;
-          };
-          content?: never;
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QualityProfileResource"][];
+                    };
+                };
+            };
         };
-      };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["QualityProfileResource"];
+                    "application/*+json": components["schemas"]["QualityProfileResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QualityProfileResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
+    "/api/v1/qualityprofile/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QualityProfileResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["QualityProfileResource"];
+                    "application/*+json": components["schemas"]["QualityProfileResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QualityProfileResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfHistoryResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    refresh?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CommandResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["JsonElement"];
+                    "application/*+json": components["schemas"]["JsonElement"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/command/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CommandResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/blocklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfBlocklistResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/blocklist/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    loginFailed?: boolean;
+                    returnUrl?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    returnUrl?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/x-www-form-urlencoded": {
+                        Username?: string;
+                        Password?: string;
+                        RememberMe?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthUserResource"];
+                        "application/json": components["schemas"]["AuthUserResource"];
+                        "text/json": components["schemas"]["AuthUserResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateAuthUserResource"];
+                    "text/json": components["schemas"]["UpdateAuthUserResource"];
+                    "application/*+json": components["schemas"]["UpdateAuthUserResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-  schemas: {
-    AuthUserResource: {
-      configured: boolean;
-      username: null | string;
+    schemas: {
+        AlbumContextKind: number;
+        AlbumPolicy: number;
+        AuthUserResource: {
+            configured: boolean;
+            username: null | string;
+        };
+        AuthenticationMethod: number;
+        BlocklistResource: {
+            /** Format: int64 */
+            id: number | string;
+            /** Format: int64 */
+            songId: null | number | string;
+            sourceType: string;
+            blocklistKey: string;
+            reason: string;
+            /** Format: date-time */
+            date: string;
+            /** Format: date-time */
+            expiresAt: null | string;
+        };
+        CommandResource: {
+            /** Format: int64 */
+            id: number | string;
+            name: string;
+            commandName: string;
+            message: null | string;
+            body: null | string;
+            priority: string;
+            status: components["schemas"]["CommandStatus"];
+            result: components["schemas"]["CommandResult"];
+            /** Format: date-time */
+            queued: string;
+            /** Format: date-time */
+            started: null | string;
+            /** Format: date-time */
+            ended: null | string;
+            duration: null | string;
+            exception: null | string;
+            trigger: components["schemas"]["CommandTrigger"];
+            /** Format: date-time */
+            stateChangeTime: null | string;
+        };
+        CommandResult: number;
+        CommandStatus: number;
+        CommandTrigger: number;
+        HistoryEventType: number;
+        HistoryResource: {
+            /** Format: int64 */
+            id: number | string;
+            /** Format: int64 */
+            songId: number | string;
+            song: components["schemas"]["SongResource"];
+            eventType: components["schemas"]["HistoryEventType"];
+            /** Format: date-time */
+            date: string;
+            /** Format: int64 */
+            sourceInstanceId: null | number | string;
+            /** Format: int64 */
+            qualityId: null | number | string;
+            data: components["schemas"]["JsonElement"];
+        };
+        JsonElement: unknown;
+        LibraryLayout: number;
+        LibraryResource: {
+            /** Format: int64 */
+            id: number | string;
+            name: string;
+            rootPath: string;
+            layout: components["schemas"]["LibraryLayout"];
+            namingTemplate: string;
+            sidecarOptions: components["schemas"]["JsonElement"];
+            albumPolicy: components["schemas"]["AlbumPolicy"];
+            /** Format: int32 */
+            minTracksPerRealAlbum: number | string;
+            plexSectionId: null | string;
+            isDefault: boolean;
+        };
+        PagingResourceOfBlocklistResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["BlocklistResource"][];
+        };
+        PagingResourceOfHistoryResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["HistoryResource"][];
+        };
+        PagingResourceOfSongResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["SongResource"][];
+        };
+        QualityDefinitionResource: {
+            /** Format: int64 */
+            id: number | string;
+            name: string;
+            group: string;
+            /** Format: int32 */
+            rank: number | string;
+            codec: string;
+            lossless: boolean;
+            /** Format: int32 */
+            minBitrate: null | number | string;
+            /** Format: int32 */
+            maxBitrate: null | number | string;
+            /** Format: int32 */
+            bitDepth: null | number | string;
+        };
+        QualityProfileItemResource: {
+            name: null | string;
+            qualities: components["schemas"]["QualityProfileQualityResource"][];
+            allowed: boolean;
+        };
+        QualityProfileQualityResource: {
+            /** Format: int64 */
+            id: number | string;
+            name: null | string;
+        };
+        QualityProfileResource: {
+            /** Format: int64 */
+            id: number | string;
+            name: string;
+            upgradeAllowed: boolean;
+            /** Format: int64 */
+            cutoff: number | string;
+            /** Format: int32 */
+            minScore: number | string;
+            /** Format: int32 */
+            durationToleranceMs: number | string;
+            items: components["schemas"]["QualityProfileItemResource"][];
+        };
+        SongAlbumContextResource: {
+            kind: components["schemas"]["AlbumContextKind"];
+            albumTitle: string;
+            albumArtist: string;
+            albumKey: string;
+            mbReleaseId: null | string;
+            mbReleaseGroupId: null | string;
+            /** Format: int32 */
+            trackNo: null | number | string;
+            /** Format: int32 */
+            discNo: null | number | string;
+            /** Format: int32 */
+            totalTracks: null | number | string;
+            date: null | string;
+            originalDate: null | string;
+            coverUrl: null | string;
+            isVariousArtists: boolean;
+        };
+        SongResource: {
+            /** Format: int64 */
+            id: number | string;
+            title: string;
+            artistCredit: string;
+            /** Format: int64 */
+            primaryArtistId: number | string;
+            primaryArtistName: string;
+            mbRecordingId: null | string;
+            /** Format: int64 */
+            deezerId: null | number | string;
+            isrcs: string[];
+            /** Format: int32 */
+            durationMs: null | number | string;
+            versionFlags: string[];
+            monitored: boolean;
+            /** Format: int64 */
+            qualityProfileId: number | string;
+            /** Format: int64 */
+            libraryId: number | string;
+            addedBy: string;
+            /** Format: date-time */
+            added: string;
+            hasFile: boolean;
+            /** Format: int64 */
+            qualityId: null | number | string;
+            albumContext: null | components["schemas"]["SongAlbumContextResource"];
+        };
+        SystemResource: {
+            appName: string;
+            instanceName: string;
+            version: string;
+            /** Format: date-time */
+            buildTime: string;
+            isDebug: boolean;
+            isProduction: boolean;
+            isAdmin: boolean;
+            isUserInteractive: boolean;
+            startupPath: string;
+            appData: string;
+            osName: string;
+            osVersion: string;
+            isNetCore: boolean;
+            isLinux: boolean;
+            isOsx: boolean;
+            isWindows: boolean;
+            isDocker: boolean;
+            isContainerized: boolean;
+            mode: string;
+            branch: string;
+            authentication: components["schemas"]["AuthenticationMethod"];
+            databaseType: string;
+            databaseVersion: string;
+            /** Format: int32 */
+            migrationVersion: number | string;
+            urlBase: string;
+            runtimeVersion: string;
+            runtimeName: string;
+            /** Format: date-time */
+            startTime: string;
+            packageVersion: string;
+            packageAuthor: string;
+            packageUpdateMechanism: string;
+        };
+        TaskResource: {
+            /** Format: int64 */
+            id: number | string;
+            name: string;
+            taskName: string;
+            /** Format: int32 */
+            interval: number | string;
+            /** Format: date-time */
+            lastExecution: null | string;
+            /** Format: date-time */
+            lastStartTime: null | string;
+            /** Format: date-time */
+            nextExecution: null | string;
+            lastDuration: string;
+            lastResult: null | string;
+        };
+        UpdateAuthUserResource: {
+            username: null | string;
+            password: null | string;
+        };
     };
-    AuthenticationMethod: number;
-    SystemResource: {
-      appName: string;
-      instanceName: string;
-      version: string;
-      /** Format: date-time */
-      buildTime: string;
-      isDebug: boolean;
-      isProduction: boolean;
-      isAdmin: boolean;
-      isUserInteractive: boolean;
-      startupPath: string;
-      appData: string;
-      osName: string;
-      osVersion: string;
-      isNetCore: boolean;
-      isLinux: boolean;
-      isOsx: boolean;
-      isWindows: boolean;
-      isDocker: boolean;
-      isContainerized: boolean;
-      mode: string;
-      branch: string;
-      authentication: components['schemas']['AuthenticationMethod'];
-      databaseType: string;
-      databaseVersion: string;
-      /** Format: int32 */
-      migrationVersion: number | string;
-      urlBase: string;
-      runtimeVersion: string;
-      runtimeName: string;
-      /** Format: date-time */
-      startTime: string;
-      packageVersion: string;
-      packageAuthor: string;
-      packageUpdateMechanism: string;
-    };
-    UpdateAuthUserResource: {
-      username: null | string;
-      password: null | string;
-    };
-  };
-  responses: never;
-  parameters: never;
-  requestBodies: never;
-  headers: never;
-  pathItems: never;
+    responses: never;
+    parameters: never;
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
 }
 export type $defs = Record<string, never>;
 export type operations = Record<string, never>;

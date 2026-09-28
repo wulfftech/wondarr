@@ -40,9 +40,13 @@ export function installFetch(handler: FetchHandler): FetchMock {
     'fetch',
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = urlOf(input);
-      mock.calls.push({ url, init });
+      // openapi-fetch passes a Request and no init: the method and headers live on the Request, so
+      // surface them where tests (and handlers) look for them. Bodies stay on the Request.
+      const effective: RequestInit | undefined =
+        init ?? (input instanceof Request ? { method: input.method, headers: input.headers } : undefined);
+      mock.calls.push({ url, init: effective });
 
-      return Promise.resolve(handler(url, init));
+      return Promise.resolve(handler(url, effective));
     }),
   );
 
