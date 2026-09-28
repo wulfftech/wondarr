@@ -80,13 +80,16 @@ public static class ConfigFileInitializer
             { "port", new YamlScalarNode(new ServerOptions().Port.ToString(System.Globalization.CultureInfo.InvariantCulture)) },
             { "bind_address", new YamlScalarNode(new ServerOptions().BindAddress) },
             { "url_base", new YamlScalarNode(string.Empty) },
-            { "auth", new YamlScalarNode(AuthenticationMethod.Forms.ToString().ToLowerInvariant()) },
-            { "auth_required", new YamlScalarNode(AuthenticationRequired.DisabledForLocalAddresses.ToString().ToLowerInvariant()) },
+            { "auth", new YamlScalarNode(CamelCase(AuthenticationMethod.Forms)) },
+            { "auth_required", new YamlScalarNode(CamelCase(AuthenticationRequired.DisabledForLocalAddresses)) },
             { "api_key", new YamlScalarNode(apiKey) },
         };
 
         return new YamlStream(new YamlDocument(new YamlMappingNode { { ServerKey, server } }));
     }
+
+    // Enum binding is case-insensitive, so camelCase reads back and stays legible (disabledForLocalAddresses).
+    private static string CamelCase(Enum value) => System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(value.ToString());
 
     private static YamlStream Load(string path)
     {

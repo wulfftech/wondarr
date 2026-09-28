@@ -79,7 +79,8 @@ public sealed class ServerOptionsValidator : IValidateOptions<ServerOptions>
         var apiKey = options.ApiKey ?? string.Empty;
         if (apiKey.Length > 0 && !ApiKeyPattern.IsMatch(apiKey))
         {
-            failures.Add($"server.api_key: must be 32 lowercase hexadecimal characters (was '{apiKey}')");
+            // Never echo the value: it is a secret and this message ends up in logs.
+            failures.Add("server.api_key: must be 32 lowercase hexadecimal characters");
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
