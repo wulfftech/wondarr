@@ -23,6 +23,19 @@ public sealed class CompilarrDbContext : DbContext
     /// <summary>Gets the scheduler job table.</summary>
     public DbSet<Job> Jobs => Set<Job>();
 
+    /// <summary>
+    /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
+    /// Everything is stored as UTC; mark it so on the way out to keep arithmetic with
+    /// <see cref="TimeProvider"/> values correct.
+    /// </summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        ArgumentNullException.ThrowIfNull(configurationBuilder);
+
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+        configurationBuilder.Properties<DateTime?>().HaveConversion<UtcDateTimeConverter>();
+    }
+
     /// <summary>Maps the Phase 0 tables.</summary>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -80,5 +93,14 @@ public sealed class CompilarrDbContext : DbContext
                     break;
             }
         }
+    }
+}
+
+/// <summary>Stores <see cref="DateTime"/> unchanged and reads it back as UTC.</summary>
+internal sealed class UtcDateTimeConverter : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>
+{
+    public UtcDateTimeConverter()
+        : base(value => value, value => DateTime.SpecifyKind(value, DateTimeKind.Utc))
+    {
     }
 }

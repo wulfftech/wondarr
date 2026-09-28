@@ -49,4 +49,25 @@ public class JobTests
         job.CreatedAt.Should().Be(start.UtcDateTime);
         job.UpdatedAt.Should().Be(start.UtcDateTime.AddMinutes(1));
     }
+
+    [Fact]
+    public async Task Timestamps_read_back_from_the_database_are_utc()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        await database.MigrateAsync(timeProvider);
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            context.Jobs.Add(new Job { Name = "heartbeat", LastRunAt = timeProvider.GetUtcNow().UtcDateTime });
+            await context.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using var fresh = database.CreateContext(timeProvider);
+        var job = await fresh.Jobs.SingleAsync(CancellationToken.None);
+
+        job.CreatedAt.Kind.Should().Be(DateTimeKind.Utc);
+        job.LastRunAt!.Value.Kind.Should().Be(DateTimeKind.Utc);
+        job.LastRunAt.Should().Be(new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc));
+    }
 }
