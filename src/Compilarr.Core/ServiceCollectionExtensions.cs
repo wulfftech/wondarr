@@ -10,6 +10,7 @@ using Compilarr.Core.Messaging;
 using Compilarr.Core.Organizer;
 using Compilarr.Core.Persistence;
 using Compilarr.Core.Profiles;
+using Compilarr.Core.Songs;
 using Compilarr.Core.Wanted;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -58,6 +59,10 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
+
+        // The write side of the song lifecycle: resolved identities become songs and album contexts.
+        services.AddScoped<ISongService, SongService>();
+        services.AddScoped<IArtistService, ArtistService>();
 
         // The read side of the song lifecycle: wanted lists, history and the blocklist.
         services.AddScoped<IWantedService, WantedService>();
