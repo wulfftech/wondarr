@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record/replay proxy for the metadata services Compilarr calls (Phase 1 gate).
+"""Record/replay proxy for the metadata services Wondarr calls (Phase 1 gate).
 
 The app is pointed at this proxy through its `metadata.*_base_url` settings:
 
@@ -104,7 +104,7 @@ class Store:
 
         self.wait_turn(service)
         request = urllib.request.Request(UPSTREAMS[service][0] + path_and_query, method=method)
-        request.add_header("User-Agent", user_agent or "Compilarr-gate-recorder ( https://github.com/wulfftech/compilarr )")
+        request.add_header("User-Agent", user_agent or "Wondarr-gate-recorder ( https://github.com/wulfftech/wondarr )")
         request.add_header("Accept", "application/json")
         try:
             with OPENER.open(request, timeout=30) as response:

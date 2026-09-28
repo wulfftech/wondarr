@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/wulfftech/compilarr
+  IMAGE: ghcr.io/wulfftech/wondarr
 
 jobs:
   image:

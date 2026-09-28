@@ -4,6 +4,8 @@
 
 ### Goals
 
+The name says the goal: **Wondarr** fetches an artist's one-hit wonder (or any single song) on its own — never the whole album of B-sides around it.
+
 - **G1. Song-level everything.** Add, monitor, search, download, verify, tag, file, upgrade, and report at the level of one recording. No album is ever required to exist for a song to be managed.
 - **G2. Source ladder: Soulseek → YouTube → Torrent/Usenet.** Each source is a plugin behind one interface; the order and per-source rules are configurable per song via source profiles.
 - **G3. Verified imports.** A song is only marked "has file" after the file has been probed, duration-checked, and (where possible) fingerprint-matched to the intended recording.

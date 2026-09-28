@@ -30,7 +30,7 @@ function yesNo(value: boolean | undefined): string {
 
 /**
  * `AuthenticationMethod` arrives as a number: the OpenAPI document publishes the enum's underlying
- * type but not its values. The names are `Compilarr.Core.Configuration.AuthenticationMethod`.
+ * type but not its values. The names are `Wondarr.Core.Configuration.AuthenticationMethod`.
  */
 const AUTHENTICATION_NAMES: Record<number, string> = {
   0: 'None',

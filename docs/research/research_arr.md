@@ -1,5 +1,7 @@
 # Research: *arr architecture, why Lidarr fails at single songs, landscape/name collisions, ecosystem integration
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 Date: 2026-09-28. Research for the design of a self-hosted *arr-style app whose unit of "wanted" is one song.
 
 ## 0. Method and access caveats (read first)

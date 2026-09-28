@@ -32,7 +32,7 @@ These apply to humans and AI workers alike. Workers are told to read this file b
 ## Tests
 
 - **Golden tests** for the parts that decide correctness: filename/path parsing, release-name quality parsing, candidate scoring, naming templates, album policy, tag mapping. Inputs and expected outputs live in `tests/fixtures/*.json` so workers can add cases without touching code.
-- **Contract tests** for every external API client against recorded fixtures (`tests/fixtures/<service>/`), plus an opt-in live mode (`COMPILARR_LIVE_TESTS=1`) that is never run in CI.
+- **Contract tests** for every external API client against recorded fixtures (`tests/fixtures/<service>/`), plus an opt-in live mode (`WONDARR_LIVE_TESTS=1`) that is never run in CI.
 - **Integration tests** for the API with `WebApplicationFactory` and an in-memory SQLite database.
 - Unit tests use xUnit + FluentAssertions + NSubstitute. Test names read as sentences: `Rejects_live_version_when_song_is_studio`.
 

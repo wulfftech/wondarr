@@ -9,7 +9,7 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   build: {
-    outDir: '../src/Compilarr.Api/wwwroot',
+    outDir: '../src/Wondarr.Api/wwwroot',
     emptyOutDir: true,
   },
   server: {

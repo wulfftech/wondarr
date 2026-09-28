@@ -22,7 +22,7 @@ fixtures/
   request URL, status, and the date it was captured. Never edit a recording by hand; re-capture it.
   Recordings must not contain credentials, session cookies or personal data.
 - **Live mode** — contract tests run against recordings by default and only hit the network when
-  `COMPILARR_LIVE_TESTS=1` is set. Live mode never runs in CI.
+  `WONDARR_LIVE_TESTS=1` is set. Live mode never runs in CI.
 - **Media files** — keep them tiny (a fraction of a second of silence, a one-file torrent). Anything
   larger than a few hundred kilobytes does not belong in git.
 - Fixtures are read with a path relative to the test assembly's output directory, so every fixture

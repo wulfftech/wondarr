@@ -2,7 +2,7 @@ import { ApiError } from './errors';
 
 /** What `initialize.json` hands the SPA (see `InitializeController` in the API host). */
 export interface AppConfig {
-  /** The API root, including the URL base, e.g. `/compilarr/api/v1`. */
+  /** The API root, including the URL base, e.g. `/wondarr/api/v1`. */
   apiRoot: string;
   /** The API key. Never log or render this. */
   apiKey: string;
