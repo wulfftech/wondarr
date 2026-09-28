@@ -239,6 +239,48 @@ public class DomainModelPersistenceTests
     }
 
     /// <summary>Adds one song with two credits, an album context and a file, and returns its id.</summary>
+    [Fact]
+    public async Task False_booleans_and_explicit_values_survive_the_round_trip()
+    {
+        // Regression: a database default on a bool column makes EF skip an explicit `false` on
+        // insert (it is the CLR default), so an unmonitored song came back monitored.
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        long songId;
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            var artist = new Artist { Name = "Nobody", SortName = "Nobody" };
+            var song = new Song
+            {
+                Title = "Quiet",
+                ArtistCredit = "Nobody",
+                PrimaryArtist = artist,
+                Monitored = false,
+                QualityProfileId = SeedData.StandardProfileId,
+                LibraryId = SeedData.DefaultLibraryId,
+                AddedBy = "api",
+            };
+            song.AlbumContext = new AlbumContext
+            {
+                Kind = AlbumContextKind.PseudoSingles,
+                AlbumTitle = "Singles",
+                AlbumArtist = "Nobody",
+                AlbumKey = "00000000-0000-0000-0000-000000000001",
+                Sticky = false,
+            };
+            context.Songs.Add(song);
+            await context.SaveChangesAsync();
+            songId = song.Id;
+        }
+
+        await using var readBack = database.CreateContext(timeProvider);
+        var stored = await readBack.Songs.Include(x => x.AlbumContext).SingleAsync(x => x.Id == songId);
+        stored.Monitored.Should().BeFalse();
+        stored.AlbumContext!.Sticky.Should().BeFalse();
+    }
+
     private static async Task<long> AddSongAsync(SqliteTestDatabase database, TimeProvider timeProvider)
     {
         await using var context = database.CreateContext(timeProvider);

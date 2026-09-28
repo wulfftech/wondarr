@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 #nullable disable
 
 #pragma warning disable CA1814 // Prefer jagged arrays over multidimensional
-#pragma warning disable CA1861 // Prefer static readonly fields over constant array arguments: the seed rows EF generates for InsertData
 
 namespace Compilarr.Core.Persistence.Migrations
 {
@@ -47,7 +46,7 @@ namespace Compilarr.Core.Persistence.Migrations
                     naming_template = table.Column<string>(type: "TEXT", nullable: false),
                     sidecar_options = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "{}"),
                     album_policy = table.Column<string>(type: "TEXT", nullable: false),
-                    min_tracks_per_real_album = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 2),
+                    min_tracks_per_real_album = table.Column<int>(type: "INTEGER", nullable: false),
                     plex_section_id = table.Column<string>(type: "TEXT", nullable: true),
                     is_default = table.Column<bool>(type: "INTEGER", nullable: false),
                     created_at = table.Column<DateTime>(type: "TEXT", nullable: false),
@@ -123,7 +122,7 @@ namespace Compilarr.Core.Persistence.Migrations
                     ytm_video_id = table.Column<string>(type: "TEXT", nullable: true),
                     duration_ms = table.Column<int>(type: "INTEGER", nullable: true),
                     version_flags = table.Column<string>(type: "TEXT", nullable: false),
-                    monitored = table.Column<bool>(type: "INTEGER", nullable: false, defaultValue: true),
+                    monitored = table.Column<bool>(type: "INTEGER", nullable: false),
                     quality_profile_id = table.Column<long>(type: "INTEGER", nullable: false),
                     source_profile_id = table.Column<long>(type: "INTEGER", nullable: true),
                     library_id = table.Column<long>(type: "INTEGER", nullable: false),
@@ -176,7 +175,7 @@ namespace Compilarr.Core.Persistence.Migrations
                     label = table.Column<string>(type: "TEXT", nullable: true),
                     cover_url = table.Column<string>(type: "TEXT", nullable: true),
                     is_various_artists = table.Column<bool>(type: "INTEGER", nullable: false),
-                    sticky = table.Column<bool>(type: "INTEGER", nullable: false, defaultValue: true),
+                    sticky = table.Column<bool>(type: "INTEGER", nullable: false),
                     created_at = table.Column<DateTime>(type: "TEXT", nullable: false),
                     updated_at = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
