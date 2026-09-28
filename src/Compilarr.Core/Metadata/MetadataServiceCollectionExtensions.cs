@@ -1,5 +1,9 @@
+using System.Net;
 using System.Reflection;
+using Compilarr.Core.Metadata.CoverArt;
+using Compilarr.Core.Metadata.Deezer;
 using Compilarr.Core.Metadata.Http;
+using Compilarr.Core.Metadata.ITunes;
 using Compilarr.Core.Metadata.MusicBrainz;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,9 +20,27 @@ public static class ServiceCollectionExtensions
     /// <summary>The key the MusicBrainz request-spacing gate is registered under.</summary>
     public const string MusicBrainzGateKey = "musicbrainz";
 
+    /// <summary>The key the Cover Art Archive request-spacing gate is registered under.</summary>
+    public const string CoverArtArchiveGateKey = "coverartarchive";
+
+    /// <summary>The key the Deezer request-spacing gate is registered under.</summary>
+    public const string DeezerGateKey = "deezer";
+
+    /// <summary>The key the iTunes request-spacing gate is registered under.</summary>
+    public const string ITunesGateKey = "itunes";
+
+    /// <summary>How long one Deezer request is spaced from the next: 50 requests per 5 seconds.</summary>
+    private static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(120);
+
+    /// <summary>How long one Cover Art Archive request is spaced from the next. Undocumented, so polite.</summary>
+    private static readonly TimeSpan CoverArtArchiveInterval = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>How long one iTunes request is spaced from the next: about 20 calls per minute.</summary>
+    private static readonly TimeSpan ITunesInterval = TimeSpan.FromSeconds(3);
+
     /// <summary>
-    /// Adds the metadata options, the response cache, the per-host request-spacing gate and the
-    /// MusicBrainz client.
+    /// Adds the metadata options, the response cache, the per-host request-spacing gates and the
+    /// MusicBrainz, Cover Art Archive, Deezer and iTunes clients, plus the cover-art chain.
     /// </summary>
     /// <param name="services">The service collection to extend.</param>
     /// <param name="configuration">Configuration to bind the <c>metadata</c> section from.</param>
@@ -76,8 +98,130 @@ public static class ServiceCollectionExtensions
         musicBrainz.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(MusicBrainzGateKey)));
 
+        services.AddKeyedSingleton(CoverArtArchiveGateKey, (serviceProvider, _) => new RequestSpacingGate(
+            CoverArtArchiveInterval,
+            serviceProvider.GetRequiredService<TimeProvider>()));
+
+        services.AddKeyedSingleton(DeezerGateKey, (serviceProvider, _) => new RequestSpacingGate(
+            DeezerInterval,
+            serviceProvider.GetRequiredService<TimeProvider>()));
+
+        services.AddKeyedSingleton(ITunesGateKey, (serviceProvider, _) => new RequestSpacingGate(
+            ITunesInterval,
+            serviceProvider.GetRequiredService<TimeProvider>()));
+
+        var coverArtArchive = services.AddHttpClient<ICoverArtArchiveClient, CoverArtArchiveClient>(
+            (serviceProvider, client) =>
+            {
+                var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+                client.BaseAddress = new Uri(options.CoverArtArchiveBaseUrl, UriKind.Absolute);
+                AddProviderHeaders(client, options);
+            });
+
+        // The front-image endpoint answers 307 and the 307 is the point: it is the stable URL. The
+        // archive.org copy it points at changes whenever the storage layout or a merge does.
+        coverArtArchive.ConfigurePrimaryHttpMessageHandler(
+            () => new HttpClientHandler { AllowAutoRedirect = false });
+
+        coverArtArchive.AddResilienceHandler("coverartarchive", (builder, context) =>
+        {
+            var options = context.ServiceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            builder.AddRetry(new HttpRetryStrategyOptions
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = options.RetryBaseDelay,
+                ShouldRetryAfterHeader = true,
+            });
+        });
+
+        coverArtArchive.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(CoverArtArchiveGateKey)));
+
+        var deezer = services.AddHttpClient<IDeezerClient, DeezerClient>((serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            client.BaseAddress = new Uri(options.DeezerBaseUrl, UriKind.Absolute);
+            AddProviderHeaders(client, options);
+        });
+
+        deezer.AddResilienceHandler("deezer", (builder, context) =>
+        {
+            var options = context.ServiceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            builder.AddRetry(new HttpRetryStrategyOptions
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = options.RetryBaseDelay,
+
+                // The quota handler below turns a code-4 body into a 429 with a Retry-After; obey it.
+                ShouldRetryAfterHeader = true,
+            });
+        });
+
+        deezer.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(DeezerGateKey)));
+
+        // Innermost, below the spacing handler: a retried attempt is spaced first, then inspected.
+        deezer.AddHttpMessageHandler(() => new DeezerQuotaHandler());
+
+        var itunes = services.AddHttpClient<IITunesClient, ITunesClient>((serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            client.BaseAddress = new Uri(options.ITunesBaseUrl, UriKind.Absolute);
+            AddProviderHeaders(client, options);
+        });
+
+        itunes.AddResilienceHandler("itunes", (builder, context) =>
+        {
+            var options = context.ServiceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            builder.AddRetry(new HttpRetryStrategyOptions
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = options.RetryBaseDelay,
+                ShouldRetryAfterHeader = true,
+
+                // iTunes answers 403 once the caller goes over ~20 requests a minute. That is a rate
+                // limit, not a blip: retrying it only spends more of the budget, so it surfaces at once.
+                ShouldHandle = args => ValueTask.FromResult(
+                    args.Outcome.Exception is not null
+                    || (args.Outcome.Result is { } response
+                        && response.StatusCode != HttpStatusCode.Forbidden
+                        && IsRetryable(response.StatusCode))),
+            });
+        });
+
+        itunes.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(ITunesGateKey)));
+
+        // Transient, not singleton: it takes the transient clients, and it holds no state of its own.
+        services.AddTransient<ICoverArtResolver, CoverArtResolver>();
+
         return services;
     }
+
+    /// <summary>Sends every provider the same identifying headers.</summary>
+    private static void AddProviderHeaders(HttpClient client, MetadataOptions options)
+    {
+        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BuildUserAgent(options));
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+    }
+
+    /// <summary>Whether a status is the kind worth another attempt.</summary>
+    private static bool IsRetryable(HttpStatusCode statusCode) =>
+        statusCode == HttpStatusCode.RequestTimeout
+        || statusCode == HttpStatusCode.TooManyRequests
+        || (int)statusCode >= 500;
 
     /// <summary>
     /// Builds the User-Agent MusicBrainz asks for: application, version and contact URL.
