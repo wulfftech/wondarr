@@ -139,10 +139,12 @@ LABEL org.opencontainers.image.source="https://github.com/wulfftech/compilarr" \
       org.opencontainers.image.licenses="GPL-3.0-only" \
       org.opencontainers.image.version="$VERSION"
 
-# passwd is what the s6 init oneshot uses to apply PUID/PGID to the compilarr account.
+# passwd is what the s6 init oneshot uses to apply PUID/PGID to the compilarr account. Ubuntu
+# 24.04 images ship an 'ubuntu' account on uid/gid 1000; it goes, so compilarr can own 1000.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates passwd tzdata wget xz-utils \
  && rm -rf /var/lib/apt/lists/* \
+ && (userdel --remove ubuntu 2>/dev/null || true) \
  && groupadd --gid 1000 compilarr \
  && useradd --uid 1000 --gid 1000 --home-dir /config --no-create-home --shell /usr/sbin/nologin compilarr \
  && mkdir -p /config /data \

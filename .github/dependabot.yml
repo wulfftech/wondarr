@@ -4,6 +4,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # 8.x is commercially licensed; stay on the Apache-2.0 7.x line (docs/DECISIONS.md, 2026-09-28 #3)
+      - dependency-name: FluentAssertions
+        versions: [">= 8.0.0"]
     groups:
       microsoft:
         patterns: ["Microsoft.*", "System.*"]
