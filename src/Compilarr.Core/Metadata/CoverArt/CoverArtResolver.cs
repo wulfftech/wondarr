@@ -245,19 +245,8 @@ public sealed partial class CoverArtResolver : ICoverArtResolver
             return string.Empty;
         }
 
-        // FormD splits "ö" into "o" + a combining mark; dropping the marks leaves the base letters.
-        var decomposed = value.Trim().Normalize(NormalizationForm.FormD);
-        var builder = new StringBuilder(decomposed.Length);
-
-        foreach (var character in decomposed)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark)
-            {
-                builder.Append(char.ToLowerInvariant(character));
-            }
-        }
-
-        return builder.ToString();
+        // Not Normalize(FormD): under InvariantGlobalization it leaves accented letters untouched.
+        return TextFolding.RemoveDiacritics(value.Trim()).ToLowerInvariant();
     }
 
     /// <summary>
