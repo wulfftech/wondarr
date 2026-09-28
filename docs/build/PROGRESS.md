@@ -1,5 +1,7 @@
 # Progress
 
+> **Name:** the project was renamed from *Compilarr* to **Wondarr** on 2026-09-28 (Phase 1a, `docs/DECISIONS.md` build session 2 #10). Rows before Phase 1a use the old name and paths (`Compilarr.*`).
+
 Updated by the orchestrator after every merged task. Status: `todo` · `in-progress` · `review` · `done` · `blocked`.
 
 ## Phase 0 — Repository and skeleton

@@ -4,7 +4,7 @@
 #
 #   scripts/fetch-slskd.sh <version> <arch: x64|arm64> <dest dir>
 #
-# slskd is AGPL-3.0. Compilarr does not link against it or copy its code (ADR-0004): the released
+# slskd is AGPL-3.0. Wondarr does not link against it or copy its code (ADR-0004): the released
 # binary runs as a supervised child process, so the licence notice has to travel with it into the
 # image. Only releases listed in the table below are accepted — the checksum is the pin.
 

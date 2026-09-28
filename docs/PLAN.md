@@ -1,5 +1,7 @@
 # Compilarr — Single-Song *arr: Research and Build Plan
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 | | |
 |---|---|
 | **Status** | Revision 3 — all owner decisions recorded in §0; no open design questions; next step is creating the repository (§12) |

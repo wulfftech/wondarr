@@ -17,7 +17,7 @@ import { formatDuration } from '../components/SongCells';
 import { CandidateRow } from './AddSongsPage';
 
 /**
- * The review screen: the pasted lines Compilarr could not place, each with the candidates it stored,
+ * The review screen: the pasted lines Wondarr could not place, each with the candidates it stored,
  * an inline search to find the right one by hand, and a Skip for the lines that should be dropped.
  */
 
@@ -172,7 +172,7 @@ function parseId(value: string | null): number | null {
   return Number(value);
 }
 
-/** The lines Compilarr could not place: pick a candidate, search for one, or skip. */
+/** The lines Wondarr could not place: pick a candidate, search for one, or skip. */
 export function UnresolvedPage() {
   const [params] = useSearchParams();
   const importListId = parseId(params.get('importListId'));

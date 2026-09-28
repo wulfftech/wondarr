@@ -10,8 +10,8 @@
 - <file or component 2>
 
 ## Allowed paths
-- `src/Compilarr.Core/...`
-- `tests/Compilarr.Core.Tests/...`
+- `src/Wondarr.Core/...`
+- `tests/Wondarr.Core.Tests/...`
 (Anything else is out of scope; do not touch it.)
 
 ## Context to read first

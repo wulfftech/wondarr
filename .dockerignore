@@ -5,6 +5,6 @@
 .worktrees
 .worker
 .env*
-src/Compilarr.Api/wwwroot
+src/Wondarr.Api/wwwroot
 frontend/dist
 **/*.db

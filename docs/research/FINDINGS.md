@@ -1,5 +1,7 @@
 # Research findings (condensed)
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 > Working document derived from `docs/PLAN.md` (revision 3, 2026-09-28) — the condensed findings; the full reports are the other files in this folder. **This file evolves with the code; when it disagrees with PLAN.md, this file wins.** Section numbers (§) in the text refer to PLAN.md.
 
 Six parallel investigations were run on 2026-09-28; each produced a URL-cited report in `research/`. This section condenses what changes the design. Where a claim rests on a page the sandbox could not fetch directly (MusicBrainz docs, Plex support, Spotify blog, slsknet.org, Servarr wiki), the report marks it and the wording should be re-verified before it goes into a spec.

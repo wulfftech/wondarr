@@ -4,7 +4,7 @@
 
 ### 4.1 The one-line pitch
 
-> A self-hosted *arr for **songs**. You tell it which recordings you want (one at a time, or by pasting a playlist), it finds the best copy it can on Soulseek first, YouTube second, and torrents/usenet last, verifies that what it downloaded is actually that recording, tags it properly, files it into your library in the layout you chose, and keeps looking for a better copy until your quality cutoff is met.
+> **Wondarr — the \*arr for one-hit wonders.** It hunts down the one stand-alone song you want without pulling in the artist's obscure 12-track album of B-sides. A self-hosted *arr for **songs**. You tell it which recordings you want (one at a time, or by pasting a playlist), it finds the best copy it can on Soulseek first, YouTube second, and torrents/usenet last, verifies that what it downloaded is actually that recording, tags it properly, files it into your library in the layout you chose, and keeps looking for a better copy until your quality cutoff is met.
 
 ### 4.2 Core concepts (the domain model in words)
 

@@ -1,5 +1,7 @@
 # Decision log
 
+> **Name:** the project was renamed from *Compilarr* to **Wondarr** on 2026-09-28 (Phase 1a, `docs/DECISIONS.md` build session 2 #10). Entries before build session 2 #10 use the old name.
+
 > All product/design decisions taken with the owner during the planning session (2026-09-28). New decisions go at the bottom as dated entries; architectural ones also get an ADR in `docs/adr/`.
 
 Answers from the owner to the round-1 questions, and what each changed in this plan.

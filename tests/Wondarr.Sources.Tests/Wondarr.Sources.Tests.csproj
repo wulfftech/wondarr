@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Wondarr.Sources.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\tests\fixtures\slskd\**\*.*" Link="fixtures\slskd\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tests\fixtures\musicbrainz\**\*.*" Link="fixtures\musicbrainz\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tests\fixtures\deezer\**\*.*" Link="fixtures\deezer\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tests\fixtures\itunes\**\*.*" Link="fixtures\itunes\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Wondarr.Core\Wondarr.Core.csproj" />
+    <ProjectReference Include="..\..\src\Wondarr.Sources.Slskd\Wondarr.Sources.Slskd.csproj" />
+    <ProjectReference Include="..\..\src\Wondarr.Sources.Torznab\Wondarr.Sources.Torznab.csproj" />
+    <ProjectReference Include="..\..\src\Wondarr.Sources.YouTube\Wondarr.Sources.YouTube.csproj" />
+  </ItemGroup>
+
+</Project>

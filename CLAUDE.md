@@ -1,6 +1,6 @@
-# CLAUDE.md — Compilarr
+# CLAUDE.md — Wondarr
 
-Compilarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) → YouTube Music (yt-dlp) → torrents/usenet (qBittorrent, SABnzbd), verified imports (duration + AcoustID), Lidarr-style profiles/upgrades, and library layouts including a Plexamp preset. C#/.NET 10 + React 19. GPL-3.0. HTTP port 1077.
+Wondarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) → YouTube Music (yt-dlp) → torrents/usenet (qBittorrent, SABnzbd), verified imports (duration + AcoustID), Lidarr-style profiles/upgrades, and library layouts including a Plexamp preset. C#/.NET 10 + React 19. GPL-3.0. HTTP port 1077.
 
 **Start every session by reading `docs/HANDOVER.md` and `docs/build/PROGRESS.md`, then pick the next task from `docs/build/PHASE_<n>_TASKS.md`.**
 
@@ -14,7 +14,7 @@ Compilarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) �
 ## How we build (summary of `docs/build/AGENT_WORKFLOW.md`)
 
 - **This session is the orchestrator** (target model: Claude Opus 5.5). It owns design, task specs, code review, verification and commits. It does *not* hand-type large volumes of routine code.
-- **Implementation is delegated to cheap workers**: `python scripts/worker.py run docs/build/tasks/<id>.md` runs a headless `claude -p` against **OpenRouter** (`OPENROUTER_API_KEY` and `COMPILARR_WORKER_MODEL` in `.env`) inside a git worktree, or `.claude/agents/worker.md` (Haiku) when OpenRouter is not configured. Workers get a self-contained task file (`docs/build/WORKER_TASK_TEMPLATE.md`), never design authority.
+- **Implementation is delegated to cheap workers**: `python scripts/worker.py run docs/build/tasks/<id>.md` runs a headless `claude -p` against **OpenRouter** (`OPENROUTER_API_KEY` and `WONDARR_WORKER_MODEL` in `.env`) inside a git worktree, or `.claude/agents/worker.md` (Haiku) when OpenRouter is not configured. Workers get a self-contained task file (`docs/build/WORKER_TASK_TEMPLATE.md`), never design authority.
 - **Loop**: spec → worker → build/tests → orchestrator reviews the diff → fix or merge → update `PROGRESS.md` → commit. Risky areas also get `.claude/agents/reviewer.md`.
 - Never merge red. Never let a worker touch `docs/DECISIONS.md`, `docs/adr/`, or `CLAUDE.md`.
 

@@ -1,5 +1,7 @@
 # Research: metadata sources, identity/fingerprinting, tagging, naming and Plex/Plexamp library requirements for a single-song *arr
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 Date: 2026-09-28. Prepared for the design document of a self-hosted *arr-style app whose unit of "wanted" item is ONE SONG (a MusicBrainz recording).
 
 ## 0. How this was researched and how to read the citations

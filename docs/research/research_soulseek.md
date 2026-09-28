@@ -1,5 +1,7 @@
 # Soulseek acquisition research for a single-track *arr (compiled 2026-09-28)
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 Scope: how to integrate Soulseek as the primary source for an *arr-style app that manages
 individual tracks. Every claim carries a URL. "Verified" = read from the primary source in this
 session; "unverified" = could not be fetched from this environment (see caveats).

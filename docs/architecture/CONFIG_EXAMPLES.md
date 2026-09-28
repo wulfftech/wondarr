@@ -4,9 +4,9 @@
 
 ```yaml
 services:
-  compilarr:
-    image: ghcr.io/wulfftech/compilarr:latest   # slskd is bundled inside this image (§9.1)
-    container_name: compilarr
+  wondarr:
+    image: ghcr.io/wulfftech/wondarr:latest   # slskd is bundled inside this image (§9.1)
+    container_name: wondarr
     environment:
       - PUID=1000
       - PGID=1000
@@ -14,7 +14,7 @@ services:
       - TZ=Australia/Brisbane
       # everything else (Soulseek account, shares, sources, Plex, profiles) is set in the UI
     volumes:
-      - ./config/compilarr:/config          # app DB/config/logs; bundled slskd state under /config/slskd
+      - ./config/wondarr:/config          # app DB/config/logs; bundled slskd state under /config/slskd
       - /data:/data                         # /data/downloads/{slskd,torrents,usenet}, /data/media/music
     ports:
       - "1077:1077"        # web UI / API

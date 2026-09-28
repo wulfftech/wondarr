@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 1 gate check (docs/build/PHASES.md) against a running Compilarr.
+"""Phase 1 gate check (docs/build/PHASES.md) against a running Wondarr.
 
 "A pasted list of 50 songs resolves >= 90 % to MB recordings with correct durations and cover art;
 the rest resolve via Deezer or land in an 'unresolved' review state; every song has an album
@@ -10,7 +10,7 @@ checks every line. A duration is "correct" when it is within --tolerance-ms of t
 iTunes reference in tests/gate/phase1-reference.json (lines without a reference only need a
 duration). Standard library only.
 
-usage: scripts/phase1-gate.py --url http://localhost:1077/compilarr --api-key KEY
+usage: scripts/phase1-gate.py --url http://localhost:1077/wondarr --api-key KEY
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class Api:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", required=True, help="Compilarr base URL including any URL base")
+    parser.add_argument("--url", required=True, help="Wondarr base URL including any URL base")
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--songs", type=Path, default=ROOT / "tests/gate/phase1-songs.txt")
     parser.add_argument("--reference", type=Path, default=ROOT / "tests/gate/phase1-reference.json")

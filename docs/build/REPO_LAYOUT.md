@@ -3,16 +3,16 @@
 Created incrementally from Phase 0 onward (docs/build/PHASE_0_TASKS.md). Names are binding unless an ADR changes them.
 
 ```
-compilarr/
+wondarr/
 ├── CLAUDE.md                      # AI session instructions (orchestrator + workers)
 ├── README.md · LICENSE (GPL-3.0) · NOTICE.md (ported-code attributions) · CHANGELOG.md
 ├── .env.example · .editorconfig · .gitignore
 ├── global.json                    # pins the .NET 10 SDK
 ├── Directory.Build.props          # nullable, warnings-as-errors, analyzers, InvariantGlobalization
 ├── Directory.Packages.props       # central package versions
-├── Compilarr.sln
+├── Wondarr.sln
 ├── src/
-│   ├── Compilarr.Core/            # domain, decision engine, import pipeline, metadata, organizer, tagging (no ASP.NET)
+│   ├── Wondarr.Core/            # domain, decision engine, import pipeline, metadata, organizer, tagging (no ASP.NET)
 │   │   ├── Domain/                # Song, Artist, AlbumContext, Quality, Profiles, Library, ReferenceLibrary…
 │   │   ├── Metadata/              # MusicBrainz, CAA, Deezer, iTunes, AcoustID, LRCLIB clients + cache + rate limiter
 │   │   ├── Decision/              # Candidate, specifications (rejections), scoring
@@ -24,18 +24,18 @@ compilarr/
 │   │   ├── Notifications/         # ported providers
 │   │   ├── Jobs/                  # command queue, scheduled jobs
 │   │   └── Persistence/           # EF Core DbContext, migrations
-│   ├── Compilarr.Sources.Slskd/   # slskd HTTP client, SlskdHost (bundled process supervisor), settings rendering
-│   ├── Compilarr.Sources.YouTube/ # YouTube Music (InnerTube) search, yt-dlp runner, output policy
-│   ├── Compilarr.Sources.Torznab/ # Torznab/Newznab + Prowlarr + Gazelle-direct, qBittorrent, SABnzbd (ported)
-│   ├── Compilarr.Api/             # ASP.NET Core host: controllers (/api/v1), auth, SignalR, static SPA hosting
-│   └── Compilarr.Host/            # Program.cs, DI composition, hosted services (optional split from Api)
+│   ├── Wondarr.Sources.Slskd/   # slskd HTTP client, SlskdHost (bundled process supervisor), settings rendering
+│   ├── Wondarr.Sources.YouTube/ # YouTube Music (InnerTube) search, yt-dlp runner, output policy
+│   ├── Wondarr.Sources.Torznab/ # Torznab/Newznab + Prowlarr + Gazelle-direct, qBittorrent, SABnzbd (ported)
+│   ├── Wondarr.Api/             # ASP.NET Core host: controllers (/api/v1), auth, SignalR, static SPA hosting
+│   └── Wondarr.Host/            # Program.cs, DI composition, hosted services (optional split from Api)
 ├── frontend/                      # React 19 + TypeScript + Vite + Mantine + TanStack
 │   ├── src/{app,pages,components,api,hooks,theme}/
 │   └── package.json
 ├── tests/
-│   ├── Compilarr.Core.Tests/      # xUnit + FluentAssertions; golden tests for parsing/scoring/naming
-│   ├── Compilarr.Api.Tests/       # WebApplicationFactory integration tests
-│   ├── Compilarr.Sources.Tests/   # contract tests against recorded fixtures (slskd, qBittorrent, SABnzbd, MB, AcoustID)
+│   ├── Wondarr.Core.Tests/      # xUnit + FluentAssertions; golden tests for parsing/scoring/naming
+│   ├── Wondarr.Api.Tests/       # WebApplicationFactory integration tests
+│   ├── Wondarr.Sources.Tests/   # contract tests against recorded fixtures (slskd, qBittorrent, SABnzbd, MB, AcoustID)
 │   └── fixtures/                  # recorded JSON/XML responses, sample audio (tiny), sample NZB/torrent files
 ├── docker/
 │   ├── Dockerfile                 # multi-stage: frontend build → dotnet publish → runtime (+ffmpeg, fpcalc, deno, slskd)

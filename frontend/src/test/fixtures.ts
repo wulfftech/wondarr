@@ -3,8 +3,8 @@ import type { HealthEntry, TaskResource } from '../api/types';
 /** Canned API payloads. They mirror what the backend emits; no test reaches the network. */
 
 export const SYSTEM_STATUS = {
-  appName: 'Compilarr',
-  instanceName: 'Compilarr',
+  appName: 'Wondarr',
+  instanceName: 'Wondarr',
   version: '0.1.0-test',
   buildTime: '2026-01-01T00:00:00Z',
   isDebug: false,
@@ -32,7 +32,7 @@ export const SYSTEM_STATUS = {
   runtimeName: 'netcore',
   startTime: '2026-01-01T00:00:00Z',
   packageVersion: '0.1.0-test',
-  packageAuthor: 'Compilarr contributors',
+  packageAuthor: 'Wondarr contributors',
   packageUpdateMechanism: 'docker',
 } as const;
 
