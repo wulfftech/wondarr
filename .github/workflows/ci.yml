@@ -33,6 +33,8 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      - name: Ported code is listed in NOTICE.md
+        run: python3 scripts/check-notice.py
       - run: dotnet restore
       - run: dotnet build -warnaserror --no-restore
       - run: dotnet test --no-build --logger "console;verbosity=normal"
