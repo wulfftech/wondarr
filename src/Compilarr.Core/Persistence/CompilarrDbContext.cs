@@ -1,3 +1,4 @@
+using Compilarr.Core.Jobs;
 using Microsoft.EntityFrameworkCore;
 
 namespace Compilarr.Core.Persistence;
@@ -22,6 +23,9 @@ public sealed class CompilarrDbContext : DbContext
 
     /// <summary>Gets the scheduler job table.</summary>
     public DbSet<Job> Jobs => Set<Job>();
+
+    /// <summary>Gets the command queue table.</summary>
+    public DbSet<CommandRecord> Commands => Set<CommandRecord>();
 
     /// <summary>
     /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
@@ -54,6 +58,21 @@ public sealed class CompilarrDbContext : DbContext
             entity.ToTable("job");
             entity.Property(x => x.Name).IsRequired();
             entity.HasIndex(x => x.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<CommandRecord>(entity =>
+        {
+            entity.ToTable("command");
+            entity.Property(x => x.Name).IsRequired();
+
+            // Stored as text so the rows stay readable and a renumbered enum cannot rewrite history.
+            entity.Property(x => x.Status).HasConversion<string>();
+            entity.Property(x => x.Result).HasConversion<string>();
+            entity.Property(x => x.Trigger).HasConversion<string>();
+
+            // The executor's startup sweep and the queue's duplicate check both filter on these.
+            entity.HasIndex(x => x.Status);
+            entity.HasIndex(x => x.Name);
         });
     }
 
