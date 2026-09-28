@@ -848,7 +848,22 @@ public sealed partial class IdentityResolver : IIdentityResolver
 
         foreach (var recording in outcome.ViaIsrc)
         {
-            Add(ToCandidate(outcome.Query, outcome.ReferenceDurationMs, recording, viaIsrc: true, deezerCover));
+            // MusicBrainz' ISRC lookup does not echo the ISRCs back, and the Deezer track that led here
+            // is the same recording: keep both so the UI can play a preview and dedupe against Deezer.
+            var candidate = ToCandidate(outcome.Query, outcome.ReferenceDurationMs, recording, viaIsrc: true, deezerCover);
+            var reference = outcome.Reference;
+            if (reference is not null)
+            {
+                candidate = candidate with
+                {
+                    DeezerId = candidate.DeezerId ?? reference.Id,
+                    Isrcs = candidate.Isrcs.Count > 0 || string.IsNullOrEmpty(reference.Isrc)
+                        ? candidate.Isrcs
+                        : [reference.Isrc.ToUpperInvariant()],
+                };
+            }
+
+            Add(candidate);
         }
 
         foreach (var recording in outcome.Searched)

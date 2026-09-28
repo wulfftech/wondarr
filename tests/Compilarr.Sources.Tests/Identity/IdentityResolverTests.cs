@@ -223,6 +223,11 @@ public sealed class IdentityResolverTests
         candidates.Should().NotBeEmpty();
         candidates[0].MbRecordingId.Should().Be(GetLuckyId);
         candidates[0].ViaIsrc.Should().BeTrue();
+
+        // The ISRC lookup does not echo ISRCs; the Deezer album version that led there supplies both,
+        // so the add dialog can play a preview for the top result.
+        candidates[0].DeezerId.Should().Be(67238735);
+        candidates[0].Isrcs.Should().Contain("USQX91300108");
         candidates[0].Source.Should().Be("musicbrainz");
 
         candidates.Select(candidate => candidate.Score).Should().BeInDescendingOrder();
