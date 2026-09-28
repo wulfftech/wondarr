@@ -54,6 +54,8 @@ public sealed class CompilarrAppFactory : WebApplicationFactory<Program>
     /// <summary>The temporary config directory (config.yml, compilarr.db, logs).</summary>
     public string ConfigDir { get; }
 
+    private bool _disposing;
+
     /// <summary>The API key this instance is configured with.</summary>
     public string ApiKey { get; }
 
@@ -89,6 +91,16 @@ public sealed class CompilarrAppFactory : WebApplicationFactory<Program>
 
     protected override void Dispose(bool disposing)
     {
+        // WebApplicationFactory.Dispose(true) runs DisposeAsync, which calls Dispose(true) again while
+        // the host is still shutting down: the inner call would delete the config folder with the log
+        // file still open (IOException, a few percent of runs). Only the outer call cleans up, after
+        // the host is gone.
+        if (_disposing)
+        {
+            return;
+        }
+
+        _disposing = true;
         base.Dispose(disposing);
 
         if (disposing)
@@ -96,9 +108,31 @@ public sealed class CompilarrAppFactory : WebApplicationFactory<Program>
             // Pooled SQLite connections keep compilarr.db open on Windows until the pool is cleared.
             SqliteConnection.ClearPool(new SqliteConnection($"Data Source={Path.Combine(ConfigDir, "compilarr.db")}"));
 
-            if (Directory.Exists(ConfigDir))
+            DeleteConfigDir();
+        }
+    }
+
+    /// <summary>
+    /// The host's rolling log file can stay open for a moment after the host is disposed, so a
+    /// Windows delete may briefly fail. Retry, and in the end leave the temp folder behind rather
+    /// than fail a test that passed.
+    /// </summary>
+    private void DeleteConfigDir()
+    {
+        for (var attempt = 0; attempt < 20 && Directory.Exists(ConfigDir); attempt++)
+        {
+            try
             {
                 Directory.Delete(ConfigDir, recursive: true);
+                return;
+            }
+            catch (IOException)
+            {
+                Thread.Sleep(100);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Thread.Sleep(100);
             }
         }
     }

@@ -195,6 +195,49 @@ internal static class DomainModelConfiguration
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<ImportList>(entity =>
+        {
+            entity.ToTable("import_list");
+            entity.Property(x => x.Type).IsRequired();
+            entity.Property(x => x.Name).IsRequired();
+            entity.Property(x => x.Settings).IsRequired().HasDefaultValue("{}");
+            entity.Property(x => x.Policy).IsRequired();
+
+            entity.HasOne<QualityProfile>()
+                .WithMany()
+                .HasForeignKey(x => x.QualityProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<Library>()
+                .WithMany()
+                .HasForeignKey(x => x.LibraryId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ImportListItem>(entity =>
+        {
+            entity.ToTable("import_list_item");
+            entity.Property(x => x.ExternalId).IsRequired();
+            entity.Property(x => x.Raw).IsRequired().HasDefaultValue("{}");
+            entity.Property(x => x.State).HasConversion<string>();
+            entity.Property(x => x.Candidates).IsRequired().HasDefaultValue("[]");
+
+            // The review screen asks for one list's lines, and for the unresolved ones across lists.
+            entity.HasIndex(x => x.ImportListId);
+            entity.HasIndex(x => x.State);
+
+            entity.HasOne(x => x.ImportList)
+                .WithMany(x => x.Items)
+                .HasForeignKey(x => x.ImportListId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting a song must not delete the line that produced it: the line stays, skippable.
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<Library>(entity =>
         {
             entity.ToTable("library");
