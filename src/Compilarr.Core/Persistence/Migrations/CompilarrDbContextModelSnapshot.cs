@@ -17,6 +17,77 @@ namespace Compilarr.Core.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
+            modelBuilder.Entity("Compilarr.Core.Jobs.CommandRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("body");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("ended_at");
+
+                    b.Property<string>("Exception")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("exception");
+
+                    b.Property<string>("Message")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("message");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("QueuedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("queued_at");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("result");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("trigger");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_command");
+
+                    b.HasIndex("Name")
+                        .HasDatabaseName("ix_command_name");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_command_status");
+
+                    b.ToTable("command", (string)null);
+                });
+
             modelBuilder.Entity("Compilarr.Core.Persistence.Job", b =>
                 {
                     b.Property<long>("Id")

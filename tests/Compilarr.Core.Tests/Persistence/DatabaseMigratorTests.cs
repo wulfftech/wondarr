@@ -33,7 +33,7 @@ public class DatabaseMigratorTests
 
         // The snake_case convention renames the history columns too, so read positionally.
         var migrations = await database.ReadStringsAsync("SELECT * FROM \"__EFMigrationsHistory\";");
-        migrations.Should().ContainSingle().Which.Should().EndWith("InitialCreate");
+        migrations.Should().Contain(migration => migration.EndsWith("InitialCreate", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -49,7 +49,8 @@ public class DatabaseMigratorTests
         await act.Should().NotThrowAsync();
 
         var migrations = await database.ReadStringsAsync("SELECT * FROM \"__EFMigrationsHistory\";");
-        migrations.Should().HaveCount(1);
+        // one history row per migration, however many later tasks add
+        migrations.Should().OnlyHaveUniqueItems().And.Contain(migration => migration.EndsWith("InitialCreate", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -63,6 +64,6 @@ public class DatabaseMigratorTests
         await migrator.MigrateAsync(CancellationToken.None);
 
         var applied = context.Database.GetAppliedMigrations();
-        applied.Should().ContainSingle().Which.Should().EndWith("InitialCreate");
+        applied.Should().Contain(migration => migration.EndsWith("InitialCreate", StringComparison.Ordinal));
     }
 }
