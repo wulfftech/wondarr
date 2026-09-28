@@ -33,12 +33,13 @@ public sealed class HealthTests
         var entries = await ReadEntriesAsync(response);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        entries.Should().HaveCount(3);
-        entries.Select(entry => entry.Source).Should().BeEquivalentTo(
-            "DatabaseHealthCheck",
-            "ConfigFolderHealthCheck",
-            "LogFolderHealthCheck");
-        entries.Should().OnlyContain(entry => entry.Type == "ok");
+        var core = new[] { "DatabaseHealthCheck", "ConfigFolderHealthCheck", "LogFolderHealthCheck" };
+        entries.Where(entry => core.Contains(entry.Source)).Should().HaveCount(3)
+            .And.OnlyContain(entry => entry.Type == "ok");
+
+        // No slskd binary on a test machine: the bundled-slskd check reports a warning, which is
+        // not an error, so the endpoint still answers 200.
+        entries.Should().ContainSingle(entry => entry.Source == "slskd" && entry.Type == "warning");
     }
 
     [Fact]
@@ -82,7 +83,7 @@ public sealed class HealthTests
         using var response = await client.GetAsync(new Uri($"{HealthEndpoint}?refresh=true", UriKind.Relative));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await ReadEntriesAsync(response)).Should().HaveCount(3);
+        (await ReadEntriesAsync(response)).Should().HaveCount(4, "database, config folder, log folder and slskd");
     }
 
     private static async Task<List<(string Source, string Type, string Message)>> ReadEntriesAsync(HttpResponseMessage response)
