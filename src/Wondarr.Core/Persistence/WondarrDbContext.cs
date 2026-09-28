@@ -68,6 +68,18 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the lines of the import lists.</summary>
     public DbSet<ImportListItem> ImportListItems => Set<ImportListItem>();
 
+    /// <summary>Gets the search runs.</summary>
+    public DbSet<SearchRun> SearchRuns => Set<SearchRun>();
+
+    /// <summary>Gets the candidates every run saw, with their scores and rejections.</summary>
+    public DbSet<CandidateRecord> Candidates => Set<CandidateRecord>();
+
+    /// <summary>Gets the download queue.</summary>
+    public DbSet<QueueItem> QueueItems => Set<QueueItem>();
+
+    /// <summary>Gets the Soulseek peer reputation and ignore list.</summary>
+    public DbSet<SoulseekUser> SoulseekUsers => Set<SoulseekUser>();
+
     /// <summary>
     /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
     /// Everything is stored as UTC; mark it so on the way out to keep arithmetic with
