@@ -31,6 +31,7 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/SystemController.cs` | `src/Compilarr.Api/SystemInfo/SystemController.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/SystemResource.cs` | `src/Compilarr.Api/SystemInfo/SystemResource.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/SignalR/SignalRMessage.cs`, `src/Lidarr.Http/ResourceChangeMessage.cs` | `src/Compilarr.Api/SignalR/SignalRMessage.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/Tasks/TaskController.cs` | `src/Compilarr.Api/SystemInfo/TaskController.cs` |
 
 Planned sources (see ADR-0002): Lidarr, Prowlarr, Sonarr (GPL-3.0); SoulSync, spotDL (MIT). Sockseek and slskd are AGPL-3.0 and are **not** copied.
 
