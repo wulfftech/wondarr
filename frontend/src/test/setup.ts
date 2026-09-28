@@ -17,6 +17,21 @@ window.matchMedia = (query: string): MediaQueryList => ({
 });
 
 /**
+ * jsdom has no `ResizeObserver` either; Mantine's SegmentedControl, Tabs indicator and ScrollArea
+ * construct one on mount. Nothing is ever resized in a test, so an observer that never fires is
+ * exactly right.
+ */
+class NoopResizeObserver implements ResizeObserver {
+  observe(): void {}
+
+  unobserve(): void {}
+
+  disconnect(): void {}
+}
+
+window.ResizeObserver = NoopResizeObserver;
+
+/**
  * The tests must never open a socket. The real builder would try to reach a hub that no test host
  * runs; the shell only needs the connection object to exist.
  */
