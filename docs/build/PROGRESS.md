@@ -44,7 +44,7 @@ ok   ffprobe, fpcalc, deno and slskd run inside the image
 PHASE 0 GATE: PASS
 ```
 
-The UI was also checked in a real browser under `/compilarr` (status page, health list, navigation). Tests: 209 backend (xUnit), 15 frontend (Vitest).
+The UI was also checked in a real browser under `/compilarr` (status page, health list, navigation). CI is green on `main`, and the tag `v0.0.1-alpha.1` built and pushed `ghcr.io/wulfftech/compilarr:0.0.1-alpha.1` for `linux/amd64` and `linux/arm64` (prerelease, so `:latest` is untouched). Tests: 209 backend (xUnit), 15 frontend (Vitest).
 
 **Spend:** Phase 0 worker spend **USD 1.12** of the USD 10 budget (OpenRouter key counter), plus USD 0.35 for the bake-off. Per-task figures in the table apportion the counter across parallel runs.
 
