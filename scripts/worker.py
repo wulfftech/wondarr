@@ -51,7 +51,8 @@ WORKER_TOOLS = (
     "Bash(dotnet *)", "Bash(npm *)", "Bash(npx *)", "Bash(node *)",
     "Bash(cd *)", "Bash(pwd)", "Bash(ls*)", "Bash(mkdir *)", "Bash(echo *)",
     "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)", "Bash(git add *)",
-    "Bash(git rm *)", "Bash(git mv *)", "Bash(git commit *)",
+    "Bash(git rm *)", "Bash(git mv *)", "Bash(git commit *)", "Bash(git update-index --chmod*)",
+    "Bash(sh -n *)",
 )
 
 
