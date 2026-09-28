@@ -138,6 +138,51 @@ public class DiskOperationsTests : IDisposable
             .Select(Path.GetFileName)
             .Should().BeEquivalentTo("track.mp3", "track.mp3", "other.mp3");
     }
+
+    [Fact]
+    public void CopyFile_leaves_no_partial_when_the_source_cannot_be_read()
+    {
+        var missing = _temp.Full("gone.mp3");
+        var target = _temp.Full("placed.mp3");
+
+        var copy = () => _disk.CopyFile(missing, target);
+
+        copy.Should().Throw<IOException>();
+        _temp.Files().Should().NotContain(
+            path => path.EndsWith(".partial", StringComparison.Ordinal),
+            "a copy that failed must not leave a half-written file behind");
+    }
+
+    [Fact]
+    public void CopyFile_leaves_no_partial_and_the_target_alone_when_the_target_is_taken()
+    {
+        var source = _temp.CreateFile("source.mp3", "source");
+        var target = _temp.CreateFile("placed.mp3", "existing");
+
+        var copy = () => _disk.CopyFile(source, target);
+
+        copy.Should().Throw<IOException>();
+        File.ReadAllText(target).Should().Be("existing");
+        File.ReadAllText(source).Should().Be("source");
+        _temp.Files().Should().NotContain(
+            path => path.EndsWith(".partial", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PathRules_only_accept_paths_under_the_root()
+    {
+        PathRules.IsInside("/data/music", "/data/music").Should().BeTrue("the root is inside itself");
+        PathRules.IsInside("/data/music", "/data/music/track.mp3").Should().BeTrue();
+        PathRules.IsInside("/data/music/", "/data/music/track.mp3").Should().BeTrue("a trailing separator is the same place");
+        PathRules.IsInside("/data/music", "/data/music/").Should().BeTrue();
+        PathRules.IsInside("/data/music", "/data/music2").Should().BeFalse("a sibling sharing a prefix is not inside");
+        PathRules.IsInside("/data/music", "/data").Should().BeFalse();
+
+        PathRules.IsStrictlyInside("/data/music", "/data/music").Should().BeFalse("the root itself is not strictly inside");
+        PathRules.IsStrictlyInside("/data/music/", "/data/music").Should().BeFalse();
+        PathRules.IsStrictlyInside("/data/music", "/data/music2").Should().BeFalse();
+        PathRules.IsStrictlyInside("/data/music", "/data/music/track.mp3").Should().BeTrue();
+    }
 }
 
 /// <summary>

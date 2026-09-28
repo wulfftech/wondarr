@@ -2,6 +2,7 @@ using Wondarr.Core.Configuration;
 using Wondarr.Core.Organizer;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -130,5 +131,75 @@ public class RecycleBinTests : IDisposable
     public async Task Cleanup_is_harmless_when_the_bin_does_not_exist_yet()
     {
         (await Bin().CleanupAsync(CancellationToken.None)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Reads_a_bin_path_with_a_trailing_separator_as_the_same_directory()
+    {
+        _options.RecycleBinPath = RecycleRoot + Path.DirectorySeparatorChar;
+
+        Bin().Root.Should().Be(RecycleRoot, "the bin root is one place however it is spelled");
+
+        var replaced = _temp.CreateFile("library/Artist/track.mp3", "old");
+
+        var recycled = await Bin().RecycleAsync(replaced, Library, CancellationToken.None);
+
+        recycled.Should().Be(_temp.Full("recycle/Artist/track.mp3"));
+        File.ReadAllText(recycled).Should().Be("old");
+    }
+
+    [Fact]
+    public async Task Refuses_a_bin_that_is_not_outside_the_library()
+    {
+        _options.RecycleBinPath = _temp.Full("library/recycle");
+
+        var inside = _temp.CreateFile("library/Artist/track.mp3", "old");
+        var at_the_root = _temp.CreateFile("library/track.mp3", "old");
+
+        var recycleInside = async () => await Bin().RecycleAsync(inside, Library, CancellationToken.None);
+        var recycleAtTheRoot = async () => await Bin().RecycleAsync(at_the_root, Library, CancellationToken.None);
+
+        await recycleInside.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("The recycle bin must be outside the library");
+
+        _options.RecycleBinPath = Library;
+        await recycleAtTheRoot.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("The recycle bin must be outside the library");
+
+        File.ReadAllText(inside).Should().Be("old");
+        File.ReadAllText(at_the_root).Should().Be("old");
+    }
+
+    [Fact]
+    public async Task Cleanup_leaves_an_empty_folder_outside_the_bin_alone()
+    {
+        var old = _temp.CreateFile("recycle/Artist/old.mp3", "old");
+        File.SetLastWriteTimeUtc(old, Now.UtcDateTime.AddDays(-30));
+
+        var outside = _temp.Full("outside/empty");
+        Directory.CreateDirectory(outside);
+
+        (await Bin().CleanupAsync(CancellationToken.None)).Should().Be(1);
+
+        Directory.Exists(RecycleRoot).Should().BeTrue("the bin root itself is never removed");
+        Directory.Exists(outside).Should().BeTrue("the walk never reaches past the bin");
+        Directory.Exists(_temp.Full("outside")).Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_validator_refuses_a_bin_at_the_root_of_a_filesystem()
+    {
+        var validator = new ImportOptionsValidator();
+
+        var root = Path.GetPathRoot(Path.GetTempPath())!;
+
+        validator.Validate(null, new ImportOptions { RecycleBinPath = root })
+            .Failed.Should().BeTrue("a bin at the root of a volume would make the cleanup walk the whole disk");
+
+        validator.Validate(null, new ImportOptions { RecycleBinPath = root })
+            .Failures.Should().Contain(failure => failure.StartsWith("import.recycle_bin_path", StringComparison.Ordinal));
+
+        validator.Validate(null, new ImportOptions { RecycleBinPath = _temp.Full("recycle") })
+            .Succeeded.Should().BeTrue();
     }
 }

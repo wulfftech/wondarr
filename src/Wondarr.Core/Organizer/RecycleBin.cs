@@ -72,6 +72,15 @@ public sealed class RecycleBin : IRecycleBin
         cancellationToken.ThrowIfCancellationRequested();
 
         var root = Root;
+
+        // A bin inside the library — or holding it — would recycle a file into the tree it is being
+        // moved within, and the cleanup pass would walk the library. Refuse outright.
+        if (!string.IsNullOrWhiteSpace(libraryRoot)
+            && (PathRules.IsInside(root, libraryRoot) || PathRules.IsInside(libraryRoot, root)))
+        {
+            throw new InvalidOperationException("The recycle bin must be outside the library");
+        }
+
         var destination = Path.Combine(root, RelativeName(path, libraryRoot));
 
         var directory = Path.GetDirectoryName(destination);
@@ -93,6 +102,17 @@ public sealed class RecycleBin : IRecycleBin
         {
             // A different device under the recycle bin: copy it over, and only then drop the source.
             _disk.CopyFile(path, recycled);
+
+            // A copy that is not the size of the file it came from is not that file: keep the
+            // original and let the caller hear about it.
+            if (_disk.GetFileSize(recycled) != _disk.GetFileSize(path))
+            {
+                _disk.DeleteFile(recycled);
+
+                throw new IOException(
+                    $"Recycled '{path}' as '{recycled}' with the wrong size; the original was kept.");
+            }
+
             _disk.DeleteFile(path);
         }
 
@@ -130,8 +150,9 @@ public sealed class RecycleBin : IRecycleBin
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Belt and braces: nothing outside the recycle bin is ever deleted from here.
-            if (!PathRules.IsInside(root, file) || !_disk.FileExists(file))
+            // Belt and braces: only a file strictly below the bin is ever deleted from here — never
+            // the bin root itself, and never anything the walk was led to outside it.
+            if (!PathRules.IsStrictlyInside(root, file) || !_disk.FileExists(file))
             {
                 continue;
             }
@@ -141,13 +162,28 @@ public sealed class RecycleBin : IRecycleBin
                 continue;
             }
 
-            _disk.DeleteFile(file);
+            try
+            {
+                _disk.DeleteFile(file);
+            }
+            catch (IOException exception)
+            {
+                // One file that is locked or already gone does not end the pass.
+                RecycleBinLog.DeleteFailed(_logger, file, exception.Message);
+                continue;
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                RecycleBinLog.DeleteFailed(_logger, file, exception.Message);
+                continue;
+            }
+
             deleted++;
 
-            // The file's folder and every folder between it and the bin: the ones that only held
-            // expired files should go with them.
+            // The file's folder and every folder between it and the bin, the bin root excluded: the
+            // ones that only held expired files should go with them.
             for (var parent = Path.GetDirectoryName(file);
-                 !string.IsNullOrEmpty(parent) && !string.Equals(parent, root, PathRules.Comparison);
+                 !string.IsNullOrEmpty(parent) && PathRules.IsStrictlyInside(root, parent);
                  parent = Path.GetDirectoryName(parent))
             {
                 directories.Add(parent);
@@ -226,4 +262,8 @@ internal static partial class RecycleBinLog
     /// <summary>The cleanup pass expired some recycled files.</summary>
     [LoggerMessage(Level = LogLevel.Information, Message = "Removed {Count} recycled files older than {Days} days")]
     internal static partial void Cleaned(ILogger logger, int count, int days);
+
+    /// <summary>One expired file could not be removed; the pass carried on with the rest.</summary>
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the recycled file {Path}: {Reason}")]
+    internal static partial void DeleteFailed(ILogger logger, string path, string reason);
 }
