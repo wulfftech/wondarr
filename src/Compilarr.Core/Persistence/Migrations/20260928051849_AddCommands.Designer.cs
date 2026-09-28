@@ -3,6 +3,7 @@ using System;
 using Compilarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Compilarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(CompilarrDbContext))]
-    partial class CompilarrDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260928051849_AddCommands")]
+    partial class AddCommands
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");

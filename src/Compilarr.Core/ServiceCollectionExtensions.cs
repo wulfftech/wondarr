@@ -1,7 +1,10 @@
+using System.Threading.Channels;
 using Compilarr.Core.Authentication;
 using Compilarr.Core.Configuration;
 using Compilarr.Core.HealthCheck;
+using Compilarr.Core.Jobs;
 using Compilarr.Core.Logging;
+using Compilarr.Core.Messaging;
 using Compilarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -30,6 +33,20 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
         services.AddSingleton<HealthCheckService>();
+
+        services.AddSingleton<IEventAggregator, EventAggregator>();
+
+        // The queue writes ids here and the executor drains it; both resolve the same instance, so
+        // this must stay a singleton.
+        services.TryAddSingleton(Channel.CreateUnbounded<long>());
+        services.AddSingleton<ICommandQueue, CommandQueue>();
+
+        services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
+        services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
+
+        // Registered here rather than in AddCompilarrPersistence so it starts after the migration
+        // hosted service (hosted services start in registration order) and the command table exists.
+        services.AddHostedService<CommandExecutor>();
 
         return services;
     }
