@@ -19,6 +19,7 @@ Conceptually it is Sonarr/Radarr/Lidarr for **one song at a time** — which Lid
 | [`docs/architecture/LIBRARY_OUTPUT.md`](docs/architecture/LIBRARY_OUTPUT.md) | Layouts, the album policy ("fewest albums"), tag spec, Plex/Plexamp rules, reference libraries |
 | [`docs/architecture/STACK.md`](docs/architecture/STACK.md) · [`DEPLOYMENT.md`](docs/architecture/DEPLOYMENT.md) · [`QUALITY_DEFINITIONS.md`](docs/architecture/QUALITY_DEFINITIONS.md) · [`CONFIG_EXAMPLES.md`](docs/architecture/CONFIG_EXAMPLES.md) | Stack and code to port, Docker/bundled slskd, quality seed, reference config |
 | [`docs/build/PHASES.md`](docs/build/PHASES.md) · [`PHASE_0_TASKS.md`](docs/build/PHASE_0_TASKS.md) · [`AGENT_WORKFLOW.md`](docs/build/AGENT_WORKFLOW.md) · [`CODING_STANDARDS.md`](docs/build/CODING_STANDARDS.md) · [`REPO_LAYOUT.md`](docs/build/REPO_LAYOUT.md) | How the build is sequenced, the first task list, how AI workers are used, conventions |
+| [`docs/build/NEXT_SESSION_PROMPT.md`](docs/build/NEXT_SESSION_PROMPT.md) | The prompt that starts the first build session (Phase 0) |
 | [`docs/research/FINDINGS.md`](docs/research/FINDINGS.md) + six full reports | The URL-cited research behind every decision |
 | [`docs/PLAN.md`](docs/PLAN.md) | The complete planning document (revision 3), frozen as the record of the research phase |
 
