@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <!--
+      The API host replaces __URL_BASE__ with the configured URL base (P0-08a), so this file works
+      under any base. Relative asset URLs in the build then resolve under that base on every route.
+    -->
+        <base href="__URL_BASE__/" />
+        <title>Compilarr</title>
+        <script>
+            // Vite's dev server serves this file verbatim, so the placeholder survives; fall back to the
+            // site root there. The API host always replaces it before serving.
+            (function () {
+                var base = document.querySelector('base[href="__URL_BASE__/"]');
+                if (base) {
+                    base.setAttribute('href', '/');
+                }
+            })();
+        </script>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script type="module" src="/src/app/main.tsx"></script>
+    </body>
+</html>
