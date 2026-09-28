@@ -1,0 +1,22 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - paragraph [ref=e6]: Compilarr
+      - button "Toggle the colour scheme" [ref=e8] [cursor=pointer]
+  - navigation [ref=e12]:
+    - link "Library" [ref=e13] [cursor=pointer]:
+      - /url: /compilarr/library
+    - link "Wanted" [ref=e18] [cursor=pointer]:
+      - /url: /compilarr/wanted
+    - link "Activity" [ref=e23] [cursor=pointer]:
+      - /url: /compilarr/activity
+    - link "Settings" [ref=e28] [cursor=pointer]:
+      - /url: /compilarr/settings
+    - link "System" [ref=e34] [cursor=pointer]:
+      - /url: /compilarr/system/status
+  - main [ref=e40]:
+    - generic [ref=e41]:
+      - heading "Status" [level=2] [ref=e42]
+      - paragraph [ref=e46]: Loading…
+      - heading "Health" [level=3] [ref=e48]
+      - paragraph [ref=e52]: Loading…

@@ -1,0 +1,20 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - paragraph [ref=f1e6]: Compilarr
+      - generic [ref=f1e7]:
+        - generic "0 health issues" [ref=f1e8]: "0"
+        - button "Toggle the colour scheme" [ref=f1e10] [cursor=pointer]
+  - navigation [ref=f1e14]:
+    - link "Library" [ref=f1e15] [cursor=pointer]:
+      - /url: /compilarr/library
+    - link "Wanted" [ref=f1e20] [cursor=pointer]:
+      - /url: /compilarr/wanted
+    - link "Activity" [ref=f1e25] [cursor=pointer]:
+      - /url: /compilarr/activity
+    - link "Settings" [ref=f1e30] [cursor=pointer]:
+      - /url: /compilarr/settings
+    - link "System" [ref=f1e36] [cursor=pointer]:
+      - /url: /compilarr/system/status
+  - main [ref=f1e42]:
+    - paragraph [ref=f1e44]: Arrives in Phase 1
