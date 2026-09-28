@@ -181,6 +181,250 @@ export const QUALITY_PROFILES = [
   },
 ];
 
+/**
+ * The two songs the Library page lists: one filed under a real album, one under its artist's
+ * Singles pseudo-album. The values mirror what the backend serialises, enums as camelCase strings.
+ */
+export const LIBRARY_SONGS = [
+  {
+    id: 12,
+    title: 'Get Lucky',
+    artistCredit: 'Daft Punk',
+    primaryArtistId: 7,
+    primaryArtistName: 'Daft Punk',
+    mbRecordingId: '833f5a5d-9c2a-4a1c-9b6f-2f5b2f0a1c3d',
+    deezerId: null,
+    isrcs: ['USQX91300516'],
+    durationMs: 369000,
+    versionFlags: ['radio_edit'],
+    monitored: true,
+    qualityProfileId: 1,
+    libraryId: 1,
+    addedBy: 'user',
+    added: '2026-01-05T00:00:00Z',
+    hasFile: true,
+    qualityId: 20,
+    albumContext: {
+      kind: 'album',
+      albumTitle: 'Random Access Memories',
+      albumArtist: 'Daft Punk',
+      albumKey: '9c1b3a2f-random-access-memories',
+      mbReleaseId: '9c1b3a2f-0000-0000-0000-000000000000',
+      mbReleaseGroupId: null,
+      trackNo: 8,
+      discNo: 1,
+      totalTracks: 13,
+      date: '2013-05-17',
+      originalDate: null,
+      coverUrl: null,
+      isVariousArtists: false,
+    },
+  },
+  {
+    id: 13,
+    title: 'Xtal',
+    artistCredit: 'Aphex Twin',
+    primaryArtistId: 8,
+    primaryArtistName: 'Aphex Twin',
+    mbRecordingId: null,
+    deezerId: 66877419,
+    isrcs: [],
+    durationMs: 293000,
+    versionFlags: [],
+    monitored: false,
+    qualityProfileId: 1,
+    libraryId: 1,
+    addedBy: 'user',
+    added: '2026-01-06T00:00:00Z',
+    hasFile: false,
+    qualityId: null,
+    albumContext: {
+      kind: 'pseudoSingles',
+      albumTitle: 'Singles',
+      albumArtist: 'Aphex Twin',
+      albumKey: 'singles',
+      mbReleaseId: null,
+      mbReleaseGroupId: null,
+      trackNo: null,
+      discNo: null,
+      totalTracks: null,
+      date: null,
+      originalDate: null,
+      coverUrl: null,
+      isVariousArtists: false,
+    },
+  },
+];
+
+export const ARTISTS = [
+  { id: 7, name: 'Daft Punk', sortName: 'Daft Punk', mbArtistId: null, deezerId: null, songCount: 1 },
+  { id: 8, name: 'Aphex Twin', sortName: 'Aphex Twin', mbArtistId: null, deezerId: null, songCount: 1 },
+];
+
+/** The releases "Get Lucky" could be filed under, plus the artist's Singles pseudo-album. */
+export const ALBUM_OPTIONS = [
+  {
+    key: '9c1b3a2f-random-access-memories',
+    mbReleaseId: '9c1b3a2f-0000-0000-0000-000000000000',
+    mbReleaseGroupId: null,
+    title: 'Random Access Memories',
+    albumArtist: 'Daft Punk',
+    primaryType: 'Album',
+    secondaryTypes: [],
+    status: 'Official',
+    date: '2013-05-17',
+    trackNo: 8,
+    totalTracks: 13,
+    isCurrent: true,
+  },
+  {
+    key: 'singles',
+    mbReleaseId: null,
+    mbReleaseGroupId: null,
+    title: 'Singles',
+    albumArtist: 'Daft Punk',
+    primaryType: null,
+    secondaryTypes: [],
+    status: null,
+    date: null,
+    trackNo: null,
+    totalTracks: null,
+    isCurrent: false,
+  },
+];
+
+/** What `POST /api/v1/song` answers with for "Get Lucky". */
+export const ADDED_SONG = {
+  ...LIBRARY_SONGS[0],
+  id: 41,
+  added: '2026-01-07T00:00:00Z',
+  hasFile: false,
+  qualityId: null,
+};
+
+/** Two candidates for "Daft Punk - Get Lucky": a MusicBrainz one and a Deezer-only one. */
+export const LOOKUP_RESULTS = [
+  {
+    source: 'musicbrainz',
+    mbRecordingId: '833f5a5d-9c2a-4a1c-9b6f-2f5b2f0a1c3d',
+    deezerId: null,
+    title: 'Get Lucky',
+    artistCredit: 'Daft Punk feat. Pharrell Williams',
+    durationMs: 369000,
+    disambiguation: 'album version',
+    versionFlags: ['radio_edit'],
+    firstReleaseDate: '2013-04-19',
+    releaseTypes: ['Album', 'Single'],
+    albumTitle: 'Random Access Memories',
+    coverUrl: null,
+    isrcs: ['USQX91300516'],
+    score: 100,
+    viaIsrc: false,
+    existingSongId: null,
+  },
+  {
+    source: 'deezer',
+    mbRecordingId: null,
+    deezerId: 66877419,
+    title: 'Get Lucky (Radio Edit)',
+    artistCredit: 'Daft Punk',
+    durationMs: 248000,
+    disambiguation: null,
+    versionFlags: [],
+    firstReleaseDate: '2013-04-19',
+    releaseTypes: ['Single'],
+    albumTitle: 'Get Lucky',
+    coverUrl: null,
+    isrcs: ['GBDUW1300012'],
+    score: 84,
+    viaIsrc: false,
+    existingSongId: null,
+  },
+];
+
+/** A fresh Deezer preview link, as `GET /api/v1/preview` answers. */
+export const PREVIEW = { url: 'https://cdns-preview-1.dzcdn.net/stream/get-lucky.mp3' };
+
+/** What `POST /api/v1/song/bulk` accepts: the stored list, its command and its line count. */
+export const BULK_ACCEPTED = { importListId: 5, commandId: 9, lineCount: 50 };
+
+/** The bulk add's command while it is still resolving. */
+export const COMMAND_RUNNING = {
+  id: 9,
+  name: 'BulkAddSongs',
+  commandName: 'BulkAddSongs',
+  message: 'Resolved 12 of 50 lines',
+  body: null,
+  priority: 'normal',
+  status: 'started',
+  result: 'unknown',
+  queued: '2026-01-08T00:00:00Z',
+  started: '2026-01-08T00:00:01Z',
+  ended: null,
+  duration: null,
+  exception: null,
+  trigger: 'manual',
+  stateChangeTime: '2026-01-08T00:00:01Z',
+};
+
+/** The same command once the resolve has finished. */
+export const COMMAND_COMPLETED = {
+  ...COMMAND_RUNNING,
+  message: 'Resolved 50 of 50 lines',
+  status: 'completed',
+  result: 'successful',
+  ended: '2026-01-08T00:01:00Z',
+  duration: '00:00:59',
+};
+
+/** The stored paste list, with three lines left for the review screen. */
+export const IMPORT_LIST = {
+  id: 5,
+  type: 'paste',
+  name: 'Pasted 2026-01-08',
+  created: '2026-01-08T00:00:00Z',
+  lastSyncedAt: '2026-01-08T00:01:00Z',
+  counts: { pending: 0, added: 47, unresolved: 3, skipped: 0 },
+};
+
+/** Two unresolved lines, the first with a candidate to pick. */
+export const IMPORT_LIST_ITEMS = [
+  {
+    id: 5,
+    importListId: 5,
+    line: 1,
+    text: 'Aphex Twin - Xtal',
+    artist: 'Aphex Twin',
+    title: 'Xtal',
+    state: 'unresolved',
+    reason: 'No provider matched closely enough.',
+    songId: null,
+    candidates: [
+      {
+        source: 'musicbrainz',
+        mbRecordingId: 'a1b2c3d4-0000-0000-0000-000000000001',
+        deezerId: null,
+        title: 'Xtal',
+        artistCredit: 'Aphex Twin',
+        durationMs: 293000,
+        score: 71.5,
+      },
+    ],
+  },
+  {
+    id: 6,
+    importListId: 5,
+    line: 2,
+    text: 'Nobody - Nothing At All',
+    artist: 'Nobody',
+    title: 'Nothing At All',
+    state: 'unresolved',
+    reason: 'Neither provider knows this one.',
+    songId: null,
+    candidates: [],
+  },
+];
+
 export const LIBRARIES = [
   {
     id: 1,

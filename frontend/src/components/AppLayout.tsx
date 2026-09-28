@@ -8,7 +8,7 @@ import {
   Tooltip,
   useMantineColorScheme,
 } from '@mantine/core';
-import { Activity, HeartPulse, Library, Moon, Settings, Star, Sun } from 'lucide-react';
+import { Activity, HeartPulse, Library, Moon, Plus, Settings, Star, Sun } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
@@ -16,6 +16,7 @@ import { isProblem } from '../api/types';
 
 const NAV_ITEMS = [
   { to: '/library', match: '/library', label: 'Library', icon: Library },
+  { to: '/add', match: '/add', label: 'Add songs', icon: Plus },
   { to: '/wanted', match: '/wanted', label: 'Wanted', icon: Star },
   { to: '/activity', match: '/activity', label: 'Activity', icon: Activity },
   { to: '/settings', match: '/settings', label: 'Settings', icon: Settings },
