@@ -1,0 +1,192 @@
+[
+  {
+    "name": "fewest_albums: greedy cover picks the earliest of two equally covering albums; the leftover goes to a new Singles album",
+    "input": {
+      "policy": "FewestAlbums", "minTracksPerRealAlbum": 2, "libraryName": "Music", "existingAlbums": [],
+      "songs": [
+        { "ref": "s1", "artistKey": "a", "artistName": "Artist A", "originalDate": "2001-03-01", "options": [
+          { "key": "r1", "mbReleaseId": "r1", "mbReleaseGroupId": "rg1", "title": "Alpha", "albumArtist": "Artist A", "primaryType": "Album", "date": "2001-03-01", "releaseGroupFirstDate": "2001-03-01", "trackNo": 1, "totalTracks": 10 },
+          { "key": "r3", "mbReleaseId": "r3", "mbReleaseGroupId": "rg3", "title": "S1", "albumArtist": "Artist A", "primaryType": "Single", "date": "2000-11-01", "releaseGroupFirstDate": "2000-11-01", "trackNo": 1, "totalTracks": 2 } ] },
+        { "ref": "s2", "artistKey": "a", "artistName": "Artist A", "originalDate": "2001-03-01", "options": [
+          { "key": "r1", "mbReleaseId": "r1", "mbReleaseGroupId": "rg1", "title": "Alpha", "albumArtist": "Artist A", "primaryType": "Album", "date": "2001-03-01", "releaseGroupFirstDate": "2001-03-01", "trackNo": 2, "totalTracks": 10 },
+          { "key": "r2", "mbReleaseId": "r2", "mbReleaseGroupId": "rg2", "title": "Beta", "albumArtist": "Artist A", "primaryType": "Album", "date": "2005-06-01", "releaseGroupFirstDate": "2005-06-01", "trackNo": 4, "totalTracks": 12 } ] },
+        { "ref": "s3", "artistKey": "a", "artistName": "Artist A", "originalDate": "2005-06-01", "options": [
+          { "key": "r2", "mbReleaseId": "r2", "mbReleaseGroupId": "rg2", "title": "Beta", "albumArtist": "Artist A", "primaryType": "Album", "date": "2005-06-01", "releaseGroupFirstDate": "2005-06-01", "trackNo": 7, "totalTracks": 12 },
+          { "key": "r4", "mbReleaseId": "r4", "mbReleaseGroupId": "rg4", "title": "S3", "albumArtist": "Artist A", "primaryType": "Single", "date": "2004-01-01", "releaseGroupFirstDate": "2004-01-01", "trackNo": 1, "totalTracks": 1 } ] }
+      ]
+    },
+    "expected": [
+      { "songRef": "s1", "kind": "Album", "albumTitle": "Alpha", "albumArtist": "Artist A", "albumKey": "r1", "mbReleaseId": "r1", "mbReleaseGroupId": "rg1", "trackNo": 1, "discNo": 1, "totalTracks": 10, "date": "2001-03-01", "originalDate": "2001-03-01", "isVariousArtists": false },
+      { "songRef": "s2", "kind": "Album", "albumTitle": "Alpha", "albumArtist": "Artist A", "albumKey": "r1", "mbReleaseId": "r1", "mbReleaseGroupId": "rg1", "trackNo": 2, "discNo": 1, "totalTracks": 10, "date": "2001-03-01", "originalDate": "2001-03-01", "isVariousArtists": false },
+      { "songRef": "s3", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Artist A", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 1, "discNo": 1, "totalTracks": null, "date": "2005", "originalDate": "2005-06-01", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "fewest_albums: sticky — joins an existing album through another edition of its release group, leftovers join the existing Singles album",
+    "input": {
+      "policy": "FewestAlbums", "minTracksPerRealAlbum": 2, "libraryName": "Music",
+      "existingAlbums": [
+        { "albumKey": "r2", "kind": "Album", "artistKey": "a", "albumTitle": "Beta", "albumArtist": "Artist A", "date": "2005-06-01", "mbReleaseId": "r2", "mbReleaseGroupId": "rg2", "trackCount": 3, "maxTrackNo": 9, "isVariousArtists": false },
+        { "albumKey": "p-1", "kind": "PseudoSingles", "artistKey": "a", "albumTitle": "Singles", "albumArtist": "Artist A", "date": "2010", "mbReleaseId": null, "mbReleaseGroupId": null, "trackCount": 4, "maxTrackNo": 4, "isVariousArtists": false }
+      ],
+      "songs": [
+        { "ref": "s4", "artistKey": "a", "artistName": "Artist A", "originalDate": "2005-06-01", "options": [
+          { "key": "r2b", "mbReleaseId": "r2b", "mbReleaseGroupId": "rg2", "title": "Beta (Deluxe)", "albumArtist": "Artist A", "primaryType": "Album", "date": "2006-01-01", "releaseGroupFirstDate": "2005-06-01", "trackNo": 5, "totalTracks": 15 },
+          { "key": "r9", "mbReleaseId": "r9", "mbReleaseGroupId": "rg9", "title": "Gamma", "albumArtist": "Artist A", "primaryType": "Album", "date": "2008-01-01", "releaseGroupFirstDate": "2008-01-01", "trackNo": 2, "totalTracks": 11 } ] },
+        { "ref": "s5", "artistKey": "a", "artistName": "Artist A", "originalDate": "2012-02-02", "options": [
+          { "key": "r7", "mbReleaseId": "r7", "mbReleaseGroupId": "rg7", "title": "S5", "albumArtist": "Artist A", "primaryType": "Single", "date": "2012-02-02", "releaseGroupFirstDate": "2012-02-02", "trackNo": 1, "totalTracks": 1 } ] },
+        { "ref": "s6", "artistKey": "a", "artistName": "Artist A", "originalDate": "2008-01-01", "options": [
+          { "key": "r9", "mbReleaseId": "r9", "mbReleaseGroupId": "rg9", "title": "Gamma", "albumArtist": "Artist A", "primaryType": "Album", "date": "2008-01-01", "releaseGroupFirstDate": "2008-01-01", "trackNo": 3, "totalTracks": 11 } ] }
+      ]
+    },
+    "expected": [
+      { "songRef": "s4", "kind": "Album", "albumTitle": "Beta", "albumArtist": "Artist A", "albumKey": "r2", "mbReleaseId": "r2", "mbReleaseGroupId": "rg2", "trackNo": 5, "discNo": 1, "totalTracks": 15, "date": "2005-06-01", "originalDate": "2005-06-01", "isVariousArtists": false },
+      { "songRef": "s5", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Artist A", "albumKey": "p-1", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 5, "discNo": 1, "totalTracks": null, "date": "2010", "originalDate": "2012-02-02", "isVariousArtists": false },
+      { "songRef": "s6", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Artist A", "albumKey": "p-1", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 6, "discNo": 1, "totalTracks": null, "date": "2010", "originalDate": "2008-01-01", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "fewest_albums: compilations and promos are never real albums; a live release is eligible only for live songs",
+    "input": {
+      "policy": "FewestAlbums", "minTracksPerRealAlbum": 2, "libraryName": "Music", "existingAlbums": [],
+      "songs": [
+        { "ref": "t1", "artistKey": "b", "artistName": "Band B", "originalDate": "1990-01-01", "options": [
+          { "key": "c1", "mbReleaseId": "c1", "mbReleaseGroupId": "c1g", "title": "Hits", "albumArtist": "Various Artists", "isVariousArtists": true, "primaryType": "Album", "secondaryTypes": ["Compilation"], "date": "1995-01-01", "releaseGroupFirstDate": "1995-01-01", "trackNo": 3, "totalTracks": 20 },
+          { "key": "p1", "mbReleaseId": "p1", "mbReleaseGroupId": "p1g", "title": "Promo", "albumArtist": "Band B", "primaryType": "Album", "status": "Promotion", "date": "1990-01-01", "releaseGroupFirstDate": "1990-01-01", "trackNo": 1, "totalTracks": 2 },
+          { "key": "l1", "mbReleaseId": "l1", "mbReleaseGroupId": "l1g", "title": "Live at X", "albumArtist": "Band B", "primaryType": "Album", "secondaryTypes": ["Live"], "date": "1992-05-05", "releaseGroupFirstDate": "1992-05-05", "trackNo": 9, "totalTracks": 12 } ] },
+        { "ref": "t2", "artistKey": "b", "artistName": "Band B", "originalDate": "1991-01-01", "options": [
+          { "key": "c1", "mbReleaseId": "c1", "mbReleaseGroupId": "c1g", "title": "Hits", "albumArtist": "Various Artists", "isVariousArtists": true, "primaryType": "Album", "secondaryTypes": ["Compilation"], "date": "1995-01-01", "releaseGroupFirstDate": "1995-01-01", "trackNo": 4, "totalTracks": 20 },
+          { "key": "p1", "mbReleaseId": "p1", "mbReleaseGroupId": "p1g", "title": "Promo", "albumArtist": "Band B", "primaryType": "Album", "status": "Promotion", "date": "1990-01-01", "releaseGroupFirstDate": "1990-01-01", "trackNo": 2, "totalTracks": 2 } ] },
+        { "ref": "t3", "artistKey": "b", "artistName": "Band B", "originalDate": "1992-05-05", "flags": ["live"], "options": [
+          { "key": "l1", "mbReleaseId": "l1", "mbReleaseGroupId": "l1g", "title": "Live at X", "albumArtist": "Band B", "primaryType": "Album", "secondaryTypes": ["Live"], "date": "1992-05-05", "releaseGroupFirstDate": "1992-05-05", "trackNo": 1, "totalTracks": 12 } ] },
+        { "ref": "t4", "artistKey": "b", "artistName": "Band B", "originalDate": "1992-05-05", "flags": ["live"], "options": [
+          { "key": "l1", "mbReleaseId": "l1", "mbReleaseGroupId": "l1g", "title": "Live at X", "albumArtist": "Band B", "primaryType": "Album", "secondaryTypes": ["Live"], "date": "1992-05-05", "releaseGroupFirstDate": "1992-05-05", "trackNo": 2, "totalTracks": 12 } ] }
+      ]
+    },
+    "expected": [
+      { "songRef": "t1", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Band B", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 1, "discNo": 1, "totalTracks": null, "date": "1990", "originalDate": "1990-01-01", "isVariousArtists": false },
+      { "songRef": "t2", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Band B", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 2, "discNo": 1, "totalTracks": null, "date": "1990", "originalDate": "1991-01-01", "isVariousArtists": false },
+      { "songRef": "t3", "kind": "Album", "albumTitle": "Live at X", "albumArtist": "Band B", "albumKey": "l1", "mbReleaseId": "l1", "mbReleaseGroupId": "l1g", "trackNo": 1, "discNo": 1, "totalTracks": 12, "date": "1992-05-05", "originalDate": "1992-05-05", "isVariousArtists": false },
+      { "songRef": "t4", "kind": "Album", "albumTitle": "Live at X", "albumArtist": "Band B", "albumKey": "l1", "mbReleaseId": "l1", "mbReleaseGroupId": "l1g", "trackNo": 2, "discNo": 1, "totalTracks": 12, "date": "1992-05-05", "originalDate": "1992-05-05", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "fewest_albums: an album beats an EP with the same coverage even when the EP is earlier",
+    "input": {
+      "policy": "FewestAlbums", "minTracksPerRealAlbum": 2, "libraryName": "Music", "existingAlbums": [],
+      "songs": [
+        { "ref": "u1", "artistKey": "c", "artistName": "C", "originalDate": "2003-01-01", "options": [
+          { "key": "e1", "mbReleaseId": "e1", "mbReleaseGroupId": "e1g", "title": "Early", "albumArtist": "C", "primaryType": "EP", "date": "2003-01-01", "releaseGroupFirstDate": "2003-01-01", "trackNo": 1, "totalTracks": 4 },
+          { "key": "a1", "mbReleaseId": "a1", "mbReleaseGroupId": "a1g", "title": "Later", "albumArtist": "C", "primaryType": "Album", "date": "2005-01-01", "releaseGroupFirstDate": "2005-01-01", "trackNo": 5, "totalTracks": 11 } ] },
+        { "ref": "u2", "artistKey": "c", "artistName": "C", "originalDate": "2003-01-01", "options": [
+          { "key": "e1", "mbReleaseId": "e1", "mbReleaseGroupId": "e1g", "title": "Early", "albumArtist": "C", "primaryType": "EP", "date": "2003-01-01", "releaseGroupFirstDate": "2003-01-01", "trackNo": 2, "totalTracks": 4 },
+          { "key": "a1", "mbReleaseId": "a1", "mbReleaseGroupId": "a1g", "title": "Later", "albumArtist": "C", "primaryType": "Album", "date": "2005-01-01", "releaseGroupFirstDate": "2005-01-01", "trackNo": 6, "totalTracks": 11 } ] }
+      ]
+    },
+    "expected": [
+      { "songRef": "u1", "kind": "Album", "albumTitle": "Later", "albumArtist": "C", "albumKey": "a1", "mbReleaseId": "a1", "mbReleaseGroupId": "a1g", "trackNo": 5, "discNo": 1, "totalTracks": 11, "date": "2005-01-01", "originalDate": "2003-01-01", "isVariousArtists": false },
+      { "songRef": "u2", "kind": "Album", "albumTitle": "Later", "albumArtist": "C", "albumKey": "a1", "mbReleaseId": "a1", "mbReleaseGroupId": "a1g", "trackNo": 6, "discNo": 1, "totalTracks": 11, "date": "2005-01-01", "originalDate": "2003-01-01", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "fewest_albums: songs of different artists get one Singles album each, keys allocated in order of first appearance",
+    "input": {
+      "policy": "FewestAlbums", "minTracksPerRealAlbum": 2, "libraryName": "Music", "existingAlbums": [],
+      "songs": [
+        { "ref": "m1", "artistKey": "a", "artistName": "Artist A", "originalDate": "2001-01-01", "options": [] },
+        { "ref": "m2", "artistKey": "b", "artistName": "Band B", "originalDate": "2002-01-01", "options": [] },
+        { "ref": "m3", "artistKey": "a", "artistName": "Artist A", "originalDate": "2000-01-01", "options": [] }
+      ]
+    },
+    "expected": [
+      { "songRef": "m1", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Artist A", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 1, "discNo": 1, "totalTracks": null, "date": "2000", "originalDate": "2001-01-01", "isVariousArtists": false },
+      { "songRef": "m2", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Band B", "albumKey": "00000000-0000-0000-0000-000000000002", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 1, "discNo": 1, "totalTracks": null, "date": "2002", "originalDate": "2002-01-01", "isVariousArtists": false },
+      { "songRef": "m3", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "Artist A", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 2, "discNo": 1, "totalTracks": null, "date": "2000", "originalDate": "2000-01-01", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "singles_only: everything goes to the artist's Singles album",
+    "input": {
+      "policy": "SinglesOnly", "minTracksPerRealAlbum": 2, "libraryName": "Music", "existingAlbums": [],
+      "songs": [
+        { "ref": "v1", "artistKey": "d", "artistName": "D", "originalDate": "2015-05-01", "options": [
+          { "key": "x1", "mbReleaseId": "x1", "mbReleaseGroupId": "x1g", "title": "X", "albumArtist": "D", "primaryType": "Album", "date": "2015-05-01", "releaseGroupFirstDate": "2015-05-01", "trackNo": 1, "totalTracks": 9 } ] },
+        { "ref": "v2", "artistKey": "d", "artistName": "D", "originalDate": "2011-02-03", "options": [
+          { "key": "x1", "mbReleaseId": "x1", "mbReleaseGroupId": "x1g", "title": "X", "albumArtist": "D", "primaryType": "Album", "date": "2015-05-01", "releaseGroupFirstDate": "2015-05-01", "trackNo": 2, "totalTracks": 9 } ] }
+      ]
+    },
+    "expected": [
+      { "songRef": "v1", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "D", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 1, "discNo": 1, "totalTracks": null, "date": "2011", "originalDate": "2015-05-01", "isVariousArtists": false },
+      { "songRef": "v2", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "D", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 2, "discNo": 1, "totalTracks": null, "date": "2011", "originalDate": "2011-02-03", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "original_album: earliest official album or EP by release-group date; falls back to a single, then to Singles",
+    "input": {
+      "policy": "OriginalAlbum", "minTracksPerRealAlbum": 2, "libraryName": "Music", "existingAlbums": [],
+      "songs": [
+        { "ref": "w1", "artistKey": "e", "artistName": "E", "originalDate": "1999-01-01", "options": [
+          { "key": "s", "mbReleaseId": "s", "mbReleaseGroupId": "sg", "title": "Lead Single", "albumArtist": "E", "primaryType": "Single", "date": "1999-01-01", "releaseGroupFirstDate": "1999-01-01", "trackNo": 1, "totalTracks": 2 },
+          { "key": "a2", "mbReleaseId": "a2", "mbReleaseGroupId": "a2g", "title": "Debut", "albumArtist": "E", "primaryType": "Album", "date": "2001-01-01", "releaseGroupFirstDate": "2001-01-01", "trackNo": 3, "totalTracks": 12 },
+          { "key": "comp", "mbReleaseId": "comp", "mbReleaseGroupId": "compg", "title": "Sampler", "albumArtist": "Various Artists", "isVariousArtists": true, "primaryType": "Album", "secondaryTypes": ["Compilation"], "date": "1998-01-01", "releaseGroupFirstDate": "1998-01-01", "trackNo": 7, "totalTracks": 18 },
+          { "key": "ep", "mbReleaseId": "ep", "mbReleaseGroupId": "epg", "title": "First EP", "albumArtist": "E", "primaryType": "EP", "date": "2000-06-01", "releaseGroupFirstDate": "2000-06-01", "trackNo": 2, "totalTracks": 5 } ] },
+        { "ref": "w2", "artistKey": "e", "artistName": "E", "originalDate": "2003-01-01", "options": [
+          { "key": "s2", "mbReleaseId": "s2", "mbReleaseGroupId": "s2g", "title": "Standalone", "albumArtist": "E", "primaryType": "Single", "date": "2003-01-01", "releaseGroupFirstDate": "2003-01-01", "trackNo": 1, "totalTracks": 1 } ] },
+        { "ref": "w3", "artistKey": "e", "artistName": "E", "originalDate": "2004-01-01", "options": [
+          { "key": "comp", "mbReleaseId": "comp", "mbReleaseGroupId": "compg", "title": "Sampler", "albumArtist": "Various Artists", "isVariousArtists": true, "primaryType": "Album", "secondaryTypes": ["Compilation"], "date": "1998-01-01", "releaseGroupFirstDate": "1998-01-01", "trackNo": 8, "totalTracks": 18 } ] }
+      ]
+    },
+    "expected": [
+      { "songRef": "w1", "kind": "Ep", "albumTitle": "First EP", "albumArtist": "E", "albumKey": "ep", "mbReleaseId": "ep", "mbReleaseGroupId": "epg", "trackNo": 2, "discNo": 1, "totalTracks": 5, "date": "2000-06-01", "originalDate": "1999-01-01", "isVariousArtists": false },
+      { "songRef": "w2", "kind": "Single", "albumTitle": "Standalone", "albumArtist": "E", "albumKey": "s2", "mbReleaseId": "s2", "mbReleaseGroupId": "s2g", "trackNo": 1, "discNo": 1, "totalTracks": 1, "date": "2003-01-01", "originalDate": "2003-01-01", "isVariousArtists": false },
+      { "songRef": "w3", "kind": "PseudoSingles", "albumTitle": "Singles", "albumArtist": "E", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 1, "discNo": 1, "totalTracks": null, "date": "2004", "originalDate": "2004-01-01", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "single_release: the earliest official single; without one, the original album",
+    "input": {
+      "policy": "SingleRelease", "minTracksPerRealAlbum": 2, "libraryName": "Music", "existingAlbums": [],
+      "songs": [
+        { "ref": "x1", "artistKey": "f", "artistName": "F", "originalDate": "1999-10-10", "options": [
+          { "key": "fa", "mbReleaseId": "fa", "mbReleaseGroupId": "fag", "title": "Album F", "albumArtist": "F", "primaryType": "Album", "date": "2001-01-01", "releaseGroupFirstDate": "2001-01-01", "trackNo": 4, "totalTracks": 10 },
+          { "key": "fs1", "mbReleaseId": "fs1", "mbReleaseGroupId": "fs1g", "title": "Single One", "albumArtist": "F", "primaryType": "Single", "date": "2000-05-01", "releaseGroupFirstDate": "2000-05-01", "trackNo": 1, "totalTracks": 3 },
+          { "key": "fs2", "mbReleaseId": "fs2", "mbReleaseGroupId": "fs2g", "title": "Single Two", "albumArtist": "F", "primaryType": "Single", "date": "1999-10-10", "releaseGroupFirstDate": "1999-10-10", "trackNo": 1, "totalTracks": 2 } ] },
+        { "ref": "x2", "artistKey": "f", "artistName": "F", "originalDate": "2001-01-01", "options": [
+          { "key": "fa", "mbReleaseId": "fa", "mbReleaseGroupId": "fag", "title": "Album F", "albumArtist": "F", "primaryType": "Album", "date": "2001-01-01", "releaseGroupFirstDate": "2001-01-01", "trackNo": 5, "totalTracks": 10 } ] }
+      ]
+    },
+    "expected": [
+      { "songRef": "x1", "kind": "Single", "albumTitle": "Single Two", "albumArtist": "F", "albumKey": "fs2", "mbReleaseId": "fs2", "mbReleaseGroupId": "fs2g", "trackNo": 1, "discNo": 1, "totalTracks": 2, "date": "1999-10-10", "originalDate": "1999-10-10", "isVariousArtists": false },
+      { "songRef": "x2", "kind": "Album", "albumTitle": "Album F", "albumArtist": "F", "albumKey": "fa", "mbReleaseId": "fa", "mbReleaseGroupId": "fag", "trackNo": 5, "discNo": 1, "totalTracks": 10, "date": "2001-01-01", "originalDate": "2001-01-01", "isVariousArtists": false }
+    ]
+  },
+  {
+    "name": "compilation: every song joins the library's existing Various Artists album",
+    "input": {
+      "policy": "Compilation", "minTracksPerRealAlbum": 2, "libraryName": "Music",
+      "existingAlbums": [
+        { "albumKey": "c", "kind": "Compilation", "artistKey": "", "albumTitle": "Music", "albumArtist": "Various Artists", "date": "2026", "mbReleaseId": null, "mbReleaseGroupId": null, "trackCount": 10, "maxTrackNo": 10, "isVariousArtists": true }
+      ],
+      "songs": [
+        { "ref": "y1", "artistKey": "g", "artistName": "G", "originalDate": "1980-01-01", "options": [] },
+        { "ref": "y2", "artistKey": "h", "artistName": "H", "originalDate": "1990-01-01", "options": [] }
+      ]
+    },
+    "expected": [
+      { "songRef": "y1", "kind": "Compilation", "albumTitle": "Music", "albumArtist": "Various Artists", "albumKey": "c", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 11, "discNo": 1, "totalTracks": null, "date": "2026", "originalDate": "1980-01-01", "isVariousArtists": true },
+      { "songRef": "y2", "kind": "Compilation", "albumTitle": "Music", "albumArtist": "Various Artists", "albumKey": "c", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 12, "discNo": 1, "totalTracks": null, "date": "2026", "originalDate": "1990-01-01", "isVariousArtists": true }
+    ]
+  },
+  {
+    "name": "compilation: the first song creates the library's Various Artists album",
+    "input": {
+      "policy": "Compilation", "minTracksPerRealAlbum": 2, "libraryName": "Road Trip", "existingAlbums": [],
+      "songs": [
+        { "ref": "z1", "artistKey": "g", "artistName": "G", "originalDate": "2019-01-01", "options": [] }
+      ]
+    },
+    "expected": [
+      { "songRef": "z1", "kind": "Compilation", "albumTitle": "Road Trip", "albumArtist": "Various Artists", "albumKey": "00000000-0000-0000-0000-000000000001", "mbReleaseId": null, "mbReleaseGroupId": null, "trackNo": 1, "discNo": 1, "totalTracks": null, "date": "2019", "originalDate": "2019-01-01", "isVariousArtists": true }
+    ]
+  }
+]

@@ -1,3 +1,4 @@
+using Compilarr.Core.Domain;
 using Compilarr.Core.Jobs;
 using Compilarr.Core.Metadata;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +28,30 @@ public sealed class CompilarrDbContext : DbContext
 
     /// <summary>Gets the command queue table.</summary>
     public DbSet<CommandRecord> Commands => Set<CommandRecord>();
+
+    /// <summary>Gets the artist table.</summary>
+    public DbSet<Artist> Artists => Set<Artist>();
+
+    /// <summary>Gets the song table.</summary>
+    public DbSet<Song> Songs => Set<Song>();
+
+    /// <summary>Gets the song-to-artist credit table.</summary>
+    public DbSet<SongArtist> SongArtists => Set<SongArtist>();
+
+    /// <summary>Gets the album context table.</summary>
+    public DbSet<AlbumContext> AlbumContexts => Set<AlbumContext>();
+
+    /// <summary>Gets the imported file table.</summary>
+    public DbSet<SongFile> SongFiles => Set<SongFile>();
+
+    /// <summary>Gets the seeded quality ladder.</summary>
+    public DbSet<Quality> Qualities => Set<Quality>();
+
+    /// <summary>Gets the quality profile table.</summary>
+    public DbSet<QualityProfile> QualityProfiles => Set<QualityProfile>();
+
+    /// <summary>Gets the library table.</summary>
+    public DbSet<Library> Libraries => Set<Library>();
 
     /// <summary>Gets the metadata provider response cache.</summary>
     public DbSet<MetadataCacheEntry> MetadataCache => Set<MetadataCacheEntry>();
@@ -80,6 +105,8 @@ public sealed class CompilarrDbContext : DbContext
             entity.HasIndex(x => x.Status);
             entity.HasIndex(x => x.Name);
         });
+
+        DomainModelConfiguration.Configure(modelBuilder);
     }
 
     /// <inheritdoc />

@@ -3,6 +3,7 @@ using System;
 using Compilarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Compilarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(CompilarrDbContext))]
-    partial class CompilarrDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260928104440_AddDomainModel")]
+    partial class AddDomainModel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
@@ -1263,57 +1266,6 @@ namespace Compilarr.Core.Persistence.Migrations
                         .HasDatabaseName("ix_command_status");
 
                     b.ToTable("command", (string)null);
-                });
-
-            modelBuilder.Entity("Compilarr.Core.Metadata.MetadataCacheEntry", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTime>("ExpiresAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("expires_at");
-
-                    b.Property<DateTime>("FetchedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("fetched_at");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("key");
-
-                    b.Property<string>("Payload")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("payload");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("provider");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_metadata_cache");
-
-                    b.HasIndex("ExpiresAt")
-                        .HasDatabaseName("ix_metadata_cache_expires_at");
-
-                    b.HasIndex("Provider", "Key")
-                        .IsUnique()
-                        .HasDatabaseName("ix_metadata_cache_provider_key");
-
-                    b.ToTable("metadata_cache", (string)null);
                 });
 
             modelBuilder.Entity("Compilarr.Core.Persistence.Job", b =>

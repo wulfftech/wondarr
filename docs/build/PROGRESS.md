@@ -56,13 +56,14 @@ Environment notes: no local Docker on the dev PC — container checks run on `ch
 
 | Task | Title | Status | Worker model | Cost (USD) | Notes |
 |---|---|---|---|---|---|
-| P1-01 | Domain model, quality seeds, default profiles | todo | | | |
+| P1-01 | Domain model, quality seeds, default profiles | done | deepseek/deepseek-v4.1-flash | (wave A) | One run. Orchestrator: `HasDefaultValue(true)` on `monitored`/`sticky` made EF drop an explicit `false` on insert (unmonitored songs stored as monitored) → removed, migration regenerated, regression test (mutation-checked); CA1861 for generated migrations moved to `.editorconfig` |
 | P1-02 | MusicBrainz client, request spacing, metadata cache | todo | | | |
-| P1-03 | Version-flag parser | todo | | | |
+| P1-03 | Version-flag parser | done | deepseek/deepseek-v4.1-flash | (wave A) | One run, 26 turns; all 75 golden cases unchanged, table-driven keyword rules. Merged as is |
 | P1-04 | Cover art, Deezer and iTunes clients | todo | | | |
 | P1-05 | Album-policy engine | todo | | | |
 | P1-06 | Identity resolver | todo | | | |
-| P1-07 | Song add service + Song/Artist API | todo | | | |
+| P1-07 | Song add service (Core) | todo | | | |
+| P1-07b | Song/Artist/lookup/preview API | todo | | | |
 | P1-08 | Quality/profile/library API | todo | | | |
 | P1-09 | Bulk add and unresolved review | todo | | | |
 | P1-10 | Wanted, History, Blocklist API | todo | | | |
