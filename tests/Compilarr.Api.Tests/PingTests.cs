@@ -16,10 +16,16 @@ public class PingTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task Ping_returns_200()
     {
-        using var client = _factory.CreateClient();
+        // Keep the app away from the real config directory; the fixture itself cannot set it.
+        using var client = _factory
+            .WithWebHostBuilder(builder => builder.UseSetting("ConfigDir", TempConfigDir()))
+            .CreateClient();
 
         using var response = await client.GetAsync(new Uri("/ping", UriKind.Relative));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
+
+    private static string TempConfigDir() =>
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "compilarr-api-tests", System.Guid.NewGuid().ToString("N"));
 }
