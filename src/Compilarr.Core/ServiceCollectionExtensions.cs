@@ -1,5 +1,6 @@
 using Compilarr.Core.Authentication;
 using Compilarr.Core.Configuration;
+using Compilarr.Core.HealthCheck;
 using Compilarr.Core.Logging;
 using Compilarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,14 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddCompilarrCore(this IServiceCollection services)
     {
         services.AddScoped<ICredentialStore, CredentialStore>();
+
+        services.TryAddSingleton(TimeProvider.System);
+
+        // DatabaseHealthCheck needs the scoped DbContext; the folder checks only need the paths.
+        services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
+        services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
+        services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
+        services.AddSingleton<HealthCheckService>();
 
         return services;
     }
