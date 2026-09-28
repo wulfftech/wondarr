@@ -28,7 +28,8 @@ groupmod -o -g "$PGID" compilarr
 usermod -o -u "$PUID" compilarr
 
 mkdir -p /config /config/logs /config/slskd
-chown compilarr:compilarr /config /config/logs /config/slskd
-chown -R compilarr:compilarr /config/logs /config/slskd
+# Re-own only what does not already match, so a changed PUID/PGID also covers compilarr.db and
+# config.yml from an earlier run, without rewriting every file on each start.
+find /config -xdev \( ! -user compilarr -o ! -group compilarr \) -exec chown compilarr:compilarr {} +
 
 echo "init-compilarr-user: compilarr now runs as uid $(id -u compilarr), gid $(id -g compilarr)"
