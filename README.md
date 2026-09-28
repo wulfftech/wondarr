@@ -1,10 +1,10 @@
-# Compilarr
+# Wondarr
 
-**A self-hosted \*arr for single songs.** Tell it which recordings you want (one at a time, a pasted list, a Deezer/YouTube Music playlist, a Spotify CSV export, or your existing music folder). It finds the best copy on **Soulseek** first (bundled slskd), **YouTube Music** second (yt-dlp), and **torrents/usenet** last (qBittorrent, SABnzbd), verifies that the file really is that recording (duration + AcoustID fingerprint), tags it properly, files it into your library in the layout you chose (flat, per artist, per artist/album, or a **Plexamp** preset that keeps albums tidy), and keeps looking for a better copy until your quality cutoff is met.
+**The \*arr for one-hit wonders.** You want *that* song — the stand-alone hit — not the artist's obscure 12-track album of B-sides that Lidarr would pull down to get it. Wondarr is a self-hosted \*arr whose unit is **one song**. Tell it which recordings you want (one at a time, a pasted list, a Deezer/YouTube Music playlist, a Spotify CSV export, or your existing music folder). It finds the best copy on **Soulseek** first (bundled slskd), **YouTube Music** second (yt-dlp), and **torrents/usenet** last (qBittorrent, SABnzbd), verifies that the file really is that recording (duration + AcoustID fingerprint), tags it properly, files it into your library in the layout you chose (flat, per artist, per artist/album, or a **Plexamp** preset that keeps albums tidy), and keeps looking for a better copy until your quality cutoff is met.
 
 Conceptually it is Sonarr/Radarr/Lidarr for **one song at a time** — which Lidarr cannot do, by design (its unit is the album).
 
-> **Status (2026-09-28):** Phase 0 (skeleton, auth, jobs, UI shell, bundled slskd, image, CI) is done — `0.0.1-alpha.1`; Phase 1 (song identity and the Wanted list) is next. See `docs/HANDOVER.md` if you are picking this up, and `CLAUDE.md` if you are an AI coding session.
+> **Status (2026-09-28):** Phase 0 (skeleton, auth, jobs, UI shell, bundled slskd, image, CI) and Phase 1 (song identity: MusicBrainz/Deezer resolution, album policy, add-by-search with previews, pasted lists, Wanted/History/Blocklist, quality profiles) are done; the project was renamed from *Compilarr* to *Wondarr* (Phase 1a). Phase 2 (the Soulseek source and the import pipeline) is next. See `docs/HANDOVER.md` if you are picking this up, and `CLAUDE.md` if you are an AI coding session.
 
 ## Quick start (Docker)
 

@@ -1,5 +1,7 @@
 # Tech-stack research for a single-song *arr (Docker-first, self-hosted)
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 Research date: 2026-09-28. Everything below was checked on that date. Registry data (npm, PyPI, NuGet, Go proxy) and raw GitHub files were read directly; GitHub star/licence/last-push figures come from the GitHub search API via the session's GitHub connector; sources marked "(search snippet)" were only seen through a web-search summary because the origin site was blocked by this session's egress proxy (wiki.servarr.com, trash-guides.info, docs.linuxserver.io, hotio.dev, docs.unraid.net, ca.unraid.net, slsknet.org, learn.microsoft.com, docs.astral.sh, several *.readthedocs.io). Where the Servarr wiki was needed I read the same markdown from the Servarr/Wiki GitHub repo instead.
 
 ---

@@ -1,40 +1,40 @@
-# Handover — Compilarr
+# Handover — Wondarr
 
-**Prepared:** 2026-09-28 · **By:** the planning session (Claude Code, cloud) · **For:** the first build session, run locally from `D:\Code\compilarr` with Claude Code on **Claude Opus 5.5** as orchestrator.
+> **Name:** the project was renamed from *Compilarr* to **Wondarr** on 2026-09-28 (Phase 1a, `docs/DECISIONS.md` build session 2 #10). Session log entries before Phase 1a use the old name and paths.
+
+**Updated:** 2026-09-28, end of build session 2 (Phase 1 + Phase 1a) · **For:** the next build session, run locally from `D:\Code\wondarr` with Claude Code on **Claude Opus 5.5** as orchestrator.
 
 ## 1. Where things stand
 
 - Research and design are **complete and approved by the owner**. Every decision is in `docs/DECISIONS.md` (with ADRs in `docs/adr/`); the full planning record is `docs/PLAN.md`; the evidence is in `docs/research/`.
-- **Phase 0 is done (2026-09-28)** — the gate passed in CI and on the test host; see the Session log below and `docs/build/PROGRESS.md`. The image is `ghcr.io/wulfftech/compilarr` (`:develop` from main, `:0.0.1-alpha.1`).
-- The next unit of work is **Phase 1 — song identity and the Wanted list** (`docs/build/PHASES.md`). No `PHASE_1_TASKS.md` exists yet: writing it is the first job of the next session (start from the three tasks in the Session log).
+- **Phase 0 and Phase 1 are done (2026-09-28)** — both gates pass in CI on every push (`scripts/smoke-test.sh`, Phase 1 replaying recorded metadata) and passed on the test host `ch01`; see the Session log below and `docs/build/PROGRESS.md`.
+- **Phase 1a renamed the project Compilarr → Wondarr** (owner, 2026-09-28): the image is `ghcr.io/wulfftech/wondarr` (`:develop` from main), the repository `github.com/wulfftech/wondarr` (the old URLs redirect). The folder on the dev PC is to be renamed `D:\Code\compilarr` → `D:\Code\wondarr` by the owner between sessions (see the Phase 1a entry in the Session log).
+- The next unit of work is **Phase 2 — the Soulseek source, slskd management and the import pipeline** (`docs/build/PHASES.md`). Writing `docs/build/PHASE_2_TASKS.md` is the first job of the next session (start from the three tasks in the Session log).
 
 ## 2. The product in one paragraph
 
 A self-hosted *arr whose unit is one **MusicBrainz recording**. Wanted songs are searched on Soulseek (bundled slskd) first, YouTube Music Art Tracks (yt-dlp) second, torrents/usenet (qBittorrent, SABnzbd) last; candidates are scored (identity, quality, availability, source preference), downloads are verified (ffprobe + duration + AcoustID), tagged (Picard mapping), and filed under a library layout (flat / artist / artist-album / **Plexamp** preset with a "fewest albums per artist" policy). Quality profiles with cutoff/upgrades (default cutoff 320). Inputs: individual adds, pasted lists, Deezer/YouTube Music playlists, Spotify CSV exports, Last.fm/ListenBrainz, and the user's existing music folder (reference library with a match queue). C#/.NET 10 + React 19, GPL-3.0, one Docker image, port 1077.
 
-## 3. Start the next session (Windows, `D:\Code\compilarr`)
+## 3. Start the next session (Windows, `D:\Code\wondarr`)
 
 ```powershell
-git clone https://github.com/wulfftech/compilarr D:\Code\compilarr      # or: git -C D:\Code\compilarr pull
-cd D:\Code\compilarr
-copy .env.example .env      # then fill OPENROUTER_API_KEY and COMPILARR_WORKER_MODEL (see docs/build/AGENT_WORKFLOW.md §6)
+git clone https://github.com/wulfftech/wondarr D:\Code\wondarr      # or: git -C D:\Code\wondarr pull
+cd D:\Code\wondarr
+copy .env.example .env      # then fill OPENROUTER_API_KEY and WONDARR_WORKER_MODEL (see docs/build/AGENT_WORKFLOW.md §6)
 ```
 
-Prerequisites: .NET SDK 10.0.4xx (`global.json`), Node 22.12+ (24 LTS on the dev box), Python 3.10+ (for `scripts/worker.py`), Git, the `claude` CLI on `PATH`, and the `claude-terminals` MCP server connected for visible worker tabs. No local Docker is needed: the image is built and gate-tested in CI and on `ch01`.
+An existing `.env` with the old `COMPILARR_*` keys keeps working (`scripts/worker.py` falls back to them). Prerequisites: .NET SDK 10.0.4xx (`global.json`), Node 22.12+ (24 LTS on the dev box), Python 3.10+, Git, the `claude` CLI on `PATH`, and the `claude-terminals` MCP server connected for visible worker tabs (its tabs run **cmd.exe**). No local Docker is needed: the image is built and gate-tested in CI and on `ch01`.
 
-Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and paste the kickoff prompt from `docs/build/NEXT_SESSION_PROMPT.md` (Phase 1; short form below):
+Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and paste the kickoff prompt from `docs/build/NEXT_SESSION_PROMPT.md` (Phase 2).
 
-> Read CLAUDE.md, docs/HANDOVER.md and docs/build/PROGRESS.md, write docs/build/PHASE_1_TASKS.md, then execute Phase 1 task by task with cheap workers in VS Code tabs, reviewing every diff, keeping PROGRESS.md current and extending scripts/smoke-test.sh to the Phase 1 gate. Stop at the gate and report.
+Sanity check before delegating anything: `python scripts/worker.py --dry-run run docs/build/tasks/P1-01.md` prints the exact command and environment (key redacted) a worker would get — it should show 100 turns / 60 min.
 
-Sanity check before delegating anything: `python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md` prints the exact command and environment (key redacted) that a worker would get.
+## 4. Things the owner still has to provide
 
-## 4. Things the owner still has to provide (status in §7 "Owner update")
-
-- An **AcoustID application key** (`acoustid.org/new-application`) for the verification pipeline (Phase 2 tests).
-- A **dedicated Soulseek account** for the bundled slskd (one login per username; do not reuse a personal client's account).
-- A **Plex token** and test library if Phase 3 should be validated against a real server.
-- The pinned **worker model** after the bake-off, and a **phase budget** for worker spend.
+- A **dedicated Soulseek account** for the bundled slskd if the current one (the owner's own) gets kicked by duplicate logins — validate first (Phase 2, first task).
+- Setting the new **`ghcr.io/wulfftech/wondarr` package public** after its first push (package settings on GitHub).
 - Optional: qBittorrent/SABnzbd/Prowlarr test instances for Phase 7.
+- Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), phase budget (USD 10), worker caps (100 turns / 60 min).
 
 ## 5. What not to do (the short list; full list in `CLAUDE.md`)
 

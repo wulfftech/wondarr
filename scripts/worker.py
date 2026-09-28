@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Compilarr cheap-worker runner (standard library only, Python 3.10+, Windows/macOS/Linux).
+Wondarr cheap-worker runner (standard library only, Python 3.10+, Windows/macOS/Linux).
 
 Modes
   run   <task.md>   Run a headless `claude -p` worker against OpenRouter (or Anthropic) in a git worktree.
@@ -11,17 +11,17 @@ Examples
   python scripts/worker.py run docs/build/tasks/P0-01.md
   python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md
   python scripts/worker.py run docs/build/tasks/P0-01.md --continue "fix: tests in FooTests fail on Windows paths"
-  python scripts/worker.py api docs/build/tasks/P0-07.md --files src/Compilarr.Core/Foo.cs
+  python scripts/worker.py api docs/build/tasks/P0-07.md --files src/Wondarr.Core/Foo.cs
 
 Environment (.env in the repo root is loaded automatically; existing env vars win)
   OPENROUTER_API_KEY            required for OpenRouter modes
-  COMPILARR_WORKER_MODEL        e.g. "z-ai/glm-5.3-flash" (pin after the bake-off; see docs/build/AGENT_WORKFLOW.md §6)
-  COMPILARR_REVIEWER_MODEL      optional mid-tier model for `review`
-  COMPILARR_WORKER_MAX_TURNS    default 25
-  COMPILARR_WORKER_TIMEOUT_MIN  default 20
-  COMPILARR_WORKER_BUDGET_USD   default 2.00 per run
+  WONDARR_WORKER_MODEL        e.g. "z-ai/glm-5.3-flash" (pin after the bake-off; see docs/build/AGENT_WORKFLOW.md §6)
+  WONDARR_REVIEWER_MODEL      optional mid-tier model for `review`
+  WONDARR_WORKER_MAX_TURNS    default 25
+  WONDARR_WORKER_TIMEOUT_MIN  default 20
+  WONDARR_WORKER_BUDGET_USD   default 2.00 per run
   OPENROUTER_ANTHROPIC_BASE_URL default https://openrouter.ai/api  (Claude Code docs show https://openrouter.ai/api/v1; switch if you get 404s)
-  COMPILARR_WORKER_PROVIDER     "openrouter" (default) or "anthropic" (uses your normal Claude Code auth; model via COMPILARR_WORKER_MODEL, e.g. "haiku")
+  WONDARR_WORKER_PROVIDER     "openrouter" (default) or "anthropic" (uses your normal Claude Code auth; model via WONDARR_WORKER_MODEL, e.g. "haiku")
 """
 from __future__ import annotations
 
@@ -73,6 +73,9 @@ def load_dotenv(path: Path) -> None:
 
 def env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
+    if value in (None, "") and name.startswith("WONDARR_"):
+        # .env files written before the rename (2026-09-28) still say COMPILARR_*.
+        value = os.environ.get("COMPILARR_" + name[len("WONDARR_"):])
     return value if value not in (None, "") else default
 
 
@@ -210,7 +213,7 @@ def worker_env(provider: str, model: str) -> dict[str, str]:
         for fam in ("HAIKU", "SONNET", "OPUS"):
             e[f"ANTHROPIC_DEFAULT_{fam}_MODEL"] = model
         e["CLAUDE_CODE_SUBAGENT_MODEL"] = model
-    e["COMPILARR_WORKER"] = "1"
+    e["WONDARR_WORKER"] = "1"
     return e
 
 
@@ -235,13 +238,13 @@ def run_worker(args: argparse.Namespace) -> int:
     if not task_file.exists():
         raise SystemExit(f"task file not found: {task_file}")
     task_id = args.id or task_id_from(task_file)
-    provider = (env("COMPILARR_WORKER_PROVIDER", "openrouter") or "openrouter").lower()
-    model = args.model or env("COMPILARR_WORKER_MODEL") or ("haiku" if provider == "anthropic" else None)
+    provider = (env("WONDARR_WORKER_PROVIDER", "openrouter") or "openrouter").lower()
+    model = args.model or env("WONDARR_WORKER_MODEL") or ("haiku" if provider == "anthropic" else None)
     if not model:
-        raise SystemExit("COMPILARR_WORKER_MODEL is not set (pin it in .env after the bake-off)")
-    max_turns = args.max_turns or int(env("COMPILARR_WORKER_MAX_TURNS", "25") or 25)
-    timeout_min = int(env("COMPILARR_WORKER_TIMEOUT_MIN", "20") or 20)
-    budget = float(env("COMPILARR_WORKER_BUDGET_USD", "2.00") or 2.0)
+        raise SystemExit("WONDARR_WORKER_MODEL is not set (pin it in .env after the bake-off)")
+    max_turns = args.max_turns or int(env("WONDARR_WORKER_MAX_TURNS", "25") or 25)
+    timeout_min = int(env("WONDARR_WORKER_TIMEOUT_MIN", "20") or 20)
+    budget = float(env("WONDARR_WORKER_BUDGET_USD", "2.00") or 2.0)
     pricing = openrouter_pricing(model) if provider == "openrouter" else None
     scale = budget_scale(model, pricing)
     worktree = ensure_worktree(task_id, task_file, args.dry_run)
@@ -435,8 +438,8 @@ def openrouter_chat(model: str, system: str, user: str, temperature: float = 0.2
         headers={
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/wulfftech/compilarr",
-            "X-Title": "Compilarr build worker",
+            "HTTP-Referer": "https://github.com/wulfftech/wondarr",
+            "X-Title": "Wondarr build worker",
         },
     )
     try:
@@ -450,9 +453,9 @@ def openrouter_chat(model: str, system: str, user: str, temperature: float = 0.2
 def run_api(args: argparse.Namespace) -> int:
     task_file = Path(args.task).resolve()
     task_id = task_id_from(task_file)
-    model = args.model or env("COMPILARR_WORKER_MODEL")
+    model = args.model or env("WONDARR_WORKER_MODEL")
     if not model:
-        raise SystemExit("COMPILARR_WORKER_MODEL is not set")
+        raise SystemExit("WONDARR_WORKER_MODEL is not set")
     user = "# TASK\n" + task_file.read_text(encoding="utf-8")
     for f in args.files or []:
         p = Path(f)
@@ -478,15 +481,15 @@ def run_api(args: argparse.Namespace) -> int:
 
 
 def run_review(args: argparse.Namespace) -> int:
-    model = args.model or env("COMPILARR_REVIEWER_MODEL") or env("COMPILARR_WORKER_MODEL")
+    model = args.model or env("WONDARR_REVIEWER_MODEL") or env("WONDARR_WORKER_MODEL")
     if not model:
-        raise SystemExit("COMPILARR_REVIEWER_MODEL / COMPILARR_WORKER_MODEL not set")
+        raise SystemExit("WONDARR_REVIEWER_MODEL / WONDARR_WORKER_MODEL not set")
     diff = git("diff", f"main...{args.branch}")
     if not diff:
         print("[worker] empty diff; nothing to review")
         return 0
     task_text = Path(args.task).read_text(encoding="utf-8") if args.task else "(no task file given)"
-    system = ("You are a strict code reviewer for Compilarr. Judge the diff against the task's acceptance criteria and "
+    system = ("You are a strict code reviewer for Wondarr. Judge the diff against the task's acceptance criteria and "
               + STANDARDS.read_text(encoding="utf-8") +
               "\nReport findings ranked by severity with file:line, then a verdict line: MERGE or FIX-FIRST.")
     user = f"# TASK\n{task_text}\n\n# DIFF (main...{args.branch})\n```diff\n{diff[:200000]}\n```"

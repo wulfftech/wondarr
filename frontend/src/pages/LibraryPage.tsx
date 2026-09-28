@@ -30,7 +30,7 @@ import {
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
 
-/** Library: the songs Compilarr manages, with their album assignment and monitored flag. */
+/** Library: the songs Wondarr manages, with their album assignment and monitored flag. */
 
 /** The wire spelling of `AlbumContextKind`; the API serialises enums as camelCase strings. */
 type AlbumContextKindName = 'album' | 'single' | 'ep' | 'compilation' | 'pseudoSingles';

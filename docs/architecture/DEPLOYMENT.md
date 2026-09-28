@@ -30,14 +30,14 @@ One image, `linux/amd64` + `linux/arm64`, built framework-dependent on `mcr.micr
 
 | Component | Version | Where it lands |
 |---|---|---|
-| Compilarr (API + React UI in `wwwroot`) | `$VERSION` | `/app` |
+| Wondarr (API + React UI in `wwwroot`) | `$VERSION` | `/app` |
 | s6-overlay | 3.2.3.2 (arch + noarch) | `/` (`/init`, `/etc/s6-overlay`) |
 | slskd (AGPL-3.0, unmodified, licence alongside) | 0.26.0 | `/opt/slskd` |
 | ffmpeg / ffprobe (static, `mwader/static-ffmpeg`) | 9.0.2 | `/usr/local/bin` |
 | fpcalc (static chromaprint) | 1.6.1 | `/usr/local/bin/fpcalc` |
 | Deno | 2.9.7 | `/usr/local/bin/deno` |
 
-s6-rc services: **`init-compilarr-user`** (oneshot) applies `PUID`/`PGID` to the `compilarr` account and creates `/config`, `/config/logs` and `/config/slskd`; **`svc-compilarr`** (longrun, depends on the oneshot) applies `UMASK` and runs `dotnet /app/Compilarr.Api.dll` as `compilarr`. PID 1 is s6-overlay's `/init`, so there is no shell-form `CMD` and signals reach the app; the image's `HEALTHCHECK` polls `/ping` on port 1077.
+s6-rc services: **`init-wondarr-user`** (oneshot) applies `PUID`/`PGID` to the `wondarr` account and creates `/config`, `/config/logs` and `/config/slskd`; **`svc-wondarr`** (longrun, depends on the oneshot) applies `UMASK` and runs `dotnet /app/Wondarr.Api.dll` as `wondarr`. PID 1 is s6-overlay's `/init`, so there is no shell-form `CMD` and signals reach the app; the image's `HEALTHCHECK` polls `/ping` on port 1077.
 
 ### 9.3 Compose example (Appendix A)
 

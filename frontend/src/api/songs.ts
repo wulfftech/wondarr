@@ -241,7 +241,7 @@ export function useArtists(): UseQueryResult<ArtistResource[], Error> {
   });
 }
 
-/** A search for songs Compilarr could add, without adding them. */
+/** A search for songs Wondarr could add, without adding them. */
 export function useSongLookup(): UseMutationResult<SongLookupResource[], Error, string> {
   const client = useApiClient();
 

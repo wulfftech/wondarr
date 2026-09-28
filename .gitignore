@@ -22,7 +22,7 @@ node_modules/
 dist/
 frontend/dist/
 # the SPA build output, copied into the API's web root by P0-08
-src/Compilarr.Api/wwwroot/
+src/Wondarr.Api/wwwroot/
 .vite/
 *.tsbuildinfo
 npm-debug.log*

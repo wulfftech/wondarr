@@ -5,8 +5,8 @@
 | Role | Runs where | Model | Does | Never does |
 |---|---|---|---|---|
 | **Orchestrator** | The interactive Claude Code session in this repo | **Claude Opus 5.5** (`/model claude-opus-5-5`) | Reads the docs, picks tasks, writes task specs, launches workers, reviews every diff, runs verification, resolves conflicts, updates `PROGRESS.md`/docs, commits and pushes | Hand-types large volumes of routine code; skips review |
-| **Worker** | A separate headless process (`scripts/worker.py`) in its own git worktree | A **cheap model via OpenRouter** (`COMPILARR_WORKER_MODEL`), or Claude Haiku via `.claude/agents/worker.md` when OpenRouter is not configured | Implements exactly one task file: code + tests, runs build/tests, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, commits to `main` |
-| **Reviewer** (optional) | `.claude/agents/reviewer.md` subagent or `scripts/worker.py review` | Mid-tier model (`COMPILARR_REVIEWER_MODEL`) or Sonnet | Independent review of a worker diff against the task's acceptance criteria and `CODING_STANDARDS.md` | Edits code |
+| **Worker** | A separate headless process (`scripts/worker.py`) in its own git worktree | A **cheap model via OpenRouter** (`WONDARR_WORKER_MODEL`), or Claude Haiku via `.claude/agents/worker.md` when OpenRouter is not configured | Implements exactly one task file: code + tests, runs build/tests, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, commits to `main` |
+| **Reviewer** (optional) | `.claude/agents/reviewer.md` subagent or `scripts/worker.py review` | Mid-tier model (`WONDARR_REVIEWER_MODEL`) or Sonnet | Independent review of a worker diff against the task's acceptance criteria and `CODING_STANDARDS.md` | Edits code |
 | **Researcher** (optional) | `.claude/agents/researcher.md` | Sonnet/Haiku with web tools | Verifies an external API/library fact before a spec is written | Writes code |
 
 Why separate processes: Claude Code subagents inherit the session's API endpoint and cannot be routed to a different provider per agent ([sub-agents docs](https://code.claude.com/docs/en/sub-agents.md), [env vars](https://code.claude.com/docs/en/env-vars.md)). So the orchestrator stays on Anthropic, and each worker is a fresh `claude -p` (or a direct API call) launched with OpenRouter's Anthropic-compatible endpoint in its environment.
@@ -17,14 +17,14 @@ Why separate processes: Claude Code subagents inherit the session's API endpoint
 
 `scripts/worker.py run docs/build/tasks/<id>.md` does, for one task file:
 
-1. Loads `.env` (`OPENROUTER_API_KEY`, `COMPILARR_WORKER_MODEL`, caps).
+1. Loads `.env` (`OPENROUTER_API_KEY`, `WONDARR_WORKER_MODEL`, caps).
 2. Creates or reuses a git worktree `.worktrees/<id>` on branch `phase<n>/<id>-<slug>` from `main`.
 3. Runs `claude -p` in that worktree with **worker-only environment**:
    - `ANTHROPIC_BASE_URL=https://openrouter.ai/api` (OpenRouter's Anthropic-compatible "skin"; Claude Code's own env-vars page shows `https://openrouter.ai/api/v1` — the script defaults to the former and `OPENROUTER_ANTHROPIC_BASE_URL` overrides it if you see 404s),
    - `ANTHROPIC_API_KEY=$OPENROUTER_API_KEY` (and `ANTHROPIC_AUTH_TOKEN` cleared),
-   - `ANTHROPIC_MODEL=$COMPILARR_WORKER_MODEL`, plus `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` set to the same id so nothing inside the worker escapes to an expensive model,
-   - flags: `--output-format json --max-turns $COMPILARR_WORKER_MAX_TURNS --max-budget-usd <scaled cap> --permission-mode acceptEdits --allowedTools <WORKER_TOOLS> --disallowedTools "Read(<repo>/.env*)" --append-system-prompt-file docs/build/WORKER_SYSTEM_PROMPT.md --no-session-persistence`. `WORKER_TOOLS` in the script is Read/Edit/Write/Grep/Glob plus `dotnet`, `npm`/`npx`/`node`, harmless shell helpers (`cd`, `ls`, `mkdir`, `echo`, `pwd`) and local git; Bash rules match per sub-command, and every denied call still costs a turn.
-   - **Cost:** Claude Code prices model ids it does not know at Opus rates, so its own `total_cost_usd` is inflated ~30× for flash models. The script fetches the model's OpenRouter prices, scales `--max-budget-usd` so that `COMPILARR_WORKER_BUDGET_USD` caps *real* spend, and computes the real cost from the token usage afterwards.
+   - `ANTHROPIC_MODEL=$WONDARR_WORKER_MODEL`, plus `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` set to the same id so nothing inside the worker escapes to an expensive model,
+   - flags: `--output-format json --max-turns $WONDARR_WORKER_MAX_TURNS --max-budget-usd <scaled cap> --permission-mode acceptEdits --allowedTools <WORKER_TOOLS> --disallowedTools "Read(<repo>/.env*)" --append-system-prompt-file docs/build/WORKER_SYSTEM_PROMPT.md --no-session-persistence`. `WORKER_TOOLS` in the script is Read/Edit/Write/Grep/Glob plus `dotnet`, `npm`/`npx`/`node`, harmless shell helpers (`cd`, `ls`, `mkdir`, `echo`, `pwd`) and local git; Bash rules match per sub-command, and every denied call still costs a turn.
+   - **Cost:** Claude Code prices model ids it does not know at Opus rates, so its own `total_cost_usd` is inflated ~30× for flash models. The script fetches the model's OpenRouter prices, scales `--max-budget-usd` so that `WONDARR_WORKER_BUDGET_USD` caps *real* spend, and computes the real cost from the token usage afterwards.
 4. Captures the JSON result to `.worker/<id>/stdout[.n].json`, extracts the done-report to `.worker/<id>/report[.n].md`, appends a line per run to `.worker/<id>/runs.jsonl` (model, turns, real cost, key-usage delta), and prints a summary. `--id <name>` overrides the task id so one spec can run in several worktrees (bake-offs).
 5. Progress streams live (`--output-format stream-json`): each worker appends one readable line per step — what it says, every tool call, tool errors — to `.worker/<id>/live.log`. Follow all running workers from any terminal (e.g. VS Code's) with `python scripts/worker.py watch` (`--replay` to print what is already there).
 6. The task file must be **committed on `main`** before the run: the worktree is created from `main`, so an uncommitted spec is invisible to the worker.
@@ -69,7 +69,7 @@ OpenRouter model availability and prices change monthly, so the model id is conf
 1. Pick three candidates from `openrouter.ai/models` filtered by tool-use support and price. At the time of writing (Sept 2026) OpenRouter's own rankings list **Z.ai GLM 5.3 Flash** and **DeepSeek V4.1 Flash** as the most-used low-cost models (input ≤ $0.84/M tokens for the whole top ten); Claude Haiku 4.5 is the Anthropic-native cheap option. Verify each candidate supports tool calling and ≥ 128k context.
 2. Run the same three tasks with each (`P0-02`, `P0-05`, one golden-test task), same specs, same caps.
 3. Score: acceptance criteria met without fixes / with one fix round / failed; wall time; cost.
-4. Pin the winner in `.env` (`COMPILARR_WORKER_MODEL`) and record the result in `docs/DECISIONS.md`. Re-run the bake-off when a phase starts failing on worker quality.
+4. Pin the winner in `.env` (`WONDARR_WORKER_MODEL`) and record the result in `docs/DECISIONS.md`. Re-run the bake-off when a phase starts failing on worker quality.
 
 ## 7. Quality gates (non-negotiable)
 
@@ -95,7 +95,7 @@ Claude Code hooks can run the build automatically after edits in the orchestrato
 
 Useful events for this workflow: `PostToolUse` (build/lint after edits), `SubagentStop` (collect a subagent's result), `Stop` (final test run), `WorktreeCreate`/`WorktreeRemove` (bootstrap/cleanup). See the hooks reference in the Claude Code docs.
 
-## 9. Windows notes (the next session runs from `D:\Code\compilarr`)
+## 9. Windows notes (the next session runs from `D:\Code\wondarr`)
 
 - `scripts/worker.py` is cross-platform (Python 3.10+, standard library only); run it from PowerShell or Git Bash.
 - The `claude` CLI must be on `PATH`; the script also tries `claude.cmd`.

@@ -1,5 +1,7 @@
 # Research: acquiring a SINGLE SONG from Torrent and Usenet sources
 
+> **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
+
 Date: 2026-09-28. Scope: design input for a single-song *arr-style app (Soulseek primary, YouTube secondary, torrents/usenet as additional sources).
 
 Method note: the sandbox egress proxy blocks torznab.github.io, sabnzbd.org, nzbget.com, prowlarr.com, wiki.servarr.com, deluge.readthedocs.io, rtorrent-docs.readthedocs.io, libtorrent.org, bittorrent.org, scenerules.org, wikipedia.org, interviewfor.red, redacted.sh, orpheus.network, forums.sabnzbd.org and techsono.com. Everything below was therefore verified against the same material hosted on GitHub (source code, docs repos, wikis). Where a claim could not be verified from a reachable source it is marked **UNVERIFIED**.

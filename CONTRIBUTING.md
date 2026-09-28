@@ -1,6 +1,6 @@
 # Contributing
 
-Compilarr is a self-hosted \*arr for **single songs**, built by an AI-orchestrated workflow (see [`docs/build/AGENT_WORKFLOW.md`](docs/build/AGENT_WORKFLOW.md)) under the owner's direction. Human contributions are welcome once the first release is cut; until then, open an issue before starting work so it can be folded into the phase plan.
+Wondarr is a self-hosted \*arr for **single songs**, built by an AI-orchestrated workflow (see [`docs/build/AGENT_WORKFLOW.md`](docs/build/AGENT_WORKFLOW.md)) under the owner's direction. Human contributions are welcome once the first release is cut; until then, open an issue before starting work so it can be folded into the phase plan.
 
 ## Prerequisites
 
@@ -38,9 +38,9 @@ These are exactly the commands listed under "Commands" in [`CLAUDE.md`](CLAUDE.m
 ## Repository map
 
 ```
-src/Compilarr.Core/          # domain, matching engine, import pipeline, tagging, persistence (no ASP.NET)
-src/Compilarr.Api/           # ASP.NET Core host: /api/v1 controllers, auth, SignalR, SPA hosting
-src/Compilarr.Sources.*/     # slskd, YouTube Music (yt-dlp), Torznab/torrent/usenet providers
+src/Wondarr.Core/          # domain, matching engine, import pipeline, tagging, persistence (no ASP.NET)
+src/Wondarr.Api/           # ASP.NET Core host: /api/v1 controllers, auth, SignalR, SPA hosting
+src/Wondarr.Sources.*/     # slskd, YouTube Music (yt-dlp), Torznab/torrent/usenet providers
 frontend/                    # React 19 + TypeScript + Vite + Mantine + TanStack Query
 tests/                       # xUnit unit/integration tests and recorded fixtures
 docker/                      # Dockerfile, s6-overlay root files, docker-compose.yml

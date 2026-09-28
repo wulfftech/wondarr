@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Wondarr.Sources.Torznab</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Wondarr.Core\Wondarr.Core.csproj" />
+  </ItemGroup>
+
+</Project>

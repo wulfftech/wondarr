@@ -4,6 +4,14 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Changed
+- **Renamed from Compilarr to Wondarr** — the \*arr for one-hit wonders (2026-09-28). The image is now `ghcr.io/wulfftech/wondarr`; an existing `/config/compilarr.db` is renamed to `wondarr.db` on first start; `COMPILARR_CONFIG_DIR` is still honoured; users sign in again once (the auth cookie is now `WondarrAuth`).
+
+### Added (Phase 1 — song identity and the Wanted list)
+- Song identity from `Artist - Title`, free text, MusicBrainz/Deezer links or ISRCs: Deezer reference → ISRC bridge → MusicBrainz, Deezer-only fallback, unresolved review.
+- Album policies (`fewest_albums`, `singles_only`, `original_album`, `single_release`, `compilation`), sticky assignments, per-song override; cover art from Cover Art Archive, Deezer or iTunes.
+- Add songs by search (disambiguation, length, release types, cover, 30-second Deezer preview) or by pasting up to 1000 lines; Library, Wanted (Missing / Cutoff Unmet), History, Blocklist, quality profiles and library settings.
+
 ### Added
 - Planning documentation set, ADRs, research reports, agentic build workflow and worker runner (2026-09-28).
 

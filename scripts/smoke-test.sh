@@ -24,9 +24,9 @@ set -euo pipefail
 
 IMAGE="${1:?image}"
 DOCKER="${2:-docker}"
-NAME="compilarr-smoke-$$"
+NAME="wondarr-smoke-$$"
 PORT="${SMOKE_PORT:-1077}"
-URL_BASE="/compilarr"
+URL_BASE="/wondarr"
 PUID_WANT="${SMOKE_PUID:-1234}"
 PGID_WANT="${SMOKE_PGID:-2345}"
 WORK="$(mktemp -d)"
@@ -115,7 +115,7 @@ KEY="$($DOCKER exec "$NAME" sh -c "sed -n 's/^ *api_key: *//p' /config/config.ym
 code="$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/api/v1/system/status")"
 [ "$code" = 401 ] || fail "status without a key returned $code, expected 401"
 STATUS="$(curl -fsS -H "X-Api-Key: $KEY" "${BASE}/api/v1/system/status")"
-echo "$STATUS" | jq -e --arg ub "$URL_BASE" '.appName == "Compilarr" and .urlBase == $ub and .isDocker == true' > /dev/null \
+echo "$STATUS" | jq -e --arg ub "$URL_BASE" '.appName == "Wondarr" and .urlBase == $ub and .isDocker == true' > /dev/null \
     || fail "system/status: $STATUS"
 curl -fsS "${BASE}/api/v1/system/status?apikey=$KEY" > /dev/null || fail "?apikey= rejected"
 curl -fsS -H "Authorization: Bearer $KEY" "${BASE}/api/v1/system/status" > /dev/null || fail "Bearer rejected"
@@ -162,8 +162,8 @@ AFTER="$(curl -fsS -H "X-Api-Key: $KEY" "${BASE}/api/v1/system/task" | jq -r '.[
 [[ "$AFTER" > "$BEFORE" || "$AFTER" == "$BEFORE" ]] || fail "last execution went backwards ($BEFORE -> $AFTER)"
 pass "scheduled job state survives a restart ($AFTER)"
 
-OWNER="$($DOCKER exec "$NAME" stat -c '%u:%g' /config/compilarr.db)"
-[ "$OWNER" = "${PUID_WANT}:${PGID_WANT}" ] || fail "compilarr.db owned by $OWNER, expected ${PUID_WANT}:${PGID_WANT}"
+OWNER="$($DOCKER exec "$NAME" stat -c '%u:%g' /config/wondarr.db)"
+[ "$OWNER" = "${PUID_WANT}:${PGID_WANT}" ] || fail "wondarr.db owned by $OWNER, expected ${PUID_WANT}:${PGID_WANT}"
 PROC_USER="$($DOCKER exec "$NAME" sh -c 'ps -o user= -C dotnet 2>/dev/null | head -1 || true')"
 pass "files carry PUID:PGID ($OWNER)${PROC_USER:+; app runs as $PROC_USER}"
 
