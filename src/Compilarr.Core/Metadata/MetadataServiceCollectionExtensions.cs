@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using Compilarr.Core.Identity;
 using Compilarr.Core.Metadata.CoverArt;
 using Compilarr.Core.Metadata.Deezer;
 using Compilarr.Core.Metadata.Http;
@@ -206,6 +207,9 @@ public static class ServiceCollectionExtensions
 
         // Transient, not singleton: it takes the transient clients, and it holds no state of its own.
         services.AddTransient<ICoverArtResolver, CoverArtResolver>();
+
+        // Likewise transient: the identity resolver reads the clients and keeps nothing between calls.
+        services.AddTransient<IIdentityResolver, IdentityResolver>();
 
         return services;
     }
