@@ -1,0 +1,113 @@
+// Ported from Lidarr (https://github.com/Lidarr/Lidarr), src/NzbDrone.Core/HealthCheck/HealthCheckService.cs, GPL-3.0.
+// Adapted for Compilarr: no event aggregation, debouncing or scheduling — run every check, cache
+// the results for 60 seconds and hand them back.
+
+using Microsoft.Extensions.Logging;
+
+namespace Compilarr.Core.HealthCheck;
+
+/// <summary>Runs every registered <see cref="IHealthCheck"/> and caches the results.</summary>
+public sealed partial class HealthCheckService : IDisposable
+{
+    /// <summary>How long a set of results is reused before the checks run again.</summary>
+    public static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(60);
+
+    private readonly List<IHealthCheck> _checks;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<HealthCheckService> _logger;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    private IReadOnlyList<HealthCheck>? _results;
+    private DateTimeOffset _resultsAt;
+
+    /// <summary>Initialises a new instance of the <see cref="HealthCheckService"/> class.</summary>
+    public HealthCheckService(
+        IEnumerable<IHealthCheck> checks,
+        TimeProvider timeProvider,
+        ILogger<HealthCheckService> logger)
+    {
+        ArgumentNullException.ThrowIfNull(checks);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        _checks = checks.ToList();
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Returns the results of every registered check, reusing the previous run when it is younger
+    /// than <see cref="CacheLifetime"/>.
+    /// </summary>
+    /// <param name="forceRefresh">Runs the checks even when a cached result is still fresh.</param>
+    /// <param name="cancellationToken">Cancels the checks.</param>
+    public async Task<IReadOnlyList<HealthCheck>> GetResultsAsync(
+        bool forceRefresh,
+        CancellationToken cancellationToken)
+    {
+        var cached = GetCachedResults();
+        if (cached is not null && !forceRefresh)
+        {
+            return cached;
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            // Another caller may have refreshed the cache while this one waited for the gate.
+            cached = GetCachedResults();
+            if (cached is not null && !forceRefresh)
+            {
+                return cached;
+            }
+
+            var results = new List<HealthCheck>(_checks.Count);
+
+            foreach (var check in _checks)
+            {
+                results.Add(await RunAsync(check, cancellationToken).ConfigureAwait(false));
+            }
+
+            _results = results;
+            _resultsAt = _timeProvider.GetUtcNow();
+
+            return results;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _gate.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    private IReadOnlyList<HealthCheck>? GetCachedResults() =>
+        _results is not null && _timeProvider.GetUtcNow() - _resultsAt < CacheLifetime ? _results : null;
+
+    private async Task<HealthCheck> RunAsync(IHealthCheck check, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await check.CheckAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogCheckFailed(check.Name, exception.Message);
+
+            return new HealthCheck(
+                check.Name,
+                HealthCheckResult.Error,
+                $"{check.Name} failed: {exception.Message}",
+                null);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Health check {CheckName} failed: {Reason}")]
+    private partial void LogCheckFailed(string checkName, string reason);
+}
