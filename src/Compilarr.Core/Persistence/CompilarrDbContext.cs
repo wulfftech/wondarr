@@ -1,4 +1,5 @@
 using Compilarr.Core.Jobs;
+using Compilarr.Core.Metadata;
 using Microsoft.EntityFrameworkCore;
 
 namespace Compilarr.Core.Persistence;
@@ -27,6 +28,9 @@ public sealed class CompilarrDbContext : DbContext
     /// <summary>Gets the command queue table.</summary>
     public DbSet<CommandRecord> Commands => Set<CommandRecord>();
 
+    /// <summary>Gets the metadata provider response cache.</summary>
+    public DbSet<MetadataCacheEntry> MetadataCache => Set<MetadataCacheEntry>();
+
     /// <summary>
     /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
     /// Everything is stored as UTC; mark it so on the way out to keep arithmetic with
@@ -44,6 +48,8 @@ public sealed class CompilarrDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfiguration(new MetadataCacheEntryConfiguration());
 
         modelBuilder.Entity<Setting>(entity =>
         {
