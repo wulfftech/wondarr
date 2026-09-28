@@ -153,7 +153,28 @@ public sealed partial class SlskdHost : BackgroundService
                     continue;
                 }
 
-                await StopChildAsync(stoppingToken).ConfigureAwait(false);
+                // The crash path takes the lifecycle gate like every other start/stop, and only stops
+                // the process it was watching: an ApplySettingsAsync that ran between the crash and
+                // here may already have started a replacement, which must not be killed.
+                bool replacedMeanwhile;
+                await _lifecycle.WaitAsync(stoppingToken).ConfigureAwait(false);
+                try
+                {
+                    replacedMeanwhile = CurrentGeneration != generation;
+                    if (!replacedMeanwhile)
+                    {
+                        await StopChildAsync(stoppingToken).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _lifecycle.Release();
+                }
+
+                if (replacedMeanwhile)
+                {
+                    continue;
+                }
 
                 if (Now - startedAt >= BackoffResetUptime)
                 {
