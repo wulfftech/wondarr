@@ -1,3 +1,4 @@
+using Compilarr.Core.Metadata;
 using Compilarr.Core.Jobs;
 using Compilarr.Core.Persistence;
 using FluentAssertions;
@@ -198,6 +199,9 @@ public class ScheduledTaskServiceTests
             services.AddSingleton<TimeProvider>(timeProvider);
             services.AddCompilarrPersistence($"Data Source={databasePath}");
             services.AddCompilarrCore();
+
+            // Command handlers (BulkAddSongs) depend on the metadata services, as they do in the app.
+            services.AddCompilarrMetadata(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
 
             var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
 

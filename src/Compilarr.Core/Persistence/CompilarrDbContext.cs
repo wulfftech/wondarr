@@ -62,6 +62,12 @@ public sealed class CompilarrDbContext : DbContext
     /// <summary>Gets the blocklist.</summary>
     public DbSet<BlocklistItem> Blocklist => Set<BlocklistItem>();
 
+    /// <summary>Gets the import lists.</summary>
+    public DbSet<ImportList> ImportLists => Set<ImportList>();
+
+    /// <summary>Gets the lines of the import lists.</summary>
+    public DbSet<ImportListItem> ImportListItems => Set<ImportListItem>();
+
     /// <summary>
     /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
     /// Everything is stored as UTC; mark it so on the way out to keep arithmetic with
