@@ -1,9 +1,9 @@
 # AcoustID fixtures
 
 `lookup-invalid-key.json` is a **real** response (HTTP 400) recorded 2026-09-29 from `POST https://api.acoustid.org/v2/lookup` with an invalid client key.
-`docs-example.fingerprint.txt` is the example fingerprint from acoustid.org/webservice (duration 641).
+`docs-example.fingerprint.txt` is the example fingerprint from acoustid.org/webservice (duration 641); `lookup-docs-example.json` is its **real** lookup (`meta=recordings`, 2026-09-29: M83, two AcoustIDs with score 1.0 for the same recording) and `lookup-tone-unknown.json` the **real** lookup of `tests/fixtures/media/tone-320.mp3`'s fingerprint. Note: a recording's `duration` is a **float** in seconds (`637.333`).
 
-Every other `lookup-*.json` is **synthetic**, built from the documented response shape (`docs/research/research_metadata_plex.md` §2.3) because no valid application key was available when the fixtures were written; replace them with recordings once a key is configured (`WONDARR_LIVE_TESTS=1`). The MBID `833f00e1-781f-4edd-90e4-e52712618862` is the real Daft Punk "Get Lucky" album recording; the other recording ids are made up.
+Every other `lookup-*.json` is **synthetic**, built from the documented response shape (`docs/research/research_metadata_plex.md` §2.3) because a real file of the wanted recordings was not at hand; their shape matches the real responses above. The MBID `833f00e1-781f-4edd-90e4-e52712618862` is the real Daft Punk "Get Lucky" album recording; the other recording ids are made up.
 
 | File | HTTP | Meaning |
 |---|---|---|
