@@ -14,6 +14,7 @@ ConfigFileInitializer.EnsureInitialized(paths, builder.Configuration);
 builder.Configuration.AddCompilarrConfiguration(paths, environment);
 
 builder.Services.AddCompilarrConfiguration(builder.Configuration, paths);
+builder.Services.AddCompilarrPersistence($"Data Source={paths.DatabaseFile}");
 builder.Services.AddCompilarrCore();
 builder.Services.AddCompilarrSlskd();
 builder.Services.AddCompilarrYouTube();
