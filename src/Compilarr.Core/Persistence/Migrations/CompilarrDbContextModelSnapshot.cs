@@ -169,6 +169,110 @@ namespace Compilarr.Core.Persistence.Migrations
                     b.ToTable("artist", (string)null);
                 });
 
+            modelBuilder.Entity("Compilarr.Core.Domain.BlocklistItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BlocklistKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("blocklist_key");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<long?>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_type");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_blocklist");
+
+                    b.HasIndex("SongId")
+                        .HasDatabaseName("ix_blocklist_song_id");
+
+                    b.HasIndex("SourceType", "BlocklistKey")
+                        .HasDatabaseName("ix_blocklist_source_type_blocklist_key");
+
+                    b.ToTable("blocklist", (string)null);
+                });
+
+            modelBuilder.Entity("Compilarr.Core.Domain.HistoryItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Data")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("data");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("event_type");
+
+                    b.Property<long?>("QualityId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("quality_id");
+
+                    b.Property<long>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<long?>("SourceInstanceId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("source_instance_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_history");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_history_created_at");
+
+                    b.HasIndex("QualityId")
+                        .HasDatabaseName("ix_history_quality_id");
+
+                    b.HasIndex("SongId")
+                        .HasDatabaseName("ix_history_song_id");
+
+                    b.ToTable("history", (string)null);
+                });
+
             modelBuilder.Entity("Compilarr.Core.Domain.Library", b =>
                 {
                     b.Property<long>("Id")
@@ -1265,6 +1369,57 @@ namespace Compilarr.Core.Persistence.Migrations
                     b.ToTable("command", (string)null);
                 });
 
+            modelBuilder.Entity("Compilarr.Core.Metadata.MetadataCacheEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime>("FetchedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("fetched_at");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_metadata_cache");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_metadata_cache_expires_at");
+
+                    b.HasIndex("Provider", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_metadata_cache_provider_key");
+
+                    b.ToTable("metadata_cache", (string)null);
+                });
+
             modelBuilder.Entity("Compilarr.Core.Persistence.Job", b =>
                 {
                     b.Property<long>("Id")
@@ -1354,6 +1509,37 @@ namespace Compilarr.Core.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_album_context_song_song_id");
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Compilarr.Core.Domain.BlocklistItem", b =>
+                {
+                    b.HasOne("Compilarr.Core.Domain.Song", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_blocklist_songs_song_id");
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Compilarr.Core.Domain.HistoryItem", b =>
+                {
+                    b.HasOne("Compilarr.Core.Domain.Quality", "Quality")
+                        .WithMany()
+                        .HasForeignKey("QualityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_history_qualities_quality_id");
+
+                    b.HasOne("Compilarr.Core.Domain.Song", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_history_songs_song_id");
+
+                    b.Navigation("Quality");
 
                     b.Navigation("Song");
                 });

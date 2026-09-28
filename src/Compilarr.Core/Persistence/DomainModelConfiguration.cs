@@ -157,6 +157,44 @@ internal static class DomainModelConfiguration
             entity.HasData(SeedData.QualityProfiles);
         });
 
+        modelBuilder.Entity<HistoryItem>(entity =>
+        {
+            entity.ToTable("history");
+            entity.Property(x => x.EventType).HasConversion<string>();
+            entity.Property(x => x.Data).IsRequired().HasDefaultValue("{}");
+
+            // The wanted/history queries filter and order on these.
+            entity.HasIndex(x => x.SongId);
+            entity.HasIndex(x => x.CreatedAt);
+
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Quality)
+                .WithMany()
+                .HasForeignKey(x => x.QualityId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<BlocklistItem>(entity =>
+        {
+            entity.ToTable("blocklist");
+            entity.Property(x => x.SourceType).IsRequired();
+            entity.Property(x => x.BlocklistKey).IsRequired();
+            entity.Property(x => x.Reason).IsRequired();
+
+            // The grab path asks "is this source key blocked" on every candidate.
+            entity.HasIndex(x => new { x.SourceType, x.BlocklistKey });
+
+            // Deleting a song must not take its blocklist rows with it: the key stays blocked.
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<Library>(entity =>
         {
             entity.ToTable("library");
