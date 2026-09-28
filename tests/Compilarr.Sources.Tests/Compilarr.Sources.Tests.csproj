@@ -21,6 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\tests\fixtures\slskd\**\*.*" Link="fixtures\slskd\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Compilarr.Core\Compilarr.Core.csproj" />
     <ProjectReference Include="..\..\src\Compilarr.Sources.Slskd\Compilarr.Sources.Slskd.csproj" />
     <ProjectReference Include="..\..\src\Compilarr.Sources.Torznab\Compilarr.Sources.Torznab.csproj" />
