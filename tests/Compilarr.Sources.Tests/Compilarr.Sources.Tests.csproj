@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Compilarr.Sources.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Compilarr.Core\Compilarr.Core.csproj" />
+    <ProjectReference Include="..\..\src\Compilarr.Sources.Slskd\Compilarr.Sources.Slskd.csproj" />
+    <ProjectReference Include="..\..\src\Compilarr.Sources.Torznab\Compilarr.Sources.Torznab.csproj" />
+    <ProjectReference Include="..\..\src\Compilarr.Sources.YouTube\Compilarr.Sources.YouTube.csproj" />
+  </ItemGroup>
+
+</Project>
