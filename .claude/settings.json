@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read", "Grep", "Glob",
+      "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git branch*)", "Bash(git worktree list*)",
+      "Bash(dotnet build*)", "Bash(dotnet test*)", "Bash(dotnet format*)",
+      "Bash(npm run *)", "Bash(npm test*)", "Bash(npm ci*)",
+      "Bash(python scripts/worker.py*)", "Bash(python3 scripts/worker.py*)"
+    ],
+    "deny": [
+      "Read(.env)", "Read(.env.*)",
+      "Bash(git push --force*)", "Bash(git push -f*)"
+    ]
+  }
+}

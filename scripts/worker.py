@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""
+Compilarr cheap-worker runner (standard library only, Python 3.10+, Windows/macOS/Linux).
+
+Modes
+  run   <task.md>   Run a headless `claude -p` worker against OpenRouter (or Anthropic) in a git worktree.
+  api   <task.md>   Single-shot OpenRouter chat-completions call (no tools); optional --files to inline.
+  review <branch>   Ask the reviewer model to review `git diff main...<branch>` (single-shot, no tools).
+
+Examples
+  python scripts/worker.py run docs/build/tasks/P0-01.md
+  python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md
+  python scripts/worker.py run docs/build/tasks/P0-01.md --continue "fix: tests in FooTests fail on Windows paths"
+  python scripts/worker.py api docs/build/tasks/P0-07.md --files src/Compilarr.Core/Foo.cs
+
+Environment (.env in the repo root is loaded automatically; existing env vars win)
+  OPENROUTER_API_KEY            required for OpenRouter modes
+  COMPILARR_WORKER_MODEL        e.g. "z-ai/glm-5.3-flash" (pin after the bake-off; see docs/build/AGENT_WORKFLOW.md §6)
+  COMPILARR_REVIEWER_MODEL      optional mid-tier model for `review`
+  COMPILARR_WORKER_MAX_TURNS    default 25
+  COMPILARR_WORKER_TIMEOUT_MIN  default 20
+  COMPILARR_WORKER_BUDGET_USD   default 2.00 per run
+  OPENROUTER_ANTHROPIC_BASE_URL default https://openrouter.ai/api  (Claude Code docs show https://openrouter.ai/api/v1; switch if you get 404s)
+  COMPILARR_WORKER_PROVIDER     "openrouter" (default) or "anthropic" (uses your normal Claude Code auth; model via COMPILARR_WORKER_MODEL, e.g. "haiku")
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+WORKTREES = REPO / ".worktrees"
+REPORTS = REPO / ".worker"
+SYSTEM_PROMPT = REPO / "docs" / "build" / "WORKER_SYSTEM_PROMPT.md"
+STANDARDS = REPO / "docs" / "build" / "CODING_STANDARDS.md"
+PROTECTED = ("CLAUDE.md", "docs/DECISIONS.md", "docs/adr/", ".claude/", ".github/workflows/", ".env", "LICENSE")
+
+
+# ----------------------------------------------------------------------------- env
+def load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.split(" #", 1)[0].strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def env(name: str, default: str | None = None) -> str | None:
+    value = os.environ.get(name)
+    return value if value not in (None, "") else default
+
+
+def redact(value: str | None) -> str:
+    if not value:
+        return "<unset>"
+    return value[:6] + "…" + value[-4:] if len(value) > 12 else "***"
+
+
+# ----------------------------------------------------------------------------- git
+def git(*args: str, cwd: Path = REPO, check: bool = True) -> str:
+    result = subprocess.run(["git", *args], cwd=str(cwd), text=True, capture_output=True)
+    if check and result.returncode != 0:
+        raise SystemExit(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def task_id_from(task_file: Path) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "-", task_file.stem)
+
+
+def slug_from(task_file: Path) -> str:
+    first = task_file.read_text(encoding="utf-8").splitlines()[0] if task_file.exists() else ""
+    title = re.sub(r"^#\s*Task\s+\S+:\s*", "", first).strip() or task_file.stem
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "task"
+
+
+def phase_from(task_id: str) -> str:
+    match = re.match(r"P(\d+)", task_id, re.IGNORECASE)
+    return match.group(1) if match else "x"
+
+
+def ensure_worktree(task_id: str, task_file: Path, dry_run: bool) -> Path:
+    path = WORKTREES / task_id
+    branch = f"phase{phase_from(task_id)}/{task_id.lower()}-{slug_from(task_file)}"
+    if path.exists():
+        print(f"[worker] reusing worktree {path}")
+        return path
+    if dry_run:
+        print(f"[worker] would create worktree {path} on branch {branch} from main")
+        return path
+    WORKTREES.mkdir(exist_ok=True)
+    existing = git("branch", "--list", branch)
+    if existing:
+        git("worktree", "add", str(path), branch)
+    else:
+        git("worktree", "add", "-b", branch, str(path), "main")
+    print(f"[worker] created worktree {path} on branch {branch}")
+    return path
+
+
+# ----------------------------------------------------------------------------- claude worker
+def find_claude() -> str | None:
+    for candidate in ("claude", "claude.cmd", "claude.exe"):
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
+
+def worker_env(provider: str, model: str) -> dict[str, str]:
+    e = dict(os.environ)
+    for key in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
+        e.pop(key, None)
+    if provider == "openrouter":
+        key = env("OPENROUTER_API_KEY")
+        if not key:
+            raise SystemExit("OPENROUTER_API_KEY is not set (put it in .env)")
+        e["ANTHROPIC_BASE_URL"] = env("OPENROUTER_ANTHROPIC_BASE_URL", "https://openrouter.ai/api") or ""
+        e["ANTHROPIC_API_KEY"] = key
+        e["ANTHROPIC_MODEL"] = model
+        # keep any nested subagent inside the worker on the same cheap model
+        for fam in ("HAIKU", "SONNET", "OPUS"):
+            e[f"ANTHROPIC_DEFAULT_{fam}_MODEL"] = model
+        e["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+    e["COMPILARR_WORKER"] = "1"
+    return e
+
+
+def build_prompt(task_file: Path, continue_note: str | None) -> str:
+    task_rel = task_file.resolve().relative_to(REPO) if task_file.resolve().is_relative_to(REPO) else task_file
+    parts = [
+        f"Implement the task in `{task_rel}`. Work only inside this worktree.",
+        f"Before writing code, read the task file, `{STANDARDS.relative_to(REPO)}`, and the docs it references.",
+        "Protected paths you must not modify: " + ", ".join(PROTECTED) + ".",
+        "When finished, commit on the current branch and print the done-report.",
+    ]
+    if continue_note:
+        parts.insert(0, f"CONTINUATION of a previous run on this task. Address exactly this feedback first:\n{continue_note}\n")
+    return "\n".join(parts)
+
+
+def run_worker(args: argparse.Namespace) -> int:
+    task_file = Path(args.task).resolve()
+    if not task_file.exists():
+        raise SystemExit(f"task file not found: {task_file}")
+    task_id = task_id_from(task_file)
+    provider = (env("COMPILARR_WORKER_PROVIDER", "openrouter") or "openrouter").lower()
+    model = args.model or env("COMPILARR_WORKER_MODEL") or ("haiku" if provider == "anthropic" else None)
+    if not model:
+        raise SystemExit("COMPILARR_WORKER_MODEL is not set (pin it in .env after the bake-off)")
+    max_turns = args.max_turns or int(env("COMPILARR_WORKER_MAX_TURNS", "25") or 25)
+    timeout_min = int(env("COMPILARR_WORKER_TIMEOUT_MIN", "20") or 20)
+    budget = env("COMPILARR_WORKER_BUDGET_USD", "2.00")
+    worktree = ensure_worktree(task_id, task_file, args.dry_run)
+    claude = find_claude()
+    cmd = [
+        claude or "claude", "-p", build_prompt(task_file, args.continue_note),
+        "--output-format", "json",
+        "--max-turns", str(max_turns),
+        "--max-budget-usd", str(budget),
+        "--permission-mode", "acceptEdits",
+        "--allowedTools", "Read,Edit,Write,Grep,Glob,Bash(dotnet *),Bash(npm *),Bash(git status*),Bash(git diff*),Bash(git add *),Bash(git commit *)",
+        "--append-system-prompt-file", str(SYSTEM_PROMPT),
+        "--no-session-persistence",
+    ]
+    if provider == "anthropic":
+        cmd += ["--model", model]
+    e = worker_env(provider, model)
+    print(f"[worker] task={task_id} provider={provider} model={model} turns={max_turns} budget=${budget} timeout={timeout_min}m")
+    print(f"[worker] base_url={e.get('ANTHROPIC_BASE_URL', '<claude default>')} key={redact(e.get('ANTHROPIC_API_KEY'))}")
+    if args.dry_run:
+        print("[worker] dry run — command:")
+        print("  " + " ".join(repr(c) if " " in c else c for c in cmd))
+        return 0
+    if not claude:
+        raise SystemExit("claude CLI not found on PATH")
+    REPORTS.mkdir(exist_ok=True)
+    out_dir = REPORTS / task_id
+    out_dir.mkdir(exist_ok=True)
+    started = _dt.datetime.now()
+    try:
+        result = subprocess.run(cmd, cwd=str(worktree), env=e, text=True, capture_output=True, timeout=timeout_min * 60)
+    except subprocess.TimeoutExpired:
+        (out_dir / "report.md").write_text(f"TIMEOUT after {timeout_min} minutes\n", encoding="utf-8")
+        print(f"[worker] TIMEOUT after {timeout_min} minutes; worktree kept at {worktree}")
+        return 124
+    (out_dir / "stdout.json").write_text(result.stdout, encoding="utf-8")
+    (out_dir / "stderr.txt").write_text(result.stderr, encoding="utf-8")
+    report_text, cost, turns = extract_report(result.stdout)
+    (out_dir / "report.md").write_text(report_text, encoding="utf-8")
+    elapsed = (_dt.datetime.now() - started).total_seconds() / 60
+    changed = git("diff", "--name-only", "main...HEAD", cwd=worktree, check=False) or "(no committed changes yet)"
+    print(f"[worker] exit={result.returncode} cost=${cost} turns={turns} elapsed={elapsed:.1f}m")
+    print(f"[worker] files changed vs main:\n{changed}")
+    print(f"[worker] report: {out_dir / 'report.md'}")
+    protected_hits = [p for p in changed.splitlines() if any(p.startswith(x.rstrip('/')) for x in PROTECTED)]
+    if protected_hits:
+        print(f"[worker] WARNING protected paths touched: {protected_hits}")
+    return result.returncode
+
+
+def extract_report(stdout: str) -> tuple[str, str, str]:
+    """Best-effort extraction from `claude -p --output-format json` output."""
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout, "?", "?"
+    text = data.get("result") if isinstance(data, dict) else None
+    cost = str(data.get("total_cost_usd", data.get("cost_usd", "?"))) if isinstance(data, dict) else "?"
+    turns = str(data.get("num_turns", "?")) if isinstance(data, dict) else "?"
+    return (text or json.dumps(data, indent=2)), cost, turns
+
+
+# ----------------------------------------------------------------------------- single-shot API modes
+def openrouter_chat(model: str, system: str, user: str, temperature: float = 0.2) -> str:
+    key = env("OPENROUTER_API_KEY")
+    if not key:
+        raise SystemExit("OPENROUTER_API_KEY is not set (put it in .env)")
+    body = json.dumps({
+        "model": model,
+        "temperature": temperature,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/wulfftech/compilarr",
+            "X-Title": "Compilarr build worker",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        raise SystemExit(f"OpenRouter HTTP {err.code}: {err.read().decode('utf-8', 'replace')[:500]}")
+    return payload["choices"][0]["message"]["content"]
+
+
+def run_api(args: argparse.Namespace) -> int:
+    task_file = Path(args.task).resolve()
+    task_id = task_id_from(task_file)
+    model = args.model or env("COMPILARR_WORKER_MODEL")
+    if not model:
+        raise SystemExit("COMPILARR_WORKER_MODEL is not set")
+    user = "# TASK\n" + task_file.read_text(encoding="utf-8")
+    for f in args.files or []:
+        p = Path(f)
+        user += f"\n\n# FILE: {f}\n```\n{p.read_text(encoding='utf-8')}\n```"
+    user += ("\n\nReturn complete file contents for every file you create or change, each in a fenced block "
+             "preceded by a line `### path/to/file`. Do not return diffs. Finish with the done-report.")
+    system = SYSTEM_PROMPT.read_text(encoding="utf-8")
+    print(f"[worker] api task={task_id} model={model} files={len(args.files or [])} key={redact(env('OPENROUTER_API_KEY'))}")
+    if args.dry_run:
+        print(f"[worker] dry run — would send {len(user)} chars to OpenRouter")
+        return 0
+    out_dir = REPORTS / task_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    answer = openrouter_chat(model, system, user)
+    (out_dir / "response.md").write_text(answer, encoding="utf-8")
+    print(f"[worker] response written to {out_dir / 'response.md'} ({len(answer)} chars)")
+    return 0
+
+
+def run_review(args: argparse.Namespace) -> int:
+    model = args.model or env("COMPILARR_REVIEWER_MODEL") or env("COMPILARR_WORKER_MODEL")
+    if not model:
+        raise SystemExit("COMPILARR_REVIEWER_MODEL / COMPILARR_WORKER_MODEL not set")
+    diff = git("diff", f"main...{args.branch}")
+    if not diff:
+        print("[worker] empty diff; nothing to review")
+        return 0
+    task_text = Path(args.task).read_text(encoding="utf-8") if args.task else "(no task file given)"
+    system = ("You are a strict code reviewer for Compilarr. Judge the diff against the task's acceptance criteria and "
+              + STANDARDS.read_text(encoding="utf-8") +
+              "\nReport findings ranked by severity with file:line, then a verdict line: MERGE or FIX-FIRST.")
+    user = f"# TASK\n{task_text}\n\n# DIFF (main...{args.branch})\n```diff\n{diff[:200000]}\n```"
+    print(f"[worker] review branch={args.branch} model={model} diff_chars={len(diff)}")
+    if args.dry_run:
+        return 0
+    answer = openrouter_chat(model, system, user, temperature=0.0)
+    out_dir = REPORTS / re.sub(r"[^A-Za-z0-9_-]", "-", args.branch)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "review.md").write_text(answer, encoding="utf-8")
+    print(answer)
+    return 0
+
+
+# ----------------------------------------------------------------------------- main
+def main() -> int:
+    load_dotenv(REPO / ".env")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--dry-run", action="store_true", help="print what would run; touch nothing")
+    parser.add_argument("--model", help="override the model id for this run")
+    sub = parser.add_subparsers(dest="mode", required=True)
+    p_run = sub.add_parser("run", help="headless claude worker in a worktree")
+    p_run.add_argument("task")
+    p_run.add_argument("--max-turns", type=int)
+    p_run.add_argument("--continue", dest="continue_note", help="feedback for a continuation run on the same task")
+    p_api = sub.add_parser("api", help="single-shot OpenRouter call, no tools")
+    p_api.add_argument("task")
+    p_api.add_argument("--files", nargs="*")
+    p_rev = sub.add_parser("review", help="single-shot review of git diff main...<branch>")
+    p_rev.add_argument("branch")
+    p_rev.add_argument("--task")
+    args = parser.parse_args()
+    if args.mode == "run":
+        return run_worker(args)
+    if args.mode == "api":
+        return run_api(args)
+    return run_review(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

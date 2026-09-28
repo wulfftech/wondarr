@@ -1,0 +1,35 @@
+# Decision log
+
+> All product/design decisions taken with the owner during the planning session (2026-09-28). New decisions go at the bottom as dated entries; architectural ones also get an ADR in `docs/adr/`.
+
+Answers from the owner to the round-1 questions, and what each changed in this plan.
+
+| # | Question | Decision | Effect on the plan |
+|---|---|---|---|
+| 1 | Build vs adopt | **Build new**, porting useful code from existing projects | §3.6 lists what to port and from where; licences in §8.5 |
+| 2 | Name | "Syncarr" proposed | **Taken** — `syncarr/syncarr` (syncs Radarr/Sonarr/Lidarr instances) plus forks; and the word implies sync, not acquisition. Candidates that still look free: Cratearr, Jukearr, Recordarr, Tracksarr, Songdarr (§3.6). Still open (§12) |
+| 3 | Stack | **Aligned with the other *arrs** where possible | Recommendation switched to **C#/.NET 10 + React** (§8). This also unlocks near-verbatim porting of Lidarr/Prowlarr GPL-3.0 code (download clients, Torznab/Newznab, quality parser, naming engine, notifications, health checks, fingerprinting) |
+| 4 | slskd | Not running yet; **deploy/package with the app**; **sharing configurable in-app** | Compose ships slskd headless alongside the app; the app owns slskd's configuration (credentials, shared folders, slots, limits) via its API; a bundled single-image variant is planned (§9.1, §9.5) |
+| 5 | Plexamp album layer | Assess; prefer flat `Artist - Title.ext` or artist folders; else aggregate into the fewest albums | **Assessment (§7.2): Plex does not hard-require album folders but strongly advises them, and flat folders have documented mis-grouping failures under default settings.** The Plexamp preset therefore keeps an album layer and implements the "fewest albums per artist" compaction; flat and artist-folder layouts remain available for other players or for Plex with "Prefer local metadata" and the caveats stated |
+| 6 | Quality | FLAC supported; **default cutoff 320**; transcode YouTube to AAC or MP3 | Default profile "Standard 320": cutoff MP3-320 (AAC-256 and FLAC allowed, upgrades on); YouTube grabs transcoded once to AAC-256 `.m4a` by default (MP3-320 selectable) but *ranked as their Opus-160 source* so they stay upgradeable (§6.5, Appendix B) |
+| 7 | Torrents | **qBittorrent only**; no private-tracker rules for now | Phase 7 scoped to qBittorrent (+ SABnzbd for usenet); partial single-file downloads on by default; Transmission/Deluge/rTorrent/NZBGet and tracker-policy switches moved to backlog |
+| 8 | Inputs | Individual adds, Deezer/YouTube Music playlists, **Spotify via exported CSV**, Last.fm, ListenBrainz, and **the user's existing music folder (flat or layered), with manual matching where AcoustID cannot resolve** | CSV importer speaks the Exportify column set (includes ISRC); **library adoption with a manual-match queue is promoted to Phase 3** because it is both an input and the dedupe source (§4.4, §7.6, §10) |
+| 9 | Deployment | Docker on Linux, aligned with the primary *arrs | hotio/LinuxServer-style image: `/config`, `/data`, `PUID/PGID/UMASK/TZ`, `/ping`, URL base, multi-arch; Unraid template (§9) |
+| 10 | Dedupe | Not via Plex/Lidarr; the app scans the user's main Music folder | "Reference library" roots: scanned, matched, marked as owned, optionally adopted (§7.6) |
+
+### Round 2 (same day)
+
+| # | Question | Decision | Effect on the plan |
+|---|---|---|---|
+| 1 | Name | "Comparr" or "Compilarr" (compilations) | **Compilarr** adopted as the working name: no GitHub hits by web search; "Comparr" only matches a French price-comparison site and reads as "compare". Confirm with a GitHub name search before creating the repo (§3.6) |
+| 2 | Usenet client | Keep SABnzbd, "as is tradition" | Unchanged: SABnzbd in Phase 7; NZBGet in backlog |
+| 3 | YouTube output | A setting; make it quite customisable | Output policy is per library with per-source override: codec (AAC, MP3, keep Opus), bitrate or VBR quality, container, sample rate, plus "never fake lossless"; ranked as the Opus-160 source regardless (§7.4, Phase 4) |
+| 4 | Album policy | Both configurable; `fewest_albums` default | Unchanged; all four policies selectable per library and per song (§7.3) |
+| 5 | slskd packaging | **Bundle from the start** | The app image ships slskd and supervises it as a child process from Phase 0; an "external slskd" mode remains for users who already run one (§9.1, §9.5, Appendix A) |
+| 6 | Reference library | Reference by default; adopt/retag available | Unchanged (§7.6, Phase 3) |
+| 7 | Match queue | Auto-accept above a high threshold, ask below | Unchanged (§7.6) |
+| 8 | Port | 1077 if free | **1077 adopted**: no *arr-family application uses it (Sonarr 8989, Radarr 7878, Lidarr 8686, Readarr 8787, Prowlarr 9696, Bazarr 6767, Whisparr 6969, Seerr 5055, Tautulli 8181, slskd 5030); it is above the privileged range; IANA lists 1077 for an unrelated game service, which is irrelevant on a LAN (§9.2) |
+
+
+
+---
