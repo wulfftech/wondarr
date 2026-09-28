@@ -80,6 +80,9 @@ internal sealed class FixtureHttpMessageHandler : HttpMessageHandler
 
     public List<Uri> Requests { get; } = [];
 
+    /// <summary>The method of every request, in the same order as <see cref="Requests"/>.</summary>
+    public List<HttpMethod> Methods { get; } = [];
+
     /// <summary>A handler that answers every request with one fixture.</summary>
     public static FixtureHttpMessageHandler Serving(string fixture) =>
         new(_ => MusicBrainzFixtures.Json(MusicBrainzFixtures.Read(fixture)));
@@ -89,6 +92,7 @@ internal sealed class FixtureHttpMessageHandler : HttpMessageHandler
         CancellationToken cancellationToken)
     {
         Requests.Add(request.RequestUri!);
+        Methods.Add(request.Method);
 
         return Task.FromResult(_responder(request));
     }
