@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "id": "9ff43b6a-4f16-427c-93c2-92307ca505e0",
+      "recordings": [
+        {
+          "artists": [
+            {
+              "id": "6d7b7cd4-254b-4c25-83f6-dd20f98ceacd",
+              "name": "M83"
+            }
+          ],
+          "duration": 637.333,
+          "id": "cd2e7c47-16f5-46c6-a37c-a1eb7bf599ff",
+          "title": "Lower Your Eyelids to Die With the Sun"
+        }
+      ],
+      "score": 1.0
+    },
+    {
+      "id": "be6fa248-97d1-4a18-845b-7c6a070b764c",
+      "recordings": [
+        {
+          "artists": [
+            {
+              "id": "6d7b7cd4-254b-4c25-83f6-dd20f98ceacd",
+              "name": "M83"
+            }
+          ],
+          "duration": 637.333,
+          "id": "cd2e7c47-16f5-46c6-a37c-a1eb7bf599ff",
+          "title": "Lower Your Eyelids to Die With the Sun"
+        }
+      ],
+      "score": 1.0
+    }
+  ],
+  "status": "ok"
+}
