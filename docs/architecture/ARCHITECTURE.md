@@ -33,7 +33,7 @@
  (Wikidata/fanart opt.) Newznab           SABnzbd/NZBGet
 ```
 
-The core is a single long-running process (one container). Soulseek access goes through a **companion slskd container that the app configures** (credentials, shares, slots; §9.5); torrent/usenet clients are the user's existing ones; YouTube is handled in-process via yt-dlp. Nothing else is required to run.
+The core is a single long-running process (one container). Soulseek access goes through **slskd bundled in the same image and supervised by the app as a child process** (`SlskdHost`; the app renders its `slskd.yml` from its own Soulseek settings — credentials, shares, slots; §9.5; an external-slskd mode is Phase 5); torrent/usenet clients are the user's existing ones; YouTube is handled in-process via yt-dlp. Nothing else is required to run.
 
 ### 5.2 The song lifecycle (pipeline)
 
