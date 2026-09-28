@@ -77,5 +77,16 @@ jobs:
           build-args: VERSION=0.0.0-ci.${{ github.run_number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # The repository (and so the GHCR package) is private; a short-lived artifact lets the image be
+      # loaded on a test host without registry credentials there.
+      - name: Export the image
+        if: github.event_name == 'push'
+        run: docker save compilarr:ci | gzip -1 > compilarr-image-amd64.tar.gz
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'push'
+        with:
+          name: compilarr-image-amd64
+          path: compilarr-image-amd64.tar.gz
+          retention-days: 3
       - name: Phase 0 gate smoke test
         run: scripts/smoke-test.sh compilarr:ci
