@@ -255,4 +255,61 @@ public class SlskdHostTests
 
         return copy;
     }
+
+    [Fact]
+    public async Task A_settings_change_from_the_options_monitor_restarts_slskd_after_the_debounce()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        harness.RaiseOptionsChanged(WithCredentials(harness.Options));
+
+        // Debounced: nothing happens within the first second.
+        harness.Time.Advance(TimeSpan.FromSeconds(1));
+        await Task.Delay(100);
+        harness.Launcher.Count.Should().Be(1);
+
+        await harness.AdvanceUntilAsync(
+            () => harness.Launcher.Count == 2,
+            TimeSpan.FromSeconds(1),
+            10,
+            "the debounced restart");
+
+        (await harness.ReadConfigAsync()).Should().Contain("username: compilarr-soulseek");
+        harness.Launcher.Launches[0].Process.KillCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_settings_restart_right_after_a_crash_leaves_the_replacement_running()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        // The process dies and, before the supervisor has handled it, a restart-requiring setting
+        // replaces it.
+        harness.Launcher.Latest.ExitWith(9);
+        var next = WithCredentials(harness.Options);
+        harness.CurrentOptions = next;
+        await harness.Host.ApplySettingsAsync(next, CancellationToken.None);
+
+        var replacement = harness.Launcher.Latest;
+
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            TimeSpan.FromSeconds(1),
+            90,
+            "the replacement to be watched");
+
+        replacement.KillCount.Should().Be(0, "the crash path must only stop the process it was watching");
+        replacement.HasExited.Should().BeFalse();
+        harness.Launcher.Latest.Should().BeSameAs(replacement);
+    }
 }

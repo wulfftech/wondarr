@@ -50,6 +50,11 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
 
         Monitor = Substitute.For<IOptionsMonitor<SoulseekOptions>>();
         Monitor.CurrentValue.Returns(_ => CurrentOptions);
+        Monitor.OnChange(Arg.Any<Action<SoulseekOptions, string?>>()).Returns(call =>
+        {
+            _listeners.Add(call.Arg<Action<SoulseekOptions, string?>>());
+            return Substitute.For<IDisposable>();
+        });
 
         Client = Substitute.For<ISlskdClient>();
         Client.GetApplicationStateAsync(Arg.Any<CancellationToken>()).Returns(_ => Reachable
@@ -82,6 +87,18 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
             _loggerFactory);
 
         HealthCheck = new SlskdHealthCheck(Status, Monitor);
+    }
+
+    private readonly List<Action<SoulseekOptions, string?>> _listeners = [];
+
+    /// <summary>Raises the options monitor's change callbacks, as re-reading config.yml would.</summary>
+    public void RaiseOptionsChanged(SoulseekOptions next)
+    {
+        CurrentOptions = next;
+        foreach (var listener in _listeners.ToArray())
+        {
+            listener(next, Microsoft.Extensions.Options.Options.DefaultName);
+        }
     }
 
     public FakeTimeProvider Time { get; }
