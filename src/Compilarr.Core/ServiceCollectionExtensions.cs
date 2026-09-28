@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Quartz;
 using Microsoft.Extensions.Options;
 
 namespace Compilarr.Core;
@@ -43,6 +44,19 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
+
+        services.AddSingleton<IScheduledTaskCatalog, ScheduledTaskCatalog>();
+        services.AddScoped<IHandle<CommandUpdatedEvent>, JobTableUpdater>();
+
+        // The scheduler is a RAM store: the durable state is the job table, which ScheduledTaskService
+        // reads back at every start (ARCHITECTURE §5.5).
+        services.AddQuartz();
+
+        // Same ordering reason as the executor below: the schedule is built after the migration
+        // hosted service has created the job table, and the Quartz hosted service that starts the
+        // scheduler runs after this one so every trigger is registered before it does.
+        services.AddHostedService<ScheduledTaskService>();
+        services.AddQuartzHostedService(options => options.WaitForJobsToComplete = true);
 
         // Registered here rather than in AddCompilarrPersistence so it starts after the migration
         // hosted service (hosted services start in registration order) and the command table exists.

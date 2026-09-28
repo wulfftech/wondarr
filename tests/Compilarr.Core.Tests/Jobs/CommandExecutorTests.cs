@@ -155,6 +155,11 @@ public class CommandExecutorTests
         (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Completed))
             .Should().BeTrue("a throwing subscriber must not fail the command");
 
+        // The row is saved before the event is published, so wait for the event itself.
+        (await TestWait.UntilAsync(() => Task.FromResult(recorder.Updates.Any(
+            update => update.Id == queued.Id && update.Status == CommandStatus.Completed))))
+            .Should().BeTrue("the completed state is published too");
+
         recorder.Updates
             .Where(update => update.Id == queued.Id)
             .Select(update => update.Status)
