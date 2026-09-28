@@ -1,4 +1,5 @@
 using Compilarr.Core.Configuration;
+using Compilarr.Core.Logging;
 using Compilarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -38,6 +39,13 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IValidateOptions<ServerOptions>, ServerOptionsValidator>();
         services.AddSingleton<IPostConfigureOptions<ServerOptions>, ServerOptionsPostConfigure>();
+
+        services.AddOptions<LogOptions>()
+            .Bind(configuration.GetSection("Log"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<LogOptions>, LogOptionsValidator>();
+        services.AddSingleton<ISecretRegistry, SecretRegistry>();
 
         return services;
     }
