@@ -115,6 +115,397 @@
         }
       }
     },
+    "/api/v1/artist": {
+      "get": {
+        "tags": [
+          "Artist"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArtistResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artist/{id}": {
+      "get": {
+        "tags": [
+          "Artist"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/preview": {
+      "get": {
+        "tags": [
+          "Preview"
+        ],
+        "parameters": [
+          {
+            "name": "deezerId",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "isrc",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "songId",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/song": {
+      "get": {
+        "tags": [
+          "Song"
+        ],
+        "parameters": [
+          {
+            "name": "artistId",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "monitored",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfSongResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Song"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SongAddResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SongAddResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SongResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/song/{id}": {
+      "get": {
+        "tags": [
+          "Song"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SongResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Song"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SongUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SongUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SongResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Song"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/song/lookup": {
+      "post": {
+        "tags": [
+          "Song"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SongLookupRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SongLookupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SongLookupResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/song/{id}/albumcontexts": {
+      "get": {
+        "tags": [
+          "Song"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlbumOptionResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/song/{id}/albumcontext": {
+      "put": {
+        "tags": [
+          "Song"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SongAlbumContextUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SongAlbumContextUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SongResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/library": {
       "get": {
         "tags": [
@@ -747,8 +1138,143 @@
       "AlbumContextKind": {
         "type": "integer"
       },
+      "AlbumOptionResource": {
+        "required": [
+          "key",
+          "mbReleaseId",
+          "mbReleaseGroupId",
+          "title",
+          "albumArtist",
+          "primaryType",
+          "secondaryTypes",
+          "status",
+          "date",
+          "trackNo",
+          "totalTracks",
+          "isCurrent"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "mbReleaseId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mbReleaseGroupId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "albumArtist": {
+            "type": "string"
+          },
+          "primaryType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "secondaryTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "date": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "trackNo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalTracks": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isCurrent": {
+            "type": "boolean"
+          }
+        }
+      },
       "AlbumPolicy": {
         "type": "integer"
+      },
+      "ArtistResource": {
+        "required": [
+          "id",
+          "name",
+          "sortName",
+          "mbArtistId",
+          "deezerId",
+          "songCount"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sortName": {
+            "type": "string"
+          },
+          "mbArtistId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deezerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "songCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
       },
       "AuthUserResource": {
         "required": [
@@ -1204,6 +1730,17 @@
           }
         }
       },
+      "PreviewResource": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        }
+      },
       "QualityDefinitionResource": {
         "required": [
           "id",
@@ -1381,6 +1918,57 @@
           }
         }
       },
+      "SongAddResource": {
+        "required": [
+          "mbRecordingId",
+          "deezerId",
+          "qualityProfileId",
+          "libraryId",
+          "monitored"
+        ],
+        "type": "object",
+        "properties": {
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deezerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "qualityProfileId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "libraryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "monitored": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
       "SongAlbumContextResource": {
         "required": [
           "kind",
@@ -1470,6 +2058,152 @@
           },
           "isVariousArtists": {
             "type": "boolean"
+          }
+        }
+      },
+      "SongAlbumContextUpdateResource": {
+        "required": [
+          "albumKey"
+        ],
+        "type": "object",
+        "properties": {
+          "albumKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SongLookupRequest": {
+        "required": [
+          "term"
+        ],
+        "type": "object",
+        "properties": {
+          "term": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SongLookupResource": {
+        "required": [
+          "source",
+          "mbRecordingId",
+          "deezerId",
+          "title",
+          "artistCredit",
+          "durationMs",
+          "disambiguation",
+          "versionFlags",
+          "firstReleaseDate",
+          "releaseTypes",
+          "albumTitle",
+          "coverUrl",
+          "isrcs",
+          "score",
+          "viaIsrc",
+          "existingSongId"
+        ],
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deezerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artistCredit": {
+            "type": "string"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "disambiguation": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "versionFlags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "firstReleaseDate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "releaseTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "albumTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "coverUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isrcs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "viaIsrc": {
+            "type": "boolean"
+          },
+          "existingSongId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -1604,6 +2338,30 @@
                 "$ref": "#/components/schemas/SongAlbumContextResource"
               }
             ]
+          }
+        }
+      },
+      "SongUpdateResource": {
+        "required": [
+          "monitored",
+          "qualityProfileId"
+        ],
+        "type": "object",
+        "properties": {
+          "monitored": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "qualityProfileId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -1845,6 +2603,15 @@
     },
     {
       "name": "Task"
+    },
+    {
+      "name": "Artist"
+    },
+    {
+      "name": "Preview"
+    },
+    {
+      "name": "Song"
     },
     {
       "name": "Library"
