@@ -2,6 +2,7 @@
 // Adapted for Compilarr: no event aggregation, debouncing or scheduling — run every check, cache
 // the results for 60 seconds and hand them back.
 
+using Compilarr.Core.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -19,6 +20,7 @@ public sealed partial class HealthCheckService : IDisposable
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _timeProvider;
+    private readonly IEventAggregator _eventAggregator;
     private readonly ILogger<HealthCheckService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -29,14 +31,17 @@ public sealed partial class HealthCheckService : IDisposable
     public HealthCheckService(
         IServiceScopeFactory scopeFactory,
         TimeProvider timeProvider,
+        IEventAggregator eventAggregator,
         ILogger<HealthCheckService> logger)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(eventAggregator);
         ArgumentNullException.ThrowIfNull(logger);
 
         _scopeFactory = scopeFactory;
         _timeProvider = timeProvider;
+        _eventAggregator = eventAggregator;
         _logger = logger;
     }
 
@@ -58,6 +63,8 @@ public sealed partial class HealthCheckService : IDisposable
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
+        IReadOnlyList<HealthCheck> results;
+
         try
         {
             // Another caller may have refreshed the cache while this one waited for the gate.
@@ -69,22 +76,29 @@ public sealed partial class HealthCheckService : IDisposable
 
             await using var scope = _scopeFactory.CreateAsyncScope();
             var checks = scope.ServiceProvider.GetServices<IHealthCheck>().ToList();
-            var results = new List<HealthCheck>(checks.Count);
+            var fresh = new List<HealthCheck>(checks.Count);
 
             foreach (var check in checks)
             {
-                results.Add(await RunAsync(check, cancellationToken).ConfigureAwait(false));
+                fresh.Add(await RunAsync(check, cancellationToken).ConfigureAwait(false));
             }
 
-            _results = results;
+            _results = fresh;
             _resultsAt = _timeProvider.GetUtcNow();
-
-            return results;
+            results = fresh;
         }
         finally
         {
             _gate.Release();
         }
+
+        // Published outside the gate: a handler that asked for the results back would deadlock
+        // inside it. Only a real run gets here — a cached read returned above.
+        await _eventAggregator
+            .PublishAsync(new HealthCheckCompletedEvent(results), cancellationToken)
+            .ConfigureAwait(false);
+
+        return results;
     }
 
     /// <inheritdoc />
