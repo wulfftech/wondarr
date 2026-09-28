@@ -1,0 +1,33 @@
+{
+  "status": "ok",
+  "results": [
+    {
+      "id": "9ff43b6a-4f16-427c-93c2-92307ca505e0",
+      "score": 0.962,
+      "recordings": [
+        {
+          "id": "833f00e1-781f-4edd-90e4-e52712618862",
+          "title": "Get Lucky",
+          "duration": 369,
+          "artists": [
+            {
+              "id": "056e4f3e-d505-4dad-8ec1-d04f521cbb56",
+              "name": "Daft Punk"
+            }
+          ]
+        },
+        {
+          "id": "44a2fd4f-5d4c-4d4f-9f0b-6d7a1d2e3f40",
+          "title": "Get Lucky",
+          "duration": 369,
+          "artists": [
+            {
+              "id": "056e4f3e-d505-4dad-8ec1-d04f521cbb56",
+              "name": "Daft Punk"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
