@@ -1,0 +1,1553 @@
+{
+  "description": "Golden cases for DecisionEngine v1 (MATCHING_ENGINE §6.2–6.3). Profiles: 'standard' = seeded 'Standard 320' (id 1), 'lossless' = seeded 'Lossless' (id 2). Durations in ms. 'accepted' lists the accepted candidate ids in the exact expected order; 'rejections' lists, per rejected candidate, the exact set of rejection reasons (camelCase wire names). Optional: 'scoreAtLeast'/'scoreAtMost' bounds on the total, 'goodEnough' expectations. Case options: 'blocklisted' (candidate ids whose blocklist key is blocklisted), 'ignoredUsers', 'reputation' per username, 'manual' (manual grab), song 'currentQualityId' (the existing file's quality). Source tier is 1 (Soulseek) and the duration tolerance is the profile's (3000 ms) for every case.",
+  "cases": [
+    {
+      "name": "clean studio match accepted with full identity",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {},
+        "scoreAtLeast": {
+          "a": 900
+        }
+      }
+    },
+    {
+      "name": "live version hint rejected for a studio song",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "studio",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "live",
+          "provider": "peer1",
+          "remotePath": "@@c\\Music\\Daft Punk\\Alive\\Daft Punk - Get Lucky (Live).mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Alive",
+            "trackNo": null,
+            "flags": [
+              "live"
+            ],
+            "pathFlags": [],
+            "hints": [
+              "(Live)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 370000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14800000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "studio"
+        ],
+        "rejections": {
+          "live": [
+            "versionMismatch"
+          ]
+        }
+      }
+    },
+    {
+      "name": "radio edit rejected by version and by duration",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "edit",
+          "provider": "peer1",
+          "remotePath": "@@d\\Music\\Daft Punk\\Get Lucky - Single\\01 Get Lucky (Radio Edit).m4a",
+          "extension": "m4a",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Get Lucky",
+            "trackNo": 1,
+            "flags": [
+              "radio_edit"
+            ],
+            "pathFlags": [],
+            "hints": [
+              "(Radio Edit)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 248000,
+          "bitrateKbps": 256,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 7900000,
+          "qualityId": 25,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "edit": [
+            "versionMismatch",
+            "durationOutOfTolerance"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a live song wants the live candidate and rejects the studio one",
+      "song": {
+        "title": "Hoppípolla (Live)",
+        "mainArtists": [
+          "Sigur Rós"
+        ],
+        "durationMs": 253000,
+        "flags": [
+          "live"
+        ],
+        "albumTitle": "Inni",
+        "trackNo": 6
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "studio",
+          "provider": "peer1",
+          "remotePath": "@@e\\Music\\Sigur Rós\\Takk…\\03 Hoppípolla.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Sigur Rós",
+            "title": "Hoppípolla",
+            "album": "Takk…",
+            "trackNo": 3,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 253000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 10100000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "live",
+          "provider": "peer1",
+          "remotePath": "@@e\\Music\\Sigur Rós\\Inni (Live)\\06 - Hoppípolla (Live).mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Sigur Rós",
+            "title": "Hoppípolla",
+            "album": "Inni",
+            "trackNo": 6,
+            "flags": [
+              "live"
+            ],
+            "pathFlags": [
+              "live"
+            ],
+            "hints": [
+              "(Live)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 253000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 10100000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "live"
+        ],
+        "rejections": {
+          "studio": [
+            "versionMismatch"
+          ]
+        }
+      }
+    },
+    {
+      "name": "path-only live folder is penalised, not rejected, and ranks below a clean file",
+      "song": {
+        "title": "Hoppípolla",
+        "mainArtists": [
+          "Sigur Rós"
+        ],
+        "durationMs": 268000,
+        "flags": [],
+        "albumTitle": "Takk…",
+        "trackNo": 3
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "folderlive",
+          "provider": "peer1",
+          "remotePath": "@@f\\Artists\\Sigur Ros\\3. Live\\2005. Chicago Theatre\\09 - Hoppipolla.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Sigur Ros",
+            "title": "Hoppipolla",
+            "album": "Chicago Theatre",
+            "trackNo": 9,
+            "flags": [],
+            "pathFlags": [
+              "live"
+            ],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 270000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 10800000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "clean",
+          "provider": "peer1",
+          "remotePath": "@@g\\music\\Sigur Rós\\Takk…\\03 - Hoppípolla.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Sigur Rós",
+            "title": "Hoppípolla",
+            "album": "Takk…",
+            "trackNo": 3,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 268000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 10700000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "clean",
+          "folderlive"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "other artist with the same title rejected",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "cover",
+          "provider": "peer1",
+          "remotePath": "@@h\\Music\\Phrenia\\Covers\\06 Phrenia - Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Phrenia",
+            "title": "Get Lucky",
+            "album": "Covers",
+            "trackNo": 6,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 368000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14700000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "cover": [
+            "artistMismatch"
+          ]
+        }
+      }
+    },
+    {
+      "name": "compilation path without the artist is not an artist mismatch",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "va",
+          "provider": "peer1",
+          "remotePath": "@@i\\Various Artists\\Now 48\\05 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": null,
+            "title": "Get Lucky",
+            "album": "Now 48",
+            "trackNo": 5,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14800000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "va"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "format outside the profile rejected (MP3-128 in Standard 320)",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "low",
+          "provider": "peer1",
+          "remotePath": "@@j\\mp3\\Daft Punk - Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": null,
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 128,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 5900000,
+          "qualityId": 13,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "low": [
+            "formatNotAllowed"
+          ]
+        }
+      }
+    },
+    {
+      "name": "blocklisted, locked and ignored-user candidates rejected",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "blocklisted": [
+        "bad"
+      ],
+      "ignoredUsers": [
+        "troll"
+      ],
+      "candidates": [
+        {
+          "id": "bad",
+          "provider": "peerX",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "locked",
+          "provider": "peerY",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": true
+        },
+        {
+          "id": "ignored",
+          "provider": "troll",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "bad": [
+            "blocklisted"
+          ],
+          "locked": [
+            "locked"
+          ],
+          "ignored": [
+            "ignoredUser"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a user with two recent failures is on cooldown",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "reputation": {
+        "flaky": {
+          "successes": 0,
+          "failures": 2,
+          "failuresLast24h": 2
+        }
+      },
+      "candidates": [
+        {
+          "id": "x",
+          "provider": "flaky",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "x": [
+            "userOnCooldown"
+          ]
+        }
+      }
+    },
+    {
+      "name": "tiny or oversized files fail size sanity",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "tiny",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 400000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "huge",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 60000000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "fakeflac",
+          "provider": "peer1",
+          "remotePath": "@@a\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 9000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "tiny": [
+            "sizeSanity"
+          ],
+          "huge": [
+            "sizeSanity"
+          ],
+          "fakeflac": [
+            "sizeSanity"
+          ]
+        }
+      }
+    },
+    {
+      "name": "non-audio files are rejected",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "lrc",
+          "provider": "peer1",
+          "remotePath": "@@k\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.lrc",
+          "extension": "lrc",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": null,
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": null,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 4794,
+          "qualityId": 1,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "lrc": [
+            "notAudio",
+            "formatNotAllowed",
+            "sizeSanity"
+          ]
+        }
+      }
+    },
+    {
+      "name": "not an upgrade when the song already has MP3-320; a FLAC is",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8,
+        "currentQualityId": 29
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "same",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "flac",
+          "provider": "peer1",
+          "remotePath": "@@a\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 43600000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "flac"
+        ],
+        "rejections": {
+          "same": [
+            "notAnUpgrade"
+          ]
+        }
+      }
+    },
+    {
+      "name": "manual grab bypasses the upgrade rule",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8,
+        "currentQualityId": 29
+      },
+      "profile": "standard",
+      "manual": true,
+      "candidates": [
+        {
+          "id": "same",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "same"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "FLAC and MP3-320 both meet the Standard cutoff; a free fast slot beats a long queue",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "flac_queued",
+          "provider": "peer1",
+          "remotePath": "@@a\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 43600000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": false,
+            "queueLength": 30,
+            "uploadSpeedBytesPerSecond": 200000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "mp3_free",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "mp3_free",
+          "flac_queued"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "Lossless profile: FLAC outranks MP3-320 at equal availability",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "lossless",
+      "candidates": [
+        {
+          "id": "mp3",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "flac",
+          "provider": "peer1",
+          "remotePath": "@@a\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 43600000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "flac",
+          "mp3"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "unknown duration is not rejected but capped below the good-enough line",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "nodur",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": null,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "nodur"
+        ],
+        "rejections": {},
+        "scoreAtMost": {
+          "nodur": 849
+        },
+        "goodEnough": {
+          "nodur": false
+        }
+      }
+    },
+    {
+      "name": "clean free-slot fast match is good enough",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "fast",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "fast"
+        ],
+        "rejections": {},
+        "goodEnough": {
+          "fast": true
+        }
+      }
+    },
+    {
+      "name": "unexplained brackets lose the bracket bonus",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "clean",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "junk",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky [www.example-site.com].mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": true
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "clean",
+          "junk"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "exact ties are broken by size (smaller lossy first)",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "big",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14900000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "small",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14800000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "small",
+          "big"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "remaster hint is soft: accepted for the original song",
+      "song": {
+        "title": "Bohemian Rhapsody",
+        "mainArtists": [
+          "Queen"
+        ],
+        "durationMs": 355106,
+        "flags": [],
+        "albumTitle": "A Night at the Opera",
+        "trackNo": 11
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "rm",
+          "provider": "peer1",
+          "remotePath": "@@m\\Music\\Queen\\A Night at the Opera (2011 Remaster)\\11 Bohemian Rhapsody (Remastered 2011).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Queen",
+            "title": "Bohemian Rhapsody",
+            "album": "A Night at the Opera",
+            "trackNo": 11,
+            "flags": [
+              "remaster"
+            ],
+            "pathFlags": [],
+            "hints": [
+              "(Remastered 2011)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 355000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 40000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "rm"
+        ],
+        "rejections": {}
+      }
+    }
+  ]
+}
