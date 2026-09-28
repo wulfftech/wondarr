@@ -10,7 +10,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 HEADER = re.compile(r"^\s*(//|#)\s*Ported from ([^(]+?) \(", re.MULTILINE)
-ROW = re.compile(r"^\s*(?://|#)\s*Ported from (\w+) \((https://[^)]+)\), ([^,]+), (GPL-3\.0|MIT)", re.MULTILINE)
+ROW = re.compile(r"^\s*(?://|#)\s*Ported from (\w+) \((https://[^)]+)\), ([^,\n]+), (GPL-3\.0|MIT)", re.MULTILINE)
 SOURCES = ("src", "frontend/src")
 SUFFIXES = {".cs", ".ts", ".tsx", ".py", ".sh"}
 
