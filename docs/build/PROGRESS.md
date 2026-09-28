@@ -21,11 +21,32 @@ Updated by the orchestrator after every merged task. Status: `todo` · `in-progr
 | P0-08 | Frontend shell | done | deepseek/deepseek-v4.1-flash | ~0.25 | Two runs; lint/typecheck/15 tests/format/build green. Orchestrator, checked in a real browser under `/compilarr`: the dev fallback script contained the URL-base placeholder literally, the server rewrote it too, and it then reset `<base>` to `/` (assets loaded from the site root — broken behind a path-prefix proxy) → placeholder assembled at runtime + regression test; added a favicon |
 | P0-09a | Soulseek settings, slskd.yml rendering, client, fetch script | done | deepseek/deepseek-v4.1-flash | ~0.15 | Three runs (turn caps). Orchestrator finished: two test assertion fixes; renderer now always writes LF (YamlDotNet used CRLF on Windows, breaking the golden files after checkout); fetch script marked executable |
 | P0-09 | Bundled slskd supervisor (SlskdHost) | done | deepseek/deepseek-v4.1-flash | ~0.15 | Two runs. Orchestrator: health tests updated for the new slskd entry; reviewer agent (FIX-FIRST) → crash path now takes the lifecycle gate and only stops the process it watched (fixed by inspection: the exact window is not deterministically reproducible with fake time — a mutation check confirmed the new test does not pin it), and the options-monitor debounce is now exercised by a test. Real-process behaviour is verified in the image (P0-10) |
-| P0-10 | Dockerfile, s6 init, compose | review | deepseek/deepseek-v4.1-flash | ~0.08 | One run (files only; the worker cannot run Docker). Orchestrator: init now re-owns mismatched files under `/config` so a PUID change covers the DB. Image build + gate smoke test run in CI and on ch01 |
-| P0-11 | CI and release workflows | todo | | | |
+| P0-10 | Dockerfile, s6 init, compose | done | deepseek/deepseek-v4.1-flash | ~0.15 | One run (files only; the worker cannot run Docker). Orchestrator, from the first real builds: Ubuntu 24.04 base ships an `ubuntu` user on uid/gid 1000 (removed); slskd refuses to start when its directories are missing (host now creates them); init re-owns mismatched files under `/config`; EF/HTTP logging quietened. Image 772 MB (amd64, uncompressed) |
+| P0-11 | CI and release workflows | done | orchestrator | — | Workers may not edit `.github/workflows/`. `ci.yml`: backend (+NOTICE check), frontend, image build + `scripts/smoke-test.sh` (the whole Phase 0 gate) + image artifact; `release.yml`: multi-arch `:develop` on main, semver on `v*`; Dependabot (FluentAssertions ≥ 8 ignored) |
 | P0-12 | Contributor docs and NOTICE | done | deepseek/deepseek-v4.1-flash (single-shot) | ~0.01 | First attempt returned pseudo tool calls: the API mode now tells the model it has no tools. Orchestrator corrected CONTRIBUTING (smoke-test usage, no `dev.sh`), CHANGELOG claims that did not match the code, kept the generated NOTICE table and took only the bundled-programs section |
 
 Phase 0 gate (from `PHASES.md`): container starts on port 1077, UI loads behind a URL base, API key works, health shows DB, folders and the bundled slskd process OK (logged out until credentials are entered), a scheduled no-op job survives a restart.
+
+### Phase 0 gate — PASS (2026-09-28)
+
+`scripts/smoke-test.sh` checks every gate item against the built image; it passed in CI (GitHub runner) and on the test host `ch01` with the same image:
+
+```
+ok   container healthy (HEALTHCHECK on /ping)
+ok   /ping at the root and under /compilarr
+ok   API key required and accepted (header, query, bearer); system/status reports Docker and the URL base
+ok   UI, assets, deep links and initialize.json under /compilarr
+ok   health: DatabaseHealthCheck, ConfigFolderHealthCheck, LogFolderHealthCheck, slskd all ok; slskd running, Soulseek not configured
+ok   POST /api/v1/command Heartbeat completed; task last run …
+ok   scheduled job state survives a restart
+ok   files carry PUID:PGID (1234:2345); app runs as compilarr
+ok   ffprobe, fpcalc, deno and slskd run inside the image
+PHASE 0 GATE: PASS
+```
+
+The UI was also checked in a real browser under `/compilarr` (status page, health list, navigation). Tests: 209 backend (xUnit), 15 frontend (Vitest).
+
+**Spend:** Phase 0 worker spend **USD 1.12** of the USD 10 budget (OpenRouter key counter), plus USD 0.35 for the bake-off. Per-task figures in the table apportion the counter across parallel runs.
 
 Environment notes: no local Docker on the dev PC — container checks run on `ch01.ad.wulff.com.au` over SSH (`sudo docker`, container name `compilarr-test`), per the owner. Node upgraded to 24.19.0 LTS for the frontend.
 

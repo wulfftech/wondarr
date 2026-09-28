@@ -29,7 +29,7 @@ Compilarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) â
 - No secrets in the repo or in commit messages; no model names or AI-session identifiers in commit messages.
 - Docs move with code; new decisions get a dated entry in `docs/DECISIONS.md`.
 
-## Commands (once Phase 0 lands; keep this list current)
+## Commands (keep this list current)
 
 ```
 dotnet build -warnaserror && dotnet test          # backend
@@ -37,6 +37,9 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 docker compose -f docker/docker-compose.yml up --build
 python scripts/worker.py run docs/build/tasks/P0-01.md      # delegate a task to a cheap worker
 python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md
+python scripts/worker.py watch                               # follow running workers' live logs
+scripts/smoke-test.sh <image> ["sudo docker"]                # the phase gate against a built image
+python scripts/check-notice.py [--fix]                       # ported-code attribution check (CI)
 ```
 
 ## Conventions
