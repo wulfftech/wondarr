@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Compilarr.Sources.Slskd</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Compilarr.Core\Compilarr.Core.csproj" />
+  </ItemGroup>
+
+</Project>
