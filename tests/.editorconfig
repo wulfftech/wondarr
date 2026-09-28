@@ -1,0 +1,4 @@
+# Test names read as sentences — `Rejects_live_version_when_song_is_studio`
+# (docs/build/CODING_STANDARDS.md § Tests), which CA1707 forbids.
+[*.cs]
+dotnet_diagnostic.CA1707.severity = none
