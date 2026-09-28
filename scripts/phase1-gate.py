@@ -59,8 +59,10 @@ def main() -> int:
 
     api = Api(args.url, args.api_key)
     lines = [line.strip() for line in args.songs.read_text(encoding="utf-8").splitlines() if line.strip()]
-    reference = {entry["line"]: (entry.get("reference") or {}).get("durationMs")
-                 for entry in json.loads(args.reference.read_text(encoding="utf-8"))}
+    entries = json.loads(args.reference.read_text(encoding="utf-8"))
+    reference = {entry["line"]: (entry.get("reference") or {}).get("durationMs") for entry in entries}
+    # A line may widen the tolerance when two masterings of one recording differ (see its "note").
+    tolerance = {entry["line"]: entry.get("toleranceMs", args.tolerance_ms) for entry in entries}
 
     started = time.monotonic()
     queued = api.call("POST", "/api/v1/song/bulk", {"text": "\n".join(lines)})
@@ -102,7 +104,7 @@ def main() -> int:
         if context is None:
             failures.append(f"'{text}': no album assignment")
         duration = song.get("durationMs")
-        duration_ok = duration is not None and (ref is None or abs(duration - ref) <= args.tolerance_ms)
+        duration_ok = duration is not None and (ref is None or abs(duration - ref) <= tolerance.get(text, args.tolerance_ms))
         cover_ok = bool(context and context.get("coverUrl"))
         kind = "MB" if song.get("mbRecordingId") else "Deezer"
         if kind == "MB" and duration_ok and cover_ok:
