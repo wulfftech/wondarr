@@ -1,0 +1,437 @@
+[
+ {
+  "line": "Queen - Bohemian Rhapsody",
+  "reference": {
+   "itunesTrackId": 6781076960,
+   "trackName": "Bohemian Rhapsody",
+   "collection": "Greatest Hits In Japan",
+   "durationMs": 355145
+  }
+ },
+ {
+  "line": "Daft Punk - Get Lucky",
+  "reference": {
+   "itunesTrackId": 617154366,
+   "trackName": "Get Lucky",
+   "collection": "Random Access Memories",
+   "durationMs": 369629
+  }
+ },
+ {
+  "line": "AC/DC - Back in Black",
+  "reference": {
+   "itunesTrackId": 574050602,
+   "trackName": "Back In Black",
+   "collection": "Back In Black",
+   "durationMs": 256000
+  }
+ },
+ {
+  "line": "Nirvana - Smells Like Teen Spirit",
+  "reference": {
+   "itunesTrackId": 1440783625,
+   "trackName": "Smells Like Teen Spirit",
+   "collection": "Nevermind",
+   "durationMs": 301096
+  }
+ },
+ {
+  "line": "The Beatles - Here Comes the Sun",
+  "reference": {
+   "itunesTrackId": 1441164589,
+   "trackName": "Here Comes the Sun",
+   "collection": "Abbey Road (Remastered)",
+   "durationMs": 185733
+  }
+ },
+ {
+  "line": "Michael Jackson - Billie Jean",
+  "reference": {
+   "itunesTrackId": 269573364,
+   "trackName": "Billie Jean",
+   "collection": "Thriller",
+   "durationMs": 293802
+  }
+ },
+ {
+  "line": "Fleetwood Mac - Dreams",
+  "reference": {
+   "itunesTrackId": 202272624,
+   "trackName": "Dreams",
+   "collection": "Greatest Hits",
+   "durationMs": 254453
+  }
+ },
+ {
+  "line": "Radiohead - Karma Police",
+  "reference": {
+   "itunesTrackId": 1097861836,
+   "trackName": "Karma Police",
+   "collection": "OK Computer",
+   "durationMs": 264067
+  }
+ },
+ {
+  "line": "Beyoncé - Crazy in Love",
+  "reference": {
+   "itunesTrackId": 201274644,
+   "trackName": "Crazy in Love (feat. JAŸ-Z)",
+   "collection": "Dangerously in Love",
+   "durationMs": 236133
+  }
+ },
+ {
+  "line": "Björk - Army of Me",
+  "reference": {
+   "itunesTrackId": 300205685,
+   "trackName": "Army of Me",
+   "collection": "Post",
+   "durationMs": 234333
+  }
+ },
+ {
+  "line": "Sigur Rós - Hoppípolla",
+  "reference": {
+   "itunesTrackId": 1447486980,
+   "trackName": "Hoppípolla",
+   "collection": "Takk...",
+   "durationMs": 268707
+  }
+ },
+ {
+  "line": "Kendrick Lamar - HUMBLE.",
+  "reference": {
+   "itunesTrackId": 1440882165,
+   "trackName": "HUMBLE.",
+   "collection": "DAMN.",
+   "durationMs": 177000
+  }
+ },
+ {
+  "line": "Billie Eilish - bad guy",
+  "reference": {
+   "itunesTrackId": 1450695739,
+   "trackName": "bad guy",
+   "collection": "WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?",
+   "durationMs": 194088
+  }
+ },
+ {
+  "line": "Taylor Swift - Shake It Off",
+  "reference": {
+   "itunesTrackId": 1440936016,
+   "trackName": "Shake It Off",
+   "collection": "1989",
+   "durationMs": 219209
+  }
+ },
+ {
+  "line": "The Weeknd - Blinding Lights",
+  "reference": {
+   "itunesTrackId": 1499378607,
+   "trackName": "Blinding Lights",
+   "collection": "After Hours",
+   "durationMs": 200046
+  }
+ },
+ {
+  "line": "Adele - Rolling in the Deep",
+  "reference": {
+   "itunesTrackId": 1544491233,
+   "trackName": "Rolling in the Deep",
+   "collection": "21",
+   "durationMs": 228093
+  }
+ },
+ {
+  "line": "Outkast - Hey Ya!",
+  "reference": {
+   "itunesTrackId": 1774799818,
+   "trackName": "Hey Ya!",
+   "collection": "Speakerboxxx/The Love Below",
+   "durationMs": 235213
+  }
+ },
+ {
+  "line": "Amy Winehouse - Rehab",
+  "reference": {
+   "itunesTrackId": 1422677781,
+   "trackName": "Rehab",
+   "collection": "Back To Black",
+   "durationMs": 214747
+  }
+ },
+ {
+  "line": "Arctic Monkeys - Do I Wanna Know?",
+  "reference": {
+   "itunesTrackId": 663097965,
+   "trackName": "Do I Wanna Know?",
+   "collection": "AM",
+   "durationMs": 272394
+  }
+ },
+ {
+  "line": "Tame Impala - The Less I Know the Better",
+  "reference": null
+ },
+ {
+  "line": "Kate Bush - Running Up That Hill (A Deal with God)",
+  "reference": {
+   "itunesTrackId": 1675375090,
+   "trackName": "Running Up That Hill (A Deal With God)",
+   "collection": "Hounds of Love",
+   "durationMs": 298933
+  }
+ },
+ {
+  "line": "David Bowie - Heroes",
+  "reference": {
+   "itunesTrackId": 1347894092,
+   "trackName": "\"Heroes\" (2017 Remaster)",
+   "collection": "\"Heroes\" (2017 Remaster)",
+   "durationMs": 371417
+  }
+ },
+ {
+  "line": "Prince - Purple Rain",
+  "reference": {
+   "itunesTrackId": 1746833484,
+   "trackName": "Purple Rain",
+   "collection": "Purple Rain",
+   "durationMs": 521867
+  }
+ },
+ {
+  "line": "Whitney Houston - I Wanna Dance with Somebody (Who Loves Me)",
+  "reference": {
+   "itunesTrackId": 840431935,
+   "trackName": "I Wanna Dance with Somebody (Who Loves Me)",
+   "collection": "Whitney",
+   "durationMs": 292875
+  }
+ },
+ {
+  "line": "Oasis - Wonderwall",
+  "reference": {
+   "itunesTrackId": 1517447333,
+   "trackName": "Wonderwall",
+   "collection": "(What's the Story) Morning Glory?",
+   "durationMs": 258907
+  }
+ },
+ {
+  "line": "Blur - Song 2",
+  "reference": {
+   "itunesTrackId": 726416473,
+   "trackName": "Song 2 (2012 Remaster)",
+   "collection": "Blur",
+   "durationMs": 121160
+  }
+ },
+ {
+  "line": "Massive Attack - Teardrop",
+  "reference": {
+   "itunesTrackId": 724466700,
+   "trackName": "Teardrop",
+   "collection": "Mezzanine",
+   "durationMs": 330773
+  }
+ },
+ {
+  "line": "Portishead - Glory Box",
+  "reference": {
+   "itunesTrackId": 1440653206,
+   "trackName": "Glory Box",
+   "collection": "Dummy",
+   "durationMs": 308627
+  }
+ },
+ {
+  "line": "Gorillaz - Feel Good Inc.",
+  "reference": {
+   "itunesTrackId": 850571371,
+   "trackName": "Feel Good Inc. (feat. David Jolicoeur, Kelvin Mercer & Vincent Mason)",
+   "collection": "Demon Days",
+   "durationMs": 221173
+  }
+ },
+ {
+  "line": "Coldplay - Yellow",
+  "reference": {
+   "itunesTrackId": 1122782283,
+   "trackName": "Yellow",
+   "collection": "Parachutes",
+   "durationMs": 269208
+  }
+ },
+ {
+  "line": "Eminem - Lose Yourself",
+  "reference": {
+   "itunesTrackId": 1440903439,
+   "trackName": "Lose Yourself",
+   "collection": "8 Mile (Music from and Inspired By the Motion Picture)",
+   "durationMs": 321960
+  }
+ },
+ {
+  "line": "Dr. Dre - Still D.R.E.",
+  "reference": {
+   "itunesTrackId": 1444156738,
+   "trackName": "Still D.R.E. (feat. Snoop Dogg)",
+   "collection": "2001",
+   "durationMs": 270560
+  }
+ },
+ {
+  "line": "Lana Del Rey - Video Games",
+  "reference": {
+   "itunesTrackId": 1779781782,
+   "trackName": "Video Games",
+   "collection": "Born To Die",
+   "durationMs": 281947
+  }
+ },
+ {
+  "line": "Lorde - Royals",
+  "reference": {
+   "itunesTrackId": 1594982922,
+   "trackName": "Royals",
+   "collection": "The Love Club EP",
+   "durationMs": 190185
+  }
+ },
+ {
+  "line": "Robyn - Dancing On My Own",
+  "reference": {
+   "itunesTrackId": 1442949238,
+   "trackName": "Dancing On My Own",
+   "collection": "Body Talk, Pt. 1",
+   "durationMs": 285973
+  }
+ },
+ {
+  "line": "LCD Soundsystem - All My Friends",
+  "reference": {
+   "itunesTrackId": 742434954,
+   "trackName": "All My Friends",
+   "collection": "Sound of Silver",
+   "durationMs": 462267
+  }
+ },
+ {
+  "line": "The Strokes - Last Nite",
+  "reference": {
+   "itunesTrackId": 266377010,
+   "trackName": "Last Nite",
+   "collection": "Is This It",
+   "durationMs": 193373
+  }
+ },
+ {
+  "line": "Justice - D.A.N.C.E.",
+  "reference": {
+   "itunesTrackId": 259751997,
+   "trackName": "D.A.N.C.E",
+   "collection": "Justice",
+   "durationMs": 242267
+  }
+ },
+ {
+  "line": "M83 - Midnight City",
+  "reference": {
+   "itunesTrackId": 828259377,
+   "trackName": "Midnight City",
+   "collection": "Hurry Up, We're Dreaming",
+   "durationMs": 241440
+  }
+ },
+ {
+  "line": "Rosalía - Malamente",
+  "reference": {
+   "itunesTrackId": 1386337708,
+   "trackName": "MALAMENTE (Cap.1: Augurio)",
+   "collection": "MALAMENTE (Cap.1: Augurio) - Single",
+   "durationMs": 149450
+  }
+ },
+ {
+  "line": "Stromae - Alors on danse",
+  "reference": {
+   "itunesTrackId": 1444872841,
+   "trackName": "Alors on danse",
+   "collection": "Alors on danse - Single",
+   "durationMs": 207973
+  }
+ },
+ {
+  "line": "Bad Bunny - Tití Me Preguntó",
+  "reference": null
+ },
+ {
+  "line": "Fela Kuti - Water No Get Enemy",
+  "reference": {
+   "itunesTrackId": 739004068,
+   "trackName": "Water No Get Enemy",
+   "collection": "Expensive Shit",
+   "durationMs": 660480
+  }
+ },
+ {
+  "line": "Buena Vista Social Club - Chan Chan",
+  "reference": {
+   "itunesTrackId": 1716598344,
+   "trackName": "Chan Chan",
+   "collection": "Buena Vista Social Club",
+   "durationMs": 258693
+  }
+ },
+ {
+  "line": "Nina Simone - Feeling Good",
+  "reference": {
+   "itunesTrackId": 1445668114,
+   "trackName": "Feeling Good",
+   "collection": "I Put a Spell On You",
+   "durationMs": 177655
+  }
+ },
+ {
+  "line": "Miles Davis - So What",
+  "reference": {
+   "itunesTrackId": 268443097,
+   "trackName": "So What",
+   "collection": "Kind of Blue",
+   "durationMs": 547983
+  }
+ },
+ {
+  "line": "Johnny Cash - Hurt",
+  "reference": {
+   "itunesTrackId": 1452875626,
+   "trackName": "Hurt",
+   "collection": "Unearthed (Box Set)",
+   "durationMs": 216533
+  }
+ },
+ {
+  "line": "Dolly Parton - Jolene",
+  "reference": {
+   "itunesTrackId": 1062400330,
+   "trackName": "Jolene",
+   "collection": "Jolene",
+   "durationMs": 163275
+  }
+ },
+ {
+  "line": "Bob Marley & The Wailers - Redemption Song",
+  "reference": {
+   "itunesTrackId": 1469576035,
+   "trackName": "Redemption Song",
+   "collection": "Legend – The Best Of Bob Marley & The Wailers",
+   "durationMs": 227385
+  }
+ },
+ {
+  "line": "P!nk - So What",
+  "reference": null
+ }
+]

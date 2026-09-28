@@ -1369,6 +1369,57 @@ namespace Compilarr.Core.Persistence.Migrations
                     b.ToTable("command", (string)null);
                 });
 
+            modelBuilder.Entity("Compilarr.Core.Metadata.MetadataCacheEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTime>("FetchedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("fetched_at");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("provider");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_metadata_cache");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_metadata_cache_expires_at");
+
+                    b.HasIndex("Provider", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_metadata_cache_provider_key");
+
+                    b.ToTable("metadata_cache", (string)null);
+                });
+
             modelBuilder.Entity("Compilarr.Core.Persistence.Job", b =>
                 {
                     b.Property<long>("Id")
