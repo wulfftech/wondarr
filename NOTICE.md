@@ -24,11 +24,12 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Common/Instrumentation/CleanseLogMessage.cs` | `src/Compilarr.Core/Logging/CleanseLogMessage.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/Health/HealthController.cs` | `src/Compilarr.Api/Health/HealthController.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/Health/HealthResource.cs` | `src/Compilarr.Api/Health/HealthResource.cs` |
-| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/SystemController.cs` | `src/Compilarr.Api/System/SystemController.cs` |
-| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/SystemResource.cs` | `src/Compilarr.Api/System/SystemResource.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/HealthCheck/HealthCheck.cs` | `src/Compilarr.Core/HealthCheck/HealthCheck.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/HealthCheck/HealthCheckService.cs` | `src/Compilarr.Core/HealthCheck/HealthCheckService.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/HealthCheck/IProvideHealthCheck.cs` | `src/Compilarr.Core/HealthCheck/IHealthCheck.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Http/Frontend/Mappers/UrlBaseReplacementResourceMapperBase.cs` | `src/Compilarr.Api/Frontend/IndexHtmlProvider.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/SystemController.cs` | `src/Compilarr.Api/SystemInfo/SystemController.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/SystemResource.cs` | `src/Compilarr.Api/SystemInfo/SystemResource.cs` |
 
 Planned sources (see ADR-0002): Lidarr, Prowlarr, Sonarr (GPL-3.0); SoulSync, spotDL (MIT). Sockseek and slskd are AGPL-3.0 and are **not** copied.
 

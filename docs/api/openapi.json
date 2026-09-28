@@ -5,6 +5,25 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/system/status": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ping": {
       "get": {
         "tags": [
@@ -22,6 +41,30 @@
       "head": {
         "tags": [
           "Ping"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -193,6 +236,147 @@
           }
         }
       },
+      "AuthenticationMethod": {
+        "type": "integer"
+      },
+      "SystemResource": {
+        "required": [
+          "appName",
+          "instanceName",
+          "version",
+          "buildTime",
+          "isDebug",
+          "isProduction",
+          "isAdmin",
+          "isUserInteractive",
+          "startupPath",
+          "appData",
+          "osName",
+          "osVersion",
+          "isNetCore",
+          "isLinux",
+          "isOsx",
+          "isWindows",
+          "isDocker",
+          "isContainerized",
+          "mode",
+          "branch",
+          "authentication",
+          "databaseType",
+          "databaseVersion",
+          "migrationVersion",
+          "urlBase",
+          "runtimeVersion",
+          "runtimeName",
+          "startTime",
+          "packageVersion",
+          "packageAuthor",
+          "packageUpdateMechanism"
+        ],
+        "type": "object",
+        "properties": {
+          "appName": {
+            "type": "string"
+          },
+          "instanceName": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "buildTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "isDebug": {
+            "type": "boolean"
+          },
+          "isProduction": {
+            "type": "boolean"
+          },
+          "isAdmin": {
+            "type": "boolean"
+          },
+          "isUserInteractive": {
+            "type": "boolean"
+          },
+          "startupPath": {
+            "type": "string"
+          },
+          "appData": {
+            "type": "string"
+          },
+          "osName": {
+            "type": "string"
+          },
+          "osVersion": {
+            "type": "string"
+          },
+          "isNetCore": {
+            "type": "boolean"
+          },
+          "isLinux": {
+            "type": "boolean"
+          },
+          "isOsx": {
+            "type": "boolean"
+          },
+          "isWindows": {
+            "type": "boolean"
+          },
+          "isDocker": {
+            "type": "boolean"
+          },
+          "isContainerized": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "authentication": {
+            "$ref": "#/components/schemas/AuthenticationMethod"
+          },
+          "databaseType": {
+            "type": "string"
+          },
+          "databaseVersion": {
+            "type": "string"
+          },
+          "migrationVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "urlBase": {
+            "type": "string"
+          },
+          "runtimeVersion": {
+            "type": "string"
+          },
+          "runtimeName": {
+            "type": "string"
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "packageVersion": {
+            "type": "string"
+          },
+          "packageAuthor": {
+            "type": "string"
+          },
+          "packageUpdateMechanism": {
+            "type": "string"
+          }
+        }
+      },
       "UpdateAuthUserResource": {
         "required": [
           "username",
@@ -218,7 +402,13 @@
   },
   "tags": [
     {
+      "name": "System"
+    },
+    {
       "name": "Ping"
+    },
+    {
+      "name": "Health"
     },
     {
       "name": "Authentication"

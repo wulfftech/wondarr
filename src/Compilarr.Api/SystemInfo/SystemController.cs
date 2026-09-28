@@ -11,7 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
-namespace Compilarr.Api.System;
+namespace Compilarr.Api.SystemInfo;
 
 /// <summary>The endpoint dashboards and *arr clients probe for the app's identity and version.</summary>
 [ApiController]

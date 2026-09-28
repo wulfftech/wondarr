@@ -4,7 +4,7 @@
 
 using Compilarr.Core.Configuration;
 
-namespace Compilarr.Api.System;
+namespace Compilarr.Api.SystemInfo;
 
 /// <summary>
 /// The app-info payload dashboards and *arr clients read to identify the instance. Property names

@@ -16,6 +16,7 @@ Updated by the orchestrator after every merged task. Status: `todo` · `in-progr
 | P0-05 | Logging with redaction | done | deepseek/deepseek-v4.1-flash | ~0.21 | Two runs, both hit the turn cap mid-debug. Orchestrator finished it: `preserveStaticLogger` + host-owned request logger (parallel test hosts were sharing `Log.Logger`), shared-read of the open log file, one wrong golden fixture, removed a leftover probe test. Known gap for Phase 2: a secret containing JSON-escaped characters would not be matched verbatim |
 | P0-06 | Command queue, scheduler, job table | todo | | | |
 | P0-07 | SignalR events hub | todo | | | |
+| P0-08a | SPA hosting behind the URL base + OpenAPI snapshot | done | deepseek/deepseek-v4.1-flash | ~0.12 | Three runs (turn caps). Orchestrator, verified on the running app: the catch-all SPA fallback also claimed asset paths (`/compilarr/assets/app.js` returned index.html) → `{*path:nonfile}`; renamed namespace `Compilarr.Api.System` → `SystemInfo` (it shadowed `System.*`); snapshot regenerated after merge |
 | P0-08 | Frontend shell | todo | | | |
 | P0-09 | Bundled slskd supervisor (SlskdHost) | todo | | | |
 | P0-10 | Dockerfile, s6 init, compose | todo | | | |
