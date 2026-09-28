@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Compilarr.Core.Metadata;
@@ -67,6 +68,19 @@ public sealed partial class IdentityResolver : IIdentityResolver
 
     /// <summary>How many MusicBrainz search results a lookup asks for.</summary>
     private const int SearchLimit = 25;
+
+    /// <summary>How many hits the title-only Deezer retry asks for.</summary>
+    private const int RetrySearchLimit = 50;
+
+    /// <summary>
+    /// How far a candidate's length may differ from a known reference length and still be acceptable.
+    /// It is deliberately looser than <see cref="DurationCutoffMs"/>: a live or remastered pressing
+    /// differs by seconds without being another song.
+    /// </summary>
+    private const int DurationAcceptanceMs = 10000;
+
+    /// <summary>How many candidate identities a resolve reads while looking for an official release.</summary>
+    private const int IdentityAttempts = 3;
 
     /// <summary>The lowest total score a candidate may have and still be accepted.</summary>
     private const double AcceptScore = 70;
@@ -225,12 +239,23 @@ public sealed partial class IdentityResolver : IIdentityResolver
         var chosen = ChooseByIsrc(recordings);
         if (chosen is not null)
         {
-            var identity = await GetIdentityAsync(chosen.Id, null, cancellationToken).ConfigureAwait(false);
-            if (identity is not null)
+            // A bare ISRC has no query to score against, so the recordings keep their own order: the one
+            // ChooseByIsrc picked first, then the rest.
+            var ranked = new List<MbRecording>(recordings.Count) { chosen };
+            foreach (var recording in recordings)
             {
-                LogIsrcToRecording(_logger, input.Isrc!, identity.MbRecordingId!);
+                if (!string.Equals(recording.Id, chosen.Id, StringComparison.Ordinal))
+                {
+                    ranked.Add(recording);
+                }
+            }
 
-                return new ResolveResult { Status = ResolveStatus.Resolved, Identity = identity };
+            var pick = await IdentityWithReleasesAsync(ranked, null, cancellationToken).ConfigureAwait(false);
+            if (pick is not null)
+            {
+                LogIsrcToRecording(_logger, input.Isrc!, pick.Identity.MbRecordingId!);
+
+                return new ResolveResult { Status = ResolveStatus.Resolved, Identity = pick.Identity };
             }
         }
 
@@ -256,17 +281,17 @@ public sealed partial class IdentityResolver : IIdentityResolver
         }
 
         var query = QueryFromDeezerTrack(track);
-        var recording = await BridgeToMusicBrainzAsync(query, track, track.Duration * 1000, cancellationToken)
+        var bridged = await BridgeToMusicBrainzAsync(query, track, track.Duration * 1000, cancellationToken)
             .ConfigureAwait(false);
 
-        if (recording is not null)
+        if (bridged.Count > 0)
         {
-            var identity = await GetIdentityAsync(recording.Id, track.Id, cancellationToken).ConfigureAwait(false);
-            if (identity is not null)
+            var pick = await IdentityWithReleasesAsync(bridged, track.Id, cancellationToken).ConfigureAwait(false);
+            if (pick is not null)
             {
-                LogDeezerToRecording(_logger, track.Id, identity.MbRecordingId!);
+                LogDeezerToRecording(_logger, track.Id, pick.Identity.MbRecordingId!);
 
-                return new ResolveResult { Status = ResolveStatus.Resolved, Identity = identity };
+                return new ResolveResult { Status = ResolveStatus.Resolved, Identity = pick.Identity };
             }
         }
 
@@ -278,14 +303,16 @@ public sealed partial class IdentityResolver : IIdentityResolver
     {
         var outcome = await RunTextPipelineAsync(input, cancellationToken).ConfigureAwait(false);
 
-        if (outcome.Best is not null)
+        if (outcome.Ranked.Count > 0)
         {
-            var identity = await GetIdentityAsync(outcome.Best.Recording.Id, null, cancellationToken).ConfigureAwait(false);
-            if (identity is not null)
-            {
-                LogScored(_logger, input.Raw, identity.MbRecordingId!, outcome.Best.Score.Total);
+            var pick = await IdentityWithReleasesAsync(RecordingsOf(outcome.Ranked), null, cancellationToken)
+                .ConfigureAwait(false);
 
-                return new ResolveResult { Status = ResolveStatus.Resolved, Identity = identity };
+            if (pick is not null)
+            {
+                LogScored(_logger, input.Raw, pick.Identity.MbRecordingId!, outcome.Ranked[pick.Rank].Score.Total);
+
+                return new ResolveResult { Status = ResolveStatus.Resolved, Identity = pick.Identity };
             }
         }
 
@@ -313,6 +340,21 @@ public sealed partial class IdentityResolver : IIdentityResolver
         var query = QueryFromInput(input);
         var reference = query is null ? FindFreeTextReference(hits, input) : FindReference(hits, query);
 
+        // Deezer's forgiving search still misses the album version when the artist name drags in other
+        // artists (Calum Scott covers, say), so an artist-title lookup gets one retry on the title alone.
+        if (reference is null && query is not null && input.Kind == LookupKind.ArtistTitle)
+        {
+            var retried = (await _deezer
+                .SearchTracksAsync(query.Title, RetrySearchLimit, cancellationToken)
+                .ConfigureAwait(false)).Data;
+
+            if (retried.Count > 0)
+            {
+                reference = FindReference(retried, query);
+                hits = MergeHits(hits, retried);
+            }
+        }
+
         // For free text the reference hit supplies the artist and the title everything else is scored against.
         query ??= reference is null
             ? null
@@ -332,8 +374,8 @@ public sealed partial class IdentityResolver : IIdentityResolver
                 .GetRecordingsByIsrcAsync(reference!.Isrc!, cancellationToken)
                 .ConfigureAwait(false);
 
-            var bridged = BestAcceptable(viaIsrc, query, referenceDurationMs, viaIsrc: true);
-            if (bridged is not null)
+            var bridged = RankAcceptable(viaIsrc, query, referenceDurationMs, viaIsrc: true);
+            if (bridged.Count > 0)
             {
                 // The bridge answered: the caller stops here, so a typical line costs two MusicBrainz requests.
                 return new TextOutcome(query, reference, referenceDurationMs, hits, viaIsrc, [], bridged);
@@ -343,21 +385,80 @@ public sealed partial class IdentityResolver : IIdentityResolver
         IReadOnlyList<MbRecording> searched = [];
         if (query is not null)
         {
-            searched = (await _musicBrainz
-                .SearchRecordingsAsync(
-                    MusicBrainzQuery.RecordingByArtistAndTitle(query.Artist, query.Title),
-                    SearchLimit,
-                    cancellationToken)
-                .ConfigureAwait(false)).Recordings;
+            searched = await SearchRecordingsAsync(query, referenceDurationMs, cancellationToken).ConfigureAwait(false);
 
-            var best = BestAcceptable(searched, query, referenceDurationMs, viaIsrc: false);
-            if (best is not null)
+            var ranked = RankAcceptable(searched, query, referenceDurationMs, viaIsrc: false);
+            if (ranked.Count > 0)
             {
-                return new TextOutcome(query, reference, referenceDurationMs, hits, viaIsrc, searched, best);
+                return new TextOutcome(query, reference, referenceDurationMs, hits, viaIsrc, searched, ranked);
             }
         }
 
-        return new TextOutcome(query, reference, referenceDurationMs, hits, viaIsrc, searched, null);
+        return new TextOutcome(query, reference, referenceDurationMs, hits, viaIsrc, searched, []);
+    }
+
+    /// <summary>
+    /// The MusicBrainz recording search. With a known reference length the duration-bounded query runs
+    /// first, and the unbounded one only when the bounded one found no acceptable recording; when both
+    /// run their results are merged, so the caller's candidates keep everything either search saw.
+    /// </summary>
+    private async Task<IReadOnlyList<MbRecording>> SearchRecordingsAsync(
+        TextQuery query,
+        int? referenceDurationMs,
+        CancellationToken cancellationToken)
+    {
+        var unbounded = MusicBrainzQuery.RecordingByArtistAndTitle(query.Artist, query.Title);
+
+        if (referenceDurationMs is null)
+        {
+            return await RunSearchAsync(unbounded, cancellationToken).ConfigureAwait(false);
+        }
+
+        var bounded = await RunSearchAsync(BoundedQuery(unbounded, referenceDurationMs.Value), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (RankAcceptable(bounded, query, referenceDurationMs, viaIsrc: false).Count > 0)
+        {
+            return bounded;
+        }
+
+        var all = await RunSearchAsync(unbounded, cancellationToken).ConfigureAwait(false);
+
+        return [.. bounded, .. all];
+    }
+
+    /// <summary>One MusicBrainz recording search.</summary>
+    private async Task<IReadOnlyList<MbRecording>> RunSearchAsync(string luceneQuery, CancellationToken cancellationToken) =>
+        (await _musicBrainz
+            .SearchRecordingsAsync(luceneQuery, SearchLimit, cancellationToken)
+            .ConfigureAwait(false)).Recordings;
+
+    /// <summary>The Lucene query restricted to recordings within ten seconds of a reference length.</summary>
+    private static string BoundedQuery(string luceneQuery, int referenceDurationMs)
+    {
+        var low = (referenceDurationMs - DurationAcceptanceMs).ToString(CultureInfo.InvariantCulture);
+        var high = (referenceDurationMs + DurationAcceptanceMs).ToString(CultureInfo.InvariantCulture);
+
+        return $"{luceneQuery} AND dur:[{low} TO {high}]";
+    }
+
+    /// <summary>The two Deezer search pages as one list, keeping the first search's order and no id twice.</summary>
+    private static List<DeezerTrack> MergeHits(
+        IReadOnlyList<DeezerTrack> first,
+        IReadOnlyList<DeezerTrack> second)
+    {
+        var seen = new HashSet<long>();
+        var merged = new List<DeezerTrack>(first.Count + second.Count);
+
+        foreach (var hit in first.Concat(second))
+        {
+            if (seen.Add(hit.Id))
+            {
+                merged.Add(hit);
+            }
+        }
+
+        return merged;
     }
 
     /// <summary>Reads the query's artist, title and flags out of an artist-title lookup.</summary>
@@ -403,37 +504,34 @@ public sealed partial class IdentityResolver : IIdentityResolver
         return null;
     }
 
-    /// <summary>Scores the MusicBrainz recordings and returns the best acceptable one.</summary>
-    private static ScoredRecording? BestAcceptable(
+    /// <summary>
+    /// Scores the MusicBrainz recordings and returns every acceptable one, best first: the highest
+    /// score, and the earliest first release where two scores tie.
+    /// </summary>
+    private static IReadOnlyList<ScoredRecording> RankAcceptable(
         IReadOnlyList<MbRecording> recordings,
         TextQuery query,
         int? referenceDurationMs,
         bool viaIsrc)
     {
-        ScoredRecording? best = null;
-        var bestDate = string.Empty;
+        var acceptable = new List<ScoredRecording>(recordings.Count);
 
         foreach (var recording in recordings)
         {
             var score = ScoreRecording(query, recording, referenceDurationMs, viaIsrc);
 
-            if (!IsAcceptable(score, requireFlags: true))
+            if (IsAcceptable(score, requireFlags: true))
             {
-                continue;
-            }
-
-            var date = recording.FirstReleaseDate ?? string.Empty;
-
-            if (best is null
-                || score.Total > best.Score.Total
-                || (score.Total == best.Score.Total && string.CompareOrdinal(date, bestDate) < 0))
-            {
-                best = new ScoredRecording(recording, score);
-                bestDate = date;
+                acceptable.Add(new ScoredRecording(recording, score));
             }
         }
 
-        return best;
+        return
+        [
+            .. acceptable
+                .OrderByDescending(scored => scored.Score.Total)
+                .ThenBy(scored => scored.Recording.FirstReleaseDate ?? string.Empty, StringComparer.Ordinal),
+        ];
     }
 
     /// <summary>The Deezer-only branch: one more identity read, no more searching.</summary>
@@ -444,8 +542,8 @@ public sealed partial class IdentityResolver : IIdentityResolver
         return new ResolveResult { Status = ResolveStatus.ResolvedDeezerOnly, Identity = identity };
     }
 
-    /// <summary>Bridges a Deezer track to MusicBrainz through its ISRC.</summary>
-    private async Task<MbRecording?> BridgeToMusicBrainzAsync(
+    /// <summary>Bridges a Deezer track to MusicBrainz through its ISRC: every acceptable recording, best first.</summary>
+    private async Task<IReadOnlyList<MbRecording>> BridgeToMusicBrainzAsync(
         TextQuery query,
         DeezerTrack track,
         int? referenceDurationMs,
@@ -453,15 +551,53 @@ public sealed partial class IdentityResolver : IIdentityResolver
     {
         if (string.IsNullOrWhiteSpace(track.Isrc))
         {
-            return null;
+            return [];
         }
 
         var recordings = await _musicBrainz
             .GetRecordingsByIsrcAsync(track.Isrc!, cancellationToken)
             .ConfigureAwait(false);
 
-        return BestAcceptable(recordings, query, referenceDurationMs, viaIsrc: false)?.Recording;
+        return RecordingsOf(RankAcceptable(recordings, query, referenceDurationMs, viaIsrc: false));
     }
+
+    /// <summary>
+    /// Reads the identity of the best candidate that has an official release to file the song under. A
+    /// recording whose only releases are bootlegs or promos answers with none, so the next acceptable
+    /// candidate is tried — at most <see cref="IdentityAttempts"/> identity reads — and when none of them
+    /// has an official release the first winner is kept rather than nothing at all.
+    /// </summary>
+    private async Task<IdentityPick?> IdentityWithReleasesAsync(
+        IReadOnlyList<MbRecording> ranked,
+        long? deezerTrackId,
+        CancellationToken cancellationToken)
+    {
+        IdentityPick? first = null;
+        var attempts = Math.Min(ranked.Count, IdentityAttempts);
+
+        for (var rank = 0; rank < attempts; rank++)
+        {
+            var identity = await GetIdentityAsync(ranked[rank].Id, deezerTrackId, cancellationToken).ConfigureAwait(false);
+
+            if (identity is null)
+            {
+                continue;
+            }
+
+            if (identity.ReleaseOptions.Count > 0)
+            {
+                return new IdentityPick(identity, rank);
+            }
+
+            first ??= new IdentityPick(identity, rank);
+        }
+
+        return first;
+    }
+
+    /// <summary>The recordings of a ranked candidate list, in the same order.</summary>
+    private static IReadOnlyList<MbRecording> RecordingsOf(IReadOnlyList<ScoredRecording> ranked) =>
+        [.. ranked.Select(scored => scored.Recording)];
 
     /// <summary>Builds a MusicBrainz identity from a recording and the releases it appears on.</summary>
     private static SongIdentity BuildMusicBrainzIdentity(
@@ -913,8 +1049,24 @@ public sealed partial class IdentityResolver : IIdentityResolver
             + (viaIsrc ? IsrcBridgeBonus : 0)
             - (isVideo ? VideoPenalty : 0);
 
-        return new Score(Math.Clamp(total, 0, 100), title, artist, flagsEqual, candidateFlags);
+        return new Score(
+            Math.Clamp(total, 0, 100),
+            title,
+            artist,
+            flagsEqual,
+            ReferenceDurationOk(referenceDurationMs, candidateLengthMs),
+            candidateFlags);
     }
+
+    /// <summary>
+    /// Whether a candidate's length lets it be accepted. Always, unless a reference length is known and
+    /// the candidate's own length differs from it by more than <see cref="DurationAcceptanceMs"/>. A
+    /// candidate MusicBrainz gives no length for is judged on the other rules alone.
+    /// </summary>
+    private static bool ReferenceDurationOk(int? referenceDurationMs, int? candidateLengthMs) =>
+        referenceDurationMs is null
+        || candidateLengthMs is null
+        || Math.Abs(referenceDurationMs.Value - candidateLengthMs.Value) <= DurationAcceptanceMs;
 
     /// <summary>The best artist similarity over the credit string and every credited artist.</summary>
     private static double ArtistSimilarity(string queryArtist, string credit, IReadOnlyList<string> names)
@@ -957,7 +1109,11 @@ public sealed partial class IdentityResolver : IIdentityResolver
 
     /// <summary>Whether a score clears every bar a candidate must clear to be accepted.</summary>
     private static bool IsAcceptable(Score score, bool requireFlags) =>
-        score.Total >= AcceptScore && score.Title >= AcceptTitle && score.Artist >= AcceptArtist && (!requireFlags || score.FlagsEqual);
+        score.Total >= AcceptScore
+        && score.Title >= AcceptTitle
+        && score.Artist >= AcceptArtist
+        && score.DurationAcceptable
+        && (!requireFlags || score.FlagsEqual);
 
     /// <summary>The version hints of a title, and of the disambiguation MusicBrainz adds to it.</summary>
     private static VersionFlags FlagsOf(string title, string? disambiguation) =>
@@ -1024,7 +1180,7 @@ public sealed partial class IdentityResolver : IIdentityResolver
     private sealed record TextQuery(string Artist, string Title, VersionFlags Flags);
 
     /// <summary>One candidate's score, and the parts that decided it.</summary>
-    private sealed record Score(double Total, double Title, double Artist, bool FlagsEqual, VersionFlags Flags);
+    private sealed record Score(double Total, double Title, double Artist, bool FlagsEqual, bool DurationAcceptable, VersionFlags Flags);
 
     /// <summary>What the text pipeline found, before anything is turned into an identity.</summary>
     private sealed record TextOutcome(
@@ -1034,10 +1190,13 @@ public sealed partial class IdentityResolver : IIdentityResolver
         IReadOnlyList<DeezerTrack> Hits,
         IReadOnlyList<MbRecording> ViaIsrc,
         IReadOnlyList<MbRecording> Searched,
-        ScoredRecording? Best);
+        IReadOnlyList<ScoredRecording> Ranked);
 
     /// <summary>A recording that cleared every bar, with the score that got it there.</summary>
     private sealed record ScoredRecording(MbRecording Recording, Score Score);
+
+    /// <summary>The identity a resolve settled on, and the rank of the candidate behind it.</summary>
+    private sealed record IdentityPick(SongIdentity Identity, int Rank);
 
     // Debug on purpose: a bulk add resolves hundreds of lines, and per-line Information would flood the log.
     [LoggerMessage(Level = LogLevel.Debug, Message = "Resolving a {Kind} lookup for {Input}")]
