@@ -1,0 +1,14 @@
+{
+  "local": [
+    {
+      "id": "3A01BE17246D588CAF9A649F8A04E3E5D629DB94",
+      "alias": "music",
+      "isExcluded": false,
+      "localPath": "/data/media/music",
+      "raw": "/data/media/music",
+      "remotePath": "music",
+      "directories": 0,
+      "files": 0
+    }
+  ]
+}

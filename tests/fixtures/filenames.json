@@ -1,0 +1,541 @@
+{
+  "description": "Golden cases for SoulseekFilenameParser (MATCHING_ENGINE §6.1). Paths are real Soulseek results recorded on 2026-09-29 (tests/fixtures/slskd/live) unless the share root is @@abcde (synthetic). 'hintsInclude' must be a subset of the parsed hints; every other field is compared exactly (artist/title/album ordinal). When isAudio is false only 'extension' and 'isAudio' are compared.",
+  "cases": [
+    {
+      "path": "@@ddivh\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Random Access Memories",
+        "trackNo": 8,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@saaje\\Music\\Daft Punk\\Daft Punk - Random Access Memories (2013)\\08 - Get Lucky.flac",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Random Access Memories",
+        "trackNo": 8,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@zsttx\\music\\Daft Punk\\2013 - Random Access Memories\\08 - Daft Punk - Get Lucky.flac",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Random Access Memories",
+        "trackNo": 8,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@povyt\\Music\\Daft Punk\\2013 - Random Access Memories (FLAC)\\08 Get Lucky.flac",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Random Access Memories",
+        "trackNo": 8,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@bgrsc\\music-final\\Daft Punk\\Random Access Memories (2013)\\Daft Punk - Random Access Memories - 08 - Get Lucky [MP3 320kbps].mp3",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Random Access Memories",
+        "trackNo": 8,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@jwjbl\\Music\\Daft Punk\\Random Access Memories\\Random Access Memories - Daft Punk - Get Lucky (feat. Pharrell Williams).m4a",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Random Access Memories",
+        "trackNo": null,
+        "extension": "m4a",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [
+          "Pharrell Williams"
+        ],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@fpmat\\MP3\\misc\\Daft Punk - Get Lucky (feat. Pharrell Williams & Nile Rodgers).mp3",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": null,
+        "trackNo": null,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [
+          "Pharrell Williams",
+          "Nile Rodgers"
+        ],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@krfbi\\Music Library\\Daft Punk feat. Pharrel Williams & Nile Rodgers - Get Lucky (Discolog 1888 Remix).mp3",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": null,
+        "trackNo": null,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [
+          "remix"
+        ],
+        "pathFlags": [],
+        "featured": [
+          "Pharrel Williams",
+          "Nile Rodgers"
+        ],
+        "unexplainedBrackets": false,
+        "hintsInclude": [
+          "(Discolog 1888 Remix)"
+        ]
+      }
+    },
+    {
+      "path": "@@jkxyq\\ss1\\Electronic\\Daft Punk\\Get Lucky (feat. Pharrell Williams) [Radio Edit] - Single\\01 Get Lucky (feat. Pharrell Williams) [Radio Edit].m4a",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Get Lucky",
+        "trackNo": 1,
+        "extension": "m4a",
+        "isAudio": true,
+        "flags": [
+          "radio_edit"
+        ],
+        "pathFlags": [
+          "radio_edit"
+        ],
+        "featured": [
+          "Pharrell Williams"
+        ],
+        "unexplainedBrackets": false,
+        "hintsInclude": [
+          "[Radio Edit]"
+        ]
+      }
+    },
+    {
+      "path": "Music\\Flac files\\Compilation\\Now that's what I Call Music!\\US Collection\\NOW That's What I Call Music! #48 (US) (2013)\\05 - Daft Punk - Get Lucky.flac",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "NOW That's What I Call Music! #48 (US)",
+        "trackNo": 5,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@mfenq\\music\\mix\\daft punk - get lucky (instrumental).mp3",
+      "expected": {
+        "artist": "daft punk",
+        "title": "get lucky",
+        "album": "mix",
+        "trackNo": null,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [
+          "instrumental"
+        ],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": [
+          "(instrumental)"
+        ]
+      }
+    },
+    {
+      "path": "musique\\Sigur Rós\\Takk…\\03 - Hoppípolla.mp3",
+      "expected": {
+        "artist": "Sigur Rós",
+        "title": "Hoppípolla",
+        "album": "Takk…",
+        "trackNo": 3,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "music\\Sigur Rós\\Takk… [2009-04-17] (album)\\03 Hoppípolla.flac",
+      "expected": {
+        "artist": "Sigur Rós",
+        "title": "Hoppípolla",
+        "album": "Takk…",
+        "trackNo": 3,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "music\\Sigur Rós\\[2005] Takk\\03 Hoppípolla.mp3",
+      "expected": {
+        "artist": "Sigur Rós",
+        "title": "Hoppípolla",
+        "album": "Takk",
+        "trackNo": 3,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@rummj\\Artists\\Sigur Ros\\3. Live\\2005. Chicago Theatre\\09 - Hoppipolla.mp3",
+      "expected": {
+        "artist": "Sigur Ros",
+        "title": "Hoppipolla",
+        "album": "Chicago Theatre",
+        "trackNo": 9,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [
+          "live"
+        ],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@rummj\\Artists\\Sigur Ros\\3. Live\\2011. Inni\\CD1\\06 - Hoppipolla.mp3",
+      "expected": {
+        "artist": "Sigur Ros",
+        "title": "Hoppipolla",
+        "album": "Inni",
+        "trackNo": 6,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [
+          "live"
+        ],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "myst\\Sigur Rós\\(2011) Inni [16-44.1]\\01-06 - Hoppípolla.flac",
+      "expected": {
+        "artist": "Sigur Rós",
+        "title": "Hoppípolla",
+        "album": "Inni",
+        "trackNo": 6,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "music\\Sigur Rós\\Inni (Live) [2011]\\Volume1\\06 - Sigur Rós - Hoppípolla (Live).flac",
+      "expected": {
+        "artist": "Sigur Rós",
+        "title": "Hoppípolla",
+        "album": "Inni",
+        "trackNo": 6,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [
+          "live"
+        ],
+        "pathFlags": [
+          "live"
+        ],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": [
+          "(Live)"
+        ]
+      }
+    },
+    {
+      "path": "music\\Sigur Ros\\_Unknown_\\03 03 Hoppipolla.mp3",
+      "expected": {
+        "artist": "Sigur Ros",
+        "title": "Hoppipolla",
+        "album": null,
+        "trackNo": 3,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "unmapped\\Various Artists\\[0000] 1001 Songs You Must Hear Before You Die\\959 0959 - Sigur Rós - Hoppípolla.flac",
+      "expected": {
+        "artist": "Sigur Rós",
+        "title": "Hoppípolla",
+        "album": "1001 Songs You Must Hear Before You Die",
+        "trackNo": 59,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "shares\\Music - Artists\\Sigur Rós\\Takk... (2005)\\03. Sigur Ros - Hoppipolla.flac",
+      "expected": {
+        "artist": "Sigur Ros",
+        "title": "Hoppipolla",
+        "album": "Takk...",
+        "trackNo": 3,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "music\\Sigur Rós\\Takk… (2005)\\Sigur Rós_Takk…_0103_Hoppípolla.flac",
+      "expected": {
+        "artist": "Sigur Rós",
+        "title": "Hoppípolla",
+        "album": "Takk…",
+        "trackNo": 3,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@juwpt\\audio\\2005 11 24 Sigur Ros - Saschall, Firenze\\08 - Hoppipolla.mp3",
+      "expected": {
+        "artist": "Sigur Ros",
+        "title": "Hoppipolla",
+        "album": "Saschall, Firenze",
+        "trackNo": 8,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "music\\Sigur Rós\\Sigur Rós - Single - 2005 - Hoppípolla\\discart.png",
+      "expected": {
+        "artist": null,
+        "title": "discart",
+        "album": null,
+        "trackNo": null,
+        "extension": "png",
+        "isAudio": false,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@abcde\\mp3\\Daft.Punk.-.Get.Lucky.mp3",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": null,
+        "trackNo": null,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@abcde\\downloads\\daft_punk_-_get_lucky.mp3",
+      "expected": {
+        "artist": "daft punk",
+        "title": "get lucky",
+        "album": null,
+        "trackNo": null,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@abcde\\Music\\Queen\\Greatest Hits\\01 Queen - Bohemian Rhapsody (Live at Wembley '86).mp3",
+      "expected": {
+        "artist": "Queen",
+        "title": "Bohemian Rhapsody",
+        "album": "Greatest Hits",
+        "trackNo": 1,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [
+          "live"
+        ],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": [
+          "(Live at Wembley '86)"
+        ]
+      }
+    },
+    {
+      "path": "@@abcde\\Vinyl\\Prince\\Purple Rain\\A1 Let's Go Crazy.flac",
+      "expected": {
+        "artist": "Prince",
+        "title": "Let's Go Crazy",
+        "album": "Purple Rain",
+        "trackNo": 1,
+        "extension": "flac",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@abcde\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky [www.example-site.com].mp3",
+      "expected": {
+        "artist": "Daft Punk",
+        "title": "Get Lucky",
+        "album": "Random Access Memories",
+        "trackNo": 8,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": true,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@abcde\\Music\\Robyn\\Body Talk\\Robyn - Dancing On My Own - Radio Edit.mp3",
+      "expected": {
+        "artist": "Robyn",
+        "title": "Dancing On My Own",
+        "album": "Body Talk",
+        "trackNo": null,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [
+          "radio_edit"
+        ],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    },
+    {
+      "path": "@@abcde\\Music\\Daft Punk\\Random Access Memories\\flac\\syno_dtime",
+      "expected": {
+        "artist": null,
+        "title": "syno_dtime",
+        "album": "Random Access Memories",
+        "trackNo": null,
+        "extension": null,
+        "isAudio": false,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
+    }
+  ]
+}

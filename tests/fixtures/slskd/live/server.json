@@ -1,0 +1,10 @@
+{
+  "address": "vps.slsknet.org",
+  "ipEndPoint": "208.76.170.59:2271",
+  "state": "Connected, LoggedIn",
+  "isConnected": true,
+  "isConnecting": false,
+  "isLoggedIn": true,
+  "isLoggingIn": false,
+  "isTransitioning": false
+}
