@@ -156,3 +156,28 @@ Total bake-off spend (key usage, incl. smoke tests): **USD 0.35**. Findings that
 | P2-18 | Phase 2 gate automation (CI) | done | orchestrator | — | `scripts/phase2-scenario.py` builds a FakeSlskd scenario from the Phase 1 songs (20 kept; a live take disguised as the best-ranked file; a peer that refuses the transfer), `scripts/phase2-gate.py`, the Phase 2 stage in `scripts/smoke-test.sh` (FakeSlskd published in the SDK image, the container restarted with it as the slskd binary). First runs found two scenario bugs of my own (FLAC files advertised without a size were rejected by size sanity before download, so the trap never fired) and a measurement artefact (the fake stamps a search when the POST arrives, a few ms after the budget released it: 4.98 s) → 0.1 s arrival jitter allowed in the spacing check. PASS on `ch01` against the published image: 20/20 at or above cutoff in 109 s, the live take rejected by fingerprint and replaced, 20 searches, ≤ 1 in flight, sharing 0 → 20 folders on the toggle |
 | P2-16 | Frontend: Queue page and Interactive search modal | done | deepseek/deepseek-v4.1-flash | ~0.29 | One run. Merging surfaced load-dependent flakes in menu/modal tests (a click racing Mantine's open transition); fixed at the root: the UI tests now render with Mantine's test environment (`env="test"`: no transitions, no portals), 5/5 loops green |
 | P2-17 | Frontend: Soulseek settings and naming preview | done | deepseek/deepseek-v4.1-flash | ~0.28 | One run; Prettier only. Read-only (environment-set) fields are left out of the PUT body |
+| P2-19 | slskd share rescans | done | orchestrator | — | Found by the live gate: sharing on, 93 files in `/data/music`, slskd sharing 0 folders. slskd scans its shares only on its first start and on `PUT /api/v0/shares`; later starts restore the share cache from its backup, so neither an import nor a restart ever shared a new file (and the gate's "off → 0" passed trivially). `SlskdShareRescanner` asks for a rescan after imports and settings reloads (30 s quiet, ≤ 5 min, retried through restarts/crashes); FakeSlskd now scans only at first start and on PUT and restores its cache on restart, so CI catches it; the gate requires a shared library before toggling. Reviewer agent: MERGE (low findings fixed). Live: 0 → 186 folders / 94 files 30 s after the next import |
+
+### Phase 2 gate — PASS (2026-09-29)
+
+**Live on `ch01`** — real Soulseek account, real AcoustID, `tests/gate/phase2-songs.txt` (100 songs pasted from scratch into an empty instance), `scripts/phase2-gate.py --rounds 3 --share-toggle --audit 30`:
+
+```
+ok   pasted 100 songs
+ok   MissingSearch round 1: 100 songs: 96 grabbed, 4 without an acceptable result, 0 skipped
+ok   MissingSearch round 2: 0 songs: 0 grabbed, 0 without an acceptable result, 0 skipped
+92/100 imported at or above cutoff (92%); missing 7; below cutoff 1; 2649 s
+ok   92% of wanted songs imported at or above cutoff
+ok   5 wrong file(s) caught and replaced without user action
+```
+
+- **≥ 80 % at or above cutoff:** 92 %; after one more MissingSearch round (below) 94 imported, 92 at or above cutoff, 2 below. Missing: 4 with no Soulseek results at all (HUMBLE., Purple Rain, Bad Romance, Summer) and 2 refused on every candidate by the conservative same-song rule (MALAMENTE: AcoustID titles it "MALAMENTE (Cap.1: Augurio)"; Little Lion Man: the same-titled MusicBrainz recording is 247 s against the song's 238 s) — logged for review, not relaxed.
+- **Wrong files caught, next candidate tried without user action:** 5 — four FLACs that did not decode ("invalid sync code") and one Paint It Black whose fingerprint named another recording; all five songs imported from the next candidate. Also caught: a remix ("Dancing On My Own (Graz & Hekti Flip)", score 0.99). The deliberate *live* take is the CI trap below (and the P2-18 run on `ch01`).
+- **Zero wrong recordings in a 30-file audit** (`random.Random(20260929)` sample): 26 matched the song's own MusicBrainz recording (scores 0.96–1.0), 2 a same-titled MusicBrainz duplicate — checked by hand: Pearl Jam "Black" (Ten, 343.7 s vs 343.7 s) and 2Pac "California Love" (the 389 s album version, same artists, no live/remix flag) — and 1 not in AcoustID (Juicy: 302.2 s vs MusicBrainz 302.5 s, tags right). Paths, tags and quality ids consistent.
+- **Search budget never exceeded** (from the app's own log, submission ≈ log time − elapsed): 127 searches, at most 29 in any 240 s, minimum spacing 5.0 s (log jitter ±0.5 s). The ≤ 2 outstanding limit is not visible in the app log; it is enforced by the budget and measured in CI, where the fake counts searches in flight (max 1).
+- **"Share my library" changes slskd's shares:** the first attempt **failed** (slskd shared 0 folders with the toggle on — P2-19). With the fix: 0 → 186 folders / 94 files 30 s after the next import, then the toggle `186 → 0 → 186`.
+
+**CI** (`scripts/smoke-test.sh`, Phase 2 stage against FakeSlskd in the built image): 20/20 at or above cutoff, the disguised live take rejected by fingerprint and replaced, the refused transfer replaced, budget from the fake's own log, share toggle — green on every push since P2-18; with P2-19 the fake behaves like slskd (no scan after the first start without a PUT), so the toggle now also proves the rescan.
+
+**Worker spend, Phase 2:** USD 4.46 (key usage 3.16 → 7.62; per-task estimates in the table sum to ≈ 5.7 because they are token × list-price estimates). The key's lifetime limit is USD 10: USD 2.38 left.
+
