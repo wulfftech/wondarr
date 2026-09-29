@@ -17,8 +17,9 @@ import {
 } from '../api/wanted';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { formatDate } from '../components/SongCells';
+import { QueuePage } from './QueuePage';
 
-/** The three tabs of the Activity page. The queue itself arrives with the Soulseek source. */
+/** The three tabs of the Activity page: what is downloading, what happened and what is blocked. */
 type ActivityTab = 'queue' | 'history' | 'blocklist';
 
 /** The colour each event type wears, so a failure stands out in a scrolling list. */
@@ -202,9 +203,7 @@ export function ActivityPage() {
         </Tabs.List>
 
         <Tabs.Panel value="queue" pt="md">
-          <Text c="dimmed" size="sm">
-            The queue arrives with the Soulseek source in Phase 2.
-          </Text>
+          <QueuePage />
         </Tabs.Panel>
 
         <Tabs.Panel value="history" pt="md">
