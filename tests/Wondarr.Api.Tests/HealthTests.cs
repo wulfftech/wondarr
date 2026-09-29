@@ -84,8 +84,8 @@ public sealed class HealthTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ReadEntriesAsync(response)).Should().HaveCount(
-            5,
-            "database, config folder, log folder, slskd and the media tools");
+            7,
+            "database, config folder, log folder, slskd, its download folder, sharing and the media tools");
     }
 
     private static async Task<List<(string Source, string Type, string Message)>> ReadEntriesAsync(HttpResponseMessage response)
