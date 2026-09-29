@@ -388,14 +388,20 @@ public sealed partial class ImportService : IImportService
 
         if (!tagResult.Success)
         {
-            return await RejectAsync(
+            // The file passed verification, so a tagging failure is the tag writer's problem, not the
+            // peer's: no blocklist entry and no next candidate (every other file would hit the same
+            // problem — seen live on 2026-09-29, where a year-only date burned every good candidate).
+            // The song stays wanted and the next missing search tries again.
+            await FailAsync(
                     item,
-                    song,
                     $"Tagging failed: {tagResult.Error}",
-                    verification.Reason,
-                    measured,
+                    null,
+                    null,
+                    allowNextAttempt: false,
                     cancellationToken)
                 .ConfigureAwait(false);
+
+            return ImportOutcome.Failed;
         }
 
         // --- Name -------------------------------------------------------------------------------

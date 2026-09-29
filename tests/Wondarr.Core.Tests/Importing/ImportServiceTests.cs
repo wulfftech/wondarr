@@ -316,8 +316,10 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
-    public async Task Rejects_a_file_that_could_not_be_tagged()
+    public async Task Fails_without_blocklisting_or_moving_on_when_the_file_could_not_be_tagged()
     {
+        // A verified file that cannot be tagged is the tag writer's problem: blocklisting it (and every
+        // next candidate, which would fail the same way) burned good files on the first live run.
         await using var host = await ImportTestHost.CreateAsync();
         host.TagWriter.Success = false;
         host.TagWriter.Error = "The file is not a writable container";
@@ -326,11 +328,14 @@ public sealed class ImportServiceTests
 
         var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
 
-        outcome.Should().Be(ImportOutcome.Rejected);
+        outcome.Should().Be(ImportOutcome.Failed);
 
         var item = await host.Context.QueueItems.SingleAsync(entry => entry.Id == seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Failed);
         item.Message.Should().Be("Tagging failed: The file is not a writable container");
         host.Placer.Requests.Should().BeEmpty();
+        (await host.Context.Blocklist.CountAsync()).Should().Be(0);
+        host.Search.Grabs.Should().BeEmpty();
     }
 
     [Fact]
