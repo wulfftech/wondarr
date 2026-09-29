@@ -1,5 +1,6 @@
 using Wondarr.Core.Configuration;
 using Wondarr.Core.HealthCheck;
+using Wondarr.Core.Importing;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Sources;
@@ -87,6 +88,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHealthCheck, SlskdDownloadFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, SoulseekSharingHealthCheck>();
         services.AddHostedService<SlskdHost>();
+
+        // slskd scans its shares only at start: an import asks it for a rescan, so the library is shared
+        // as it grows. One instance is both the event handler and the hosted service that runs the scans.
+        services.AddSingleton<SlskdShareRescanner>();
+        services.AddSingleton<IHandle<SongImportedEvent>>(provider => provider.GetRequiredService<SlskdShareRescanner>());
+        services.AddHostedService(provider => provider.GetRequiredService<SlskdShareRescanner>());
 
         return services;
     }
