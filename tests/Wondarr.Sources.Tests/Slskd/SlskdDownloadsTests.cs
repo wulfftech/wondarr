@@ -217,6 +217,36 @@ public class SlskdDownloadsTests : IDisposable
         status.Error.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("Get Lucky (Radio Edit).mp3")]
+    [InlineData("Get Lucky_live.mp3")]
+    [InlineData("Get Lucky_1638345123456.flac")]
+    public async Task Does_not_take_another_file_that_merely_shares_the_stem(string other)
+    {
+        var folder = Path.Combine(_downloadsDir, Destination);
+        await File.WriteAllTextAsync(Path.Combine(folder, other), "someone else's file");
+
+        var api = Api(TransferJson("Completed, Succeeded"));
+
+        var status = await Downloads(api).GetStatusAsync(Grab(), CancellationToken.None);
+
+        status.LocalPath.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("/etc")]
+    [InlineData("wondarr/../..")]
+    [InlineData("wondarr/.. /x")]
+    public async Task Rechecks_a_stored_destination_before_looking_for_the_file(string destination)
+    {
+        var api = Api(TransferJson("Completed, Succeeded"));
+        var grab = Grab() with { Destination = destination };
+
+        var reading = () => Downloads(api).GetStatusAsync(grab, CancellationToken.None);
+
+        await reading.Should().ThrowAsync<ArgumentException>();
+    }
+
     [Fact]
     public async Task Reports_a_completed_transfer_whose_file_is_not_there()
     {

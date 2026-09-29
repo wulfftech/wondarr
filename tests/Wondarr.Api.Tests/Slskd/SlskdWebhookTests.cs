@@ -111,6 +111,21 @@ public sealed class SlskdWebhookTests : IDisposable
     }
 
     [Fact]
+    public async Task Rejects_a_forwarded_request_even_from_loopback()
+    {
+        var token = await TokenAsync();
+
+        using var client = _factory.CreateClient(Loopback);
+        using var request = CompletedRequest(token);
+        request.Headers.Add("X-Forwarded-For", "198.51.100.4");
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        _handler.Events.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Needs_no_api_key_even_when_authentication_is_enabled()
     {
         using var factory = new WondarrAppFactory(

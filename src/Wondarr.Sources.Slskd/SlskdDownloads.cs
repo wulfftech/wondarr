@@ -173,6 +173,9 @@ public sealed partial class SlskdDownloads : ISlskdDownloads
 
         if (state.HasFlag(SlskdTransferState.Completed) && state.HasFlag(SlskdTransferState.Succeeded))
         {
+            // A persisted grab is re-checked: a rooted destination would make Path.Combine drop the
+            // downloads directory altogether.
+            ValidateDestination(grab.Destination);
             var folder = Path.Combine(_options.CurrentValue.DownloadsDir, grab.Destination);
             localPath = FindCompletedFile(folder, grab.RemoteFilename);
 
@@ -238,6 +241,13 @@ public sealed partial class SlskdDownloads : ISlskdDownloads
     private static string? FindCompletedFile(string folder, string remoteFilename)
     {
         var bareName = BareFileName(remoteFilename);
+
+        // The name is the peer's: never let it name the folder itself or its parent.
+        if (bareName.Trim() is "" or "." or "..")
+        {
+            return null;
+        }
+
         var exact = Path.Combine(folder, bareName);
 
         if (File.Exists(exact))
@@ -251,18 +261,34 @@ public sealed partial class SlskdDownloads : ISlskdDownloads
         }
 
         var stem = Path.GetFileNameWithoutExtension(bareName);
+        var extension = Path.GetExtension(bareName);
 
         if (stem.Length == 0)
         {
             return null;
         }
 
+        // Only slskd's own rename shape counts: "<stem>_<digits><extension>". A mere prefix match
+        // would take "abc.mp3" for "a.mp3".
         return Directory
             .EnumerateFiles(folder)
-            .Where(path => Path.GetFileName(path).StartsWith(stem, StringComparison.Ordinal))
+            .Where(path => IsRenamedCopy(Path.GetFileName(path), stem, extension))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .ThenBy(path => path, StringComparer.Ordinal)
             .FirstOrDefault();
+    }
+
+    private static bool IsRenamedCopy(string name, string stem, string extension)
+    {
+        if (!name.StartsWith(stem + "_", StringComparison.Ordinal) ||
+            !name.EndsWith(extension, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var middle = name.AsSpan(stem.Length + 1, name.Length - stem.Length - 1 - extension.Length);
+
+        return middle.Length > 0 && middle.IndexOfAnyExceptInRange('0', '9') < 0;
     }
 
     /// <summary>The file's name without the peer's directory path, however the peer separated it.</summary>
@@ -291,7 +317,8 @@ public sealed partial class SlskdDownloads : ISlskdDownloads
 
         var segments = destination.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
 
-        if (segments.Any(segment => segment == ".."))
+        // Trimmed first: Windows drops trailing dots and spaces, so ".. " would walk up there too.
+        if (segments.Any(segment => segment.Trim().TrimEnd('.').Length == 0))
         {
             throw new ArgumentException(
                 "The destination must not walk out of slskd's download directory",
