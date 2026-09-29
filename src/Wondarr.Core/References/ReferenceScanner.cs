@@ -129,7 +129,8 @@ public sealed partial class ReferenceScanner(
                 .ConfigureAwait(false);
         }
 
-        var files = Walk(root, cancellationToken);
+        var skipped = new List<string>();
+        var files = Walk(root, skipped, cancellationToken);
 
         var rows = await database.ReferenceFiles
             .Where(row => row.ReferenceLibraryId == referenceLibraryId)
@@ -233,7 +234,11 @@ public sealed partial class ReferenceScanner(
 
         foreach (var row in rows)
         {
-            if (seen.Contains(row.RelativePath))
+            // An adopted file left the folder on purpose (adoption moves it into the library), and a
+            // file under a folder the walk could not list was not seen, which is not the same as gone.
+            if (seen.Contains(row.RelativePath)
+                || row.State == ReferenceFileState.Adopted
+                || IsUnderSkipped(row.RelativePath, skipped))
             {
                 continue;
             }
@@ -353,17 +358,45 @@ public sealed partial class ReferenceScanner(
     /// Every audio file under <paramref name="root"/>, in ordinal path order. Directory symlinks and
     /// junctions are never followed, so a link that points back up the tree cannot make the walk loop.
     /// </summary>
-    private List<string> Walk(string root, CancellationToken cancellationToken)
+    private List<string> Walk(string root, List<string> skipped, CancellationToken cancellationToken)
     {
         var files = new List<string>();
-        Collect(root, files, isRoot: true, cancellationToken);
+        Collect(root, root, files, skipped, isRoot: true, cancellationToken);
 
         files.Sort(StringComparer.Ordinal);
 
         return files;
     }
 
-    private void Collect(string directory, List<string> files, bool isRoot, CancellationToken cancellationToken)
+    /// <summary>
+    /// Whether a row's file lies in (or is) an entry the walk had to skip. Such a row keeps its state:
+    /// the file was not seen, but nothing says it is gone.
+    /// </summary>
+    /// <param name="relativePath">The row's <c>/</c>-separated path under the root.</param>
+    /// <param name="skipped">The <c>/</c>-separated paths of the entries the walk could not read.</param>
+    internal static bool IsUnderSkipped(string relativePath, IReadOnlyList<string> skipped)
+    {
+        foreach (var entry in skipped)
+        {
+            if (string.Equals(relativePath, entry, StringComparison.Ordinal)
+                || (relativePath.Length > entry.Length
+                    && relativePath[entry.Length] == '/'
+                    && relativePath.StartsWith(entry, StringComparison.Ordinal)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void Collect(
+        string root,
+        string directory,
+        List<string> files,
+        List<string> skipped,
+        bool isRoot,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -389,6 +422,7 @@ public sealed partial class ReferenceScanner(
             }
 
             LogFolderSkipped(logger, exception);
+            skipped.Add(Relative(root, directory));
             return;
         }
 
@@ -417,7 +451,7 @@ public sealed partial class ReferenceScanner(
 
                 if ((attributes & FileAttributes.Directory) != 0)
                 {
-                    Collect(entry, files, isRoot: false, cancellationToken);
+                    Collect(root, entry, files, skipped, isRoot: false, cancellationToken);
                 }
                 else if (AudioExtensions.Contains(Path.GetExtension(entry)))
                 {
@@ -428,9 +462,13 @@ public sealed partial class ReferenceScanner(
             {
                 // One unreadable entry never ends the walk.
                 LogEntrySkipped(logger, exception);
+                skipped.Add(Relative(root, entry));
             }
         }
     }
+
+    private static string Relative(string root, string path) =>
+        Path.GetRelativePath(root, path).Replace('\\', '/');
 
     private static string ProgressMessage(int scanned, int total) =>
         string.Concat(

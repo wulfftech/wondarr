@@ -153,6 +153,66 @@ public sealed class ReferenceScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_second_scan_through_a_fresh_context_still_sees_nothing_changed()
+    {
+        Write("a.mp3", "one");
+        Write("Artist/Album/01 - b.flac", "two");
+
+        long libraryId;
+        await using (var first = await ContextAsync())
+        {
+            var library = await AddLibraryAsync(first, _root);
+            libraryId = library.Id;
+            await Scanner(first).ScanAsync(libraryId, null, CancellationToken.None);
+        }
+
+        _probe.ClearReceivedCalls();
+
+        // The sizes and times now come back from SQLite, not from the tracked rows of the first scan:
+        // this is what a daily scan does.
+        await using var second = _database.CreateContext(_time);
+        var result = await Scanner(second).ScanAsync(libraryId, null, CancellationToken.None);
+
+        result.Should().Be(new ReferenceScanResult(Seen: 2, Added: 0, Changed: 0, Unchanged: 2, Missing: 0, Unreadable: 0));
+        await _probe.DidNotReceiveWithAnyArgs().ProbeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task An_adopted_file_that_left_the_folder_stays_adopted()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        var adopted = await database.ReferenceFiles.SingleAsync(row => row.RelativePath == "a.mp3");
+        adopted.State = ReferenceFileState.Adopted;
+        await database.SaveChangesAsync();
+
+        // Adoption moves the file into the managed library; its absence here is the point.
+        File.Delete(path);
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Missing.Should().Be(0);
+        (await database.ReferenceFiles.SingleAsync(row => row.RelativePath == "a.mp3")).State
+            .Should().Be(ReferenceFileState.Adopted);
+    }
+
+    [Theory]
+    [InlineData("Artist/Album/01.mp3", true)]
+    [InlineData("Artist/Album", true)]
+    [InlineData("Artist/Albums/01.mp3", false)]
+    [InlineData("Other/01.mp3", false)]
+    [InlineData("loose.mp3", true)]
+    public void A_row_under_an_entry_the_walk_skipped_is_left_alone(string relativePath, bool underSkipped)
+    {
+        ReferenceScanner.IsUnderSkipped(relativePath, ["Artist/Album", "loose.mp3"]).Should().Be(underSkipped);
+    }
+
+    [Fact]
     public async Task A_root_that_is_gone_throws_and_changes_no_row()
     {
         Write("a.mp3", "one");
