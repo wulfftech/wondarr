@@ -68,6 +68,14 @@ public static class FakeSlskdApp
         app.MapGet("/api/v0/application", () => Results.Json(state.ApplicationJson()));
         app.MapGet("/api/v0/server", () => Results.Json(state.ServerJson()));
         app.MapGet("/api/v0/shares", () => Results.Json(state.SharesJson()));
+
+        // slskd answers a rescan with 204; the fake scans synchronously, so it is never "already scanning" (409).
+        app.MapPut("/api/v0/shares", () =>
+        {
+            state.RescanShares();
+
+            return Results.NoContent();
+        });
     }
 
     private static void MapSearches(WebApplication app, FakeSlskdState state)
