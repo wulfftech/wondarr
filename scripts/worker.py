@@ -22,6 +22,9 @@ Environment (.env in the repo root is loaded automatically; existing env vars wi
   WONDARR_WORKER_BUDGET_USD   default 2.00 per run
   OPENROUTER_ANTHROPIC_BASE_URL default https://openrouter.ai/api  (Claude Code docs show https://openrouter.ai/api/v1; switch if you get 404s)
   WONDARR_WORKER_PROVIDER     "openrouter" (default) or "anthropic" (uses your normal Claude Code auth; model via WONDARR_WORKER_MODEL, e.g. "haiku")
+  WONDARR_WORKER_BASE         the branch worker worktrees start from and are diffed against (default "main"); set it
+                              when the orchestrator itself works in a linked worktree on its own branch
+Run from a linked worktree, the script reads the main checkout's .env when the worktree has none (it is git-ignored).
 """
 from __future__ import annotations
 
@@ -70,6 +73,28 @@ def load_dotenv(path: Path) -> None:
         value = re.split(r"\s#", value, maxsplit=1)[0].strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def main_checkout() -> Path:
+    """The main working tree, which holds the git-ignored .env even when this script runs from a linked worktree."""
+    result = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=str(REPO),
+                            text=True, capture_output=True)
+    common = Path(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip() else REPO / ".git"
+    return common.parent if common.name == ".git" else REPO
+
+
+def load_env_files() -> None:
+    load_dotenv(REPO / ".env")
+    if not (REPO / ".env").exists():
+        load_dotenv(main_checkout() / ".env")
+
+
+def base_branch() -> str:
+    return env("WONDARR_WORKER_BASE", "main") or "main"
+
+
+def deny_read_rule(root: Path) -> str:
+    return f"Read(//{root.drive[:1].lower()}{root.as_posix()[len(root.drive):]}/.env*)"
 
 
 def env(name: str, default: str | None = None) -> str | None:
@@ -176,14 +201,14 @@ def ensure_worktree(task_id: str, task_file: Path, dry_run: bool) -> Path:
         print(f"[worker] reusing worktree {path}")
         return path
     if dry_run:
-        print(f"[worker] would create worktree {path} on branch {branch} from main")
+        print(f"[worker] would create worktree {path} on branch {branch} from {base_branch()}")
         return path
     WORKTREES.mkdir(exist_ok=True)
     existing = git("branch", "--list", branch)
     if existing:
         git("worktree", "add", str(path), branch)
     else:
-        git("worktree", "add", "-b", branch, str(path), "main")
+        git("worktree", "add", "-b", branch, str(path), base_branch())
     print(f"[worker] created worktree {path} on branch {branch}")
     return path
 
@@ -260,7 +285,7 @@ def run_worker(args: argparse.Namespace) -> int:
         "--permission-mode", "acceptEdits",
         "--allowedTools", ",".join(WORKER_TOOLS),
         # the worktree has no .env (git-ignored); keep the main checkout's secrets out of reach too
-        "--disallowedTools", f"Read(//{REPO.drive[:1].lower()}{REPO.as_posix()[len(REPO.drive):]}/.env*)",
+        "--disallowedTools", ",".join(dict.fromkeys([deny_read_rule(REPO), deny_read_rule(main_checkout())])),
         "--append-system-prompt-file", str(SYSTEM_PROMPT),
         "--no-session-persistence",
     ]
@@ -307,10 +332,10 @@ def run_worker(args: argparse.Namespace) -> int:
                "key_usage_delta_usd": key_delta, "continue": bool(args.continue_note)}
     with (out_dir / "runs.jsonl").open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(summary) + "\n")
-    changed = git("diff", "--name-only", "main...HEAD", cwd=worktree, check=False) or "(no committed changes yet)"
+    changed = git("diff", "--name-only", f"{base_branch()}...HEAD", cwd=worktree, check=False) or "(no committed changes yet)"
     print(f"[worker] exit={result.returncode} cost=${usd} (claude-reported ${cost}; key delta ${key_delta}, "
           f"includes any parallel runs) turns={turns} elapsed={elapsed:.1f}m")
-    print(f"[worker] files changed vs main:\n{changed}")
+    print(f"[worker] files changed vs {base_branch()}:\n{changed}")
     print(f"[worker] report: {out_dir / 'report.md'}")
     protected_hits = [p for p in changed.splitlines() if any(p.startswith(x.rstrip('/')) for x in PROTECTED)]
     if protected_hits:
@@ -485,7 +510,7 @@ def run_review(args: argparse.Namespace) -> int:
     model = args.model or env("WONDARR_REVIEWER_MODEL") or env("WONDARR_WORKER_MODEL")
     if not model:
         raise SystemExit("WONDARR_REVIEWER_MODEL / WONDARR_WORKER_MODEL not set")
-    diff = git("diff", f"main...{args.branch}")
+    diff = git("diff", f"{base_branch()}...{args.branch}")
     if not diff:
         print("[worker] empty diff; nothing to review")
         return 0
@@ -493,7 +518,7 @@ def run_review(args: argparse.Namespace) -> int:
     system = ("You are a strict code reviewer for Wondarr. Judge the diff against the task's acceptance criteria and "
               + STANDARDS.read_text(encoding="utf-8") +
               "\nReport findings ranked by severity with file:line, then a verdict line: MERGE or FIX-FIRST.")
-    user = f"# TASK\n{task_text}\n\n# DIFF (main...{args.branch})\n```diff\n{diff[:200000]}\n```"
+    user = f"# TASK\n{task_text}\n\n# DIFF ({base_branch()}...{args.branch})\n```diff\n{diff[:200000]}\n```"
     print(f"[worker] review branch={args.branch} model={model} diff_chars={len(diff)}")
     if args.dry_run:
         return 0
@@ -511,7 +536,7 @@ def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
-    load_dotenv(REPO / ".env")
+    load_env_files()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="print what would run; touch nothing")
     parser.add_argument("--model", help="override the model id for this run")
