@@ -10,7 +10,14 @@ namespace Wondarr.Core.Importing;
 /// <param name="QueueItemId">The queue item that changed.</param>
 /// <param name="SongId">The song the grab is for.</param>
 /// <param name="State">The item's state after the change.</param>
-public sealed record QueueItemChangedEvent(long QueueItemId, long SongId, QueueItemState State) : IEvent;
+public sealed record QueueItemChangedEvent(long QueueItemId, long SongId, QueueItemState State) : IEvent
+{
+    /// <summary>How far the download has got, 0–1.</summary>
+    public double Progress { get; init; }
+
+    /// <summary>What the source or the poll last said about the item, or <see langword="null"/>.</summary>
+    public string? Message { get; init; }
+}
 
 /// <summary>
 /// A song gained a library file: either its first one or a better one that replaced it.

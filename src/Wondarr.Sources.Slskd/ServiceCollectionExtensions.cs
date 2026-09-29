@@ -1,6 +1,7 @@
 using Wondarr.Core.Configuration;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Logging;
+using Wondarr.Core.Messaging;
 using Wondarr.Core.Sources;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -75,6 +76,10 @@ public static class ServiceCollectionExtensions
 
         // One registration per source type: later phases add their own next to this one.
         services.AddSingleton<ISourceProvider, SoulseekSourceProvider>();
+
+        // A finished transfer wakes the queue poll instead of waiting for its next tick. The handler is
+        // stateless and the tracker is a singleton, so this one is too.
+        services.AddSingleton<IHandle<SlskdDownloadCompletedEvent>, SlskdDownloadCompletedHandler>();
 
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<SlskdStatus>();

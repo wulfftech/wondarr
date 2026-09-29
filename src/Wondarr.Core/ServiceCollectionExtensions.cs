@@ -126,6 +126,16 @@ public static class ServiceCollectionExtensions
         // scoped DbContext, and it grabs the next candidate through the search service above.
         services.AddScoped<IImportService, ImportService>();
 
+        // What the user can do to a queue item, through the same scoped DbContext as the API.
+        services.AddScoped<IQueueActions, QueueActions>();
+
+        // The queue poll runs for the life of the process, so it is one instance: the hosted service,
+        // the singleton behind IQueueTracker (which the slskd completion handler wakes) and the
+        // registration the DI container resolves are the same object.
+        services.AddSingleton<QueueTracker>();
+        services.AddSingleton<IQueueTracker>(provider => provider.GetRequiredService<QueueTracker>());
+        services.AddHostedService(provider => provider.GetRequiredService<QueueTracker>());
+
         // The cover client itself is registered by AddWondarrMetadata, next to the other named HTTP
         // clients; the fetcher only needs the factory to ask for it.
         services.AddTransient<ICoverFetcher, CoverFetcher>();
@@ -196,6 +206,13 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<SearchOptions>, SearchOptionsValidator>();
+
+        // The queue poll's intervals and the timeouts it gives up on a peer after.
+        services.AddOptions<QueueOptions>()
+            .Bind(configuration.GetSection("Queue"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<QueueOptions>, QueueOptionsValidator>();
         services.AddSingleton<ISecretRegistry, SecretRegistry>();
 
         return services;
