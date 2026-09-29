@@ -220,6 +220,15 @@ def share_toggle(api: Api, timeout_s: int) -> None:
     if "shareLibrary" in settings.get("readOnlyFields", []):
         raise SystemExit("FAIL: shareLibrary is set by the environment; cannot toggle it")
     original = settings["shareLibrary"]
+    if original:
+        # Sharing is already on, so the imported library must be shared before the toggle proves
+        # anything: otherwise "off -> 0 folders" passes on a share that was never scanned.
+        deadline = time.monotonic() + timeout_s
+        while (shared_directories() in (None, 0)) and time.monotonic() < deadline:
+            time.sleep(3)
+        if shared_directories() in (None, 0):
+            raise SystemExit(f"FAIL: shareLibrary is on but slskd shares nothing after {timeout_s} s (the imported library was never rescanned)")
+        log(f"ok   shareLibrary=True before the toggle: slskd shares {shared_directories()} folder(s)")
     for wanted in (not original, original):
         api.call("PUT", "/api/v1/soulseek/settings", {"shareLibrary": wanted})
         deadline = time.monotonic() + timeout_s

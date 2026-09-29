@@ -46,10 +46,56 @@ public sealed class FakeSlskdTests
         state.Server.State.Should().Be("Connected, LoggedIn");
         state.User.Username.Should().Be("wondarr-test");
 
+        // Like slskd, the fake scanned its shares at start, before the files existed.
+        var before = (await harness.GetJsonAsync("/api/v0/application"))["shares"]!;
+        before["ready"]!.GetValue<bool>().Should().BeTrue();
+        before["directories"]!.GetValue<int>().Should().Be(0);
+        before["files"]!.GetValue<int>().Should().Be(0);
+
+        using var rescan = await harness.Slskd.PutAsync(new Uri("api/v0/shares", UriKind.Relative), content: null);
+        rescan.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
         var shares = (await harness.GetJsonAsync("/api/v0/application"))["shares"]!;
-        shares["ready"]!.GetValue<bool>().Should().BeTrue();
         shares["directories"]!.GetValue<int>().Should().Be(2);
         shares["files"]!.GetValue<int>().Should().Be(2);
+
+        var listing = (await harness.GetJsonAsync("/api/v0/shares"))["local"]![0]!;
+        listing["files"]!.GetValue<int>().Should().Be(2);
+    }
+
+    [Fact]
+    public void A_restarted_fake_restores_its_last_share_scan_instead_of_scanning()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "fakeslskd-tests", Guid.NewGuid().ToString("N"));
+        var music = Path.Combine(root, "music");
+        Directory.CreateDirectory(Path.Combine(music, "album"));
+        File.WriteAllBytes(Path.Combine(music, "album", "one.flac"), [1]);
+
+        try
+        {
+            var options = new FakeSlskdOptions
+            {
+                Configuration = new SlskdConfiguration { ShareDirectories = [music] },
+                ShareCachePath = Path.Combine(root, "fake-share-cache.json"),
+            };
+
+            using (var first = new FakeSlskdState(options))
+            {
+                first.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(1, "the first start scans");
+            }
+
+            File.WriteAllBytes(Path.Combine(music, "album", "two.flac"), [1]);
+
+            using var restarted = new FakeSlskdState(options);
+            restarted.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(1, "a restart restores the cache");
+
+            restarted.RescanShares();
+            restarted.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(2);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -73,6 +119,7 @@ public sealed class FakeSlskdTests
         await using var harness = await FakeSlskdHarness.StartAsync(ScenarioJson());
 
         File.WriteAllBytes(Path.Combine(harness.ShareDirectory, "single.mp3"), [1]);
+        (await harness.Slskd.PutAsync(new Uri("api/v0/shares", UriKind.Relative), content: null)).EnsureSuccessStatusCode();
 
         var shares = (await harness.GetJsonAsync("/api/v0/shares"))["local"]!.AsArray();
 
