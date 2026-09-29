@@ -2,15 +2,24 @@ import { SegmentedControl, Stack, Title } from '@mantine/core';
 import { useNavigate, useParams } from 'react-router';
 import { LibrarySettingsPage } from './settings/LibrarySettingsPage';
 import { QualityProfilesPage } from './settings/QualityProfilesPage';
+import { SoulseekSettingsPage } from './settings/SoulseekSettingsPage';
 
-/** The two Settings sections, and the route segment each one owns. */
-type SettingsSection = 'profiles' | 'library';
+/** The Settings sections, and the route segment each one owns. */
+type SettingsSection = 'profiles' | 'library' | 'soulseek';
 
-/** Settings: the quality profiles and the library the songs are filed in. */
+const SECTIONS: { value: SettingsSection; label: string }[] = [
+  { value: 'profiles', label: 'Quality profiles' },
+  { value: 'library', label: 'Library' },
+  { value: 'soulseek', label: 'Soulseek' },
+];
+
+/** Settings: the quality profiles, the library the songs are filed in, and the bundled slskd. */
 export function SettingsPage() {
   const { section } = useParams();
   const navigate = useNavigate();
-  const active: SettingsSection = section === 'library' ? 'library' : 'profiles';
+  const active: SettingsSection = SECTIONS.some((candidate) => candidate.value === section)
+    ? (section as SettingsSection)
+    : 'profiles';
 
   return (
     <Stack gap="lg">
@@ -21,13 +30,12 @@ export function SettingsPage() {
         onChange={(value) => {
           void navigate(`/settings/${value}`);
         }}
-        data={[
-          { value: 'profiles', label: 'Quality profiles' },
-          { value: 'library', label: 'Library' },
-        ]}
+        data={SECTIONS}
       />
 
-      {active === 'profiles' ? <QualityProfilesPage /> : <LibrarySettingsPage />}
+      {active === 'profiles' && <QualityProfilesPage />}
+      {active === 'library' && <LibrarySettingsPage />}
+      {active === 'soulseek' && <SoulseekSettingsPage />}
     </Stack>
   );
 }
