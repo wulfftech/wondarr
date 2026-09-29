@@ -55,10 +55,15 @@ public class SoulseekSearchBudgetTests
         time.Advance(Window - TimeSpan.FromSeconds(146));
         acquisition.IsCompleted.Should().BeFalse();
 
+        // A submission exactly one window old still counts, so reaching t+240 s is not enough.
         time.Advance(TimeSpan.FromSeconds(1));
+        acquisition.IsCompleted.Should().BeFalse();
+
+        // (FakeTimeProvider's timestamps are coarser than a tick, so step by a millisecond.)
+        time.Advance(TimeSpan.FromMilliseconds(1));
         await using var last = await acquisition;
 
-        time.GetUtcNow().Should().Be(Start + Window);
+        time.GetUtcNow().Should().Be(Start + Window + TimeSpan.FromMilliseconds(1));
         budget.Snapshot().SubmittedInWindow.Should().Be(30);
     }
 
@@ -212,8 +217,9 @@ public class SoulseekSearchBudgetTests
                 {
                     time.Advance(earliest - now - TimeSpan.FromMilliseconds(1));
                     acquisition.IsCompleted.Should().BeFalse();
-                    time.Advance(TimeSpan.FromMilliseconds(1));
                 }
+
+                time.Advance(earliest - time.GetUtcNow());
             }
 
             leases.Add(await acquisition);
@@ -237,8 +243,71 @@ public class SoulseekSearchBudgetTests
         for (var i = 0; i + search.MaxSearches < submissions.Count; i++)
         {
             (submissions[i + search.MaxSearches] - submissions[i])
-                .Should().BeGreaterThanOrEqualTo(Window, "no four-minute window holds more than thirty submissions");
+                .Should().BeGreaterThan(Window, "no closed four-minute interval holds more than thirty submissions");
         }
+    }
+
+    [Fact]
+    public async Task A_cancelled_slot_waiter_does_not_swallow_the_wakeup()
+    {
+        var time = new FakeTimeProvider(Start);
+        var budget = Budget(time, new SoulseekSearchOptions { MaxOutstanding = 1, MinSpacingSeconds = 5 });
+
+        var first = await AcquireAsync(time, budget, TimeSpan.Zero);
+        time.Advance(Spacing);
+
+        using var cancel = new CancellationTokenSource();
+        var cancelled = budget.AcquireAsync(cancel.Token);
+        var waiting = budget.AcquireAsync(CancellationToken.None);
+
+        await cancel.CancelAsync();
+        var cancelling = () => cancelled;
+        await cancelling.Should().ThrowAsync<OperationCanceledException>();
+        waiting.IsCompleted.Should().BeFalse();
+
+        await first.DisposeAsync();
+        await using var lease = await waiting.WaitAsync(TimeSpan.FromSeconds(5));
+        budget.Snapshot().Outstanding.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Spacing_waiters_are_served_in_arrival_order_and_newcomers_queue_behind_them()
+    {
+        var time = new FakeTimeProvider(Start);
+        var budget = Budget(time, new SoulseekSearchOptions { MaxOutstanding = 2 });
+        var order = new List<string>();
+
+        await using var first = await AcquireAsync(time, budget, TimeSpan.Zero);
+        var second = Track(budget.AcquireAsync(CancellationToken.None), "second", order);
+        var third = Track(budget.AcquireAsync(CancellationToken.None), "third", order);
+
+        time.Advance(Spacing);
+        await using var secondLease = await second.WaitAsync(TimeSpan.FromSeconds(5));
+        third.IsCompleted.Should().BeFalse("the third needs another five seconds and a slot");
+
+        // A newcomer arriving now must not overtake the third.
+        var newcomer = Track(budget.AcquireAsync(CancellationToken.None), "newcomer", order);
+        await first.DisposeAsync();
+        time.Advance(Spacing);
+        await using var thirdLease = await third.WaitAsync(TimeSpan.FromSeconds(5));
+        newcomer.IsCompleted.Should().BeFalse();
+
+        await secondLease.DisposeAsync();
+        time.Advance(Spacing);
+        await using var newcomerLease = await newcomer.WaitAsync(TimeSpan.FromSeconds(5));
+
+        order.Should().Equal("second", "third", "newcomer");
+    }
+
+    private static async Task<IAsyncDisposable> Track(Task<IAsyncDisposable> acquisition, string name, List<string> order)
+    {
+        var lease = await acquisition.ConfigureAwait(false);
+        lock (order)
+        {
+            order.Add(name);
+        }
+
+        return lease;
     }
 
     /// <summary>When the budget says the next submission may go, worked out from the same rules.</summary>
@@ -259,13 +328,14 @@ public class SoulseekSearchBudgetTests
         }
 
         var inWindow = submissions
-            .Where(submission => submission > now - TimeSpan.FromSeconds(search.WindowSeconds))
+            .Where(submission => submission >= now - TimeSpan.FromSeconds(search.WindowSeconds))
             .ToList();
 
         if (inWindow.Count >= search.MaxSearches)
         {
             var windowOpens = inWindow[inWindow.Count - search.MaxSearches]
-                + TimeSpan.FromSeconds(search.WindowSeconds);
+                + TimeSpan.FromSeconds(search.WindowSeconds)
+                + TimeSpan.FromMilliseconds(1);
 
             if (windowOpens > earliest)
             {

@@ -6,7 +6,7 @@ namespace Wondarr.Sources.Slskd;
 /// <summary>A point-in-time view of the search budget, for the status API.</summary>
 /// <param name="SubmittedInWindow">How many searches were submitted inside the current window.</param>
 /// <param name="Outstanding">How many leases are currently held.</param>
-/// <param name="NextAllowedAt">When the next search may be submitted, or <c>null</c> if it may go now.</param>
+/// <param name="NextAllowedAt">When the next search may be submitted, or <c>null</c> if it may go now (or waits for a lease).</param>
 public sealed record SoulseekSearchBudgetSnapshot(int SubmittedInWindow, int Outstanding, DateTimeOffset? NextAllowedAt);
 
 /// <summary>
@@ -29,19 +29,36 @@ public interface ISoulseekSearchBudget
 }
 
 /// <inheritdoc />
+/// <remarks>
+/// <para>
+/// Waiters queue on a turnstile (<see cref="SemaphoreSlim"/> hands its async waiters out in arrival
+/// order) and only the waiter at the head evaluates the limits — and it keeps the turnstile for the
+/// whole of its wait, so nobody can overtake it and fairness is strictly first come, first served.
+/// </para>
+/// <para>
+/// A freed slot is announced by completing the current "generation" task and replacing it, which
+/// wakes whoever is waiting at that moment; the head captures the generation under the state lock
+/// before it checks, so a release between the check and the wait cannot be lost.
+/// </para>
+/// <para>
+/// Times are <see cref="TimeProvider.GetTimestamp"/> values (monotonic): a wall-clock step (NTP,
+/// DST) can neither empty the window early nor stall it.
+/// </para>
+/// </remarks>
 public sealed partial class SoulseekSearchBudget : ISoulseekSearchBudget, IDisposable
 {
-    private readonly SemaphoreSlim _sync = new(1, 1);
-    private readonly SemaphoreSlim _slotReleased = new(0, int.MaxValue);
+    private readonly SemaphoreSlim _turnstile = new(1, 1);
+    private readonly Lock _state = new();
     private readonly TimeProvider _timeProvider;
     private readonly IOptionsMonitor<SoulseekOptions> _options;
     private readonly ILogger<SoulseekSearchBudget> _logger;
 
-    /// <summary>Submission times still inside the window, oldest first.</summary>
-    private readonly LinkedList<DateTimeOffset> _submissions = new();
+    /// <summary>Submission timestamps still inside the window, oldest first.</summary>
+    private readonly Queue<long> _submissions = new();
 
-    private DateTimeOffset? _lastSubmission;
+    private long? _lastSubmission;
     private int _outstanding;
+    private TaskCompletionSource _slotReleased = NewGeneration();
 
     /// <summary>Initialises a new instance of the <see cref="SoulseekSearchBudget"/> class.</summary>
     /// <param name="options">Soulseek settings, whose <c>search</c> section holds the limits.</param>
@@ -64,149 +81,149 @@ public sealed partial class SoulseekSearchBudget : ISoulseekSearchBudget, IDispo
     /// <inheritdoc />
     public async Task<IAsyncDisposable> AcquireAsync(CancellationToken cancellationToken)
     {
-        while (true)
+        await _turnstile.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            TimeSpan? wait = null;
-            var waitForSlot = false;
-            var reason = string.Empty;
-
-            // One waiter at a time checks and records. SemaphoreSlim releases its waiters in arrival
-            // order, so the queue stays FIFO; everything before it is only reading.
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            while (true)
             {
-                var search = _options.CurrentValue.Search;
-                var window = TimeSpan.FromSeconds(search.WindowSeconds);
-                var now = _timeProvider.GetUtcNow();
+                cancellationToken.ThrowIfCancellationRequested();
 
-                while (_submissions.First is { } oldest && oldest.Value <= now - window)
-                {
-                    _submissions.RemoveFirst();
-                }
+                Task? slotReleased = null;
+                var wait = TimeSpan.Zero;
+                var reason = string.Empty;
 
-                if (_outstanding >= search.MaxOutstanding)
+                lock (_state)
                 {
-                    waitForSlot = true;
-                    reason = $"{_outstanding} outstanding";
-                }
-                else if (_submissions.Count >= search.MaxSearches)
-                {
-                    // The oldest submission has to leave the window before this one can go.
-                    wait = _submissions.First!.Value + window - now;
-                    reason = "window full";
-                }
-                else
-                {
-                    var earliest = _lastSubmission + TimeSpan.FromSeconds(search.MinSpacingSeconds);
+                    var search = _options.CurrentValue.Search;
+                    var now = _timeProvider.GetTimestamp();
+                    Prune(now, search);
 
-                    if (earliest > now)
+                    if (_outstanding >= search.MaxOutstanding)
                     {
-                        wait = earliest - now;
-                        reason = "spacing";
+                        // Captured under the lock: a lease released after this point completes it.
+                        slotReleased = _slotReleased.Task;
+                        reason = $"{_outstanding} outstanding";
+                    }
+                    else if (WaitFor(now, search) is var remaining && remaining > TimeSpan.Zero)
+                    {
+                        wait = remaining;
+                        reason = _submissions.Count >= search.MaxSearches ? "window full" : "spacing";
                     }
                     else
                     {
-                        _submissions.AddLast(now);
+                        _submissions.Enqueue(now);
                         _lastSubmission = now;
                         _outstanding++;
 
                         return new Lease(this);
                     }
                 }
+
+                if (slotReleased is not null)
+                {
+                    LogWaitingForSlot(_logger, reason);
+                    await slotReleased.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Task.Delay truncates to whole milliseconds: round up, or a sub-millisecond wait
+                    // becomes Delay(0) and the loop spins until the clock moves.
+                    wait = TimeSpan.FromMilliseconds(Math.Ceiling(wait.TotalMilliseconds));
+                    LogWaiting(_logger, wait, reason);
+
+                    // Timers can fire early; the loop re-checks every condition after each wake.
+                    await Task.Delay(wait, _timeProvider, cancellationToken).ConfigureAwait(false);
+                }
             }
-            finally
-            {
-                _sync.Release();
-            }
-
-            if (waitForSlot)
-            {
-                LogWaitingForSlot(_logger, reason);
-
-                // Released by whichever lease is disposed next; the wake re-checks every condition.
-                await _slotReleased.WaitAsync(cancellationToken).ConfigureAwait(false);
-                continue;
-            }
-
-            LogWaiting(_logger, wait ?? TimeSpan.Zero, reason);
-
-            // Timers can fire early, so every wake re-checks all three conditions rather than
-            // assuming this one delay was enough.
-            await Task.Delay(wait ?? TimeSpan.Zero, _timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _turnstile.Release();
         }
     }
 
     /// <inheritdoc />
     public SoulseekSearchBudgetSnapshot Snapshot()
     {
-        // The critical section never awaits, so this only ever blocks for a few instructions.
-        _sync.Wait();
-        try
+        lock (_state)
         {
             var search = _options.CurrentValue.Search;
-            var window = TimeSpan.FromSeconds(search.WindowSeconds);
-            var now = _timeProvider.GetUtcNow();
+            var now = _timeProvider.GetTimestamp();
+            Prune(now, search);
 
-            while (_submissions.First is { } oldest && oldest.Value <= now - window)
+            DateTimeOffset? next = null;
+            if (_outstanding < search.MaxOutstanding && WaitFor(now, search) is var remaining && remaining > TimeSpan.Zero)
             {
-                _submissions.RemoveFirst();
+                next = _timeProvider.GetUtcNow() + remaining;
             }
 
-            var next = _outstanding >= search.MaxOutstanding
-                ? (DateTimeOffset?)null
-                : EarliestSubmission(search, window);
-
-            return new SoulseekSearchBudgetSnapshot(
-                _submissions.Count,
-                _outstanding,
-                next > now ? next : null);
+            return new SoulseekSearchBudgetSnapshot(_submissions.Count, _outstanding, next);
         }
-        finally
-        {
-            _sync.Release();
-        }
-    }
-
-    /// <summary>When the next submission may go, ignoring the outstanding count.</summary>
-    private DateTimeOffset? EarliestSubmission(SoulseekSearchOptions search, TimeSpan window)
-    {
-        var earliest = _lastSubmission + TimeSpan.FromSeconds(search.MinSpacingSeconds);
-
-        if (_submissions.Count >= search.MaxSearches)
-        {
-            var windowOpens = _submissions.First!.Value + window;
-            if (earliest is null || windowOpens > earliest)
-            {
-                earliest = windowOpens;
-            }
-        }
-
-        return earliest;
     }
 
     /// <inheritdoc />
-    public void Dispose()
+    public void Dispose() => _turnstile.Dispose();
+
+    private static TaskCompletionSource NewGeneration() =>
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Drops submissions that are more than a whole window old. A submission exactly one window old
+    /// still counts, so any closed interval of the window's length holds at most the maximum.
+    /// </summary>
+    private void Prune(long now, SoulseekSearchOptions search)
     {
-        _sync.Dispose();
-        _slotReleased.Dispose();
+        var window = TimeSpan.FromSeconds(search.WindowSeconds);
+
+        while (_submissions.Count > 0 && _timeProvider.GetElapsedTime(_submissions.Peek(), now) > window)
+        {
+            _submissions.Dequeue();
+        }
     }
 
-    private async Task ReleaseAsync()
+    /// <summary>
+    /// How long the next submission must still wait for the window and the spacing (not the
+    /// outstanding count); zero when it may go now.
+    /// </summary>
+    private TimeSpan WaitFor(long now, SoulseekSearchOptions search)
     {
-        await _sync.WaitAsync().ConfigureAwait(false);
-        try
+        var wait = TimeSpan.Zero;
+
+        if (_lastSubmission is { } last)
         {
-            _outstanding--;
-        }
-        finally
-        {
-            _sync.Release();
+            var spacing = TimeSpan.FromSeconds(search.MinSpacingSeconds) - _timeProvider.GetElapsedTime(last, now);
+            if (spacing > wait)
+            {
+                wait = spacing;
+            }
         }
 
-        if (_slotReleased.CurrentCount < int.MaxValue)
+        if (_submissions.Count >= search.MaxSearches)
         {
-            _slotReleased.Release();
+            // The oldest of the last MaxSearches submissions must be strictly more than a window old.
+            var oldest = _submissions.ElementAt(_submissions.Count - search.MaxSearches);
+            var window = TimeSpan.FromSeconds(search.WindowSeconds) - _timeProvider.GetElapsedTime(oldest, now);
+            if (window >= TimeSpan.Zero && window + TimeSpan.FromTicks(1) > wait)
+            {
+                wait = window + TimeSpan.FromTicks(1);
+            }
         }
+
+        return wait;
+    }
+
+    private void Release()
+    {
+        TaskCompletionSource released;
+
+        lock (_state)
+        {
+            _outstanding--;
+            released = _slotReleased;
+            _slotReleased = NewGeneration();
+        }
+
+        released.TrySetResult();
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Soulseek search budget: waiting {Wait} before submitting ({Reason})")]
@@ -224,14 +241,14 @@ public sealed partial class SoulseekSearchBudget : ISoulseekSearchBudget, IDispo
 
         public Lease(SoulseekSearchBudget budget) => _budget = budget;
 
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
             {
-                return;
+                _budget.Release();
             }
 
-            await _budget.ReleaseAsync().ConfigureAwait(false);
+            return ValueTask.CompletedTask;
         }
     }
 }

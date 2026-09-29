@@ -219,6 +219,86 @@ public class SlskdSearchRunnerTests
         return await run;
     }
 
+    [Fact]
+    public async Task Deletes_the_search_when_the_start_fails_after_the_request_may_have_reached_slskd()
+    {
+        var time = new FakeTimeProvider(Start);
+        var api = Substitute.For<ISlskdSearchApi>();
+        var budget = new RecordingBudget();
+        using var provider = Provider(api);
+
+        Guid started = default;
+        api.StartAsync(Arg.Any<SlskdSearchRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Task<SlskdSearch>>(call =>
+            {
+                started = call.Arg<SlskdSearchRequest>().Id;
+                throw new HttpRequestException("500 after the POST was received");
+            });
+        RecordsDelete(api, budget);
+
+        var run = () => Runner(provider, time, budget).RunAsync(SearchText, CancellationToken.None);
+
+        await run.Should().ThrowAsync<HttpRequestException>();
+        await api.Received(1).DeleteAsync(started, Arg.Any<CancellationToken>());
+        budget.Events.Should().Equal("acquire", "delete", "release");
+    }
+
+    [Fact]
+    public async Task Deletes_the_search_and_then_releases_the_slot_when_a_poll_fails()
+    {
+        var time = new FakeTimeProvider(Start);
+        var api = Substitute.For<ISlskdSearchApi>();
+        var budget = new RecordingBudget();
+        using var provider = Provider(api);
+
+        api.StartAsync(Arg.Any<SlskdSearchRequest>(), Arg.Any<CancellationToken>()).Returns(InProgress());
+        api.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns<Task<SlskdSearch?>>(_ => throw new HttpRequestException("connection reset"));
+        RecordsDelete(api, budget);
+
+        var run = () => RunAsync(time, Runner(provider, time, budget), budget);
+
+        await run.Should().ThrowAsync<HttpRequestException>();
+        await api.Received(1).DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+        budget.Events.Should().Equal("acquire", "delete", "release");
+    }
+
+    [Fact]
+    public async Task The_wall_clock_also_bounds_a_poll_that_never_answers()
+    {
+        var time = new FakeTimeProvider(Start);
+        var api = Substitute.For<ISlskdSearchApi>();
+        var budget = new RecordingBudget();
+        using var provider = Provider(api);
+
+        api.StartAsync(Arg.Any<SlskdSearchRequest>(), Arg.Any<CancellationToken>()).Returns(InProgress());
+
+        // The first poll hangs until its token is cancelled; after the stop, slskd answers again.
+        var stopped = false;
+        api.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(call => stopped
+                ? Task.FromResult<SlskdSearch?>(Complete())
+                : Task.Delay(Timeout.Infinite, call.Arg<CancellationToken>()).ContinueWith<SlskdSearch?>(
+                    task => throw new TaskCanceledException(task),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default));
+        api.StopAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                stopped = true;
+                return Task.CompletedTask;
+            });
+        api.GetResponsesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([Response()]);
+        RecordsDelete(api, budget);
+
+        var result = await RunAsync(time, Runner(provider, time, budget), budget);
+
+        result.StoppedByWallClock.Should().BeTrue();
+        result.Responses.Should().ContainSingle();
+        budget.Events.Should().Equal("acquire", "delete", "release");
+    }
+
     /// <summary>Records the delete in the budget's event log, so the order of the two is visible.</summary>
     private static void RecordsDelete(ISlskdSearchApi api, RecordingBudget budget) =>
         api.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
