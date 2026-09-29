@@ -134,7 +134,86 @@ public sealed class MissingSearchCommandHandlerTests
         host.Provider.Requests[0].Title.Should().Be("Alpha");
     }
 
-    /// <summary>Seeds the song's run history: <paramref name="fruitlessRuns"/> fruitless runs then an older good one.</summary>
+    [Fact]
+public async Task A_manual_search_does_not_lengthen_the_backoff()
+{
+    await using var host = await SearchTestHost.CreateAsync();
+    var songId = await host.SeedSongAsync();
+    host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+    await using (var context = host.Database.CreateContext(host.Time))
+    {
+        var now = host.Time.GetUtcNow().UtcDateTime;
+
+        context.SearchRuns.Add(new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = now.AddHours(-5),
+            FinishedAt = now.AddHours(-5),
+            Outcome = SearchOutcome.NoResults,
+        });
+
+        // The user's own search half an hour ago says nothing about when the loop should try again.
+        context.SearchRuns.Add(new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Manual,
+            StartedAt = now.AddMinutes(-30),
+            FinishedAt = now.AddMinutes(-30),
+            Outcome = SearchOutcome.NoResults,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
+    var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+    host.Provider.Requests.Should().ContainSingle("the manual run must not hold the loop back");
+    message.Should().Be("1 songs: 1 grabbed, 0 without an acceptable result, 0 skipped");
+}
+
+[Fact]
+public async Task A_failed_run_neither_resets_nor_lengthens_the_backoff()
+{
+    await using var host = await SearchTestHost.CreateAsync();
+    var songId = await host.SeedSongAsync();
+    host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+    await using (var context = host.Database.CreateContext(host.Time))
+    {
+        var now = host.Time.GetUtcNow().UtcDateTime;
+
+        context.SearchRuns.Add(new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = now.AddHours(-2),
+            FinishedAt = now.AddHours(-2),
+            Outcome = SearchOutcome.NoResults,
+        });
+
+        // A run that errored is not an attempt the backoff counts: the wait still dates from the
+        // fruitless run two hours ago, which is longer than the first backoff step.
+        context.SearchRuns.Add(new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = now.AddMinutes(-30),
+            FinishedAt = now.AddMinutes(-30),
+            Outcome = SearchOutcome.Failed,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
+    var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+    host.Provider.Requests.Should().ContainSingle();
+    message.Should().Be("1 songs: 1 grabbed, 0 without an acceptable result, 0 skipped");
+}
+
+/// <summary>Seeds the song's run history: <paramref name="fruitlessRuns"/> fruitless runs then an older good one.</summary>
     private static async Task SeedRunsAsync(
         SearchTestHost host,
         long songId,

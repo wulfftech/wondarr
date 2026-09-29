@@ -20,6 +20,9 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     /// <summary>The name the <c>MissingSearch</c> scheduled task queues.</summary>
     public const string CommandName = "MissingSearch";
 
+    /// <summary>How long the batch waits between two warnings that every download slot is taken.</summary>
+    private static readonly TimeSpan SlotWarningInterval = TimeSpan.FromMinutes(10);
+
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<SearchOptions> _options;
     private readonly TimeProvider _timeProvider;
@@ -132,31 +135,47 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     private async Task<List<long>> SelectAsync(SearchOptions options, CancellationToken cancellationToken)
     {
         List<MissingSongRow> candidates;
+        List<SearchRun> runs;
 
         using (var scope = _scopes.CreateScope())
         {
             var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
-            candidates = await database.Songs
+            var wanted = database.Songs
                 .AsNoTracking()
                 .Where(song => song.Monitored && song.File == null)
                 .Where(song => !database.QueueItems.Any(item =>
                     item.SongId == song.Id
                     && (item.State == QueueItemState.Queued
                         || item.State == QueueItemState.RemotelyQueued
-                        || item.State == QueueItemState.Downloading)))
-                .Select(song => new MissingSongRow(
-                    song.Id,
-                    song.CreatedAt,
-                    database.SearchRuns
-                        .Where(run => run.SongId == song.Id)
-                        .OrderByDescending(run => run.StartedAt)
-                        .ThenByDescending(run => run.Id)
-                        .Select(run => (DateTime?)run.StartedAt)
-                        .FirstOrDefault()))
+                        || item.State == QueueItemState.Downloading)));
+
+            candidates = await wanted
+                .Select(song => new MissingSongRow(song.Id, song.CreatedAt, null))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            // One query for the candidate songs and one for their recent runs: asking per song would
+            // be a query per wanted song on every scheduled run. Only the runs the longest backoff can
+            // reach are needed — anything older leaves the song eligible either way.
+            var horizon = _timeProvider.GetUtcNow().UtcDateTime.AddHours(-options.BackoffHours.DefaultIfEmpty(0).Max());
+
+            runs = await database.SearchRuns
+                .AsNoTracking()
+                .Where(run => run.StartedAt >= horizon && wanted.Any(song => song.Id == run.SongId))
+                .OrderByDescending(run => run.StartedAt)
+                .ThenByDescending(run => run.Id)
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        var bySong = runs.ToLookup(run => run.SongId);
+
+        candidates = [.. candidates.Select(candidate => candidate with
+        {
+            // The lookup hands the runs back newest first, as the query ordered them.
+            LastRunAt = bySong[candidate.SongId].Select(run => (DateTime?)run.StartedAt).FirstOrDefault(),
+        })];
 
         candidates.Sort(CompareMissingSongs);
 
@@ -170,14 +189,7 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
                 break;
             }
 
-            using var scope = _scopes.CreateScope();
-            var runs = scope.ServiceProvider.GetRequiredService<ISearchRunService>();
-
-            var recent = await runs
-                .GetRecentRunsAsync(candidate.SongId, Math.Max(1, options.BackoffHours.Count), cancellationToken)
-                .ConfigureAwait(false);
-
-            if (IsEligible(recent, options, now))
+            if (IsEligible([.. bySong[candidate.SongId]], options, now))
             {
                 selected.Add(candidate.SongId);
             }
@@ -205,16 +217,35 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     /// Whether the song's backoff has expired: the nth consecutive fruitless run waits
     /// <c>BackoffHours[min(n − 1, last)]</c>, and a song that was never searched is always eligible.
     /// </summary>
-    private static bool IsEligible(IReadOnlyList<SearchRun> recent, SearchOptions options, DateTime now)
+    /// <remarks>
+    /// Only the runs the automatic loop itself finished speak for the backoff. A run the user asked
+    /// for (<see cref="SearchTrigger.Manual"/>) says nothing about when this loop should try again, and
+    /// a run that neither found a candidate nor reached a verdict — failed, cancelled, or with no
+    /// source to ask — counts as neither a fruitless attempt (which would lengthen the wait) nor a
+    /// success (which would reset it).
+    /// </remarks>
+    private static bool IsEligible(IReadOnlyList<SearchRun> runs, SearchOptions options, DateTime now)
     {
-        if (recent.Count == 0 || options.BackoffHours.Count == 0)
+        if (options.BackoffHours.Count == 0)
+        {
+            return true;
+        }
+
+        var counted = runs
+            .Where(run => run.Trigger != SearchTrigger.Manual
+                && run.Outcome is SearchOutcome.NoResults or SearchOutcome.NoAcceptableCandidate or SearchOutcome.Grabbed)
+            .OrderByDescending(run => run.StartedAt)
+            .ThenByDescending(run => run.Id)
+            .ToList();
+
+        if (counted.Count == 0)
         {
             return true;
         }
 
         var failures = 0;
 
-        foreach (var run in recent)
+        foreach (var run in counted)
         {
             if (run.Outcome is SearchOutcome.NoResults or SearchOutcome.NoAcceptableCandidate)
             {
@@ -228,12 +259,14 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
 
         var index = Math.Clamp(failures - 1, 0, options.BackoffHours.Count - 1);
 
-        return now - recent[0].StartedAt >= TimeSpan.FromHours(options.BackoffHours[index]);
+        return now - counted[0].StartedAt >= TimeSpan.FromHours(options.BackoffHours[index]);
     }
 
     /// <summary>Waits until fewer than <see cref="SearchOptions.MaxActiveDownloads"/> grabs are in flight.</summary>
     private async Task WaitForSlotAsync(SearchOptions options, CancellationToken cancellationToken)
     {
+        var lastWarning = _timeProvider.GetUtcNow();
+
         while (true)
         {
             int active;
@@ -257,7 +290,15 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
                 return;
             }
 
-            LogWaitingForSlot(_logger, active, options.MaxActiveDownloads);
+            // A stall here is not visible anywhere else — the batch simply stops — so the wait says so
+            // out loud, but only once every ten minutes rather than on every poll.
+            var now = _timeProvider.GetUtcNow();
+
+            if (now - lastWarning >= SlotWarningInterval)
+            {
+                LogWaitingForSlot(_logger, active);
+                lastWarning = now;
+            }
 
             await Task.Delay(TimeSpan.FromSeconds(options.SlotWaitSeconds), _timeProvider, cancellationToken)
                 .ConfigureAwait(false);
@@ -270,8 +311,6 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     [LoggerMessage(Level = LogLevel.Warning, Message = "Searching song {SongId} failed; the batch continues")]
     private static partial void LogSongFailed(ILogger logger, long songId, Exception exception);
 
-    [LoggerMessage(
-        Level = LogLevel.Debug,
-        Message = "{Active} downloads are in flight (limit {Limit}); waiting for a free slot")]
-    private static partial void LogWaitingForSlot(ILogger logger, int active, int limit);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Waiting for a download slot: {Active} active")]
+    private static partial void LogWaitingForSlot(ILogger logger, int active);
 }
