@@ -166,9 +166,14 @@ def parse_time(value: str) -> dt.datetime:
     return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def budget_from_fake(url: str) -> tuple[list[dt.datetime], int]:
-    with urllib.request.urlopen(url, timeout=30) as response:
-        data = json.loads(response.read())
+def budget_from_fake(url: str | None, command: str | None) -> tuple[list[dt.datetime], int]:
+    if command:
+        # The fake listens on the container's loopback; the smoke test reads it through a helper container.
+        import subprocess
+        data = json.loads(subprocess.run(command, shell=True, check=True, capture_output=True, text=True).stdout)
+    else:
+        with urllib.request.urlopen(url, timeout=30) as response:
+            data = json.loads(response.read())
     return sorted(parse_time(s["postedAt"]) for s in data["searches"]), int(data.get("maxInFlight", 0))
 
 
@@ -269,6 +274,7 @@ def main() -> int:
     parser.add_argument("--min-ratio", type=float, default=0.80)
     parser.add_argument("--expect-caught", type=int, default=0, help="at least this many wrong files caught and replaced")
     parser.add_argument("--fake-log", help="FakeSlskd /fake/log URL (CI)")
+    parser.add_argument("--fake-log-cmd", help="a shell command printing FakeSlskd's /fake/log JSON (when the URL is not reachable)")
     parser.add_argument("--app-log", type=Path, help="the app's JSON log file (real slskd)")
     parser.add_argument("--share-toggle", action="store_true")
     parser.add_argument("--audit", type=int, default=0)
@@ -296,9 +302,10 @@ def main() -> int:
         raise SystemExit(f"FAIL: expected at least {args.expect_caught} wrong file(s) caught, saw {len(caught)}")
     log(f"ok   {len(caught)} wrong file(s) caught and replaced without user action")
 
-    if args.fake_log or args.app_log:
-        times, in_flight = budget_from_fake(args.fake_log) if args.fake_log else budget_from_app_log(args.app_log)
-        check_budget(times, in_flight, slack_s=0.0 if args.fake_log else 0.5)
+    if args.fake_log or args.fake_log_cmd or args.app_log:
+        fake = bool(args.fake_log or args.fake_log_cmd)
+        times, in_flight = budget_from_fake(args.fake_log, args.fake_log_cmd) if fake else budget_from_app_log(args.app_log)
+        check_budget(times, in_flight, slack_s=0.0 if fake else 0.5)
         log("ok   the Soulseek search budget held (<= 30 per 240 s, >= 5 s apart, <= 2 in flight)")
 
     if args.share_toggle:
