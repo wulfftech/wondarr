@@ -74,6 +74,21 @@ public sealed class TagWriterTests(ITestOutputHelper output)
     }
 
     [Theory]
+    [InlineData("tone.flac")]
+    [InlineData("tone-160.opus")]
+    public async Task Writes_the_vorbis_original_date_under_its_exact_field_name(string fixture)
+    {
+        using var media = new TestMedia();
+        var path = media.Copy(fixture);
+
+        var result = await Writer.WriteAsync(path, GetLucky, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        var raw = Encoding.Latin1.GetString(TestMedia.Bytes(path));
+        raw.Should().Contain("ORIGINALDATE=2013-04-19").And.NotContain("ORIGINALDATE =");
+    }
+
+    [Theory]
     [MemberData(nameof(TestMedia.Formats), MemberType = typeof(TestMedia))]
     public async Task Writes_a_year_and_month_date(string fixture)
     {
@@ -129,7 +144,10 @@ public sealed class TagWriterTests(ITestOutputHelper output)
         // The original date has no MP4 atom; ID3v2 keeps it in TDOR and Vorbis in ORIGINALDATE.
         if (vorbis)
         {
-            read.OriginalReleaseDate.Should().Be(new DateTime(2013, 4, 19));
+            // ATL cannot read the correctly spelled Vorbis field back (it maps only its own
+            // "ORIGINALDATE " spelling); the raw bytes are checked below and in
+            // Writes_the_vorbis_original_date_under_its_exact_field_name.
+            result.Written["OriginalDate"].Should().Be("2013-04-19");
         }
         else if (fixture.EndsWith(".mp3", StringComparison.Ordinal))
         {
