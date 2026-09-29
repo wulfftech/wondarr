@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router';
 import { firstPage, type Paging } from '../api/paging';
 import { useQualityProfiles } from '../api/profiles';
 import { useWantedCutoff, useWantedMissing, type SongPage, type SongResource } from '../api/wanted';
+import { SongSearchButtons } from '../components/InteractiveSearchModal';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
 
@@ -30,6 +31,19 @@ function wantedColumns(profileNames: Map<string, string>): PagedColumn<SongResou
       render: (song) => profileNames.get(String(song.qualityProfileId)) ?? `#${song.qualityProfileId}`,
     },
     { label: 'Added', sortKey: 'added', width: 120, render: (song) => formatDate(song.added) },
+    {
+      label: 'Search',
+      sortKey: null,
+      width: 100,
+      render: (song) => (
+        <SongSearchButtons
+          songId={Number(song.id)}
+          title={song.title}
+          artistCredit={song.artistCredit}
+          durationMs={song.durationMs === null ? null : Number(song.durationMs)}
+        />
+      ),
+    },
   ];
 }
 

@@ -155,6 +155,78 @@ describe('LibraryPage', () => {
     });
   });
 
+  it('starts the automatic search for a song when its search button is used', async () => {
+    installFetch((url, init) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse(SYSTEM_STATUS);
+      }
+
+      if (url.includes('/api/v1/health')) {
+        return jsonResponse(HEALTH_ENTRIES);
+      }
+
+      if (url.includes('/api/v1/command')) {
+        return jsonResponse({}, init?.method === 'POST' ? 201 : 200);
+      }
+
+      if (url.includes('/api/v1/artist')) {
+        return jsonResponse(ARTISTS);
+      }
+
+      return jsonResponse(paged(LIBRARY_SONGS));
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Search for Get Lucky'));
+
+    await waitFor(() => {
+      expect(sent().some((request) => request.method === 'POST' && request.url.endsWith('/api/v1/command'))).toBe(true);
+    });
+
+    const post = sent().find((request) => request.method === 'POST');
+    const body = JSON.parse(await (post?.body ?? Promise.resolve('{}'))) as { name: string; body: string };
+
+    expect(body.name).toBe('SongSearch');
+    expect(JSON.parse(body.body)).toEqual({ songId: 12 });
+  });
+
+  it('opens the interactive search for a song when its button is used', async () => {
+    installFetch((url) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse(SYSTEM_STATUS);
+      }
+
+      if (url.includes('/api/v1/health')) {
+        return jsonResponse(HEALTH_ENTRIES);
+      }
+
+      if (url.includes('/api/v1/release')) {
+        return jsonResponse({
+          searchRunId: 5,
+          outcome: 'noResults',
+          message: 'Nothing answered.',
+          releases: [],
+        });
+      }
+
+      if (url.includes('/api/v1/artist')) {
+        return jsonResponse(ARTISTS);
+      }
+
+      return jsonResponse(paged(LIBRARY_SONGS));
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Interactive search for Get Lucky'));
+
+    expect(await screen.findByText('No source returned anything: Nothing answered.')).toBeInTheDocument();
+    expect(screen.getByText('No candidate came back for this song.')).toBeInTheDocument();
+  });
+
   it('shows the empty state when the filters match nothing', async () => {
     installFetch((url) => {
       if (url.includes('/api/v1/system/status')) {

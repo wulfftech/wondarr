@@ -66,5 +66,7 @@ export function resetLocation(path = '/'): void {
 }
 
 export function renderApp(config: AppConfig = createTestConfig()): RenderResult {
-  return render(<App config={config} />);
+  // Mantine's test environment turns off transitions and portals: menus and modals open at once,
+  // so a click is never racing an animation (it made menu and modal tests flaky under load).
+  return render(<App config={config} env="test" />);
 }
