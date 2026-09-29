@@ -70,7 +70,8 @@ public sealed partial class SlskdWebhookController : ControllerBase
         // Bundled slskd is always on loopback; anything else did not come from it.
         var remote = HttpContext.GetRemoteIp();
 
-        if (remote is null || !IPAddress.IsLoopback(remote))
+        // A forwarded request came through a proxy, not straight from the bundled slskd.
+        if (remote is null || !IPAddress.IsLoopback(remote) || Request.Headers.ContainsKey("X-Forwarded-For"))
         {
             LogRejectedAddress(_logger, remote);
 
