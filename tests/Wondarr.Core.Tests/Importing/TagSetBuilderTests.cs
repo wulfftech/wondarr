@@ -50,7 +50,7 @@ public sealed class TagSetBuilderTests
             song,
             album,
             [(artist, ArtistRole.Main), (featured, ArtistRole.Featured)],
-            FakeDownloadVerifier.Passed(),
+            FakeDownloadVerifier.Passed().AcoustId,
             cover);
 
         tags.Title.Should().Be("Get Lucky");
@@ -96,7 +96,7 @@ public sealed class TagSetBuilderTests
             new Song { Title = "Xtal", ArtistCredit = "Aphex Twin" },
             new AlbumContext { AlbumTitle = "Selected Ambient Works", AlbumArtist = "Aphex Twin" },
             [(artist, ArtistRole.Main)],
-            FakeDownloadVerifier.Passed(),
+            FakeDownloadVerifier.Passed().AcoustId,
             null);
 
         tags.DiscNumber.Should().BeNull();
@@ -123,7 +123,7 @@ public sealed class TagSetBuilderTests
                 AlbumKey = SyntheticAlbumId,
             },
             [(artist, ArtistRole.Main)],
-            FakeDownloadVerifier.Passed(),
+            FakeDownloadVerifier.Passed().AcoustId,
             null);
 
         tags.MbReleaseId.Should().Be(SyntheticAlbumId);
@@ -141,7 +141,7 @@ public sealed class TagSetBuilderTests
             new Song { Title = "One More Time", ArtistCredit = "Daft Punk" },
             new AlbumContext { Kind = kind, AlbumTitle = "One More Time", AlbumArtist = "Daft Punk" },
             [],
-            FakeDownloadVerifier.Passed(),
+            FakeDownloadVerifier.Passed().AcoustId,
             null);
 
         tags.ReleaseType.Should().Be(expected);
@@ -167,7 +167,7 @@ public sealed class TagSetBuilderTests
                 IsVariousArtists = true,
             },
             [(artist, ArtistRole.Main)],
-            FakeDownloadVerifier.Passed(),
+            FakeDownloadVerifier.Passed().AcoustId,
             null);
 
         // Plex reads a compilation from the album-artist MBID, not from the iTunes flag alone.

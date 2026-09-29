@@ -95,9 +95,7 @@ public sealed partial class ImportService : IImportService
 
     private readonly WondarrDbContext _database;
     private readonly IDownloadVerifier _verifier;
-    private readonly ITagWriter _tagWriter;
-    private readonly IFilePlacer _placer;
-    private readonly ICoverFetcher _coverFetcher;
+    private readonly ILibraryOrganizer _organizer;
     private readonly ISongSearchService _search;
     private readonly IEventAggregator _events;
     private readonly IOptionsMonitor<SearchOptions> _options;
@@ -107,9 +105,7 @@ public sealed partial class ImportService : IImportService
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the song and the file are written through it.</param>
     /// <param name="verifier">Decides whether the file is the wanted recording.</param>
-    /// <param name="tagWriter">Writes the tag set into the file.</param>
-    /// <param name="placer">Puts the file at its library path, recycling what it replaces.</param>
-    /// <param name="coverFetcher">Downloads the cover to embed.</param>
+    /// <param name="organizer">Tags, names and places the file, recycling what it replaces.</param>
     /// <param name="search">Grabs the next candidate when a file is refused.</param>
     /// <param name="events">Publishes the queue and import events.</param>
     /// <param name="options">The attempt budget a rejected file works within.</param>
@@ -118,9 +114,7 @@ public sealed partial class ImportService : IImportService
     public ImportService(
         WondarrDbContext database,
         IDownloadVerifier verifier,
-        ITagWriter tagWriter,
-        IFilePlacer placer,
-        ICoverFetcher coverFetcher,
+        ILibraryOrganizer organizer,
         ISongSearchService search,
         IEventAggregator events,
         IOptionsMonitor<SearchOptions> options,
@@ -129,9 +123,7 @@ public sealed partial class ImportService : IImportService
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(verifier);
-        ArgumentNullException.ThrowIfNull(tagWriter);
-        ArgumentNullException.ThrowIfNull(placer);
-        ArgumentNullException.ThrowIfNull(coverFetcher);
+        ArgumentNullException.ThrowIfNull(organizer);
         ArgumentNullException.ThrowIfNull(search);
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(options);
@@ -140,9 +132,7 @@ public sealed partial class ImportService : IImportService
 
         _database = database;
         _verifier = verifier;
-        _tagWriter = tagWriter;
-        _placer = placer;
-        _coverFetcher = coverFetcher;
+        _organizer = organizer;
         _search = search;
         _events = events;
         _options = options;
@@ -380,13 +370,26 @@ public sealed partial class ImportService : IImportService
                 .ConfigureAwait(false);
         }
 
-        // --- Tag --------------------------------------------------------------------------------
-        var cover = await _coverFetcher.FetchAsync(album.CoverUrl, cancellationToken).ConfigureAwait(false);
+        // --- Tag, name, place ---------------------------------------------------------------------
+        var placement = await _organizer
+            .OrganizeAsync(
+                new OrganizeRequest(
+                    song,
+                    album,
+                    credits,
+                    library,
+                    downloadPath,
+                    extension,
+                    media,
+                    measuredQuality,
+                    item.SourceType,
+                    verification.AcoustId,
+                    KeepSource: false,
+                    song.File?.Path),
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        var tags = TagSetBuilder.Build(song, album, credits, verification, cover);
-        var tagResult = await _tagWriter.WriteAsync(downloadPath, tags, cancellationToken).ConfigureAwait(false);
-
-        if (!tagResult.Success)
+        if (placement.Failure == OrganizeFailure.Tagging)
         {
             // The file passed verification, so a tagging failure is the tag writer's problem, not the
             // peer's: no blocklist entry and no next candidate (every other file would hit the same
@@ -394,7 +397,7 @@ public sealed partial class ImportService : IImportService
             // The song stays wanted and the next missing search tries again.
             await FailAsync(
                     item,
-                    $"Tagging failed: {tagResult.Error}",
+                    $"Tagging failed: {placement.Error}",
                     null,
                     null,
                     allowNextAttempt: false,
@@ -403,31 +406,6 @@ public sealed partial class ImportService : IImportService
 
             return ImportOutcome.Failed;
         }
-
-        // --- Name -------------------------------------------------------------------------------
-        var template = string.IsNullOrWhiteSpace(library.NamingTemplate)
-            ? NamingTemplate.PresetTemplates[library.Layout]
-            : library.NamingTemplate;
-
-        var primaryArtist = PrimaryArtist(song, credits);
-
-        var relative = NamingTemplate.Render(
-            template,
-            NamingValuesBuilder.Build(song, album, primaryArtist, media, measuredQuality, item.SourceType),
-            new NamingOptions(Extension: extension));
-
-        // --- Place ------------------------------------------------------------------------------
-        var placement = await _placer
-            .PlaceAsync(
-                new PlacementRequest(
-                    downloadPath,
-                    library.RootPath,
-                    relative,
-                    extension,
-                    TransferMode.Move,
-                    song.File?.Path),
-                cancellationToken)
-            .ConfigureAwait(false);
 
         if (!placement.Success || placement.FinalPath is null)
         {
@@ -476,7 +454,7 @@ public sealed partial class ImportService : IImportService
                     item.SearchRunId),
                 Json);
             file.ImportedAt = now;
-            file.TagsWritten = JsonSerializer.Serialize(tagResult.Written, Json);
+            file.TagsWritten = JsonSerializer.Serialize(placement.TagsWritten, Json);
 
             if (song.File is null)
             {
@@ -826,34 +804,6 @@ public sealed partial class ImportService : IImportService
 
             return NoMoreCandidates;
         }
-    }
-
-    /// <summary>The song's primary artist: the one it points at, or the first credit there is.</summary>
-    private static Artist PrimaryArtist(Song song, List<(Artist Artist, ArtistRole Role)> credits)
-    {
-        foreach (var credit in credits)
-        {
-            if (credit.Artist.Id == song.PrimaryArtistId)
-            {
-                return credit.Artist;
-            }
-        }
-
-        foreach (var credit in credits)
-        {
-            if (credit.Role == ArtistRole.Main)
-            {
-                return credit.Artist;
-            }
-        }
-
-        return credits.Count > 0
-            ? credits[0].Artist
-            : throw new InvalidOperationException(
-                string.Concat(
-                    "Song ",
-                    song.Id.ToString(CultureInfo.InvariantCulture),
-                    " has no credited artist."));
     }
 
     /// <summary>The song's stored version flags as a mask; unknown names are ignored.</summary>
