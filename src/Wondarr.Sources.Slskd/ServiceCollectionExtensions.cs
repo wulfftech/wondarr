@@ -41,6 +41,15 @@ public static class ServiceCollectionExtensions
         // retry loop here would hide that from it.
         services.AddHttpClient<ISlskdClient, SlskdClient>(client => client.Timeout = TimeSpan.FromSeconds(5));
 
+        // Each call is small (slskd is on loopback); the runner's wall-clock token bounds a whole search,
+        // this bounds one hung request.
+        services.AddHttpClient<ISlskdSearchApi, SlskdSearchApi>(client => client.Timeout = TimeSpan.FromSeconds(15));
+
+        // The budget is process-wide — one slskd account, one 30-per-4-minutes allowance — and the
+        // runner is a singleton that resolves the typed client per run from a scope of its own.
+        services.AddSingleton<ISoulseekSearchBudget, SoulseekSearchBudget>();
+        services.AddSingleton<ISlskdSearchRunner, SlskdSearchRunner>();
+
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<SlskdStatus>();
         services.AddSingleton<IHealthCheck, SlskdHealthCheck>();
