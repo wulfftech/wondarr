@@ -38,7 +38,7 @@ public sealed class SystemTaskTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var tasks = document.RootElement.EnumerateArray().ToList();
-        tasks.Should().HaveCount(2);
+        tasks.Should().HaveCount(3, "the catalog holds the two Phase 0 tasks and the missing-song search");
 
         var heartbeat = tasks.Single(task => task.GetProperty("taskName").GetString() == "Heartbeat");
         heartbeat.GetProperty("name").GetString().Should().Be("Heartbeat");
@@ -49,6 +49,10 @@ public sealed class SystemTaskTests
         var checkHealth = tasks.Single(task => task.GetProperty("taskName").GetString() == "CheckHealth");
         checkHealth.GetProperty("name").GetString().Should().Be("Check Health");
         checkHealth.GetProperty("interval").GetInt32().Should().Be(15);
+
+        var missingSearch = tasks.Single(task => task.GetProperty("taskName").GetString() == "MissingSearch");
+        missingSearch.GetProperty("name").GetString().Should().Be("Missing Search");
+        missingSearch.GetProperty("interval").GetInt32().Should().Be(360);
 
         // camelCase everywhere: no PascalCase leftovers.
         heartbeat.TryGetProperty("TaskName", out _).Should().BeFalse();
