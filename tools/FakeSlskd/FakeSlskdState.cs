@@ -29,6 +29,13 @@ public sealed class FakeSlskdState : IDisposable
     private int _maxInFlight;
     private int _nextToken = 1;
 
+    // What the last share scan found, per shared directory. Like slskd, the fake scans its shares on
+    // its first start and otherwise only when asked (PUT /api/v0/shares); a later start restores the
+    // last scan from its cache file. Files added since stay unshared until a rescan, which is exactly
+    // what the app's rescanner has to take care of.
+    private Dictionary<string, (int Directories, int Files)> _shareScan = new(StringComparer.Ordinal);
+    private int _shareScans;
+
     /// <summary>Initialises a new instance of the <see cref="FakeSlskdState"/> class.</summary>
     /// <param name="options">Configuration and scenario.</param>
     public FakeSlskdState(FakeSlskdOptions options)
@@ -37,6 +44,73 @@ public sealed class FakeSlskdState : IDisposable
 
         _options = options;
         _webhooks = new WebhookSender(options.Configuration.Webhooks);
+
+        if (!RestoreShareCache())
+        {
+            RescanShares();
+        }
+    }
+
+    /// <summary>How many share scans ran, the one at start included.</summary>
+    public int ShareScans
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _shareScans;
+            }
+        }
+    }
+
+    /// <summary>Scans the configured shared directories again, as <c>PUT /api/v0/shares</c> does.</summary>
+    public void RescanShares()
+    {
+        var scan = new Dictionary<string, (int Directories, int Files)>(StringComparer.Ordinal);
+
+        foreach (var directory in _options.Configuration.ShareDirectories)
+        {
+            scan[directory] = CountShare(directory);
+        }
+
+        lock (_gate)
+        {
+            _shareScan = scan;
+            _shareScans++;
+        }
+
+        if (_options.ShareCachePath is { } path)
+        {
+            var document = new JsonObject();
+
+            foreach (var (directory, counts) in scan)
+            {
+                document[directory] = new JsonArray(counts.Directories, counts.Files);
+            }
+
+            File.WriteAllText(path, document.ToJsonString());
+        }
+    }
+
+    /// <summary>Loads the last scan from the cache file, as a restarted slskd does.</summary>
+    private bool RestoreShareCache()
+    {
+        if (_options.ShareCachePath is not { } path || !File.Exists(path))
+        {
+            return false;
+        }
+
+        var scan = new Dictionary<string, (int Directories, int Files)>(StringComparer.Ordinal);
+
+        foreach (var (directory, counts) in JsonNode.Parse(File.ReadAllText(path))!.AsObject())
+        {
+            scan[directory] = (counts![0]!.GetValue<int>(), counts[1]!.GetValue<int>());
+        }
+
+        _shareScan = scan;
+        FakeSlskdLog.Info($"Share cache loaded from disk successfully. Sharing {scan.Values.Sum(c => c.Directories)} directories and {scan.Values.Sum(c => c.Files)} files");
+
+        return true;
     }
 
     /// <summary>The most searches that were in flight at any moment.</summary>
@@ -380,7 +454,7 @@ public sealed class FakeSlskdState : IDisposable
     {
         var configuration = _options.Configuration;
         var loggedIn = configuration.SoulseekUsername is not null;
-        var shares = CountShares(configuration.ShareDirectories);
+        var shares = ShareTotals();
 
         return new JsonObject
         {
@@ -458,7 +532,7 @@ public sealed class FakeSlskdState : IDisposable
 
         foreach (var directory in _options.Configuration.ShareDirectories)
         {
-            var counts = CountShare(directory);
+            var counts = ScannedShare(directory);
             var alias = LastSegment(directory);
 
             local.Add(new JsonObject
@@ -499,19 +573,20 @@ public sealed class FakeSlskdState : IDisposable
         return separator < 0 ? trimmed : trimmed[(separator + 1)..];
     }
 
-    private static (int Directories, int Files) CountShares(IReadOnlyList<string> directories)
+    private (int Directories, int Files) ShareTotals()
     {
-        var directoriesSeen = 0;
-        var filesSeen = 0;
-
-        foreach (var directory in directories)
+        lock (_gate)
         {
-            var counts = CountShare(directory);
-            directoriesSeen += counts.Directories;
-            filesSeen += counts.Files;
+            return (_shareScan.Values.Sum(counts => counts.Directories), _shareScan.Values.Sum(counts => counts.Files));
         }
+    }
 
-        return (directoriesSeen, filesSeen);
+    private (int Directories, int Files) ScannedShare(string directory)
+    {
+        lock (_gate)
+        {
+            return _shareScan.GetValueOrDefault(directory);
+        }
     }
 
     /// <summary>
