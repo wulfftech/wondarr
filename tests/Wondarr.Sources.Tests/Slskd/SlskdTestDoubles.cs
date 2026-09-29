@@ -70,7 +70,7 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 internal static class SlskdTestData
 {
     public static readonly SlskdRuntimeSecrets Secrets =
-        new(new string('a', 64), "wondarr", new string('b', 64));
+        new(new string('a', 64), "wondarr", new string('b', 64), new string('c', 64));
 
     /// <summary>A repository already holding <see cref="Secrets"/>, so a client test knows the key.</summary>
     public static InMemorySettingsRepository RepositoryWithRuntimeSecrets()

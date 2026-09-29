@@ -32,8 +32,31 @@ public sealed class SlskdConfigRenderer
         .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitNull)
         .Build();
 
-    /// <summary>Renders the complete <c>slskd.yml</c> for <paramref name="options"/>.</summary>
-    public string Render(SoulseekOptions options, SlskdRuntimeSecrets secrets)
+    /// <summary>Name slskd's webhook integration is registered under.</summary>
+    public const string WebhookName = "wondarr";
+
+    /// <summary>Header slskd sends Wondarr's generated token in.</summary>
+    public const string WebhookHeaderName = "X-Wondarr-Webhook";
+
+    /// <summary>The only event Wondarr wants: one file finished.</summary>
+    public const string WebhookEvent = "DownloadFileComplete";
+
+    /// <summary>How long slskd waits for Wondarr before giving up, in milliseconds.</summary>
+    public const int WebhookTimeoutMs = 5000;
+
+    /// <summary>How many times slskd re-sends a webhook Wondarr did not accept.</summary>
+    public const int WebhookAttempts = 3;
+
+    /// <summary>
+    /// Renders the complete <c>slskd.yml</c> for <paramref name="options"/>.
+    /// </summary>
+    /// <param name="options">The Soulseek settings to render.</param>
+    /// <param name="secrets">The generated credentials slskd authenticates with and to Wondarr.</param>
+    /// <param name="webhookUrl">
+    /// Where slskd should call Wondarr when a file finishes, or <c>null</c> to render no webhook
+    /// integration at all (completion is still detected by polling).
+    /// </param>
+    public string Render(SoulseekOptions options, SlskdRuntimeSecrets secrets, string? webhookUrl)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(secrets);
@@ -93,10 +116,32 @@ public sealed class SlskdConfigRenderer
                     SpeedLimit = options.UploadSpeedLimitKib,
                 },
             },
+            Integrations = webhookUrl is null ? null : Webhook(webhookUrl, secrets.WebhookToken),
         };
 
         return _serializer.Serialize(document);
     }
+
+    private static SlskdIntegrations Webhook(string url, string? token) => new()
+    {
+        Webhooks = new Dictionary<string, SlskdWebhook>(StringComparer.Ordinal)
+        {
+            [WebhookName] = new SlskdWebhook
+            {
+                On = [WebhookEvent],
+                Call = new SlskdWebhookCall
+                {
+                    Url = url,
+                    Headers =
+                    [
+                        new SlskdWebhookHeader { Name = WebhookHeaderName, Value = token },
+                    ],
+                },
+                Timeout = WebhookTimeoutMs,
+                Retry = new SlskdWebhookRetry { Attempts = WebhookAttempts },
+            },
+        },
+    };
 
     private sealed class SlskdDocument
     {
@@ -115,6 +160,8 @@ public sealed class SlskdConfigRenderer
         public SlskdShares Shares { get; set; } = new();
 
         public SlskdTransfers Transfers { get; set; } = new();
+
+        public SlskdIntegrations? Integrations { get; set; }
     }
 
     private sealed class SlskdFlags
@@ -200,5 +247,40 @@ public sealed class SlskdConfigRenderer
         public int Slots { get; set; }
 
         public int SpeedLimit { get; set; }
+    }
+
+    private sealed class SlskdIntegrations
+    {
+        public Dictionary<string, SlskdWebhook> Webhooks { get; set; } = new(StringComparer.Ordinal);
+    }
+
+    private sealed class SlskdWebhook
+    {
+        public List<string> On { get; set; } = [];
+
+        public SlskdWebhookCall Call { get; set; } = new();
+
+        public int Timeout { get; set; }
+
+        public SlskdWebhookRetry Retry { get; set; } = new();
+    }
+
+    private sealed class SlskdWebhookCall
+    {
+        public string? Url { get; set; }
+
+        public List<SlskdWebhookHeader> Headers { get; set; } = [];
+    }
+
+    private sealed class SlskdWebhookHeader
+    {
+        public string? Name { get; set; }
+
+        public string? Value { get; set; }
+    }
+
+    private sealed class SlskdWebhookRetry
+    {
+        public int Attempts { get; set; }
     }
 }
