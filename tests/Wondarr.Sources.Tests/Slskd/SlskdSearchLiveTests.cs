@@ -63,7 +63,7 @@ public sealed class SlskdSearchLiveTests
         var repository = Substitute.For<ISettingsRepository>();
         repository
             .GetAsync<SlskdRuntimeSecrets>(SlskdSecretsStore.SettingKey, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<SlskdRuntimeSecrets?>(new SlskdRuntimeSecrets(apiKey, "wondarr", apiKey)));
+            .Returns(Task.FromResult<SlskdRuntimeSecrets?>(new SlskdRuntimeSecrets(apiKey, "wondarr", apiKey, apiKey)));
         return repository;
     }
 }
