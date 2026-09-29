@@ -401,6 +401,11 @@ public sealed partial class SlskdHost : BackgroundService
                 Version = string.IsNullOrWhiteSpace(state.Version.Current) ? snapshot.Version : state.Version.Current,
                 PendingRestart = state.PendingRestart,
 
+                // What is actually shared right now — the settings page shows this next to the
+                // "share my library" toggle, which is how the Phase 2 gate is checked.
+                SharedDirectories = state.Shares.Directories,
+                SharedFiles = state.Shares.Files,
+
                 // A logged-in slskd means whatever the log said about the login no longer holds: a
                 // kick or a rejected account that has since been corrected must not stay on the page.
                 LoginProblem = state.Server.IsLoggedIn ? SlskdLoginProblem.None : snapshot.LoginProblem,

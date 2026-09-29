@@ -57,6 +57,8 @@ public enum SlskdLoginProblem
 /// <param name="LastCheckedAt">When the state was last updated.</param>
 /// <param name="LoginProblem">The login problem slskd's log last reported, if any.</param>
 /// <param name="LoginProblemAt">When that problem was reported.</param>
+/// <param name="SharedDirectories">How many directories slskd last reported sharing, if it answered.</param>
+/// <param name="SharedFiles">How many files slskd last reported sharing, if it answered.</param>
 public sealed record SlskdStatusSnapshot(
     SlskdState State,
     int? ProcessId = null,
@@ -69,7 +71,9 @@ public sealed record SlskdStatusSnapshot(
     string? LastError = null,
     DateTimeOffset? LastCheckedAt = null,
     SlskdLoginProblem? LoginProblem = null,
-    DateTimeOffset? LoginProblemAt = null)
+    DateTimeOffset? LoginProblemAt = null,
+    int? SharedDirectories = null,
+    int? SharedFiles = null)
 {
     /// <summary>The state before the supervisor has looked at anything.</summary>
     public static SlskdStatusSnapshot NotConfigured { get; } = new(SlskdState.NotConfigured);

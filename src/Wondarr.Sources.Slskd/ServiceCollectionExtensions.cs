@@ -1,8 +1,10 @@
+using Wondarr.Core.Configuration;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Wondarr.Sources.Slskd;
@@ -50,7 +52,16 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISoulseekSearchBudget, SoulseekSearchBudget>();
         services.AddSingleton<ISlskdSearchRunner, SlskdSearchRunner>();
 
-        services.AddSingleton<IProcessLauncher, ProcessLauncher>();
+        // Resolved by a factory, because the environment is a plain IDictionary rather than a service;
+// it is read once at start-up, exactly as WondarrPaths.Resolve reads it.
+services.AddSingleton<ISoulseekSettingsService>(provider => new SoulseekSettingsService(
+    provider.GetRequiredService<IOptionsMonitor<SoulseekOptions>>(),
+    provider.GetRequiredService<IConfigFileWriter>(),
+    provider.GetRequiredService<IValidateOptions<SoulseekOptions>>(),
+    Environment.GetEnvironmentVariables(),
+    provider.GetRequiredService<ILogger<SoulseekSettingsService>>()));
+
+services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<SlskdStatus>();
         services.AddSingleton<IHealthCheck, SlskdHealthCheck>();
         services.AddSingleton<IHealthCheck, SlskdDownloadFolderHealthCheck>();
