@@ -305,7 +305,9 @@ def main() -> int:
     if args.fake_log or args.fake_log_cmd or args.app_log:
         fake = bool(args.fake_log or args.fake_log_cmd)
         times, in_flight = budget_from_fake(args.fake_log, args.fake_log_cmd) if fake else budget_from_app_log(args.app_log)
-        check_budget(times, in_flight, slack_s=0.0 if fake else 0.5)
+        # The budget spaces submissions when it hands out the slot; the fake stamps them when the POST
+        # arrives, a few ms later and with jitter, so allow 0.1 s there (0.5 s for log timestamps).
+        check_budget(times, in_flight, slack_s=0.1 if fake else 0.5)
         log("ok   the Soulseek search budget held (<= 30 per 240 s, >= 5 s apart, <= 2 in flight)")
 
     if args.share_toggle:
