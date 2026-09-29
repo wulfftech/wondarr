@@ -29,6 +29,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\FakeSlskd\FakeSlskd.csproj" />
     <ProjectReference Include="..\..\src\Wondarr.Core\Wondarr.Core.csproj" />
     <ProjectReference Include="..\..\src\Wondarr.Sources.Slskd\Wondarr.Sources.Slskd.csproj" />
     <ProjectReference Include="..\..\src\Wondarr.Sources.Torznab\Wondarr.Sources.Torznab.csproj" />
