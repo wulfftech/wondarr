@@ -1,5 +1,13 @@
 import '@testing-library/jest-dom/vitest';
+import { configure } from '@testing-library/react';
 import { vi } from 'vitest';
+
+/**
+ * Mantine-heavy pages (the Library page with its modals and per-row buttons) can take longer than
+ * Testing Library's default 1 s to settle when the machine is busy; a longer wait only matters for a
+ * failing test and removes a load-dependent flake.
+ */
+configure({ asyncUtilTimeout: 3000 });
 
 /**
  * jsdom has no `matchMedia`, and Mantine's `auto` colour scheme reads it on every render.
