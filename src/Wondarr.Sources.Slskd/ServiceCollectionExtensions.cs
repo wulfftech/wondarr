@@ -1,5 +1,6 @@
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Logging;
+using Wondarr.Core.Sources;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -56,6 +57,9 @@ public static class ServiceCollectionExtensions
         // runner is a singleton that resolves the typed client per run from a scope of its own.
         services.AddSingleton<ISoulseekSearchBudget, SoulseekSearchBudget>();
         services.AddSingleton<ISlskdSearchRunner, SlskdSearchRunner>();
+
+        // One registration per source type: later phases add their own next to this one.
+        services.AddSingleton<ISourceProvider, SoulseekSourceProvider>();
 
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<SlskdStatus>();
