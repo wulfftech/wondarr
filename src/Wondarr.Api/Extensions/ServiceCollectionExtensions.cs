@@ -6,6 +6,7 @@ using Wondarr.Api.Frontend;
 using Wondarr.Api.SignalR;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.HealthCheck;
+using Wondarr.Core.Importing;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Messaging;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -88,5 +89,7 @@ public static class ServiceCollectionExtensions
         // them as singletons keeps one broadcaster call path for the whole process.
         services.AddSingleton<IHandle<CommandUpdatedEvent>, CommandEventsRelay>();
         services.AddSingleton<IHandle<HealthCheckCompletedEvent>, HealthEventsRelay>();
+        services.AddSingleton<IHandle<QueueItemChangedEvent>, QueueEventsRelay>();
+        services.AddSingleton<IHandle<SongImportedEvent>, QueueEventsRelay>();
     }
 }

@@ -2,8 +2,7 @@ namespace Wondarr.Api.SignalR;
 
 /// <summary>
 /// The <c>name</c> of every message the events hub sends. The UI switches on these, so they are
-/// constants rather than literals; <c>queue</c> is reserved for the queue broadcasts of a later
-/// phase and nothing emits it yet.
+/// constants rather than literals.
 /// </summary>
 public static class SignalRMessageNames
 {
@@ -13,6 +12,9 @@ public static class SignalRMessageNames
     /// <summary>Health results were recomputed; the resource is the health resource array.</summary>
     public const string Health = "health";
 
-    /// <summary>Reserved for queue broadcasts; nothing emits this yet.</summary>
+    /// <summary>A queue item changed; the resource is a queue item projection.</summary>
     public const string Queue = "queue";
+
+    /// <summary>A song changed; the resource names it.</summary>
+    public const string Song = "song";
 }
