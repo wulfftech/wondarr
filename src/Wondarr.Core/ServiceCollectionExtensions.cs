@@ -14,6 +14,7 @@ using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Tagging;
 using Wondarr.Core.Wanted;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -51,6 +52,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<HealthCheckService>();
 
         services.AddSingleton<IEventAggregator, EventAggregator>();
+
+        // Stateless apart from ATL's global settings, and it only touches the file it is handed.
+        services.AddSingleton<ITagWriter, TagWriter>();
 
         // The album policy engine is pure; its only dependency is the source of synthetic album ids.
         services.AddSingleton<IAlbumPolicyEngine>(new AlbumPolicyEngine(Guid.NewGuid));
