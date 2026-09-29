@@ -68,10 +68,13 @@ def file_entry(song: dict, index: int, *, user: str, codec: str, seed: int, free
         "transfer": transfer,
         "audio": {"codec": codec, "durationSeconds": seconds, "seed": seed, "frequency": 220 + 7 * (seed % 90)},
     }
+    # An explicit, realistic advertised size: FLAC results carry no bitrate, so the fake cannot
+    # estimate one, and a size of 0 would make the decision engine reject the file (size sanity).
     if codec == "flac":
-        entry.update({"sampleRate": 44100, "bitDepth": 16})
+        entry.update({"sampleRate": 44100, "bitDepth": 16, "size": seconds * 900 * 125})
     else:
         entry["bitRate"] = 320
+        entry["size"] = seconds * 320 * 125
         entry["audio"]["bitrateKbps"] = 320
     if identity is not None:
         entry["identity"] = identity
