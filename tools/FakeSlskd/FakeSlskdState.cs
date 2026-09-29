@@ -29,9 +29,10 @@ public sealed class FakeSlskdState : IDisposable
     private int _maxInFlight;
     private int _nextToken = 1;
 
-    // What the last share scan found, per shared directory. Like slskd, the fake scans its shares
-    // once at start and again only when asked (PUT /api/v0/shares): files added later stay unshared
-    // until then, which is exactly what the app's rescan has to take care of.
+    // What the last share scan found, per shared directory. Like slskd, the fake scans its shares on
+    // its first start and otherwise only when asked (PUT /api/v0/shares); a later start restores the
+    // last scan from its cache file. Files added since stay unshared until a rescan, which is exactly
+    // what the app's rescanner has to take care of.
     private Dictionary<string, (int Directories, int Files)> _shareScan = new(StringComparer.Ordinal);
     private int _shareScans;
 
@@ -44,7 +45,10 @@ public sealed class FakeSlskdState : IDisposable
         _options = options;
         _webhooks = new WebhookSender(options.Configuration.Webhooks);
 
-        RescanShares();
+        if (!RestoreShareCache())
+        {
+            RescanShares();
+        }
     }
 
     /// <summary>How many share scans ran, the one at start included.</summary>
@@ -74,6 +78,39 @@ public sealed class FakeSlskdState : IDisposable
             _shareScan = scan;
             _shareScans++;
         }
+
+        if (_options.ShareCachePath is { } path)
+        {
+            var document = new JsonObject();
+
+            foreach (var (directory, counts) in scan)
+            {
+                document[directory] = new JsonArray(counts.Directories, counts.Files);
+            }
+
+            File.WriteAllText(path, document.ToJsonString());
+        }
+    }
+
+    /// <summary>Loads the last scan from the cache file, as a restarted slskd does.</summary>
+    private bool RestoreShareCache()
+    {
+        if (_options.ShareCachePath is not { } path || !File.Exists(path))
+        {
+            return false;
+        }
+
+        var scan = new Dictionary<string, (int Directories, int Files)>(StringComparer.Ordinal);
+
+        foreach (var (directory, counts) in JsonNode.Parse(File.ReadAllText(path))!.AsObject())
+        {
+            scan[directory] = (counts![0]!.GetValue<int>(), counts[1]!.GetValue<int>());
+        }
+
+        _shareScan = scan;
+        FakeSlskdLog.Info($"Share cache loaded from disk successfully. Sharing {scan.Values.Sum(c => c.Directories)} directories and {scan.Values.Sum(c => c.Files)} files");
+
+        return true;
     }
 
     /// <summary>The most searches that were in flight at any moment.</summary>

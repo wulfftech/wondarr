@@ -165,6 +165,7 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
     [Theory]
     [InlineData(SlskdState.Starting)]
     [InlineData(SlskdState.Restarting)]
+    [InlineData(SlskdState.Crashed)]
     public async Task A_slskd_that_is_starting_is_rescanned_once_it_runs(SlskdState state)
     {
         _status.Set(new SlskdStatusSnapshot(state));
@@ -185,8 +186,8 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
     [InlineData(SlskdState.Disabled)]
     [InlineData(SlskdState.BinaryMissing)]
     [InlineData(SlskdState.Stopped)]
-    [InlineData(SlskdState.Crashed)]
-    public async Task A_slskd_that_is_not_running_is_left_to_scan_when_it_starts(SlskdState state)
+    [InlineData(SlskdState.NotConfigured)]
+    public async Task A_slskd_that_is_not_ours_to_run_drops_the_request(SlskdState state)
     {
         _status.Set(new SlskdStatusSnapshot(state));
 

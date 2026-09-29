@@ -11,14 +11,15 @@ namespace Wondarr.Sources.Slskd;
 /// Asks the bundled slskd to rescan its shares when the library has changed.
 /// </summary>
 /// <remarks>
-/// slskd scans its shared folders when it starts and otherwise only when asked
-/// (<c>PUT /api/v0/shares</c>), so without this every file imported after start would stay unshared
-/// until the next restart — on a fresh install, the whole library. Requests are debounced: a scan
+/// slskd scans its shared folders only when asked (<c>PUT /api/v0/shares</c>) and on its very first
+/// start; later starts restore the share cache from its backup ("Share cache loaded from disk"), so a
+/// restart does not pick up new files either. Without this, every file imported after the first start
+/// would stay unshared — on a fresh install, the whole library. Requests are debounced: a scan
 /// runs <see cref="QuietPeriod"/> after the last import, and no later than <see cref="MaxDelay"/>
 /// after the first one waiting, so a long run of imports is still shared as it goes. A scan that
-/// could not be started (slskd busy scanning, starting, or not answering) is retried after
-/// <see cref="RetryDelay"/>, and a newer import never brings that retry forward; a slskd that is not
-/// running at all needs none, because it scans when it starts.
+/// could not be started (slskd busy scanning, starting, restarting, crashed, or not answering) is
+/// retried after <see cref="RetryDelay"/>, and a newer import never brings that retry forward. Only a
+/// slskd that is not ours to run (external mode, no binary, host stopping) drops the request.
 /// </remarks>
 public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<SongImportedEvent>
 {
@@ -207,14 +208,14 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
 
         var state = _status.Current.State;
 
-        // A slskd that is starting may have scanned past the new file already; wait until it runs.
-        if (state is SlskdState.Starting or SlskdState.Restarting)
+        // A start restores the share cache instead of scanning, so the request waits for the process the
+        // supervisor is bringing up.
+        if (state is SlskdState.Starting or SlskdState.Restarting or SlskdState.Crashed)
         {
             return false;
         }
 
-        // External mode, no binary, stopped, or crashed and about to be restarted: a slskd of ours that
-        // starts scans its shares by itself, and an external one is not ours to manage.
+        // External mode, no binary, or the host stopping: there is no slskd of ours to ask.
         if (state != SlskdState.Running)
         {
             LogSkipped(_logger, state);
@@ -266,7 +267,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
     [LoggerMessage(Level = LogLevel.Debug, Message = "slskd is already scanning its shares; scanning again in a minute")]
     private static partial void LogBusy(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "No share rescan: slskd is {State}, and scans its shares when it starts")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "No share rescan: slskd is {State}, not a process Wondarr runs")]
     private static partial void LogSkipped(ILogger logger, SlskdState state);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "slskd did not start a share rescan: {Reason}; trying again in a minute")]
