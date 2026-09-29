@@ -1,8 +1,10 @@
+using Wondarr.Core.Configuration;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Wondarr.Sources.Slskd;
@@ -34,6 +36,10 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<SoulseekOptions>, SoulseekOptionsValidator>();
+
+        // The shares default depends on whether config.yml mentions the key at all, which is not
+        // something the binder can see; the post-configure applies it after binding.
+        services.AddSingleton<IPostConfigureOptions<SoulseekOptions>, SoulseekOptionsPostConfigure>();
         services.AddSingleton<SlskdConfigRenderer>();
         services.AddScoped<SlskdSecretsStore>();
 
@@ -56,6 +62,15 @@ public static class ServiceCollectionExtensions
         // runner is a singleton that resolves the typed client per run from a scope of its own.
         services.AddSingleton<ISoulseekSearchBudget, SoulseekSearchBudget>();
         services.AddSingleton<ISlskdSearchRunner, SlskdSearchRunner>();
+
+        // Resolved by a factory, because the environment is a plain IDictionary rather than a service;
+        // it is read once at start-up, exactly as WondarrPaths.Resolve reads it.
+        services.AddSingleton<ISoulseekSettingsService>(provider => new SoulseekSettingsService(
+            provider.GetRequiredService<IOptionsMonitor<SoulseekOptions>>(),
+            provider.GetRequiredService<IConfigFileWriter>(),
+            provider.GetRequiredService<IValidateOptions<SoulseekOptions>>(),
+            Environment.GetEnvironmentVariables(),
+            provider.GetRequiredService<ILogger<SoulseekSettingsService>>()));
 
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<SlskdStatus>();

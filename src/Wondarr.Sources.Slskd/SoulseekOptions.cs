@@ -34,10 +34,13 @@ public sealed class SoulseekOptions
     public bool ShareLibrary { get; set; } = true;
 
     /// <summary>
-    /// Folders shared back to the network. The default is the seeded default library's root
-    /// (<c>SeedData</c>), so "share my library" shares the library out of the box.
+    /// Folders shared back to the network. The default (the seeded default library's root,
+    /// <c>SeedData</c>) is applied by <see cref="SoulseekOptionsPostConfigure"/> rather than here:
+    /// the binder <em>appends</em> bound items to whatever the property already holds, so a default
+    /// in the property would turn <c>shared_folders: [/x]</c> into two folders and make an explicit
+    /// empty list impossible.
     /// </summary>
-    public List<string> SharedFolders { get; set; } = ["/data/music"];
+    public List<string> SharedFolders { get; set; } = [];
 
     /// <summary>Concurrent upload slots.</summary>
     public int UploadSlots { get; set; } = 10;

@@ -181,6 +181,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/soulseek/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SoulseekSettingsResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SoulseekSettingsUpdateResource"];
+                    "application/*+json": components["schemas"]["SoulseekSettingsUpdateResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SoulseekSettingsUpdateResponseResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/soulseek/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SoulseekStatusResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/artist": {
         parameters: {
             query?: never;
@@ -1842,6 +1936,73 @@ export interface components {
             monitored: null | boolean;
             /** Format: int64 */
             qualityProfileId: null | number | string;
+        };
+        SoulseekSearchBudgetResource: {
+            /** Format: int32 */
+            submittedInWindow: number | string;
+            /** Format: int32 */
+            maxSearches: number | string;
+            /** Format: int32 */
+            outstanding: number | string;
+            /** Format: int32 */
+            maxOutstanding: number | string;
+            /** Format: date-time */
+            nextAllowedAt: null | string;
+        };
+        SoulseekSettingsResource: {
+            username: null | string;
+            passwordSet: boolean;
+            /** Format: int32 */
+            listenPort: number | string;
+            shareLibrary: boolean;
+            sharedFolders: string[];
+            /** Format: int32 */
+            uploadSlots: number | string;
+            /** Format: int32 */
+            uploadSpeedLimitKib: number | string;
+            distributedNetwork: boolean;
+            downloadsDir: string;
+            incompleteDir: string;
+            readOnlyFields: string[];
+        };
+        SoulseekSettingsUpdateResource: {
+            username?: null | string;
+            password?: null | string;
+            /** Format: int32 */
+            listenPort?: null | number | string;
+            shareLibrary?: null | boolean;
+            sharedFolders?: null | string[];
+            /** Format: int32 */
+            uploadSlots?: null | number | string;
+            /** Format: int32 */
+            uploadSpeedLimitKib?: null | number | string;
+            distributedNetwork?: null | boolean;
+            downloadsDir?: null | string;
+            incompleteDir?: null | string;
+        };
+        SoulseekSettingsUpdateResponseResource: {
+            settings: components["schemas"]["SoulseekSettingsResource"];
+            restartsSlskd: boolean;
+        };
+        SoulseekSharingResource: {
+            enabled: boolean;
+            folders: string[];
+            /** Format: int32 */
+            directories: null | number | string;
+            /** Format: int32 */
+            files: null | number | string;
+        };
+        SoulseekStatusResource: {
+            mode: string;
+            state: string;
+            version: null | string;
+            loggedIn: boolean;
+            username: null | string;
+            loginProblem: null | string;
+            lastError: null | string;
+            pendingRestart: boolean;
+            sharing: components["schemas"]["SoulseekSharingResource"];
+            searchBudget: components["schemas"]["SoulseekSearchBudgetResource"];
         };
         SystemResource: {
             appName: string;
