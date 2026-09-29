@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Options;
+using Wondarr.Core.Searching;
+
 namespace Wondarr.Core.Jobs;
 
 /// <summary>
@@ -12,17 +15,32 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often the health checks run.</summary>
     public static readonly TimeSpan CheckHealthInterval = TimeSpan.FromMinutes(15);
 
-    private static readonly ScheduledTaskDefinition[] BuiltIn =
-    [
-        new(HeartbeatCommandHandler.CommandName, HeartbeatInterval),
-        new(CheckHealthCommandHandler.CommandName, CheckHealthInterval),
-    ];
+    /// <summary>How often the missing-song search runs, when <c>search.missing_interval_hours</c> is left alone.</summary>
+    public static readonly TimeSpan DefaultMissingSearchInterval = TimeSpan.FromHours(6);
+
+    private readonly IReadOnlyList<ScheduledTaskDefinition> _tasks;
+
+    /// <summary>Initialises a new instance of the <see cref="ScheduledTaskCatalog"/> class.</summary>
+    /// <param name="options">The search settings, which decide how often the missing-song task runs.</param>
+    public ScheduledTaskCatalog(IOptions<SearchOptions> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        _tasks =
+        [
+            new(HeartbeatCommandHandler.CommandName, HeartbeatInterval),
+            new(CheckHealthCommandHandler.CommandName, CheckHealthInterval),
+            new(
+                MissingSearchCommandHandler.CommandName,
+                TimeSpan.FromHours(options.Value.MissingIntervalHours)),
+        ];
+    }
 
     /// <inheritdoc />
-    public IReadOnlyList<ScheduledTaskDefinition> Tasks => BuiltIn;
+    public IReadOnlyList<ScheduledTaskDefinition> Tasks => _tasks;
 
     /// <inheritdoc />
     public ScheduledTaskDefinition? Find(string commandName) =>
-        BuiltIn.FirstOrDefault(definition =>
+        _tasks.FirstOrDefault(definition =>
             string.Equals(definition.CommandName, commandName, StringComparison.OrdinalIgnoreCase));
 }

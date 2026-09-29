@@ -1386,7 +1386,9 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasDatabaseName("ix_queue_item_search_run_id");
 
                     b.HasIndex("SongId")
-                        .HasDatabaseName("ix_queue_item_song_id");
+                        .IsUnique()
+                        .HasDatabaseName("ix_queue_item_song_id")
+                        .HasFilter("state IN ('Queued', 'RemotelyQueued', 'Downloading', 'Completed', 'Importing')");
 
                     b.HasIndex("State")
                         .HasDatabaseName("ix_queue_item_state");
