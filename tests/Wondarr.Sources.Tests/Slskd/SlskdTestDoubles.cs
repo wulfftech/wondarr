@@ -39,6 +39,12 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 
     public List<HttpRequestMessage> Requests { get; } = [];
 
+    /// <summary>
+    /// Each request's body, read while the request is still alive: the client disposes the
+    /// <see cref="HttpRequestMessage"/> (and its content) as soon as it has the response.
+    /// </summary>
+    public List<string> Bodies { get; } = [];
+
     public static StubHttpMessageHandler Ok(string body) => new(HttpStatusCode.OK, body);
 
     public static StubHttpMessageHandler Status(HttpStatusCode status) => new(status, string.Empty);
@@ -46,6 +52,9 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
+        Bodies.Add(request.Content is null
+            ? string.Empty
+            : request.Content.ReadAsStringAsync(CancellationToken.None).GetAwaiter().GetResult());
 
         var response = new HttpResponseMessage(_status)
         {
