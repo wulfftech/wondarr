@@ -26,7 +26,8 @@ The shared contracts — `Candidate`, `ParsedName`, `ISourceProvider`, `SongSear
 | P2-15b | Soulseek settings: `GET/PUT /api/v1/soulseek/settings` (writes the `soulseek` section of `config.yml`, env-locked fields read-only, restart via the existing supervisor), `GET /api/v1/soulseek/status` (login, shares from slskd, search budget) | P2-15, P2-01 | M | worker |
 | P2-16 | Frontend: Queue page (live progress over SignalR, cancel, blocklist-and-retry) and the Interactive search modal (score breakdown, rejections, grab) | P2-14 | M | worker |
 | P2-17 | Frontend: Settings → Soulseek (share toggle with the leech warning, restart notice) and the naming template editor with live preview in Settings → Library | P2-14, P2-15 | M | worker |
-| P2-18 | Phase 2 gate: fake-slskd + AcoustID replay in `scripts/smoke-test.sh` (CI), 100-song live run and 30-file audit on `ch01` | all | M | orchestrator |
+| P2-18a | FakeSlskd test tool: slskd 0.26 API subset + AcoustID stub from a scenario, real audio via the image's ffmpeg/fpcalc, search-budget log | P2-00 | M | worker |
+| P2-18 | Phase 2 gate: FakeSlskd scenario + gate script in `scripts/smoke-test.sh` (CI), 100-song live run and 30-file audit on `ch01` | all, P2-18a | M | orchestrator |
 
 Waves: **A** P2-01 ∥ P2-02 ∥ P2-03 ∥ P2-07 ∥ P2-08 → **B** P2-04 ∥ P2-06 ∥ P2-09 ∥ P2-10 ∥ P2-15 → **C** P2-05 ∥ P2-11 → P2-12 → **D** P2-13a → P2-13b → P2-14 ∥ P2-15b → **E** P2-16 ∥ P2-17 → **F** P2-18.
 
