@@ -10,6 +10,12 @@
 # Phase 1 (scripts/phase1-gate.py):
 #   - a pasted list of 50 songs resolves >= 90 % to MusicBrainz recordings with correct durations
 #     and cover art, the rest via Deezer or into the unresolved review, every song with an album
+# Phase 2 (scripts/phase2-gate.py with tools/FakeSlskd; SMOKE_PHASE2=fake (default) | off):
+#   - the bundled slskd is replaced by FakeSlskd (a scenario built from the Phase 1 songs, real
+#     encoded audio, an AcoustID stand-in); MissingSearch imports >= 80 % of the wanted songs at or
+#     above cutoff, a live take disguised as the best file is caught after download and the next
+#     candidate imported, a rejected transfer falls through to the next candidate, the Soulseek
+#     search budget holds, and toggling "Share my library" changes what slskd shares
 #
 # Metadata services for the Phase 1 gate (SMOKE_METADATA):
 #   replay (default) - scripts/metadata-replay.py answers from tests/gate/replay; no network needed,
@@ -186,3 +192,32 @@ if [ "$METADATA" = replay ]; then
     pass "every metadata request was answered from the recording"
 fi
 echo "PHASE 1 GATE: PASS ($IMAGE, metadata: $METADATA)"
+
+if [ "${SMOKE_PHASE2:-fake}" = off ]; then
+    echo "Phase 2 gate skipped (SMOKE_PHASE2=off)"
+    exit 0
+fi
+
+# FakeSlskd is a test tool, never part of the image: publish it with the SDK image the Dockerfile uses.
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+case "$(uname -m)" in aarch64 | arm64) RID=linux-arm64 ;; *) RID=linux-x64 ;; esac
+mkdir -p "$WORK/fake" && chmod 777 "$WORK/fake"
+$DOCKER run --rm -v "$REPO:/src:ro" -v "$WORK/fake:/out" -e DOTNET_CLI_TELEMETRY_OPTOUT=1     mcr.microsoft.com/dotnet/sdk:10.0-noble sh -c     "mkdir -p /tmp/src/tools && cp /src/global.json /src/Directory.Build.props /src/Directory.Packages.props /src/.editorconfig /tmp/src/ && cp -r /src/tools/FakeSlskd /tmp/src/tools/ && rm -rf /tmp/src/tools/FakeSlskd/bin /tmp/src/tools/FakeSlskd/obj && cd /tmp/src && dotnet publish tools/FakeSlskd -c Release -r $RID --self-contained -p:PublishSingleFile=true -o /out -v q --nologo"     > "$WORK/fake-publish.log" 2>&1 || { tail -30 "$WORK/fake-publish.log" >&2; fail "could not publish FakeSlskd"; }
+pass "FakeSlskd published ($RID)"
+
+python3 "$(dirname "$0")/phase2-scenario.py" --url "$BASE" --api-key "$KEY" --out "$WORK/data/phase2-scenario.json" --keep 20     || fail "could not build the Phase 2 scenario"
+chmod 644 "$WORK/data/phase2-scenario.json"
+
+# Same /config and /data (the songs stay); FakeSlskd stands in for slskd and answers AcoustID too.
+$DOCKER rm -f "$NAME" > /dev/null
+$DOCKER run -d --name "$NAME"     "${METADATA_ARGS[@]}"     -p "${PORT}:1077"     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC     -e APP__SERVER__URL_BASE="$URL_BASE"     -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd     -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password     -e FAKE_SLSKD_SCENARIO=/data/phase2-scenario.json     -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/     -v "$WORK/config:/config" -v "$WORK/data:/data" -v "$WORK/fake:/opt/fake:ro"     "$IMAGE" > /dev/null
+wait_healthy
+for _ in $(seq 1 30); do
+    curl -fsS -H "X-Api-Key: $KEY" "${BASE}/api/v1/soulseek/status" | jq -e '.loggedIn == true' > /dev/null 2>&1 && break
+    sleep 2
+done
+curl -fsS -H "X-Api-Key: $KEY" "${BASE}/api/v1/soulseek/status" | jq -e '.loggedIn == true' > /dev/null     || fail "FakeSlskd never reported a login: $(curl -sS -H "X-Api-Key: $KEY" "${BASE}/api/v1/soulseek/status")"
+pass "FakeSlskd running in place of slskd, logged in"
+
+python3 "$(dirname "$0")/phase2-gate.py" --url "$BASE" --api-key "$KEY" --rounds 2     --round-timeout-s 1200 --queue-timeout-s 1200 --min-ratio 0.80 --expect-caught 1 --share-toggle     --fake-log-cmd "$DOCKER run --rm --network container:$NAME curlimages/curl:8.11.1 -fsS http://127.0.0.1:5030/fake/log"     || fail "Phase 2 gate"
+echo "PHASE 2 GATE: PASS ($IMAGE, FakeSlskd)"
