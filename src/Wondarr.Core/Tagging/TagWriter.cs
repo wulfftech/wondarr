@@ -317,9 +317,12 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         AddString(values, "Lyrics", UnsynchronizedLyrics(track));
         if (keys.OriginalDate is { } originalDateKey)
         {
-            // ATL reads the field back into its own date property rather than into AdditionalFields.
+            // ATL writes the literal field but maps it on reading to its own (misspelled) key, so it
+            // shows up nowhere; the Vorbis comment is read straight from the file instead.
             AddString(values, "OriginalDate",
-                GetAdditional(track, originalDateKey) ?? FormatDate(track.OriginalReleaseDate));
+                GetAdditional(track, originalDateKey)
+                    ?? ReadVorbisComment(tempPath, originalDateKey)
+                    ?? FormatDate(track.OriginalReleaseDate));
         }
         else if (keys.OriginalDateViaProperty)
         {
@@ -469,8 +472,12 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         AcoustId: "ACOUSTID_ID",
         Compilation: "COMPILATION",
         CompilationValue: "1",
-        OriginalDate: null,
-        OriginalDateViaProperty: true,
+
+        // A literal field: ATL's OriginalReleaseDate property writes the Vorbis field as
+        // "ORIGINALDATE " (trailing space), which Plex and Picard do not read — seen on the first
+        // live import (2026-09-29).
+        OriginalDate: "ORIGINALDATE",
+        OriginalDateViaProperty: false,
         CoverTagType: MetaDataIOFactory.TagType.ANY,
         CoverNativeCode: null);
 
@@ -523,6 +530,37 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.None,
                 out date);
+    }
+
+    /// <summary>
+    /// The value of a Vorbis comment <paramref name="field"/> (<c>FIELD=value</c>, length-prefixed),
+    /// found in the first 16 MB of the file — FLAC and Ogg keep their comments at the start, before
+    /// the audio; an embedded cover can push them back by a few MB.
+    /// </summary>
+    private static string? ReadVorbisComment(string path, string field)
+    {
+        var buffer = new byte[16 * 1024 * 1024];
+        int read;
+        using (var stream = File.OpenRead(path))
+        {
+            read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+        }
+
+        var needle = System.Text.Encoding.ASCII.GetBytes(field + "=");
+        var index = buffer.AsSpan(0, read).IndexOf(needle);
+
+        // A Vorbis comment is "<uint32 little-endian length><FIELD=value>".
+        if (index < 4)
+        {
+            return null;
+        }
+
+        var length = BitConverter.ToInt32(buffer, index - 4);
+        var valueLength = length - needle.Length;
+
+        return valueLength is > 0 and < 256 && index + length <= read
+            ? System.Text.Encoding.UTF8.GetString(buffer, index + needle.Length, valueLength)
+            : null;
     }
 
     private static string? FormatYear(int? year) =>
