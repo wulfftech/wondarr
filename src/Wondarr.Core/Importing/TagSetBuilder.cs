@@ -1,11 +1,10 @@
 using Wondarr.Core.Domain;
 using Wondarr.Core.Tagging;
-using Wondarr.Core.Verification;
 
 namespace Wondarr.Core.Importing;
 
 /// <summary>
-/// Maps the song, its album context and the verification verdict onto the Plex-safe tag set of
+/// Maps the song, its album context and the file's AcoustID onto the Plex-safe tag set of
 /// LIBRARY_OUTPUT §7.3–7.5. Pure: it reads the entities it is handed and nothing else.
 /// </summary>
 public static class TagSetBuilder
@@ -24,20 +23,19 @@ public static class TagSetBuilder
     /// <param name="song">The song the file satisfies.</param>
     /// <param name="album">The album context the song is filed under.</param>
     /// <param name="artists">Every credited artist, main first.</param>
-    /// <param name="verification">The verdict the fingerprint step reached, for the AcoustID tag.</param>
+    /// <param name="acoustId">The AcoustID the file was identified by, or <see langword="null"/>.</param>
     /// <param name="cover">The front cover to embed, or <see langword="null"/> for none.</param>
     /// <returns>The complete tag set; the writer replaces the file's tags with it.</returns>
     public static TagSet Build(
         Song song,
         AlbumContext album,
         IReadOnlyList<(Artist Artist, ArtistRole Role)> artists,
-        VerificationResult verification,
+        string? acoustId,
         byte[]? cover)
     {
         ArgumentNullException.ThrowIfNull(song);
         ArgumentNullException.ThrowIfNull(album);
         ArgumentNullException.ThrowIfNull(artists);
-        ArgumentNullException.ThrowIfNull(verification);
 
         var primaryArtist = Primary(artists);
 
@@ -71,7 +69,7 @@ public static class TagSetBuilder
                 : primaryArtist?.MbArtistId,
             ReleaseType = ReleaseType(album.Kind),
             ReleaseStatus = OfficialStatus,
-            AcoustId = verification.AcoustId,
+            AcoustId = acoustId,
             Compilation = album.IsVariousArtists,
             FrontCover = cover,
         };

@@ -127,6 +127,8 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddScoped<IBlocklistService, BlocklistService>();
         services.AddScoped<ISoulseekUserService, SoulseekUserService>();
         services.AddScoped<IHistoryService, HistoryService>();
+        services.AddSingleton<IDiskOperations, DiskOperations>();
+        services.AddScoped<ILibraryOrganizer, LibraryOrganizer>();
         services.AddScoped<IImportService, ImportService>();
 
         var built = services.BuildServiceProvider();

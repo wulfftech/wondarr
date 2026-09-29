@@ -124,6 +124,7 @@ public static class ServiceCollectionExtensions
 
         // The import pipeline: it turns a finished download into a library file through the same
         // scoped DbContext, and it grabs the next candidate through the search service above.
+        services.AddScoped<ILibraryOrganizer, LibraryOrganizer>();
         services.AddScoped<IImportService, ImportService>();
 
         // What the user can do to a queue item, through the same scoped DbContext as the API.
