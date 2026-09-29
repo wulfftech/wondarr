@@ -60,11 +60,12 @@ describe('WantedPage', () => {
     renderApp();
 
     expect(await screen.findByText('Teardrop')).toBeInTheDocument();
-    expect(screen.getByText('Massive Attack')).toBeInTheDocument();
-    expect(screen.getByText('Mezzanine')).toBeInTheDocument();
-    // 369000 ms reads as 6:09, not 6.15 or 369.
-    expect(screen.getByText('6:09')).toBeInTheDocument();
-    expect(screen.getByText('Standard 320')).toBeInTheDocument();
+    // Mantine's test environment renders without portals and transitions, so the same row text can
+    // appear more than once in the document; what matters is that it is shown.
+    for (const text of ['Massive Attack', 'Mezzanine', '6:09', 'Standard 320']) {
+      // 369000 ms reads as 6:09, not 6.15 or 369.
+      expect(screen.getAllByText(text).length).toBeGreaterThan(0);
+    }
   });
 
   it('asks for the cutoff list when the Cutoff Unmet tab is picked', async () => {
