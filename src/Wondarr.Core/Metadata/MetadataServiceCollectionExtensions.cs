@@ -1,6 +1,7 @@
 using System.Net;
 using System.Reflection;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Metadata.Http;
@@ -30,6 +31,12 @@ public static class ServiceCollectionExtensions
 
     /// <summary>The key the iTunes request-spacing gate is registered under.</summary>
     public const string ITunesGateKey = "itunes";
+
+    /// <summary>The key the AcoustID request-spacing gate is registered under.</summary>
+    public const string AcoustIdGateKey = "acoustid";
+
+    /// <summary>How long one AcoustID request may take before the lookup is reported as unavailable.</summary>
+    private static readonly TimeSpan AcoustIdTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>How long one Deezer request is spaced from the next: 50 requests per 5 seconds.</summary>
     private static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(120);
@@ -69,6 +76,15 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<MediaToolsOptions>, MediaToolsOptionsValidator>();
+
+        services.AddOptions<AcoustIdOptions>()
+            .Bind(configuration.GetSection("AcoustId"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<AcoustIdOptions>, AcoustIdOptionsValidator>();
+
+        // The post-configure also hands the client key to the secret registry, so the redactor knows it.
+        services.AddSingleton<IPostConfigureOptions<AcoustIdOptions>, AcoustIdOptionsPostConfigure>();
 
         services.AddSingleton<IMetadataCache, MetadataCache>();
 
@@ -119,6 +135,28 @@ public static class ServiceCollectionExtensions
         services.AddKeyedSingleton(ITunesGateKey, (serviceProvider, _) => new RequestSpacingGate(
             ITunesInterval,
             serviceProvider.GetRequiredService<TimeProvider>()));
+
+        // AcoustID allows three requests per second per client key, retries included. The interval
+        // comes from the options, whose validator refuses anything above that ceiling.
+        services.AddKeyedSingleton(AcoustIdGateKey, (serviceProvider, _) => new RequestSpacingGate(
+            serviceProvider.GetRequiredService<IOptions<AcoustIdOptions>>().Value.RequestInterval,
+            serviceProvider.GetRequiredService<TimeProvider>()));
+
+        var acoustId = services.AddHttpClient<IAcoustIdClient, AcoustIdClient>((serviceProvider, client) =>
+        {
+            var acoustIdOptions = serviceProvider.GetRequiredService<IOptions<AcoustIdOptions>>().Value;
+
+            client.BaseAddress = new Uri(acoustIdOptions.BaseUrl, UriKind.Absolute);
+            client.Timeout = AcoustIdTimeout;
+
+            // The same identifying User-Agent MusicBrainz gets; AcoustID asks for one too.
+            AddProviderHeaders(client, serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value);
+        });
+
+        // No retry pipeline: the client retries a throttle itself, because it has to read the error
+        // code out of the body to tell a rate limit from a failure.
+        acoustId.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(AcoustIdGateKey)));
 
         var coverArtArchive = services.AddHttpClient<ICoverArtArchiveClient, CoverArtArchiveClient>(
             (serviceProvider, client) =>
