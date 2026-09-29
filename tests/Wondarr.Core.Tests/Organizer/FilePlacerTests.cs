@@ -319,8 +319,9 @@ public class FilePlacerTests : IDisposable
         File.ReadAllText(replaced).Should().Be("old", "a failed placement changes nothing");
         File.ReadAllText(source).Should().Be("new");
         _temp.Files().Should().NotContain(
-            path => PathRules.IsInside(RecycleRoot, path),
-            "nothing is left in the bin after a rollback");
+            path => PathRules.IsInside(RecycleRoot, path)
+                && !string.Equals(Path.GetFileName(path), RecycleBin.MarkerFileName, StringComparison.Ordinal),
+            "nothing but the bin's own marker is left in the bin after a rollback");
     }
 
     [Fact]
@@ -390,6 +391,29 @@ public class FilePlacerTests : IDisposable
         File.ReadAllText(source).Should().Be("audio");
     }
 
+    [Fact]
+    public async Task Fails_without_touching_anything_when_the_recycle_bin_cannot_be_used()
+    {
+        // A bin inside the library would have Wondarr recycle a file into the tree it is being moved
+        // within, and clean the library later: the placer reports it instead of moving anything.
+        _options.RecycleBinPath = _temp.Full("library/recycle");
+
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var source = _temp.CreateFile("downloads/track.mp3", "new");
+
+        var result = await Placer().PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move, replaced),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().BeNull();
+        result.RecycledPath.Should().BeNull();
+        result.Error.Should().Contain("outside the library");
+        File.ReadAllText(replaced).Should().Be("old");
+        File.ReadAllText(source).Should().Be("new");
+        Directory.Exists(_temp.Full("library/recycle")).Should().BeFalse();
+    }
+
     private string RecycleRoot => _temp.Full("recycle");
 
     /// <summary>
@@ -415,6 +439,8 @@ public class FilePlacerTests : IDisposable
         public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
 
         public void CreateDirectory(string path) => _inner.CreateDirectory(path);
+
+        public void CreateEmptyFile(string path) => _inner.CreateEmptyFile(path);
 
         public long GetFileSize(string path) => _inner.GetFileSize(path);
 

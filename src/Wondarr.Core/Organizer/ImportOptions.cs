@@ -74,6 +74,17 @@ public sealed class RemotePathMapping
 /// </summary>
 public sealed partial class ImportOptionsValidator : IValidateOptions<ImportOptions>
 {
+    /// <summary>
+    /// Directories the recycle bin may never be: the container's data and configuration roots, in
+    /// case <see cref="WondarrPaths.ConfigDir"/> was resolved somewhere else.
+    /// </summary>
+    private static readonly string[] ContainerDirectories = ["/data", "/config"];
+
+    private readonly WondarrPaths? _paths;
+
+    /// <summary>Creates the validator with the paths in use, when they are known.</summary>
+    public ImportOptionsValidator(WondarrPaths? paths = null) => _paths = paths;
+
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, ImportOptions options)
     {
@@ -95,6 +106,15 @@ public sealed partial class ImportOptionsValidator : IValidateOptions<ImportOpti
         {
             failures.Add(
                 $"import.recycle_bin_path: must not be a filesystem root (was '{options.RecycleBinPath}')");
+        }
+
+        // And one at the data or configuration root would park recycled files among the downloads,
+        // the database and the settings — the places Wondarr must never tidy up on its own.
+        if (!string.IsNullOrWhiteSpace(options.RecycleBinPath)
+            && IsProtectedDirectory(options.RecycleBinPath, _paths))
+        {
+            failures.Add(
+                $"import.recycle_bin_path: must not be the data or configuration directory (was '{options.RecycleBinPath}')");
         }
 
         for (var index = 0; index < options.RemotePathMappings.Count; index++)
@@ -129,6 +149,39 @@ public sealed partial class ImportOptionsValidator : IValidateOptions<ImportOpti
         catch (ArgumentException)
         {
             // Not a path at all. The user finds that out when the bin is first used.
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Whether the configured bin is a directory Wondarr keeps its own files in.</summary>
+    private static bool IsProtectedDirectory(string path, WondarrPaths? paths)
+    {
+        var candidates = new List<string>(ContainerDirectories);
+
+        if (!string.IsNullOrWhiteSpace(paths?.ConfigDir))
+        {
+            candidates.Add(paths!.ConfigDir);
+        }
+
+        return candidates.Any(candidate => PathsAreEqual(path, candidate));
+    }
+
+    /// <summary>
+    /// Whether two configured paths name the same directory. Paths that are not paths at all (a
+    /// Windows-style value in a Linux container, say) simply do not match.
+    /// </summary>
+    private static bool PathsAreEqual(string first, string second)
+    {
+        try
+        {
+            return PathRules.AreEqual(first, second);
+        }
+        catch (ArgumentException)
+        {
             return false;
         }
         catch (NotSupportedException)

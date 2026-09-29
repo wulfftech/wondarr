@@ -32,6 +32,9 @@ public class RecycleBinTests : IDisposable
 
     private string RecycleRoot => _temp.Full("recycle");
 
+    /// <summary>Marks the bin root the way the bin itself does, so cleanup will walk it.</summary>
+    private string MarkBin() => _temp.CreateFile("recycle/.wondarr-recycle-bin", string.Empty);
+
     private RecycleBin Bin()
     {
         var disk = new DiskOperations();
@@ -55,6 +58,9 @@ public class RecycleBinTests : IDisposable
         recycled.Should().Be(_temp.Full("recycle/Artist/Album/track.mp3"));
         File.ReadAllText(recycled).Should().Be("old");
         File.Exists(replaced).Should().BeFalse();
+
+        // The bin marks itself as ours on the first file it takes, so cleanup may later walk it.
+        File.Exists(_temp.Full("recycle/.wondarr-recycle-bin")).Should().BeTrue();
 
         // The cleanup clock starts when the file was recycled, not when it was downloaded.
         File.GetLastWriteTimeUtc(recycled).Should().BeCloseTo(Now.UtcDateTime, TimeSpan.FromSeconds(2));
@@ -88,6 +94,8 @@ public class RecycleBinTests : IDisposable
     [Fact]
     public async Task Cleanup_deletes_only_the_recycled_files_older_than_the_configured_age()
     {
+        MarkBin();
+
         var old = _temp.CreateFile("recycle/Artist/Album/old.mp3", "old");
         var fresh = _temp.CreateFile("recycle/Artist/Album/fresh.mp3", "fresh");
 
@@ -105,6 +113,8 @@ public class RecycleBinTests : IDisposable
     [Fact]
     public async Task Cleanup_removes_the_folders_it_empties()
     {
+        MarkBin();
+
         var old = _temp.CreateFile("recycle/Artist/Album/old.mp3", "old");
         File.SetLastWriteTimeUtc(old, Now.UtcDateTime.AddDays(-30));
 
@@ -173,6 +183,8 @@ public class RecycleBinTests : IDisposable
     [Fact]
     public async Task Cleanup_leaves_an_empty_folder_outside_the_bin_alone()
     {
+        MarkBin();
+
         var old = _temp.CreateFile("recycle/Artist/old.mp3", "old");
         File.SetLastWriteTimeUtc(old, Now.UtcDateTime.AddDays(-30));
 
@@ -184,6 +196,64 @@ public class RecycleBinTests : IDisposable
         Directory.Exists(RecycleRoot).Should().BeTrue("the bin root itself is never removed");
         Directory.Exists(outside).Should().BeTrue("the walk never reaches past the bin");
         Directory.Exists(_temp.Full("outside")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Cleanup_leaves_an_unmarked_directory_alone()
+    {
+        // A bin path that points at something of the user's — here a library — must cost nothing:
+        // a bin Wondarr has not written to is never walked.
+        _options.RecycleBinPath = _temp.Full("library");
+
+        var old = _temp.CreateFile("library/Artist/Album/track.mp3", "a user's file");
+        File.SetLastWriteTimeUtc(old, Now.UtcDateTime.AddDays(-400));
+
+        var result = new RecycleBin(
+            new DiskOperations(),
+            new TestOptionsMonitor<ImportOptions>(_options),
+            new WondarrPaths(_temp.Full("config")),
+            _time,
+            NullLogger<RecycleBin>.Instance);
+
+        (await result.CleanupAsync(CancellationToken.None)).Should().Be(0);
+        File.ReadAllText(old).Should().Be("a user's file");
+        Directory.Exists(_temp.Full("library/Artist/Album")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Cleanup_works_on_a_marked_bin_and_keeps_the_marker()
+    {
+        var replaced = _temp.CreateFile("library/Artist/track.mp3", "old");
+
+        // The marker lands when the bin takes its first file.
+        var marked = await Bin().RecycleAsync(replaced, Library, CancellationToken.None);
+
+        File.SetLastWriteTimeUtc(marked, Now.UtcDateTime.AddDays(-30));
+
+        (await Bin().CleanupAsync(CancellationToken.None)).Should().Be(1);
+
+        File.Exists(marked).Should().BeFalse();
+        File.Exists(_temp.Full("recycle/.wondarr-recycle-bin")).Should().BeTrue("the marker keeps its meaning");
+        Directory.Exists(RecycleRoot).Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_validator_refuses_a_bin_that_is_a_data_or_configuration_directory()
+    {
+        var configDir = _temp.Full("config");
+        var validator = new ImportOptionsValidator(new WondarrPaths(configDir));
+
+        foreach (var path in new[] { "/data", "/config", configDir })
+        {
+            var result = validator.Validate(null, new ImportOptions { RecycleBinPath = path });
+
+            result.Failed.Should().BeTrue($"'{path}' is a Wondarr directory, not a recycle bin");
+            result.Failures.Should().Contain(
+                failure => failure.StartsWith("import.recycle_bin_path", StringComparison.Ordinal));
+        }
+
+        validator.Validate(null, new ImportOptions { RecycleBinPath = _temp.Full("recycle") })
+            .Succeeded.Should().BeTrue();
     }
 
     [Fact]
