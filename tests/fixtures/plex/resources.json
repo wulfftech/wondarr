@@ -1,0 +1,137 @@
+[
+  {
+    "name": "Test Server 0",
+    "product": "Plex Media Server",
+    "productVersion": "1.43.4.10903-e5521bd8c",
+    "platform": "Linux",
+    "platformVersion": "7.0.0-34-generic",
+    "device": "Linux",
+    "clientIdentifier": "0000000000000000000000000000000000000000",
+    "provides": "server",
+    "ownerId": null,
+    "sourceTitle": null,
+    "publicAddress": "192.0.2.10",
+    "accessToken": "PLEX-USER-TOKEN",
+    "searchEnabled": true,
+    "createdAt": "2022-11-28T12:04:30Z",
+    "lastSeenAt": "2026-09-28T19:23:29Z",
+    "owned": true,
+    "home": false,
+    "synced": false,
+    "relay": false,
+    "presence": true,
+    "httpsRequired": false,
+    "publicAddressMatches": false,
+    "dnsRebindingProtection": false,
+    "natLoopbackSupported": true,
+    "connections": [
+      {
+        "protocol": "https",
+        "address": "192.0.2.10",
+        "port": 32400,
+        "uri": "https://192-0-2-10.0123456789abcdef0123456789abcdef.plex.direct:32400",
+        "local": true,
+        "relay": false,
+        "IPv6": false
+      },
+      {
+        "protocol": "https",
+        "address": "192.0.2.10",
+        "port": 32400,
+        "uri": "https://192-0-2-10.0123456789abcdef0123456789abcdef.plex.direct:32400",
+        "local": true,
+        "relay": false,
+        "IPv6": false
+      },
+      {
+        "protocol": "https",
+        "address": "192.0.2.10",
+        "port": 32400,
+        "uri": "https://192-0-2-10.0123456789abcdef0123456789abcdef.plex.direct:32400",
+        "local": true,
+        "relay": false,
+        "IPv6": false
+      },
+      {
+        "protocol": "https",
+        "address": "192.0.2.10",
+        "port": 32400,
+        "uri": "https://192-0-2-10.0123456789abcdef0123456789abcdef.plex.direct:32400",
+        "local": true,
+        "relay": false,
+        "IPv6": false
+      },
+      {
+        "protocol": "http",
+        "address": "plex.example",
+        "port": 32400,
+        "uri": "http://plex.example:32400",
+        "local": false,
+        "relay": false,
+        "IPv6": false
+      },
+      {
+        "protocol": "https",
+        "address": "192.0.2.10",
+        "port": 32400,
+        "uri": "https://192-0-2-10.0123456789abcdef0123456789abcdef.plex.direct:32400",
+        "local": true,
+        "relay": false,
+        "IPv6": false
+      },
+      {
+        "protocol": "https",
+        "address": "192.0.2.10",
+        "port": 32400,
+        "uri": "https://192-0-2-10.0123456789abcdef0123456789abcdef.plex.direct:32400",
+        "local": false,
+        "relay": false,
+        "IPv6": false
+      },
+      {
+        "protocol": "https",
+        "address": "plex.example",
+        "port": 32400,
+        "uri": "https://plex.example:32400",
+        "local": false,
+        "relay": false,
+        "IPv6": false
+      }
+    ]
+  },
+  {
+    "name": "Test Device 1",
+    "product": "Plexamp",
+    "productVersion": "4.12.4",
+    "platform": "Test Device 1",
+    "platformVersion": "17",
+    "device": "Test Device 1",
+    "clientIdentifier": "0000000000000000000000000000000000000001",
+    "provides": "client,player,pubsub-player",
+    "ownerId": null,
+    "sourceTitle": null,
+    "publicAddress": "192.0.2.10",
+    "accessToken": null,
+    "searchEnabled": false,
+    "createdAt": "2026-02-18T11:12:12Z",
+    "lastSeenAt": "2026-09-29T03:06:27Z",
+    "owned": true,
+    "home": false,
+    "synced": false,
+    "relay": false,
+    "presence": false,
+    "httpsRequired": false,
+    "publicAddressMatches": true,
+    "connections": [
+      {
+        "protocol": "http",
+        "address": "192.0.2.10",
+        "port": 47741,
+        "uri": "http://192.0.2.10:47741",
+        "local": true,
+        "relay": false,
+        "IPv6": false
+      }
+    ]
+  }
+]

@@ -1,0 +1,164 @@
+{
+  "MediaContainer": {
+    "size": 6,
+    "allowSync": false,
+    "title1": "Plex Library",
+    "Directory": [
+      {
+        "allowSync": true,
+        "filters": true,
+        "refreshing": false,
+        "key": "1",
+        "type": "movie",
+        "title": "Movie 0",
+        "agent": "tv.plex.agents.movie",
+        "scanner": "Plex Movie",
+        "language": "en-US",
+        "uuid": "00000000-0000-4000-8000-000000000000",
+        "updatedAt": 1686489605,
+        "createdAt": 1669637620,
+        "scannedAt": 1790697080,
+        "content": true,
+        "directory": true,
+        "contentChangedAt": 72756924,
+        "hidden": 0,
+        "Location": [
+          {
+            "id": 1,
+            "path": "/data/movie0"
+          }
+        ]
+      },
+      {
+        "allowSync": true,
+        "filters": true,
+        "refreshing": false,
+        "key": "2",
+        "type": "show",
+        "title": "Show 1",
+        "agent": "tv.plex.agents.series",
+        "scanner": "Plex TV Series",
+        "language": "en-US",
+        "uuid": "00000000-0000-4000-8000-000000000001",
+        "updatedAt": 1686489650,
+        "createdAt": 1669637634,
+        "scannedAt": 1790697166,
+        "content": true,
+        "directory": true,
+        "contentChangedAt": 72879278,
+        "hidden": 0,
+        "Location": [
+          {
+            "id": 2,
+            "path": "/data/show1"
+          }
+        ]
+      },
+      {
+        "allowSync": true,
+        "filters": true,
+        "refreshing": false,
+        "key": "11",
+        "type": "artist",
+        "title": "Artist 2",
+        "agent": "tv.plex.agents.music",
+        "scanner": "Plex Music",
+        "language": "en-AU",
+        "metadataAgentProviderGroupId": 3,
+        "uuid": "00000000-0000-4000-8000-000000000002",
+        "updatedAt": 1771413073,
+        "createdAt": 1771413073,
+        "scannedAt": 1790697069,
+        "content": true,
+        "directory": true,
+        "contentChangedAt": 59429301,
+        "hidden": 0,
+        "Location": [
+          {
+            "id": 13,
+            "path": "/data/artist2"
+          }
+        ]
+      },
+      {
+        "allowSync": true,
+        "filters": true,
+        "refreshing": false,
+        "key": "5",
+        "type": "artist",
+        "title": "Artist 3",
+        "agent": "tv.plex.agents.music",
+        "scanner": "Plex Music",
+        "language": "en-AU",
+        "uuid": "00000000-0000-4000-8000-000000000003",
+        "updatedAt": 1694605302,
+        "createdAt": 1673774623,
+        "scannedAt": 1790697120,
+        "content": true,
+        "directory": true,
+        "contentChangedAt": 59375195,
+        "hidden": 0,
+        "Location": [
+          {
+            "id": 7,
+            "path": "/data/artist3"
+          }
+        ]
+      },
+      {
+        "allowSync": true,
+        "filters": true,
+        "refreshing": false,
+        "key": "3",
+        "type": "photo",
+        "title": "Photo 4",
+        "agent": "tv.plex.agents.none",
+        "scanner": "Plex Photo Scanner",
+        "language": "en-US",
+        "uuid": "00000000-0000-4000-8000-000000000004",
+        "updatedAt": 1669980869,
+        "createdAt": 1669980451,
+        "scannedAt": 1790697113,
+        "content": true,
+        "directory": true,
+        "contentChangedAt": 72653302,
+        "hidden": 0,
+        "Location": [
+          {
+            "id": 4,
+            "path": "/data/photo4"
+          },
+          {
+            "id": 3,
+            "path": "/data/photo4"
+          }
+        ]
+      },
+      {
+        "allowSync": true,
+        "filters": true,
+        "refreshing": false,
+        "key": "4",
+        "type": "movie",
+        "title": "Movie 5",
+        "agent": "com.plexapp.agents.none",
+        "scanner": "Plex Video Files Scanner",
+        "language": "xn",
+        "uuid": "00000000-0000-4000-8000-000000000005",
+        "updatedAt": 1669981779,
+        "createdAt": 1669981761,
+        "scannedAt": 1790697082,
+        "content": true,
+        "directory": true,
+        "contentChangedAt": 17668669,
+        "hidden": 0,
+        "Location": [
+          {
+            "id": 5,
+            "path": "/data/movie5"
+          }
+        ]
+      }
+    ]
+  }
+}

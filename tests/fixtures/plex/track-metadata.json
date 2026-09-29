@@ -1,0 +1,122 @@
+{
+  "MediaContainer": {
+    "size": 1,
+    "allowSync": true,
+    "identifier": "com.plexapp.plugins.library",
+    "librarySectionID": 11,
+    "librarySectionTitle": "Artist 2",
+    "librarySectionUUID": "00000000-0000-4000-8000-000000000002",
+    "mediaTagPrefix": "/system/bundle/media/flags/",
+    "mediaTagVersion": 1786914632,
+    "Metadata": [
+      {
+        "ratingKey": "257571",
+        "key": "/library/metadata/257571",
+        "parentRatingKey": "257570",
+        "grandparentRatingKey": "257569",
+        "guid": "plex://track/5d07e53d403c640290850711",
+        "parentGuid": "plex://album/5d07c801403c640290bc648f",
+        "grandparentGuid": "plex://artist/5d07be4f403c64029067b018",
+        "parentStudio": "Walt Disney Records",
+        "type": "track",
+        "title": "Frozen Heart",
+        "grandparentKey": "/library/metadata/257569",
+        "parentKey": "/library/metadata/257570",
+        "librarySectionTitle": "Artist 2",
+        "librarySectionID": 11,
+        "librarySectionKey": "/library/sections/11",
+        "grandparentTitle": "Kristen Anderson‐Lopez",
+        "parentTitle": "Frozen",
+        "originalTitle": "The Cast of Frozen",
+        "summary": "",
+        "index": 1,
+        "parentIndex": 1,
+        "ratingCount": 15,
+        "parentYear": 2013,
+        "thumb": "/library/metadata/257570/thumb/1777834235",
+        "art": "/library/metadata/257569/art/1790190329",
+        "parentThumb": "/library/metadata/257570/thumb/1777834235",
+        "grandparentThumb": "/library/metadata/257569/thumb/1790190329",
+        "grandparentArt": "/library/metadata/257569/art/1790190329",
+        "duration": 106726,
+        "addedAt": 1674568223,
+        "updatedAt": 1788210869,
+        "Media": [
+          {
+            "id": 277870,
+            "duration": 106726,
+            "bitrate": 128,
+            "audioChannels": 2,
+            "audioCodec": "opus",
+            "container": "ogg",
+            "hasVoiceActivity": false,
+            "Part": [
+              {
+                "id": 281851,
+                "key": "/library/parts/281851/1674568223/file.opus",
+                "duration": 106726,
+                "file": "/data/artist2/Kristen Anderson‐Lopez, Robert Lopez & Christophe Beck/Frozen (Original Motion Picture Soundtrack)/01 The Cast of Frozen - Frozen Heart.opus",
+                "size": 1908513,
+                "container": "ogg",
+                "hasThumbnail": "1",
+                "Stream": [
+                  {
+                    "id": 620929,
+                    "streamType": 2,
+                    "canNormalizeLoudness": false,
+                    "selected": true,
+                    "codec": "opus",
+                    "index": 0,
+                    "channels": 2,
+                    "bitrate": 128,
+                    "albumGain": "-9.54",
+                    "albumPeak": "1.245284",
+                    "albumRange": "19.181092",
+                    "audioChannelLayout": "stereo",
+                    "gain": "-9.54",
+                    "loudness": "-11.53",
+                    "lra": "16.18",
+                    "peak": "1.243164",
+                    "samplingRate": 48000,
+                    "title": "Frozen Heart",
+                    "displayTitle": "OPUS (Stereo)",
+                    "extendedDisplayTitle": "Frozen Heart (OPUS Stereo)"
+                  },
+                  {
+                    "id": 621030,
+                    "key": "/library/streams/621030",
+                    "streamType": 4,
+                    "codec": "lrc",
+                    "format": "lrc",
+                    "minLines": "3",
+                    "provider": "com.plexapp.agents.lyricfind",
+                    "timed": "1",
+                    "displayTitle": "LRC",
+                    "extendedDisplayTitle": "LRC (External)"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "Image": [
+          {
+            "alt": "Frozen Heart",
+            "type": "coverPoster",
+            "url": "/library/metadata/257569/thumb/1790190329"
+          },
+          {
+            "alt": "Frozen Heart",
+            "type": "background",
+            "url": "/library/metadata/257569/art/1790190329"
+          }
+        ],
+        "Guid": [
+          {
+            "id": "mbid://9d0abe2b-7681-47d4-800e-5a443ba7d770"
+          }
+        ]
+      }
+    ]
+  }
+}
