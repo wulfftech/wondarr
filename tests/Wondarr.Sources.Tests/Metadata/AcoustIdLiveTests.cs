@@ -35,6 +35,7 @@ public sealed class AcoustIdLiveTests
         var client = new AcoustIdClient(
             http,
             new StaticOptionsMonitor<AcoustIdOptions>(options),
+            TimeProvider.System,
             NullLogger<AcoustIdClient>.Instance);
 
         var fingerprint = File.ReadAllText(Path.Combine(AcoustIdFixtures.Directory, "docs-example.fingerprint.txt")).Trim();
