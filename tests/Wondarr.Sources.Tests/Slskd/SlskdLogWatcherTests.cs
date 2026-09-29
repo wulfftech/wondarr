@@ -21,9 +21,34 @@ public class SlskdLogWatcherTests
     [Theory]
     [InlineData("LOGGED IN TO THE SOULSEEK SERVER AS wondarr-soulseek", SlskdLogSignal.LoggedIn)]
     [InlineData("logged in to the soulseek server as wondarr-soulseek", SlskdLogSignal.LoggedIn)]
-    [InlineData("Another Client Logged In Using The Same Username", SlskdLogSignal.DuplicateLogin)]
-    [InlineData("INVALIDUSERNAME", SlskdLogSignal.InvalidCredentials)]
+    [InlineData("[23:00:14 ERR] failed to reconnect: the server rejected login attempt: invalidusername", SlskdLogSignal.InvalidCredentials)]
+    [InlineData(
+        "[23:00:14 ERR] DISCONNECTED FROM THE SOULSEEK SERVER: ANOTHER CLIENT LOGGED IN USING THE SAME USERNAME",
+        SlskdLogSignal.DuplicateLogin)]
     public void Classifies_without_caring_about_case(string line, SlskdLogSignal expected)
+    {
+        SlskdLogWatcher.Classify(line).Should().Be(expected);
+    }
+
+    [Theory]
+    // A peer's search text and a filename both reach this method through slskd's log. Only slskd's
+    // own message may decide the login outcome, and only from the start of the line.
+    [InlineData("[23:00:14 INF] Search request for 'another client logged in using the same username' from peer")]
+    [InlineData("[23:00:14 INF] Search request for 'Logged in to the Soulseek server as foo' from peer")]
+    [InlineData("[23:00:14 INF] Download of 'invalid username or password.mp3' started")]
+    [InlineData("[23:00:14 INF] Rejected: Failed to reconnect: The server rejected login attempt: INVALIDUSERNAME")]
+    [InlineData("peer asked: Disconnected from the Soulseek server: another client logged in using the same username")]
+    public void A_peer_cannot_fake_a_login_outcome_by_writing_its_own_text(string line)
+    {
+        SlskdLogWatcher.Classify(line).Should().BeNull();
+    }
+
+    [Theory]
+    // The prefix is optional, but only slskd's own "[HH:mm:ss LVL] " shape is removed; a bracketed
+    // file name is left where it is.
+    [InlineData("[23:00:14 WRN] Logged in to the Soulseek server as wondarr-soulseek", SlskdLogSignal.LoggedIn)]
+    [InlineData("[not-a-level] Logged in to the Soulseek server as wondarr-soulseek", null)]
+    public void Only_slskds_own_level_prefix_is_stripped(string line, SlskdLogSignal? expected)
     {
         SlskdLogWatcher.Classify(line).Should().Be(expected);
     }

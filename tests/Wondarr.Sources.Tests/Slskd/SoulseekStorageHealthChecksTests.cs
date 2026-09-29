@@ -16,6 +16,8 @@ public class SlskdDownloadFolderHealthCheckTests : IDisposable
     public async Task A_writable_download_folder_is_ok_and_leaves_no_probe_behind()
     {
         var folder = Path.Combine(_root, "downloads", "slskd");
+        Directory.CreateDirectory(folder);
+
         var options = Options(folder);
 
         var result = await CheckAsync(options);
@@ -24,15 +26,14 @@ public class SlskdDownloadFolderHealthCheckTests : IDisposable
         result.Type.Should().Be(HealthCheckResult.Ok);
         result.Message.Should().Be($"{folder} is writable");
         result.WikiUrl.Should().BeNull();
-        Directory.Exists(folder).Should().BeTrue();
         Directory.GetFiles(folder).Should().BeEmpty("the write probe is deleted again");
     }
 
     [Fact]
-    public async Task A_download_folder_that_cannot_be_created_is_an_error_naming_it()
+    public async Task A_download_folder_that_does_not_exist_is_an_error_naming_it()
     {
-        // A file stands where the downloads directory should go: Directory.CreateDirectory fails on
-        // every platform, which is the same shape as an unwritable /data.
+        // The check reports the folder's state; it does not create one. A path whose parent is a
+        // file does not exist on any platform, which is the same shape as an unmounted /data.
         Directory.CreateDirectory(_root);
         var blocker = Path.Combine(_root, "blocked");
         await File.WriteAllTextAsync(blocker, string.Empty);
@@ -42,10 +43,11 @@ public class SlskdDownloadFolderHealthCheckTests : IDisposable
         var result = await CheckAsync(options);
 
         result.Type.Should().Be(HealthCheckResult.Error);
-        result.Message.Should().StartWith($"{folder} is not writable: ");
-        result.Message.Should().NotBe($"{folder} is not writable: ");
+        result.Message.Should().Be($"{folder} does not exist");
+        Directory.Exists(folder).Should().BeFalse("the check must not create what it is checking");
     }
 
+    
     [Fact]
     public async Task External_mode_is_ok_because_Wondarr_owns_the_folder()
     {

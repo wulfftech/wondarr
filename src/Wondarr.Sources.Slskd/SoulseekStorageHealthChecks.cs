@@ -12,6 +12,9 @@ public sealed class SlskdDownloadFolderHealthCheck : IHealthCheck
     /// <summary>Name this check reports its results under.</summary>
     public const string CheckName = "slskd-download-folder";
 
+    /// <summary>How long the write probe gets before the folder counts as not answering.</summary>
+    public static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
+
     private readonly IOptionsMonitor<SoulseekOptions> _options;
 
     /// <summary>Initialises a new instance of the <see cref="SlskdDownloadFolderHealthCheck"/> class.</summary>
@@ -37,15 +40,32 @@ public sealed class SlskdDownloadFolderHealthCheck : IHealthCheck
 
         var folder = options.DownloadsDir;
 
+        // Missing is its own answer: this check reports the state of the folder, it does not create
+        // it. Making one here would hide a configuration mistake the host is about to report too.
+        if (!Directory.Exists(folder))
+        {
+            return Result(HealthCheckResult.Error, $"{folder} does not exist");
+        }
+
         // The probe file is named for this check, so a leftover one is traceable to it.
         var probeFile = Path.Combine(folder, $".wondarr-write-test-{Guid.NewGuid():N}");
 
         try
         {
-            Directory.CreateDirectory(folder);
-            await File.WriteAllTextAsync(probeFile, string.Empty, cancellationToken).ConfigureAwait(false);
+            // Off the request thread and bounded: a wedged network mount answers neither way, and a
+            // health check that hangs is worse than one that reports a timeout.
+            await Task
+                .Run(() => File.WriteAllText(probeFile, string.Empty), cancellationToken)
+                .WaitAsync(ProbeTimeout, cancellationToken)
+                .ConfigureAwait(false);
 
             return Result(HealthCheckResult.Ok, $"{folder} is writable");
+        }
+        catch (TimeoutException)
+        {
+            return Result(
+                HealthCheckResult.Error,
+                $"{folder} did not answer within {ProbeTimeout.TotalSeconds:0} s");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

@@ -420,4 +420,158 @@ public class SlskdHostTests
             () => harness.Status.Current.LoginProblem == SlskdLoginProblem.None,
             "the login to clear the problem");
     }
+
+    [Fact]
+    public async Task An_empty_downloads_dir_is_reported_instead_of_stopping_the_host()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        // Not a storage error at all: this throws ArgumentException, which used to escape the
+        // background service and stop the whole app.
+        harness.Options.DownloadsDir = string.Empty;
+
+        await harness.StartAsync();
+
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Crashed,
+            "the empty setting to be reported");
+
+        harness.Status.Current.LastError.Should().StartWith("Cannot prepare slskd: ");
+        harness.Launcher.Count.Should().Be(0, "nothing can be launched without a valid configuration");
+    }
+
+    [Fact]
+    public async Task A_shared_folder_that_cannot_be_created_is_skipped_and_slskd_still_starts()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        // A file stands where the shared folder's parent should go; an empty string is not a path at
+        // all. Neither may stop slskd from starting.
+        var blocker = Path.Combine(Path.GetTempPath(), $"wondarr-slskd-share-blocked-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(blocker, string.Empty);
+
+        var good = Path.Combine(Path.GetTempPath(), $"wondarr-slskd-share-{Guid.NewGuid():N}");
+        var unusable = Path.Combine(blocker, "shared");
+
+        try
+        {
+            harness.Options.ShareLibrary = true;
+            harness.Options.SharedFolders = [good, unusable, string.Empty];
+
+            await harness.StartAsync();
+
+            await SlskdHostHarness.AwaitAsync(
+                () => harness.Status.Current.State == SlskdState.Running,
+                "slskd to start with a shared folder it could not create");
+
+            harness.Launcher.Count.Should().Be(1);
+            Directory.Exists(good).Should().BeTrue("the folder that can be created is still shared out of the box");
+            Directory.Exists(unusable).Should().BeFalse();
+
+            harness.Logs.For(typeof(SlskdHost).FullName!).Should().Contain(record =>
+                record.Level == LogLevel.Warning && record.Message.Contains(unusable));
+        }
+        finally
+        {
+            File.Delete(blocker);
+
+            if (Directory.Exists(good))
+            {
+                Directory.Delete(good, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task A_settings_write_that_fails_while_slskd_runs_is_retried_and_never_fakes_a_crash()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        var processId = harness.Status.Current.ProcessId;
+
+        // A directory where slskd.yml belongs: every write of it fails from now on.
+        File.Delete(harness.ConfigPath);
+        Directory.CreateDirectory(harness.ConfigPath);
+
+        var next = WithCredentials(harness.Options);
+        harness.CurrentOptions = next;
+
+        await harness.Host.ApplySettingsAsync(next, CancellationToken.None);
+
+        var failed = harness.Status.Current;
+        failed.State.Should().Be(SlskdState.Running, "a configuration that was not written is not a crash");
+        failed.ProcessId.Should().Be(processId);
+        failed.IsReachable.Should().BeTrue();
+        failed.LastError.Should().StartWith("Settings not applied: ");
+        harness.Launcher.Count.Should().Be(1, "nothing is restarted on a configuration that was not written");
+
+        // The running poll must not wipe the reason while the change is still pending.
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.LastCheckedAt > failed.LastCheckedAt,
+            TimeSpan.FromSeconds(5),
+            10,
+            "the running poll");
+
+        var polled = harness.Status.Current;
+        polled.State.Should().Be(SlskdState.Running);
+        polled.ProcessId.Should().Be(processId);
+        polled.LastError.Should().StartWith("Settings not applied: ");
+
+        // With the path free again, the supervisor's next cycle re-applies the pending change.
+        Directory.Delete(harness.ConfigPath);
+
+        await harness.AdvanceUntilAsync(
+            () => harness.Launcher.Count == 2,
+            TimeSpan.FromSeconds(5),
+            20,
+            "the pending settings to be re-applied");
+
+        (await harness.ReadConfigAsync()).Should().Contain("username: wondarr-soulseek");
+        harness.Launcher.Launches[0].Process.KillCount.Should().Be(1);
+
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "the replacement to answer");
+
+        harness.Status.Current.LastError.Should().BeNull("the pending change was applied");
+    }
+
+    [Fact]
+    public async Task A_login_problem_is_cleared_once_slskd_reports_a_logged_in_session()
+    {
+        await using var harness = new SlskdHostHarness(WithCredentials(new SoulseekOptions()));
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        harness.Launcher.Latest.Emit(
+            "[23:00:14 ERR] Disconnected from the Soulseek server: another client logged in using the same username");
+
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.LoginProblem == SlskdLoginProblem.DuplicateLogin,
+            "the kick to be recorded");
+
+        // slskd reconnected on its own and now reports a logged-in session: the stale problem goes.
+        harness.ApplicationState = new SlskdApplicationState
+        {
+            Version = new SlskdVersion { Current = "0.26.0.0" },
+            Server = new SlskdServer { IsLoggedIn = true },
+            User = new SlskdUser { Username = "wondarr-soulseek" },
+        };
+
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.LoginProblem == SlskdLoginProblem.None,
+            TimeSpan.FromSeconds(5),
+            10,
+            "the next poll to clear the problem that no longer holds");
+
+        harness.Status.Current.LoginProblemAt.Should().BeNull();
+    }
 }
