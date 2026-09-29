@@ -704,6 +704,180 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    songId?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InteractiveSearchResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GrabRequestResource"];
+                    "application/*+json": components["schemas"]["GrabRequestResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    includeFinished?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfQueueResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queue/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QueueStatusResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queue/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: {
+                    removeFromClient?: boolean;
+                    blocklist?: boolean;
+                    skipRedownload?: boolean;
+                };
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library": {
         parameters: {
             query?: never;
@@ -796,6 +970,48 @@ export interface paths {
             };
         };
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/library/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LibraryPreviewRequestResource"];
+                    "application/*+json": components["schemas"]["LibraryPreviewRequestResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LibraryPreviewResource"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1730,6 +1946,10 @@ export interface components {
         CommandResult: number;
         CommandStatus: number;
         CommandTrigger: number;
+        GrabRequestResource: {
+            /** Format: int64 */
+            candidateId: number | string;
+        };
         HistoryEventType: number;
         HistoryResource: {
             /** Format: int64 */
@@ -1801,8 +2021,24 @@ export interface components {
             lastSyncedAt: null | string;
             counts: components["schemas"]["ImportListCountsResource"];
         };
+        InteractiveSearchResource: {
+            /** Format: int64 */
+            searchRunId: number | string;
+            outcome: components["schemas"]["SearchOutcome"];
+            message: null | string;
+            releases: components["schemas"]["ReleaseResource"][];
+        };
         JsonElement: unknown;
         LibraryLayout: number;
+        LibraryPreviewRequestResource: {
+            /** Format: int64 */
+            songId: null | number | string;
+            template: null | string;
+        };
+        LibraryPreviewResource: {
+            path: null | string;
+            errors: string[];
+        };
         LibraryResource: {
             /** Format: int64 */
             id: number | string;
@@ -1849,6 +2085,17 @@ export interface components {
             /** Format: int32 */
             totalRecords: number | string;
             records: components["schemas"]["ImportListItemResource"][];
+        };
+        PagingResourceOfQueueResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["QueueResource"][];
         };
         PagingResourceOfSongResource: {
             /** Format: int32 */
@@ -1911,6 +2158,127 @@ export interface components {
             durationToleranceMs: number | string;
             items: components["schemas"]["QualityProfileItemResource"][];
         };
+        QueueItemState: number;
+        QueueResource: {
+            /** Format: int64 */
+            id: number | string;
+            /** Format: int64 */
+            songId: number | string;
+            songTitle: string;
+            artistCredit: string;
+            sourceType: string;
+            provider: null | string;
+            displayName: string;
+            remotePath: string;
+            state: components["schemas"]["QueueItemState"];
+            /** Format: double */
+            progress: number | string;
+            /** Format: int64 */
+            bytesTransferred: number | string;
+            /** Format: int64 */
+            sizeBytes: null | number | string;
+            /** Format: int32 */
+            placeInQueue: null | number | string;
+            message: null | string;
+            /** Format: int32 */
+            attempt: number | string;
+            /** Format: int64 */
+            qualityId: number | string;
+            qualityName: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            stateChangedAt: string;
+            /** Format: date-time */
+            finishedAt: null | string;
+        };
+        QueueStatusResource: {
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            count: number | string;
+            /** Format: int32 */
+            unknownCount: number | string;
+            errors: boolean;
+            warnings: boolean;
+            unknownErrors: boolean;
+            unknownWarnings: boolean;
+        };
+        ReleaseParseResource: {
+            artist: null | string;
+            title: null | string;
+            album: null | string;
+            /** Format: int32 */
+            trackNo: null | number | string;
+            flags: string[];
+            pathFlags: string[];
+        };
+        ReleaseRejectionResource: {
+            reason: string;
+            message: string;
+        };
+        ReleaseResource: {
+            /** Format: int64 */
+            candidateId: number | string;
+            sourceType: string;
+            provider: null | string;
+            displayName: string;
+            remotePath: string;
+            extension: null | string;
+            /** Format: int64 */
+            qualityId: number | string;
+            qualityName: null | string;
+            /** Format: int64 */
+            sizeBytes: null | number | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            /** Format: int32 */
+            bitrateKbps: null | number | string;
+            /** Format: int32 */
+            sampleRate: null | number | string;
+            /** Format: int32 */
+            bitDepth: null | number | string;
+            freeUploadSlot: null | boolean;
+            /** Format: int32 */
+            queueLength: null | number | string;
+            /** Format: int64 */
+            uploadSpeed: null | number | string;
+            /** Format: int32 */
+            score: number | string;
+            scoreBreakdown: components["schemas"]["ScoreBreakdown"];
+            rejections: components["schemas"]["ReleaseRejectionResource"][];
+            accepted: boolean;
+            parsed: components["schemas"]["ReleaseParseResource"];
+            query: null | string;
+        };
+        ScoreAdjustment: {
+            name: string;
+            /** Format: int32 */
+            points: number | string;
+        };
+        ScoreBreakdown: {
+            /** Format: int32 */
+            title: number | string;
+            /** Format: int32 */
+            artist: number | string;
+            /** Format: int32 */
+            duration: number | string;
+            /** Format: int32 */
+            identity: number | string;
+            /** Format: int32 */
+            quality: number | string;
+            /** Format: int32 */
+            availability: number | string;
+            /** Format: int32 */
+            sourcePreference: number | string;
+            adjustments: components["schemas"]["ScoreAdjustment"][];
+            /** Format: int32 */
+            adjustmentTotal: number | string;
+            /** Format: int32 */
+            total: number | string;
+            cappedForUnknownDuration: boolean;
+        };
+        SearchOutcome: number;
         SongAddResource: {
             mbRecordingId: null | string;
             /** Format: int64 */
