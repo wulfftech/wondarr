@@ -60,6 +60,7 @@ public sealed partial class SlskdHost : BackgroundService
     private readonly IProcessLauncher _launcher;
     private readonly SlskdConfigRenderer _renderer;
     private readonly IOptionsMonitor<SoulseekOptions> _options;
+    private readonly IOptionsMonitor<ServerOptions> _serverOptions;
     private readonly WondarrPaths _paths;
     private readonly SlskdStatus _status;
     private readonly TimeProvider _timeProvider;
@@ -84,6 +85,7 @@ public sealed partial class SlskdHost : BackgroundService
         IProcessLauncher launcher,
         SlskdConfigRenderer renderer,
         IOptionsMonitor<SoulseekOptions> options,
+        IOptionsMonitor<ServerOptions> serverOptions,
         WondarrPaths paths,
         SlskdStatus status,
         TimeProvider timeProvider,
@@ -93,6 +95,7 @@ public sealed partial class SlskdHost : BackgroundService
         ArgumentNullException.ThrowIfNull(launcher);
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serverOptions);
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -102,6 +105,7 @@ public sealed partial class SlskdHost : BackgroundService
         _launcher = launcher;
         _renderer = renderer;
         _options = options;
+        _serverOptions = serverOptions;
         _paths = paths;
         _status = status;
         _timeProvider = timeProvider;
@@ -433,6 +437,18 @@ public sealed partial class SlskdHost : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Where slskd calls Wondarr back when a file finishes. slskd runs on this machine, so loopback
+    /// and Wondarr's own port are always right — even when the user reaches Wondarr through a proxy —
+    /// and the URL base is already normalised to <c>""</c> or <c>/base</c>.
+    /// </summary>
+    private string WebhookUrl()
+    {
+        var server = _serverOptions.CurrentValue;
+
+        return $"http://127.0.0.1:{server.Port}{server.UrlBase}/api/v1/slskd/webhook";
+    }
+
     private ProcessLaunchRequest BuildRequest(SoulseekOptions options) => new(
         options.BinaryPath,
         [],
@@ -474,7 +490,7 @@ public sealed partial class SlskdHost : BackgroundService
             secrets = await store.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var yaml = _renderer.Render(options, secrets);
+        var yaml = _renderer.Render(options, secrets, WebhookUrl());
 
         // A unique name per write: two concurrent settings changes must not write the same
         // temporary file.

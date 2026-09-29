@@ -79,11 +79,15 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
 
         _provider = services.BuildServiceProvider();
 
+        var serverMonitor = Substitute.For<IOptionsMonitor<ServerOptions>>();
+        serverMonitor.CurrentValue.Returns(new ServerOptions());
+
         Host = new SlskdHost(
             _provider.GetRequiredService<IServiceScopeFactory>(),
             Launcher,
             new SlskdConfigRenderer(),
             Monitor,
+            serverMonitor,
             Paths,
             Status,
             Time,

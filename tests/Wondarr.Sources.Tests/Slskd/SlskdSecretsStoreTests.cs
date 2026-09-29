@@ -24,7 +24,29 @@ public class SlskdSecretsStoreTests
         first.Should().Be(second);
         first.ApiKey.Should().MatchRegex(Hex64);
         first.WebPassword.Should().MatchRegex(Hex64);
+        first.WebhookToken.Should().MatchRegex(Hex64);
         first.WebUsername.Should().Be(SlskdSecretsStore.WebUsername);
+    }
+
+    [Fact]
+    public async Task Gives_an_installation_from_before_the_webhook_a_token_and_keeps_its_api_key()
+    {
+        // Stored secrets deserialise with a null WebhookToken when they were written by an earlier
+// version, which is exactly the record built here.
+        var repository = new InMemorySettingsRepository();
+        var before = new SlskdRuntimeSecrets(new string('a', 64), "wondarr", new string('b', 64));
+        await repository.SetAsync(SlskdSecretsStore.SettingKey, before, CancellationToken.None);
+
+        var after = await Store(repository, out var registry).GetOrCreateAsync(CancellationToken.None);
+
+        after.ApiKey.Should().Be(before!.ApiKey);
+        after.WebPassword.Should().Be(before.WebPassword);
+        after.WebhookToken.Should().NotBeNullOrEmpty();
+
+        var stored = await repository.GetAsync<SlskdRuntimeSecrets>(SlskdSecretsStore.SettingKey, CancellationToken.None);
+        stored!.WebhookToken.Should().Be(after.WebhookToken);
+
+        registry.Received(1).Register(after.WebhookToken);
     }
 
     [Fact]
@@ -37,6 +59,7 @@ public class SlskdSecretsStoreTests
 
         registry.Received(1).Register(secrets.ApiKey);
         registry.Received(1).Register(secrets.WebPassword);
+        registry.Received(1).Register(secrets.WebhookToken);
         registry.Received(1).Register("hunter2-not-a-real-password");
     }
 
