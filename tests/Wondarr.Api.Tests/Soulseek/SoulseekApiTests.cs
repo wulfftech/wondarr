@@ -191,7 +191,7 @@ public sealed class SoulseekApiTests : IDisposable
         using var client = Client();
 
         new SlskdConfigRenderer()
-            .Render(Options(), new SlskdRuntimeSecrets("key", "wondarr", "password"))
+            .Render(Options(), new SlskdRuntimeSecrets("key", "wondarr", "password"), webhookUrl: null)
             .Should().Contain("/data/music", "the default settings share the library root");
 
         using var response = await client.PutAsJsonAsync(
@@ -201,7 +201,7 @@ public sealed class SoulseekApiTests : IDisposable
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var rendered = new SlskdConfigRenderer()
-            .Render(Options(), new SlskdRuntimeSecrets("key", "wondarr", "password"));
+            .Render(Options(), new SlskdRuntimeSecrets("key", "wondarr", "password"), webhookUrl: null);
 
         var stream = new YamlStream();
         using (var reader = new StringReader(rendered))
