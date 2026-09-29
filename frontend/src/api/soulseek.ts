@@ -184,9 +184,7 @@ export function useUpdateSoulseekSettings(): UseMutationResult<
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (
-      update: SoulseekSettingsUpdateResource,
-    ): Promise<SoulseekSettingsUpdateResponseResource> => {
+    mutationFn: async (update: SoulseekSettingsUpdateResource): Promise<SoulseekSettingsUpdateResponseResource> => {
       const { data, error, response } = await client.PUT('/api/v1/soulseek/settings', { body: update });
 
       if (!response.ok || data === undefined) {
