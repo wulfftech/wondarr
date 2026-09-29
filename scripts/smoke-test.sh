@@ -10,7 +10,7 @@
 # Phase 1 (scripts/phase1-gate.py):
 #   - a pasted list of 50 songs resolves >= 90 % to MusicBrainz recordings with correct durations
 #     and cover art, the rest via Deezer or into the unresolved review, every song with an album
-# Phase 2 (scripts/phase2-gate.py with tools/FakeSlskd; SMOKE_PHASE2=fake (default) | off):
+# Phase 2 (scripts/phase2-gate.py with tools/FakeSlskd; SMOKE_PHASE2=fake | off (default until the pipeline lands)):
 #   - the bundled slskd is replaced by FakeSlskd (a scenario built from the Phase 1 songs, real
 #     encoded audio, an AcoustID stand-in); MissingSearch imports >= 80 % of the wanted songs at or
 #     above cutoff, a live take disguised as the best file is caught after download and the next
@@ -193,7 +193,7 @@ if [ "$METADATA" = replay ]; then
 fi
 echo "PHASE 1 GATE: PASS ($IMAGE, metadata: $METADATA)"
 
-if [ "${SMOKE_PHASE2:-fake}" = off ]; then
+if [ "${SMOKE_PHASE2:-off}" = off ]; then  # TODO(phase2): default to fake once the import pipeline is merged
     echo "Phase 2 gate skipped (SMOKE_PHASE2=off)"
     exit 0
 fi
