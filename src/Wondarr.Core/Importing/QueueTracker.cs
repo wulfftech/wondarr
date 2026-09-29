@@ -129,20 +129,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try
-        {
-            await RecoverAsync(stoppingToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            return;
-        }
-        catch (Exception exception)
-        {
-            // The poll still has work to do; whatever was left in Importing is picked up by the next
-            // cycle as a Completed item anyway.
-            LogRecoveryFailed(_logger, exception);
-        }
+        var recovered = false;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -150,6 +137,22 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
 
             try
             {
+                // Retried before every cycle until it succeeds: the cycle skips Importing items on
+                // the assumption that recovery has put them back, so a failed recovery must not be
+                // forgotten (the database may simply not have been ready yet).
+                if (!recovered)
+                {
+                    try
+                    {
+                        await RecoverAsync(stoppingToken).ConfigureAwait(false);
+                        recovered = true;
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        LogRecoveryFailed(_logger, exception);
+                    }
+                }
+
                 wait = await RunCycleAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -367,13 +370,18 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
                 continue;
             }
 
-            // Only a change the UI can see is written down and broadcast: a poll that learned the same
-            // bytes from the same peer is not an update.
+            // Only a change the UI can see is broadcast; but every change is written down — the stall
+            // timeout runs on LastProgressAt, and a slow download that moves less than the broadcast
+            // threshold per poll must not look stalled on the next cycle.
             if (item.State != previousState
                 || Math.Abs(item.Progress - previousProgress) >= ProgressEpsilon
                 || !string.Equals(item.Message, previousMessage, StringComparison.Ordinal))
             {
                 await SaveAsync(database, item, cancellationToken).ConfigureAwait(false);
+            }
+            else if (database.ChangeTracker.HasChanges())
+            {
+                await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -676,6 +684,10 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         if (item.State != state)
         {
             item.StateChangedAt = now;
+
+            // The stall clock starts when the bytes may start: a download that waited 20 minutes in
+            // the peer's queue must not be "stalled" on its first poll as Downloading.
+            item.LastProgressAt = now;
         }
 
         item.State = state;

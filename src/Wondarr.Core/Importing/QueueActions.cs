@@ -109,6 +109,13 @@ public sealed partial class QueueActions : IQueueActions
             return true;
         }
 
+        if (item.State == QueueItemState.Importing)
+        {
+            // The import runs in its own scope and is placing the file right now; flipping the item
+            // underneath it would leave a placed file behind a "cancelled" item.
+            throw new QueueItemBusyException(item.Id);
+        }
+
         await CancelAtSourceAsync(item, cancellationToken).ConfigureAwait(false);
 
         if (blocklist)
@@ -394,4 +401,31 @@ public sealed partial class QueueActions : IQueueActions
     /// <param name="Blocklisted">Whether the candidate was blocklisted for the song.</param>
     /// <param name="Retried">Whether the search was asked for the next candidate.</param>
     private sealed record RemovalHistoryData(bool RemovedByUser, bool Blocklisted, bool Retried);
+}
+/// <summary>A queue item cannot be changed right now because it is being imported.</summary>
+public sealed class QueueItemBusyException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="QueueItemBusyException"/> class.</summary>
+    public QueueItemBusyException()
+    {
+    }
+
+    /// <summary>Initialises a new instance of the <see cref="QueueItemBusyException"/> class.</summary>
+    public QueueItemBusyException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>Initialises a new instance of the <see cref="QueueItemBusyException"/> class.</summary>
+    public QueueItemBusyException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    /// <summary>Initialises a new instance of the <see cref="QueueItemBusyException"/> class.</summary>
+    /// <param name="queueItemId">The item being imported.</param>
+    public QueueItemBusyException(long queueItemId)
+        : base($"Queue item {queueItemId} is being imported and cannot be removed now")
+    {
+    }
 }
