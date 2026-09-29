@@ -15,7 +15,7 @@ services:
       # everything else (Soulseek account, shares, sources, Plex, profiles) is set in the UI
     volumes:
       - ./config/wondarr:/config          # app DB/config/logs; bundled slskd state under /config/slskd
-      - /data:/data                         # /data/downloads/{slskd,torrents,usenet}, /data/media/music
+      - /data:/data                         # /data/downloads/{slskd,torrents,usenet}, /data/music
     ports:
       - "1077:1077"        # web UI / API
       - "50300:50300"      # Soulseek listen port for the bundled slskd (forward it for best results)
@@ -46,7 +46,7 @@ soulseek:                                  # rendered into /config/slskd/slskd.y
   password: <password>
   listen_port: 50300
   share_library: true                      # "Share my library" toggle
-  shared_folders: [/data/media/music]
+  shared_folders: [/data/music]
   upload_slots: 10
   upload_speed_limit_kib: 2000
 sources:
@@ -74,16 +74,16 @@ sources:
     partial_download: true
 libraries:
   - name: Plexamp
-    root: /data/media/music
+    root: /data/music
     layout: plexamp
     album_policy: fewest_albums              # fewest_albums | singles_only | original_album | single_release
     min_tracks_per_real_album: 2
     naming: "{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}"
     sidecars: { cover_jpg: true, lrc: true, artist_jpg: false }
-    plex: { url: http://plex:32400, token: "<token>", section: Music, path_map: { "/data/media/music": "/music" } }
+    plex: { url: http://plex:32400, token: "<token>", section: Music, path_map: { "/data/music": "/music" } }
 reference_libraries:
   - name: My existing music
-    root: /data/media/music-old
+    root: /data/music-old
     mode: reference                          # reference | adopt
 quality_profiles:
   default: Standard 320                     # cutoff MP3-320; AAC-256 and FLAC allowed; upgrades on
