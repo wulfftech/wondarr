@@ -9,6 +9,7 @@ namespace Wondarr.Api.Authentication;
 internal static class LoginPage
 {
     private const string FormActionToken = "__FORM_ACTION__";
+    private const string IconToken = "__ICON__";
     private const string ErrorToken = "__ERROR__";
     private const string HintToken = "__HINT__";
 
@@ -19,6 +20,7 @@ internal static class LoginPage
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Wondarr</title>
+        <link rel="icon" href="__ICON__" sizes="48x48">
         <style>
         :root { color-scheme: dark; }
         body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -61,6 +63,9 @@ internal static class LoginPage
         var query = string.IsNullOrEmpty(returnUrl) ? string.Empty : $"?returnUrl={Uri.EscapeDataString(returnUrl)}";
         var action = HtmlEncoder.Default.Encode($"{urlBase}/login{query}");
 
+        // Named explicitly: a browser's own guess, /favicon.ico at the host root, misses under a URL base.
+        var icon = HtmlEncoder.Default.Encode($"{urlBase}/favicon.ico");
+
         var error = loginFailed
             ? """<p class="error">Incorrect username or password.</p>"""
             : string.Empty;
@@ -71,6 +76,7 @@ internal static class LoginPage
 
         return Template
             .Replace(FormActionToken, action, StringComparison.Ordinal)
+            .Replace(IconToken, icon, StringComparison.Ordinal)
             .Replace(ErrorToken, error, StringComparison.Ordinal)
             .Replace(HintToken, hint, StringComparison.Ordinal);
     }
