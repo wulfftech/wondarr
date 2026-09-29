@@ -71,7 +71,13 @@ public class SlskdSearchRunnerTests
         api.GetResponsesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns([Response()]);
         RecordsDelete(api, budget);
 
-        var result = await RunAsync(time, Runner(provider, time, budget), budget);
+        // The clock goes exactly to the wall-clock deadline and no further: nothing after the stop waits on
+        // time, so the run then finishes on its own. Driving it with RunAsync (which keeps advancing until
+        // the run completes) raced the runner's cancellation continuation on a loaded thread pool and
+        // measured 30.5 s in full parallel suite runs.
+        var run = Runner(provider, time, budget).RunAsync(SearchText, CancellationToken.None);
+        await AdvanceToAsync(time, Start + TimeSpan.FromSeconds(new SoulseekOptions().Search.WallClockSeconds), run);
+        var result = await run.WaitAsync(TimeSpan.FromSeconds(30));
 
         result.StoppedByWallClock.Should().BeTrue();
         result.FinalState.Should().Be("Completed, ResponseLimitReached");
@@ -217,6 +223,27 @@ public class SlskdSearchRunnerTests
 
         run.IsCompleted.Should().BeTrue("the run must finish without waiting on real time");
         return await run;
+    }
+
+    /// <summary>
+    /// Advances the fake clock in poll steps up to <paramref name="target"/> and never past it, letting the
+    /// runner take its turn between steps. Unlike <see cref="RunAsync"/> it stops at the target even while
+    /// the run is still going, so a measured elapsed time cannot overshoot on a slow thread pool.
+    /// </summary>
+    private static async Task AdvanceToAsync(FakeTimeProvider time, DateTimeOffset target, Task run)
+    {
+        while (time.GetUtcNow() < target && !run.IsCompleted)
+        {
+            var step = target - time.GetUtcNow();
+            time.Advance(step < Poll ? step : Poll);
+
+            for (var spin = 0; spin < 20 && !run.IsCompleted; spin++)
+            {
+                await Task.Yield();
+            }
+
+            await Task.Delay(1);
+        }
     }
 
     [Fact]
