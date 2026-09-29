@@ -67,6 +67,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IFingerprinter, Fingerprinter>();
         services.AddSingleton<MediaToolAvailability>();
 
+        // Bounds the cover the organizer embeds; it holds no state of its own beyond the temp files
+        // of one conversion, so it is a singleton next to the other media tools.
+        services.AddSingleton<ICoverImageProcessor, CoverImageProcessor>();
+
         // Transient, like the cover-art and identity resolvers: it takes the AcoustID typed client,
         // which the factory hands out transient.
         services.AddTransient<IDownloadVerifier, DownloadVerifier>();

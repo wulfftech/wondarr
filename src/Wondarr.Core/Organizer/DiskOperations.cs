@@ -39,6 +39,9 @@ public interface IDiskOperations
     /// </summary>
     bool TryCreateHardLink(string source, string target);
 
+    /// <summary>Writes <paramref name="bytes"/> to <paramref name="path"/>, replacing whatever is there.</summary>
+    void WriteAllBytes(string path, byte[] bytes);
+
     /// <summary>Deletes the file at <paramref name="path"/>.</summary>
     void DeleteFile(string path);
 
@@ -162,6 +165,9 @@ public sealed class DiskOperations : IDiskOperations
             return false;
         }
     }
+
+    /// <inheritdoc />
+    public void WriteAllBytes(string path, byte[] bytes) => File.WriteAllBytes(path, bytes);
 
     /// <inheritdoc />
     public void DeleteFile(string path) => File.Delete(path);

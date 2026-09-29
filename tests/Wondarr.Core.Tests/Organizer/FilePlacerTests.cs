@@ -467,6 +467,8 @@ public class FilePlacerTests : IDisposable
             _inner.CopyFile(source, target);
         }
 
+        public void WriteAllBytes(string path, byte[] bytes) => _inner.WriteAllBytes(path, bytes);
+
         public bool TryCreateHardLink(string source, string target) => _inner.TryCreateHardLink(source, target);
 
         public void DeleteFile(string path)
