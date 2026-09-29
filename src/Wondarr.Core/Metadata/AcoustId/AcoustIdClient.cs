@@ -112,25 +112,36 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
     /// <summary>How long to wait before a retry when the service sends no <c>Retry-After</c>.</summary>
     private static readonly TimeSpan DefaultRetryDelay = TimeSpan.FromSeconds(1);
 
+    /// <summary>
+    /// The longest this client waits inside one lookup. A longer <c>Retry-After</c> is not waited out:
+    /// the verifier defers the file and the tracker asks again later, which costs no idle thread here.
+    /// </summary>
+    private static readonly TimeSpan MaxRetryWait = TimeSpan.FromSeconds(10);
+
     private readonly HttpClient _http;
     private readonly IOptionsMonitor<AcoustIdOptions> _options;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<AcoustIdClient> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="AcoustIdClient"/> class.</summary>
     /// <param name="http">The typed client, already carrying the base URL, the User-Agent and the spacing handler.</param>
     /// <param name="options">The client key, base URL and score thresholds.</param>
+    /// <param name="timeProvider">The clock the retry waits run on; tests drive it with <c>FakeTimeProvider</c>.</param>
     /// <param name="logger">Logs retries at Debug and throttling at Warning; never logs a key or a fingerprint.</param>
     public AcoustIdClient(
         HttpClient http,
         IOptionsMonitor<AcoustIdOptions> options,
+        TimeProvider timeProvider,
         ILogger<AcoustIdClient> logger)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
         _http = http;
         _options = options;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -176,22 +187,50 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
 
             using (response)
             {
-                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var parsed = ReadBody(body);
+                ResponseBody parsed;
+
+                // Reading the body is part of the exchange: a connection dropped mid-response is an
+                // outage like any other, not an exception the caller has to handle.
+                try
+                {
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    parsed = ReadBody(body);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return new AcoustIdLookupResult(AcoustIdStatus.Unavailable, [], "AcoustID did not answer in time");
+                }
+                catch (HttpRequestException exception)
+                {
+                    return new AcoustIdLookupResult(
+                        AcoustIdStatus.Unavailable,
+                        [],
+                        $"AcoustID could not be reached: {exception.Message}");
+                }
+                catch (IOException exception)
+                {
+                    return new AcoustIdLookupResult(
+                        AcoustIdStatus.Unavailable,
+                        [],
+                        $"AcoustID's answer could not be read: {exception.Message}");
+                }
 
                 if (response.StatusCode == HttpStatusCode.TooManyRequests || parsed.Code == RateLimitCode)
                 {
-                    if (attempt >= MaxAttempts)
+                    var delay = RetryDelay(response);
+
+                    // Waiting out an hour-long Retry-After in here holds the import for no gain: the
+                    // caller defers the file and the tracker comes back when the wait is over.
+                    if (attempt >= MaxAttempts || delay > MaxRetryWait)
                     {
-                        LogRateLimited(_logger, MaxAttempts);
+                        LogRateLimited(_logger, attempt, delay);
 
                         return new AcoustIdLookupResult(AcoustIdStatus.RateLimited, [], null);
                     }
 
-                    var delay = RetryDelay(response);
                     LogRetrying(_logger, attempt, delay);
 
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
 
                     continue;
                 }
@@ -273,7 +312,7 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
     }
 
     /// <summary>How long the service asked this caller to wait, defaulting to one second.</summary>
-    private static TimeSpan RetryDelay(HttpResponseMessage response)
+    private TimeSpan RetryDelay(HttpResponseMessage response)
     {
         var retryAfter = response.Headers.RetryAfter;
 
@@ -284,7 +323,7 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
 
         if (retryAfter?.Date is { } date)
         {
-            var wait = date - DateTimeOffset.UtcNow;
+            var wait = date - _timeProvider.GetUtcNow();
 
             return wait > TimeSpan.Zero ? wait : DefaultRetryDelay;
         }
@@ -426,8 +465,10 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
     [LoggerMessage(Level = LogLevel.Debug, Message = "AcoustID asked for a {Delay} wait before attempt {Attempt}.")]
     private static partial void LogRetrying(ILogger logger, int attempt, TimeSpan delay);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "AcoustID is still rate limiting after {Attempts} attempts.")]
-    private static partial void LogRateLimited(ILogger logger, int attempts);
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "AcoustID is rate limiting (attempt {Attempt}, asked for a {Delay} wait); deferring the file.")]
+    private static partial void LogRateLimited(ILogger logger, int attempt, TimeSpan delay);
 
     /// <summary>What one response body said, with a result list that is never null.</summary>
     private sealed record ResponseBody(

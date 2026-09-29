@@ -171,7 +171,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
         if (verdict is null)
         {
-            verdict = Evaluate(request, lookup, options);
+            verdict = Evaluate(request, lookup, options, media.DurationMs);
 
             // 5. The start of the file names a different recording. DJ talk-over and long intros do
             // that, so the middle of the file gets one more chance before the download is rejected.
@@ -187,12 +187,12 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
                     if (secondLookup.Status == AcoustIdStatus.Ok)
                     {
-                        var secondVerdict = Evaluate(request, secondLookup, options);
+                        var secondVerdict = Evaluate(request, secondLookup, options, media.DurationMs);
 
-                        // Only a real hit replaces the first window's verdict: "AcoustID does not know
-                        // the middle either" is not evidence that the start was misread, and would turn
-                        // a positively identified wrong recording into an unverified import.
-                        if (Worth(secondVerdict) > Worth(verdict))
+                        // Only a verified pass replaces the first window's verdict: "AcoustID does not know
+                        // the middle either" is not evidence that the start was misread, and a low score
+                        // there would turn a positively identified wrong recording into a review.
+                        if (secondVerdict.Outcome == VerificationOutcome.Passed && secondVerdict.FingerprintVerified)
                         {
                             verdict = secondVerdict;
                             lookup = secondLookup;
@@ -246,7 +246,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     private static Verdict Evaluate(
         VerificationRequest request,
         AcoustIdLookupResult lookup,
-        AcoustIdOptions options)
+        AcoustIdOptions options,
+        int probedDurationMs)
     {
         // Best first: the service sorts by score, but nothing promises that.
         var results = lookup.Results.OrderByDescending(result => result.Score).ToList();
@@ -282,7 +283,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
         // Either the song has no MBID yet (Deezer-only), or the wanted recording is not among the
         // results: the same song under another MusicBrainz id is still the song.
-        var sameTitle = SameTitleMatch(request, results, options.AcceptScore);
+        var sameTitle = SameTitleMatch(request, results, options.AcceptScore, probedDurationMs);
         if (sameTitle is { } duplicate)
         {
             var recording = duplicate.Recording;
@@ -330,7 +331,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     private static (AcoustIdResult Result, AcoustIdRecording Recording)? SameTitleMatch(
         VerificationRequest request,
         IReadOnlyList<AcoustIdResult> results,
-        double acceptScore)
+        double acceptScore,
+        int probedDurationMs)
     {
         // The song's own flags, not the ones its title would parse to: the song is the authority.
         var songTitle = TextMatching.Normalize(VersionFlagParser.Parse(request.SongTitle).BaseTitle);
@@ -349,7 +351,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
             foreach (var recording in result.Recordings)
             {
-                if (IsSameSong(recording, songTitle, songHardFlags, songArtists, request))
+                if (IsSameSong(recording, songTitle, songHardFlags, songArtists, request, probedDurationMs))
                 {
                     return (result, recording);
                 }
@@ -364,7 +366,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         string songTitle,
         VersionFlags songHardFlags,
         HashSet<string> songArtists,
-        VerificationRequest request)
+        VerificationRequest request,
+        int probedDurationMs)
     {
         if (string.IsNullOrWhiteSpace(recording.Title))
         {
@@ -388,25 +391,21 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             return false;
         }
 
-        if (recording.DurationSeconds is not { } durationSeconds || request.SongDurationMs is not { } songMs)
+        if (recording.DurationSeconds is not { } durationSeconds)
         {
             // A length the service did not give cannot confirm the length rule, so it is no match.
             return false;
         }
 
-        return Math.Abs((durationSeconds * 1000) - songMs) <= request.DurationToleranceMs;
+        // A Deezer-only song often has no length of its own; the file's own duration is then what the
+        // candidate recording is held against, which is the same measurement the length rule already used.
+        var songMs = request.SongDurationMs ?? probedDurationMs;
+
+        return songMs > 0 && Math.Abs((durationSeconds * 1000) - songMs) <= request.DurationToleranceMs;
     }
 
     private static bool HasRecordings(AcoustIdLookupResult lookup) =>
         lookup.Results.Any(result => result.Recordings.Count > 0);
-
-    /// <summary>How much a verdict is worth when two fingerprint windows disagree; only a hit wins.</summary>
-    private static int Worth(Verdict verdict) => verdict switch
-    {
-        { Outcome: VerificationOutcome.Passed, FingerprintVerified: true } => 2,
-        { Outcome: VerificationOutcome.NeedsReview } => 1,
-        _ => 0,
-    };
 
     /// <summary>A failing verdict with nothing measured to report.</summary>
     private static VerificationResult Failed(string reason, MediaInfo? media = null, long? quality = null) =>

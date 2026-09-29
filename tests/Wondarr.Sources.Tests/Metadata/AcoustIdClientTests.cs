@@ -240,6 +240,82 @@ public sealed class AcoustIdClientTests
         (time.GetUtcNow() - started).Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(2));
     }
 
+    [Fact]
+    public async Task A_retry_after_beyond_the_cap_defers_without_waiting()
+    {
+        // An hour-long Retry-After must not hold the import: the file is deferred and retried later.
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 29, 0, 0, 0, TimeSpan.Zero));
+        var handler = new RecordingHttpMessageHandler(_ => Throttled(TimeSpan.FromHours(1)));
+        var (client, _) = CreateClient(handler, timeProvider: time);
+
+        var started = time.GetUtcNow();
+        var result = await client.LookupAsync(AcoustIdFixtures.Fingerprint, ExampleDurationSeconds, CancellationToken.None);
+
+        result.Status.Should().Be(AcoustIdStatus.RateLimited);
+        handler.Requests.Should().ContainSingle();
+        time.GetUtcNow().Should().Be(started);
+    }
+
+    [Fact]
+    public async Task A_body_that_cannot_be_read_defers()
+    {
+        // A connection dropped mid-response is an outage, not an exception out of LookupAsync.
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ThrowingContent(),
+        });
+
+        var (client, _) = CreateClient(handler);
+
+        var result = await client.LookupAsync(AcoustIdFixtures.Fingerprint, ExampleDurationSeconds, CancellationToken.None);
+
+        result.Status.Should().Be(AcoustIdStatus.Unavailable);
+        result.Error.Should().NotBeNullOrWhiteSpace();
+        handler.Requests.Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(5, "internal error")]
+    [InlineData(13, "temporarily unavailable")]
+    public async Task Server_side_error_codes_are_unavailable(int code, string message)
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                "{\"status\":\"error\",\"error\":{\"code\":" + code
+                    + ",\"message\":\"" + message + "\"}}",
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        });
+
+        var (client, _) = CreateClient(handler);
+
+        var result = await client.LookupAsync(AcoustIdFixtures.Fingerprint, ExampleDurationSeconds, CancellationToken.None);
+
+        result.Status.Should().Be(AcoustIdStatus.Unavailable);
+        handler.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_rate_limit_code_in_a_200_body_is_retried_and_then_defers()
+    {
+        var handler = new RecordingHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Headers = { RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMilliseconds(10)) },
+            Content = new StringContent(
+                """{"status":"error","error":{"code":14,"message":"rate limit exceeded"}}""",
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        });
+
+        var (client, _) = CreateClient(handler);
+
+        var result = await client.LookupAsync(AcoustIdFixtures.Fingerprint, ExampleDurationSeconds, CancellationToken.None);
+
+        result.Status.Should().Be(AcoustIdStatus.RateLimited);
+        handler.Requests.Should().HaveCount(3);
+    }
+
     private static HttpResponseMessage Throttled(TimeSpan retryAfter) =>
         new(HttpStatusCode.TooManyRequests)
         {
@@ -249,7 +325,8 @@ public sealed class AcoustIdClientTests
     /// <summary>The client under test, wired to the handler and the fixtures' client key.</summary>
     private static (AcoustIdClient Client, CapturingLogger<AcoustIdClient> Logger) CreateClient(
         HttpMessageHandler handler,
-        AcoustIdOptions? options = null)
+        AcoustIdOptions? options = null,
+        TimeProvider? timeProvider = null)
     {
         var http = new HttpClient(handler)
         {
@@ -264,6 +341,106 @@ public sealed class AcoustIdClientTests
         var logger = new CapturingLogger<AcoustIdClient>();
         var configured = options ?? new AcoustIdOptions { ClientKey = AcoustIdFixtures.ClientKey };
 
-        return (new AcoustIdClient(http, new StaticOptionsMonitor<AcoustIdOptions>(configured), logger), logger);
+        return (
+            new AcoustIdClient(
+                http,
+                new StaticOptionsMonitor<AcoustIdOptions>(configured),
+                timeProvider ?? TimeProvider.System,
+                logger),
+            logger);
+    }
+}
+
+/// <summary>The config rules that keep a mis-typed <c>acoustid:</c> section from reaching the service.</summary>
+public sealed class AcoustIdOptionsValidatorTests
+{
+    [Fact]
+    public void The_defaults_are_valid()
+    {
+        new AcoustIdOptionsValidator()
+            .Validate(null, new AcoustIdOptions())
+            .Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_review_score_above_the_accept_score_is_refused()
+    {
+        var result = new AcoustIdOptionsValidator()
+            .Validate(null, new AcoustIdOptions { AcceptScore = 0.6, ReviewScore = 0.8 });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().Contain(failure => failure.Contains("acoustid.review_score", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(-0.1)]
+    [InlineData(1.1)]
+    public void A_score_outside_zero_to_one_is_refused(double score)
+    {
+        var result = new AcoustIdOptionsValidator()
+            .Validate(null, new AcoustIdOptions { AcceptScore = score });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().Contain(failure => failure.Contains("acoustid.accept_score", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void One_to_three_requests_per_second_is_allowed(int requestsPerSecond)
+    {
+        new AcoustIdOptionsValidator()
+            .Validate(null, new AcoustIdOptions { RequestsPerSecond = requestsPerSecond })
+            .Succeeded.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public void More_than_three_requests_per_second_is_refused(int requestsPerSecond)
+    {
+        var result = new AcoustIdOptionsValidator()
+            .Validate(null, new AcoustIdOptions { RequestsPerSecond = requestsPerSecond });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().Contain(failure => failure.Contains("acoustid.requests_per_second", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_relative_base_url_is_refused()
+    {
+        var result = new AcoustIdOptionsValidator()
+            .Validate(null, new AcoustIdOptions { BaseUrl = "/v2/" });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().Contain(failure => failure.Contains("acoustid.base_url", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("https://api.acoustid.org/v2", "https://api.acoustid.org/v2/")]
+    [InlineData("https://api.acoustid.org/v2/", "https://api.acoustid.org/v2/")]
+    [InlineData("  https://api.acoustid.org/v2  ", "https://api.acoustid.org/v2/")]
+    public void The_post_configure_leaves_exactly_one_trailing_slash(string configured, string expected)
+    {
+        var options = new AcoustIdOptions { BaseUrl = configured };
+
+        new AcoustIdOptionsPostConfigure(new SecretRegistry()).PostConfigure(null, options);
+
+        options.BaseUrl.Should().Be(expected);
+    }
+}
+
+/// <summary>A response body that fails while it is being read, the way a dropped connection does.</summary>
+internal sealed class ThrowingContent : HttpContent
+{
+    protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+        throw new IOException("the connection was closed while the body was being read");
+
+    protected override bool TryComputeLength(out long length)
+    {
+        length = 0;
+
+        return false;
     }
 }

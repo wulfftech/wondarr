@@ -276,6 +276,49 @@ public sealed class DownloadVerifierTests
         fingerprinter.Windows.Should().Equal(FingerprintWindow.Start, FingerprintWindow.Middle);
     }
 
+    [Fact]
+    public async Task The_middle_window_only_upgrades_a_verdict_to_a_verified_pass()
+    {
+        // The start names a live take (Failed); the middle gets a low score on the wanted MBID, which is
+        // not a confirmation of anything and must not soften a positively identified wrong recording.
+        var (verifier, _, fingerprinter, _) = Create(
+            lookup: Fixture("lookup-other-recording.json"),
+            secondLookup: Fixture("lookup-low-score.json"));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.Reason.Should().Contain("Get Lucky (live)");
+        result.FingerprintVerified.Should().BeFalse();
+        fingerprinter.Windows.Should().Equal(FingerprintWindow.Start, FingerprintWindow.Middle);
+    }
+
+    [Fact]
+    public async Task A_deezer_only_song_without_a_duration_is_held_against_the_probed_length()
+    {
+        // Deezer gave no length; the file's own duration is what the candidate recording is judged by.
+        var (verifier, _, _, _) = Create(lookup: Fixture("lookup-same-title-duplicate.json"));
+
+        var result = await verifier.VerifyAsync(Request(mbid: null, durationMs: null), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
+        result.FingerprintVerified.Should().BeTrue();
+        result.LearnedMbRecordingId.Should().Be(DuplicateId);
+    }
+
+    [Fact]
+    public async Task A_deezer_only_song_without_a_duration_still_rejects_a_recording_of_another_length()
+    {
+        // The probed file is 240 s, the same-titled candidate is 369 s: not the same recording.
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 240_000 }),
+            lookup: Fixture("lookup-same-title-duplicate.json"));
+
+        var result = await verifier.VerifyAsync(Request(mbid: null, durationMs: null), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+    }
+
     private static VerificationRequest Request(
         string? mbid = GetLuckyId,
         string title = "Get Lucky",
