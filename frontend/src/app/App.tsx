@@ -44,7 +44,7 @@ const ROUTES: RouteObject[] = [
  * The whole shell. Everything under the router reads its API client from `ApiProvider`, so no page
  * builds a URL of its own and the URL base keeps working.
  */
-export function App({ config }: { config: AppConfig }) {
+export function App({ config, env }: { config: AppConfig; env?: 'default' | 'test' }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -65,7 +65,7 @@ export function App({ config }: { config: AppConfig }) {
   useEventStream(config, queryClient);
 
   return (
-    <MantineProvider theme={theme} defaultColorScheme="auto">
+    <MantineProvider theme={theme} defaultColorScheme="auto" env={env}>
       <Notifications />
       <ApiProvider config={config}>
         <QueryClientProvider client={queryClient}>
