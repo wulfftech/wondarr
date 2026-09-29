@@ -50,6 +50,15 @@ public interface ISearchRunService
     /// <param name="take">How many starts to return.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     Task<IReadOnlyList<DateTime>> GetRecentStartsAsync(long songId, int take, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets the song's most recent runs, newest first. The missing-song backoff counts how many of
+    /// them in a row came back fruitless (MATCHING_ENGINE §6.6).
+    /// </summary>
+    /// <param name="songId">The song.</param>
+    /// <param name="take">How many runs to return.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    Task<IReadOnlyList<SearchRun>> GetRecentRunsAsync(long songId, int take, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -184,6 +193,27 @@ public sealed class SearchRunService : ISearchRunService
             .ThenByDescending(run => run.Id)
             .Take(take)
             .Select(run => run.StartedAt)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SearchRun>> GetRecentRunsAsync(
+        long songId,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        if (take <= 0)
+        {
+            return [];
+        }
+
+        return await _database.SearchRuns
+            .AsNoTracking()
+            .Where(run => run.SongId == songId)
+            .OrderByDescending(run => run.StartedAt)
+            .ThenByDescending(run => run.Id)
+            .Take(take)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }

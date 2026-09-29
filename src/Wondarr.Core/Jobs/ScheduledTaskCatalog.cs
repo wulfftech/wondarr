@@ -12,10 +12,17 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often the health checks run.</summary>
     public static readonly TimeSpan CheckHealthInterval = TimeSpan.FromMinutes(15);
 
+    /// <summary>
+    /// How often the missing-song search runs. TODO: take this from <c>SearchOptions.MissingIntervalHours</c>
+    /// once the catalog is built from the configuration rather than from a static list.
+    /// </summary>
+    public static readonly TimeSpan MissingSearchInterval = TimeSpan.FromHours(6);
+
     private static readonly ScheduledTaskDefinition[] BuiltIn =
     [
         new(HeartbeatCommandHandler.CommandName, HeartbeatInterval),
         new(CheckHealthCommandHandler.CommandName, CheckHealthInterval),
+        new(Searching.MissingSearchCommandHandler.CommandName, MissingSearchInterval),
     ];
 
     /// <inheritdoc />

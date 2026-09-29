@@ -30,6 +30,16 @@ public interface IBlocklistService
     /// <param name="key">The source-specific key.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     Task<bool> IsBlocklistedAsync(string sourceType, string key, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets the keys a search must treat as blocked before judging its candidates, in one query.
+    /// A song's searches see the entries recorded for it <em>and</em> the song-less ones: a file that
+    /// was wrong for one song may be the right file for another (a live take, a remix).
+    /// </summary>
+    /// <param name="sourceType">The source the keys belong to, for example <c>soulseek</c>.</param>
+    /// <param name="songId">The song being searched for.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    Task<IReadOnlySet<string>> GetActiveKeysAsync(string sourceType, long songId, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -116,6 +126,28 @@ public sealed class BlocklistService : IBlocklistService
                     && (item.ExpiresAt == null || item.ExpiresAt > now),
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlySet<string>> GetActiveKeysAsync(
+        string sourceType,
+        long songId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceType);
+
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        var keys = await _database.Blocklist
+            .AsNoTracking()
+            .Where(item => item.SourceType == sourceType
+                && (item.SongId == null || item.SongId == songId)
+                && (item.ExpiresAt == null || item.ExpiresAt > now))
+            .Select(item => item.BlocklistKey)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return new HashSet<string>(keys, StringComparer.Ordinal);
     }
 
     /// <summary>
