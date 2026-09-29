@@ -15,6 +15,7 @@ export type QualityDefinitionResource = components['schemas']['QualityDefinition
 export type QualityProfileResource = components['schemas']['QualityProfileResource'];
 export type QualityProfileItemResource = components['schemas']['QualityProfileItemResource'];
 export type LibraryResource = components['schemas']['LibraryResource'];
+export type LibraryPreviewResource = components['schemas']['LibraryPreviewResource'];
 
 /** The query keys the profile and library pages invalidate. */
 export const QUALITY_DEFINITIONS_QUERY_KEY = ['quality-definitions'] as const;
@@ -256,5 +257,32 @@ export function useSaveLibrary(): UseMutationResult<LibraryResource, Error, Libr
       return data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: LIBRARIES_QUERY_KEY }),
+  });
+}
+
+/**
+ * Renders a naming template against the library's sample song, for the live preview under the
+ * template field. It is a POST because the template being previewed is not the stored one; nothing
+ * is written and no query is invalidated.
+ *
+ * A template the server cannot render comes back 200 with its `errors` filled in and `path` null, so
+ * the caller reads those rather than catching: only a transport or template-independent failure throws.
+ */
+export function useNamingPreview(): UseMutationResult<LibraryPreviewResource, Error, { id: number; template: string }> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async ({ id, template }: { id: number; template: string }): Promise<LibraryPreviewResource> => {
+      const { data, error, response } = await client.POST('/api/v1/library/{id}/preview', {
+        params: { path: { id } },
+        body: { songId: null, template },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw readProblem(response.status, error, 'The template could not be previewed.');
+      }
+
+      return data;
+    },
   });
 }
