@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HEALTH_ENTRIES, LIBRARIES, SYSTEM_STATUS } from '../../test/fixtures';
@@ -52,7 +52,9 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
   });
 }
 
-function install(): FetchMock {
+function install(
+  preview: () => Response = () => jsonResponse({ path: 'Music/Wondarr - Get Lucky.m4a', errors: [] }),
+): FetchMock {
   return installFetch((url) => {
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
@@ -60,6 +62,10 @@ function install(): FetchMock {
 
     if (url.includes('/api/v1/health')) {
       return jsonResponse(HEALTH_ENTRIES);
+    }
+
+    if (url.includes('/preview')) {
+      return preview();
     }
 
     if (url.includes('/api/v1/library')) {
@@ -113,5 +119,91 @@ describe('LibrarySettingsPage', () => {
     await pickOption(user, 'Album policy', 'Singles only');
 
     expect(screen.queryByLabelText('Minimum tracks per real album')).toBeNull();
+  });
+});
+
+describe('LibrarySettingsPage naming template', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('previews the rendered path once typing settles', async () => {
+    install();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    const input = screen.getByLabelText('Naming template');
+
+    vi.useFakeTimers();
+    fireEvent.change(input, { target: { value: '{Artist Name}/{Track Title}' } });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(screen.getByText(/Preview: Music\/Wondarr - Get Lucky\.m4a/)).toBeInTheDocument();
+
+    // The mount already previewed the stored template, so the typing one is the last call.
+    const posts = sent().filter((request) => request.url.includes('/preview'));
+    const post = posts[posts.length - 1];
+
+    expect(post?.method).toBe('POST');
+    expect(post?.url).toContain('/api/v1/library/1/preview');
+    expect(JSON.parse((await post?.body) ?? '{}')).toEqual({
+      songId: null,
+      template: '{Artist Name}/{Track Title}',
+    });
+  });
+
+  it('shows the error instead of the path for a template that cannot be rendered', async () => {
+    install(() => jsonResponse({ path: null, errors: ['Unknown token {Nope}.'] }));
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Naming template'), { target: { value: '{Nope}' } });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(screen.getByText('Unknown token {Nope}.')).toBeInTheDocument();
+    expect(screen.queryByText(/Preview:/)).toBeNull();
+  });
+
+  it('inserts a token from the helper at the cursor', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    const input = screen.getByLabelText<HTMLInputElement>('Naming template');
+
+    input.setSelectionRange(0, 0);
+    await user.click(screen.getByRole('button', { name: 'Tokens' }));
+    await user.click(await screen.findByText('{Release Year}'));
+
+    expect(input).toHaveValue('{Release Year}{Album Artist Name}/{Album Title}/{track:00} - {Track Title}');
+  });
+
+  it('resets the template to the selected layout preset', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    await user.click(screen.getByRole('button', { name: 'Reset to the Plexamp preset' }));
+
+    expect(screen.getByLabelText('Naming template')).toHaveValue(
+      '{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}',
+    );
   });
 });
