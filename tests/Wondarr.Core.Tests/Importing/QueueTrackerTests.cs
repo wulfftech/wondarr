@@ -155,6 +155,56 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
+    public async Task A_download_that_leaves_the_peers_queue_is_not_stalled_on_its_first_poll()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.RemotelyQueued;
+            options.StateChangedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-20);
+            options.LastProgressAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-20);
+        });
+
+        host.Source.Status = new DownloadStatus(DownloadState.Downloading, 0, 0, 10_000_000);
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        var item = await host.ItemAsync(seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Downloading, "the stall clock starts when the download does");
+        host.Source.Cancels.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_slow_download_that_moves_less_than_a_percent_per_poll_is_not_stalled()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        const long Size = 10_000_000; // the seed's size
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Downloading;
+            options.BytesTransferred = 1_000_000;
+            options.LastProgressAt = host.Time.GetUtcNow().UtcDateTime;
+        });
+
+        // 0.1 % per 10 s poll for 8 minutes: below the broadcast threshold every single time, but
+        // always moving — longer than the 5-minute stall timeout.
+        var bytes = 1_000_000L;
+        for (var poll = 0; poll < 48; poll++)
+        {
+            bytes += Size / 1000;
+            host.Time.Advance(TimeSpan.FromSeconds(10));
+            host.Source.Status = new DownloadStatus(DownloadState.Downloading, (double)bytes / Size, bytes, Size);
+
+            await host.Tracker.RunCycleAsync(CancellationToken.None);
+        }
+
+        var item = await host.ItemAsync(seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Downloading);
+        item.BytesTransferred.Should().Be(bytes, "every poll's progress is written down");
+        host.Source.Cancels.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Stops_asking_for_candidates_once_the_attempt_budget_is_spent()
     {
         await using var host = await QueueTestHost.CreateAsync();
