@@ -56,6 +56,12 @@ internal sealed class SearchTestHost : IAsyncDisposable
     /// <summary>The scope factory the missing-search handler builds its per-song scopes from.</summary>
     public IServiceScopeFactory Scopes => _services.GetRequiredService<IServiceScopeFactory>();
 
+    /// <summary>
+    /// Opens a scope of its own, with its own <c>DbContext</c>: what a second caller of the same
+    /// service (another request, another worker) would have.
+    /// </summary>
+    public IServiceScope CreateScope() => _services.CreateScope();
+
     /// <summary>The search-and-grab service under test.</summary>
     public ISongSearchService Search => _scope.ServiceProvider.GetRequiredService<ISongSearchService>();
 
@@ -70,6 +76,9 @@ internal sealed class SearchTestHost : IAsyncDisposable
 
     /// <summary>The song lifecycle log the grabs write to.</summary>
     public IHistoryService History => _scope.ServiceProvider.GetRequiredService<IHistoryService>();
+
+    /// <summary>The Soulseek peer reputation and ignore list the search judges candidates with.</summary>
+    public ISoulseekUserService Users => _scope.ServiceProvider.GetRequiredService<ISoulseekUserService>();
 
     /// <summary>The scoped database context the services share.</summary>
     public WondarrDbContext Context => _scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
@@ -262,6 +271,9 @@ internal sealed class FakeSourceProvider : ISourceProvider
     /// <summary>Candidates whose key is in here throw on grab, as an offline peer would.</summary>
     public HashSet<string> FailingKeys { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Candidates whose key is in here cancel the grab, as a shutdown or a stopped grab would.</summary>
+    public HashSet<string> CancellingKeys { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Thrown by the next search when set; cleared after it is thrown once.</summary>
     public Exception? SearchFailure { get; set; }
 
@@ -270,6 +282,12 @@ internal sealed class FakeSourceProvider : ISourceProvider
 
     /// <summary>The last pool verdict the search asked for, or null when it asked for none.</summary>
     public bool? PoolVerdict { get; private set; }
+
+    /// <summary>
+    /// What the early-stop callback is shown, when a test needs the pool at that moment to be smaller
+    /// than what the search ends up returning. Null means "the whole result".
+    /// </summary>
+    public IReadOnlyList<Candidate>? PoolCandidates { get; set; }
 
     /// <inheritdoc />
     public Task<(bool Available, string? Reason)> GetAvailabilityAsync(CancellationToken cancellationToken) =>
@@ -291,7 +309,7 @@ internal sealed class FakeSourceProvider : ISourceProvider
             throw new InvalidOperationException($"The source cannot search for '{request.Title}' right now.");
         }
 
-        PoolVerdict = request.IsPoolGoodEnough?.Invoke(Candidates);
+        PoolVerdict = request.IsPoolGoodEnough?.Invoke(PoolCandidates ?? Candidates);
 
         return Task.FromResult(new SourceSearchResult(Candidates, Queries, Message));
     }
@@ -300,6 +318,11 @@ internal sealed class FakeSourceProvider : ISourceProvider
     public Task<GrabHandle> GrabAsync(Candidate candidate, string destination, CancellationToken cancellationToken)
     {
         Grabs.Add(new GrabbedCandidate(candidate, destination));
+
+        if (CancellingKeys.Contains(candidate.BlocklistKey))
+        {
+            throw new OperationCanceledException("The grab was stopped.");
+        }
 
         if (FailingKeys.Contains(candidate.BlocklistKey))
         {

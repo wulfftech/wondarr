@@ -69,6 +69,9 @@ public sealed class QueueServiceTests
         var alpha = await SourceTestData.SeedSongWithCandidateAsync(database, time, "Alpha");
         var bravo = await SourceTestData.SeedSongWithCandidateAsync(database, time, "Bravo");
 
+        // One active grab per song is a database rule, so the second active item needs a song of its own.
+        var charlie = await SourceTestData.SeedSongWithCandidateAsync(database, time, "Charlie");
+
         var service = new QueueService(database.CreateContext(time), time);
         var token = CancellationToken.None;
 
@@ -76,7 +79,7 @@ public sealed class QueueServiceTests
             NewItem(alpha.SongId, alpha.SearchRunId, alpha.CandidateId, QueueItemState.Queued), token);
         time.Advance(TimeSpan.FromMinutes(1));
         var importing = await service.AddAsync(
-            NewItem(alpha.SongId, alpha.SearchRunId, alpha.CandidateId, QueueItemState.Importing), token);
+            NewItem(charlie.SongId, charlie.SearchRunId, charlie.CandidateId, QueueItemState.Importing), token);
         time.Advance(TimeSpan.FromMinutes(1));
         await service.AddAsync(
             NewItem(bravo.SongId, bravo.SearchRunId, bravo.CandidateId, QueueItemState.Failed), token);
@@ -104,30 +107,33 @@ public sealed class QueueServiceTests
         using var database = new SqliteTestDatabase();
         var time = new FakeTimeProvider(Now);
         await database.MigrateAsync(time);
-        var (songId, runId, candidateId) = await SourceTestData.SeedSongWithCandidateAsync(database, time);
+        var first = await SourceTestData.SeedSongWithCandidateAsync(database, time, "Alpha");
+        // Two active states for one song would break the "one download per song" index.
+        var second = await SourceTestData.SeedSongWithCandidateAsync(database, time, "Bravo");
+        var third = await SourceTestData.SeedSongWithCandidateAsync(database, time, "Charlie");
 
         var service = new QueueService(database.CreateContext(time), time);
         var token = CancellationToken.None;
 
-        var first = await service.AddAsync(
-            NewItem(songId, runId, candidateId, QueueItemState.Queued, progress: 0.5), token);
+        var queued = await service.AddAsync(
+            NewItem(first.SongId, first.SearchRunId, first.CandidateId, QueueItemState.Queued, progress: 0.5), token);
         time.Advance(TimeSpan.FromMinutes(1));
-        var second = await service.AddAsync(
-            NewItem(songId, runId, candidateId, QueueItemState.Downloading, progress: 0.9), token);
+        var downloading = await service.AddAsync(
+            NewItem(second.SongId, second.SearchRunId, second.CandidateId, QueueItemState.Downloading, progress: 0.9), token);
         time.Advance(TimeSpan.FromMinutes(1));
-        var third = await service.AddAsync(
-            NewItem(songId, runId, candidateId, QueueItemState.Failed, progress: 0.1), token);
+        var failed = await service.AddAsync(
+            NewItem(third.SongId, third.SearchRunId, third.CandidateId, QueueItemState.Failed, progress: 0.1), token);
 
         var newest = await service.GetPageAsync(new PagingSpec(1, 20, null, true), token);
         newest.TotalRecords.Should().Be(3);
-        newest.Records.Select(entry => entry.Id).Should().ContainInOrder(third.Id, second.Id, first.Id);
-        newest.Records[0].Song.Title.Should().Be("Alpha");
+        newest.Records.Select(entry => entry.Id).Should().ContainInOrder(failed.Id, downloading.Id, queued.Id);
+        newest.Records[0].Song.Title.Should().Be("Charlie");
 
         var oldest = await service.GetPageAsync(new PagingSpec(1, 20, "createdAt", false), token);
-        oldest.Records.Select(entry => entry.Id).Should().ContainInOrder(first.Id, second.Id, third.Id);
+        oldest.Records.Select(entry => entry.Id).Should().ContainInOrder(queued.Id, downloading.Id, failed.Id);
 
         var byProgress = await service.GetPageAsync(new PagingSpec(1, 20, "progress", false), token);
-        byProgress.Records.Select(entry => entry.Id).Should().ContainInOrder(third.Id, first.Id, second.Id);
+        byProgress.Records.Select(entry => entry.Id).Should().ContainInOrder(failed.Id, queued.Id, downloading.Id);
 
         var byState = await service.GetPageAsync(new PagingSpec(1, 20, "state", false), token);
         byState.Records.Select(entry => entry.State).Should().ContainInOrder(

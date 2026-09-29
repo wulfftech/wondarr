@@ -72,6 +72,11 @@ public sealed class SearchOptionsValidator : IValidateOptions<SearchOptions>
             failures.Add($"search.max_stored_candidates: must be between 20 and 1000 (was {options.MaxStoredCandidates})");
         }
 
+        if (options.SlotWaitSeconds is < 1 or > 300)
+        {
+            failures.Add($"search.slot_wait_seconds: must be between 1 and 300 (was {options.SlotWaitSeconds})");
+        }
+
         var backoff = options.BackoffHours ?? [];
 
         if (backoff.Count == 0)
