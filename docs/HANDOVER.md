@@ -2,14 +2,15 @@
 
 > **Name:** the project was renamed from *Compilarr* to **Wondarr** on 2026-09-28 (Phase 1a, `docs/DECISIONS.md` build session 2 #10). Session log entries before Phase 1a use the old name and paths.
 
-**Updated:** 2026-09-28, end of build session 2 (Phase 1 + Phase 1a) · **For:** the next build session, run locally from `D:\Code\wondarr` with Claude Code on **Claude Opus 5.5** as orchestrator.
+**Updated:** 2026-09-29, end of build session 3 (Phase 2) · **For:** the next build session, run locally from `D:\Code\wondarr` with Claude Code on **Claude Opus 5.5** as orchestrator.
 
 ## 1. Where things stand
 
 - Research and design are **complete and approved by the owner**. Every decision is in `docs/DECISIONS.md` (with ADRs in `docs/adr/`); the full planning record is `docs/PLAN.md`; the evidence is in `docs/research/`.
 - **Phase 0 and Phase 1 are done (2026-09-28)** — both gates pass in CI on every push (`scripts/smoke-test.sh`, Phase 1 replaying recorded metadata) and passed on the test host `ch01`; see the Session log below and `docs/build/PROGRESS.md`.
 - **Phase 1a renamed the project Compilarr → Wondarr** (owner, 2026-09-28): the image is `ghcr.io/wulfftech/wondarr` (`:develop` from main), the repository `github.com/wulfftech/wondarr` (the old URLs redirect). The folder on the dev PC is to be renamed `D:\Code\compilarr` → `D:\Code\wondarr` by the owner between sessions (see the Phase 1a entry in the Session log).
-- The next unit of work is **Phase 2 — the Soulseek source, slskd management and the import pipeline** (`docs/build/PHASES.md`). Writing `docs/build/PHASE_2_TASKS.md` is the first job of the next session (start from the three tasks in the Session log).
+- **Phase 2 is done (2026-09-29)** — Soulseek source, slskd management and the import pipeline; the gate passes in CI (FakeSlskd) and passed live on `ch01` (92 % at or above cutoff, zero wrong recordings in a 30-file audit). A live test instance stays up on `ch01` (http://ch01.ad.wulff.com.au:1077) for ongoing testing.
+- The next unit of work is **Phase 3 — reference libraries, adoption and the matching UI; the Plexamp preset** (`docs/build/PHASES.md`). Writing `docs/build/PHASE_3_TASKS.md` is the first job of the next session (start from the three tasks in the Session log).
 
 ## 2. The product in one paragraph
 
@@ -25,16 +26,17 @@ copy .env.example .env      # then fill OPENROUTER_API_KEY and WONDARR_WORKER_MO
 
 An existing `.env` with the old `COMPILARR_*` keys keeps working (`scripts/worker.py` falls back to them). Prerequisites: .NET SDK 10.0.4xx (`global.json`), Node 22.12+ (24 LTS on the dev box), Python 3.10+, Git, the `claude` CLI on `PATH`, and the `claude-terminals` MCP server connected for visible worker tabs (its tabs run **cmd.exe**). No local Docker is needed: the image is built and gate-tested in CI and on `ch01`.
 
-Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and paste the kickoff prompt from `docs/build/NEXT_SESSION_PROMPT.md` (Phase 2).
+Then open Claude Code in the folder, select the orchestrator model (`/model claude-opus-5-5`), and paste the kickoff prompt from `docs/build/NEXT_SESSION_PROMPT.md` (Phase 3).
 
 Sanity check before delegating anything: `python scripts/worker.py --dry-run run docs/build/tasks/P1-01.md` prints the exact command and environment (key redacted) a worker would get — it should show 100 turns / 60 min.
 
 ## 4. Things the owner still has to provide
 
-- A **dedicated Soulseek account** for the bundled slskd if the current one (the owner's own) gets kicked by duplicate logins — validate first (Phase 2, first task).
+- A **dedicated Soulseek account** only if the current one starts getting kicked by duplicate logins (validated in Phase 2: no duplicate-login kick during any of the live runs).
+- A reachable **Plex server** and token for the Phase 3 live checks (the token is in `.env`).
 - Deleting the old `ghcr.io/wulfftech/compilarr` package when convenient (the new one is public already).
 - Optional: qBittorrent/SABnzbd/Prowlarr test instances for Phase 7.
-- Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), phase budget (USD 10), worker caps (100 turns / 60 min).
+- Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), the OpenRouter key's lifetime limit (USD 15 since 2026-09-29; USD 7.62 used after Phase 2), worker caps (100 turns / 60 min).
 
 ## 5. What not to do (the short list; full list in `CLAUDE.md`)
 
@@ -136,3 +138,35 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 
 **Next:** unchanged — Phase 2, starting with validating the Soulseek account on `ch01` (see the Phase 1 entry above and `docs/build/NEXT_SESSION_PROMPT.md`).
 
+### 2026-09-29 — Build session 3: Phase 2 (orchestrator on Opus 5.5, workers on DeepSeek V4.1 Flash)
+
+**Outcome.** Phase 2 is complete and its gate passes: in CI on every push (FakeSlskd scenario in the built image) and live on `ch01` with the real Soulseek account and AcoustID — 100 songs pasted into an empty instance, 92 % imported at or above cutoff, 5 wrong files caught and replaced without user action, zero wrong recordings in a 30-file audit, the search budget never exceeded (≤ 29 per 240 s, ≥ 5 s apart), and the share toggle following slskd (186 → 0 → 186 folders) after a fix the live run forced (P2-19). Worker spend USD 4.46 (key 3.16 → 7.62 of its USD 10 limit). Details: `docs/build/PROGRESS.md` "Phase 2 gate".
+
+**What exists now.**
+- Soulseek source: slskd search API + a process-wide search budget (≤ 30 per rolling 240 s — a submission exactly 240 s old still counts —, ≤ 2 outstanding, ≥ 5 s apart; FIFO, monotonic clock), a search runner that always deletes its search and is bounded by a 30 s wall clock; query strategy (artist+title, folded, title-only, artist+album); Soulseek filename/path parser and quality inference golden-tested on real results; transfers through the batch endpoint into a per-grab folder `wondarr/<guid>`; `DownloadFileComplete` webhook (own token, loopback only) that only wakes the tracker.
+- Decision engine v1 (hard rejections + 0–1000 score with a stored breakdown), search runs and candidates persisted, `SongSearch`/`MissingSearch` (scheduled, per-song backoff, one active download per song enforced by a partial unique index, a download-slot limit), interactive search and manual grab.
+- Import pipeline: ffprobe probe + decode check, measured quality, fpcalc (+ a middle-window retry through ffmpeg), AcoustID lookups (3 req/s, bounded `Retry-After`, outages defer), verification rules (the wanted MBID, a same-title MusicBrainz duplicate, MBID learning for Deezer-only songs), Picard-mapped tags for MP3/FLAC/M4A/Opus written to a temp copy and read back, the naming-template engine (Lidarr syntax, presets), file placement (move/copy/hardlink, recycle bin with a marker, remote path mappings), `song_file` + history; a rejected file is blocklisted for its song and the next candidate grabbed (≤ 4 attempts); a queue tracker (start / remote-queue / stall timeouts, crash recovery) with live SignalR queue events.
+- slskd management: login problems and duplicate-login kicks read from slskd's own log, sharing and download-folder health, no host crash on an unwritable `/data`; the Soulseek settings API writes `config.yml` (env-set fields read-only) and the supervisor restarts slskd as needed.
+- API: queue (Lidarr shape), interactive search/grab, naming preview, Soulseek settings/status. UI: Activity → Queue with live progress and remove/blocklist/retry, Interactive search modal with score breakdowns and rejection reasons, Search buttons on Wanted/Library, Settings → Soulseek, naming preview in Settings → Library.
+- Gate tooling: `tools/FakeSlskd` (a scenario-driven slskd + AcoustID stand-in that produces real encoded audio in the image), `scripts/phase2-scenario.py`, `scripts/phase2-gate.py`, the Phase 2 stage of `scripts/smoke-test.sh` — green in CI on every push.
+
+**Worker lessons (Phase 2).**
+1. *Concurrency and lifetimes remain the blind spot* — and this phase was full of them. The reviewer agent returned FIX-FIRST on 8 of the 9 risky reviews (P2-01, P2-09, P2-15, P2-05, P2-12, P2-15b, P2-13a, P2-13b; P2-10 and P2-19 were MERGE): a lost wake-up that could stall the Soulseek budget for good, a check-then-insert race allowing two downloads per song, deletes not confined to the item's own folder, a "stalled" timeout that killed every download leaving a peer's queue, slow progress never saved, the config binder *appending* bound lists to their defaults. None of these were caught by the workers' own tests; all were fixed with regression tests (mutation-checked where it mattered). Keep the reviewer on everything that touches processes, files, time or the database.
+2. *The real network finds what no fixture does:* the first live run found year-only album dates failing the tag read-back (every pseudo-album has one — and the rejection then blocklisted every good file), ATL writing the Vorbis `ORIGINALDATE ` with a trailing space, and Soulseek returning nothing for "the beatles"; the 100-song run found that slskd never shares files added after its first start (a restart restores the share cache instead of scanning) — which the fake had hidden by counting live. Make fakes stateful the way the real service is, and run a 5-song live smoke before any bigger run.
+3. *Workers stop early in new ways:* two ended while their own background test run was still going (work left uncommitted), one provider interruption after 47 turns, one out of time a single compile error short. Checking the tree and committing myself was always cheaper than a continuation.
+4. *Merges need a script, not discipline:* I merged red once (a golden file vs another task's new default); since then `safe_merge.sh` refuses a red tree before and after, and a stale `--no-build` once hid two test projects. Semantic conflicts between parallel tasks (a new renderer parameter, a moved default) are the common failure — build `main` after every merge.
+5. *Frontend flakes came from animations:* menu/modal tests raced Mantine's transitions under load; the tests now render with Mantine's `env="test"`.
+6. *Budget:* the key's lifetime limit (not the phase budget) was the constraint; orchestrator-side fixes saved several continuation runs.
+
+**Open items / follow-ups.**
+- Verification false negatives (backlog 2026-09-29-19): a non-version subtitle in the AcoustID title ("MALAMENTE (Cap.1: Augurio)") and a same-titled duplicate held against the song's length rather than the file's ("Little Lion Man" 238 vs 247 s) refuse every candidate. Relax only with golden cases proving no wrong recording gets through.
+- Interactive search wording and the load-sensitive `SlskdSearchRunner` wall-clock test (backlog 2026-09-29-14…18).
+- Soulseek returns nothing for four popular songs (HUMBLE., Purple Rain, Bad Romance, Summer) — query strategy worth a look once the YouTube source (Phase 4) is the fallback.
+- A periodic share rescan (e.g. daily, or slskd's `shares.cache.retention`) for files that reach the library outside imports — needed once Phase 3 reference libraries are shared; verify `retention` semantics first.
+- The OpenRouter key's lifetime limit was raised to USD 15 by the owner (2026-09-29): about USD 7.4 left for Phase 3.
+- The live test instance `wondarr-test` on `ch01` stays up for ongoing testing (owner): http://ch01.ad.wulff.com.au:1077, image `wondarr:p2-19` built on ch01 from `main`, data under `/tmp/wondarr-test` (94 imported songs, real Soulseek account, env in `~/wondarr-test/live.env`). Redeploy it from `ghcr.io/wulfftech/wondarr:develop` or a local build keeping the volumes; `/tmp` does not survive a reboot of ch01.
+
+**Next: the first three Phase 3 tasks to spec** (write `docs/build/PHASE_3_TASKS.md` first, from `PHASES.md` Phase 3):
+1. **P3-01 Reference-library scan** — `reference_library` / `reference_file` / `match_candidate` tables (ARCHITECTURE §5.4) and a scan command: walk a folder (flat or layered), probe each audio file, read its tags (ATL: MBIDs, ISRC, artist/title/album, duration), and store `reference_file` rows with `probe` JSON; incremental by size + mtime; a scheduled daily scan + "scan now". No identification yet.
+2. **P3-02 Identification pipeline and the Match queue API** — per file: tag MBID → MusicBrainz lookup; ISRC → the P1 ISRC bridge; else fpcalc + AcoustID (reuse `IDownloadVerifier`'s pieces); else title/artist/duration search (P1-06 resolver); confidence tiers (auto-accept above a threshold, owner decision round 2 #7), `match_candidate` rows for the rest, `GET /api/v1/matchqueue`, `POST /api/v1/matchqueue/{id}/resolve`; identified files mark their songs as owned (never downloaded again).
+3. **P3-03 Plexamp preset specifics** — `cover.jpg` in each album folder and cover resizing to the configured max edge (the TODO left in `CoverImage.PrepareFrontCover`), Plex-safe tag checks (one album id / date / album artist per folder — assert across the folder on import), and the "Prefer local metadata" notice for flat/artist layouts; then Plex connection (PIN flow) and partial scan after import as P3-04.
