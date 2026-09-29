@@ -5,6 +5,7 @@ using Wondarr.Core.Configuration;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.History;
+using Wondarr.Core.Importing;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
@@ -120,6 +121,14 @@ public static class ServiceCollectionExtensions
         // The search-and-grab loop itself: it reads all of the above and writes the runs, the queue and
         // the history in one unit of work, so it shares their scope.
         services.AddScoped<ISongSearchService, SongSearchService>();
+
+        // The import pipeline: it turns a finished download into a library file through the same
+        // scoped DbContext, and it grabs the next candidate through the search service above.
+        services.AddScoped<IImportService, ImportService>();
+
+        // The cover client itself is registered by AddWondarrMetadata, next to the other named HTTP
+        // clients; the fetcher only needs the factory to ask for it.
+        services.AddTransient<ICoverFetcher, CoverFetcher>();
 
         services.AddSingleton<IScheduledTaskCatalog, ScheduledTaskCatalog>();
         services.AddScoped<IHandle<CommandUpdatedEvent>, JobTableUpdater>();
