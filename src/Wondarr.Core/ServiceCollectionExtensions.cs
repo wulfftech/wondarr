@@ -13,6 +13,7 @@ using Wondarr.Core.Messaging;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
@@ -95,6 +96,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
+        services.AddScoped<ICommandHandler, MissingSearchCommandHandler>();
+        services.AddScoped<ICommandHandler, SongSearchCommandHandler>();
 
         // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
         services.AddScoped<IPasteListService, PasteListService>();
@@ -113,6 +116,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISearchRunService, SearchRunService>();
         services.AddScoped<IQueueService, QueueService>();
         services.AddScoped<ISoulseekUserService, SoulseekUserService>();
+
+        // The search-and-grab loop itself: it reads all of the above and writes the runs, the queue and
+        // the history in one unit of work, so it shares their scope.
+        services.AddScoped<ISongSearchService, SongSearchService>();
 
         services.AddSingleton<IScheduledTaskCatalog, ScheduledTaskCatalog>();
         services.AddScoped<IHandle<CommandUpdatedEvent>, JobTableUpdater>();
@@ -173,6 +180,13 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<LogOptions>, LogOptionsValidator>();
+
+        // The search limits are read by the scoped search service and by the missing-song command.
+        services.AddOptions<SearchOptions>()
+            .Bind(configuration.GetSection("Search"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<SearchOptions>, SearchOptionsValidator>();
         services.AddSingleton<ISecretRegistry, SecretRegistry>();
 
         return services;

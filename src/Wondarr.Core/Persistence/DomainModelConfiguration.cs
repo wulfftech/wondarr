@@ -318,9 +318,15 @@ internal static class DomainModelConfiguration
             entity.Property(x => x.Destination).IsRequired();
             entity.Property(x => x.State).HasConversion<string>();
 
-            // The queue screen filters by state, the search loop asks "is this song already in flight",
-            // and the poll resolves a source row by its handle.
-            entity.HasIndex(x => x.SongId);
+            // A song may have at most one download in flight. The pre-checks in the search service are a
+            // fast path; this partial unique index is what actually enforces it, so two searches racing
+            // for the same song cannot both queue a grab. The filter names the active states exactly as
+            // EF stores the enum — as text, one name per state.
+            entity.HasIndex(x => x.SongId)
+                .IsUnique()
+                .HasFilter("state IN ('Queued', 'RemotelyQueued', 'Downloading', 'Completed', 'Importing')");
+
+            // The queue screen filters by state and the poll resolves a source row by its handle.
             entity.HasIndex(x => x.State);
             entity.HasIndex(x => new { x.SourceType, x.Handle });
 
