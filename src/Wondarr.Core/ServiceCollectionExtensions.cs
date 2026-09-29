@@ -16,6 +16,7 @@ using Wondarr.Core.Profiles;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
+using Wondarr.Core.Verification;
 using Wondarr.Core.Wanted;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -63,6 +64,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMediaProbe, MediaProbe>();
         services.AddSingleton<IFingerprinter, Fingerprinter>();
         services.AddSingleton<MediaToolAvailability>();
+
+        // Transient, like the cover-art and identity resolvers: it takes the AcoustID typed client,
+        // which the factory hands out transient.
+        services.AddTransient<IDownloadVerifier, DownloadVerifier>();
 
         services.AddSingleton<IEventAggregator, EventAggregator>();
 
