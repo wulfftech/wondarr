@@ -119,7 +119,7 @@ def wait_for_queue(api: Api, timeout_s: int) -> None:
 def paste(api: Api, songs: Path, timeout_s: int) -> None:
     lines = [line.strip() for line in songs.read_text(encoding="utf-8").splitlines() if line.strip()]
     queued = api.call("POST", "/api/v1/song/bulk", {"text": "\n".join(lines)})
-    wait_for_command(api, queued["id"], timeout_s, "BulkAddSongs")
+    wait_for_command(api, queued["commandId"], timeout_s, "BulkAddSongs")
     log(f"ok   pasted {len(lines)} songs")
 
 
