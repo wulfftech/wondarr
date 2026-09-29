@@ -74,6 +74,13 @@ public sealed partial class SlskdHost : BackgroundService
     private ILaunchedProcess? _child;
     private long _generation;
     private SoulseekOptions? _runningOptions;
+
+    /// <summary>
+    /// Why the settings could not be written, while they still have to be re-applied. A failed write
+    /// is not a crash: it is kept here so the supervisor retries, and so
+    /// <see cref="PollAsync"/> does not wipe the reason with its next successful poll.
+    /// </summary>
+    private string? _settingsWriteError;
     private CancellationToken _stoppingToken;
     private int _backoffIndex;
     private int _settingsRevision;
@@ -240,10 +247,21 @@ public sealed partial class SlskdHost : BackgroundService
 
         if (failure is not null)
         {
-            // The running slskd keeps the configuration it was started with; the status says why the
-            // change did not take. Nothing is stopped or restarted on a configuration that was not
-            // written.
-            SetCrashed($"Cannot prepare slskd: {failure}");
+            // A settings change that could not be written is not a crash. The state, the process id
+            // and reachability all still describe the slskd that is really there — whether that is a
+            // running child which keeps the configuration it was started with, or no child at all.
+            // Only the reason is published; the pending change is re-applied by the supervisor.
+            var reason = $"Settings not applied: {failure}";
+
+            LogSettingsApplyFailed(_logger, failure);
+
+            Volatile.Write(ref _settingsWriteError, reason);
+
+            _status.Update(snapshot => snapshot with
+            {
+                LastError = reason,
+                LastCheckedAt = Now,
+            });
 
             return;
         }
@@ -333,6 +351,18 @@ public sealed partial class SlskdHost : BackgroundService
 
             if (await PollAsync(cancellationToken).ConfigureAwait(false))
             {
+                // A settings change whose configuration could not be written is still pending: the
+                // child is running the settings it was started with, so this cycle re-applies them.
+                if (Volatile.Read(ref _settingsWriteError) is not null)
+                {
+                    await ApplySettingsAsync(_options.CurrentValue, cancellationToken).ConfigureAwait(false);
+
+                    if (ChildFor(generation) is null)
+                    {
+                        return MonitorOutcome.Replaced;
+                    }
+                }
+
                 await Task.Delay(RunningPollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -370,7 +400,14 @@ public sealed partial class SlskdHost : BackgroundService
                 SoulseekUsername = string.IsNullOrWhiteSpace(state.User.Username) ? null : state.User.Username,
                 Version = string.IsNullOrWhiteSpace(state.Version.Current) ? snapshot.Version : state.Version.Current,
                 PendingRestart = state.PendingRestart,
-                LastError = null,
+
+                // A logged-in slskd means whatever the log said about the login no longer holds: a
+                // kick or a rejected account that has since been corrected must not stay on the page.
+                LoginProblem = state.Server.IsLoggedIn ? SlskdLoginProblem.None : snapshot.LoginProblem,
+                LoginProblemAt = state.Server.IsLoggedIn ? null : snapshot.LoginProblemAt,
+
+                // A settings change that has not been written yet is still the outstanding problem.
+                LastError = Volatile.Read(ref _settingsWriteError),
                 LastCheckedAt = now,
             });
 
@@ -408,7 +445,6 @@ public sealed partial class SlskdHost : BackgroundService
         }
 
         var child = _launcher.Launch(BuildRequest(options));
-        child.OutputLine += OnChildOutput;
 
         long generation;
         lock (_processGate)
@@ -426,6 +462,10 @@ public sealed partial class SlskdHost : BackgroundService
             Version: snapshot.Version,
             RestartCount: snapshot.RestartCount + 1,
             LastCheckedAt: Now));
+
+        // Subscribed only now: this snapshot replaces the whole status, so a login line that arrived
+        // between the launch and here would otherwise be recorded and then overwritten by it.
+        child.OutputLine += OnChildOutput;
 
         LogStarted(_logger, child.Id);
 
@@ -528,10 +568,16 @@ public sealed partial class SlskdHost : BackgroundService
 
             File.Move(temporary, ConfigPath, overwrite: true);
 
+            // Whatever was pending has just been written.
+            Volatile.Write(ref _settingsWriteError, null);
+
             return null;
         }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // Not only storage errors: the secrets store, the renderer and the database behind them
+            // can fail too, and none of it may reach the host's caller — an exception out of the
+            // background service stops the whole app (BackgroundServiceExceptionBehavior.StopHost).
             LogPrepareFailed(_logger, exception.Message);
 
             return exception.Message;
@@ -552,8 +598,10 @@ public sealed partial class SlskdHost : BackgroundService
             Directory.CreateDirectory(options.DownloadsDir);
             Directory.CreateDirectory(options.IncompleteDir);
         }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // A malformed setting throws ArgumentException or NotSupportedException rather than
+            // UnauthorizedAccessException; none of them may stop the host.
             // The .NET message names the path, e.g. "Access to the path '/data/downloads' is denied."
             LogPrepareFailed(_logger, exception.Message);
 
@@ -568,9 +616,11 @@ public sealed partial class SlskdHost : BackgroundService
                 {
                     Directory.CreateDirectory(folder);
                 }
-                catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    // Sharing one folder less is not worth refusing to start over.
+                    // Sharing one folder less is not worth refusing to start over — and a folder
+                    // setting that is not a usable path at all (empty, or a bad drive) is only one
+                    // folder less, too.
                     LogSharedFolderFailed(_logger, folder, exception.Message);
                 }
             }

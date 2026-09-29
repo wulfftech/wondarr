@@ -155,10 +155,16 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
 
         // The Soulseek storage health checks probe these directories for real, so they point into the
         // temporary config directory: a test run must not depend on, or create, /data.
+        var downloads = Path.Combine(ConfigDir, "downloads", "slskd");
+
+        // The download-folder check reports a missing folder rather than creating one, so the fixture
+        // stands in for the host, which creates it at start-up.
+        Directory.CreateDirectory(downloads);
+
         var soulseek = new YamlMappingNode
         {
-            { "downloads_dir", new YamlScalarNode(Path.Combine(ConfigDir, "downloads", "slskd")) },
-            { "incomplete_dir", new YamlScalarNode(Path.Combine(ConfigDir, "downloads", "slskd", "incomplete")) },
+            { "downloads_dir", new YamlScalarNode(downloads) },
+            { "incomplete_dir", new YamlScalarNode(Path.Combine(downloads, "incomplete")) },
         };
 
         var document = new YamlStream(new YamlDocument(new YamlMappingNode
