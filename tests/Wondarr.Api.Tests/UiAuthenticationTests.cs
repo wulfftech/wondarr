@@ -137,6 +137,18 @@ public sealed class UiAuthenticationTests : IDisposable
         login.Headers.Location!.ToString().Should().Be("/wondarr/");
     }
 
+    [Fact]
+    public async Task The_login_page_links_the_app_icon_under_the_url_base()
+    {
+        using var factory = Create(("Server:UrlBase", "/wondarr"));
+
+        using var browser = factory.CreateClient(RemoteAddress);
+        var page = await browser.GetStringAsync(new Uri("/wondarr/login", UriKind.Relative));
+
+        // A browser's own guess is /favicon.ico at the host root, which is not the app under a URL base.
+        page.Should().Contain("""<link rel="icon" href="/wondarr/favicon.ico" sizes="48x48">""");
+    }
+
     public void Dispose()
     {
         foreach (var factory in _factories)
