@@ -13,14 +13,15 @@ public static class CoverImage
     /// Validates that the image is a JPEG or a PNG and returns it unchanged.
     /// </summary>
     /// <param name="image">The raw image bytes.</param>
-    /// <param name="maxEdge">The maximum edge in pixels; not applied yet (see remarks).</param>
+    /// <param name="maxEdge">The maximum edge in pixels. The bound is applied before this point.</param>
     /// <returns>The image bytes, unchanged.</returns>
     /// <exception cref="ArgumentException">
     /// The image is empty or is neither a JPEG nor a PNG — MP4 accepts only those two.
     /// </exception>
     /// <remarks>
-    /// // TODO(phase3): bound to maxEdge. Resizing needs an imaging package, which this task does not
-    /// add; until then the caller's own bound (the source we fetched from) is what keeps covers small.
+    /// Nothing is resized here: the caller bounds the image with ffmpeg through
+    /// <see cref="Media.ICoverImageProcessor"/> before embedding it, and this method is the last check
+    /// that what came out of that step is a format a container may hold.
     /// </remarks>
     public static byte[] PrepareFrontCover(byte[] image, int maxEdge = 1400)
     {
