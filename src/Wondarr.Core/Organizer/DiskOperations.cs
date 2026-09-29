@@ -15,6 +15,12 @@ public interface IDiskOperations
     /// <summary>Creates <paramref name="path"/> and any missing parent, an existing directory being fine.</summary>
     void CreateDirectory(string path);
 
+    /// <summary>
+    /// Creates an empty file at <paramref name="path"/>, doing nothing when one is already there.
+    /// This is how a Wondarr-owned directory marks itself as its own.
+    /// </summary>
+    void CreateEmptyFile(string path);
+
     /// <summary>The size of the file at <paramref name="path"/> in bytes.</summary>
     long GetFileSize(string path);
 
@@ -82,6 +88,19 @@ public sealed class DiskOperations : IDiskOperations
 
     /// <inheritdoc />
     public void CreateDirectory(string path) => Directory.CreateDirectory(path);
+
+    /// <inheritdoc />
+    public void CreateEmptyFile(string path)
+    {
+        if (File.Exists(path))
+        {
+            return;
+        }
+
+        // CreateNew rather than Create: a marker that appeared between the check and now is left as
+        // it is, never truncated.
+        using var created = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+    }
 
     /// <inheritdoc />
     public long GetFileSize(string path) => new FileInfo(path).Length;

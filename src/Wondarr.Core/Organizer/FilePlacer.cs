@@ -140,6 +140,12 @@ public sealed class FilePlacer : IFilePlacer
             {
                 return Failed($"Could not recycle '{replaces}': {exception.Message}");
             }
+            catch (InvalidOperationException exception)
+            {
+                // The bin is not a bin we can use (inside the library, for instance). Nothing has
+                // moved, and nothing will: the caller has to fix the configuration first.
+                return Failed($"Could not recycle '{replaces}': {exception.Message}");
+            }
         }
 
         // From here the replaced file is out of the way and has to be put back if anything fails, so

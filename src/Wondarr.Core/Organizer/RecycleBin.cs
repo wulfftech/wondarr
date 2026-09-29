@@ -35,6 +35,14 @@ public sealed class RecycleBin : IRecycleBin
     /// <summary>How many clash suffixes to try before giving up. Lidarr stops at the same place.</summary>
     private const int MaxClashSuffix = 99;
 
+    /// <summary>
+    /// The empty file that marks a directory as one of our recycle bins. The cleanup pass deletes
+    /// files, so it refuses to touch a directory that does not carry this: a misconfigured
+    /// <c>import.recycle_bin_path</c> pointing at a library — or at anything else Wondarr did not
+    /// write — costs nothing.
+    /// </summary>
+    public const string MarkerFileName = ".wondarr-recycle-bin";
+
     private readonly IDiskOperations _disk;
     private readonly IOptionsMonitor<ImportOptions> _options;
     private readonly WondarrPaths _paths;
@@ -92,6 +100,12 @@ public sealed class RecycleBin : IRecycleBin
         _disk.CreateDirectory(directory);
         var recycled = UniqueDestination(destination);
 
+        // The bin marks itself as ours before the first file lands in it, so a bin that has never
+        // been written to is never walked and never cleaned. The marker goes down last of all the
+        // steps that can fail before the move: a placement that stops here leaves no marker behind
+        // in a directory that holds nothing.
+        MarkAsRecycleBin(root);
+
         cancellationToken.ThrowIfCancellationRequested();
 
         try
@@ -142,6 +156,14 @@ public sealed class RecycleBin : IRecycleBin
             return Task.FromResult(0);
         }
 
+        // Not a bin we wrote: leave every file in it alone. This is the guard that makes a stray
+        // import.recycle_bin_path harmless rather than destructive.
+        if (!_disk.FileExists(Path.Combine(root, MarkerFileName)))
+        {
+            RecycleBinLog.NotAMarkedBin(_logger, root);
+            return Task.FromResult(0);
+        }
+
         var cutoff = _timeProvider.GetUtcNow().UtcDateTime.AddDays(-days);
         var deleted = 0;
         var directories = new HashSet<string>(StringComparer.Ordinal);
@@ -151,8 +173,11 @@ public sealed class RecycleBin : IRecycleBin
             cancellationToken.ThrowIfCancellationRequested();
 
             // Belt and braces: only a file strictly below the bin is ever deleted from here — never
-            // the bin root itself, and never anything the walk was led to outside it.
-            if (!PathRules.IsStrictlyInside(root, file) || !_disk.FileExists(file))
+            // the bin root itself, never its marker, and never anything the walk was led to outside
+            // the bin.
+            if (!PathRules.IsStrictlyInside(root, file)
+                || string.Equals(Path.GetFileName(file), MarkerFileName, StringComparison.Ordinal)
+                || !_disk.FileExists(file))
             {
                 continue;
             }
@@ -226,6 +251,20 @@ public sealed class RecycleBin : IRecycleBin
         return Path.GetFileName(full);
     }
 
+    /// <summary>Stamps the bin root as ours. An existing marker — and its age — is left alone.</summary>
+    private void MarkAsRecycleBin(string root)
+    {
+        try
+        {
+            _disk.CreateDirectory(root);
+            _disk.CreateEmptyFile(Path.Combine(root, MarkerFileName));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new IOException($"Cannot write the recycle bin marker in '{root}': {exception.Message}", exception);
+        }
+    }
+
     /// <summary>Appends <c> (1)</c>, <c> (2)</c> … before the extension until the name is free.</summary>
     private string UniqueDestination(string destination)
     {
@@ -266,4 +305,10 @@ internal static partial class RecycleBinLog
     /// <summary>One expired file could not be removed; the pass carried on with the rest.</summary>
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the recycled file {Path}: {Reason}")]
     internal static partial void DeleteFailed(ILogger logger, string path, string reason);
+
+    /// <summary>The configured directory is not a bin Wondarr wrote, so nothing in it was touched.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "The recycle bin {Path} carries no marker, so cleanup left it untouched")]
+    internal static partial void NotAMarkedBin(ILogger logger, string path);
 }
