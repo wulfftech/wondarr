@@ -150,6 +150,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IValidateOptions<ServerOptions>, ServerOptionsValidator>();
         services.AddSingleton<IPostConfigureOptions<ServerOptions>, ServerOptionsPostConfigure>();
 
+        // The settings pages write changes back into config.yml. It is a singleton because writers
+        // are serialised against each other process-wide, and it needs the configuration root to
+        // reload it so bound options see the change.
+        services.AddSingleton<IConfigFileWriter, ConfigFileWriter>();
+
         // Bound here rather than in AddWondarrCore because binding needs the configuration, which
         // that method is not given; the services that read it are registered there.
         services.AddOptions<ImportOptions>()

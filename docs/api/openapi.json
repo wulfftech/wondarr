@@ -115,6 +115,76 @@
         }
       }
     },
+    "/api/v1/soulseek/settings": {
+      "get": {
+        "tags": [
+          "Soulseek"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoulseekSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Soulseek"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SoulseekSettingsUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SoulseekSettingsUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoulseekSettingsUpdateResponseResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/soulseek/status": {
+      "get": {
+        "tags": [
+          "Soulseek"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoulseekStatusResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/artist": {
       "get": {
         "tags": [
@@ -2910,6 +2980,321 @@
           }
         }
       },
+      "SoulseekSearchBudgetResource": {
+        "required": [
+          "submittedInWindow",
+          "maxSearches",
+          "outstanding",
+          "maxOutstanding",
+          "nextAllowedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "submittedInWindow": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxSearches": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "outstanding": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxOutstanding": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "nextAllowedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "SoulseekSettingsResource": {
+        "required": [
+          "username",
+          "passwordSet",
+          "listenPort",
+          "shareLibrary",
+          "sharedFolders",
+          "uploadSlots",
+          "uploadSpeedLimitKib",
+          "distributedNetwork",
+          "downloadsDir",
+          "incompleteDir",
+          "readOnlyFields"
+        ],
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "passwordSet": {
+            "type": "boolean"
+          },
+          "listenPort": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "shareLibrary": {
+            "type": "boolean"
+          },
+          "sharedFolders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uploadSlots": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "uploadSpeedLimitKib": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "distributedNetwork": {
+            "type": "boolean"
+          },
+          "downloadsDir": {
+            "type": "string"
+          },
+          "incompleteDir": {
+            "type": "string"
+          },
+          "readOnlyFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SoulseekSettingsUpdateResource": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "password": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "listenPort": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "shareLibrary": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "sharedFolders": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "uploadSlots": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "uploadSpeedLimitKib": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "distributedNetwork": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "downloadsDir": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "incompleteDir": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SoulseekSettingsUpdateResponseResource": {
+        "required": [
+          "settings",
+          "restartsSlskd"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/SoulseekSettingsResource"
+          },
+          "restartsSlskd": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SoulseekSharingResource": {
+        "required": [
+          "enabled",
+          "folders",
+          "directories",
+          "files"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "directories": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "files": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SoulseekStatusResource": {
+        "required": [
+          "mode",
+          "state",
+          "version",
+          "loggedIn",
+          "username",
+          "loginProblem",
+          "lastError",
+          "pendingRestart",
+          "sharing",
+          "searchBudget"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "loggedIn": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "loginProblem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pendingRestart": {
+            "type": "boolean"
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/SoulseekSharingResource"
+          },
+          "searchBudget": {
+            "$ref": "#/components/schemas/SoulseekSearchBudgetResource"
+          }
+        }
+      },
       "SystemResource": {
         "required": [
           "appName",
@@ -3148,6 +3533,9 @@
     },
     {
       "name": "Task"
+    },
+    {
+      "name": "Soulseek"
     },
     {
       "name": "Artist"

@@ -20,6 +20,9 @@ public sealed record SlskdApplicationState
 
     /// <summary>The logged-in Soulseek user.</summary>
     public SlskdUser User { get; init; } = new();
+
+    /// <summary>What slskd has scanned and is sharing.</summary>
+    public SlskdShares Shares { get; init; } = new();
 }
 
 /// <summary>The <c>version</c> object of slskd's application state.</summary>
@@ -47,4 +50,20 @@ public sealed record SlskdUser
 {
     /// <summary>The Soulseek username slskd is logged in as.</summary>
     public string Username { get; init; } = string.Empty;
+}
+
+/// <summary>The <c>shares</c> object of slskd's application state.</summary>
+public sealed record SlskdShares
+{
+    /// <summary>How many directories slskd shares.</summary>
+    public int Directories { get; init; }
+
+    /// <summary>How many files slskd shares.</summary>
+    public int Files { get; init; }
+
+    /// <summary>Whether the share scan has finished at least once.</summary>
+    public bool Ready { get; init; }
+
+    /// <summary>Whether a share scan is running right now.</summary>
+    public bool Scanning { get; init; }
 }
