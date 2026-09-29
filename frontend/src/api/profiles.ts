@@ -268,11 +268,7 @@ export function useSaveLibrary(): UseMutationResult<LibraryResource, Error, Libr
  * A template the server cannot render comes back 200 with its `errors` filled in and `path` null, so
  * the caller reads those rather than catching: only a transport or template-independent failure throws.
  */
-export function useNamingPreview(): UseMutationResult<
-  LibraryPreviewResource,
-  Error,
-  { id: number; template: string }
-> {
+export function useNamingPreview(): UseMutationResult<LibraryPreviewResource, Error, { id: number; template: string }> {
   const client = useApiClient();
 
   return useMutation({

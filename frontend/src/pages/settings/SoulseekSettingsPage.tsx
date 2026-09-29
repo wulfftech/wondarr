@@ -180,8 +180,7 @@ function SoulseekForm({ settings }: { settings: SoulseekSettingsResource }) {
   // The server names the field in the message it refuses with; a message that names no field — a
   // read-only one, or the settings as a whole — goes under the form.
   const problems = save.error instanceof SoulseekUpdateError ? readSoulseekProblems(save.error.messages) : [];
-  const fieldError = (field: SoulseekFieldName) =>
-    problems.find((problem) => problem.field === field)?.message;
+  const fieldError = (field: SoulseekFieldName) => problems.find((problem) => problem.field === field)?.message;
   const general = problems.filter((problem) => problem.field === null);
 
   const lockIcon = (field: SoulseekFieldName) => (isLocked(field) ? <Lock size={16} /> : undefined);
@@ -245,8 +244,7 @@ function SoulseekForm({ settings }: { settings: SoulseekSettingsResource }) {
 
   const addFolder = () => setSharedFolders((folders) => [...folders, '']);
 
-  const removeFolder = (index: number) =>
-    setSharedFolders((folders) => folders.filter((_, at) => at !== index));
+  const removeFolder = (index: number) => setSharedFolders((folders) => folders.filter((_, at) => at !== index));
 
   return (
     <Card withBorder padding="md">
