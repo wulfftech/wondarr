@@ -11,7 +11,9 @@ public class SlskdConfigRendererTests
     [Fact]
     public void Renders_the_no_credentials_golden_file()
     {
-        var options = new SoulseekOptions { Username = null, Password = null };
+        // The default folder is applied by SoulseekOptionsPostConfigure, not by the property, so the
+        // renderer has to be handed the options it would really see.
+        var options = new SoulseekOptions { Username = null, Password = null, SharedFolders = ["/data/music"] };
 
         var yaml = _renderer.Render(options, SlskdTestData.Secrets, webhookUrl: null);
 
