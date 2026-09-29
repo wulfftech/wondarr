@@ -16,8 +16,9 @@ namespace Wondarr.Sources.Slskd;
 /// until the next restart — on a fresh install, the whole library. Requests are debounced: a scan
 /// runs <see cref="QuietPeriod"/> after the last import, and no later than <see cref="MaxDelay"/>
 /// after the first one waiting, so a long run of imports is still shared as it goes. A scan that
-/// could not be started (slskd busy scanning, or not answering) is retried after
-/// <see cref="RetryDelay"/>; a slskd that is not running needs none, because it scans when it starts.
+/// could not be started (slskd busy scanning, starting, or not answering) is retried after
+/// <see cref="RetryDelay"/>, and a newer import never brings that retry forward; a slskd that is not
+/// running at all needs none, because it scans when it starts.
 /// </remarks>
 public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<SongImportedEvent>
 {
@@ -38,9 +39,14 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
     private readonly Lock _gate = new();
     private readonly SemaphoreSlim _signal = new(0, 1);
 
-    // Timestamps from _time.GetTimestamp(); _firstPending is null when nothing is waiting.
+    // Timestamps from _time.GetTimestamp(); _firstPending is null when nothing is waiting, and
+    // _notBefore holds a retry back however many imports arrive in the meantime.
     private long? _firstPending;
     private long _dueAt;
+    private long _notBefore;
+
+    // Only the first failure in a row is a warning: a slskd that keeps refusing would otherwise log one a minute.
+    private bool _failing;
 
     /// <summary>Initialises a new instance of the <see cref="SlskdShareRescanner"/> class.</summary>
     public SlskdShareRescanner(
@@ -93,7 +99,9 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
             var now = _time.GetTimestamp();
 
             _firstPending ??= now;
-            _dueAt = Math.Min(now + Ticks(QuietPeriod), _firstPending.Value + Ticks(MaxDelay));
+            _dueAt = Math.Max(
+                Math.Min(now + Ticks(QuietPeriod), _firstPending.Value + Ticks(MaxDelay)),
+                _notBefore);
 
             if (_signal.CurrentCount == 0)
             {
@@ -149,13 +157,6 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         }
     }
 
-    /// <inheritdoc />
-    public override void Dispose()
-    {
-        _signal.Dispose();
-        base.Dispose();
-    }
-
     /// <summary>The wait until the pending scan is due, or <see langword="null"/> when none is pending.</summary>
     private TimeSpan? NextWait()
     {
@@ -185,8 +186,9 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         {
             var now = _time.GetTimestamp();
 
+            _notBefore = now + Ticks(RetryDelay);
             _firstPending ??= now;
-            _dueAt = Math.Max(_dueAt, now + Ticks(RetryDelay));
+            _dueAt = Math.Max(_dueAt, _notBefore);
         }
     }
 
@@ -203,11 +205,19 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
             return true;
         }
 
-        // Not running means external mode, no binary, or a process that is starting, restarting or about
-        // to be restarted — and a slskd of ours that starts scans its shares by itself.
-        if (_status.Current.State != SlskdState.Running)
+        var state = _status.Current.State;
+
+        // A slskd that is starting may have scanned past the new file already; wait until it runs.
+        if (state is SlskdState.Starting or SlskdState.Restarting)
         {
-            LogSkipped(_logger, _status.Current.State);
+            return false;
+        }
+
+        // External mode, no binary, stopped, or crashed and about to be restarted: a slskd of ours that
+        // starts scans its shares by itself, and an external one is not ours to manage.
+        if (state != SlskdState.Running)
+        {
+            LogSkipped(_logger, state);
 
             return true;
         }
@@ -228,12 +238,21 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
             }
 
             LogStarted(_logger);
+            _failing = false;
 
             return true;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            LogFailed(_logger, exception.Message);
+            if (_failing)
+            {
+                LogStillFailing(_logger, exception.Message);
+            }
+            else
+            {
+                LogFailed(_logger, exception.Message);
+                _failing = true;
+            }
 
             return false;
         }
@@ -252,4 +271,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "slskd did not start a share rescan: {Reason}; trying again in a minute")]
     private static partial void LogFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "slskd still did not start a share rescan: {Reason}")]
+    private static partial void LogStillFailing(ILogger logger, string reason);
 }
