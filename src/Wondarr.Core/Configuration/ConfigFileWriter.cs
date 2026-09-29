@@ -31,14 +31,20 @@ public interface IConfigFileWriter
 /// <inheritdoc />
 /// <remarks>
 /// <para>
-/// The document is read and written through YamlDotNet's representation model rather than the
-/// serializer, so comments-free but unknown sections, key order and scalar styles survive a write.
+/// Unknown sections, unknown keys and key order survive a write, because the document is read and
+/// written through YamlDotNet's representation model rather than the serializer. Comments do not:
+/// the representation model does not retain them.
+/// </para>
+/// <para>
+/// String values are written double-quoted, so a setting whose text looks like YAML (<c>~</c>,
+/// <c>true</c>, a leading space, a <c>#</c>) reads back as the same string instead of turning into a
+/// null, a bool or a comment.
 /// </para>
 /// <para>
 /// Writers are serialised process-wide: a read-modify-write of a file that holds the API key and
 /// the Soulseek password must never interleave with another one. The file is replaced atomically
-/// (unique temporary file in the same directory, then a move), so a reader — including slskd's own
-/// watcher — never sees a half-written file, and the owner-only mode is set before the move.
+/// (unique temporary file created owner-only in the same directory, then a move), so a reader —
+/// including slskd's own watcher — never sees a half-written file.
 /// </para>
 /// </remarks>
 public sealed partial class ConfigFileWriter : IConfigFileWriter
@@ -161,18 +167,36 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
         return created;
     }
 
-    /// <summary>Sets one key, or removes it when the value is <see langword="null"/>.</summary>
+    /// <summary>
+    /// Sets one key, or removes it when the value is <see langword="null"/>. An empty list also
+    /// writes the marker <c>&lt;key&gt;_set: true</c>, which is removed again as soon as the key has
+    /// items.
+    /// </summary>
+    /// <remarks>
+    /// An empty YAML sequence flattens to no configuration key at all, so a reader cannot tell
+    /// <c>shared_folders: []</c> (the user deliberately shares nothing) from a file that never
+    /// mentions the key (where a default applies). The marker is that difference, in the file.
+    /// </remarks>
     private static void SetKey(YamlMappingNode section, string key, object? value)
     {
         // Replaced rather than assigned: a mapping's keys compare by content, and removing first
         // keeps the appended key in its new position rather than the old one.
         Remove(section, key);
+        Remove(section, MarkerKey(key));
 
         if (value is not null)
         {
             section.Children[new YamlScalarNode(key)] = ToNode(value);
+
+            if (value is IEnumerable<string> items && !items.Any())
+            {
+                section.Children[new YamlScalarNode(MarkerKey(key))] = new YamlScalarNode("true");
+            }
         }
     }
+
+    /// <summary>The key that records "this list was written empty" beside an empty sequence.</summary>
+    private static string MarkerKey(string key) => $"{key}_set";
 
     private static void Remove(YamlMappingNode section, string key)
     {
@@ -195,18 +219,22 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
 
     /// <summary>
     /// Converts a value to a YAML node. Bools are written <c>true</c>/<c>false</c> and numbers with
-    /// the invariant culture; strings are left unstyled so YamlDotNet quotes whatever needs quoting.
+    /// the invariant culture; text is always double-quoted, so a value a user typed is read back as
+    /// the same string and never as YAML of its own.
     /// </summary>
     private static YamlNode ToNode(object value) => value switch
     {
         bool flag => new YamlScalarNode(flag ? "true" : "false"),
-        string text => new YamlScalarNode(text),
+        string text => Text(text),
         int number => new YamlScalarNode(number.ToString(CultureInfo.InvariantCulture)),
         long number => new YamlScalarNode(number.ToString(CultureInfo.InvariantCulture)),
-        IEnumerable<string> items => new YamlSequenceNode(
-            [.. items.Select(item => (YamlNode)new YamlScalarNode(item))]),
-        _ => new YamlScalarNode(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty),
+        IEnumerable<string> items => new YamlSequenceNode([.. items.Select(item => (YamlNode)Text(item))]),
+        _ => Text(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty),
     };
+
+    /// <summary>A quoted scalar: what the user typed is never reinterpreted as YAML.</summary>
+    private static YamlScalarNode Text(string value) =>
+        new(value) { Style = ScalarStyle.DoubleQuoted };
 
     /// <summary>
     /// Writes the document over the target atomically: a unique temporary file beside it, then a
@@ -229,12 +257,27 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
 
         try
         {
-            File.WriteAllText(temporary, yaml, Utf8WithoutBom);
-
-            // The file holds the API key and the Soulseek password: readable by the app user only.
-            if (!OperatingSystem.IsWindows())
+            // The file holds the API key and the Soulseek password, so on Unix it is created
+            // owner-only from the first byte rather than being chmod-ed after the write: a
+            // world-readable moment is enough for another local process to read the secrets.
+            if (OperatingSystem.IsWindows())
             {
-                File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                File.WriteAllText(temporary, yaml, Utf8WithoutBom);
+            }
+            else
+            {
+                var options = new FileStreamOptions
+                {
+                    Mode = FileMode.CreateNew,
+                    Access = FileAccess.Write,
+                    Share = FileShare.None,
+                    UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+                };
+
+                using var stream = new FileStream(temporary, options);
+                using var writer = new StreamWriter(stream, Utf8WithoutBom);
+
+                writer.Write(yaml);
             }
 
             File.Move(temporary, path, overwrite: true);

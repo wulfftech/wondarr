@@ -1,5 +1,6 @@
 using System.Collections;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Configuration;
 using Wondarr.Sources.Slskd;
@@ -132,23 +133,46 @@ public sealed class SoulseekSettingsServiceTests
     public async Task A_new_password_is_written_but_never_logged()
     {
         var writer = new RecordingWriter();
+        var logs = new RecordingLogger();
 
-        var result = await Service(new SoulseekOptions { Username = "listener" }, writer: writer)
+        var result = await Service(new SoulseekOptions { Username = "listener" }, writer: writer, logger: logs)
             .UpdateAsync(new SoulseekSettingsUpdate(Password: "s3cret"), CancellationToken.None);
 
         result.Success.Should().BeTrue();
         writer.Calls[0].Values.Should().ContainKey("password").WhoseValue.Should().Be("s3cret");
+
+        logs.Messages.Should().NotBeEmpty("the write is logged");
+        logs.Messages.Should().NotContain(message => message.Contains("s3cret", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_list_variable_in_the_environment_locks_the_whole_field()
+    {
+        var environment = new Hashtable { ["APP__SOULSEEK__SHARED_FOLDERS__0"] = "/mnt/music" };
+        var writer = new RecordingWriter();
+
+        Service(new SoulseekOptions(), environment).Get().ReadOnlyFields.Should().Equal(["sharedFolders"]);
+
+        var result = await Service(new SoulseekOptions(), environment, writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(SharedFolders: ["/other"]), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().Equal(
+            "sharedFolders is set by the environment variable APP__SOULSEEK__SHARED_FOLDERS and cannot be changed here");
+        writer.Calls.Should().BeEmpty();
     }
 
     [Theory]
     [InlineData("share_library", true)]
-    [InlineData("listen_port", true)]
     [InlineData("shared_folders", true)]
     [InlineData("upload_slots", true)]
     [InlineData("distributed_network", true)]
+    [InlineData("username", true)]
+    [InlineData("password", true)]
+    [InlineData("downloads_dir", true)]
+    [InlineData("incomplete_dir", true)]
+    [InlineData("listen_port", false)]
     [InlineData("upload_speed_limit_kib", false)]
-    [InlineData("downloads_dir", false)]
-    [InlineData("incomplete_dir", false)]
     public async Task Restarts_slskd_only_for_the_settings_it_reads_at_start(string key, bool expected)
     {
         var writer = new RecordingWriter();
@@ -156,12 +180,17 @@ public sealed class SoulseekSettingsServiceTests
         var update = key switch
         {
             "share_library" => new SoulseekSettingsUpdate(ShareLibrary: false),
-            "listen_port" => new SoulseekSettingsUpdate(ListenPort: 50301),
-            "shared_folders" => new SoulseekSettingsUpdate(SharedFolders: []),
+            "shared_folders" => new SoulseekSettingsUpdate(SharedFolders: ["/data/other"]),
             "upload_slots" => new SoulseekSettingsUpdate(UploadSlots: 3),
             "distributed_network" => new SoulseekSettingsUpdate(DistributedNetwork: false),
-            "upload_speed_limit_kib" => new SoulseekSettingsUpdate(UploadSpeedLimitKib: 100),
+            "username" => new SoulseekSettingsUpdate(Username: "listener"),
+            // A password is only valid with a username, so the account is set up in one change.
+            "password" => new SoulseekSettingsUpdate(Username: "listener", Password: "s3cret"),
             "downloads_dir" => new SoulseekSettingsUpdate(DownloadsDir: "/data/other"),
+
+            // slskd reloads the listen port and the upload speed limit in a running process.
+            "listen_port" => new SoulseekSettingsUpdate(ListenPort: 50301),
+            "upload_speed_limit_kib" => new SoulseekSettingsUpdate(UploadSpeedLimitKib: 100),
             _ => new SoulseekSettingsUpdate(IncompleteDir: "/data/other/incomplete"),
         };
 
@@ -189,13 +218,33 @@ public sealed class SoulseekSettingsServiceTests
     private static SoulseekSettingsService Service(
         SoulseekOptions options,
         IDictionary? environment = null,
-        IConfigFileWriter? writer = null) =>
+        IConfigFileWriter? writer = null,
+        ILogger<SoulseekSettingsService>? logger = null) =>
         new(
             SlskdTestData.Monitor(options),
             writer ?? new RecordingWriter(),
             new SoulseekOptionsValidator(),
             environment ?? new Hashtable(),
-            NullLogger<SoulseekSettingsService>.Instance);
+            logger ?? NullLogger<SoulseekSettingsService>.Instance);
+
+    /// <summary>Keeps every formatted log line so a test can prove a secret is not among them.</summary>
+    private sealed class RecordingLogger : ILogger<SoulseekSettingsService>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
+    }
 
     /// <summary>Records what would have been written to <c>config.yml</c>.</summary>
     private sealed class RecordingWriter : IConfigFileWriter

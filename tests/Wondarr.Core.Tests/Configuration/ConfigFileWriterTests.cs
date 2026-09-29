@@ -134,6 +134,113 @@ public sealed class ConfigFileWriterTests
             .Should().Equal("/data/music", "/data/other");
     }
 
+    [Theory]
+    [InlineData("123")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("~")]
+    [InlineData("")]
+    [InlineData("a: b")]
+    [InlineData("# not a comment")]
+    [InlineData(" padded ")]
+    [InlineData("\"already quoted\"")]
+    [InlineData("first\nsecond")]
+    [InlineData("- looks like a list")]
+    [InlineData("* looks like an anchor")]
+    public async Task UpdateSection_writes_text_that_reads_back_as_the_same_string(string value)
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig("server:\n  port: 1077\n");
+
+        var writer = Writer(directory, out var configuration);
+
+        await writer.UpdateSectionAsync(
+            "soulseek",
+            new Dictionary<string, object?> { ["username"] = value },
+            CancellationToken.None);
+
+        // The file is still a YAML document, and the string the user typed is the string it holds.
+        Section(Parse(directory.ReadConfig()))["username"].ToString().Should().Be(value);
+
+        // The provider reads `~` as the YAML null marker, which is its own semantics for a value
+        // that was never written through the writer; every other string comes back unchanged.
+        configuration["Soulseek:Username"].Should().Be(value == "~" ? null : value);
+    }
+
+    [Fact]
+    public async Task UpdateSection_marks_an_explicitly_empty_list()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig(Realistic);
+
+        var writer = Writer(directory, out var configuration);
+
+        await writer.UpdateSectionAsync(
+            "soulseek",
+            new Dictionary<string, object?> { ["shared_folders"] = new List<string>() },
+            CancellationToken.None);
+
+        var section = Section(Parse(directory.ReadConfig()));
+
+        section["shared_folders"].Should().BeOfType<YamlSequenceNode>().Which.Children.Should().BeEmpty();
+
+        // An empty sequence flattens to no key at all, so the file would otherwise be
+        // indistinguishable from one that never mentioned the key.
+        section["shared_folders_set"].ToString().Should().Be("true");
+        configuration.GetSection("Soulseek:SharedFolders").Exists().Should().BeFalse();
+        configuration["Soulseek:SharedFoldersSet"].Should().Be("true");
+    }
+
+    [Fact]
+    public async Task UpdateSection_drops_the_empty_list_marker_once_the_list_has_items()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig(Realistic);
+
+        var writer = Writer(directory, out var configuration);
+
+        await writer.UpdateSectionAsync(
+            "soulseek",
+            new Dictionary<string, object?> { ["shared_folders"] = new List<string>() },
+            CancellationToken.None);
+
+        await writer.UpdateSectionAsync(
+            "soulseek",
+            new Dictionary<string, object?> { ["shared_folders"] = new List<string> { "/x" } },
+            CancellationToken.None);
+
+        var section = Section(Parse(directory.ReadConfig()));
+
+        section.Children.Keys.OfType<YamlScalarNode>().Select(key => key.Value)
+            .Should().NotContain("shared_folders_set");
+        configuration["Soulseek:SharedFolders:0"].Should().Be("/x");
+    }
+
+    [Fact]
+    public async Task UpdateSection_creates_the_file_owner_only_on_unix()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig(Realistic);
+
+        var writer = Writer(directory, out _);
+
+        await writer.UpdateSectionAsync(
+            "soulseek",
+            new Dictionary<string, object?> { ["share_library"] = false },
+            CancellationToken.None);
+
+        if (OperatingSystem.IsWindows())
+        {
+            // Unix modes do not exist here; the assertion below is about the container.
+            return;
+        }
+
+        // The file holds the API key and the Soulseek password: never world-readable, not even
+        // for the instant between writing and chmod-ing it.
+        File.GetUnixFileMode(directory.Paths.ConfigFile)
+            .Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
     [Fact]
     public async Task UpdateSection_writes_lf_line_endings()
     {

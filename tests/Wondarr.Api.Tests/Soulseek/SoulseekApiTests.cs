@@ -69,8 +69,54 @@ public sealed class SoulseekApiTests : IDisposable
         reloaded.RootElement.GetProperty("shareLibrary").GetBoolean().Should().BeFalse();
 
         // The supervisor acts on the options monitor, so that is what has to have changed.
+        var options = _factory.Services.GetRequiredService<IOptionsMonitor<SoulseekOptions>>().CurrentValue;
+
+        options.ShareLibrary.Should().BeFalse();
+
+        // The empty list is what the user asked for: the default folder must not be appended to it,
+        // and the file must say the list was set on purpose so a reload keeps it empty.
+        options.SharedFolders.Should().BeEmpty();
+        reloaded.RootElement.GetProperty("sharedFolders").GetArrayLength().Should().Be(0);
+        ConfigFile().Should().Contain("shared_folders_set");
+    }
+
+    [Fact]
+    public async Task A_written_shared_folder_list_replaces_the_default()
+    {
+        using var client = Client();
+
+        using var response = await client.PutAsJsonAsync(
+            new Uri(SettingsEndpoint, UriKind.Relative),
+            new { sharedFolders = new List<string> { "/x" } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
         _factory.Services.GetRequiredService<IOptionsMonitor<SoulseekOptions>>()
-            .CurrentValue.ShareLibrary.Should().BeFalse();
+            .CurrentValue.SharedFolders.Should().Equal(["/x"], "a bound list replaces, never merges with, the default");
+
+        using var reloaded = await GetAsync(client, SettingsEndpoint);
+        reloaded.RootElement.GetProperty("sharedFolders").EnumerateArray()
+            .Select(folder => folder.GetString()).Should().Equal("/x");
+    }
+
+    [Fact]
+    public async Task A_rejected_change_never_echoes_the_password()
+    {
+        using var client = Client();
+
+        // A password without a username is refused by the validator; the refusal must not quote
+        // the password back, in the body or in the file.
+        using var response = await client.PutAsJsonAsync(
+            new Uri(SettingsEndpoint, UriKind.Relative),
+            new { username = string.Empty, password = "s3cret" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var body = await response.Content.ReadAsStringAsync();
+
+        body.Should().NotContain("s3cret");
+        body.Should().Contain("soulseek.username:");
+        ConfigFile().Should().NotContain("s3cret");
     }
 
     [Fact]
@@ -171,6 +217,9 @@ public sealed class SoulseekApiTests : IDisposable
     }
 
     public void Dispose() => _factory.Dispose();
+
+    /// <summary>What the settings really wrote: the file is the source of truth, not the response.</summary>
+    private string ConfigFile() => File.ReadAllText(Path.Combine(_factory.ConfigDir, "config.yml"));
 
     private SoulseekOptions Options() =>
         _factory.Services.GetRequiredService<IOptionsMonitor<SoulseekOptions>>().CurrentValue;
