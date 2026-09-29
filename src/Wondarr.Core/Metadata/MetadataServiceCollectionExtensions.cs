@@ -1,6 +1,7 @@
 using System.Net;
 using System.Reflection;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Importing;
 using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.Deezer;
@@ -251,6 +252,18 @@ public static class ServiceCollectionExtensions
 
         itunes.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(ITunesGateKey)));
+
+        // The cover client the import pipeline downloads embedded artwork with. Named rather than
+        // typed: its one operation is "GET this image URL and hand me the bytes", which a typed
+        // client interface would only restate. It carries the same identifying User-Agent as the
+        // metadata providers, because it fetches from the same hosts.
+        services.AddHttpClient(CoverFetcher.ClientName, (serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            client.Timeout = CoverFetcher.Timeout;
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BuildUserAgent(options));
+        });
 
         // Transient, not singleton: it takes the transient clients, and it holds no state of its own.
         services.AddTransient<ICoverArtResolver, CoverArtResolver>();
