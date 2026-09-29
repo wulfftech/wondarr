@@ -261,7 +261,8 @@ internal sealed class ImportTestHost : IAsyncDisposable
         context.Candidates.Add(candidate);
         await context.SaveChangesAsync();
 
-        var directory = Path.Combine(_downloads, Guid.NewGuid().ToString("N"));
+        // Exactly the folder the item's Destination names: the source downloads into <downloads>/wondarr/<guid>.
+        var directory = Path.Combine(_downloads, "wondarr", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
 
         var downloadPath = Path.Combine(directory, options.DownloadName);
@@ -298,6 +299,39 @@ internal sealed class ImportTestHost : IAsyncDisposable
             directory,
             downloadPath,
             songFileId);
+    }
+
+    /// <summary>Points one queue item at a download path of the test's choosing.</summary>
+    public async Task SetDownloadPathAsync(long queueItemId, string? downloadPath)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var item = await context.QueueItems.SingleAsync(entry => entry.Id == queueItemId);
+        item.DownloadPath = downloadPath;
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Inserts a <c>song_file</c> row for a song through its own context — behind the back of the
+    /// import under test, whose save then collides with the one-file-per-song index.
+    /// </summary>
+    public async Task InsertSongFileBehindAsync(long songId, string path)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = path,
+            Codec = "flac",
+            Container = "flac",
+            QualityId = 36,
+            SourceType = SourceTypes.Soulseek,
+            ImportedAt = Time.GetUtcNow().UtcDateTime,
+        });
+
+        await context.SaveChangesAsync();
     }
 
     /// <summary>Inserts a second song that already holds the given recording id.</summary>
@@ -537,6 +571,9 @@ internal sealed class FakeFilePlacer : IFilePlacer
     /// <summary>Why it failed, when it does.</summary>
     public string? Error { get; set; } = "The library root is not writable.";
 
+    /// <summary>Run just before a placement is reported, to move the world under the import's feet.</summary>
+    public Func<PlacementRequest, Task>? OnPlaceAsync { get; set; }
+
     /// <summary>Every placement the placer was asked for.</summary>
     public List<PlacementRequest> Requests { get; } = [];
 
@@ -549,13 +586,18 @@ internal sealed class FakeFilePlacer : IFilePlacer
         + request.Extension;
 
     /// <inheritdoc />
-    public Task<PlacementResult> PlaceAsync(PlacementRequest request, CancellationToken cancellationToken)
+    public async Task<PlacementResult> PlaceAsync(PlacementRequest request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
 
-        return Task.FromResult(Success
+        if (OnPlaceAsync is { } hook)
+        {
+            await hook(request);
+        }
+
+        return Success
             ? new PlacementResult(true, TargetOf(request), null, request.Mode, null)
-            : new PlacementResult(false, null, null, null, Error));
+            : new PlacementResult(false, null, null, null, Error);
     }
 }
 

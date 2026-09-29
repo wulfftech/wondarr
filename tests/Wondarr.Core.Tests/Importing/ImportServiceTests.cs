@@ -470,23 +470,190 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
-    public async Task Refuses_to_write_a_webm()
+    public async Task Rejects_a_webm_before_it_is_tagged_or_placed()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Search.Next = 91;
+
+        var seed = await host.SeedAsync(options => options.DownloadName = "08 - Get Lucky.webm");
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Rejected);
+
+        var item = await host.Context.QueueItems.SingleAsync(entry => entry.Id == seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Failed);
+        item.Message.Should().Be("Refusing to import .webm files");
+
+        // The file is refused before anything is written to it, or asked about it.
+        host.Verifier.Requests.Should().BeEmpty();
+        host.Covers.Urls.Should().BeEmpty();
+        host.TagWriter.Writes.Should().BeEmpty();
+        host.Placer.Requests.Should().BeEmpty();
+
+        (await host.Blocklist
+                .IsBlocklistedAsync(SourceTypes.Soulseek, seed.BlocklistKey, CancellationToken.None))
+            .Should().BeTrue();
+        host.Search.Grabs.Should().Equal((seed.SearchRunId, 2));
+        (await host.Context.SongFiles.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Rejects_a_download_with_no_audio_file_extension()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Search.Next = 92;
+
+        var seed = await host.SeedAsync(options => options.DownloadName = "08 - Get Lucky");
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Rejected);
+
+        var item = await host.Context.QueueItems.SingleAsync(entry => entry.Id == seed.QueueItemId);
+        item.Message.Should().Be("The download has no audio file extension");
+
+        host.TagWriter.Writes.Should().BeEmpty();
+        host.Placer.Requests.Should().BeEmpty();
+
+        (await host.Blocklist
+                .IsBlocklistedAsync(SourceTypes.Soulseek, seed.BlocklistKey, CancellationToken.None))
+            .Should().BeTrue();
+        host.Search.Grabs.Should().Equal((seed.SearchRunId, 2));
+    }
+
+    [Theory]
+    [InlineData("dotdot")]
+    [InlineData("outside")]
+    [InlineData("root")]
+    [InlineData("lookalike")]
+    public async Task Refuses_to_delete_a_download_that_is_not_the_items_own_folder(string kind)
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = NotOurRecording();
+
+        // The item's own folder is <downloads>/wondarr/<guid>; everything below is somewhere else.
+        var seed = await host.SeedAsync(options => options.CreateDownload = false);
+
+        var wondarr = Path.GetDirectoryName(seed.DownloadDirectory)!;
+        var downloads = Path.GetDirectoryName(wondarr)!;
+        var stem = Guid.NewGuid().ToString("N");
+
+        var (file, downloadPath) = kind switch
+        {
+            "dotdot" => (
+                Path.Combine(wondarr, "escaped.flac"),
+                Path.Combine(seed.DownloadDirectory, "..", "escaped.flac")),
+            "outside" => (
+                Path.Combine(downloads, "elsewhere", "escaped.flac"),
+                Path.Combine(downloads, "elsewhere", "escaped.flac")),
+            "root" => (
+                Path.Combine(downloads, "loose.flac"),
+                Path.Combine(downloads, "loose.flac")),
+            _ => (
+                Path.Combine(wondarr, stem, "lookalike.flac"),
+                Path.Combine(wondarr, stem, "lookalike.flac")),
+        };
+
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        await File.WriteAllBytesAsync(file, new byte[64]);
+        await host.SetDownloadPathAsync(seed.QueueItemId, downloadPath);
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Rejected);
+        File.Exists(file).Should().BeTrue("only the item's own download folder is Wondarr's to empty");
+        Directory.Exists(seed.DownloadDirectory).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Refuses_to_delete_through_a_symlinked_download_folder()
+    {
+        if (!!OperatingSystem.IsWindows())
+        {
+            // Creating a symlink on Windows needs privileges the test host cannot assume.
+            return;
+        }
+
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = NotOurRecording();
+
+        var seed = await host.SeedAsync(options => options.CreateDownload = false);
+
+        var real = seed.DownloadDirectory + "-real";
+        Directory.CreateDirectory(real);
+
+        var file = Path.Combine(real, "08 - Get Lucky.flac");
+        await File.WriteAllBytesAsync(file, new byte[64]);
+
+        // The item's own folder exists, but it is a symlink: deleting through it would reach a file
+        // that is not in any folder the item owns.
+        Directory.Delete(seed.DownloadDirectory);
+        Directory.CreateSymbolicLink(seed.DownloadDirectory, real);
+
+        await host.SetDownloadPathAsync(
+            seed.QueueItemId,
+            Path.Combine(seed.DownloadDirectory, "08 - Get Lucky.flac"));
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Rejected);
+        File.Exists(file).Should().BeTrue("nothing is deleted through a reparse point");
+    }
+
+    [Fact]
+    public async Task Fails_without_throwing_when_the_record_cannot_be_saved()
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var seed = await host.SeedAsync(options => options.DownloadName = "08 - Get Lucky.webm");
+        ImportSeed? seed = null;
+
+        // A song_file row appears for the song behind the import's back, so its own insert collides
+        // with the one-file-per-song index when the record step saves.
+        host.Placer.OnPlaceAsync = _ => host.InsertSongFileBehindAsync(seed!.SongId, "/data/music/other.flac");
+
+        seed = await host.SeedAsync();
 
         var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
 
         outcome.Should().Be(ImportOutcome.Failed);
 
         var item = await host.Context.QueueItems.SingleAsync(entry => entry.Id == seed.QueueItemId);
-        item.Message.Should().Be("Refusing to write .webm");
+        item.State.Should().Be(QueueItemState.Failed);
+        item.Message.Should().StartWith("Imported to /data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+        item.Message.Should().Contain("but recording it failed:");
 
-        host.Placer.Requests.Should().BeEmpty();
-        (await host.Context.Blocklist.CountAsync()).Should().Be(0);
-        host.Search.Grabs.Should().BeEmpty();
-        (await host.Context.SongFiles.CountAsync()).Should().Be(0);
+        // The unsuccessful import never announced itself as one.
+        host.Events.Of<SongImportedEvent>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Does_not_learn_a_recording_id_from_a_file_it_refuses()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        const string Learned = "df6e2f3a-9c44-4a1c-9c1f-1b2c3d4e5f60";
+
+        // A file that taught us the recording id, but whose measured quality the profile forbids.
+        host.Verifier.Result = FakeDownloadVerifier
+            .Passed(2, new MediaInfo("mp3", "mp3", 8, 22_050, null, 1, 369_000, false, 1_000_000))
+            with
+            {
+                LearnedMbRecordingId = Learned,
+            };
+
+        var seed = await host.SeedAsync(options => options.MbRecordingId = null);
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Rejected);
+
+        var song = await host.Context.Songs.SingleAsync(entry => entry.Id == seed.SongId);
+        song.MbRecordingId.Should().BeNull("a refused file does not rename the song");
+
+        (await host.Context.History
+                .CountAsync(entry => entry.SongId == seed.SongId && entry.EventType == HistoryEventType.Imported))
+            .Should().Be(0);
     }
 
     [Fact]
@@ -542,6 +709,10 @@ public sealed class ImportServiceTests
         outcome.Should().Be(ImportOutcome.NotReady);
         host.Events.Published.Should().BeEmpty();
     }
+
+    /// <summary>A verdict that says the file is not the recording the song asked for.</summary>
+    private static VerificationResult NotOurRecording(string reason = "Fingerprint matches a different recording") =>
+        new(VerificationOutcome.Failed, reason, FakeDownloadVerifier.Flac(), 36, null, null, "someone-else", null, false);
 
     private static Task<HistoryItem> LastEventAsync(
         ImportTestHost host,
