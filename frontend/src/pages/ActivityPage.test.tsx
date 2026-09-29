@@ -33,6 +33,10 @@ function install(deleteStatus = 200): FetchMock {
       return jsonResponse(QUALITY_DEFINITIONS);
     }
 
+    if (url.includes('/api/v1/queue')) {
+      return jsonResponse(paged([]));
+    }
+
     if (url.includes('/api/v1/history')) {
       return jsonResponse(paged(HISTORY_ITEMS));
     }
@@ -50,13 +54,15 @@ function install(deleteStatus = 200): FetchMock {
 }
 
 describe('ActivityPage', () => {
-  it('shows the queue placeholder until the Soulseek source arrives', async () => {
+  it('opens on the queue, before history and the blocklist', async () => {
     resetLocation('/activity/queue');
     install();
 
     renderApp();
 
-    expect(await screen.findByText('The queue arrives with the Soulseek source in Phase 2.')).toBeInTheDocument();
+    // The queue is the first tab and the one the route without a tab name lands on.
+    expect(await screen.findByRole('tab', { name: 'Queue', selected: true })).toBeInTheDocument();
+    expect(await screen.findByText('Nothing is downloading.')).toBeInTheDocument();
   });
 
   it('lists the history with its event badge and quality', async () => {
