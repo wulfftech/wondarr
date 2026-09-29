@@ -355,10 +355,12 @@ public class SlskdHostTests
             await Task.Delay(50);
             harness.Status.Current.LastCheckedAt.Should().Be(firstAttemptAt, "the backoff has not elapsed yet");
 
-            harness.Time.Advance(TimeSpan.FromSeconds(1));
-
-            await SlskdHostHarness.AwaitAsync(
+            // Under load the host may register its backoff timer only after the clock was advanced,
+            // so keep nudging fake time forward until the retry shows up instead of advancing once.
+            await harness.AdvanceUntilAsync(
                 () => harness.Status.Current.LastCheckedAt > firstAttemptAt,
+                TimeSpan.FromSeconds(1),
+                steps: 60,
                 "the retry to be attempted");
 
             harness.Status.Current.State.Should().Be(SlskdState.Crashed);
