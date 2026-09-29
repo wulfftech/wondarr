@@ -50,9 +50,7 @@ public sealed class SlskdHealthCheck : IHealthCheck
             SlskdState.Crashed => Result(
                 HealthCheckResult.Error,
                 snapshot.LastError is null ? "slskd is not running" : $"slskd is not running: {snapshot.LastError}"),
-            SlskdState.Running when snapshot.IsReachable => Result(
-                HealthCheckResult.Ok,
-                $"slskd {Version(snapshot)} running; {Soulseek(snapshot, options)}"),
+            SlskdState.Running when snapshot.IsReachable => Running(snapshot, options),
             SlskdState.Running => Result(
                 HealthCheckResult.Error,
                 snapshot.LastError is null
@@ -60,6 +58,29 @@ public sealed class SlskdHealthCheck : IHealthCheck
                     : $"slskd is running but not reachable: {snapshot.LastError}"),
             _ => Result(HealthCheckResult.Error, "slskd is in an unknown state"),
         };
+
+    /// <summary>
+    /// A login problem slskd's log reported is an error the user has to act on: slskd's API shows
+    /// both of them as a plain "logged out", and it never retries a duplicate-login kick by itself.
+    /// </summary>
+    private static HealthCheck Running(SlskdStatusSnapshot snapshot, SoulseekOptions options) =>
+        snapshot.LoginProblem switch
+        {
+            SlskdLoginProblem.InvalidCredentials => Result(
+                HealthCheckResult.Error,
+                $"Soulseek rejected the login for {Username(snapshot, options)}: invalid username or password"),
+            SlskdLoginProblem.DuplicateLogin => Result(
+                HealthCheckResult.Error,
+                $"Soulseek disconnected: another client logged in as {Username(snapshot, options)}. "
+                + "Use a dedicated Soulseek account for Wondarr."),
+            _ => Result(HealthCheckResult.Ok, $"slskd {Version(snapshot)} running; {Soulseek(snapshot, options)}"),
+        };
+
+    /// <summary>The account the error messages name: what slskd reports, else what is configured.</summary>
+    private static string Username(SlskdStatusSnapshot snapshot, SoulseekOptions options) =>
+        !string.IsNullOrWhiteSpace(snapshot.SoulseekUsername)
+            ? snapshot.SoulseekUsername
+            : options.Username ?? "(unknown)";
 
     private static string Version(SlskdStatusSnapshot snapshot) =>
         string.IsNullOrWhiteSpace(snapshot.Version) ? "(version unknown)" : snapshot.Version;
