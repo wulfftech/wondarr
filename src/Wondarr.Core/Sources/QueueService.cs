@@ -37,6 +37,15 @@ public interface IQueueService
     /// <param name="paging">The page, size and sort the caller asked for.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     Task<PagedResult<QueueItem>> GetPageAsync(PagingSpec paging, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets a page of queue items with the candidate each one carries loaded, newest first by
+    /// default, optionally limited to the items that are still in flight (<c>/api/v1/queue</c>).
+    /// </summary>
+    /// <param name="paging">The page, size and sort the caller asked for.</param>
+    /// <param name="includeFinished">Whether imported, failed and cancelled items are on the page too.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    Task<PagedResult<QueueItem>> GetPageAsync(PagingSpec paging, bool includeFinished, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -147,14 +156,34 @@ public sealed class QueueService : IQueueService
     }
 
     /// <inheritdoc />
-    public async Task<PagedResult<QueueItem>> GetPageAsync(PagingSpec paging, CancellationToken cancellationToken)
+    public Task<PagedResult<QueueItem>> GetPageAsync(PagingSpec paging, CancellationToken cancellationToken) =>
+        GetPageAsync(paging, includeFinished: true, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<PagedResult<QueueItem>> GetPageAsync(
+        PagingSpec paging,
+        bool includeFinished,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(paging);
 
         var query = _database.QueueItems
             .AsNoTracking()
             .Include(item => item.Song)
+            .Include(item => item.Candidate)
             .AsQueryable();
+
+        if (!includeFinished)
+        {
+            // The same five states the poll and HasActiveForSongAsync call active: an item is in
+            // flight until it is imported, failed or cancelled.
+            query = query.Where(item =>
+                item.State == QueueItemState.Queued
+                || item.State == QueueItemState.RemotelyQueued
+                || item.State == QueueItemState.Downloading
+                || item.State == QueueItemState.Completed
+                || item.State == QueueItemState.Importing);
+        }
 
         var totalRecords = await query.CountAsync(cancellationToken).ConfigureAwait(false);
         var records = await ApplySort(query, paging)
