@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>FakeSlskd</RootNamespace>
+
+    <!-- The published single file is named "slskd": the app launches it through
+         APP__SOULSEEK__BINARY_PATH exactly as it launches the real binary. -->
+    <AssemblyName>slskd</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+</Project>
