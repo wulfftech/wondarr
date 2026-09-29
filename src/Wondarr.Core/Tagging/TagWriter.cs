@@ -187,7 +187,16 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
 
         if (TryParseDate(tags.Date, out var date))
         {
-            track.Date = date;
+            // A year-only date (every pseudo-album has one) goes in as the year, so the file says
+            // "1991" rather than a made-up "1991-01-01".
+            if (tags.Date!.Trim().Length == 4)
+            {
+                track.Year = date.Year;
+            }
+            else
+            {
+                track.Date = date;
+            }
         }
 
         if (TryParseDate(tags.OriginalDate, out var originalDate))
@@ -301,7 +310,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         AddString(values, "Artist", track.Artist);
         AddString(values, "AlbumArtist", track.AlbumArtist);
         AddString(values, "Album", track.Album);
-        AddString(values, "Date", FormatDate(track.Date));
+        AddString(values, "Date", FormatDate(track.Date) ?? FormatYear(track.Year));
         AddString(values, "Isrc", track.ISRC);
         AddString(values, "Genre", track.Genre);
         AddString(values, "Comment", track.Comment);
@@ -504,9 +513,20 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
     private static bool TryParseDate(string? value, out DateTime date)
     {
         date = default;
+
+        // Exactly the three shapes MusicBrainz dates come in: DateTime.TryParse does not accept a
+        // bare year, which is what every pseudo-album carries.
         return Has(value)
-            && DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+            && DateTime.TryParseExact(
+                value!.Trim(),
+                ["yyyy", "yyyy-MM", "yyyy-MM-dd"],
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out date);
     }
+
+    private static string? FormatYear(int? year) =>
+        year is > 0 ? year.Value.ToString("0000", CultureInfo.InvariantCulture) : null;
 
     private static string? FormatDate(DateTime? date) =>
         date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

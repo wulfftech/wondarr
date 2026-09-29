@@ -55,6 +55,39 @@ public sealed class TagWriterTests(ITestOutputHelper output)
 
     [Theory]
     [MemberData(nameof(TestMedia.Formats), MemberType = typeof(TestMedia))]
+    public async Task Writes_a_year_only_date_as_the_year(string fixture)
+    {
+        // Every pseudo-album ("Singles") carries a bare year; found on the first live run, where it
+        // made every import fail its read-back.
+        using var media = new TestMedia();
+        var path = media.Copy(fixture);
+
+        var result = await Writer.WriteAsync(path, GetLucky with { Date = "1991" }, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Written["Date"].Should().Be("1991");
+        if (fixture.EndsWith(".flac", StringComparison.Ordinal))
+        {
+            var raw = Encoding.Latin1.GetString(TestMedia.Bytes(path));
+            raw.Should().Contain("DATE=1991").And.NotContain("DATE=1991-01-01");
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(TestMedia.Formats), MemberType = typeof(TestMedia))]
+    public async Task Writes_a_year_and_month_date(string fixture)
+    {
+        using var media = new TestMedia();
+        var path = media.Copy(fixture);
+
+        var result = await Writer.WriteAsync(path, GetLucky with { Date = "1991-09" }, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Written["Date"].Should().Be("1991-09");
+    }
+
+    [Theory]
+    [MemberData(nameof(TestMedia.Formats), MemberType = typeof(TestMedia))]
     public async Task Writes_every_field_and_reads_every_field_back(string fixture)
     {
         using var media = new TestMedia();
