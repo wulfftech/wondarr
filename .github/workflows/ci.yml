@@ -88,7 +88,9 @@ jobs:
           name: wondarr-image-amd64
           path: wondarr-image-amd64.tar.gz
           retention-days: 3
-      # Phase 0 and Phase 1 gates. The Phase 1 gate pastes 50 songs; the metadata services answer from
+      # Phase 0, 1 and 2 gates. The Phase 1 gate pastes 50 songs; the metadata services answer from
       # the recording in tests/gate/replay (scripts/metadata-replay.py), so CI never calls them.
-      - name: Phase gate smoke test (Phase 0 + Phase 1)
+      # The Phase 2 gate replaces the bundled slskd with tools/FakeSlskd (published in the SDK image) and
+      # imports 20 of those songs through the real pipeline, with a disguised live take and a refused transfer.
+      - name: Phase gate smoke test (Phase 0 + Phase 1 + Phase 2)
         run: scripts/smoke-test.sh wondarr:ci
