@@ -46,6 +46,57 @@ public class SlskdHealthCheckTests
     }
 
     [Fact]
+    public async Task A_rejected_login_is_an_error_naming_the_account_but_never_the_password()
+    {
+        var result = await CheckAsync(
+            new SlskdStatusSnapshot(
+                SlskdState.Running,
+                Version: "0.26.0.0",
+                IsReachable: true,
+                SoulseekUsername: "wondarr-soulseek",
+                LoginProblem: SlskdLoginProblem.InvalidCredentials,
+                LoginProblemAt: DateTimeOffset.UnixEpoch),
+            Configured());
+
+        result.Type.Should().Be(HealthCheckResult.Error);
+        result.Message.Should().Be("Soulseek rejected the login for wondarr-soulseek: invalid username or password");
+        result.Message.Should().NotContain("hunter2-not-a-real-password");
+    }
+
+    [Fact]
+    public async Task A_duplicate_login_kick_is_an_error_that_says_what_to_do()
+    {
+        var result = await CheckAsync(
+            new SlskdStatusSnapshot(
+                SlskdState.Running,
+                Version: "0.26.0.0",
+                IsReachable: true,
+                SoulseekUsername: "wondarr-soulseek",
+                LoginProblem: SlskdLoginProblem.DuplicateLogin,
+                LoginProblemAt: DateTimeOffset.UnixEpoch),
+            Configured());
+
+        result.Type.Should().Be(HealthCheckResult.Error);
+        result.Message.Should().Be(
+            "Soulseek disconnected: another client logged in as wondarr-soulseek. "
+            + "Use a dedicated Soulseek account for Wondarr.");
+    }
+
+    [Fact]
+    public async Task A_login_problem_falls_back_to_the_configured_username()
+    {
+        // slskd reports no username when the account never got as far as logging in.
+        var result = await CheckAsync(
+            new SlskdStatusSnapshot(
+                SlskdState.Running,
+                IsReachable: true,
+                LoginProblem: SlskdLoginProblem.InvalidCredentials),
+            Configured());
+
+        result.Message.Should().Be("Soulseek rejected the login for wondarr-soulseek: invalid username or password");
+    }
+
+    [Fact]
     public async Task Running_but_unreachable_is_an_error()
     {
         var result = await CheckAsync(

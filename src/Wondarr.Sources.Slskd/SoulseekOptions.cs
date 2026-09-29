@@ -33,8 +33,11 @@ public sealed class SoulseekOptions
     /// <summary>"Share my library" toggle. Turning it off risks a leech ban.</summary>
     public bool ShareLibrary { get; set; } = true;
 
-    /// <summary>Folders shared back to the network.</summary>
-    public List<string> SharedFolders { get; set; } = ["/data/media/music"];
+    /// <summary>
+    /// Folders shared back to the network. The default is the seeded default library's root
+    /// (<c>SeedData</c>), so "share my library" shares the library out of the box.
+    /// </summary>
+    public List<string> SharedFolders { get; set; } = ["/data/music"];
 
     /// <summary>Concurrent upload slots.</summary>
     public int UploadSlots { get; set; } = 10;

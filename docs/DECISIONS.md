@@ -73,7 +73,7 @@ Answers from the owner to the round-1 questions, and what each changed in this p
 
 | # | Topic | Decision | Why |
 |---|---|---|---|
-| 1 | Soulseek account | The account in `.env` (owner, updated 2026-09-29) logs in from the bundled slskd on `ch01`; watched for duplicate-login kicks before the live gate | The first value was rejected (`INVALIDUSERNAME`); the owner replaced it |
+| 1 | Soulseek account | The account in `.env` logs in from the bundled slskd on `ch01`; no duplicate-login kick in a 10-minute watch | A first attempt failed with `INVALIDUSERNAME` because the orchestrator's own shell one-liner passed the value **with its inline `# comment`**; `.env` values are now always read with the `\s#` comment rule (`scripts/worker.py`'s loader). The same mistake made a valid AcoustID key look invalid |
 | 2 | Search results by polling (v1) | The search runner polls `GET /searches/{id}` every 500 ms until `isComplete`, then reads `/responses` once; `/hub/search` streaming and the "grab at ≥ 850 while streaming" early stop move to Phase 5 | Verified live: `/responses` is `[]` until completion; with `responseLimit` 100 searches complete in ~3 s, so streaming would save little and adds a SignalR client dependency |
 | 3 | `searchTimeout` unit | Milliseconds (8000) | slskd hands the value to Soulseek.NET unchanged (0.26.0 source) |
 | 4 | Per-grab download folder | Every grab uses the batch endpoint with `options.destination = wondarr/{queueItemId}` | The importer finds the file without guessing slskd's `${SOURCE_DIRECTORY}` layout, and parallel grabs cannot collide |

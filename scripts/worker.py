@@ -66,7 +66,8 @@ def load_dotenv(path: Path) -> None:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        value = value.split(" #", 1)[0].strip().strip('"').strip("'")
+        # An inline comment starts at whitespace followed by "#" (a space or a tab).
+        value = re.split(r"\s#", value, maxsplit=1)[0].strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
 

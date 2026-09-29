@@ -8,12 +8,14 @@ using Wondarr.Core.History;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
+using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Tagging;
 using Wondarr.Core.Wanted;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -48,9 +50,24 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
+
+        // The media tools only answer once per process (MediaToolAvailability caches), so both it and
+        // the check that reads it are singletons like the folder checks.
+        services.AddSingleton<IHealthCheck, MediaToolsHealthCheck>();
         services.AddSingleton<HealthCheckService>();
 
+        // What the import pipeline asks of a downloaded file: what is it, does it decode, and what is
+        // its fingerprint. Their options (binary paths, timeout, decode check) are bound by
+        // AddWondarrMetadata, because AddWondarrCore has no IConfiguration to bind from.
+        services.AddSingleton<IProcessRunner, ProcessRunner>();
+        services.AddSingleton<IMediaProbe, MediaProbe>();
+        services.AddSingleton<IFingerprinter, Fingerprinter>();
+        services.AddSingleton<MediaToolAvailability>();
+
         services.AddSingleton<IEventAggregator, EventAggregator>();
+
+        // Stateless apart from ATL's global settings, and it only touches the file it is handed.
+        services.AddSingleton<ITagWriter, TagWriter>();
 
         // The album policy engine is pure; its only dependency is the source of synthetic album ids.
         services.AddSingleton<IAlbumPolicyEngine>(new AlbumPolicyEngine(Guid.NewGuid));
@@ -62,6 +79,13 @@ public static class ServiceCollectionExtensions
         // this must stay a singleton.
         services.TryAddSingleton(Channel.CreateUnbounded<long>());
         services.AddSingleton<ICommandQueue, CommandQueue>();
+
+        // File placement: the disk seam and the three services that use it hold no request state, so
+        // they are singletons like the rest of the pipeline's stateless parts.
+        services.AddSingleton<IDiskOperations, DiskOperations>();
+        services.AddSingleton<IRemotePathMapper, RemotePathMapper>();
+        services.AddSingleton<IRecycleBin, RecycleBin>();
+        services.AddSingleton<IFilePlacer, FilePlacer>();
 
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
@@ -125,6 +149,14 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IValidateOptions<ServerOptions>, ServerOptionsValidator>();
         services.AddSingleton<IPostConfigureOptions<ServerOptions>, ServerOptionsPostConfigure>();
+
+        // Bound here rather than in AddWondarrCore because binding needs the configuration, which
+        // that method is not given; the services that read it are registered there.
+        services.AddOptions<ImportOptions>()
+            .Bind(configuration.GetSection("Import"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<ImportOptions>, ImportOptionsValidator>();
 
         services.AddOptions<LogOptions>()
             .Bind(configuration.GetSection("Log"))
