@@ -1,0 +1,47 @@
+headless: true
+remote_configuration: false
+flags:
+  no_logo: true
+  no_version_check: true
+  no_connect: true
+web:
+  port: 5030
+  ip_address: 127.0.0.1
+  https:
+    disabled: true
+  authentication:
+    disabled: false
+    username: wondarr
+    password: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    api_keys:
+      wondarr:
+        key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        role: administrator
+        cidr: 127.0.0.1/32,::1/128
+soulseek:
+  listen_port: 50300
+  distributed_network:
+    disabled: false
+directories:
+  downloads: /data/downloads/slskd
+  incomplete: /data/downloads/slskd/incomplete
+shares:
+  directories:
+  - /data/media/music
+transfers:
+  upload:
+    slots: 10
+    speed_limit: 2000
+integrations:
+  webhooks:
+    wondarr:
+      on:
+      - DownloadFileComplete
+      call:
+        url: http://127.0.0.1:1077/api/v1/slskd/webhook
+        headers:
+        - name: X-Wondarr-Webhook
+          value: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      timeout: 5000
+      retry:
+        attempts: 3

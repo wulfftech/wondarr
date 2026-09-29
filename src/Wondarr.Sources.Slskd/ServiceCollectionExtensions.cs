@@ -45,6 +45,13 @@ public static class ServiceCollectionExtensions
         // this bounds one hung request.
         services.AddHttpClient<ISlskdSearchApi, SlskdSearchApi>(client => client.Timeout = TimeSpan.FromSeconds(15));
 
+        // Enqueues and status reads are small, and slskd is on loopback: a slow one is a hung one.
+        services.AddHttpClient<ISlskdTransferApi, SlskdTransferApi>(client => client.Timeout = TimeSpan.FromSeconds(10));
+
+        // Downloads outlive any one request, so the service that owns them is a singleton and
+        // resolves its typed client per call from a scope of its own.
+        services.AddSingleton<ISlskdDownloads, SlskdDownloads>();
+
         // The budget is process-wide — one slskd account, one 30-per-4-minutes allowance — and the
         // runner is a singleton that resolves the typed client per run from a scope of its own.
         services.AddSingleton<ISoulseekSearchBudget, SoulseekSearchBudget>();
