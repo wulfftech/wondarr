@@ -15,7 +15,10 @@ public static class EnvironmentOverrides
     /// The keys under <c>APP__&lt;SECTION&gt;__</c> that the environment sets, normalised the way
     /// the binder sees them: <c>__</c> becomes <c>:</c>, underscores are dropped and the result is
     /// lower-cased, so <c>APP__SOULSEEK__USERNAME</c> yields <c>username</c> and
-    /// <c>APP__SOULSEEK__LISTEN_PORT</c> yields <c>listenport</c>.
+    /// <c>APP__SOULSEEK__LISTEN_PORT</c> yields <c>listenport</c>. A nested key also reports the
+    /// field it hangs off, so an index variable such as
+    /// <c>APP__SOULSEEK__SHARED_FOLDERS__0</c> yields <c>sharedfolders:0</c> <em>and</em>
+    /// <c>sharedfolders</c>.
     /// </summary>
     /// <param name="environment">The process environment, or a test's substitute for it.</param>
     /// <param name="section">Section name, for example <c>soulseek</c>.</param>
@@ -39,9 +42,20 @@ public static class EnvironmentOverrides
                 .Replace("_", string.Empty, StringComparison.Ordinal)
                 .ToLowerInvariant();
 
-            if (key.Length > 0)
+            if (key.Length == 0)
             {
-                keys.Add(key);
+                continue;
+            }
+
+            keys.Add(key);
+
+            // A list variable is written APP__SOULSEEK__SHARED_FOLDERS__0: the binder sees the item
+            // as the nested key sharedfolders:0, while the field the UI has to lock is the head of
+            // that path, so both spellings are reported.
+            var separator = key.IndexOf(':', StringComparison.Ordinal);
+            if (separator > 0)
+            {
+                keys.Add(key[..separator]);
             }
         }
 

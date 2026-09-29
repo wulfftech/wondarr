@@ -132,20 +132,6 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
         new("incomplete_dir", "INCOMPLETE_DIR"),
     ];
 
-    /// <summary>
-    /// The keys slskd only reads at start: changing one of them is what the supervisor restarts for.
-    /// </summary>
-    private static readonly HashSet<string> RestartingKeys = new(StringComparer.Ordinal)
-    {
-        "username",
-        "password",
-        "listen_port",
-        "share_library",
-        "shared_folders",
-        "upload_slots",
-        "distributed_network",
-    };
-
     private readonly IOptionsMonitor<SoulseekOptions> _options;
     private readonly IConfigFileWriter _writer;
     private readonly IValidateOptions<SoulseekOptions> _validator;
@@ -253,6 +239,10 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
             return new SoulseekSettingsUpdateResult(false, [.. failures], false);
         }
 
+        // Whether slskd has to restart is the supervisor's own rule, asked of the policy rather than
+// guessed here, so the message the UI shows cannot drift from what the supervisor does.
+        var restarts = SlskdRestartPolicy.RequiresRestart(current, candidate);
+
         if (changes.Count > 0)
         {
             await _writer.UpdateSectionAsync(Section, changes, cancellationToken).ConfigureAwait(false);
@@ -262,10 +252,7 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
             LogUpdated(_logger, keys);
         }
 
-        return new SoulseekSettingsUpdateResult(
-            true,
-            [],
-            changes.Keys.Any(RestartingKeys.Contains));
+        return new SoulseekSettingsUpdateResult(true, [], restarts);
     }
 
     /// <summary>
@@ -393,7 +380,7 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
 
     private bool IsLocked(string key) => _locked.Contains(key.Replace("_", string.Empty, StringComparison.Ordinal));
 
-    /// <summary>Where the value lives in the update's <c>T?</c> overload: the boxes differ per type.</summary>
+    /// <summary>Turns a <c>config.yml</c> key into the camelCase name the API and the UI use.</summary>
     private static string CamelCase(string key)
     {
         var parts = key.Split('_');
