@@ -75,6 +75,13 @@ public sealed partial class SlskdHost : BackgroundService
     private ILaunchedProcess? _child;
     private long _generation;
     private SoulseekOptions? _runningOptions;
+
+    /// <summary>
+    /// Why the settings could not be written, while they still have to be re-applied. A failed write
+    /// is not a crash: it is kept here so the supervisor retries, and so
+    /// <see cref="PollAsync"/> does not wipe the reason with its next successful poll.
+    /// </summary>
+    private string? _settingsWriteError;
     private CancellationToken _stoppingToken;
     private int _backoffIndex;
     private int _settingsRevision;
@@ -151,34 +158,41 @@ public sealed partial class SlskdHost : BackgroundService
                 var generation = await EnsureChildAsync(stoppingToken).ConfigureAwait(false);
                 var startedAt = Now;
 
-                if (await MonitorAsync(generation, stoppingToken).ConfigureAwait(false) == MonitorOutcome.Replaced)
+                if (generation is not null)
                 {
-                    // A settings change replaced the process; watch the replacement.
-                    continue;
-                }
-
-                // The crash path takes the lifecycle gate like every other start/stop, and only stops
-                // the process it was watching: an ApplySettingsAsync that ran between the crash and
-                // here may already have started a replacement, which must not be killed.
-                bool replacedMeanwhile;
-                await _lifecycle.WaitAsync(stoppingToken).ConfigureAwait(false);
-                try
-                {
-                    replacedMeanwhile = CurrentGeneration != generation;
-                    if (!replacedMeanwhile)
+                    if (await MonitorAsync(generation.Value, stoppingToken).ConfigureAwait(false) == MonitorOutcome.Replaced)
                     {
-                        await StopChildAsync(stoppingToken).ConfigureAwait(false);
+                        // A settings change replaced the process; watch the replacement.
+                        continue;
+                    }
+
+                    // The crash path takes the lifecycle gate like every other start/stop, and only stops
+                    // the process it was watching: an ApplySettingsAsync that ran between the crash and
+                    // here may already have started a replacement, which must not be killed.
+                    bool replacedMeanwhile;
+                    await _lifecycle.WaitAsync(stoppingToken).ConfigureAwait(false);
+                    try
+                    {
+                        replacedMeanwhile = CurrentGeneration != generation.Value;
+                        if (!replacedMeanwhile)
+                        {
+                            await StopChildAsync(stoppingToken).ConfigureAwait(false);
+                        }
+                    }
+                    finally
+                    {
+                        _lifecycle.Release();
+                    }
+
+                    if (replacedMeanwhile)
+                    {
+                        continue;
                     }
                 }
-                finally
-                {
-                    _lifecycle.Release();
-                }
 
-                if (replacedMeanwhile)
-                {
-                    continue;
-                }
+                // Either a child crashed, or none could be started because its directories could not
+                // be prepared. Both are waited out and retried: an unwritable /data must not stop the
+                // host (BackgroundServiceExceptionBehavior.StopHost), least of all in a restart loop.
 
                 if (Now - startedAt >= BackoffResetUptime)
                 {
@@ -233,7 +247,28 @@ public sealed partial class SlskdHost : BackgroundService
     {
         ArgumentNullException.ThrowIfNull(next);
 
-        await WriteConfigAsync(next, cancellationToken).ConfigureAwait(false);
+        var failure = await TryWriteConfigAsync(next, cancellationToken).ConfigureAwait(false);
+
+        if (failure is not null)
+        {
+            // A settings change that could not be written is not a crash. The state, the process id
+            // and reachability all still describe the slskd that is really there — whether that is a
+            // running child which keeps the configuration it was started with, or no child at all.
+            // Only the reason is published; the pending change is re-applied by the supervisor.
+            var reason = $"Settings not applied: {failure}";
+
+            LogSettingsApplyFailed(_logger, failure);
+
+            Volatile.Write(ref _settingsWriteError, reason);
+
+            _status.Update(snapshot => snapshot with
+            {
+                LastError = reason,
+                LastCheckedAt = Now,
+            });
+
+            return;
+        }
 
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -249,9 +284,14 @@ public sealed partial class SlskdHost : BackgroundService
             }
 
             LogRestartForSettings(_logger);
+
+            // The replacement starts from the new settings, so whatever the log last said about the
+            // previous account no longer applies.
             _status.Update(snapshot => snapshot with
             {
                 State = SlskdState.Restarting,
+                LoginProblem = SlskdLoginProblem.None,
+                LoginProblemAt = null,
                 LastCheckedAt = Now,
             });
 
@@ -265,11 +305,12 @@ public sealed partial class SlskdHost : BackgroundService
     }
 
     /// <summary>
-    /// Makes sure a child process is running, and returns the generation that identifies it. The
-    /// check is repeated under the gate, because a settings restart may have started one while this
-    /// caller was waiting for it.
+    /// Makes sure a child process is running, and returns the generation that identifies it — or
+    /// <see langword="null"/> when it could not be prepared at all (an unwritable <c>/data</c>, say).
+    /// The check is repeated under the gate, because a settings restart may have started one while
+    /// this caller was waiting for it.
     /// </summary>
-    private async Task<long> EnsureChildAsync(CancellationToken cancellationToken)
+    private async Task<long?> EnsureChildAsync(CancellationToken cancellationToken)
     {
         if (Child is not null)
         {
@@ -314,6 +355,18 @@ public sealed partial class SlskdHost : BackgroundService
 
             if (await PollAsync(cancellationToken).ConfigureAwait(false))
             {
+                // A settings change whose configuration could not be written is still pending: the
+                // child is running the settings it was started with, so this cycle re-applies them.
+                if (Volatile.Read(ref _settingsWriteError) is not null)
+                {
+                    await ApplySettingsAsync(_options.CurrentValue, cancellationToken).ConfigureAwait(false);
+
+                    if (ChildFor(generation) is null)
+                    {
+                        return MonitorOutcome.Replaced;
+                    }
+                }
+
                 await Task.Delay(RunningPollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
                 continue;
             }
@@ -351,7 +404,14 @@ public sealed partial class SlskdHost : BackgroundService
                 SoulseekUsername = string.IsNullOrWhiteSpace(state.User.Username) ? null : state.User.Username,
                 Version = string.IsNullOrWhiteSpace(state.Version.Current) ? snapshot.Version : state.Version.Current,
                 PendingRestart = state.PendingRestart,
-                LastError = null,
+
+                // A logged-in slskd means whatever the log said about the login no longer holds: a
+                // kick or a rejected account that has since been corrected must not stay on the page.
+                LoginProblem = state.Server.IsLoggedIn ? SlskdLoginProblem.None : snapshot.LoginProblem,
+                LoginProblemAt = state.Server.IsLoggedIn ? null : snapshot.LoginProblemAt,
+
+                // A settings change that has not been written yet is still the outstanding problem.
+                LastError = Volatile.Read(ref _settingsWriteError),
                 LastCheckedAt = now,
             });
 
@@ -370,12 +430,25 @@ public sealed partial class SlskdHost : BackgroundService
         }
     }
 
-    private async Task<long> StartChildAsync(SoulseekOptions options, CancellationToken cancellationToken)
+    /// <summary>
+    /// Writes the configuration and launches the child, or reports why it could not be prepared.
+    /// </summary>
+    /// <returns>The generation that identifies the new process, or <see langword="null"/> when
+    /// nothing was started because the configuration could not be written.</returns>
+    private async Task<long?> StartChildAsync(SoulseekOptions options, CancellationToken cancellationToken)
     {
-        await WriteConfigAsync(options, cancellationToken).ConfigureAwait(false);
+        var failure = await TryWriteConfigAsync(options, cancellationToken).ConfigureAwait(false);
+
+        if (failure is not null)
+        {
+            // Reported as a crash so the caller waits out the backoff and tries again, rather than
+            // letting the exception end the host.
+            SetCrashed($"Cannot prepare slskd: {failure}");
+
+            return null;
+        }
 
         var child = _launcher.Launch(BuildRequest(options));
-        child.OutputLine += OnChildOutput;
 
         long generation;
         lock (_processGate)
@@ -393,6 +466,10 @@ public sealed partial class SlskdHost : BackgroundService
             Version: snapshot.Version,
             RestartCount: snapshot.RestartCount + 1,
             LastCheckedAt: Now));
+
+        // Subscribed only now: this snapshot replaces the whole status, so a login line that arrived
+        // between the launch and here would otherwise be recorded and then overwritten by it.
+        child.OutputLine += OnChildOutput;
 
         LogStarted(_logger, child.Id);
 
@@ -464,50 +541,140 @@ public sealed partial class SlskdHost : BackgroundService
         });
 
     /// <summary>
-    /// Renders and writes <c>slskd.yml</c>. The document is written to a temporary file and moved
-    /// over the target, so slskd's file watcher never sees a half-written file.
+    /// Prepares slskd's directories and renders and writes <c>slskd.yml</c>. The document is written
+    /// to a temporary file and moved over the target, so slskd's file watcher never sees a
+    /// half-written file.
     /// </summary>
-    private async Task WriteConfigAsync(SoulseekOptions options, CancellationToken cancellationToken)
+    /// <returns>
+    /// <see langword="null"/> on success, or the reason the directories or the file could not be
+    /// written. Storage failures are returned, never thrown: an unwritable volume must not stop the
+    /// host, and the message ends up in the status's <c>LastError</c>.
+    /// </returns>
+    private async Task<string?> TryWriteConfigAsync(SoulseekOptions options, CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(_paths.SlskdDir);
+        var failure = TryPrepareDirectories(options);
 
-        // slskd refuses to start ("Invalid configuration") when a configured directory is missing,
-        // which is the normal state of a fresh /data volume. Found by the Phase 0 image smoke test.
-        Directory.CreateDirectory(options.DownloadsDir);
-        Directory.CreateDirectory(options.IncompleteDir);
+        if (failure is not null)
+        {
+            return failure;
+        }
+
+        try
+        {
+            SlskdRuntimeSecrets secrets;
+            await using (var scope = _scopeFactory.CreateAsyncScope())
+            {
+                var store = scope.ServiceProvider.GetRequiredService<SlskdSecretsStore>();
+                secrets = await store.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            var yaml = _renderer.Render(options, secrets, WebhookUrl());
+
+            // A unique name per write: two concurrent settings changes must not write the same
+            // temporary file.
+            var temporary = $"{ConfigPath}.{Guid.NewGuid():N}.tmp";
+
+            await File.WriteAllTextAsync(temporary, yaml, Utf8WithoutBom, cancellationToken).ConfigureAwait(false);
+
+            // The file holds the Soulseek password and the API key: readable by the app user only.
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+
+            File.Move(temporary, ConfigPath, overwrite: true);
+
+            // Whatever was pending has just been written.
+            Volatile.Write(ref _settingsWriteError, null);
+
+            return null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Not only storage errors: the secrets store, the renderer and the database behind them
+            // can fail too, and none of it may reach the host's caller — an exception out of the
+            // background service stops the whole app (BackgroundServiceExceptionBehavior.StopHost).
+            LogPrepareFailed(_logger, exception.Message);
+
+            return exception.Message;
+        }
+    }
+
+    /// <summary>
+    /// Creates the directories slskd insists on. slskd refuses to start ("Invalid configuration")
+    /// when one is missing, which is the normal state of a fresh <c>/data</c> volume — found by the
+    /// Phase 0 image smoke test.
+    /// </summary>
+    /// <returns><see langword="null"/> when they all exist, else the reason they do not.</returns>
+    private string? TryPrepareDirectories(SoulseekOptions options)
+    {
+        try
+        {
+            Directory.CreateDirectory(_paths.SlskdDir);
+            Directory.CreateDirectory(options.DownloadsDir);
+            Directory.CreateDirectory(options.IncompleteDir);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A malformed setting throws ArgumentException or NotSupportedException rather than
+            // UnauthorizedAccessException; none of them may stop the host.
+            // The .NET message names the path, e.g. "Access to the path '/data/downloads' is denied."
+            LogPrepareFailed(_logger, exception.Message);
+
+            return exception.Message;
+        }
+
         if (options.ShareLibrary)
         {
             foreach (var folder in options.SharedFolders)
             {
-                Directory.CreateDirectory(folder);
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // Sharing one folder less is not worth refusing to start over — and a folder
+                    // setting that is not a usable path at all (empty, or a bad drive) is only one
+                    // folder less, too.
+                    LogSharedFolderFailed(_logger, folder, exception.Message);
+                }
             }
         }
 
-        SlskdRuntimeSecrets secrets;
-        await using (var scope = _scopeFactory.CreateAsyncScope())
-        {
-            var store = scope.ServiceProvider.GetRequiredService<SlskdSecretsStore>();
-            secrets = await store.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        var yaml = _renderer.Render(options, secrets, WebhookUrl());
-
-        // A unique name per write: two concurrent settings changes must not write the same
-        // temporary file.
-        var temporary = $"{ConfigPath}.{Guid.NewGuid():N}.tmp";
-
-        await File.WriteAllTextAsync(temporary, yaml, Utf8WithoutBom, cancellationToken).ConfigureAwait(false);
-
-        // The file holds the Soulseek password and the API key: readable by the app user only.
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        }
-
-        File.Move(temporary, ConfigPath, overwrite: true);
+        return null;
     }
 
-    private void OnChildOutput(string line) => LogChildOutput(_slskdLogger, line);
+    private void OnChildOutput(string line)
+    {
+        LogChildOutput(_slskdLogger, line);
+
+        // slskd's API shows a rejected account and a duplicate-login kick as a plain "logged out",
+        // so the only place they can be seen is its own log, which arrives here.
+        if (SlskdLogWatcher.Classify(line) is not { } signal)
+        {
+            return;
+        }
+
+        _status.Update(snapshot => signal switch
+        {
+            SlskdLogSignal.LoggedIn => snapshot with
+            {
+                LoginProblem = SlskdLoginProblem.None,
+                LoginProblemAt = null,
+            },
+            SlskdLogSignal.InvalidCredentials => snapshot with
+            {
+                LoginProblem = SlskdLoginProblem.InvalidCredentials,
+                LoginProblemAt = Now,
+            },
+            _ => snapshot with
+            {
+                LoginProblem = SlskdLoginProblem.DuplicateLogin,
+                LoginProblemAt = Now,
+            },
+        });
+    }
 
     private void OnSettingsChanged(SoulseekOptions next)
     {
@@ -548,7 +715,9 @@ public sealed partial class SlskdHost : BackgroundService
             PendingRestart: snapshot.PendingRestart,
             RestartCount: snapshot.RestartCount,
             LastError: reason,
-            LastCheckedAt: Now));
+            LastCheckedAt: Now,
+            LoginProblem: snapshot.LoginProblem,
+            LoginProblemAt: snapshot.LoginProblemAt));
 
     private TimeSpan NextBackoff()
     {
@@ -619,6 +788,12 @@ public sealed partial class SlskdHost : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not kill the slskd process: {Reason}")]
     private static partial void LogKillFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Cannot prepare slskd: {Reason}")]
+    private static partial void LogPrepareFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not create the shared folder {Folder}, so it is not shared: {Reason}")]
+    private static partial void LogSharedFolderFailed(ILogger logger, string folder, string reason);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Line}")]
     private static partial void LogChildOutput(ILogger logger, string line);
