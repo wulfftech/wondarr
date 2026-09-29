@@ -1,0 +1,6 @@
+{
+  "request": "GET http://plex.example:32400/activities",
+  "status": 200,
+  "captured": "2026-09-30",
+  "note": "anonymised by tests/fixtures/plex/record.py"
+}

@@ -1,0 +1,26 @@
+{
+  "id": 1234567890,
+  "code": "abcdefghijklmnopqrstuvwxy",
+  "product": "Wondarr",
+  "trusted": false,
+  "qr": "https://plex.tv/api/v2/pins/qr/abcdefghijklmnopqrstuvwxy",
+  "clientIdentifier": "wondarr-test-client",
+  "location": {
+    "code": "US",
+    "european_union_member": false,
+    "continent_code": "NA",
+    "country": "United States",
+    "city": "Example City",
+    "time_zone": "Etc/UTC",
+    "postal_code": "00000",
+    "in_privacy_restricted_country": false,
+    "in_privacy_restricted_region": false,
+    "subdivisions": "Example State",
+    "coordinates": "0, 0"
+  },
+  "expiresIn": 1800,
+  "createdAt": "2026-09-29T16:17:18Z",
+  "expiresAt": "2026-09-29T16:47:18Z",
+  "authToken": null,
+  "newRegistration": null
+}

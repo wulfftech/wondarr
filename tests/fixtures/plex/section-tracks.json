@@ -1,0 +1,87 @@
+{
+  "MediaContainer": {
+    "size": 1,
+    "totalSize": 195,
+    "offset": 0,
+    "allowSync": true,
+    "art": "/:/resources/artist-fanart.jpg",
+    "identifier": "com.plexapp.plugins.library",
+    "librarySectionID": 11,
+    "librarySectionTitle": "Artist 2",
+    "librarySectionUUID": "00000000-0000-4000-8000-000000000002",
+    "mediaTagPrefix": "/system/bundle/media/flags/",
+    "mediaTagVersion": 1786914632,
+    "nocache": true,
+    "thumb": "/:/resources/artist.png",
+    "title1": "Artist 2",
+    "title2": "All Artists",
+    "viewGroup": "artist",
+    "viewMode": 65592,
+    "Metadata": [
+      {
+        "ratingKey": "257571",
+        "key": "/library/metadata/257571",
+        "parentRatingKey": "257570",
+        "grandparentRatingKey": "257569",
+        "guid": "plex://track/5d07e53d403c640290850711",
+        "parentGuid": "plex://album/5d07c801403c640290bc648f",
+        "grandparentGuid": "plex://artist/5d07be4f403c64029067b018",
+        "parentStudio": "Walt Disney Records",
+        "type": "track",
+        "title": "Frozen Heart",
+        "grandparentKey": "/library/metadata/257569",
+        "parentKey": "/library/metadata/257570",
+        "grandparentTitle": "Kristen Anderson‐Lopez",
+        "parentTitle": "Frozen",
+        "originalTitle": "The Cast of Frozen",
+        "summary": "",
+        "index": 1,
+        "parentIndex": 1,
+        "ratingCount": 15,
+        "parentYear": 2013,
+        "thumb": "/library/metadata/257570/thumb/1777834235",
+        "art": "/library/metadata/257569/art/1790190329",
+        "parentThumb": "/library/metadata/257570/thumb/1777834235",
+        "grandparentThumb": "/library/metadata/257569/thumb/1790190329",
+        "grandparentArt": "/library/metadata/257569/art/1790190329",
+        "duration": 106726,
+        "addedAt": 1674568223,
+        "updatedAt": 1788210869,
+        "Media": [
+          {
+            "id": 277870,
+            "duration": 106726,
+            "bitrate": 128,
+            "audioChannels": 2,
+            "audioCodec": "opus",
+            "container": "ogg",
+            "hasVoiceActivity": false,
+            "Part": [
+              {
+                "id": 281851,
+                "key": "/library/parts/281851/1674568223/file.opus",
+                "duration": 106726,
+                "file": "/data/artist2/Kristen Anderson‐Lopez, Robert Lopez & Christophe Beck/Frozen (Original Motion Picture Soundtrack)/01 The Cast of Frozen - Frozen Heart.opus",
+                "size": 1908513,
+                "container": "ogg",
+                "hasThumbnail": "1"
+              }
+            ]
+          }
+        ],
+        "Image": [
+          {
+            "alt": "Frozen Heart",
+            "type": "coverPoster",
+            "url": "/library/metadata/257569/thumb/1790190329"
+          },
+          {
+            "alt": "Frozen Heart",
+            "type": "background",
+            "url": "/library/metadata/257569/art/1790190329"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "request": "POST https://plex.tv/api/v2/pins?strong=true",
+  "status": 201,
+  "captured": "2026-09-30",
+  "note": "anonymised by tests/fixtures/plex/record.py"
+}

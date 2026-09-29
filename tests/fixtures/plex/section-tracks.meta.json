@@ -1,0 +1,6 @@
+{
+  "request": "GET http://plex.example:32400/library/sections/11/all?type=10&X-Plex-Container-Start=0&X-Plex-Container-Size=1",
+  "status": 200,
+  "captured": "2026-09-30",
+  "note": "anonymised by tests/fixtures/plex/record.py"
+}
