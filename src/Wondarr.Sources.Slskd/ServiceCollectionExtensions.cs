@@ -1,6 +1,7 @@
 using Wondarr.Core.Configuration;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Logging;
+using Wondarr.Core.Sources;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -71,6 +72,9 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IValidateOptions<SoulseekOptions>>(),
             Environment.GetEnvironmentVariables(),
             provider.GetRequiredService<ILogger<SoulseekSettingsService>>()));
+
+        // One registration per source type: later phases add their own next to this one.
+        services.AddSingleton<ISourceProvider, SoulseekSourceProvider>();
 
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
         services.AddSingleton<SlskdStatus>();
