@@ -62,3 +62,7 @@ slskd exposes its configuration for remote management when `SLSKD_REMOTE_CONFIGU
 - **Soulseek sharing** — warns when "Share my library" is off (peers ban leechers) or none of the shared folders exists. The default shared folder is the default library root, `/data/music`.
 - **Media tools** — `ffprobe`, `ffmpeg` and `fpcalc` answer; without them downloads cannot be verified.
 
+#### Soulseek settings API (Phase 2)
+
+`GET/PUT /api/v1/soulseek/settings` read and write the `soulseek` section of `/config/config.yml` (mode 0600; written atomically; string values always quoted) and reload the configuration, so the supervisor re-renders `slskd.yml` and restarts slskd when `SlskdRestartPolicy` says so (credentials, shares, slots, directories, distributed network; the listen port and speed limits apply live). Fields set by `APP__SOULSEEK__…` environment variables — including indexed list variables such as `APP__SOULSEEK__SHARED_FOLDERS__0` — are read-only there. The password is never returned (`passwordSet`). Because the configuration binder appends a bound list to a list property's default, `shared_folders` has no default in the options class: a post-configure step applies `[/data/music]` only when the key was never written, and the writer records an explicit choice (including an empty list) with `shared_folders_set: true`. `GET /api/v1/soulseek/status` reports login, the login problem, share counts from slskd and the search budget.
+

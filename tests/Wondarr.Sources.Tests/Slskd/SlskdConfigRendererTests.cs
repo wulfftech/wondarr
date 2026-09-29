@@ -74,7 +74,8 @@ public class SlskdConfigRendererTests
     {
         const string Url = "http://127.0.0.1:1077/api/v1/slskd/webhook";
 
-        var yaml = _renderer.Render(new SoulseekOptions(), SlskdTestData.Secrets, Url);
+        // The shared-folder default is applied by post-configuration, not by the options class.
+        var yaml = _renderer.Render(new SoulseekOptions { SharedFolders = ["/data/music"] }, SlskdTestData.Secrets, Url);
 
         SlskdTestData.AssertMatchesGolden("render-webhook.yml", yaml);
 
