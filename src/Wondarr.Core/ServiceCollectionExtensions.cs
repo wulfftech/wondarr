@@ -80,6 +80,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(Channel.CreateUnbounded<long>());
         services.AddSingleton<ICommandQueue, CommandQueue>();
 
+        // File placement: the disk seam and the three services that use it hold no request state, so
+        // they are singletons like the rest of the pipeline's stateless parts.
+        services.AddSingleton<IDiskOperations, DiskOperations>();
+        services.AddSingleton<IRemotePathMapper, RemotePathMapper>();
+        services.AddSingleton<IRecycleBin, RecycleBin>();
+        services.AddSingleton<IFilePlacer, FilePlacer>();
+
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
@@ -142,6 +149,14 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IValidateOptions<ServerOptions>, ServerOptionsValidator>();
         services.AddSingleton<IPostConfigureOptions<ServerOptions>, ServerOptionsPostConfigure>();
+
+        // Bound here rather than in AddWondarrCore because binding needs the configuration, which
+        // that method is not given; the services that read it are registered there.
+        services.AddOptions<ImportOptions>()
+            .Bind(configuration.GetSection("Import"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<ImportOptions>, ImportOptionsValidator>();
 
         services.AddOptions<LogOptions>()
             .Bind(configuration.GetSection("Log"))
