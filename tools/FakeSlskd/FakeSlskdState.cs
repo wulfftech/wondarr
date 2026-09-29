@@ -107,6 +107,13 @@ public sealed class FakeSlskdState : IDisposable
             scan[directory] = (counts![0]!.GetValue<int>(), counts[1]!.GetValue<int>());
         }
 
+        // slskd only trusts a cache of the folders it is configured to share now (seen live: turning
+        // sharing off and restarting shares 0 folders); a different set is scanned afresh.
+        if (!scan.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(_options.Configuration.ShareDirectories))
+        {
+            return false;
+        }
+
         _shareScan = scan;
         FakeSlskdLog.Info($"Share cache loaded from disk successfully. Sharing {scan.Values.Sum(c => c.Directories)} directories and {scan.Values.Sum(c => c.Files)} files");
 

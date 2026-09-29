@@ -91,6 +91,10 @@ public sealed class FakeSlskdTests
 
             restarted.RescanShares();
             restarted.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(2);
+
+            // Sharing turned off: a cache of other folders is not restored.
+            using var unshared = new FakeSlskdState(options with { Configuration = new SlskdConfiguration() });
+            unshared.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(0);
         }
         finally
         {
