@@ -141,11 +141,50 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
         Scans().Should().Be(0);
     }
 
+    [Fact]
+    public async Task A_new_import_does_not_bring_a_retry_forward()
+    {
+        _client.RescanSharesAsync(Arg.Any<CancellationToken>())
+            .Returns(SlskdRescanOutcome.AlreadyScanning, SlskdRescanOutcome.Started);
+
+        await _rescanner.StartAsync(_stopping.Token);
+        _rescanner.RequestRescan();
+
+        await AdvanceUntilAsync(() => Scans() == 1, "the first attempt");
+
+        // An import 5 s into the retry wait would be due after 35 s; the retry still waits its minute.
+        await AdvanceAsync(TimeSpan.FromSeconds(5));
+        _rescanner.RequestRescan();
+
+        await AdvanceAsync(SlskdShareRescanner.RetryDelay - TimeSpan.FromSeconds(10));
+        Scans().Should().Be(1);
+
+        await AdvanceUntilAsync(() => Scans() == 2, "the retry");
+    }
+
+    [Theory]
+    [InlineData(SlskdState.Starting)]
+    [InlineData(SlskdState.Restarting)]
+    public async Task A_slskd_that_is_starting_is_rescanned_once_it_runs(SlskdState state)
+    {
+        _status.Set(new SlskdStatusSnapshot(state));
+
+        await _rescanner.StartAsync(_stopping.Token);
+        _rescanner.RequestRescan();
+
+        await AdvanceAsync(SlskdShareRescanner.QuietPeriod + SlskdShareRescanner.RetryDelay);
+        Scans().Should().Be(0);
+        _rescanner.IsPending.Should().BeTrue();
+
+        _status.Set(new SlskdStatusSnapshot(SlskdState.Running, IsReachable: true, IsLoggedIn: true));
+
+        await AdvanceUntilAsync(() => Scans() == 1, "the rescan once slskd runs");
+    }
+
     [Theory]
     [InlineData(SlskdState.Disabled)]
     [InlineData(SlskdState.BinaryMissing)]
-    [InlineData(SlskdState.Starting)]
-    [InlineData(SlskdState.Restarting)]
+    [InlineData(SlskdState.Stopped)]
     [InlineData(SlskdState.Crashed)]
     public async Task A_slskd_that_is_not_running_is_left_to_scan_when_it_starts(SlskdState state)
     {
