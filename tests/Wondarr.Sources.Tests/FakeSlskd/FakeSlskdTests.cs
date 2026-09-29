@@ -64,6 +64,41 @@ public sealed class FakeSlskdTests
     }
 
     [Fact]
+    public void A_restarted_fake_restores_its_last_share_scan_instead_of_scanning()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "fakeslskd-tests", Guid.NewGuid().ToString("N"));
+        var music = Path.Combine(root, "music");
+        Directory.CreateDirectory(Path.Combine(music, "album"));
+        File.WriteAllBytes(Path.Combine(music, "album", "one.flac"), [1]);
+
+        try
+        {
+            var options = new FakeSlskdOptions
+            {
+                Configuration = new SlskdConfiguration { ShareDirectories = [music] },
+                ShareCachePath = Path.Combine(root, "fake-share-cache.json"),
+            };
+
+            using (var first = new FakeSlskdState(options))
+            {
+                first.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(1, "the first start scans");
+            }
+
+            File.WriteAllBytes(Path.Combine(music, "album", "two.flac"), [1]);
+
+            using var restarted = new FakeSlskdState(options);
+            restarted.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(1, "a restart restores the cache");
+
+            restarted.RescanShares();
+            restarted.ApplicationJson()["shares"]!["files"]!.GetValue<int>().Should().Be(2);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Application_reports_logged_out_when_no_username_is_configured()
     {
         await using var harness = await FakeSlskdHarness.StartAsync(ScenarioJson(), username: null);

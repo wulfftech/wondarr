@@ -22,16 +22,22 @@ public sealed record FakeSlskdOptions
     public IAudioGenerator AudioGenerator { get; init; } = new FfmpegAudioGenerator();
 
     /// <summary>
+    /// Where the share scan is kept between runs, or <see langword="null"/> to scan at every start. Like
+    /// slskd, a fake that finds one restores it instead of scanning (<c>$SLSKD_APP_DIR/fake-share-cache.json</c>).
+    /// </summary>
+    public string? ShareCachePath { get; init; }
+
+    /// <summary>
     /// Reads <c>SLSKD_CONFIG</c> (falling back to <c>$SLSKD_APP_DIR/slskd.yml</c>),
     /// <c>FAKE_SLSKD_SCENARIO</c> and <c>FAKE_ACOUSTID_PORT</c>.
     /// </summary>
     public static FakeSlskdOptions FromEnvironment()
     {
         var configPath = Environment.GetEnvironmentVariable("SLSKD_CONFIG");
+        var appDirectory = Environment.GetEnvironmentVariable("SLSKD_APP_DIR");
 
         if (string.IsNullOrWhiteSpace(configPath))
         {
-            var appDirectory = Environment.GetEnvironmentVariable("SLSKD_APP_DIR");
             configPath = string.IsNullOrWhiteSpace(appDirectory)
                 ? null
                 : Path.Combine(appDirectory, "slskd.yml");
@@ -55,6 +61,7 @@ public sealed record FakeSlskdOptions
             Configuration = configuration,
             Scenario = Scenario.Load(Environment.GetEnvironmentVariable("FAKE_SLSKD_SCENARIO")),
             AcoustIdPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_ACOUSTID_PORT")),
+            ShareCachePath = string.IsNullOrWhiteSpace(appDirectory) ? null : Path.Combine(appDirectory, "fake-share-cache.json"),
         };
     }
 
