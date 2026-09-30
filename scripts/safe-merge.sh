@@ -16,6 +16,11 @@ root="$(git rev-parse --show-toplevel)"
 marker="${root}/.worker/last-green"
 cd "${root}"
 
+if ! git rev-parse --verify --quiet "${branch}^{commit}" >/dev/null; then
+    echo "safe-merge: refusing — '${branch}' is not a branch or commit" >&2
+    exit 1
+fi
+
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
     echo "safe-merge: refusing — the working tree has uncommitted changes" >&2
     exit 1
