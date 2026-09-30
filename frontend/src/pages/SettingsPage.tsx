@@ -2,14 +2,16 @@ import { SegmentedControl, Stack, Title } from '@mantine/core';
 import { useNavigate, useParams } from 'react-router';
 import { LibrarySettingsPage } from './settings/LibrarySettingsPage';
 import { QualityProfilesPage } from './settings/QualityProfilesPage';
+import { ReferenceLibrariesPage } from './settings/ReferenceLibrariesPage';
 import { SoulseekSettingsPage } from './settings/SoulseekSettingsPage';
 
 /** The Settings sections, and the route segment each one owns. */
-type SettingsSection = 'profiles' | 'library' | 'soulseek';
+type SettingsSection = 'profiles' | 'library' | 'references' | 'soulseek';
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'profiles', label: 'Quality profiles' },
   { value: 'library', label: 'Library' },
+  { value: 'references', label: 'Reference libraries' },
   { value: 'soulseek', label: 'Soulseek' },
 ];
 
@@ -35,6 +37,7 @@ export function SettingsPage() {
 
       {active === 'profiles' && <QualityProfilesPage />}
       {active === 'library' && <LibrarySettingsPage />}
+      {active === 'references' && <ReferenceLibrariesPage />}
       {active === 'soulseek' && <SoulseekSettingsPage />}
     </Stack>
   );

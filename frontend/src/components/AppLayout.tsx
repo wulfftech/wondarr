@@ -8,16 +8,18 @@ import {
   Tooltip,
   useMantineColorScheme,
 } from '@mantine/core';
-import { Activity, HeartPulse, Library, Moon, Plus, Settings, Star, Sun } from 'lucide-react';
+import { Activity, GitMerge, HeartPulse, Library, Moon, Plus, Settings, Star, Sun } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
+import { useMatchQueueTotal } from '../api/references';
 import { isProblem } from '../api/types';
 
 const NAV_ITEMS = [
   { to: '/library', match: '/library', label: 'Library', icon: Library },
   { to: '/add', match: '/add', label: 'Add songs', icon: Plus },
   { to: '/wanted', match: '/wanted', label: 'Wanted', icon: Star },
+  { to: '/match', match: '/match', label: 'Match', icon: GitMerge },
   { to: '/activity', match: '/activity', label: 'Activity', icon: Activity },
   { to: '/settings', match: '/settings', label: 'Settings', icon: Settings },
   { to: '/system/status', match: '/system', label: 'System', icon: HeartPulse },
@@ -64,6 +66,7 @@ function ColorSchemeToggle() {
 export function AppLayout() {
   const { instanceName } = useAppConfig();
   const problemCount = useProblemCount();
+  const matchTotal = useMatchQueueTotal();
   const { pathname } = useLocation();
 
   return (
@@ -87,6 +90,17 @@ export function AppLayout() {
             active={pathname.startsWith(match)}
             label={label}
             leftSection={<Icon size={16} />}
+            rightSection={
+              label === 'Match' && matchTotal !== null && matchTotal > 0 ? (
+                <Badge
+                  variant="light"
+                  color="yellow"
+                  aria-label={matchTotal === 1 ? '1 file to review' : `${matchTotal} files to review`}
+                >
+                  {matchTotal}
+                </Badge>
+              ) : undefined
+            }
           />
         ))}
       </AppShell.Navbar>
