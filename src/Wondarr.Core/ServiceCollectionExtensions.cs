@@ -113,6 +113,10 @@ public static class ServiceCollectionExtensions
         // Identification runs on those same rows, in the same scope, right after a scan.
         services.AddScoped<IReferenceIdentifier, ReferenceIdentifier>();
 
+        // The reference libraries themselves, and the Match queue that settles what identification could not.
+        services.AddScoped<IReferenceLibraryService, ReferenceLibraryService>();
+        services.AddScoped<IReferenceMatchService, ReferenceMatchService>();
+
         // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
         services.AddScoped<IPasteListService, PasteListService>();
 

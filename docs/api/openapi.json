@@ -689,6 +689,301 @@
         }
       }
     },
+    "/api/v1/matchqueue": {
+      "get": {
+        "tags": [
+          "MatchQueue"
+        ],
+        "parameters": [
+          {
+            "name": "referenceLibraryId",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfMatchQueueItemResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/matchqueue/{id}/resolve": {
+      "post": {
+        "tags": [
+          "MatchQueue"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchResolveRequestResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchResolveRequestResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchResolveResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/matchqueue/bulk": {
+      "post": {
+        "tags": [
+          "MatchQueue"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchBulkRequestResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchBulkRequestResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchBulkResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/referencelibrary": {
+      "get": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReferenceLibraryResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceLibraryInputResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceLibraryInputResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceLibraryResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/referencelibrary/{id}": {
+      "get": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceLibraryResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceLibraryInputResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceLibraryInputResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceLibraryResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/referencelibrary/{id}/scan": {
+      "post": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/queue": {
       "get": {
         "tags": [
@@ -2502,6 +2797,331 @@
           }
         }
       },
+      "MatchBulkRequestResource": {
+        "required": [
+          "ids"
+        ],
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "MatchBulkResource": {
+        "required": [
+          "resolved",
+          "failed",
+          "errors"
+        ],
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MatchCandidateResource": {
+        "required": [
+          "rank",
+          "score",
+          "reason",
+          "source",
+          "mbRecordingId",
+          "deezerId",
+          "title",
+          "artistCredit",
+          "durationMs",
+          "albumTitle"
+        ],
+        "type": "object",
+        "properties": {
+          "rank": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deezerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artistCredit": {
+            "type": "string"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "albumTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MatchFileResource": {
+        "required": [
+          "title",
+          "artist",
+          "album",
+          "trackNumber",
+          "durationMs",
+          "codec",
+          "bitrate",
+          "isrc",
+          "mbRecordingId"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "artist": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "album": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "trackNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "codec": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bitrate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isrc": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MatchQueueItemResource": {
+        "required": [
+          "id",
+          "referenceLibraryId",
+          "relativePath",
+          "state",
+          "file",
+          "candidates",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "referenceLibraryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "relativePath": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "file": {
+            "$ref": "#/components/schemas/MatchFileResource"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchCandidateResource"
+            }
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MatchResolveRequestResource": {
+        "required": [
+          "candidateRank",
+          "mbRecordingId",
+          "deezerId",
+          "skip"
+        ],
+        "type": "object",
+        "properties": {
+          "candidateRank": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deezerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "skip": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MatchResolveResource": {
+        "required": [
+          "state",
+          "songId",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "PagingResourceOfBlocklistResource": {
         "required": [
           "page",
@@ -2645,6 +3265,55 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ImportListItemResource"
+            }
+          }
+        }
+      },
+      "PagingResourceOfMatchQueueItemResource": {
+        "required": [
+          "page",
+          "pageSize",
+          "sortKey",
+          "sortDirection",
+          "totalRecords",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sortKey": {
+            "type": "string"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "totalRecords": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchQueueItemResource"
             }
           }
         }
@@ -3167,6 +3836,188 @@
           },
           "unknownWarnings": {
             "type": "boolean"
+          }
+        }
+      },
+      "ReferenceLibraryCountsResource": {
+        "required": [
+          "total",
+          "pending",
+          "identified",
+          "ambiguous",
+          "unmatched",
+          "adopted",
+          "unreadable",
+          "missing",
+          "skipped"
+        ],
+        "type": "object",
+        "properties": {
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pending": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "identified": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ambiguous": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unmatched": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "adopted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unreadable": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "missing": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "skipped": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ReferenceLibraryInputResource": {
+        "required": [
+          "name",
+          "rootPath",
+          "mode",
+          "libraryId",
+          "enabled"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rootPath": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "libraryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ReferenceLibraryResource": {
+        "required": [
+          "id",
+          "name",
+          "rootPath",
+          "mode",
+          "libraryId",
+          "enabled",
+          "lastScannedAt",
+          "lastScanMessage",
+          "counts"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rootPath": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "libraryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "lastScannedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastScanMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ReferenceLibraryCountsResource"
           }
         }
       },
@@ -4547,6 +5398,12 @@
     },
     {
       "name": "Release"
+    },
+    {
+      "name": "MatchQueue"
+    },
+    {
+      "name": "ReferenceLibrary"
     },
     {
       "name": "Queue"
