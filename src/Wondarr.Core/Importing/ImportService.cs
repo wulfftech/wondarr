@@ -385,7 +385,11 @@ public sealed partial class ImportService : IImportService
                     item.SourceType,
                     verification.AcoustId,
                     KeepSource: false,
-                    song.File?.Path),
+
+                    // A song owned through a reference file is satisfied by the user's own copy, which
+                    // Wondarr does not control: the grab imports into the library and repoints the song,
+                    // and nothing recycles the reference file.
+                    song.File?.SourceType == SourceTypes.Reference ? null : song.File?.Path),
                 cancellationToken)
             .ConfigureAwait(false);
 
