@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Wondarr.Core.References;
 using Wondarr.Core.Searching;
 
 namespace Wondarr.Core.Jobs;
@@ -18,6 +19,9 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often the missing-song search runs, when <c>search.missing_interval_hours</c> is left alone.</summary>
     public static readonly TimeSpan DefaultMissingSearchInterval = TimeSpan.FromHours(6);
 
+    /// <summary>How often the reference libraries are walked (ARCHITECTURE §5.5: daily).</summary>
+    public static readonly TimeSpan ReferenceLibraryScanInterval = TimeSpan.FromHours(24);
+
     private readonly IReadOnlyList<ScheduledTaskDefinition> _tasks;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskCatalog"/> class.</summary>
@@ -33,6 +37,7 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
             new(
                 MissingSearchCommandHandler.CommandName,
                 TimeSpan.FromHours(options.Value.MissingIntervalHours)),
+            new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
         ];
     }
 
