@@ -6,6 +6,7 @@ using Wondarr.Core.Blocklisting;
 using Wondarr.Core.Domain;
 using Wondarr.Core.History;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Lyrics;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Organizer;
@@ -84,6 +85,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The scripted cover fetcher.</summary>
     public FakeCoverFetcher Covers { get; private init; } = null!;
 
+    /// <summary>The scripted lyrics client, which finds nothing unless a test says otherwise.</summary>
+    public FakeLrclibClient Lrclib { get; private init; } = null!;
+
     /// <summary>The cover processor that hands every image straight back.</summary>
     public FakeCoverImageProcessor CoverProcessor { get; private init; } = null!;
 
@@ -111,6 +115,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         var placer = new FakeFilePlacer();
         var covers = new FakeCoverFetcher();
         var coverProcessor = new FakeCoverImageProcessor();
+        var lrclib = new FakeLrclibClient();
         var search = new FakeSongSearchService();
         var events = new RecordingEventAggregator();
 
@@ -120,6 +125,8 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<TimeProvider>(time);
         services.AddSingleton<IOptionsMonitor<SearchOptions>>(new TestOptionsMonitor<SearchOptions>(options));
         services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(new ImportOptions()));
+        services.AddSingleton<IOptionsMonitor<LyricsOptions>>(new TestOptionsMonitor<LyricsOptions>(new LyricsOptions()));
+        services.AddSingleton<ILrclibClient>(lrclib);
         services.AddSingleton<ICoverImageProcessor>(coverProcessor);
         services.AddSingleton<IDownloadVerifier>(verifier);
         services.AddSingleton<ITagWriter>(tagWriter);
@@ -147,6 +154,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
             TagWriter = tagWriter,
             Placer = placer,
             Covers = covers,
+            Lrclib = lrclib,
             CoverProcessor = coverProcessor,
             Search = search,
             Events = events,
@@ -648,6 +656,28 @@ internal sealed class FakeCoverFetcher : ICoverFetcher
         Urls.Add(url);
 
         return Task.FromResult(url is null ? null : Bytes);
+    }
+}
+
+/// <summary>A lyrics client that records what it was asked and answers with one scripted lookup.</summary>
+internal sealed class FakeLrclibClient : ILrclibClient
+{
+    /// <summary>The lookup every call returns; a miss unless a test says otherwise.</summary>
+    public LyricsLookup Result { get; set; } = new(LyricsLookupStatus.NotFound, null, null, null);
+
+    /// <summary>Every ask, as the track, the artist and the length in seconds it was given.</summary>
+    public List<(string TrackName, string ArtistName, int DurationSeconds)> Requests { get; } = [];
+
+    /// <inheritdoc />
+    public Task<LyricsLookup> FindAsync(
+        string trackName,
+        string artistName,
+        int durationSeconds,
+        CancellationToken cancellationToken)
+    {
+        Requests.Add((trackName, artistName, durationSeconds));
+
+        return Task.FromResult(Result);
     }
 }
 

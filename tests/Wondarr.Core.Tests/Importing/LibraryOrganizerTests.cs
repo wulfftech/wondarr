@@ -1,8 +1,10 @@
+using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Lyrics;
 using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -36,6 +38,8 @@ public sealed class LibraryOrganizerTests : IDisposable
     private readonly FakeFilePlacer _placer = new();
     private readonly FakeCoverFetcher _covers = new();
     private readonly FakeCoverImageProcessor _coverProcessor = new();
+    private readonly FakeLrclibClient _lrclib = new();
+    private readonly LyricsOptions _lyricsOptions = new();
     private readonly ImportOptions _importOptions = new();
     private readonly SqliteTestDatabase _database = new();
     private readonly WondarrDbContext _context;
@@ -384,6 +388,164 @@ public sealed class LibraryOrganizerTests : IDisposable
         logger.EventIds.Should().NotContain(TrackNumberTakenEventId);
     }
 
+    [Fact]
+    public async Task Writes_the_lyrics_tag_and_an_lrc_sidecar_when_lrclib_has_synced_lyrics()
+    {
+        var source = WriteSource();
+        _lrclib.Result = new LyricsLookup(
+            LyricsLookupStatus.Found,
+            "Plain line one\nPlain line two",
+            "[00:01.00] Synced line\r\n[00:02.00] Second line",
+            986804);
+
+        var result = await Organizer().OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+
+        // The tag takes the unsynced text; the file's length is what the lookup was matched on.
+        _tagWriter.Writes[0].Tags.Lyrics.Should().Be("Plain line one\nPlain line two");
+        _lrclib.Requests.Should().ContainSingle().Which.Should().Be(("Get Lucky", "Daft Punk", 248));
+
+        // The sidecar is the placed file's own name with the extension swapped, beside it.
+        result.LyricsPath.Should().Be(Path.ChangeExtension(result.FinalPath!, ".lrc"));
+        result.LyricsPath.Should().EndWith("08 - Get Lucky.lrc");
+
+        var bytes = File.ReadAllBytes(result.LyricsPath!);
+        (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            .Should().BeFalse("a sidecar is UTF-8 without a BOM");
+        Encoding.UTF8.GetString(bytes).Should().Be("[00:01.00] Synced line\n[00:02.00] Second line\n");
+    }
+
+    [Fact]
+    public async Task Writes_a_txt_sidecar_when_lrclib_only_has_plain_lyrics()
+    {
+        var source = WriteSource();
+        _lrclib.Result = new LyricsLookup(LyricsLookupStatus.Found, "Only plain\r\nlyrics", null, 1);
+
+        var result = await Organizer().OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        _tagWriter.Writes[0].Tags.Lyrics.Should().Be("Only plain\r\nlyrics");
+        result.LyricsPath.Should().EndWith("08 - Get Lucky.txt");
+        File.ReadAllText(result.LyricsPath!).Should().Be("Only plain\nlyrics\n");
+    }
+
+    [Theory]
+    [InlineData(LyricsLookupStatus.Instrumental)]
+    [InlineData(LyricsLookupStatus.NotFound)]
+    [InlineData(LyricsLookupStatus.Unavailable)]
+    public async Task A_lookup_that_is_not_a_hit_leaves_no_lyrics_anywhere(LyricsLookupStatus status)
+    {
+        var source = WriteSource();
+        _lrclib.Result = new LyricsLookup(status, null, null, null);
+
+        var result = await Organizer().OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.LyricsPath.Should().BeNull();
+        _tagWriter.Writes[0].Tags.Lyrics.Should().BeNull();
+        LyricsFiles().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_library_that_turns_sidecars_off_still_gets_the_lyrics_tag()
+    {
+        var source = WriteSource();
+        _lrclib.Result = new LyricsLookup(LyricsLookupStatus.Found, "Plain", "[00:01.00] Synced", 1);
+
+        var result = await Organizer().OrganizeAsync(
+            Request(source, keepSource: false, sidecarOptions: "{\"lyrics\":false}"),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.LyricsPath.Should().BeNull();
+        _tagWriter.Writes[0].Tags.Lyrics.Should().Be("Plain");
+        LyricsFiles().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Lyrics_are_not_looked_up_at_all_when_the_setting_is_off()
+    {
+        var source = WriteSource();
+        _lyricsOptions.Enabled = false;
+
+        var result = await Organizer().OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        _lrclib.Requests.Should().BeEmpty();
+        _tagWriter.Writes[0].Tags.Lyrics.Should().BeNull();
+        result.LyricsPath.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_file_whose_length_is_unknown_is_not_looked_up()
+    {
+        var source = WriteSource();
+        _lrclib.Result = new LyricsLookup(LyricsLookupStatus.Found, "Plain", "[00:01.00] Synced", 1);
+
+        var result = await Organizer().OrganizeAsync(
+            Request(source, keepSource: false, durationMs: 0),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        _lrclib.Requests.Should().BeEmpty();
+        _tagWriter.Writes[0].Tags.Lyrics.Should().BeNull();
+        result.LyricsPath.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(".lrc", true)]
+    [InlineData(".txt", false)]
+    [InlineData(".lrc", false)]
+    [InlineData(".txt", true)]
+    public async Task Never_writes_a_sidecar_beside_one_that_is_already_there(string extension, bool synced)
+    {
+        var source = WriteSource();
+        var existing = new byte[] { 0x6D, 0x69, 0x6E, 0x65 };
+        _lrclib.Result = synced
+            ? new LyricsLookup(LyricsLookupStatus.Found, "Plain", "[00:01.00] Synced", 1)
+            : new LyricsLookup(LyricsLookupStatus.Found, "Plain", null, 1);
+
+        _placer.OnPlaceAsync = request =>
+        {
+            var folder = CreateTargetFolder(request);
+            File.WriteAllBytes(Path.Combine(folder, string.Concat("08 - Get Lucky", extension)), existing);
+
+            return Task.CompletedTask;
+        };
+
+        var result = await Organizer().OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.LyricsPath.Should().BeNull();
+
+        var target = Path.GetDirectoryName(result.FinalPath!)!;
+        File.ReadAllBytes(Path.Combine(target, string.Concat("08 - Get Lucky", extension)))
+            .Should().Equal(existing);
+
+        // A user's own file wins whichever extension ours would have used.
+        var other = string.Equals(extension, ".lrc", StringComparison.Ordinal) ? ".txt" : ".lrc";
+        File.Exists(Path.Combine(target, string.Concat("08 - Get Lucky", other))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_lyrics_write_that_fails_part_way_leaves_no_partial_and_still_files_the_song()
+    {
+        var source = WriteSource();
+        var disk = new HalfWritingDisk();
+        _lrclib.Result = new LyricsLookup(LyricsLookupStatus.Found, "Plain", "[00:01.00] Synced", 1);
+
+        var result = await Organizer(disk).OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.LyricsPath.Should().BeNull();
+
+        // The cover's half-written partial and the sidecar's, each removed again.
+        disk.PartialsWritten.Should().HaveCount(2);
+        disk.PartialsWritten.Should().OnlyContain(path => !File.Exists(path));
+        LyricsFiles().Should().BeEmpty();
+    }
+
     public void Dispose()
     {
         _context.Dispose();
@@ -400,6 +562,14 @@ public sealed class LibraryOrganizerTests : IDisposable
         Directory.Exists(LibraryRoot)
             ? Directory.EnumerateFiles(LibraryRoot, LibraryOrganizer.CoverJpgName, SearchOption.AllDirectories).FirstOrDefault()
             : null;
+
+    /// <summary>Every lyrics sidecar anywhere under the library root.</summary>
+    private IEnumerable<string> LyricsFiles() =>
+        Directory.Exists(LibraryRoot)
+            ? Directory.EnumerateFiles(LibraryRoot, "*", SearchOption.AllDirectories)
+                .Where(path => path.EndsWith(".lrc", StringComparison.Ordinal)
+                    || path.EndsWith(".txt", StringComparison.Ordinal))
+            : Enumerable.Empty<string>();
 
     /// <summary>Makes the folder the fake placer's target names, and returns it.</summary>
     private static string CreateTargetFolder(PlacementRequest request)
@@ -480,6 +650,8 @@ public sealed class LibraryOrganizerTests : IDisposable
             disk ?? new DiskOperations(),
             _context,
             _coverProcessor,
+            _lrclib,
+            new TestOptionsMonitor<LyricsOptions>(_lyricsOptions),
             new TestOptionsMonitor<ImportOptions>(_importOptions),
             logger ?? NullLogger<LibraryOrganizer>.Instance);
 
@@ -497,6 +669,7 @@ public sealed class LibraryOrganizerTests : IDisposable
         string? replaces = null,
         LibraryLayout layout = LibraryLayout.Plexamp,
         string sidecarOptions = "{}",
+        int durationMs = 248_000,
         long libraryId = 1,
         string? coverUrl = "https://coverartarchive.org/release/5000a285-b67e-4cfc-b54b-2b98f1810d2e/front-1200")
     {
@@ -533,7 +706,7 @@ public sealed class LibraryOrganizerTests : IDisposable
             SidecarOptions = sidecarOptions,
         };
 
-        var media = new MediaInfo("mp3", "mp3", 320, 44100, null, 2, 248_000, false, SourceBytes.Length);
+        var media = new MediaInfo("mp3", "mp3", 320, 44100, null, 2, durationMs, false, SourceBytes.Length);
         var quality = new Quality { Id = 13, Name = "MP3-320" };
 
         return new OrganizeRequest(
