@@ -1,3 +1,4 @@
+using Wondarr.Core.Compaction;
 using Wondarr.Core.Profiles;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,14 +14,18 @@ namespace Wondarr.Api.Profiles;
 public sealed class LibraryController : ControllerBase
 {
     private readonly ILibraryService _libraries;
+    private readonly ICompactPlanner _compaction;
 
     /// <summary>Initialises a new instance of the <see cref="LibraryController"/> class.</summary>
     /// <param name="libraries">The library service.</param>
-    public LibraryController(ILibraryService libraries)
+    /// <param name="compaction">The Compact library task's planner, which this endpoint dry-runs.</param>
+    public LibraryController(ILibraryService libraries, ICompactPlanner compaction)
     {
         ArgumentNullException.ThrowIfNull(libraries);
+        ArgumentNullException.ThrowIfNull(compaction);
 
         _libraries = libraries;
+        _compaction = compaction;
     }
 
     /// <summary>Lists every library, ordered by id.</summary>
@@ -44,6 +49,28 @@ public sealed class LibraryController : ControllerBase
         var library = await _libraries.GetAsync(id, cancellationToken).ConfigureAwait(false);
 
         return library is null ? NotFound() : Ok(library.ToResource());
+    }
+
+    /// <summary>
+    /// Plans the Compact library task for one library: which songs would change album, and where their
+    /// files would go. A dry run — nothing is moved, tagged or written.
+    /// </summary>
+    /// <param name="id">The library id.</param>
+    /// <param name="cancellationToken">Cancels the planning.</param>
+    [HttpGet("{id:long}/compact")]
+    [Produces("application/json")]
+    public async Task<ActionResult<CompactPlanResource>> GetCompactPlan(long id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var plan = await _compaction.PlanAsync(id, cancellationToken).ConfigureAwait(false);
+
+            return Ok(plan.ToResource());
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
     }
 
     /// <summary>Replaces a library's settings.</summary>
