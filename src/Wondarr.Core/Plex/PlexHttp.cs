@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 
 namespace Wondarr.Core.Plex;
 
@@ -102,7 +103,41 @@ internal static class PlexHttp
         return response.Body;
     }
 
+    /// <summary>
+    /// Parses one of Plex's JSON answers. A body that is not JSON — an HTML error page served with a
+    /// 200, or an empty body — becomes a <see cref="PlexException"/> here: a <see cref="JsonException"/>
+    /// escaping to the caller says nothing about who answered or what was asked.
+    /// </summary>
+    /// <param name="body">The body to parse.</param>
+    /// <param name="request">The request it answers, for the message.</param>
+    /// <param name="subject">Who answered, for example <c>The Plex server</c>.</param>
+    /// <exception cref="PlexException">The body was empty or was not JSON.</exception>
+    public static JsonDocument Parse(string body, HttpRequestMessage request, string subject)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            throw Unreadable(request, subject);
+        }
+
+        try
+        {
+            return JsonDocument.Parse(body);
+        }
+        catch (JsonException exception)
+        {
+            throw new PlexException(UnreadableMessage(request, subject), exception);
+        }
+    }
+
     /// <summary>The request's path, without its query: a query can carry a library path.</summary>
     private static string Path(HttpRequestMessage request) =>
         request.RequestUri?.AbsolutePath ?? "the request";
+
+    private static PlexException Unreadable(HttpRequestMessage request, string subject) =>
+        new(UnreadableMessage(request, subject));
+
+    private static string UnreadableMessage(HttpRequestMessage request, string subject) =>
+        $"{subject} returned an unreadable answer for {request.Method} {Path(request)}.";
 }

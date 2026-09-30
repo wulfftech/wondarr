@@ -5,6 +5,8 @@ using Xunit;
 
 namespace Wondarr.Core.Tests.Plex;
 
+/// <summary>Shares the process-wide client identifier cache with <see cref="PlexClientIdentifierTests"/>.</summary>
+[Collection("plex-client-identifier")]
 public class PlexConnectionServiceTests
 {
     private const string UserToken = "PLEX-USER-TOKEN";
@@ -48,6 +50,22 @@ public class PlexConnectionServiceTests
         // And the state the UI reads carries no token either.
         var state = await service.GetStateAsync(CancellationToken.None);
         state.SignedIn.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_service_reports_the_identifier_the_identifier_service_owns()
+    {
+        using var harness = new PlexConnectionHarness();
+        var service = harness.CreateService();
+
+        var state = await service.GetStateAsync(CancellationToken.None);
+
+        var identifier = await harness.CreateIdentifier().GetAsync(CancellationToken.None);
+
+        state.ClientIdentifier.Should().Be(identifier);
+
+        // And it is the same one a second scope would generate, whatever the service holds.
+        (await harness.ReadSettingsAsync())!.ClientIdentifier.Should().Be(identifier);
     }
 
     [Fact]
@@ -202,6 +220,63 @@ public class PlexConnectionServiceTests
         var act = async () => await harness.CreateService().SelectServerAsync(url, CancellationToken.None);
 
         await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData("http://plex.example:32400/?X-Plex-Token=abc")]
+    [InlineData("http://plex.example:32400/#fragment")]
+    [InlineData("http://user:pw@plex.example:32400")]
+    public async Task SelectServer_refuses_a_url_that_carries_a_secret_and_stores_nothing(string url)
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+
+        var act = async () => await harness.CreateService().SelectServerAsync(url, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<ArgumentException>();
+
+        // The message says what is wrong with the URL without repeating it.
+        exception.Which.Message.Should().NotContain(url)
+            .And.NotContain("abc").And.NotContain("pw").And.NotContain("X-Plex-Token");
+
+        (await harness.ReadSettingsAsync())!.ServerUrl.Should().BeNull();
+        await harness.Server.DidNotReceive().GetIdentityAsync(
+            Arg.Any<Uri>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SelectServer_keeps_the_path_prefix_of_a_reverse_proxy()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubIdentity(harness);
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([]));
+
+        await harness.CreateService().SelectServerAsync("https://plex.example/plex", CancellationToken.None);
+
+        (await harness.ReadSettingsAsync())!.ServerUrl.Should().Be("https://plex.example/plex");
+    }
+
+    [Fact]
+    public async Task Test_reports_an_unreadable_answer_instead_of_throwing()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SelectServerAsync(harness);
+
+        var handler = new StubHttpMessageHandler(_ => PlexFixtures.Body("<html>Not JSON</html>"));
+        var identifier = harness.CreateIdentifier();
+        var server = new PlexServerClient(new StubHttpClientFactory(handler), identifier);
+
+        var result = await harness
+            .CreateService(server: server)
+            .TestAsync(CancellationToken.None);
+
+        result.Ok.Should().BeFalse();
+        result.Error.Should().Contain("unreadable").And.NotContain(UserToken);
+        result.MusicSections.Should().Be(0);
     }
 
     [Fact]

@@ -128,6 +128,7 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
     private const string MusicSectionType = "artist";
 
     private readonly ISettingsRepository _settings;
+    private readonly IPlexClientIdentifier _identifier;
     private readonly IPlexTvClient _tv;
     private readonly IPlexServerClient _server;
     private readonly ISecretRegistry _secrets;
@@ -135,24 +136,28 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
 
     /// <summary>Initialises a new instance of the <see cref="PlexConnectionService"/> class.</summary>
     /// <param name="settings">The settings table the connection lives in.</param>
+    /// <param name="identifier">The one owner of the client identifier, which is generated once.</param>
     /// <param name="tv">The plex.tv client.</param>
     /// <param name="server">The Plex Media Server client.</param>
     /// <param name="secrets">The registry every token is handed to, so the log pipeline can redact it.</param>
     /// <param name="logger">The log.</param>
     public PlexConnectionService(
         ISettingsRepository settings,
+        IPlexClientIdentifier identifier,
         IPlexTvClient tv,
         IPlexServerClient server,
         ISecretRegistry secrets,
         ILogger<PlexConnectionService> logger)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(identifier);
         ArgumentNullException.ThrowIfNull(tv);
         ArgumentNullException.ThrowIfNull(server);
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(logger);
 
         _settings = settings;
+        _identifier = identifier;
         _tv = tv;
         _server = server;
         _secrets = secrets;
@@ -208,12 +213,15 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
         var settings = await LoadAsync(cancellationToken).ConfigureAwait(false);
         var trimmed = token.Trim();
 
+        // Register it before the first request that carries it: whatever plex.tv answers, and
+        // whatever that answer is logged as, the value is already one the log pipeline redacts.
+        _secrets.Register(trimmed);
+
         // plex.tv is the only authority on whether a token is good; a 401 becomes a
         // PlexUnauthorizedException here and nothing is stored.
         await _tv.GetServersAsync(trimmed, settings.ClientIdentifier, cancellationToken).ConfigureAwait(false);
 
         await SaveAsync(settings with { Token = trimmed }, cancellationToken).ConfigureAwait(false);
-        _secrets.Register(trimmed);
     }
 
     /// <inheritdoc />
@@ -248,6 +256,18 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
                 nameof(serverUrl));
         }
 
+        // A stored server URL is written into logs, the UI and later requests; a token in a query, a
+        // credential in the user info or a fragment would all end up there. The message repeats none
+        // of it, because the URL is what carries the secret.
+        if (!string.IsNullOrEmpty(server.Query)
+            || !string.IsNullOrEmpty(server.Fragment)
+            || !string.IsNullOrEmpty(server.UserInfo))
+        {
+            throw new ArgumentException(
+                "A Plex server URL must not carry a query, a fragment or user information.",
+                nameof(serverUrl));
+        }
+
         var settings = await LoadAsync(cancellationToken).ConfigureAwait(false);
         var token = settings.Token;
 
@@ -268,7 +288,7 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
         await SaveAsync(
             settings with
             {
-                ServerUrl = serverUrl.Trim(),
+                ServerUrl = Normalize(server),
                 MachineIdentifier = identity.MachineIdentifier,
                 ServerName = name,
                 ServerToken = serverToken,
@@ -372,17 +392,22 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
         return (server, token);
     }
 
-    /// <summary>Loads the connection, creating the client identifier on first use, and registers its secrets.</summary>
+    /// <summary>
+    /// Loads the connection and registers its secrets. The client identifier comes from
+    /// <see cref="IPlexClientIdentifier"/>, which owns generating it; this only keeps the stored copy
+    /// in step, because a row written before the identifier existed carries none.
+    /// </summary>
     private async Task<PlexConnectionSettings> LoadAsync(CancellationToken cancellationToken)
     {
         var settings = await _settings
             .GetAsync<PlexConnectionSettings>(SettingKey, cancellationToken)
             .ConfigureAwait(false);
 
-        if (settings is null || string.IsNullOrWhiteSpace(settings.ClientIdentifier))
+        var clientIdentifier = await _identifier.GetAsync(cancellationToken).ConfigureAwait(false);
+
+        if (settings is null || !string.Equals(settings.ClientIdentifier, clientIdentifier, StringComparison.Ordinal))
         {
-            settings = (settings ?? new PlexConnectionSettings())
-                with { ClientIdentifier = Guid.NewGuid().ToString("N") };
+            settings = (settings ?? new PlexConnectionSettings()) with { ClientIdentifier = clientIdentifier };
 
             await _settings.SetAsync(SettingKey, settings, cancellationToken).ConfigureAwait(false);
         }
@@ -424,6 +449,21 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
     /// <summary>The token to call the selected server with: its own when plex.tv gave one.</summary>
     private static string? TokenFor(PlexConnectionSettings settings) =>
         string.IsNullOrEmpty(settings.ServerToken) ? settings.Token : settings.ServerToken;
+
+    /// <summary>
+    /// The URL to remember: scheme, host and port plus the path a reverse proxy needs, with the
+    /// casing and the default-port spelling Uri settled on. No trailing slash is added or removed —
+    /// <see cref="PlexServerClient"/> treats the URL as a directory either way.
+    /// </summary>
+    private static string Normalize(Uri server)
+    {
+        var authority = server.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
+        var path = server.GetComponents(UriComponents.Path, UriFormat.UriEscaped);
+
+        // Uri spells a server with no path with a trailing slash; a bare host and port is what the
+        // user typed, and the server client treats either as a directory.
+        return path.Length == 0 ? authority : $"{authority}/{path}";
+    }
 
     private static bool TryReadServerUrl(PlexConnectionSettings settings, out Uri server)
     {

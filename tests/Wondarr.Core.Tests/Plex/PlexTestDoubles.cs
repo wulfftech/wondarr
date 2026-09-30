@@ -95,8 +95,20 @@ internal sealed class PlexConnectionHarness : IDisposable
 
     public SecretRegistry Secrets { get; } = new();
 
-    public PlexConnectionService CreateService() =>
-        new(NewRepository(), Tv, Server, Secrets, NullLogger<PlexConnectionService>.Instance);
+    /// <summary>The identifier service over a fresh context, the way one scope of the app gets it.</summary>
+    public IPlexClientIdentifier CreateIdentifier() => new PlexClientIdentifier(NewRepository());
+
+    public PlexConnectionService CreateService(
+        IPlexTvClient? tv = null,
+        IPlexServerClient? server = null,
+        IPlexClientIdentifier? identifier = null) =>
+        new(
+            NewRepository(),
+            identifier ?? CreateIdentifier(),
+            tv ?? Tv,
+            server ?? Server,
+            Secrets,
+            NullLogger<PlexConnectionService>.Instance);
 
     public Task<PlexConnectionSettings?> ReadSettingsAsync() =>
         NewRepository().GetAsync<PlexConnectionSettings>(PlexConnectionService.SettingKey, CancellationToken.None);

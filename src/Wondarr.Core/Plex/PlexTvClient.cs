@@ -74,7 +74,7 @@ public sealed class PlexTvClient : IPlexTvClient
             request,
             Subject);
 
-        using var document = JsonDocument.Parse(body);
+        using var document = PlexHttp.Parse(body, request, Subject);
         var root = document.RootElement;
 
         var id = PlexJson.Number(root, "id");
@@ -110,7 +110,7 @@ public sealed class PlexTvClient : IPlexTvClient
 
         var body = PlexHttp.Read(response, request, Subject);
 
-        using var document = JsonDocument.Parse(body);
+        using var document = PlexHttp.Parse(body, request, Subject);
         var root = document.RootElement;
 
         var expiresAt = PlexJson.Instant(root, "expiresAt");
@@ -141,7 +141,7 @@ public sealed class PlexTvClient : IPlexTvClient
             request,
             Subject);
 
-        using var document = JsonDocument.Parse(body);
+        using var document = PlexHttp.Parse(body, request, Subject);
 
         return [.. PlexJson.Items(document.RootElement).Where(IsServer).Select(ReadServer)];
     }
