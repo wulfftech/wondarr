@@ -231,6 +231,70 @@ public class ReferenceIdentifierTests : IDisposable
     }
 
     [Fact]
+    public async Task A_track_number_title_with_artist_and_title_in_the_artist_tag_still_confirms_the_fingerprint()
+    {
+        // Seen live: every file of a DJ's set was tagged title "003", artist "Bachelor Girl - This Must be Love".
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = AddFile(context, library.Id, "Set/003 Daft Punk - Get Lucky.mp3", 248_000,
+            Tags(title: "003", artist: "Daft Punk - Get Lucky"));
+
+        StubFingerprint();
+        StubLookup(new AcoustIdResult("ac-1", 0.93, [Recording("m-a", "Get Lucky", 248, "Daft Punk")]));
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Identified.Should().Be(1);
+        var row = await RowAsync(context, file.Id);
+        row.IdentifiedBy.Should().Be("acoustid");
+        row.Confidence.Should().Be(0.93);
+    }
+
+    [Fact]
+    public async Task A_track_number_title_searches_with_the_artist_and_title_the_artist_tag_carries()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = AddFile(context, library.Id, "Set/001.mp3", 248_000,
+            Tags(title: "001", artist: "Daft Punk- Get Lucky"));
+
+        _resolver.ResolveAsync("Daft Punk - Get Lucky", Arg.Any<CancellationToken>())
+            .Returns(new ResolveResult
+            {
+                Status = ResolveStatus.Resolved,
+                Identity = Identity("m-a", "Get Lucky", durationMs: 248_000),
+            });
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Identified.Should().Be(1);
+        (await RowAsync(context, file.Id)).IdentifiedBy.Should().Be("search");
+    }
+
+    [Theory]
+    [InlineData("003", "Bachelor Girl - This Must be Love", null, "Bachelor Girl", "This Must be Love")]
+    [InlineData("222", "My Chemical Romance- Teenagers", null, "My Chemical Romance", "Teenagers")]
+    [InlineData("007", "Bic Runga", null, "Bic Runga", null)]
+    [InlineData("5", "Kylie Minogue", 5, "Kylie Minogue", null)]
+    [InlineData("1999", "Prince", 1, "Prince", "1999")]
+    [InlineData("22", "Taylor Swift", null, "Taylor Swift", "22")]
+    [InlineData("Thrift Shop", "Macklemore - Ryan Lewis", null, "Macklemore - Ryan Lewis", "Thrift Shop")]
+    [InlineData("12", "Jay-Z", null, "Jay-Z", "12")]
+    public void A_title_that_is_only_a_track_number_is_read_as_no_title(
+        string title, string artist, int? trackNumber, string expectedArtist, string? expectedTitle)
+    {
+        var tags = new FileTags(title, artist, null, null, null, null, null, null, null, null, null, trackNumber, null, null, null);
+
+        var plausible = ReferenceIdentifier.Plausible(tags)!;
+
+        plausible.Artist.Should().Be(expectedArtist);
+        plausible.Title.Should().Be(expectedTitle);
+    }
+
+    [Fact]
     public async Task An_untagged_file_whose_recordings_all_agree_keeps_the_score()
     {
         await using var context = await ContextAsync();
