@@ -1273,6 +1273,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/library/{id}/compact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CompactPlanResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library/{id}/preview": {
         parameters: {
             query?: never;
@@ -2552,6 +2589,33 @@ export interface components {
         CommandResult: number;
         CommandStatus: number;
         CommandTrigger: number;
+        CompactAlbumResource: {
+            albumKey: string;
+            kind: components["schemas"]["AlbumContextKind"];
+            albumTitle: string;
+            albumArtist: string;
+        };
+        CompactMoveResource: {
+            /** Format: int64 */
+            songId: number | string;
+            title: string;
+            artistCredit: string;
+            from: components["schemas"]["CompactAlbumResource"];
+            to: components["schemas"]["CompactAlbumResource"];
+            fromPath: null | string;
+            toPath: null | string;
+        };
+        CompactPlanResource: {
+            /** Format: int64 */
+            libraryId: number | string;
+            /** Format: int32 */
+            albumsBefore: number | string;
+            /** Format: int32 */
+            albumsAfter: number | string;
+            /** Format: int32 */
+            songsConsidered: number | string;
+            moves: components["schemas"]["CompactMoveResource"][];
+        };
         GrabRequestResource: {
             /** Format: int64 */
             candidateId: number | string;
@@ -3081,6 +3145,7 @@ export interface components {
             originalDate: null | string;
             coverUrl: null | string;
             isVariousArtists: boolean;
+            pinned: boolean;
         };
         SongAlbumContextUpdateResource: {
             albumKey: null | string;

@@ -80,6 +80,12 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("original_date");
 
+                    b.Property<bool>("Pinned")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false)
+                        .HasColumnName("pinned");
+
                     b.Property<long>("SongId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("song_id");
