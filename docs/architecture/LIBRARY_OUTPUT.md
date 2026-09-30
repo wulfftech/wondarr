@@ -26,6 +26,7 @@ Consequences for the design:
 
 1. The **`plexamp` preset keeps an album layer** and makes the album assignment deliberate (§7.3), because that is what the scanner keys on and because assignments are effectively permanent once scanned.
 2. **`flat` and `artist` layouts stay available** for Plex users who accept the trade-off; the preset then writes the same album tags (§7.3 policy still decides the album *tag*), and the UI shows a one-time notice: enable "Prefer local metadata" and Local Media Assets on the Plex library before the first scan.
+2a. **"Prefer local metadata" matters for the `plexamp` preset too** (verified 2026-09-30 on Plex Media Server 1.43.4 with a fresh Music library of 47 adopted and imported songs): with the setting off, Plex's online agent renamed one artist's "Singles" pseudo-album to a real release ("Singles Collection"); with `respectTags` on and the album refreshed, the tagged title came back. Grouping itself was right either way (no split albums, one "Singles" per artist) and every `.lrc`/`.txt` sidecar showed up as a local lyrics stream. So the UI notice applies to every layout linked to a Plex section.
 3. Any later re-assignment (compaction, policy change, adoption of a reference library) is performed as an explicit task that does the move-out / scan / empty-trash / move-back / scan sequence through the Plex API, never silently.
 
 ### 7.3 Album policy ("compaction"): the fewest albums per artist
