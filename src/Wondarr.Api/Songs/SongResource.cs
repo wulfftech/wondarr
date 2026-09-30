@@ -63,6 +63,9 @@ public sealed record SongResource(
 /// <param name="OriginalDate">The original release date, or <see langword="null"/>.</param>
 /// <param name="CoverUrl">The cover art URL, or <see langword="null"/>.</param>
 /// <param name="IsVariousArtists">Whether the album artist is "Various Artists".</param>
+/// <param name="Pinned">
+/// Whether the user chose this album explicitly; the Compact task never re-plans a pinned song.
+/// </param>
 public sealed record SongAlbumContextResource(
     AlbumContextKind Kind,
     string AlbumTitle,
@@ -76,7 +79,8 @@ public sealed record SongAlbumContextResource(
     string? Date,
     string? OriginalDate,
     string? CoverUrl,
-    bool IsVariousArtists);
+    bool IsVariousArtists,
+    bool Pinned);
 
 /// <summary>Maps the persisted song to the shape the API returns.</summary>
 public static class SongResourceExtensions
@@ -130,6 +134,7 @@ public static class SongResourceExtensions
             context.Date,
             context.OriginalDate,
             context.CoverUrl,
-            context.IsVariousArtists);
+            context.IsVariousArtists,
+            context.Pinned);
     }
 }
