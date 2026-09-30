@@ -301,7 +301,9 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     /// Brings the file's album context in line with the folder it is landing in, so the folder's tags
     /// keep saying one thing (LIBRARY_OUTPUT.md §7.3–7.4). The reference is the lowest-id file of the
     /// same album key in the same library — a real file that is already there. The caller's own save
-    /// persists the correction: <paramref name="request"/>'s album is the entity it tracks.
+    /// persists the correction: <paramref name="request"/>'s album is the entity it tracks. The
+    /// correction is made before anything can fail, so a caller whose organize failed must not save
+    /// that entity (import clears its change tracker on failure; adoption and compaction must too).
     /// </summary>
     private async Task AlignWithFolderAsync(OrganizeRequest request, CancellationToken cancellationToken)
     {
@@ -328,17 +330,23 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         }
 
         // Reported, never repaired: the file keeps its number, and the user decides which of the two
-        // is the mistake.
+        // is the mistake. A file without a number collides with nothing (EF translates null == null
+        // as IS NULL, so the comparison needs a real number on both sides).
+        if (request.Album.TrackNo is not { } track)
+        {
+            return;
+        }
+
         var disc = request.Album.DiscNo ?? 1;
         var taken = await folder
             .AnyAsync(
-                context => (context.DiscNo ?? 1) == disc && context.TrackNo == request.Album.TrackNo,
+                context => (context.DiscNo ?? 1) == disc && context.TrackNo != null && context.TrackNo == track,
                 cancellationToken)
             .ConfigureAwait(false);
 
         if (taken)
         {
-            LogTrackNumberTaken(_logger, request.Song.Id, disc, request.Album.TrackNo);
+            LogTrackNumberTaken(_logger, request.Song.Id, disc, track);
         }
     }
 
@@ -411,6 +419,9 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            // A write that failed part-way (a full disk) leaves its partial behind; the move's own
+            // failures already removed theirs, and deleting a missing file is a no-op.
+            DeletePartial(partial);
             LogCoverJpgNotWritten(_logger, target, exception.Message);
 
             return null;
@@ -479,7 +490,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         EventId = 2303,
         Level = LogLevel.Warning,
         Message = "Song {SongId} holds (disc {Disc}, track {Track}), which another file of the same folder already holds.")]
-    private static partial void LogTrackNumberTaken(ILogger logger, long songId, int disc, int? track);
+    private static partial void LogTrackNumberTaken(ILogger logger, long songId, int disc, int track);
 
     [LoggerMessage(EventId = 2304, Level = LogLevel.Warning, Message = "Could not write {Path}: {Reason}")]
     private static partial void LogCoverJpgNotWritten(ILogger logger, string path, string reason);
