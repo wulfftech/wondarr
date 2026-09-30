@@ -89,6 +89,9 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the ranked identification candidates of the reference files.</summary>
     public DbSet<MatchCandidate> MatchCandidates => Set<MatchCandidate>();
 
+    /// <summary>Gets the configured notifications.</summary>
+    public DbSet<Notification> Notifications => Set<Notification>();
+
     /// <summary>Gets the file moves a Compact library run is making.</summary>
     public DbSet<CompactMoveRecord> CompactMoves => Set<CompactMoveRecord>();
 
@@ -111,6 +114,7 @@ public sealed class WondarrDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.ApplyConfiguration(new MetadataCacheEntryConfiguration());
+        modelBuilder.ApplyConfiguration(new NotificationConfiguration());
         modelBuilder.ApplyConfiguration(new CompactMoveConfiguration());
 
         modelBuilder.Entity<Setting>(entity =>
