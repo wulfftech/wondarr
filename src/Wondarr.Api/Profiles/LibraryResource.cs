@@ -17,6 +17,10 @@ namespace Wondarr.Api.Profiles;
 /// <param name="AlbumPolicy">How songs are assigned to album folders.</param>
 /// <param name="MinTracksPerRealAlbum">How many owned tracks a real album needs before the policy uses it.</param>
 /// <param name="PlexSectionId">The Plex section id, or <see langword="null"/> while not linked.</param>
+/// <param name="PlexLibraryPath">
+/// The root folder as the Plex server sees it, or <see langword="null"/> when the server sees the
+/// same path Wondarr writes to.
+/// </param>
 /// <param name="IsDefault">Whether new songs go here by default.</param>
 public sealed record LibraryResource(
     long Id,
@@ -28,6 +32,7 @@ public sealed record LibraryResource(
     AlbumPolicy AlbumPolicy,
     int MinTracksPerRealAlbum,
     string? PlexSectionId,
+    string? PlexLibraryPath,
     bool IsDefault);
 
 /// <summary>Maps between <see cref="Library"/> and <see cref="LibraryResource"/>.</summary>
@@ -52,6 +57,7 @@ public static class LibraryResourceMapper
             library.AlbumPolicy,
             library.MinTracksPerRealAlbum,
             library.PlexSectionId,
+            library.PlexLibraryPath,
             library.IsDefault);
     }
 
@@ -75,6 +81,7 @@ public static class LibraryResourceMapper
             AlbumPolicy = resource.AlbumPolicy,
             MinTracksPerRealAlbum = resource.MinTracksPerRealAlbum,
             PlexSectionId = resource.PlexSectionId,
+            PlexLibraryPath = resource.PlexLibraryPath,
             IsDefault = resource.IsDefault,
         };
     }
