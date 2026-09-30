@@ -159,6 +159,11 @@ public sealed partial class LrclibClient : ILrclibClient
 
         foreach (var candidate in candidates)
         {
+            if (candidate is null)
+            {
+                continue;
+            }
+
             // The length is the one value a search hit can be checked against: a different recording of
             // the same title (a live take, a remix) has a different one.
             if (candidate.Duration is not { } length
@@ -274,8 +279,10 @@ public sealed partial class LrclibClient : ILrclibClient
 
         try
         {
+            // The whole body is read inside the call (the default completion option), so the client's
+            // timeout also bounds a server that sends its headers and then stalls.
             response = await _http
-                .GetAsync(relative, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .GetAsync(relative, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
