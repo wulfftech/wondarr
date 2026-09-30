@@ -1180,6 +1180,37 @@
         }
       }
     },
+    "/api/v1/library/{id}/compact": {
+      "get": {
+        "tags": [
+          "Library"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompactPlanResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/library/{id}/preview": {
       "post": {
         "tags": [
@@ -2532,6 +2563,125 @@
       },
       "CommandTrigger": {
         "type": "integer"
+      },
+      "CompactAlbumResource": {
+        "required": [
+          "albumKey",
+          "kind",
+          "albumTitle",
+          "albumArtist"
+        ],
+        "type": "object",
+        "properties": {
+          "albumKey": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AlbumContextKind"
+          },
+          "albumTitle": {
+            "type": "string"
+          },
+          "albumArtist": {
+            "type": "string"
+          }
+        }
+      },
+      "CompactMoveResource": {
+        "required": [
+          "songId",
+          "title",
+          "artistCredit",
+          "from",
+          "to",
+          "fromPath",
+          "toPath"
+        ],
+        "type": "object",
+        "properties": {
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artistCredit": {
+            "type": "string"
+          },
+          "from": {
+            "$ref": "#/components/schemas/CompactAlbumResource"
+          },
+          "to": {
+            "$ref": "#/components/schemas/CompactAlbumResource"
+          },
+          "fromPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CompactPlanResource": {
+        "required": [
+          "libraryId",
+          "albumsBefore",
+          "albumsAfter",
+          "songsConsidered",
+          "moves"
+        ],
+        "type": "object",
+        "properties": {
+          "libraryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "albumsBefore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "albumsAfter": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "songsConsidered": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "moves": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompactMoveResource"
+            }
+          }
+        }
       },
       "GrabRequestResource": {
         "required": [
@@ -4875,7 +5025,8 @@
           "date",
           "originalDate",
           "coverUrl",
-          "isVariousArtists"
+          "isVariousArtists",
+          "pinned"
         ],
         "type": "object",
         "properties": {
@@ -4949,6 +5100,9 @@
             ]
           },
           "isVariousArtists": {
+            "type": "boolean"
+          },
+          "pinned": {
             "type": "boolean"
           }
         }
