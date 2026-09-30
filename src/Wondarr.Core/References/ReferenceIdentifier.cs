@@ -153,12 +153,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
         var options = _options.CurrentValue;
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var addOptions = new SongAddOptions
-        {
-            LibraryId = library.LibraryId,
-            Monitored = true,
-            AddedBy = string.Concat("reference:", referenceLibraryId.ToString(CultureInfo.InvariantCulture)),
-        };
+        var addOptions = ReferenceOwnership.AddOptions(library);
 
         var pending = await _database.ReferenceFiles
             .Where(row => row.ReferenceLibraryId == referenceLibraryId
