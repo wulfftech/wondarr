@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -389,7 +390,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         CancellationToken cancellationToken)
     {
         var probe = Read<MediaInfo>(row.Probe);
-        var tags = Read<FileTags>(row.Tags);
+        var tags = Plausible(Read<FileTags>(row.Tags));
 
         if (probe is null)
         {
@@ -745,6 +746,54 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         recording.DurationSeconds is { } seconds
             ? Math.Abs((seconds * 1000) - probedDurationMs)
             : double.MaxValue;
+
+    /// <summary>
+    /// The tags as identification reads them. Some taggers write the track number as the title and
+    /// "Artist - Title" as the artist (every file of a real 96-file DJ set did); such a title says
+    /// nothing, so it is dropped, and an artist holding both halves is split, so the fingerprint can
+    /// be confirmed and the search asks for the right song. A number that may really be the title
+    /// ("1999", "22") is kept: it is dropped only with a leading zero, when it equals the track number,
+    /// or when the artist tag carries the title too.
+    /// </summary>
+    internal static FileTags? Plausible(FileTags? tags)
+    {
+        if (tags?.Title is not { } title || !NumberOnly().IsMatch(title))
+        {
+            return tags;
+        }
+
+        var artist = tags.Artist;
+        var separator = string.IsNullOrWhiteSpace(artist) ? Match.Empty : ArtistTitleSeparator().Match(artist);
+        var split = separator.Success && separator.Index > 0 && separator.Index + separator.Length < artist!.Length;
+        var digits = title.Trim().TrimEnd('.', ')').Trim();
+        var bogus = split
+            || digits.StartsWith('0')
+            || (tags.TrackNumber is { } track && string.Equals(
+                digits,
+                track.ToString(CultureInfo.InvariantCulture),
+                StringComparison.Ordinal));
+
+        if (!bogus)
+        {
+            return tags;
+        }
+
+        return split
+            ? tags with
+            {
+                Artist = artist![..separator.Index].Trim(),
+                Title = artist[(separator.Index + separator.Length)..].Trim(),
+            }
+            : tags with { Title = null };
+    }
+
+    /// <summary>A title that is only a number, optionally followed by a dot or a bracket ("001", "7.").</summary>
+    [GeneratedRegex(@"^\s*\d+\s*[.)]?\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex NumberOnly();
+
+    /// <summary>The dash between an artist and a title, with a space on at least one side ("A - T", "A- T").</summary>
+    [GeneratedRegex(@"\s+-\s*|\s*-\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex ArtistTitleSeparator();
 
     /// <summary>The artist and title to search with: the tags first, the path when they say nothing.</summary>
     private static (string? Artist, string? Title) TextOf(FileTags? tags, string relativePath)
