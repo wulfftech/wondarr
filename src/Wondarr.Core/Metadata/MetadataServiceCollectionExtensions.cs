@@ -9,6 +9,7 @@ using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.ITunes;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.MusicBrainz;
+using Wondarr.Core.Plex;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -270,6 +271,10 @@ public static class ServiceCollectionExtensions
 
         // Likewise transient: the identity resolver reads the clients and keeps nothing between calls.
         services.AddTransient<IIdentityResolver, IdentityResolver>();
+
+        // The Plex client and connection service live in their own namespace; this method is where the
+        // configuration reaches Core, so it is where they are registered.
+        services.AddWondarrPlex(configuration);
 
         return services;
     }
