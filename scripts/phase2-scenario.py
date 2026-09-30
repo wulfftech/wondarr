@@ -14,7 +14,11 @@ carry a trap:
 Songs with a MusicBrainz recording id are identified by it (fingerprint-verified import); the rest
 get no identity (AcoustID "unknown": probe + duration only).
 
+With --dropped-out, the deleted songs (id, title, artist credit, recording id, length) are written
+there first: the Phase 3 gate builds its reference library from them.
+
 usage: scripts/phase2-scenario.py --url http://localhost:1077 --api-key KEY --out /tmp/scenario.json [--keep 20]
+                                  [--dropped-out /tmp/dropped.json]
 """
 
 from __future__ import annotations
@@ -99,12 +103,18 @@ def main() -> int:
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--keep", type=int, default=20)
+    parser.add_argument("--dropped-out", help="write the deleted songs here (for the Phase 3 gate)")
     args = parser.parse_args()
 
     api = Api(args.url, args.api_key)
     songs = sorted(api.call("GET", "/api/v1/song?page=1&pageSize=1000&sortKey=id&sortDirection=ascending")["records"],
                    key=lambda song: song["id"])
     keep, drop = songs[: args.keep], songs[args.keep:]
+    if args.dropped_out:
+        fields = ("id", "title", "artistCredit", "mbRecordingId", "durationMs")
+        with open(args.dropped_out, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump([{field: song.get(field) for field in fields} for song in drop], handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
     for song in drop:
         api.call("DELETE", f"/api/v1/song/{song['id']}")
     if len(keep) < 3:

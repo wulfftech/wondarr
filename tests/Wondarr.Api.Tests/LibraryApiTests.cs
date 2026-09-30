@@ -33,6 +33,7 @@ public sealed class LibraryApiTests
             .Should().Be("{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}");
         library["minTracksPerRealAlbum"]!.GetValue<int>().Should().Be(2);
         library["plexSectionId"].Should().BeNull();
+        library["plexLibraryPath"].Should().BeNull();
         library["isDefault"]!.GetValue<bool>().Should().BeTrue();
         library["sidecarOptions"].Should().BeOfType<JsonObject>();
     }
@@ -71,6 +72,31 @@ public sealed class LibraryApiTests
         var reread = await GetLibraryAsync(client, 1);
         reread["minTracksPerRealAlbum"]!.GetValue<int>().Should().Be(3);
         reread["albumPolicy"]!.GetValue<string>().Should().Be("singlesOnly");
+    }
+
+    [Fact]
+    public async Task Updating_a_library_persists_the_plex_section_and_path()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = await GetLibraryAsync(client, 1);
+        library["plexSectionId"] = "3";
+        library["plexLibraryPath"] = "/plex/music";
+
+        using var response = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var returned = (JsonObject)(await ReadJsonAsync(response))!;
+        returned["plexSectionId"]!.GetValue<string>().Should().Be("3");
+        returned["plexLibraryPath"]!.GetValue<string>().Should().Be("/plex/music");
+
+        var reread = await GetLibraryAsync(client, 1);
+        reread["plexSectionId"]!.GetValue<string>().Should().Be("3");
+        reread["plexLibraryPath"]!.GetValue<string>().Should().Be("/plex/music");
     }
 
     [Fact]

@@ -1399,6 +1399,212 @@
         }
       }
     },
+    "/api/v1/plex": {
+      "get": {
+        "tags": [
+          "Plex"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlexStateResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Plex"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/plex/pin": {
+      "post": {
+        "tags": [
+          "Plex"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlexPinResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plex/pin/{id}": {
+      "get": {
+        "tags": [
+          "Plex"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlexPinStatusResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plex/token": {
+      "put": {
+        "tags": [
+          "Plex"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexTokenResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexTokenResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plex/servers": {
+      "get": {
+        "tags": [
+          "Plex"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlexServerResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plex/server": {
+      "put": {
+        "tags": [
+          "Plex"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexServerResourceUpdate"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexServerResourceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlexStateResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plex/test": {
+      "post": {
+        "tags": [
+          "Plex"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlexTestResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plex/sections": {
+      "get": {
+        "tags": [
+          "Plex"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlexSectionResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ping": {
       "get": {
         "tags": [
@@ -2748,6 +2954,7 @@
           "albumPolicy",
           "minTracksPerRealAlbum",
           "plexSectionId",
+          "plexLibraryPath",
           "isDefault"
         ],
         "type": "object",
@@ -2787,6 +2994,12 @@
             "format": "int32"
           },
           "plexSectionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "plexLibraryPath": {
             "type": [
               "null",
               "string"
@@ -3413,6 +3626,223 @@
             "items": {
               "$ref": "#/components/schemas/SongResource"
             }
+          }
+        }
+      },
+      "PlexConnectionResource": {
+        "required": [
+          "uri",
+          "local",
+          "relay"
+        ],
+        "type": "object",
+        "properties": {
+          "uri": {
+            "type": "string"
+          },
+          "local": {
+            "type": "boolean"
+          },
+          "relay": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PlexPinResource": {
+        "required": [
+          "id",
+          "code",
+          "authUrl",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "code": {
+            "type": "string"
+          },
+          "authUrl": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PlexPinStatusResource": {
+        "required": [
+          "authorized",
+          "expired"
+        ],
+        "type": "object",
+        "properties": {
+          "authorized": {
+            "type": "boolean"
+          },
+          "expired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PlexSectionResource": {
+        "required": [
+          "key",
+          "title",
+          "locations"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PlexServerResource": {
+        "required": [
+          "name",
+          "machineIdentifier",
+          "owned",
+          "productVersion",
+          "connections"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "machineIdentifier": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          },
+          "productVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlexConnectionResource"
+            }
+          }
+        }
+      },
+      "PlexServerResourceUpdate": {
+        "required": [
+          "serverUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "serverUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "PlexStateResource": {
+        "required": [
+          "signedIn",
+          "serverUrl",
+          "serverName",
+          "machineIdentifier",
+          "clientIdentifier"
+        ],
+        "type": "object",
+        "properties": {
+          "signedIn": {
+            "type": "boolean"
+          },
+          "serverUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "serverName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "machineIdentifier": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientIdentifier": {
+            "type": "string"
+          }
+        }
+      },
+      "PlexTestResource": {
+        "required": [
+          "ok",
+          "serverName",
+          "version",
+          "musicSections",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "serverName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "musicSections": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "error": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PlexTokenResource": {
+        "required": [
+          "token"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
           }
         }
       },
@@ -5419,6 +5849,9 @@
     },
     {
       "name": "QualityProfile"
+    },
+    {
+      "name": "Plex"
     },
     {
       "name": "Ping"
