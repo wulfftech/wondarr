@@ -204,38 +204,61 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
         List<Move> work;
 
-        if (carried.Count > 0)
+        // Work left from an earlier run: a row not yet staged or placed, or a failed row whose file is
+        // still in the staging folder — under the path the row names, or under the one it would have
+        // named had the run not stopped between moving the file and recording that it had.
+        var pending = new List<Move>();
+
+        foreach (var row in carried)
         {
-            // Resume: the last run's rows are finished, and nothing is re-planned. A row that failed
-            // with no file in the staging folder is left exactly as it is — only the user can say where
-            // that file went.
-            work =
-            [
-                .. carried
-                    .Where(row => row.State != CompactMoveState.Failed
-                        || (row.StagedPath is not null && _disk.FileExists(row.StagedPath)))
-                    .Select(Move.Of),
-            ];
-
-            resumed = work.Count;
-
-            if (work.Count == 0)
+            if (row.State is CompactMoveState.Planned or CompactMoveState.Staged)
             {
-                return new CompactResult(0, 0, 0, 0);
+                pending.Add(Move.Of(row));
             }
+            else if (row.StagedPath is not null && _disk.FileExists(row.StagedPath))
+            {
+                pending.Add(Move.Of(row) with { State = CompactMoveState.Staged });
+            }
+            else if (row.FromPath is not null && _disk.FileExists(StagingPathFor(library, row.Id, row.FromPath)))
+            {
+                pending.Add(Move.Of(row) with
+                {
+                    State = CompactMoveState.Staged,
+                    StagedPath = StagingPathFor(library, row.Id, row.FromPath),
+                });
+            }
+        }
+
+        if (pending.Count > 0)
+        {
+            // Resume: the last run's rows are finished first, and nothing is re-planned while a file
+            // is still in the staging folder.
+            work = pending;
+            resumed = work.Count;
 
             LogResuming(_logger, libraryId, resumed);
         }
         else
         {
-            // The rows of the last finished run are spent: the plan is about to replace them.
+            // The rows of the last run are spent — placed, or failed with their file where it was —
+            // so the plan replaces them. A failed row must not block every later compaction: its
+            // message was logged when it failed, and its file never left its folder (or is recorded
+            // at the path it was placed at).
             var spent = await _database.CompactMoves
-                .Where(row => row.LibraryId == libraryId && row.State == CompactMoveState.Placed)
+                .Where(row => row.LibraryId == libraryId)
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
+            var dropped = spent.Count(row => row.State == CompactMoveState.Failed);
+
+            if (dropped > 0)
+            {
+                LogFailedRowsDropped(_logger, libraryId, dropped);
+            }
+
             _database.CompactMoves.RemoveRange(spent);
             await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            _database.ChangeTracker.Clear();
 
             var plan = await _planner.PlanAsync(libraryId, cancellationToken).ConfigureAwait(false);
 
@@ -389,12 +412,30 @@ public sealed partial class CompactExecutor : ICompactExecutor
     private async Task<string?> StageAsync(Library library, Move row, CancellationToken cancellationToken)
     {
         var from = row.FromPath!;
-        var directory = Path.Combine(
-            library.RootPath,
-            StagingFolderName,
-            row.Id.ToString(CultureInfo.InvariantCulture));
+        var staged = StagingPathFor(library, row.Id, from);
+        var directory = Path.GetDirectoryName(staged)!;
 
-        var staged = Path.Combine(directory, Path.GetFileName(from));
+        if (!_disk.FileExists(from) && _disk.FileExists(staged))
+        {
+            // An earlier run moved the file and stopped before it could record that: the file is
+            // already parked, so it is adopted where it is, with whatever sidecars are still behind.
+            foreach (var sidecar in SidecarsOf(from))
+            {
+                try
+                {
+                    _disk.MoveFile(sidecar, Path.Combine(directory, Path.GetFileName(sidecar)));
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    LogSidecarNotStaged(_logger, sidecar, exception.Message);
+                }
+            }
+
+            await SetStateAsync(row.Id, CompactMoveState.Staged, staged, final: null, message: null, cancellationToken)
+                .ConfigureAwait(false);
+
+            return staged;
+        }
 
         if (!_disk.FileExists(from))
         {
@@ -474,7 +515,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
             return;
         }
 
-        var covers = files.Where(file => HasExtension(file, [CoverJpgName])).ToList();
+        var covers = files
+            .Where(file => string.Equals(Path.GetFileName(file), CoverJpgName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         if (files.Count != covers.Count)
         {
@@ -494,10 +537,11 @@ public sealed partial class CompactExecutor : ICompactExecutor
         {
             throw;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception)
         {
-            // The cover could not be parked, so the folder keeps it: nothing is ever deleted without
-            // the recycle bin taking it first.
+            // The cover could not be parked (an unreadable folder, a recycle bin that refuses it), so
+            // the folder keeps it: nothing is ever deleted without the recycle bin taking it first, and
+            // a tidy-up that fails never stops the staged files going back.
             LogFolderNotCleaned(_logger, folder, exception.Message);
 
             return;
@@ -509,7 +553,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
             && !PathRules.AreEqual(parent, library.RootPath)
             && PathRules.IsStrictlyInside(library.RootPath, parent))
         {
-            _disk.DeleteEmptyDirectory(parent);
+            try
+            {
+                _disk.DeleteEmptyDirectory(parent);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogFolderNotCleaned(_logger, parent, exception.Message);
+            }
         }
     }
 
@@ -668,7 +719,19 @@ public sealed partial class CompactExecutor : ICompactExecutor
             return false;
         }
 
-        Apply(album, row.Proposed);
+        try
+        {
+            Apply(album, row.Proposed);
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            _database.ChangeTracker.Clear();
+
+            await SetStateAsync(row.Id, CompactMoveState.Failed, staged: null, final: null, exception.Message, cancellationToken)
+                .ConfigureAwait(false);
+
+            return false;
+        }
 
         await SetStateAsync(row.Id, CompactMoveState.Placed, staged: null, final: null, message: null, cancellationToken)
             .ConfigureAwait(false);
@@ -708,7 +771,20 @@ public sealed partial class CompactExecutor : ICompactExecutor
             return false;
         }
 
-        Apply(album, row.Proposed);
+        try
+        {
+            Apply(album, row.Proposed);
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            // The file stays in staging, where the row says it is.
+            _database.ChangeTracker.Clear();
+
+            await SetStateAsync(row.Id, CompactMoveState.Failed, staged, final: null, exception.Message, cancellationToken)
+                .ConfigureAwait(false);
+
+            return false;
+        }
 
         // The probe's own measurements, rebuilt from the row: they are what the naming tokens read.
         var media = new MediaInfo(
@@ -777,11 +853,19 @@ public sealed partial class CompactExecutor : ICompactExecutor
         {
             _database.ChangeTracker.Clear();
 
+            // The placer says where it left the file; when that is not the staging folder, the row
+            // records it, so the file is never somewhere no row names.
+            var left = placement.FinalPath is { } leftAt
+                && !PathRules.AreEqual(leftAt, staged)
+                && _disk.FileExists(leftAt)
+                ? leftAt
+                : null;
+
             await SetStateAsync(
                     row.Id,
                     CompactMoveState.Failed,
-                    staged,
-                    final: null,
+                    _disk.FileExists(staged) ? staged : null,
+                    final: left,
                     message: placement.Error ?? "the organizer gave no final path",
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -790,6 +874,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         }
 
         var finalPath = placement.FinalPath;
+        var fileId = file.Id;
 
         try
         {
@@ -824,6 +909,20 @@ public sealed partial class CompactExecutor : ICompactExecutor
             LogRecordFailed(_logger, row.Id, exception);
 
             _database.ChangeTracker.Clear();
+
+            // The file is at its new path; the least the database must say is where. The album and
+            // the history are left for the user (the row's message names the path).
+            try
+            {
+                await _database.SongFiles
+                    .Where(candidate => candidate.Id == fileId)
+                    .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, finalPath), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception repair) when (repair is not OperationCanceledException)
+            {
+                LogRecordFailed(_logger, row.Id, repair);
+            }
 
             await SetStateAsync(
                     row.Id,
@@ -922,6 +1021,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
             }
         }
     }
+
+    /// <summary>Where a move parks its file: one folder per row under the library's hidden staging folder.</summary>
+    private static string StagingPathFor(Library library, long rowId, string fromPath) =>
+        Path.Combine(
+            library.RootPath,
+            StagingFolderName,
+            rowId.ToString(CultureInfo.InvariantCulture),
+            Path.GetFileName(fromPath));
 
     /// <summary>Removes the staging folder the placed file and its sidecars have left empty.</summary>
     private void DeleteStagingDirectory(string stagedPath)
@@ -1061,6 +1168,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
             row.Proposed,
             row.State);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Compaction of library {LibraryId}: dropping {Count} moves an earlier run could not finish (their files stayed where they were, or are recorded where they were placed)")]
+    private static partial void LogFailedRowsDropped(ILogger logger, long libraryId, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Library {LibraryId} has {Count} unfinished moves from an earlier compaction; finishing those")]
     private static partial void LogResuming(ILogger logger, long libraryId, int count);

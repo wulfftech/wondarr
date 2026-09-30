@@ -417,6 +417,23 @@ public sealed class LibraryOrganizerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_request_that_does_not_look_up_lyrics_asks_lrclib_nothing_and_leaves_the_tag_lyrics_alone()
+    {
+        // The Compact task moves a file that already carries its lyrics and brings its own sidecar.
+        var source = WriteSource();
+        _lrclib.Result = new LyricsLookup(LyricsLookupStatus.Found, "New words", "[00:01.00] New words", 1);
+
+        var result = await Organizer().OrganizeAsync(
+            Request(source, keepSource: false) with { LookUpLyrics = false },
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        _lrclib.Requests.Should().BeEmpty();
+        _tagWriter.Writes[0].Tags.Lyrics.Should().BeNull("a null lyrics field leaves the file's own lyrics tag as it is");
+        result.LyricsPath.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Writes_a_txt_sidecar_when_lrclib_only_has_plain_lyrics()
     {
         var source = WriteSource();
