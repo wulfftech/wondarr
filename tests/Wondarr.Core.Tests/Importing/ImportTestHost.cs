@@ -84,6 +84,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The scripted cover fetcher.</summary>
     public FakeCoverFetcher Covers { get; private init; } = null!;
 
+    /// <summary>The cover processor that hands every image straight back.</summary>
+    public FakeCoverImageProcessor CoverProcessor { get; private init; } = null!;
+
     /// <summary>The scripted search service, which records the next-attempt asks.</summary>
     public FakeSongSearchService Search { get; private init; } = null!;
 
@@ -107,6 +110,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         var tagWriter = new FakeTagWriter();
         var placer = new FakeFilePlacer();
         var covers = new FakeCoverFetcher();
+        var coverProcessor = new FakeCoverImageProcessor();
         var search = new FakeSongSearchService();
         var events = new RecordingEventAggregator();
 
@@ -115,6 +119,8 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddLogging();
         services.AddSingleton<TimeProvider>(time);
         services.AddSingleton<IOptionsMonitor<SearchOptions>>(new TestOptionsMonitor<SearchOptions>(options));
+        services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(new ImportOptions()));
+        services.AddSingleton<ICoverImageProcessor>(coverProcessor);
         services.AddSingleton<IDownloadVerifier>(verifier);
         services.AddSingleton<ITagWriter>(tagWriter);
         services.AddSingleton<IFilePlacer>(placer);
@@ -141,6 +147,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
             TagWriter = tagWriter,
             Placer = placer,
             Covers = covers,
+            CoverProcessor = coverProcessor,
             Search = search,
             Events = events,
         };
@@ -600,6 +607,29 @@ internal sealed class FakeFilePlacer : IFilePlacer
         return Success
             ? new PlacementResult(true, TargetOf(request), null, request.Mode, null)
             : new PlacementResult(false, null, null, null, Error);
+    }
+}
+
+/// <summary>A cover processor that hands the image straight back, so the existing tests keep seeing
+/// exactly the bytes their cover fetcher returned.</summary>
+internal sealed class FakeCoverImageProcessor : ICoverImageProcessor
+{
+    /// <summary>What the next call returns, or <see langword="null"/> to return the image unchanged.</summary>
+    public byte[]? Result { get; set; }
+
+    /// <summary>Every image the processor was handed.</summary>
+    public List<byte[]> Inputs { get; } = [];
+
+    /// <summary>The last maximum edge it was asked for.</summary>
+    public int? MaxEdge { get; private set; }
+
+    /// <inheritdoc />
+    public Task<byte[]> PrepareAsync(byte[] image, int maxEdge, CancellationToken cancellationToken)
+    {
+        Inputs.Add(image);
+        MaxEdge = maxEdge;
+
+        return Task.FromResult(Result ?? image);
     }
 }
 
