@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Diagnostics;
 using System.Text.Json;
 using Wondarr.Core.Compaction;
@@ -343,6 +344,99 @@ public class CompactExecutorTests : IDisposable
         await using var fresh = _database.CreateContext(_timeProvider);
         (await fresh.CompactMoves.SingleAsync()).State.Should().Be(CompactMoveState.Placed);
         (await fresh.SongFiles.SingleAsync()).Path.Should().Contain("Random Access Memories");
+    }
+
+    [Fact]
+    public async Task A_file_an_interrupted_run_moved_but_did_not_record_is_adopted_from_staging()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac", lyrics: "the words");
+
+        // The first run moved the file (not yet its sidecar) and died before saving the row as Staged:
+        // the row still says Planned, and the file is only in the staging folder.
+        var current = context.SongFiles.AsNoTracking().Single(file => file.SongId == song).Path!;
+        context.CompactMoves.Add(new CompactMoveRecord
+        {
+            LibraryId = SeedData.DefaultLibraryId,
+            SongId = song,
+            FromPath = current,
+            ToPath = Path.Combine(_root, "Daft Punk", "Random Access Memories", "01 - Track 1.flac"),
+            Proposed = ProposedJson(context, song, "r1", "Random Access Memories"),
+            State = CompactMoveState.Planned,
+        });
+        await context.SaveChangesAsync();
+
+        var row = context.CompactMoves.AsNoTracking().Single();
+        var parked = Path.Combine(_root, ".wondarr-compact", row.Id.ToString(CultureInfo.InvariantCulture), "01 - Track 1.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(parked)!);
+        File.Move(current, parked);
+
+        _planner
+            .PlanAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns<Task<CompactPlan>>(_ => throw new InvalidOperationException("the run re-planned"));
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Should().Be(new CompactResult(1, 0, 0, 1));
+
+        var folder = Path.Combine(_root, "Daft Punk", "Random Access Memories");
+        File.Exists(Path.Combine(folder, "01 - Track 1.flac")).Should().BeTrue();
+        File.ReadAllText(Path.Combine(folder, "01 - Track 1.lrc")).Should().Be("the words");
+        File.Exists(parked).Should().BeFalse();
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.CompactMoves.SingleAsync()).State.Should().Be(CompactMoveState.Placed);
+        (await fresh.SongFiles.SingleAsync()).Path.Should().Be(Path.Combine(folder, "01 - Track 1.flac"));
+    }
+
+    [Fact]
+    public async Task A_move_that_failed_with_its_file_where_it_was_does_not_block_the_next_compaction()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+
+        // An earlier run could not move the file: the row is Failed and nothing is in staging.
+        context.CompactMoves.Add(new CompactMoveRecord
+        {
+            LibraryId = SeedData.DefaultLibraryId,
+            SongId = song,
+            FromPath = context.SongFiles.AsNoTracking().Single(file => file.SongId == song).Path,
+            Proposed = ProposedJson(context, song, "r1", "Random Access Memories"),
+            State = CompactMoveState.Failed,
+            Message = "the file was locked",
+        });
+        await context.SaveChangesAsync();
+
+        _refreshing.Enqueue(true);
+        _refreshing.Enqueue(false);
+        Plan(context, [song]);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Should().Be(new CompactResult(1, 0, 0, 0));
+        File.Exists(Path.Combine(_root, "Daft Punk", "Random Access Memories", "01 - Track 1.flac")).Should().BeTrue();
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.CompactMoves.Select(move => move.State).ToListAsync())
+            .Should()
+            .Equal(CompactMoveState.Placed);
+    }
+
+    [Fact]
+    public async Task A_file_merely_ending_in_cover_jpg_keeps_its_folder()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var folder = Path.GetDirectoryName(context.SongFiles.AsNoTracking().Single(file => file.SongId == song).Path)!;
+        await File.WriteAllTextAsync(Path.Combine(folder, "discover.jpg"), "not a cover");
+
+        Plan(context, [song]);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Moved.Should().Be(1);
+        File.Exists(Path.Combine(folder, "discover.jpg")).Should().BeTrue();
+        Directory.EnumerateFiles(_bin, "*", SearchOption.AllDirectories).Should().BeEmpty();
     }
 
     [Fact]
