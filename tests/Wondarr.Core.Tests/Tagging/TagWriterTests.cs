@@ -74,6 +74,23 @@ public sealed class TagWriterTests(ITestOutputHelper output)
     }
 
     [Theory]
+    [MemberData(nameof(TestMedia.Formats), MemberType = typeof(TestMedia))]
+    public async Task Lyrics_with_surrounding_blank_lines_and_crlf_still_read_back(string fixture)
+    {
+        // LRCLIB hands out lyrics that start and end with a newline (seen live on 2026-09-30 for
+        // "Oasis - Wonderwall"); ATL trims them when it reads a Vorbis comment back, so the read-back
+        // failed and so did the FLAC import.
+        using var media = new TestMedia();
+        var path = media.Copy(fixture);
+        var lyrics = "\nToday is gonna be the day\r\nThat they're gonna throw it back to you\n";
+
+        var result = await Writer.WriteAsync(path, GetLucky with { Lyrics = lyrics }, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Written["Lyrics"].Should().Be("Today is gonna be the day\nThat they're gonna throw it back to you");
+    }
+
+    [Theory]
     [InlineData("tone.flac")]
     [InlineData("tone-160.opus")]
     public async Task Writes_the_vorbis_original_date_under_its_exact_field_name(string fixture)
