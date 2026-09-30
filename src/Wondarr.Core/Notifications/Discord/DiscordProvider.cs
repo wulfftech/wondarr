@@ -113,10 +113,38 @@ public sealed partial class DiscordProvider : INotificationProvider
         LogSent(_logger, message.Event);
     }
 
+    // Discord refuses the whole message (HTTP 400) when any part is over its limit, so a long song
+    // title or failure message would silently lose every notification about that song; each part is
+    // cut to fit instead (https://discord.com/developers/docs/resources/message#embed-object-embed-limits).
+    private const int TitleLimit = 256;
+    private const int DescriptionLimit = 4096;
+    private const int FieldValueLimit = 1024;
+    private const int AuthorLimit = 256;
+    private const int UsernameLimit = 80;
+
+    /// <summary>The text cut to <paramref name="limit"/> characters, ending in an ellipsis when it was cut.</summary>
+    internal static string? Limit(string? text, int limit)
+    {
+        if (text is null || text.Length <= limit)
+        {
+            return text;
+        }
+
+        var cut = text[..(limit - 1)];
+
+        // Never leave half of a surrogate pair at the end.
+        if (char.IsHighSurrogate(cut[^1]))
+        {
+            cut = cut[..^1];
+        }
+
+        return string.Concat(cut, "…");
+    }
+
     /// <summary>Builds the body of one message: its embed, and who to post it as.</summary>
     private DiscordPayload Build(NotificationMessage message, DiscordSettings settings) => new()
     {
-        Username = Blank(settings.Username),
+        Username = Limit(Blank(settings.Username), UsernameLimit),
         AvatarUrl = Blank(settings.Avatar),
         Embeds = [Embed(message, settings)],
     };
@@ -124,11 +152,11 @@ public sealed partial class DiscordProvider : INotificationProvider
     /// <summary>Builds the embed one event turns into.</summary>
     private DiscordEmbed Embed(NotificationMessage message, DiscordSettings settings) => new()
     {
-        Title = message.Title,
-        Description = message.Body,
+        Title = Limit(message.Title, TitleLimit),
+        Description = Limit(message.Body, DescriptionLimit),
         Color = (int)Color(message),
         Timestamp = _time.GetUtcNow().ToString("O", CultureInfo.InvariantCulture),
-        Author = new DiscordAuthor(settings.AuthorName),
+        Author = new DiscordAuthor(Limit(settings.AuthorName, AuthorLimit)!),
         Fields = EmbedFields(message),
     };
 
@@ -182,7 +210,7 @@ public sealed partial class DiscordProvider : INotificationProvider
     {
         if (!string.IsNullOrWhiteSpace(value))
         {
-            fields.Add(new DiscordField(name, value.Trim()));
+            fields.Add(new DiscordField(name, Limit(value.Trim(), FieldValueLimit)!));
         }
     }
 

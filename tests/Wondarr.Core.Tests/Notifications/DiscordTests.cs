@@ -168,6 +168,25 @@ public class DiscordTests
     }
 
     [Fact]
+    public async Task Parts_longer_than_discord_accepts_are_cut_to_fit_rather_than_losing_the_message()
+    {
+        var (provider, handler) = CreateProvider();
+        var message = new NotificationMessage("failure", "Failed: " + new string('t', 300), new string('b', 5000))
+        {
+            Song = new NotificationSong(7, "Wonderwall", new string('a', 1500), null, null),
+        };
+
+        await provider.SendAsync(message, Settings, CancellationToken.None);
+
+        var embed = handler.Payloads.Single().GetProperty("embeds")[0];
+
+        embed.GetProperty("title").GetString()!.Length.Should().Be(256);
+        embed.GetProperty("title").GetString().Should().EndWith("…");
+        embed.GetProperty("description").GetString()!.Length.Should().Be(4096);
+        embed.GetProperty("fields")[0].GetProperty("value").GetString()!.Length.Should().Be(1024);
+    }
+
+    [Fact]
     public void A_url_that_is_not_a_discord_https_address_is_a_validation_message()
     {
         var (provider, _) = CreateProvider();
@@ -176,6 +195,7 @@ public class DiscordTests
         provider.Validate(Parse("""{"webHookUrl":"http://discord.com/api/webhooks/1/token"}""")).Should().NotBeEmpty();
         provider.Validate(Parse("""{"webHookUrl":"https://not-discord.example/api/webhooks/1/token"}""")).Should().NotBeEmpty();
         provider.Validate(Parse("""{"webHookUrl":"https://discord.com.evil.example/hook"}""")).Should().NotBeEmpty();
+        provider.Validate(Parse("""{"webHookUrl":"https://discord.com@evil.example/api/webhooks/1/token"}""")).Should().NotBeEmpty();
         provider.Validate(Parse("{}")).Should().NotBeEmpty();
 
         // The message must say what is wrong without repeating the URL, which carries the token.
