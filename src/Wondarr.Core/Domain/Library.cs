@@ -32,6 +32,13 @@ public sealed class Library : EntityBase
     /// <summary>Gets or sets the Plex library section id, or <see langword="null"/> while not linked.</summary>
     public string? PlexSectionId { get; set; }
 
+    /// <summary>
+    /// Gets or sets <see cref="RootPath"/> as the Plex server sees it, or <see langword="null"/> when
+    /// the two agree. Plex usually runs in its own container with the library mounted elsewhere, so a
+    /// scan has to be asked for the path the server knows.
+    /// </summary>
+    public string? PlexLibraryPath { get; set; }
+
     /// <summary>Gets or sets a value indicating whether this is the library new songs go to by default.</summary>
     public bool IsDefault { get; set; }
 }
