@@ -68,8 +68,8 @@ function testText(result: PlexTestResource): string {
 
 /**
  * The collapsed fallback for an install that cannot open a browser tab: the token the user copied
- * from Plex's own UI. The field is emptied as soon as the server accepts it, so the token is not
- * left sitting in component state.
+ * from Plex's own UI. The field is emptied and the mutation reset as soon as the server accepts it,
+ * so the token is left neither in component state nor in the mutation cache.
  */
 function PasteTokenForm() {
   const save = useSetPlexToken();
@@ -77,8 +77,15 @@ function PasteTokenForm() {
   const [token, setToken] = useState('');
 
   const submit = () => {
-    // Success is announced by the page, which sees the state turn signed in either way.
-    save.mutate(token, { onSuccess: () => setToken('') });
+    // Success is announced by the page, which sees the state turn signed in either way. The
+    // mutation keeps its variables until it is reset, so it is reset too: the token must not stay
+    // readable from React Query's mutation cache.
+    save.mutate(token, {
+      onSuccess: () => {
+        setToken('');
+        save.reset();
+      },
+    });
   };
 
   return (
