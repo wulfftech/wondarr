@@ -83,6 +83,9 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
     private bool _failing;
     private string? _lastError;
 
+    /// <summary>How many whole batches failed in a row before a folder was even tried.</summary>
+    private int _batchFailures;
+
     /// <summary>Initialises a new instance of the <see cref="PlexLibraryUpdater"/> class.</summary>
     /// <param name="scopes">Creates the scope each scan reads the database and the clients in.</param>
     /// <param name="time">The clock the debounce is measured against.</param>
@@ -273,6 +276,8 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
             var connection = scope.ServiceProvider.GetRequiredService<IPlexConnectionService>();
             var selected = await connection.GetServerContextAsync(cancellationToken).ConfigureAwait(false);
 
+            ResetBatchFailures();
+
             if (selected is not { } server)
             {
                 LogNoServer(_logger);
@@ -299,11 +304,19 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
         catch (Exception exception)
         {
             // The database or the connection settings could not be read: put the batch back and try
-            // the whole of it again rather than losing the imports.
-            Requeue(fileIds, folders);
-            NoteFailure("the pending imports", exception.Message);
+            // the whole of it again rather than losing the imports — but only as often as a folder
+            // would be, so a lasting fault cannot retry (and grow the batch) forever.
+            if (FailBatch())
+            {
+                Requeue(fileIds, folders);
+                NoteFailure("the pending imports", exception.Message);
 
-            return false;
+                return false;
+            }
+
+            NoteFailure("the pending imports", exception.Message, dropped: true);
+
+            return true;
         }
     }
 
@@ -400,11 +413,6 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
 
             var pending = byLibrary[library.Id];
 
-            if (pending.Count == 0)
-            {
-                continue;
-            }
-
             IReadOnlyList<ScanWork> work;
 
             if (pending.Count > MaxFoldersPerLibrary)
@@ -438,6 +446,7 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
         CancellationToken cancellationToken)
     {
         var retry = new List<(long LibraryId, string Folder)>();
+        var failed = false;
 
         foreach (var target in targets)
         {
@@ -461,6 +470,8 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
                 }
                 catch (Exception exception) when (IsRetryable(exception, cancellationToken))
                 {
+                    failed = true;
+
                     if (RetryFolder(target.LibraryId, work.LocalFolder))
                     {
                         NoteFailure(work.LocalFolder, exception.Message);
@@ -472,6 +483,13 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
                     }
                 }
             }
+        }
+
+        if (!failed)
+        {
+            // Only a pass in which every folder went through clears the health warning: one folder's
+            // success says nothing about another that is still waiting for its retry.
+            ClearError();
         }
 
         if (retry.Count == 0)
@@ -508,14 +526,51 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
         }
     }
 
-    /// <summary>Forgets a folder's failures and clears the last error the health check reports.</summary>
+    /// <summary>Forgets a folder's failures.</summary>
     private void Succeeded(long libraryId, string folder)
     {
         lock (_gate)
         {
             _failures.Remove((libraryId, folder));
+        }
+    }
+
+    /// <summary>Clears the last error the health check reports, after a pass with no failure.</summary>
+    private void ClearError()
+    {
+        lock (_gate)
+        {
             _failing = false;
             _lastError = null;
+        }
+    }
+
+    /// <summary>
+    /// Counts one whole-batch failure. Returns <see langword="false"/> once the batch has failed
+    /// <see cref="MaxAttemptsPerFolder"/> times in a row, when it is dropped instead.
+    /// </summary>
+    private bool FailBatch()
+    {
+        lock (_gate)
+        {
+            _batchFailures++;
+
+            if (_batchFailures >= MaxAttemptsPerFolder)
+            {
+                _batchFailures = 0;
+
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    private void ResetBatchFailures()
+    {
+        lock (_gate)
+        {
+            _batchFailures = 0;
         }
     }
 
@@ -556,8 +611,11 @@ public sealed partial class PlexLibraryUpdater : BackgroundService, IHandle<Song
     {
         lock (_gate)
         {
+            // Everything pending is dropped, so the per-folder counts start again. _failing stays as
+            // it is: a transport failure after the token is fixed is a new problem and warns.
             _lastError = reason;
-            _failing = true;
+            _failures.Clear();
+            _batchFailures = 0;
         }
 
         LogUnauthorized(_logger, reason);

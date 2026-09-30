@@ -269,6 +269,64 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task One_folder_s_success_does_not_clear_another_folder_s_failure()
+    {
+        var libraryId = await SeedLibraryAsync("Music", MusicRoot, section: "7", plexRoot: MusicPlexRoot);
+        var failing = await SeedFileAsync(
+            libraryId,
+            Path.Combine(MusicRoot, "Daft Punk", "Discovery", "01 - One More Time.flac"));
+        var fine = await SeedFileAsync(
+            libraryId,
+            Path.Combine(MusicRoot, "Daft Punk", "Homework", "01 - Da Funk.flac"));
+
+        _client.RefreshPathAsync(
+                Arg.Any<Uri>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Is<string>(path => path.Contains("Discovery", StringComparison.Ordinal)),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new PlexException("Plex is not answering")));
+
+        await _updater.StartAsync(_stopping.Token);
+        await _updater.HandleAsync(new SongImportedEvent(1, failing, Upgraded: false), CancellationToken.None);
+        await _updater.HandleAsync(new SongImportedEvent(2, fine, Upgraded: false), CancellationToken.None);
+
+        await AdvanceUntilAsync(() => Refreshes().Count == 2, "both folders to be tried");
+
+        _updater.LastError.Should().Be("Plex is not answering", "the Discovery folder is still waiting for its retry");
+        _updater.IsPending.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_batch_whose_connection_cannot_be_read_is_dropped_after_three_tries()
+    {
+        var libraryId = await SeedLibraryAsync("Music", MusicRoot, section: "7", plexRoot: MusicPlexRoot);
+        var fileId = await SeedFileAsync(
+            libraryId,
+            Path.Combine(MusicRoot, "Daft Punk", "Discovery", "01 - One More Time.flac"));
+
+        var reads = new RefCounter();
+        _connection.GetServerContextAsync(Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                reads.Next();
+
+                return Task.FromException<(Uri Server, string Token)?>(new InvalidOperationException("settings unreadable"));
+            });
+
+        await _updater.StartAsync(_stopping.Token);
+        await _updater.HandleAsync(new SongImportedEvent(1, fileId, Upgraded: false), CancellationToken.None);
+
+        await AdvanceUntilAsync(() => reads.Value == PlexLibraryUpdater.MaxAttemptsPerFolder, "the third try");
+
+        _updater.IsPending.Should().BeFalse("the batch is dropped after three failed tries");
+
+        await AdvanceAsync(PlexLibraryUpdater.RetryDelay * 3);
+
+        reads.Value.Should().Be(PlexLibraryUpdater.MaxAttemptsPerFolder);
+    }
+
+    [Fact]
     public async Task A_refused_token_drops_the_whole_batch_at_once()
     {
         var music = await SeedLibraryAsync("Music", MusicRoot, section: "7", plexRoot: MusicPlexRoot);
