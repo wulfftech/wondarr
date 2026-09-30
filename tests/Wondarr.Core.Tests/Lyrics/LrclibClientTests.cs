@@ -290,6 +290,65 @@ public sealed class LrclibClientTests
         result.Failures.Should().Contain(failure => failure.StartsWith("lyrics.request_interval_ms", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task A_server_that_stalls_after_its_headers_is_bounded_by_the_client_timeout()
+    {
+        var handler = StubHttpMessageHandler.Scripted(
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StallingContent() });
+        var client = CreateClient(handler, TimeSpan.FromMilliseconds(300));
+
+        var lookup = await client
+            .FindAsync("Get Lucky", "Daft Punk", 248, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        lookup.Status.Should().Be(LyricsLookupStatus.Unavailable);
+    }
+
+    [Fact]
+    public async Task A_null_record_in_a_search_answer_is_passed_over()
+    {
+        var search = "[null," + Fixtures.Read("search.json").TrimStart()[1..];
+        var handler = StubHttpMessageHandler.Scripted(
+            request => request.AbsolutePath == "/api/get"
+                ? Json(Fixtures.Read("get-miss.json"), HttpStatusCode.NotFound)
+                : Json(search));
+        var client = CreateClient(handler);
+
+        var lookup = await client.FindAsync("Get Lucky", "Daft Punk", 248, CancellationToken.None);
+
+        lookup.Status.Should().Be(LyricsLookupStatus.Found);
+        lookup.LrclibId.Should().Be(36883705);
+    }
+
+    [Theory]
+    [InlineData(250, LyricsLookupStatus.Found)]
+    [InlineData(251, LyricsLookupStatus.NotFound)]
+    public async Task A_search_hit_counts_only_within_two_seconds(int duration, LyricsLookupStatus expected)
+    {
+        // The fixture's records are 370, 368, 248, 32 and 248 s long.
+        var handler = StubHttpMessageHandler.Scripted(
+            request => request.AbsolutePath == "/api/get"
+                ? Json(Fixtures.Read("get-miss.json"), HttpStatusCode.NotFound)
+                : Json(Fixtures.Read("search.json")));
+        var client = CreateClient(handler);
+
+        var lookup = await client.FindAsync("Get Lucky", "Daft Punk", duration, CancellationToken.None);
+
+        lookup.Status.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task Names_that_need_escaping_are_escaped()
+    {
+        var handler = StubHttpMessageHandler.Serving("get-hit.json");
+        var client = CreateClient(handler);
+
+        await client.FindAsync("Rock & Roll #1?", "AC/DC", 248, CancellationToken.None);
+
+        handler.Requests[0].Query.Should().Contain("track_name=Rock%20%26%20Roll%20%231%3F")
+            .And.Contain("artist_name=AC%2FDC");
+    }
+
     private static LrclibClient CreateClient(HttpMessageHandler handler, TimeSpan? timeout = null)
     {
         var http = new HttpClient(handler)
@@ -374,4 +433,24 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 
     private static HttpResponseMessage Json(string body, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+}
+
+/// <summary>A body that never finishes arriving: the headers came, the bytes never do.</summary>
+internal sealed class StallingContent : HttpContent
+{
+    protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) =>
+        SerializeToStreamAsync(stream, context, CancellationToken.None);
+
+    protected override async Task SerializeToStreamAsync(
+        Stream stream,
+        System.Net.TransportContext? context,
+        CancellationToken cancellationToken) =>
+        await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+
+    protected override bool TryComputeLength(out long length)
+    {
+        length = 0;
+
+        return false;
+    }
 }

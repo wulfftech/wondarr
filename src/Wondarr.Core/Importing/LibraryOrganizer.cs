@@ -483,7 +483,15 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     {
         if (!_lyricsOptions.CurrentValue.Enabled
             || request.Media.DurationMs <= 0
-            || string.IsNullOrWhiteSpace(request.Song.Title))
+            || string.IsNullOrWhiteSpace(request.Song.Title)
+            || request.Credits.Count == 0)
+        {
+            return NoLyrics;
+        }
+
+        var artist = PrimaryArtist(request.Song, request.Credits).Name;
+
+        if (string.IsNullOrWhiteSpace(artist))
         {
             return NoLyrics;
         }
@@ -491,7 +499,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         return await _lrclib
             .FindAsync(
                 request.Song.Title,
-                PrimaryArtist(request.Song, request.Credits).Name,
+                artist,
                 (int)Math.Round(request.Media.DurationMs / 1000.0),
                 cancellationToken)
             .ConfigureAwait(false);
