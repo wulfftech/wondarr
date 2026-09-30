@@ -12,7 +12,14 @@ public sealed record PlexPin(long Id, string Code, DateTimeOffset ExpiresAt, str
 /// <summary>The state of a sign-in PIN: still pending, expired, or approved with a token.</summary>
 /// <param name="Expired">Whether the PIN is past its expiry, or plex.tv no longer knows it.</param>
 /// <param name="AuthToken">The account token, once the user has approved. Never leaves the service.</param>
-public sealed record PlexPinStatus(bool Expired, string? AuthToken);
+public sealed record PlexPinStatus(bool Expired, string? AuthToken)
+{
+    /// <summary>
+    /// Gets a value indicating whether this poll found the PIN approved and stored its token. It is
+    /// what callers see instead of the token, and it says nothing about an earlier sign-in.
+    /// </summary>
+    public bool Authorized { get; init; }
+}
 
 /// <summary>One of the ways a Plex Media Server can be reached.</summary>
 /// <param name="Uri">The connection URL, usually a <c>plex.direct</c> host.</param>
