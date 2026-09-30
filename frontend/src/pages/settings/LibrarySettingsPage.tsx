@@ -30,6 +30,7 @@ import {
   type LibraryResource,
 } from '../../api/profiles';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
+import { CompactLibraryModal } from './CompactLibraryModal';
 
 /** The members the API's validation messages can be attached to. */
 const KNOWN_FIELDS = new Set([
@@ -446,6 +447,7 @@ function LibraryForm({ library }: { library: LibraryResource }) {
 /** The library settings: the default library's layout, naming template and album policy. */
 export function LibrarySettingsPage() {
   const libraries = useLibraries();
+  const [compacting, setCompacting] = useState(false);
 
   if (libraries.isPending) {
     return <LoadingState />;
@@ -465,9 +467,22 @@ export function LibrarySettingsPage() {
   return (
     <Card withBorder padding="md">
       <Stack gap="md">
-        <Text fw={600}>{library.isDefault ? 'Default library' : 'Library'}</Text>
+        <Group justify="space-between">
+          <Text fw={600}>{library.isDefault ? 'Default library' : 'Library'}</Text>
+          <Button variant="light" onClick={() => setCompacting(true)}>
+            Compact library…
+          </Button>
+        </Group>
+
         <LibraryForm key={String(library.id)} library={library} />
       </Stack>
+
+      <CompactLibraryModal
+        libraryId={Number(library.id)}
+        libraryName={library.name}
+        opened={compacting}
+        onClose={() => setCompacting(false)}
+      />
     </Card>
   );
 }
