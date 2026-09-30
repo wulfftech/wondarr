@@ -181,3 +181,14 @@ ok   5 wrong file(s) caught and replaced without user action
 
 **Worker spend, Phase 2:** USD 4.46 (key usage 3.16 → 7.62; per-task estimates in the table sum to ≈ 5.7 because they are token × list-price estimates). The key's lifetime limit is USD 10: USD 2.38 left.
 
+
+## Phase 3 — reference libraries, adoption and the matching UI; the Plexamp preset
+
+**Budget:** the OpenRouter key's lifetime limit is still **USD 10** (the owner planned USD 15): USD 2.38 left at the start of the phase, USD 2.00 after P3-01 and P3-05b. Plan and dependencies: `docs/build/PHASE_3_TASKS.md`. Work happens in the orchestrator worktree `.claude/worktrees/phase3-orch` (branch `worktree-phase3-orch`), workers branch from it (`WONDARR_WORKER_BASE=worktree-phase3-orch`) and merge back through `scripts/safe-merge.sh`; the branch is pushed to `main`. Costs: token × price estimates from `.worker/<id>/runs.jsonl`; the phase total is the key counter.
+
+| Task | Title | Status | Worker model | Cost (USD) | Notes |
+|---|---|---|---|---|---|
+| P3-00 | Research, fixtures, decisions, plan | done | orchestrator | — | Plex (PIN flow, resources, identity, sections, `refresh?path=`, `emptyTrash`, playlist upload) and LRCLIB verified against Lidarr, python-plexapi, the LRCLIB source and live calls (`research_metadata_plex.md` §5.9); real Plex responses recorded (`tests/fixtures/plex/`, anonymised), LRCLIB responses recorded (`tests/fixtures/lrclib/`); Phase 3 decisions in `DECISIONS.md` (build session 4) |
+| P3-05a | `LibraryOrganizer` extracted from `ImportService` | done | orchestrator | — | The tag, name and place steps shared by import, adoption and compaction; a kept source is copied to a hidden staging folder and the copy is filed |
+| P3-01 | Reference-library scan | done | deepseek/deepseek-v4.1-flash | ~0.20 | One run. Reviewer agent FIX-FIRST: a probe that failed once (timeout, ffprobe missing) left the file `Unreadable` until it changed; an unlistable root recorded no message; every row stayed tracked for the whole walk (quadratic change detection on a big library); a file that failed to stat mid-walk was marked missing → failed probes retried every scan, rows loaded untracked and released after each save, stat failures keep the row, one library's unexpected error does not stop the batch, symlinked *files* are read (only linked folders skipped). Earlier orchestrator fix: adopted files and rows under skipped folders never become missing |
+| P3-05b | Covers, `cover.jpg`, folder consistency, sidecar options | done | deepseek/deepseek-v4.1-flash | ~0.20 | One run. Reviewer agent FIX-FIRST (small): the duplicate (disc, track) warning fired for two unnumbered files (EF translates `null == null` as `IS NULL`), a cover write failing part-way left its `.partial` → fixed with tests. The folder correction mutates the caller's album entity before anything can fail, so a failed organize must not be saved (documented for P3-04/P3-09b) |
