@@ -80,6 +80,37 @@ public sealed class SongSearchServiceTests
     }
 
     [Fact]
+    public async Task A_successful_grab_announces_itself_once()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        host.Events.Grabs.Should().ContainSingle();
+        host.Events.Grabs[0].SongId.Should().Be(songId);
+        host.Events.Grabs[0].QueueItemId.Should().Be(result.QueueItemId!.Value);
+    }
+
+    [Fact]
+    public async Task A_failed_grab_announces_nothing()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+
+        var candidate = SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac");
+        host.Provider.Candidates.Add(candidate);
+        host.Provider.FailingKeys.Add(candidate.BlocklistKey);
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        result.Outcome.Should().NotBe(SearchOutcome.Grabbed);
+        host.Events.Grabs.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task An_automatic_search_asks_for_the_pool_check_and_a_manual_one_does_not()
     {
         await using var host = await SearchTestHost.CreateAsync();

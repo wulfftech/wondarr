@@ -89,6 +89,9 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the ranked identification candidates of the reference files.</summary>
     public DbSet<MatchCandidate> MatchCandidates => Set<MatchCandidate>();
 
+    /// <summary>Gets the configured notifications.</summary>
+    public DbSet<Notification> Notifications => Set<Notification>();
+
     /// <summary>
     /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
     /// Everything is stored as UTC; mark it so on the way out to keep arithmetic with
@@ -108,6 +111,7 @@ public sealed class WondarrDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.ApplyConfiguration(new MetadataCacheEntryConfiguration());
+        modelBuilder.ApplyConfiguration(new NotificationConfiguration());
 
         modelBuilder.Entity<Setting>(entity =>
         {
