@@ -116,6 +116,9 @@ internal static class DomainModelConfiguration
             entity.Property(x => x.AlbumArtist).IsRequired();
             entity.Property(x => x.AlbumKey).IsRequired();
 
+            // Only an explicit album choice pins a song; the Compact task re-plans everything else.
+            entity.Property(x => x.Pinned).IsRequired().HasDefaultValue(false);
+
             // One album context per song, and every song in a folder shares the album key.
             entity.HasIndex(x => x.SongId).IsUnique();
             entity.HasIndex(x => x.AlbumKey);

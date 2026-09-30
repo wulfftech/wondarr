@@ -452,6 +452,26 @@ public class SongServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_explicit_album_choice_pins_the_song_and_adding_one_does_not()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var service = NewService(context);
+        var identity = Identity("m-a", "Get Lucky", Album("r1", "Random Access Memories"));
+        var added = await service.AddIdentitiesAsync([identity], new SongAddOptions(), CancellationToken.None);
+
+        added[0].Song.AlbumContext!.Pinned.Should().BeFalse();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>()).Returns(identity);
+
+        var moved = await service.SetAlbumContextAsync(added[0].Song.Id, "singles", CancellationToken.None);
+
+        moved!.AlbumContext!.Pinned.Should().BeTrue();
+        (await FindSongAsync(context, "m-a")).AlbumContext!.Pinned.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task An_unknown_album_key_and_an_unknown_song_are_rejected()
     {
         await using var context = await ContextAsync();

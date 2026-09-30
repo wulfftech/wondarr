@@ -242,20 +242,15 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
             }
 
             // --- Name ---------------------------------------------------------------------------
-            var template = string.IsNullOrWhiteSpace(request.Library.NamingTemplate)
-                ? NamingTemplate.PresetTemplates[request.Library.Layout]
-                : request.Library.NamingTemplate;
-
-            var relative = NamingTemplate.Render(
-                template,
-                NamingValuesBuilder.Build(
-                    request.Song,
-                    request.Album,
-                    PrimaryArtist(request.Song, request.Credits),
-                    request.Media,
-                    request.Quality,
-                    request.SourceType),
-                new NamingOptions(Extension: request.Extension));
+            var relative = RelativePathFor(
+                request.Song,
+                request.Album,
+                PrimaryArtist(request.Song, request.Credits),
+                request.Media,
+                request.Quality,
+                request.SourceType,
+                request.Library,
+                request.Extension);
 
             // --- Place --------------------------------------------------------------------------
             var placement = await _placer
@@ -309,6 +304,46 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
                 DeleteStaged(staged);
             }
         }
+    }
+
+    /// <summary>
+    /// Where the file goes inside the library root, as the library's naming template renders it: the
+    /// pure naming step of <see cref="OrganizeAsync"/>, so the Compact planner can say where a song
+    /// would land without placing anything.
+    /// </summary>
+    /// <param name="song">The song the file satisfies.</param>
+    /// <param name="album">The album context the song is filed under.</param>
+    /// <param name="primaryArtist">The song's primary artist.</param>
+    /// <param name="media">What the probe measured; the planner rebuilds it from the file row.</param>
+    /// <param name="quality">The quality the file was matched to.</param>
+    /// <param name="sourceType">Where the file came from, one of <see cref="Sources.SourceTypes"/>.</param>
+    /// <param name="library">The library whose template and layout decide the path.</param>
+    /// <param name="extension">The file's extension without the dot, lower-case.</param>
+    /// <returns>The path relative to the library root, with no extension.</returns>
+    internal static string RelativePathFor(
+        Song song,
+        AlbumContext album,
+        Artist primaryArtist,
+        MediaInfo media,
+        Quality quality,
+        string? sourceType,
+        Library library,
+        string extension)
+    {
+        var template = string.IsNullOrWhiteSpace(library.NamingTemplate)
+            ? NamingTemplate.PresetTemplates[library.Layout]
+            : library.NamingTemplate;
+
+        return NamingTemplate.Render(
+            template,
+            NamingValuesBuilder.Build(
+                song,
+                album,
+                primaryArtist,
+                media,
+                quality,
+                sourceType ?? string.Empty),
+            new NamingOptions(Extension: extension));
     }
 
     /// <summary>The song's primary artist: the one it points at, or the first credit there is.</summary>
