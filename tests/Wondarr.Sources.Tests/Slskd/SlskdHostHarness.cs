@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Persistence;
@@ -181,6 +182,9 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
     /// <summary>
     /// Moves fake time forward in <paramref name="step"/>s until <paramref name="condition"/> holds.
     /// </summary>
+    /// <summary>The longest real time one fake-clock step waits for the condition before the next step.</summary>
+    private static readonly TimeSpan SettlePerStep = TimeSpan.FromMilliseconds(250);
+
     public async Task AdvanceUntilAsync(Func<bool> condition, TimeSpan step, int steps, string because)
     {
         ArgumentNullException.ThrowIfNull(condition);
@@ -194,8 +198,15 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
 
             Time.Advance(step);
 
-            // Give the supervisor's continuations a turn on the thread pool.
-            await Task.Delay(2);
+            // Give the supervisor's continuations time to run before the clock moves again: on a
+            // loaded machine a fixed 2 ms yield was not enough, so a restart that was due at this
+            // step ran a few fake seconds later and was stamped late (a CI flake). Waiting for the
+            // condition in real time, bounded, keeps each step's work at the fake time it was due.
+            var settle = Stopwatch.StartNew();
+            while (!condition() && settle.Elapsed < SettlePerStep)
+            {
+                await Task.Delay(5);
+            }
         }
 
         if (!condition())
