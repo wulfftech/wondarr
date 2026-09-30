@@ -1,6 +1,7 @@
 using Wondarr.Core.Domain;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Persistence;
 using Wondarr.Core.Wanted;
 using FluentAssertions;
@@ -47,6 +48,39 @@ public sealed class WantedServiceTests
         page.TotalRecords.Should().Be(1);
         page.Records.Should().ContainSingle().Which.Title.Should().Be("Gamma");
         page.Records[0].File.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Cutoff_leaves_out_a_song_owned_through_a_reference_file()
+    {
+        using var database = new SqliteTestDatabase();
+        var time = new FakeTimeProvider(Now);
+        await database.MigrateAsync(time);
+
+        await using (var context = database.CreateContext(time))
+        {
+            var artist = new Artist { Name = "Aphex Twin", SortName = "Aphex Twin" };
+            context.Artists.Add(artist);
+            await context.SaveChangesAsync();
+
+            var song = NewSong(artist, "Referenced", monitored: true);
+            context.Songs.Add(song);
+            await context.SaveChangesAsync();
+
+            // MP3-256 is below the Standard 320 cutoff, but this file is the user's own.
+            var file = NewFile(song, Mp3256);
+            file.SourceType = SourceTypes.Reference;
+            file.Path = "/reference/music/Aphex Twin - Referenced.mp3";
+
+            context.SongFiles.Add(file);
+            await context.SaveChangesAsync();
+        }
+
+        var page = await Service(database, time).GetCutoffUnmetAsync(new PagingSpec(1, 20, null, true), CancellationToken.None);
+
+        // Wondarr never replaces a file it does not control, so the song is not wanted again.
+        page.TotalRecords.Should().Be(0);
+        page.Records.Should().BeEmpty();
     }
 
     [Fact]

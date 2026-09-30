@@ -46,6 +46,7 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
         }
 
         var totals = new ReferenceScanResult(0, 0, 0, 0, 0, 0);
+        var identified = new ReferenceIdentifyResult(0, 0, 0, 0);
         var unavailable = 0;
 
         foreach (var libraryId in libraries)
@@ -70,6 +71,28 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
                     Missing = totals.Missing + result.Missing,
                     Unreadable = totals.Unreadable + result.Unreadable,
                 };
+
+                // Identification follows the scan in the same scope: the rows the walk just wrote are
+                // the ones it identifies, and what it adds is committed before the next library starts.
+                // The scan itself already counted; an identification failure only costs this library
+                // its identifications.
+                try
+                {
+                    var identifier = scope.ServiceProvider.GetRequiredService<IReferenceIdentifier>();
+                    var outcome = await identifier
+                        .IdentifyPendingAsync(libraryId, context.ReportProgressAsync, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    identified = new ReferenceIdentifyResult(
+                        identified.Identified + outcome.Identified,
+                        identified.Ambiguous + outcome.Ambiguous,
+                        identified.Unmatched + outcome.Unmatched,
+                        identified.Deferred + outcome.Deferred);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    LogIdentifyFailed(logger, libraryId, exception);
+                }
             }
             catch (ReferenceLibraryUnavailableException exception)
             {
@@ -99,7 +122,15 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
             totals.Missing.ToString(CultureInfo.InvariantCulture),
             " missing, ",
             totals.Unreadable.ToString(CultureInfo.InvariantCulture),
-            " unreadable",
+            " unreadable, ",
+            identified.Identified.ToString(CultureInfo.InvariantCulture),
+            " identified, ",
+            identified.Ambiguous.ToString(CultureInfo.InvariantCulture),
+            " ambiguous, ",
+            identified.Unmatched.ToString(CultureInfo.InvariantCulture),
+            " unmatched, ",
+            identified.Deferred.ToString(CultureInfo.InvariantCulture),
+            " deferred",
             unavailable > 0
                 ? string.Concat(", ", unavailable.ToString(CultureInfo.InvariantCulture), " unavailable")
                 : string.Empty);
@@ -161,4 +192,7 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Scanning reference library {ReferenceLibraryId} failed; the batch continues")]
     private static partial void LogScanFailed(ILogger logger, long referenceLibraryId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Identifying the files of reference library {ReferenceLibraryId} failed; the batch continues")]
+    private static partial void LogIdentifyFailed(ILogger logger, long referenceLibraryId, Exception exception);
 }
