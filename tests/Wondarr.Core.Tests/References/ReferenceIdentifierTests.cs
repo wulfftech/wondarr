@@ -573,6 +573,143 @@ public class ReferenceIdentifierTests : IDisposable
         (await context.SongFiles.CountAsync()).Should().Be(0);
     }
 
+    [Fact]
+    public async Task A_fingerprint_the_tags_confirm_but_whose_length_differs_is_capped_and_queued()
+    {
+        // An extended mix shares the start of the album version: the tags agree, the length does not.
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = AddFile(context, library.Id, "a/Get Lucky.flac", 248_000,
+            Tags(title: "Get Lucky", artist: "Daft Punk"));
+
+        StubFingerprint();
+        StubLookup(new AcoustIdResult("ac-1", 0.97, [Recording("m-long", "Get Lucky", 369, "Daft Punk")]));
+
+        _resolver.GetIdentityAsync("m-long", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-long", "Get Lucky", durationMs: 369_000));
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Identified.Should().Be(0);
+        result.Ambiguous.Should().Be(1);
+
+        var row = await RowAsync(context, file.Id);
+        row.State.Should().Be(ReferenceFileState.Ambiguous);
+        (await context.SongFiles.CountAsync()).Should().Be(0);
+
+        var candidate = await context.MatchCandidates.AsNoTracking().SingleAsync();
+        candidate.Score.Should().Be(0.89);
+        candidate.Reason.Should().Contain("length differs");
+    }
+
+    [Fact]
+    public async Task A_deferred_file_keeps_the_song_it_was_linked_to()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = AddFile(context, library.Id, "a/changed.flac", 248_000, Tags(title: "x", artist: "y"));
+        await context.SaveChangesAsync();
+
+        var old = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Old Song", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = old[0].Song.Id,
+            Path = ReferenceOwnershipPath(file.RelativePath),
+            SourceType = SourceTypes.Reference,
+            QualityId = ProbeQualityId,
+        });
+
+        file.SongId = old[0].Song.Id;
+        await context.SaveChangesAsync();
+
+        StubFingerprint();
+        _acoustId.LookupAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new AcoustIdLookupResult(AcoustIdStatus.Unavailable, [], "down"));
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Deferred.Should().Be(1);
+
+        var row = await RowAsync(context, file.Id);
+        row.State.Should().Be(ReferenceFileState.Pending);
+        row.SongId.Should().Be(old[0].Song.Id);
+        (await context.SongFiles.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Once_acoustid_refuses_the_rest_of_the_run_waits_without_asking_again()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        AddFile(context, library.Id, "a/1.flac", 248_000, Tags(title: "x", artist: "y"));
+        AddFile(context, library.Id, "a/2.flac", 248_000, Tags(title: "x", artist: "y"));
+        AddFile(context, library.Id, "a/3.flac", 248_000, Tags(title: "x", artist: "y"));
+        await context.SaveChangesAsync();
+
+        StubFingerprint();
+        _acoustId.LookupAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new AcoustIdLookupResult(AcoustIdStatus.RateLimited, [], "throttled"));
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Deferred.Should().Be(3);
+        await _acoustId.Received(1).LookupAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _fingerprinter.Received(1).FingerprintAsync(
+            Arg.Any<string>(), Arg.Any<FingerprintWindow>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_lookup_that_throws_defers_that_file_and_the_next_ones_are_still_identified()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var broken = AddFile(context, library.Id, "a/1.flac", 248_000, Tags(title: "Broken", artist: "Daft Punk"));
+        var fine = AddFile(context, library.Id, "a/2.flac", 248_000, Tags(title: "Get Lucky", artist: "Daft Punk"));
+        await context.SaveChangesAsync();
+
+        _resolver.ResolveAsync("Daft Punk - Broken", Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ResolveResult>(new HttpRequestException("MusicBrainz is down")));
+        _resolver.ResolveAsync("Daft Punk - Get Lucky", Arg.Any<CancellationToken>())
+            .Returns(new ResolveResult
+            {
+                Status = ResolveStatus.Resolved,
+                Identity = Identity("m-a", "Get Lucky", durationMs: 248_000),
+            });
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Identified.Should().Be(1);
+        result.Deferred.Should().Be(1);
+        (await RowAsync(context, broken.Id)).State.Should().Be(ReferenceFileState.Pending);
+        (await RowAsync(context, fine.Id)).State.Should().Be(ReferenceFileState.Identified);
+    }
+
+    [Fact]
+    public async Task A_search_hit_whose_length_nobody_knows_is_only_a_candidate()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = AddFile(context, library.Id, "a/whatever.flac", 248_000,
+            Tags(title: "Get Lucky", artist: "Daft Punk"));
+
+        _resolver.ResolveAsync("Daft Punk - Get Lucky", Arg.Any<CancellationToken>())
+            .Returns(new ResolveResult
+            {
+                Status = ResolveStatus.Resolved,
+                Identity = Identity("m-a", "Get Lucky", durationMs: null),
+            });
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Ambiguous.Should().Be(1);
+        (await RowAsync(context, file.Id)).State.Should().Be(ReferenceFileState.Ambiguous);
+        (await context.MatchCandidates.AsNoTracking().SingleAsync()).Score.Should().Be(0.7);
+    }
+
     /// <summary>Deletes this test's temp database.</summary>
     public void Dispose()
     {

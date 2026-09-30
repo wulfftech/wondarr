@@ -6,6 +6,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
 
 namespace Wondarr.Core.Importing;
@@ -312,7 +313,11 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
             .Where(context => context.AlbumKey == request.Album.AlbumKey
                 && context.SongId != request.Song.Id
                 && context.Song.LibraryId == request.Library.Id
-                && context.Song.File != null);
+                && context.Song.File != null
+
+                // A reference-owned song's file sits in the user's own folder, not in this album
+                // folder, so it says nothing about what this folder's tags are.
+                && context.Song.File.SourceType != SourceTypes.Reference);
 
         var reference = await folder
             .OrderBy(context => context.Id)
