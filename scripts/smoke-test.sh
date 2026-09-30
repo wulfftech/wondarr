@@ -213,8 +213,11 @@ python3 "$(dirname "$0")/phase2-scenario.py" --url "$BASE" --api-key "$KEY" --ou
 chmod 644 "$WORK/data/phase2-scenario.json"
 
 # Same /config and /data (the songs stay); FakeSlskd stands in for slskd and answers AcoustID too.
+# Lyrics come from LRCLIB, a live service: off unless SMOKE_LYRICS=live (an opt-in run, never CI).
+LYRICS_ENABLED=false
+[ "${SMOKE_LYRICS:-off}" = live ] && LYRICS_ENABLED=true
 $DOCKER rm -f "$NAME" > /dev/null
-$DOCKER run -d --name "$NAME"     "${METADATA_ARGS[@]}"     -p "${PORT}:1077"     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC     -e APP__SERVER__URL_BASE="$URL_BASE"     -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd     -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password     -e FAKE_SLSKD_SCENARIO=/data/phase2-scenario.json     -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/     -v "$WORK/config:/config" -v "$WORK/data:/data" -v "$WORK/fake:/opt/fake:ro"     "$IMAGE" > /dev/null
+$DOCKER run -d --name "$NAME"     "${METADATA_ARGS[@]}"     -p "${PORT}:1077"     -e APP__LYRICS__ENABLED="$LYRICS_ENABLED"     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC     -e APP__SERVER__URL_BASE="$URL_BASE"     -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd     -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password     -e FAKE_SLSKD_SCENARIO=/data/phase2-scenario.json     -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/     -v "$WORK/config:/config" -v "$WORK/data:/data" -v "$WORK/fake:/opt/fake:ro"     "$IMAGE" > /dev/null
 wait_healthy
 for _ in $(seq 1 30); do
     curl -fsS -H "X-Api-Key: $KEY" "${BASE}/api/v1/soulseek/status" | jq -e '.loggedIn == true' > /dev/null 2>&1 && break
