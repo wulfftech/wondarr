@@ -425,6 +425,125 @@ export const IMPORT_LIST_ITEMS = [
   },
 ];
 
+/**
+ * Two reference libraries, one read-only and one that adopts into `LIBRARIES[0]`, with the counts the
+ * list renders as badges: the read-only one has three files waiting in the Match queue.
+ */
+export const REFERENCE_LIBRARIES = [
+  {
+    id: 3,
+    name: 'Old music',
+    rootPath: '/data/old-music',
+    mode: 'reference',
+    libraryId: 1,
+    enabled: true,
+    lastScannedAt: '2026-01-08T00:00:00Z',
+    lastScanMessage: 'Scanned 412 files; 109 identified, 3 need review.',
+    counts: {
+      total: 412,
+      pending: 0,
+      identified: 400,
+      ambiguous: 3,
+      unmatched: 0,
+      adopted: 0,
+      unreadable: 4,
+      missing: 5,
+      skipped: 0,
+    },
+  },
+  {
+    id: 4,
+    name: 'Bought music',
+    rootPath: '/data/bought',
+    mode: 'adopt',
+    libraryId: 1,
+    enabled: true,
+    lastScannedAt: null,
+    lastScanMessage: null,
+    counts: {
+      total: 0,
+      pending: 0,
+      identified: 0,
+      ambiguous: 0,
+      unmatched: 0,
+      adopted: 0,
+      unreadable: 0,
+      missing: 0,
+      skipped: 0,
+    },
+  },
+];
+
+/**
+ * Two files the Match queue is asking about: an ambiguous one with two ranked candidates, and an
+ * unmatched one with none. The file's probe is 3 s shorter than the best candidate.
+ */
+export const MATCH_QUEUE_ITEMS = [
+  {
+    id: 71,
+    referenceLibraryId: 3,
+    relativePath: 'Daft Punk/Discovery/04 - Harder Better.flac',
+    state: 'ambiguous',
+    file: {
+      title: 'Harder Better Faster Stronger',
+      artist: 'Daft Punk',
+      album: 'Discovery',
+      trackNumber: 4,
+      durationMs: 224000,
+      codec: 'flac',
+      bitrate: 900,
+      isrc: null,
+      mbRecordingId: null,
+    },
+    candidates: [
+      {
+        rank: 1,
+        score: 0.87,
+        reason: 'search 87, length differs by 3 s',
+        source: 'musicbrainz',
+        mbRecordingId: 'a1b2c3d4-0000-0000-0000-000000000002',
+        deezerId: null,
+        title: 'Harder, Better, Faster, Stronger',
+        artistCredit: 'Daft Punk',
+        durationMs: 227000,
+        albumTitle: 'Discovery',
+      },
+      {
+        rank: 2,
+        score: 0.62,
+        reason: 'search 62',
+        source: 'deezer',
+        mbRecordingId: null,
+        deezerId: 66877419,
+        title: 'Harder, Better, Faster, Stronger (Live)',
+        artistCredit: 'Daft Punk',
+        durationMs: 260000,
+        albumTitle: 'Alive 2007',
+      },
+    ],
+    message: null,
+  },
+  {
+    id: 72,
+    referenceLibraryId: 3,
+    relativePath: 'Unknown artist/04 track04.mp3',
+    state: 'unmatched',
+    file: {
+      title: null,
+      artist: null,
+      album: null,
+      trackNumber: null,
+      durationMs: 201000,
+      codec: 'mp3',
+      bitrate: 320,
+      isrc: null,
+      mbRecordingId: null,
+    },
+    candidates: [],
+    message: 'Nothing matched closely enough.',
+  },
+];
+
 export const LIBRARIES = [
   {
     id: 1,
