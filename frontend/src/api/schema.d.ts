@@ -765,6 +765,303 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/matchqueue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    referenceLibraryId?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfMatchQueueItemResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/matchqueue/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MatchResolveRequestResource"];
+                    "application/*+json": components["schemas"]["MatchResolveRequestResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MatchResolveResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/matchqueue/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MatchBulkRequestResource"];
+                    "application/*+json": components["schemas"]["MatchBulkRequestResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MatchBulkResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/referencelibrary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReferenceLibraryResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReferenceLibraryInputResource"];
+                    "application/*+json": components["schemas"]["ReferenceLibraryInputResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReferenceLibraryResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/referencelibrary/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReferenceLibraryResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReferenceLibraryInputResource"];
+                    "application/*+json": components["schemas"]["ReferenceLibraryInputResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReferenceLibraryResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/referencelibrary/{id}/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CommandResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/queue": {
         parameters: {
             query?: never;
@@ -1189,6 +1486,315 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlexStateResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlexPinResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex/pin/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlexPinStatusResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlexTokenResource"];
+                    "application/*+json": components["schemas"]["PlexTokenResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": unknown;
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex/servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlexServerResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex/server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlexServerResourceUpdate"];
+                    "application/*+json": components["schemas"]["PlexServerResourceUpdate"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlexStateResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlexTestResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plex/sections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlexSectionResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2051,7 +2657,73 @@ export interface components {
             /** Format: int32 */
             minTracksPerRealAlbum: number | string;
             plexSectionId: null | string;
+            plexLibraryPath: null | string;
             isDefault: boolean;
+        };
+        MatchBulkRequestResource: {
+            ids: null | (number | string)[];
+        };
+        MatchBulkResource: {
+            /** Format: int32 */
+            resolved: number | string;
+            /** Format: int32 */
+            failed: number | string;
+            errors: string[];
+        };
+        MatchCandidateResource: {
+            /** Format: int32 */
+            rank: number | string;
+            /** Format: double */
+            score: number | string;
+            reason: string;
+            source: string;
+            mbRecordingId: null | string;
+            /** Format: int64 */
+            deezerId: null | number | string;
+            title: string;
+            artistCredit: string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            albumTitle: null | string;
+        };
+        MatchFileResource: {
+            title: null | string;
+            artist: null | string;
+            album: null | string;
+            /** Format: int32 */
+            trackNumber: null | number | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            codec: null | string;
+            /** Format: int32 */
+            bitrate: null | number | string;
+            isrc: null | string;
+            mbRecordingId: null | string;
+        };
+        MatchQueueItemResource: {
+            /** Format: int64 */
+            id: number | string;
+            /** Format: int64 */
+            referenceLibraryId: number | string;
+            relativePath: string;
+            state: string;
+            file: components["schemas"]["MatchFileResource"];
+            candidates: components["schemas"]["MatchCandidateResource"][];
+            message: null | string;
+        };
+        MatchResolveRequestResource: {
+            /** Format: int32 */
+            candidateRank: null | number | string;
+            mbRecordingId: null | string;
+            /** Format: int64 */
+            deezerId: null | number | string;
+            skip: boolean;
+        };
+        MatchResolveResource: {
+            state: string;
+            /** Format: int64 */
+            songId: null | number | string;
+            message: null | string;
         };
         PagingResourceOfBlocklistResource: {
             /** Format: int32 */
@@ -2086,6 +2758,17 @@ export interface components {
             totalRecords: number | string;
             records: components["schemas"]["ImportListItemResource"][];
         };
+        PagingResourceOfMatchQueueItemResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["MatchQueueItemResource"][];
+        };
         PagingResourceOfQueueResource: {
             /** Format: int32 */
             page: number | string;
@@ -2107,6 +2790,56 @@ export interface components {
             /** Format: int32 */
             totalRecords: number | string;
             records: components["schemas"]["SongResource"][];
+        };
+        PlexConnectionResource: {
+            uri: string;
+            local: boolean;
+            relay: boolean;
+        };
+        PlexPinResource: {
+            /** Format: int64 */
+            id: number | string;
+            code: string;
+            authUrl: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        PlexPinStatusResource: {
+            authorized: boolean;
+            expired: boolean;
+        };
+        PlexSectionResource: {
+            key: string;
+            title: string;
+            locations: string[];
+        };
+        PlexServerResource: {
+            name: string;
+            machineIdentifier: string;
+            owned: boolean;
+            productVersion: null | string;
+            connections: components["schemas"]["PlexConnectionResource"][];
+        };
+        PlexServerResourceUpdate: {
+            serverUrl: string;
+        };
+        PlexStateResource: {
+            signedIn: boolean;
+            serverUrl: null | string;
+            serverName: null | string;
+            machineIdentifier: null | string;
+            clientIdentifier: string;
+        };
+        PlexTestResource: {
+            ok: boolean;
+            serverName: null | string;
+            version: null | string;
+            /** Format: int32 */
+            musicSections: number | string;
+            error: null | string;
+        };
+        PlexTokenResource: {
+            token: string;
         };
         PreviewResource: {
             url: string;
@@ -2203,6 +2936,48 @@ export interface components {
             warnings: boolean;
             unknownErrors: boolean;
             unknownWarnings: boolean;
+        };
+        ReferenceLibraryCountsResource: {
+            /** Format: int32 */
+            total: number | string;
+            /** Format: int32 */
+            pending: number | string;
+            /** Format: int32 */
+            identified: number | string;
+            /** Format: int32 */
+            ambiguous: number | string;
+            /** Format: int32 */
+            unmatched: number | string;
+            /** Format: int32 */
+            adopted: number | string;
+            /** Format: int32 */
+            unreadable: number | string;
+            /** Format: int32 */
+            missing: number | string;
+            /** Format: int32 */
+            skipped: number | string;
+        };
+        ReferenceLibraryInputResource: {
+            name: string;
+            rootPath: string;
+            mode: string;
+            /** Format: int64 */
+            libraryId: null | number | string;
+            enabled: boolean;
+        };
+        ReferenceLibraryResource: {
+            /** Format: int64 */
+            id: number | string;
+            name: string;
+            rootPath: string;
+            mode: string;
+            /** Format: int64 */
+            libraryId: null | number | string;
+            enabled: boolean;
+            /** Format: date-time */
+            lastScannedAt: null | string;
+            lastScanMessage: null | string;
+            counts: components["schemas"]["ReferenceLibraryCountsResource"];
         };
         ReleaseParseResource: {
             artist: null | string;

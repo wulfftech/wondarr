@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.References;
@@ -38,6 +39,27 @@ internal static class ReferenceOwnership
     /// <param name="relativePath">The row's <c>/</c>-separated path under the root.</param>
     public static string AbsolutePath(string rootPath, string relativePath) =>
         Path.Combine(rootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+    /// <summary>
+    /// How a song identified through a reference library is added: filed in the library the reference
+    /// library adopts into, monitored, and marked as having come from that reference library. Automatic
+    /// identification and a hand-made choice both use this, so the two cannot drift apart.
+    /// </summary>
+    /// <param name="library">The reference library the file belongs to.</param>
+    /// <returns>The options the song service is called with.</returns>
+    public static SongAddOptions AddOptions(ReferenceLibrary library)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+
+        return new SongAddOptions
+        {
+            LibraryId = library.LibraryId,
+            Monitored = true,
+            AddedBy = string.Concat(
+                "reference:",
+                library.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+        };
+    }
 
     /// <summary>
     /// Gives the song the reference file, unless it already has a file. An existing file at the same
