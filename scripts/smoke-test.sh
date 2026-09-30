@@ -16,6 +16,10 @@
 #     above cutoff, a live take disguised as the best file is caught after download and the next
 #     candidate imported, a rejected transfer falls through to the next candidate, the Soulseek
 #     search budget holds, and toggling "Share my library" changes what slskd shares
+# Phase 3 (scripts/phase3-gate.py; SMOKE_PHASE3=on (default) | off), on the same container:
+#   - a reference folder of encoded audio (MBID-tagged, text-tagged, untagged, duplicates) is added in
+#     adopt mode and scanned: >= 90 % identified automatically, the rest resolved through the Match
+#     queue, every new song adopted into the library, the originals byte-for-byte unchanged
 #
 # Metadata services for the Phase 1 gate (SMOKE_METADATA):
 #   replay (default) - scripts/metadata-replay.py answers from tests/gate/replay; no network needed,
@@ -205,7 +209,7 @@ mkdir -p "$WORK/fake" && chmod 777 "$WORK/fake"
 $DOCKER run --rm -v "$REPO:/src:ro" -v "$WORK/fake:/out" -e DOTNET_CLI_TELEMETRY_OPTOUT=1     mcr.microsoft.com/dotnet/sdk:10.0-noble sh -c     "mkdir -p /tmp/src/tools && cp /src/global.json /src/Directory.Build.props /src/Directory.Packages.props /src/.editorconfig /tmp/src/ && cp -r /src/tools/FakeSlskd /tmp/src/tools/ && rm -rf /tmp/src/tools/FakeSlskd/bin /tmp/src/tools/FakeSlskd/obj && cd /tmp/src && dotnet publish tools/FakeSlskd -c Release -r $RID --self-contained -p:PublishSingleFile=true -o /out -v q --nologo"     > "$WORK/fake-publish.log" 2>&1 || { tail -30 "$WORK/fake-publish.log" >&2; fail "could not publish FakeSlskd"; }
 pass "FakeSlskd published ($RID)"
 
-python3 "$(dirname "$0")/phase2-scenario.py" --url "$BASE" --api-key "$KEY" --out "$WORK/data/phase2-scenario.json" --keep 20     || fail "could not build the Phase 2 scenario"
+python3 "$(dirname "$0")/phase2-scenario.py" --url "$BASE" --api-key "$KEY" --out "$WORK/data/phase2-scenario.json" --keep 20     --dropped-out "$WORK/phase2-dropped.json" || fail "could not build the Phase 2 scenario"
 chmod 644 "$WORK/data/phase2-scenario.json"
 
 # Same /config and /data (the songs stay); FakeSlskd stands in for slskd and answers AcoustID too.
@@ -221,3 +225,16 @@ pass "FakeSlskd running in place of slskd, logged in"
 
 python3 "$(dirname "$0")/phase2-gate.py" --url "$BASE" --api-key "$KEY" --rounds 2     --round-timeout-s 1200 --queue-timeout-s 1200 --min-ratio 0.80 --expect-caught 1 --share-toggle     --fake-log-cmd "$DOCKER run --rm --network container:$NAME curlimages/curl:8.11.1 -fsS http://127.0.0.1:5030/fake/log"     || fail "Phase 2 gate"
 echo "PHASE 2 GATE: PASS ($IMAGE, FakeSlskd)"
+
+if [ "${SMOKE_PHASE3:-on}" = off ]; then
+    echo "Phase 3 gate skipped (SMOKE_PHASE3=off)"
+    exit 0
+fi
+
+# The same container: the Phase 2 songs are in the library and FakeSlskd still answers AcoustID.
+python3 "$(dirname "$0")/phase3-gate.py" --url "$BASE" --api-key "$KEY" --dropped "$WORK/phase2-dropped.json"     --exec "$DOCKER exec $NAME" --ref-root /data/reference --min-ratio 0.90 --timeout-s 1800     || fail "Phase 3 gate"
+if [ "$METADATA" = replay ]; then
+    MISSES="$(curl -fsS "http://localhost:${REPLAY_PORT}/__misses")"
+    [ "$(echo "$MISSES" | jq 'length')" = 0 ]         || fail "the Phase 3 gate asked for metadata tests/gate/replay has no recording of (re-record with SMOKE_METADATA=record): $MISSES"
+fi
+echo "PHASE 3 GATE: PASS ($IMAGE, reference library + Match queue + adoption)"
