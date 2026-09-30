@@ -30,18 +30,21 @@ touches_frontend() {
     ! git diff --quiet "HEAD...${branch}" -- frontend/
 }
 
+# Every step returns explicitly on failure: check() runs as an `if` condition, where bash ignores
+# `set -e`, so without the `|| return 1` a red `dotnet test` was masked by a later green step (it let
+# a merge with two failing tests through when the frontend build, the last step, passed).
 check() {
     echo "safe-merge: dotnet build -warnaserror"
-    dotnet build -warnaserror --nologo -v q
+    dotnet build -warnaserror --nologo -v q || return 1
     echo "safe-merge: dotnet test"
-    dotnet test --no-build --nologo -v q
+    dotnet test --no-build --nologo -v q || return 1
     if [[ "${run_frontend}" == "1" ]]; then
         echo "safe-merge: frontend checks"
         (
             cd frontend
             [[ -d node_modules ]] || npm ci --no-audit --no-fund
             npm run lint && npm run typecheck && npm test && npm run build
-        )
+        ) || return 1
     fi
 }
 
