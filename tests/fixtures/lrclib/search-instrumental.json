@@ -1,0 +1,54 @@
+[
+  {
+    "id": 36880353,
+    "name": "Aerodynamic",
+    "trackName": "Aerodynamic",
+    "artistName": "Daft Punk",
+    "albumName": "Discovery (US LP)",
+    "duration": 321.0,
+    "instrumental": false,
+    "hasWordSync": false,
+    "plainLyrics": null,
+    "syncedLyrics": null,
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Aerodynamic\n  artist: Daft Punk\n  album: Discovery (US LP)\n  duration_ms: 321000\n  instrumental: false\nlines: []\n"
+  },
+  {
+    "id": 37014658,
+    "name": "Aerodynamic",
+    "trackName": "Aerodynamic",
+    "artistName": "Daft Punk",
+    "albumName": "Discovery",
+    "duration": 218.0,
+    "instrumental": false,
+    "hasWordSync": false,
+    "plainLyrics": null,
+    "syncedLyrics": null,
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Aerodynamic\n  artist: Daft Punk\n  album: Discovery\n  duration_ms: 218000\n  instrumental: false\nlines: []\n"
+  },
+  {
+    "id": 37440918,
+    "name": "aerodynamic",
+    "trackName": "aerodynamic",
+    "artistName": "daft punk",
+    "albumName": "daft punk - 2001 - aerodynamic (single)",
+    "duration": 226.0,
+    "instrumental": true,
+    "hasWordSync": false,
+    "plainLyrics": null,
+    "syncedLyrics": null,
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: aerodynamic\n  artist: daft punk\n  instrumental: true\n  album: daft punk - 2001 - aerodynamic (single)\n  duration_ms: 226456\nlines: []\n"
+  },
+  {
+    "id": 34731024,
+    "name": "Aerodynamic",
+    "trackName": "Aerodynamic",
+    "artistName": "Daft Punk",
+    "albumName": "Interstella 5555 (The 5tory Of The 5ecret 5tar 5ystem)",
+    "duration": 213.0,
+    "instrumental": false,
+    "hasWordSync": false,
+    "plainLyrics": null,
+    "syncedLyrics": null,
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Aerodynamic\n  artist: Daft Punk\n  album: Interstella 5555 (The 5tory Of The 5ecret 5tar 5ystem)\n  duration_ms: 213000\n  instrumental: false\nlines: []\n"
+  }
+]
