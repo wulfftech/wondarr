@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
@@ -20,6 +21,9 @@ namespace Wondarr.Core.Tests.Importing;
 public sealed class LibraryOrganizerTests : IDisposable
 {
     private const string AlbumKey = "5000a285-b67e-4cfc-b54b-2b98f1810d2e";
+
+    /// <summary>The organizer's "(disc, track) already taken" warning.</summary>
+    private const int TrackNumberTakenEventId = 2303;
 
     private static readonly byte[] SourceBytes = [1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -336,6 +340,50 @@ public sealed class LibraryOrganizerTests : IDisposable
         _album.Date.Should().Be("2013-05-17");
     }
 
+    [Fact]
+    public async Task A_cover_write_that_fails_part_way_leaves_no_partial_and_still_files_the_song()
+    {
+        var source = WriteSource();
+        var disk = new HalfWritingDisk();
+
+        var result = await Organizer(disk).OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.CoverJpgPath.Should().BeNull();
+        disk.PartialsWritten.Should().ContainSingle();
+        File.Exists(disk.PartialsWritten[0]).Should().BeFalse();
+        CoverJpg().Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Warns_when_a_sibling_already_holds_the_same_disc_and_track()
+    {
+        await SeedSiblingAsync(AlbumKey, date: "2013-05-17", trackNo: 8, discNo: 1);
+        var source = WriteSource();
+        var logger = new WarningLogger();
+
+        var result = await Organizer(logger: logger).OrganizeAsync(Request(source, keepSource: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        logger.EventIds.Should().Contain(TrackNumberTakenEventId);
+    }
+
+    [Fact]
+    public async Task Never_warns_about_a_track_number_when_neither_file_has_one()
+    {
+        await SeedSiblingAsync(AlbumKey, date: "2013-05-17", trackNo: null, discNo: null);
+        var source = WriteSource();
+        var logger = new WarningLogger();
+        var request = Request(source, keepSource: false);
+        _album.TrackNo = null;
+        _album.DiscNo = null;
+
+        var result = await Organizer(logger: logger).OrganizeAsync(request, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        logger.EventIds.Should().NotContain(TrackNumberTakenEventId);
+    }
+
     public void Dispose()
     {
         _context.Dispose();
@@ -424,16 +472,16 @@ public sealed class LibraryOrganizerTests : IDisposable
         return song.Id;
     }
 
-    private LibraryOrganizer Organizer() =>
+    private LibraryOrganizer Organizer(IDiskOperations? disk = null, ILogger<LibraryOrganizer>? logger = null) =>
         new(
             _tagWriter,
             _placer,
             _covers,
-            new DiskOperations(),
+            disk ?? new DiskOperations(),
             _context,
             _coverProcessor,
             new TestOptionsMonitor<ImportOptions>(_importOptions),
-            NullLogger<LibraryOrganizer>.Instance);
+            logger ?? NullLogger<LibraryOrganizer>.Instance);
 
     private string WriteSource()
     {
@@ -501,5 +549,76 @@ public sealed class LibraryOrganizerTests : IDisposable
             "acoustid-7",
             keepSource,
             replaces);
+    }
+
+    /// <summary>Real disk operations, except that writing a cover's partial writes half of it and fails, as
+    /// a full disk would.</summary>
+    private sealed class HalfWritingDisk : IDiskOperations
+    {
+        private readonly DiskOperations _inner = new();
+
+        public List<string> PartialsWritten { get; } = [];
+
+        public bool FileExists(string path) => _inner.FileExists(path);
+
+        public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
+
+        public void CreateDirectory(string path) => _inner.CreateDirectory(path);
+
+        public void CreateEmptyFile(string path) => _inner.CreateEmptyFile(path);
+
+        public long GetFileSize(string path) => _inner.GetFileSize(path);
+
+        public void MoveFile(string source, string target) => _inner.MoveFile(source, target);
+
+        public void CopyFile(string source, string target) => _inner.CopyFile(source, target);
+
+        public bool TryCreateHardLink(string source, string target) => _inner.TryCreateHardLink(source, target);
+
+        public void WriteAllBytes(string path, byte[] bytes)
+        {
+            PartialsWritten.Add(path);
+            _inner.WriteAllBytes(path, bytes[..(bytes.Length / 2)]);
+
+            throw new IOException("There is not enough space on the disk.");
+        }
+
+        public void DeleteFile(string path) => _inner.DeleteFile(path);
+
+        public void SetUnixFileMode(string path, UnixFileMode mode) => _inner.SetUnixFileMode(path, mode);
+
+        public bool AreSameFile(string first, string second) => _inner.AreSameFile(first, second);
+
+        public IEnumerable<string> EnumerateFiles(string directory) => _inner.EnumerateFiles(directory);
+
+        public DateTime GetLastWriteTimeUtc(string path) => _inner.GetLastWriteTimeUtc(path);
+
+        public void SetLastWriteTimeUtc(string path, DateTime utc) => _inner.SetLastWriteTimeUtc(path, utc);
+
+        public void DeleteEmptyDirectory(string path) => _inner.DeleteEmptyDirectory(path);
+    }
+
+    /// <summary>Records the event id of every warning logged.</summary>
+    private sealed class WarningLogger : ILogger<LibraryOrganizer>
+    {
+        public List<int> EventIds { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                EventIds.Add(eventId.Id);
+            }
+        }
     }
 }
