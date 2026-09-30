@@ -2,6 +2,7 @@ using System.Net;
 using System.Reflection;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Lyrics;
 using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.Deezer;
@@ -271,11 +272,15 @@ public static class ServiceCollectionExtensions
         // Likewise transient: the identity resolver reads the clients and keeps nothing between calls.
         services.AddTransient<IIdentityResolver, IdentityResolver>();
 
+        // Lyrics come from LRCLIB, which is not one of the metadata providers but is registered with the
+        // same identifying User-Agent and the same shape of client.
+        services.AddWondarrLyrics(configuration);
+
         return services;
     }
 
     /// <summary>Sends every provider the same identifying headers.</summary>
-    private static void AddProviderHeaders(HttpClient client, MetadataOptions options)
+    internal static void AddProviderHeaders(HttpClient client, MetadataOptions options)
     {
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BuildUserAgent(options));
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
