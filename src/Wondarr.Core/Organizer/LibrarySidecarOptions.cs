@@ -35,7 +35,7 @@ public sealed record LibrarySidecarOptions
     /// <summary>Gets the longest edge an embedded cover may have, in pixels.</summary>
     public int CoverMaxEdge { get; init; } = DefaultCoverMaxEdge;
 
-    /// <summary>Gets a value indicating whether a lyrics sidecar is written. Read by P3-08.</summary>
+    /// <summary>Gets a value indicating whether a lyrics sidecar is written beside the audio file.</summary>
     public bool Lyrics { get; init; } = true;
 
     /// <summary>
