@@ -288,6 +288,8 @@ def run_worker(args: argparse.Namespace) -> int:
         "--disallowedTools", ",".join(dict.fromkeys([deny_read_rule(REPO), deny_read_rule(main_checkout())])),
         "--append-system-prompt-file", str(SYSTEM_PROMPT),
         "--no-session-persistence",
+        # commits carry no AI co-author trailer (CLAUDE.md: no AI identifiers in commit messages)
+        "--settings", json.dumps({"includeCoAuthoredBy": False, "attribution": {"commit": "", "pr": ""}}),
     ]
     if REFS.is_dir():
         # upstream sources checked out for porting (git-ignored); readable, not writable, by the worker
