@@ -157,6 +157,66 @@ public sealed class NotificationApiTests
     }
 
     [Fact]
+    public async Task The_schema_lists_the_Webhook_Discord_and_Apprise_providers()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using var response = await client.GetAsync(new Uri($"{Endpoint}/schema", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var schema = await ReadJsonAsync(response);
+
+        schema.EnumerateArray().Select(entry => entry.GetProperty("implementation").GetString())
+            .Should().BeEquivalentTo(["Webhook", "Discord", "Apprise"]);
+
+        var discord = Field(
+            schema.EnumerateArray().Single(entry => entry.GetProperty("implementation").GetString() == "Discord")
+                .GetProperty("fields").EnumerateArray().ToList(),
+            "webHookUrl");
+
+        discord.GetProperty("type").GetString().Should().Be("url");
+        discord.GetProperty("required").GetBoolean().Should().BeTrue();
+        discord.GetProperty("secret").GetBoolean().Should().BeTrue();
+
+        var apprise = Field(
+            schema.EnumerateArray().Single(entry => entry.GetProperty("implementation").GetString() == "Apprise")
+                .GetProperty("fields").EnumerateArray().ToList(),
+            "statelessUrls");
+
+        apprise.GetProperty("secret").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_Discord_webhook_url_never_comes_back_out()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using var created = await client.PostAsync(
+            new Uri(Endpoint, UriKind.Relative),
+            Body(new
+            {
+                name = "Discord",
+                implementation = "Discord",
+                enabled = true,
+                events = ImportOnly,
+                settings = new { webHookUrl = "https://discord.com/api/webhooks/123/token" },
+            }));
+
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var id = (await ReadJsonAsync(created)).GetProperty("id").GetInt64();
+
+        using var fetched = await client.GetAsync(new Uri($"{Endpoint}/{id}", UriKind.Relative));
+        var settings = (await ReadJsonAsync(fetched)).GetProperty("settings");
+
+        settings.GetProperty("webHookUrl").GetString().Should().Be("********");
+        (await fetched.Content.ReadAsStringAsync()).Should().NotContain("/token");
+    }
+
+    [Fact]
     public async Task A_test_send_reaches_the_endpoint_with_the_Test_event()
     {
         var handler = new RecordingHandler();

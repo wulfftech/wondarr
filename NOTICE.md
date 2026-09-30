@@ -36,6 +36,14 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Webhook/WebhookPayload.cs`, `WebhookGrabPayload.cs`, `WebhookImportPayload.cs`, `WebhookDownloadFailurePayload.cs`, `WebhookHealthPayload.cs` | `src/Wondarr.Core/Notifications/Webhook/WebhookPayloads.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Webhook/Webhook.cs`, `WebhookBase.cs`, `WebhookProxy.cs`, `WebhookEventType.cs` | `src/Wondarr.Core/Notifications/Webhook/WebhookProvider.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Webhook/WebhookSettings.cs`, `WebhookMethod.cs` | `src/Wondarr.Core/Notifications/Webhook/WebhookSettings.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Apprise/AppriseNotificationType.cs` | `src/Wondarr.Core/Notifications/Apprise/AppriseNotificationType.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Apprise/ApprisePayload.cs` | `src/Wondarr.Core/Notifications/Apprise/ApprisePayload.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Apprise/Apprise.cs`, `AppriseProxy.cs` | `src/Wondarr.Core/Notifications/Apprise/AppriseProvider.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Apprise/AppriseSettings.cs` | `src/Wondarr.Core/Notifications/Apprise/AppriseSettings.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Discord/DiscordColors.cs` | `src/Wondarr.Core/Notifications/Discord/DiscordColors.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Discord/Payloads/DiscordPayload.cs`, `Embed.cs`, `DiscordField.cs`, `DiscordAuthor.cs`, `DiscordImage.cs` | `src/Wondarr.Core/Notifications/Discord/DiscordPayloads.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Discord/Discord.cs`, `DiscordProxy.cs` | `src/Wondarr.Core/Notifications/Discord/DiscordProvider.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Discord/DiscordSettings.cs` | `src/Wondarr.Core/Notifications/Discord/DiscordSettings.cs` |
 
 Planned sources (see ADR-0002): Lidarr, Prowlarr, Sonarr (GPL-3.0); SoulSync, spotDL (MIT). Sockseek and slskd are AGPL-3.0 and are **not** copied.
 
