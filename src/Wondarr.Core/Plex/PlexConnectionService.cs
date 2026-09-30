@@ -194,15 +194,17 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
             .CheckPinAsync(pinId, settings.ClientIdentifier, cancellationToken)
             .ConfigureAwait(false);
 
-        if (!string.IsNullOrEmpty(status.AuthToken))
+        var authorized = !string.IsNullOrEmpty(status.AuthToken);
+
+        if (authorized)
         {
+            _secrets.Register(status.AuthToken!);
             await SaveAsync(settings with { Token = status.AuthToken }, cancellationToken).ConfigureAwait(false);
-            _secrets.Register(status.AuthToken);
             LogSignedIn(_logger);
         }
 
         // The token stays here: everything outside this class sees the status without it.
-        return status with { AuthToken = null };
+        return status with { AuthToken = null, Authorized = authorized };
     }
 
     /// <inheritdoc />
