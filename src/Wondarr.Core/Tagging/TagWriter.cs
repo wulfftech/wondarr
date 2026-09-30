@@ -228,14 +228,14 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
             track.Comment = tags.Comment;
         }
 
-        if (Has(tags.Lyrics))
+        if (NormalizedLyrics(tags.Lyrics) is { } lyrics)
         {
             track.Lyrics.Clear();
             track.Lyrics.Add(new LyricsInfo
             {
                 ContentType = LyricsInfo.LyricsType.LYRICS,
                 Format = LyricsInfo.LyricsFormat.UNSYNCHRONIZED,
-                UnsynchronizedLyrics = tags.Lyrics,
+                UnsynchronizedLyrics = lyrics,
             });
         }
 
@@ -368,7 +368,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         AddString(expected, "Isrc", tags.Isrc);
         AddString(expected, "Genre", tags.Genre);
         AddString(expected, "Comment", tags.Comment);
-        AddString(expected, "Lyrics", tags.Lyrics);
+        AddString(expected, "Lyrics", NormalizedLyrics(tags.Lyrics));
         if (keys.OriginalDate is not null || keys.OriginalDateViaProperty)
         {
             AddString(expected, "OriginalDate", tags.OriginalDate);
@@ -598,6 +598,14 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
     }
 
     private static bool Has([NotNullWhen(true)] string? value) => !string.IsNullOrWhiteSpace(value);
+
+    /// <summary>
+    /// Lyrics as they are written and expected back: <c>\n</c> line endings and no blank lines around
+    /// the text. ATL trims a Vorbis comment when it reads one back, so text that starts or ends with a
+    /// newline (LRCLIB serves such records) never read back equal, and the import failed.
+    /// </summary>
+    private static string? NormalizedLyrics(string? lyrics) =>
+        Has(lyrics) ? lyrics.ReplaceLineEndings("\n").Trim() : null;
 
     private static TagWriteResult Failure(string error) => new(false, error, EmptyWritten);
 
