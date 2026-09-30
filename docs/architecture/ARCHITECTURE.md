@@ -125,6 +125,7 @@ Notifier
 | `reference_library` | `name` (unique, case-insensitive), `root_path`, `mode` (reference/adopt), `library_id?` (the managed library songs are filed under; the target when adopting), `enabled`, `last_scanned_at?`, `last_scan_message?` |
 | `reference_file` | `reference_library_id`, `relative_path` (`/`-separated, unique per library), `size`, `modified_at` (UTC), `probe?` (json), `tags?` (json), `fingerprint?`, `acoust_id?`, `song_id?`, `confidence`, `state` (pending/identified/ambiguous/unmatched/adopted/unreadable/missing/skipped), `identified_by?`, `message?`, `last_seen_at`, `missing_since?` |
 | `match_candidate` | `reference_file_id`, `rank` (1 = best), `identity` (json: source, recording MBID, Deezer id, title, artist credit, length, album), `score`, `reason` |
+| `compact_move` | `library_id`, `song_id`, `from_path?`, `staged_path?` (where the file waits while Plex forgets its old album), `to_path?` (the planner's expected path, informative), `final_path?`, `proposed` (json: the album context the move writes), `state` (planned/staged/placed/failed), `message?` — one row per move of a Compact library run, written before each step so an interrupted run resumes |
 | `slskd_state` | `version`, `logged_in`, `sharing`, `shared_dirs` (json), `restart_required`, `last_checked_at` |
 | `setting` | `key`, `value` (json) — general settings, API key, auth, url base |
 
