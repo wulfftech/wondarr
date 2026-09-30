@@ -236,7 +236,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
                 Codec = "mp3",
                 Container = "mp3",
                 QualityId = options.CurrentFileQualityId,
-                SourceType = SourceTypes.Soulseek,
+                SourceType = options.CurrentFileSourceType,
                 ImportedAt = Time.GetUtcNow().UtcDateTime.AddDays(-1),
             };
 
@@ -483,6 +483,9 @@ internal sealed class ImportSeedOptions
 
     /// <summary>The quality of the file the song already holds.</summary>
     public long CurrentFileQualityId { get; set; } = 29;
+
+    /// <summary>Where the file the song already holds came from — a reference-library scan, or a grab.</summary>
+    public string CurrentFileSourceType { get; set; } = SourceTypes.Soulseek;
 
     /// <summary>The queue item's state.</summary>
     public QueueItemState State { get; set; } = QueueItemState.Completed;

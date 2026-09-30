@@ -16,6 +16,12 @@ public static class SourceTypes
 
     /// <summary>Newznab indexers with a usenet client (Phase 7).</summary>
     public const string Newznab = "newznab";
+
+    /// <summary>
+    /// A file the user already had, found by a reference-library scan (Phase 3). Wondarr never
+    /// searches for, replaces or writes such a file: it only records that the song is owned.
+    /// </summary>
+    public const string Reference = "reference";
 }
 
 /// <summary>Whether a candidate is one file or a container (torrent, NZB) holding the file.</summary>
