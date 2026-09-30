@@ -1,18 +1,20 @@
 import { SegmentedControl, Stack, Title } from '@mantine/core';
 import { useNavigate, useParams } from 'react-router';
 import { LibrarySettingsPage } from './settings/LibrarySettingsPage';
+import { PlexSettingsPage } from './settings/PlexSettingsPage';
 import { QualityProfilesPage } from './settings/QualityProfilesPage';
 import { ReferenceLibrariesPage } from './settings/ReferenceLibrariesPage';
 import { SoulseekSettingsPage } from './settings/SoulseekSettingsPage';
 
 /** The Settings sections, and the route segment each one owns. */
-type SettingsSection = 'profiles' | 'library' | 'references' | 'soulseek';
+type SettingsSection = 'profiles' | 'library' | 'references' | 'soulseek' | 'plex';
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'profiles', label: 'Quality profiles' },
   { value: 'library', label: 'Library' },
   { value: 'references', label: 'Reference libraries' },
   { value: 'soulseek', label: 'Soulseek' },
+  { value: 'plex', label: 'Plex' },
 ];
 
 /** Settings: the quality profiles, the library the songs are filed in, and the bundled slskd. */
@@ -39,6 +41,7 @@ export function SettingsPage() {
       {active === 'library' && <LibrarySettingsPage />}
       {active === 'references' && <ReferenceLibrariesPage />}
       {active === 'soulseek' && <SoulseekSettingsPage />}
+      {active === 'plex' && <PlexSettingsPage />}
     </Stack>
   );
 }

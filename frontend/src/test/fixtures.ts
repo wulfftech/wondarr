@@ -544,6 +544,61 @@ export const MATCH_QUEUE_ITEMS = [
   },
 ];
 
+/** What `GET /api/v1/plex` answers before an account token is stored. */
+export const PLEX_STATE_SIGNED_OUT = {
+  signedIn: false,
+  serverUrl: null,
+  serverName: null,
+  machineIdentifier: null,
+  clientIdentifier: 'wondarr-2f7c1a9b',
+};
+
+/** The same state once an account is signed in but no server has been chosen yet. */
+export const PLEX_STATE_SIGNED_IN_UNSELECTED = {
+  ...PLEX_STATE_SIGNED_OUT,
+  signedIn: true,
+};
+
+/** The state with a server selected, as `PUT /api/v1/plex/server` answers. */
+export const PLEX_STATE_SIGNED_IN = {
+  ...PLEX_STATE_SIGNED_OUT,
+  signedIn: true,
+  serverUrl: 'http://10.0.0.5:32400',
+  serverName: 'Home NAS',
+  machineIdentifier: 'a1b2c3d4e5f6',
+};
+
+/**
+ * Two servers the account can reach. The owned one lists its relay connection first, so a page that
+ * offers the slowest way in last is visibly reordering them.
+ */
+export const PLEX_SERVERS = [
+  {
+    name: 'Home NAS',
+    machineIdentifier: 'a1b2c3d4e5f6',
+    owned: true,
+    productVersion: '1.43.4.1000',
+    connections: [
+      { uri: 'https://relay-abc123.plex.direct:8443', local: false, relay: true },
+      { uri: 'http://10.0.0.5:32400', local: true, relay: false },
+      { uri: 'https://10-0-0-5.abc123.plex.direct:32400', local: false, relay: false },
+    ],
+  },
+  {
+    name: "Sam's Plex",
+    machineIdentifier: 'ffeeddccbbaa',
+    owned: false,
+    productVersion: null,
+    connections: [{ uri: 'https://shared.example.com:32400', local: false, relay: false }],
+  },
+];
+
+/** The music sections of the selected server, as `GET /api/v1/plex/sections` sends them. */
+export const PLEX_SECTIONS = [
+  { key: '3', title: 'Music', locations: ['/music'] },
+  { key: '5', title: 'Singles', locations: ['/data/singles'] },
+];
+
 export const LIBRARIES = [
   {
     id: 1,
@@ -555,6 +610,14 @@ export const LIBRARIES = [
     albumPolicy: 'fewestAlbums',
     minTracksPerRealAlbum: 2,
     plexSectionId: null,
+    plexLibraryPath: null,
     isDefault: true,
   },
 ];
+
+/** The same library with a Plex section linked, as `GET /api/v1/library/1` answers after a link. */
+export const LIBRARY_PLEX_LINKED = {
+  ...LIBRARIES[0],
+  plexSectionId: '3',
+  plexLibraryPath: '/music',
+};
