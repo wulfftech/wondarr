@@ -242,11 +242,15 @@ public class ReferenceLibraryServiceTests : IDisposable
         var mySong = await AddSongAsync(context, "Mine");
         var yourSong = await AddSongAsync(context, "Yours");
         var downloaded = await AddSongAsync(context, "Downloaded");
+        var garbled = await AddSongAsync(context, "Garbled");
+        var listed = await AddSongAsync(context, "Listed");
 
         context.SongFiles.AddRange(
             NewFile(mySong, "/reference/doomed/a.flac", SourceTypes.Reference, doomed.Library.Id),
             NewFile(yourSong, "/reference/kept/b.flac", SourceTypes.Reference, kept.Library.Id),
-            NewFile(downloaded, "/data/music/c.flac", SourceTypes.Soulseek, doomed.Library.Id));
+            NewFile(downloaded, "/data/music/c.flac", SourceTypes.Soulseek, doomed.Library.Id),
+            WithSourceRef(NewFile(garbled, "/reference/doomed/d.flac", SourceTypes.Reference, doomed.Library.Id), "not json"),
+            WithSourceRef(NewFile(listed, "/reference/doomed/e.flac", SourceTypes.Reference, doomed.Library.Id), "[1]"));
 
         AddFile(context, doomed.Library.Id, "a.flac", ReferenceFileState.Identified);
         AddFile(context, kept.Library.Id, "b.flac", ReferenceFileState.Identified);
@@ -261,9 +265,11 @@ public class ReferenceLibraryServiceTests : IDisposable
         // Only the song owned through the deleted library is wanted again: the other library's file and
         // the downloaded file of the same song are untouched.
         var remaining = await context.SongFiles.AsNoTracking().ToListAsync();
-        remaining.Should().HaveCount(2);
+        remaining.Should().HaveCount(4, "a reference whose source ref cannot be read is never deleted");
         remaining.Should().Contain(file => file.Path == "/reference/kept/b.flac");
         remaining.Should().Contain(file => file.Path == "/data/music/c.flac");
+        remaining.Should().Contain(file => file.Path == "/reference/doomed/d.flac");
+        remaining.Should().Contain(file => file.Path == "/reference/doomed/e.flac");
     }
 
     [Fact]
@@ -278,15 +284,22 @@ public class ReferenceLibraryServiceTests : IDisposable
 
     private static ReferenceLibraryService Service(WondarrDbContext context) => new(context);
 
+    private static SongFile WithSourceRef(SongFile file, string sourceRef)
+    {
+        file.SourceRef = sourceRef;
+
+        return file;
+    }
+
     private static SongFile NewFile(long songId, string path, string sourceType, long referenceLibraryId) =>
         new()
         {
             SongId = songId,
             Path = path,
             SourceType = sourceType,
-            SourceRef = sourceType == SourceTypes.Reference
-                ? $"{{\"referenceLibraryId\":{referenceLibraryId},\"referenceFileId\":1}}"
-                : null,
+            // Every row names the library, whatever its source: only the source type can keep a
+            // downloaded file whose reference names the doomed library.
+            SourceRef = $"{{\"referenceLibraryId\":{referenceLibraryId},\"referenceFileId\":1}}",
             QualityId = 1,
         };
 

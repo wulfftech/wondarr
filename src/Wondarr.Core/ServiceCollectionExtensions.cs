@@ -106,6 +106,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, MissingSearchCommandHandler>();
         services.AddScoped<ICommandHandler, SongSearchCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceLibraryScanCommandHandler>();
+        services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();
 
         // The scan writes the reference_file rows through the scoped DbContext.
         services.AddScoped<IReferenceScanner, ReferenceScanner>();
@@ -116,6 +117,10 @@ public static class ServiceCollectionExtensions
         // The reference libraries themselves, and the Match queue that settles what identification could not.
         services.AddScoped<IReferenceLibraryService, ReferenceLibraryService>();
         services.AddScoped<IReferenceMatchService, ReferenceMatchService>();
+
+        // Adoption hands an adopt-mode library's identified files over to its target library, through
+        // the same organizer the import uses, in the same scope.
+        services.AddScoped<IReferenceAdopter, ReferenceAdopter>();
 
         // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
         services.AddScoped<IPasteListService, PasteListService>();

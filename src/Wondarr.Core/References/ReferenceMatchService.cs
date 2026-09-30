@@ -195,7 +195,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         var (mbRecordingId, deezerId) = choice.CandidateRank is { } rank
             ? await CandidateIdsAsync(row, rank, cancellationToken).ConfigureAwait(false)
-            : (choice.MbRecordingId, choice.DeezerId);
+            : (string.IsNullOrWhiteSpace(choice.MbRecordingId) ? null : choice.MbRecordingId.Trim(), choice.DeezerId);
 
         var identity = await _resolver
             .GetIdentityAsync(mbRecordingId, deezerId, cancellationToken)

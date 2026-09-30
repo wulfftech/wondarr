@@ -271,8 +271,9 @@ public sealed partial class ReferenceScanner(
 
         foreach (var row in rows)
         {
-            // An adopted file left the folder on purpose (adoption moves it into the library), and a
-            // file under a folder the walk could not list was not seen, which is not the same as gone.
+            // An adopted file is the library's now (adoption copies it; a user who then deletes the
+            // original has lost nothing), and a file under a folder the walk could not list was not
+            // seen, which is not the same as gone.
             if (seen.Contains(row.RelativePath)
                 || row.State == ReferenceFileState.Adopted
                 || IsUnderSkipped(row.RelativePath, skipped))

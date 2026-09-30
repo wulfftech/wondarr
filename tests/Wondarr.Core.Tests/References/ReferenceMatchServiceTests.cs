@@ -478,36 +478,58 @@ public class ReferenceMatchServiceTests : IDisposable
     // --- The user's files -----------------------------------------------------------------------
 
     [Fact]
-    public async Task Resolving_never_touches_the_file_on_disk()
+    public async Task Resolving_skipping_and_bulk_accepting_never_touch_the_files_on_disk()
     {
-        await using var context = await ContextAsync();
-        var library = await ReferenceLibraryAsync(context);
-        var file = await AddFileAsync(context, library.Id, "a/Get Lucky.flac", ReferenceFileState.Ambiguous);
-        await AddCandidateAsync(context, file.Id, 1, "m-a", null);
-        await context.SaveChangesAsync();
-
-        var directory = Path.Combine(Path.GetTempPath(), "wondarr-reference", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "Get Lucky.flac");
+        // The library's root is a real folder, so every path the service derives is a real file.
+        var root = Path.Combine(Path.GetTempPath(), "wondarr-reference", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "a"));
 
         try
         {
-            await File.WriteAllBytesAsync(path, [1, 2, 3, 4, 5]);
-            var before = await HashAsync(path);
-            var written = File.GetLastWriteTimeUtc(path);
+            string[] names = ["a/one.flac", "a/two.flac", "a/three.flac"];
+            var before = new Dictionary<string, (string Hash, DateTime Written)>();
+
+            foreach (var name in names)
+            {
+                var full = Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar));
+                await File.WriteAllBytesAsync(full, [1, 2, 3, 4, (byte)name.Length]);
+                before[name] = (await HashAsync(full), File.GetLastWriteTimeUtc(full));
+            }
+
+            await using var context = await ContextAsync();
+            var library = await ReferenceLibraryAsync(context, rootPath: root);
+            var resolved = await AddFileAsync(context, library.Id, names[0], ReferenceFileState.Ambiguous);
+            var skipped = await AddFileAsync(context, library.Id, names[1], ReferenceFileState.Ambiguous);
+            var bulk = await AddFileAsync(context, library.Id, names[2], ReferenceFileState.Ambiguous);
+            await AddCandidateAsync(context, resolved.Id, 1, "m-a", null);
+            await AddCandidateAsync(context, bulk.Id, 1, "m-b", null);
+            await context.SaveChangesAsync();
 
             _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
                 .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+            _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+                .Returns(Identity("m-b", "One More Time", durationMs: 248_000));
 
-            await Service(context).ResolveAsync(file.Id, new ReferenceResolveChoice(1, null, null, false), CancellationToken.None);
+            var service = Service(context);
+            await service.ResolveAsync(resolved.Id, new ReferenceResolveChoice(1, null, null, false), CancellationToken.None);
+            await service.ResolveAsync(skipped.Id, new ReferenceResolveChoice(null, null, null, true), CancellationToken.None);
+            var result = await service.AcceptTopCandidatesAsync([bulk.Id], CancellationToken.None);
 
-            File.GetLastWriteTimeUtc(path).Should().Be(written);
-            (await HashAsync(path)).Should().Be(before);
-            (await File.ReadAllBytesAsync(path)).Should().Equal(1, 2, 3, 4, 5);
+            result.Resolved.Should().Be(1);
+            (await context.SongFiles.AsNoTracking().CountAsync()).Should().Be(2, "the resolved and the bulk-accepted file");
+
+            foreach (var name in names)
+            {
+                var full = Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar));
+                File.GetLastWriteTimeUtc(full).Should().Be(before[name].Written, name);
+                (await HashAsync(full)).Should().Be(before[name].Hash, name);
+            }
+
+            Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Should().HaveCount(names.Length);
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            Directory.Delete(root, recursive: true);
         }
     }
 
