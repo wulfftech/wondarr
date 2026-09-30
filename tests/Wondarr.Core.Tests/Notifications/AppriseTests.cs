@@ -114,6 +114,8 @@ public class AppriseTests
         provider.Validate(Parse("""{"serverUrl":"ftp://apprise.local","configurationKey":"wondarr"}"""))
             .Should().ContainSingle().Which.Should().Contain("http");
         provider.Validate(Parse("""{"serverUrl":"not a url","configurationKey":"wondarr"}""")).Should().NotBeEmpty();
+        provider.Validate(Parse("""{"serverUrl":"http://user:secret@apprise.local","configurationKey":"wondarr"}"""))
+            .Should().ContainSingle().Which.Should().NotContain("secret");
     }
 
     [Fact]

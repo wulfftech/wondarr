@@ -47,7 +47,9 @@ internal sealed record AppriseSettings(
 
     /// <summary>
     /// Checks the server URL: absolute, http or https. Apprise API servers are commonly plain http on a
-    /// private network, so unlike a webhook URL this one is not required to be https.
+    /// private network, so unlike a webhook URL this one is not required to be https. Credentials in
+    /// the URL are refused: the server URL is not a secret and is shown by the API, and basic
+    /// authentication has its own (masked) fields.
     /// </summary>
     /// <param name="value">The URL the user entered, or <see langword="null"/>.</param>
     /// <param name="url">The parsed URL when it is usable.</param>
@@ -57,7 +59,8 @@ internal sealed record AppriseSettings(
 
         if (string.IsNullOrWhiteSpace(value) ||
             !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var parsed) ||
-            (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+            (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps) ||
+            parsed.UserInfo.Length > 0)
         {
             return false;
         }

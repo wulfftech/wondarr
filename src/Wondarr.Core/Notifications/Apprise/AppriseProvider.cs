@@ -102,7 +102,7 @@ public sealed partial class AppriseProvider : INotificationProvider
 
         if (!AppriseSettings.TryServerUrl(parsed.ServerUrl, out _))
         {
-            failures.Add("The server URL must be an absolute http or https address.");
+            failures.Add("The server URL must be an absolute http or https address without a user name or password in it (use the Username and Password fields).");
         }
 
         if (parsed.HasConfigurationKey == parsed.HasStatelessUrls)
