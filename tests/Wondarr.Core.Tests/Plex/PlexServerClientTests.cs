@@ -154,6 +154,20 @@ public class PlexServerClientTests
         exception.Which.Message.Should().NotContain("Artist & Band");
     }
 
+    [Theory]
+    [InlineData("<html><body>Not JSON</body></html>")]
+    [InlineData("")]
+    public async Task An_unreadable_answer_becomes_PlexException_without_the_token(string body)
+    {
+        var handler = new StubHttpMessageHandler(_ => PlexFixtures.Body(body));
+
+        var act = async () => await CreateClient(handler).GetIdentityAsync(Server, Token, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<PlexException>();
+        exception.Which.Message.Should().Contain("unreadable answer for GET /identity");
+        exception.Which.Message.Should().NotContain(Token);
+    }
+
     [Fact]
     public async Task A_timeout_becomes_PlexException_without_the_token()
     {

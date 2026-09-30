@@ -34,35 +34,48 @@ public static class PlexPathMapper
 
         var rawRoot = library.RootPath ?? string.Empty;
         var root = rawRoot.TrimEnd('/', '\\');
-        var rootEndedWithSeparator = root.Length != rawRoot.Length;
 
-        if (root.Length == 0)
+        if (root.Length == 0 && rawRoot.Length == 0)
         {
-            // A root of "/" (or "\") stays as it is; trimming it to nothing would match everything.
-            root = rawRoot;
-        }
-
-        if (root.Length == 0 || !localPath.StartsWith(root, StringComparison.Ordinal))
-        {
+            // No root at all: nothing says which paths this library owns.
             return localPath;
         }
 
-        var remainder = localPath[root.Length..];
+        string remainder;
+
+        if (root.Length == 0)
+        {
+            // A root that is nothing but a separator ("/", "\") is the whole file system: the
+            // separator belongs to the root itself, so it has already been consumed.
+            if (localPath.Length == 0 || localPath[0] != rawRoot[0])
+            {
+                return localPath;
+            }
+
+            remainder = localPath[1..];
+        }
+        else if (localPath.StartsWith(root, StringComparison.Ordinal))
+        {
+            remainder = localPath[root.Length..];
+        }
+        else
+        {
+            return localPath;
+        }
 
         if (remainder.Length == 0)
         {
             return plexRoot;
         }
 
-        // "…/music2" starts with "…/music" but is not inside it.
-        if (!rootEndedWithSeparator && remainder[0] != '/' && remainder[0] != '\\')
+        // The root has to end at a separator, whether or not it was written with one: "…/music2"
+        // merely starts with "…/music" and is a different folder.
+        if (root.Length > 0 && remainder[0] != '/' && remainder[0] != '\\')
         {
             return localPath;
         }
 
-        // The relative part keeps the separators Wondarr wrote it with; the server only understands
-        // its own, so a Windows Plex root gets a Windows path throughout.
-        var relative = remainder.TrimStart('/', '\\').Replace('/', separator).Replace('\\', separator);
+        var relative = TranslateSeparators(remainder.TrimStart('/', '\\'), rawRoot, separator);
 
         if (relative.Length == 0)
         {
@@ -74,11 +87,33 @@ public static class PlexPathMapper
     }
 
     /// <summary>
+    /// Rewrites the relative part in the separators the server uses, and only those it really uses
+    /// the other way round: a Linux file name may legally contain a backslash, and turning it into a
+    /// separator would ask the server to scan a folder that does not exist.
+    /// </summary>
+    /// <param name="relative">The path below the root, with the root's separator already trimmed.</param>
+    /// <param name="localRoot">The library root as Wondarr sees it, which says how it is written.</param>
+    /// <param name="separator">The separator the Plex root is written with.</param>
+    private static string TranslateSeparators(string relative, string localRoot, char separator)
+    {
+        if (separator == '\\')
+        {
+            // A Windows Plex root gets a Windows path throughout.
+            return relative.Replace('/', '\\');
+        }
+
+        return IsWindowsPath(localRoot) ? relative.Replace('\\', '/') : relative;
+    }
+
+    /// <summary>
     /// The separator to join with: the Plex root's own. A drive letter or a backslash anywhere means
     /// the server is on Windows, whatever Wondarr itself runs on.
     /// </summary>
-    private static char SeparatorOf(string plexRoot) =>
-        plexRoot.Contains('\\') || (plexRoot.Length >= 2 && plexRoot[1] == ':') ? '\\' : '/';
+    private static char SeparatorOf(string plexRoot) => IsWindowsPath(plexRoot) ? '\\' : '/';
+
+    /// <summary>Whether a path is written the Windows way: a drive letter, or the start of a UNC path.</summary>
+    private static bool IsWindowsPath(string path) =>
+        path.Contains('\\') || (path.Length >= 2 && path[1] == ':');
 
     /// <summary>Trims trailing separators, keeping a bare root such as <c>/</c> or <c>D:\</c> whole.</summary>
     private static string WithoutTrailingSeparators(string plexRoot)

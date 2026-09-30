@@ -89,7 +89,7 @@ public sealed class PlexServerClient : IPlexServerClient
         {
             var body = await SendAsync(request, cancellationToken).ConfigureAwait(false);
 
-            using var document = JsonDocument.Parse(body);
+            using var document = PlexHttp.Parse(body, request, Subject);
             var container = PlexJson.Child(document.RootElement, "MediaContainer") ?? document.RootElement;
 
             return new PlexIdentity(
@@ -112,7 +112,7 @@ public sealed class PlexServerClient : IPlexServerClient
         {
             var body = await SendAsync(request, cancellationToken).ConfigureAwait(false);
 
-            using var document = JsonDocument.Parse(body);
+            using var document = PlexHttp.Parse(body, request, Subject);
 
             return ReadSections(document.RootElement);
         }

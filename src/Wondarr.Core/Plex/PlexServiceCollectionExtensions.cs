@@ -36,7 +36,8 @@ public static class PlexServiceCollectionExtensions
             // Trailing slash included, so every relative path appends rather than replaces.
             client.BaseAddress = new Uri(WithTrailingSlash(options.PlexTvBaseUrl), UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(options.RequestTimeoutSeconds);
-        });
+        })
+            .ConfigurePrimaryHttpMessageHandler(NoRedirects);
 
         // No retry pipeline on the server client: a retried refresh is at best wasted work, and a
         // retried emptyTrash mid-compaction is not what the caller asked for. The metadata clients
@@ -46,7 +47,8 @@ public static class PlexServiceCollectionExtensions
             var options = serviceProvider.GetRequiredService<IOptions<PlexOptions>>().Value;
 
             client.Timeout = TimeSpan.FromSeconds(options.RequestTimeoutSeconds);
-        });
+        })
+            .ConfigurePrimaryHttpMessageHandler(NoRedirects);
 
         services.AddScoped<IPlexClientIdentifier, PlexClientIdentifier>();
         services.AddScoped<IPlexServerClient, PlexServerClient>();
@@ -54,6 +56,14 @@ public static class PlexServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// A primary handler that never follows a redirect. Plex answers a moved resource with a 3xx to
+    /// another host, and a header such as <c>X-Plex-Token</c> survives that hop, so following one
+    /// would hand the user's token to whoever the server named. A 3xx is left to become the ordinary
+    /// failure it is.
+    /// </summary>
+    private static HttpMessageHandler NoRedirects() => new SocketsHttpHandler { AllowAutoRedirect = false };
 
     private static string WithTrailingSlash(string? value)
     {
