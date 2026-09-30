@@ -43,6 +43,12 @@ public enum OrganizeFailure
 /// the source itself is tagged and moved (a finished download, which is Wondarr's own file).
 /// </param>
 /// <param name="ReplacesPath">The file this one replaces, recycled by the placer; <see langword="null"/> for none.</param>
+/// <param name="LookUpLyrics">
+/// Whether to ask LRCLIB for the track's lyrics. When clear the lookup is skipped and read as "nothing
+/// found": the tag writer only replaces the lyrics it is given, so the file keeps the ones it has, and
+/// no sidecar is written. The Compact task passes <see langword="false"/> — the file already carries
+/// whatever lyrics the original import gave it, and it carries its sidecar with it.
+/// </param>
 public sealed record OrganizeRequest(
     Song Song,
     AlbumContext Album,
@@ -55,7 +61,8 @@ public sealed record OrganizeRequest(
     string SourceType,
     string? AcoustId,
     bool KeepSource,
-    string? ReplacesPath);
+    string? ReplacesPath,
+    bool LookUpLyrics = true);
 
 /// <summary>How organising one file ended.</summary>
 /// <param name="Failure">The step that stopped the file, or <see cref="OrganizeFailure.None"/>.</param>
@@ -521,7 +528,8 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         OrganizeRequest request,
         CancellationToken cancellationToken)
     {
-        if (!_lyricsOptions.CurrentValue.Enabled
+        if (!request.LookUpLyrics
+            || !_lyricsOptions.CurrentValue.Enabled
             || request.Media.DurationMs <= 0
             || string.IsNullOrWhiteSpace(request.Song.Title)
             || request.Credits.Count == 0)

@@ -135,6 +135,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, SongSearchCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceLibraryScanCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();
+        services.AddScoped<ICommandHandler, CompactLibraryCommandHandler>();
 
         // The scan writes the reference_file rows through the scoped DbContext.
         services.AddScoped<IReferenceScanner, ReferenceScanner>();
@@ -159,6 +160,10 @@ public static class ServiceCollectionExtensions
         // The Compact library task's dry run: it re-plans through the song service and reads the files
         // it would move, in the same scope as they are.
         services.AddScoped<ICompactPlanner, CompactPlanner>();
+
+        // The Compact library task's executor: it applies that plan through the same organizer, and
+        // writes its per-file rows through the same scoped DbContext.
+        services.AddScoped<ICompactExecutor, CompactExecutor>();
         services.AddScoped<IArtistService, ArtistService>();
 
         // The read side of the song lifecycle: wanted lists, history and the blocklist.
