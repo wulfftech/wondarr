@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Wondarr.Core.Persistence;
 
@@ -10,9 +11,11 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    partial class WondarrDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260929161548_AddReferenceLibraries")]
+    partial class AddReferenceLibraries
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
@@ -552,10 +555,6 @@ namespace Wondarr.Core.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("naming_template");
-
-                    b.Property<string>("PlexLibraryPath")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("plex_library_path");
 
                     b.Property<string>("PlexSectionId")
                         .HasColumnType("TEXT")

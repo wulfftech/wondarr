@@ -415,7 +415,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
     /// frame/atom each value must end up in is the one in LIBRARY_OUTPUT §7.5, and the read-back tests
     /// assert it frame by frame.
     /// </remarks>
-    private sealed record FormatKeys(
+    internal sealed record FormatKeys(
         string Artists,
         string RecordingId,
         string ReleaseTrackId,
@@ -433,7 +433,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         MetaDataIOFactory.TagType CoverTagType,
         string? CoverNativeCode);
 
-    private static readonly FormatKeys Id3Keys = new(
+    internal static readonly FormatKeys Id3Keys = new(
         Artists: "ARTISTS",
         RecordingId: "MusicBrainz Track Id",
         ReleaseTrackId: "MusicBrainz Release Track Id",
@@ -451,7 +451,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         CoverTagType: MetaDataIOFactory.TagType.ANY,
         CoverNativeCode: null);
 
-    private static readonly FormatKeys Mp4Keys = Id3Keys with
+    internal static readonly FormatKeys Mp4Keys = Id3Keys with
     {
         Compilation = "cpil",
         OriginalDateViaProperty = false,
@@ -459,7 +459,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         CoverNativeCode = "covr",
     };
 
-    private static readonly FormatKeys VorbisKeys = new(
+    internal static readonly FormatKeys VorbisKeys = new(
         Artists: "ARTISTS",
         RecordingId: "MUSICBRAINZ_TRACKID",
         ReleaseTrackId: "MUSICBRAINZ_RELEASETRACKID",
@@ -481,7 +481,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         CoverTagType: MetaDataIOFactory.TagType.ANY,
         CoverNativeCode: null);
 
-    private static FormatKeys KeysFor(string path) =>
+    internal static FormatKeys KeysFor(string path) =>
         Path.GetExtension(path).ToLowerInvariant() switch
         {
             ".mp3" or ".aiff" or ".aif" or ".wav" or ".aac" => Id3Keys,
@@ -498,7 +498,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         }
     }
 
-    private static string? GetAdditional(Track track, string key) =>
+    internal static string? GetAdditional(Track track, string key) =>
         track.AdditionalFields.TryGetValue(key, out var value) ? value : null;
 
     private static string? UnsynchronizedLyrics(Track track) =>
@@ -537,7 +537,7 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
     /// found in the first 16 MB of the file — FLAC and Ogg keep their comments at the start, before
     /// the audio; an embedded cover can push them back by a few MB.
     /// </summary>
-    private static string? ReadVorbisComment(string path, string field)
+    internal static string? ReadVorbisComment(string path, string field)
     {
         var buffer = new byte[16 * 1024 * 1024];
         int read;
@@ -563,10 +563,10 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
             : null;
     }
 
-    private static string? FormatYear(int? year) =>
+    internal static string? FormatYear(int? year) =>
         year is > 0 ? year.Value.ToString("0000", CultureInfo.InvariantCulture) : null;
 
-    private static string? FormatDate(DateTime? date) =>
+    internal static string? FormatDate(DateTime? date) =>
         date?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static bool SameValue(string field, string expected, string actual)

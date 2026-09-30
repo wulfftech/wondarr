@@ -1,8 +1,11 @@
 using System.Globalization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
+using Wondarr.Core.Persistence;
 using Wondarr.Core.Tagging;
 
 namespace Wondarr.Core.Importing;
@@ -57,12 +60,18 @@ public sealed record OrganizeRequest(
 /// <param name="FinalPath">Where the file is now in the library, or where the placer left it.</param>
 /// <param name="RecycledPath">Where the replaced file went, or <see langword="null"/>.</param>
 /// <param name="TagsWritten">The fields the tag writer verified, for the file row's snapshot.</param>
+/// <param name="CoverJpgPath">
+/// The album folder's <c>cover.jpg</c>, when this call wrote it; <see langword="null"/> when the
+/// layout has no album folder, the library does not want one, there was no JPEG cover, or one was
+/// already there.
+/// </param>
 public sealed record OrganizeResult(
     OrganizeFailure Failure,
     string? Error,
     string? FinalPath,
     string? RecycledPath,
-    IReadOnlyDictionary<string, string> TagsWritten)
+    IReadOnlyDictionary<string, string> TagsWritten,
+    string? CoverJpgPath = null)
 {
     /// <summary>Gets a value indicating whether the file is in the library.</summary>
     public bool Success => Failure == OrganizeFailure.None && FinalPath is not null;
@@ -93,37 +102,55 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     /// </summary>
     internal const string StagingFolderName = ".wondarr-staging";
 
+    /// <summary>The name of the album folder's art sidecar.</summary>
+    internal const string CoverJpgName = "cover.jpg";
+
     private static readonly IReadOnlyDictionary<string, string> NothingWritten = new Dictionary<string, string>();
 
     private readonly ITagWriter _tagWriter;
     private readonly IFilePlacer _placer;
     private readonly ICoverFetcher _coverFetcher;
     private readonly IDiskOperations _disk;
+    private readonly WondarrDbContext _db;
+    private readonly ICoverImageProcessor _coverProcessor;
+    private readonly IOptionsMonitor<ImportOptions> _options;
     private readonly ILogger<LibraryOrganizer> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="LibraryOrganizer"/> class.</summary>
     /// <param name="tagWriter">Writes the tag set into the file.</param>
     /// <param name="placer">Puts the file at its library path, recycling what it replaces.</param>
     /// <param name="coverFetcher">Downloads the cover to embed.</param>
-    /// <param name="disk">Stages the copy of a kept source.</param>
+    /// <param name="disk">Stages the copy of a kept source and writes the folder's cover.</param>
+    /// <param name="db">Reads the album contexts of the folder the file is landing in.</param>
+    /// <param name="coverProcessor">Bounds the cover before it is embedded.</param>
+    /// <param name="options">The permissions applied to the cover Wondarr writes.</param>
     /// <param name="logger">The logger.</param>
     public LibraryOrganizer(
         ITagWriter tagWriter,
         IFilePlacer placer,
         ICoverFetcher coverFetcher,
         IDiskOperations disk,
+        WondarrDbContext db,
+        ICoverImageProcessor coverProcessor,
+        IOptionsMonitor<ImportOptions> options,
         ILogger<LibraryOrganizer> logger)
     {
         ArgumentNullException.ThrowIfNull(tagWriter);
         ArgumentNullException.ThrowIfNull(placer);
         ArgumentNullException.ThrowIfNull(coverFetcher);
         ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(coverProcessor);
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
 
         _tagWriter = tagWriter;
         _placer = placer;
         _coverFetcher = coverFetcher;
         _disk = disk;
+        _db = db;
+        _coverProcessor = coverProcessor;
+        _options = options;
         _logger = logger;
     }
 
@@ -131,6 +158,10 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     public async Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        var sidecar = LibrarySidecarOptions.Parse(request.Library.SidecarOptions);
+
+        await AlignWithFolderAsync(request, cancellationToken).ConfigureAwait(false);
 
         var workingPath = request.SourcePath;
         string? staged = null;
@@ -155,6 +186,15 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
             var cover = await _coverFetcher
                 .FetchAsync(request.Album.CoverUrl, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (cover is not null)
+            {
+                // Bounded before it is embedded: the same bytes are what every file of the album
+                // carries and what the folder's cover.jpg holds.
+                cover = await _coverProcessor
+                    .PrepareAsync(cover, sidecar.CoverMaxEdge, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             var tags = TagSetBuilder.Build(request.Song, request.Album, request.Credits, request.AcoustId, cover);
             var tagResult = await _tagWriter.WriteAsync(workingPath, tags, cancellationToken).ConfigureAwait(false);
@@ -208,12 +248,17 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
                 staged = null;
             }
 
+            // The file is in the library now, so the folder can take its art. A failure here is a
+            // missing sidecar, never a failed import: the audio file stays exactly where it is.
+            var coverJpg = WriteCoverJpg(request, placement.FinalPath, cover, sidecar);
+
             return new OrganizeResult(
                 OrganizeFailure.None,
                 null,
                 placement.FinalPath,
                 placement.RecycledPath,
-                tagResult.Written);
+                tagResult.Written,
+                coverJpg);
         }
         finally
         {
@@ -253,6 +298,167 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     }
 
     /// <summary>
+    /// Brings the file's album context in line with the folder it is landing in, so the folder's tags
+    /// keep saying one thing (LIBRARY_OUTPUT.md §7.3–7.4). The reference is the lowest-id file of the
+    /// same album key in the same library — a real file that is already there. The caller's own save
+    /// persists the correction: <paramref name="request"/>'s album is the entity it tracks. The
+    /// correction is made before anything can fail, so a caller whose organize failed must not save
+    /// that entity (import clears its change tracker on failure; adoption and compaction must too).
+    /// </summary>
+    private async Task AlignWithFolderAsync(OrganizeRequest request, CancellationToken cancellationToken)
+    {
+        var folder = _db.AlbumContexts
+            .AsNoTracking()
+            .Where(context => context.AlbumKey == request.Album.AlbumKey
+                && context.SongId != request.Song.Id
+                && context.Song.LibraryId == request.Library.Id
+                && context.Song.File != null);
+
+        var reference = await folder
+            .OrderBy(context => context.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (reference is not null)
+        {
+            var changed = AlbumFolderConsistency.Align(request.Album, reference);
+
+            if (changed.Count > 0)
+            {
+                LogFolderAligned(_logger, request.Song.Id, string.Join(", ", changed));
+            }
+        }
+
+        // Reported, never repaired: the file keeps its number, and the user decides which of the two
+        // is the mistake. A file without a number collides with nothing (EF translates null == null
+        // as IS NULL, so the comparison needs a real number on both sides).
+        if (request.Album.TrackNo is not { } track)
+        {
+            return;
+        }
+
+        var disc = request.Album.DiscNo ?? 1;
+        var taken = await folder
+            .AnyAsync(
+                context => (context.DiscNo ?? 1) == disc && context.TrackNo != null && context.TrackNo == track,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (taken)
+        {
+            LogTrackNumberTaken(_logger, request.Song.Id, disc, track);
+        }
+    }
+
+    /// <summary>
+    /// Writes the album folder's <c>cover.jpg</c> if this call is the first to put a file in it. An
+    /// existing cover is never replaced: the first file placed into a folder decides its art.
+    /// </summary>
+    /// <param name="request">The file's request, which carries the library's layout.</param>
+    /// <param name="finalPath">Where the file was placed; the cover goes beside it.</param>
+    /// <param name="cover">The processed cover, or <see langword="null"/> when there was none.</param>
+    /// <param name="sidecar">The library's sidecar options.</param>
+    /// <returns>The path written, or <see langword="null"/> when nothing was written.</returns>
+    private string? WriteCoverJpg(
+        OrganizeRequest request,
+        string finalPath,
+        byte[]? cover,
+        LibrarySidecarOptions sidecar)
+    {
+        if (cover is null
+            || !sidecar.CoverJpg
+            || !LibrarySidecarOptions.HasAlbumFolder(request.Library.Layout)
+            || !IsJpeg(cover))
+        {
+            return null;
+        }
+
+        var folder = Path.GetDirectoryName(finalPath);
+
+        if (string.IsNullOrEmpty(folder))
+        {
+            return null;
+        }
+
+        var target = Path.Combine(folder, CoverJpgName);
+
+        if (_disk.FileExists(target))
+        {
+            return null;
+        }
+
+        // A name of its own per attempt, so two files of one album landing at once never share a
+        // half-written cover, and only this call's own file is ever removed.
+        var partial = string.Concat(target, ".", Guid.NewGuid().ToString("N"), DiskOperations.PartialSuffix);
+
+        try
+        {
+            _disk.WriteAllBytes(partial, cover);
+
+            try
+            {
+                _disk.MoveFile(partial, target);
+            }
+            catch (IOException) when (_disk.FileExists(target))
+            {
+                // Another file of the same folder wrote the cover between the check and the move.
+                DeletePartial(partial);
+
+                return null;
+            }
+            catch
+            {
+                DeletePartial(partial);
+
+                throw;
+            }
+
+            ApplyCoverPermissions(target);
+
+            return target;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A write that failed part-way (a full disk) leaves its partial behind; the move's own
+            // failures already removed theirs, and deleting a missing file is a no-op.
+            DeletePartial(partial);
+            LogCoverJpgNotWritten(_logger, target, exception.Message);
+
+            return null;
+        }
+    }
+
+    /// <summary>Gives the cover the configured file mode, as the placer does for the audio file.</summary>
+    private void ApplyCoverPermissions(string target)
+    {
+        var options = _options.CurrentValue;
+
+        if (options.SetPermissions)
+        {
+            _disk.SetUnixFileMode(target, ImportOptions.ParseMode(options.FileMode));
+        }
+    }
+
+    /// <summary>Drops a half-written cover. Its own failure is not worth reporting.</summary>
+    private void DeletePartial(string partial)
+    {
+        try
+        {
+            if (_disk.FileExists(partial))
+            {
+                _disk.DeleteFile(partial);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            LogPartialNotDeleted(_logger, partial, exception.Message);
+        }
+    }
+
+    private static bool IsJpeg(byte[] image) =>
+        image.Length >= 3 && image[0] == 0xFF && image[1] == 0xD8 && image[2] == 0xFF;
+
+    /// <summary>
     /// Removes a staged copy that did not make it into the library. After a successful placement the
     /// copy has moved, so there is nothing left to remove.
     /// </summary>
@@ -273,4 +479,22 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
 
     [LoggerMessage(EventId = 2301, Level = LogLevel.Warning, Message = "Could not remove the staged copy {Path}: {Reason}")]
     private static partial void LogStagedNotDeleted(ILogger logger, string path, string reason);
+
+    [LoggerMessage(
+        EventId = 2302,
+        Level = LogLevel.Warning,
+        Message = "Song {SongId} was filed against a folder that disagrees with it; took the folder's: {Fields}")]
+    private static partial void LogFolderAligned(ILogger logger, long songId, string fields);
+
+    [LoggerMessage(
+        EventId = 2303,
+        Level = LogLevel.Warning,
+        Message = "Song {SongId} holds (disc {Disc}, track {Track}), which another file of the same folder already holds.")]
+    private static partial void LogTrackNumberTaken(ILogger logger, long songId, int disc, int track);
+
+    [LoggerMessage(EventId = 2304, Level = LogLevel.Warning, Message = "Could not write {Path}: {Reason}")]
+    private static partial void LogCoverJpgNotWritten(ILogger logger, string path, string reason);
+
+    [LoggerMessage(EventId = 2305, Level = LogLevel.Warning, Message = "Could not remove the half-written cover {Path}: {Reason}")]
+    private static partial void LogPartialNotDeleted(ILogger logger, string path, string reason);
 }

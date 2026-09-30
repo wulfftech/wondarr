@@ -368,6 +368,57 @@ internal static class DomainModelConfiguration
 
             entity.HasData(SeedData.Libraries);
         });
+
+        modelBuilder.Entity<ReferenceLibrary>(entity =>
+        {
+            entity.ToTable("reference_library");
+            entity.Property(x => x.Name).IsRequired().UseCollation("NOCASE");
+            entity.Property(x => x.RootPath).IsRequired();
+            entity.Property(x => x.Mode).HasConversion<string>().HasDefaultValue(ReferenceLibraryMode.Reference);
+            entity.Property(x => x.Enabled).HasDefaultValue(true);
+            entity.HasIndex(x => x.Name).IsUnique();
+
+            entity.HasOne(x => x.Library)
+                .WithMany()
+                .HasForeignKey(x => x.LibraryId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ReferenceFile>(entity =>
+        {
+            entity.ToTable("reference_file");
+            entity.Property(x => x.RelativePath).IsRequired();
+            entity.Property(x => x.State).HasConversion<string>();
+
+            // One row per file: the pair is what makes the walk incremental.
+            entity.HasIndex(x => new { x.ReferenceLibraryId, x.RelativePath }).IsUnique();
+            entity.HasIndex(x => x.State);
+            entity.HasIndex(x => x.SongId);
+
+            entity.HasOne(x => x.ReferenceLibrary)
+                .WithMany()
+                .HasForeignKey(x => x.ReferenceLibraryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting a song must not delete the file that is on disk: the row stays, unidentified.
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<MatchCandidate>(entity =>
+        {
+            entity.ToTable("match_candidate");
+            entity.Property(x => x.Identity).IsRequired().HasDefaultValue("{}");
+            entity.Property(x => x.Reason).IsRequired();
+            entity.HasIndex(x => x.ReferenceFileId);
+
+            entity.HasOne(x => x.ReferenceFile)
+                .WithMany(x => x.Candidates)
+                .HasForeignKey(x => x.ReferenceFileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static string SerializeItems(List<QualityProfileItem>? items) =>
