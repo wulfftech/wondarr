@@ -10,7 +10,8 @@
 - **Phase 0 and Phase 1 are done (2026-09-28)** — both gates pass in CI on every push (`scripts/smoke-test.sh`, Phase 1 replaying recorded metadata) and passed on the test host `ch01`; see the Session log below and `docs/build/PROGRESS.md`.
 - **Phase 1a renamed the project Compilarr → Wondarr** (owner, 2026-09-28): the image is `ghcr.io/wulfftech/wondarr` (`:develop` from main), the repository `github.com/wulfftech/wondarr` (the old URLs redirect). The folder on the dev PC is to be renamed `D:\Code\compilarr` → `D:\Code\wondarr` by the owner between sessions (see the Phase 1a entry in the Session log).
 - **Phase 2 is done (2026-09-29)** — Soulseek source, slskd management and the import pipeline; the gate passes in CI (FakeSlskd) and passed live on `ch01` (92 % at or above cutoff, zero wrong recordings in a 30-file audit). A live test instance stays up on `ch01` (http://ch01.ad.wulff.com.au:1077) for ongoing testing.
-- The next unit of work is **Phase 3 — reference libraries, adoption and the matching UI; the Plexamp preset** (`docs/build/PHASES.md`). Writing `docs/build/PHASE_3_TASKS.md` is the first job of the next session (start from the three tasks in the Session log).
+- **Phase 3 is mostly done (2026-09-30)** — reference libraries (scan, four-tier identification, the Match queue, adoption), the Plexamp preset specifics (covers, `cover.jpg`, folder consistency), lyrics from LRCLIB, the Plex core, API and partial scans, and the Reference libraries + Match queue UI. The gate passes in CI (94 % identified automatically) and live on `ch01`, and a fresh Plex library groups the result correctly with local lyrics. **Left:** Settings → Plex (P3-12a, specified), Compact library (P3-09a/b), notifications (P3-10a/b, P3-12b), and the live 500-file check with the owner's own folder — blocked on the OpenRouter key's limit (USD 0.23 left of 10). See the build-session-4 entry.
+- The next unit of work is **finishing Phase 3** (`docs/build/PHASE_3_TASKS.md`, starting with P3-12a), then **Phase 4 — YouTube source**.
 
 ## 2. The product in one paragraph
 
@@ -33,10 +34,12 @@ Sanity check before delegating anything: `python scripts/worker.py --dry-run run
 ## 4. Things the owner still has to provide
 
 - A **dedicated Soulseek account** only if the current one starts getting kicked by duplicate logins (validated in Phase 2: no duplicate-login kick during any of the live runs).
-- A reachable **Plex server** and token for the Phase 3 live checks (the token is in `.env`).
+- A reachable **Plex server** and token for the Phase 3 live checks (the token is in `.env`); a throwaway unclaimed Plex Media Server on `ch01` served the grouping check in build session 4.
+- **A real folder of ~500 mixed music files** reachable from `ch01`, for the Phase 3 gate's live 500-file check.
+- **Raise the OpenRouter key's lifetime limit**: it still shows USD 10 (USD 9.77 used after build session 4), not the USD 15 planned on 2026-09-29.
 - Deleting the old `ghcr.io/wulfftech/compilarr` package when convenient (the new one is public already).
 - Optional: qBittorrent/SABnzbd/Prowlarr test instances for Phase 7.
-- Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), the OpenRouter key's lifetime limit (USD 15 since 2026-09-29; USD 7.62 used after Phase 2), worker caps (100 turns / 60 min).
+- Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), the OpenRouter key (lifetime limit USD 10 as of 2026-09-30; USD 9.77 used after build session 4), worker caps (100 turns / 60 min).
 
 ## 5. What not to do (the short list; full list in `CLAUDE.md`)
 
@@ -170,3 +173,36 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 1. **P3-01 Reference-library scan** — `reference_library` / `reference_file` / `match_candidate` tables (ARCHITECTURE §5.4) and a scan command: walk a folder (flat or layered), probe each audio file, read its tags (ATL: MBIDs, ISRC, artist/title/album, duration), and store `reference_file` rows with `probe` JSON; incremental by size + mtime; a scheduled daily scan + "scan now". No identification yet.
 2. **P3-02 Identification pipeline and the Match queue API** — per file: tag MBID → MusicBrainz lookup; ISRC → the P1 ISRC bridge; else fpcalc + AcoustID (reuse `IDownloadVerifier`'s pieces); else title/artist/duration search (P1-06 resolver); confidence tiers (auto-accept above a threshold, owner decision round 2 #7), `match_candidate` rows for the rest, `GET /api/v1/matchqueue`, `POST /api/v1/matchqueue/{id}/resolve`; identified files mark their songs as owned (never downloaded again).
 3. **P3-03 Plexamp preset specifics** — `cover.jpg` in each album folder and cover resizing to the configured max edge (the TODO left in `CoverImage.PrepareFrontCover`), Plex-safe tag checks (one album id / date / album artist per folder — assert across the folder on import), and the "Prefer local metadata" notice for flat/artist layouts; then Plex connection (PIN flow) and partial scan after import as P3-04.
+
+### 2026-09-30 — Build session 4: Phase 3 (orchestrator on Opus 5.5, workers on DeepSeek V4.1 Flash)
+
+**Outcome.** Phase 3's gate-critical path is built and its gate passes in CI (the Phase 3 stage of `scripts/smoke-test.sh`: a 34-file reference folder, 94 % identified automatically, the rest resolved through the Match queue API, every new song adopted, the originals byte-for-byte unchanged) and live on `ch01` with real LRCLIB lyrics. A fresh Plex Music library on a throwaway Plex Media Server 1.43.4 grouped the adopted library correctly — no split albums, one deliberate "Singles" per artist, 45/47 tracks with a local lyrics stream (every sidecar written). Not done: Settings → Plex (P3-12a), Compact library (P3-09a/b), notifications (P3-10a/b, P3-12b), the 500-file live folder and Plexamp's own lyrics display. Worker spend USD 2.15 (key 7.62 → 9.77 of its USD 10 limit — the planned raise to USD 15 has not happened). Details: `docs/build/PROGRESS.md` "Phase 3".
+
+**What exists now.**
+- Reference libraries: tables `reference_library` / `reference_file` / `match_candidate`; an incremental read-only scanner (size + mtime, linked folders skipped, an empty or unlistable root refuses to mark anything missing, failed probes retried every scan); identification in four tiers (tag MBID 1.0 → ISRC 0.95 → AcoustID capped at 0.89 unless the tags *and* the length agree → text search 0.90 with a known, agreeing length), auto-accept ≥ 0.90, ranked candidates otherwise; identified files become the song's own `song_file` (source `reference`, never searched or replaced); AcoustID outages defer; adoption copies identified files into the target library through the import's `LibraryOrganizer` (source `adopted`) and publishes the import event; a daily `ReferenceLibraryScan` and a `ReferenceAdopt` command.
+- Plexamp preset: covers bounded with ffmpeg, `cover.jpg` per album folder (never replaced), the folder's album fields aligned from its first file, sidecar options per library; LRCLIB lyrics (spaced, no retries, bounded) in the tag and as `.lrc`/`.txt` (never replacing either).
+- Plex: plex.tv PIN flow, resources, identity, sections, `refresh?path=`, `emptyTrash`; the token only in `X-Plex-Token` (never logged, returned or redirected); library → Plex path mapping; a debounced per-album-folder partial scan after imports and adoption, with a health warning.
+- API: `/api/v1/referencelibrary` (CRUD, scan, counts), `/api/v1/matchqueue` (paged; resolve by candidate / MBID / Deezer id / skip; bulk accept), `/api/v1/plex/*`. UI: Settings → Reference libraries, the Match queue page (candidates, search, skip, bulk accept, a nav badge).
+- Gate tooling: `scripts/phase3-gate.py`, the Phase 3 stage of the smoke test (`SMOKE_PHASE3`, and `SMOKE_LYRICS=live` for real lyrics), `scripts/safe-merge.sh` (refuses a red tree or an unknown branch), `worker.py` runs from a worktree (`WONDARR_WORKER_BASE`) without AI commit trailers.
+
+**Worker lessons (Phase 3).**
+1. *The reviewer earned its keep again:* FIX-FIRST on 8 of 9 reviews (P3-08 was MERGE). The one that mattered most: P3-02 accepted an AcoustID match with no length check, so an extended mix or a live take sharing the album version's opening would have been silently owned as the wrong song. Others: a trailing-slash root mapping a sibling folder into Plex, a Plex client identifier generated twice, retries that never ended, one folder's success hiding another's failure, one bad file stopping a whole library.
+2. *Fixing review findings myself beat continuations* on a tight key: the one continuation (P3-06a, 8 findings) cost about half the task again; the other fix rounds were done by the orchestrator in minutes.
+3. *A worker that hits the turn cap leaves good work uncommitted* (P3-03, three tests short of green). Always check and finish.
+4. *Generated files go stale across parallel branches:* P3-03's OpenAPI snapshot would have dropped P3-06b's Plex endpoints. Regenerate after merging the base into the branch, never before.
+5. *Workers find contract bugs:* P3-11's worker noticed that `POST /api/v1/command` hands the whole body to the handler — which exposed a Phase 2 bug (the search button nested `songId` as a string, so every search it started failed) that three tests had pinned.
+6. *Live runs still find what fixtures do not:* LRCLIB records wrapped in blank lines broke every such FLAC import (ATL trims on read); Plex's online agent renames pseudo-albums unless "Prefer local metadata" is on. Both came from the first real run.
+
+**Open items / follow-ups.**
+- **Budget:** the OpenRouter key's lifetime limit is USD 10 (not the planned 15): USD 0.23 left. Raising it unblocks the rest of Phase 3 (≈ USD 1.2 at this phase's rates: P3-12a ≈ 0.2, P3-09a/b ≈ 0.4, P3-10a/b ≈ 0.35, P3-12b ≈ 0.25).
+- **Live checks left for the owner's own data:** a real folder of ~500 mixed files on `ch01` as a reference library (the live instance runs Phase 3 now), and Plexamp showing local lyrics (needs a Plex Pass client).
+- The adopter duplicates `ImportService.LoadSongAsync` (backlog 2026-09-30-02); one load-sensitive API test flake (2026-09-30-01).
+- A "turn on Prefer local metadata" action for a linked Plex section (verified: `PUT /library/sections/{key}/prefs?respectTags=1`) — explicit, never automatic (`DECISIONS.md` build session 4 #9).
+- ATL prints "DummyTag.Remove not implemented" stack traces to stdout when tagging ffmpeg-made MP3s (harmless, the write succeeds) — worth silencing.
+- The live test instance `wondarr-test` on `ch01` runs `ghcr.io/wulfftech/wondarr:develop` (`0d90e6e`) with its old volumes (`/tmp/wondarr-test`, database backup `config/wondarr.db.pre-phase3.bak`; the Phase 2 container is kept stopped as `wondarr-test-p2` for a rollback).
+
+**Next: finish Phase 3, then the first three Phase 4 tasks to spec.**
+- Phase 3 first: P3-12a (spec committed), then P3-09a/b, P3-10a/b, P3-12b (`docs/build/PHASE_3_TASKS.md`), then the 500-file live check.
+1. **P4-01 YouTube Music search client** — InnerTube `search` with the `songs` and `videos` filters, an ISRC query first, results mapped to the existing `Candidate` contract with ATV/OMV/UGC typing; recorded responses as fixtures (verify the current InnerTube request shape with the researcher agent first).
+2. **P4-02 yt-dlp runner** — YoutubeDLSharp (versions pinned), `bestaudio` Opus, the cookies file and optional bgutil PO-token URL, Deno detection, concurrency 1 and pacing, and the error taxonomy (bot check, 429/402, geo, age gate, unavailable) → retry-later vs blocklist; a health probe.
+3. **P4-03 Output policy per library** — codec (AAC / MP3 / keep Opus), bitrate/VBR, container, sample rate, defaults AAC-256 `.m4a`, the quality recorded as `OPUS-160`, "lossless from lossy" refused (ADR-0006/0008); the transcode step between download and verification.
