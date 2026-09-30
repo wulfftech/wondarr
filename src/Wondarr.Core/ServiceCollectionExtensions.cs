@@ -110,6 +110,9 @@ public static class ServiceCollectionExtensions
         // The scan writes the reference_file rows through the scoped DbContext.
         services.AddScoped<IReferenceScanner, ReferenceScanner>();
 
+        // Identification runs on those same rows, in the same scope, right after a scan.
+        services.AddScoped<IReferenceIdentifier, ReferenceIdentifier>();
+
         // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
         services.AddScoped<IPasteListService, PasteListService>();
 
@@ -217,6 +220,13 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<SearchOptions>, SearchOptionsValidator>();
+
+        // The reference-library identification: how sure is enough, and how far a length may differ.
+        services.AddOptions<ReferenceOptions>()
+            .Bind(configuration.GetSection("Reference"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<ReferenceOptions>, ReferenceOptionsValidator>();
 
         // The queue poll's intervals and the timeouts it gives up on a peer after.
         services.AddOptions<QueueOptions>()

@@ -158,6 +158,32 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
+    public async Task A_grab_for_a_song_owned_through_a_reference_file_never_recycles_the_users_file()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        var referenced = "/reference/music/Daft Punk/08 - Get Lucky.mp3";
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = referenced;
+            options.CurrentFileQualityId = 29;
+            options.CurrentFileSourceType = SourceTypes.Reference;
+        });
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        // The file row is repointed at the imported file as for any upgrade, but Wondarr does not own
+        // the reference file, so nothing is asked to replace or recycle it.
+        outcome.Should().Be(ImportOutcome.Upgraded);
+        host.Placer.Requests.Should().ContainSingle().Subject.ReplacesPath.Should().BeNull();
+
+        var file = await host.Context.SongFiles.SingleAsync();
+        file.Id.Should().Be(seed.SongFileId);
+        file.SourceType.Should().Be(SourceTypes.Soulseek);
+        file.Path.Should().Be("/data/music/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+    }
+
+    [Fact]
     public async Task Rejects_a_grab_that_is_not_an_upgrade()
     {
         await using var host = await ImportTestHost.CreateAsync();
