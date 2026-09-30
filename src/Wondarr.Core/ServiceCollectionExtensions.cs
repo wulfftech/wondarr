@@ -13,6 +13,8 @@ using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Notifications;
+using Wondarr.Core.Notifications.Apprise;
+using Wondarr.Core.Notifications.Discord;
 using Wondarr.Core.Notifications.Webhook;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -85,6 +87,8 @@ public static class ServiceCollectionExtensions
         // handles and the hosted service must be the same object, because the queue lives in it), and
         // the CRUD service reads and writes the scoped DbContext.
         services.AddSingleton<INotificationProvider, WebhookProvider>();
+        services.AddSingleton<INotificationProvider, DiscordProvider>();
+        services.AddSingleton<INotificationProvider, AppriseProvider>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddSingleton<NotificationDispatcher>();
         services.AddSingleton<IHandle<SongGrabbedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
