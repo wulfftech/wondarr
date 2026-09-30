@@ -97,6 +97,23 @@ public sealed class PlexApiTests
     }
 
     [Fact]
+    public async Task A_pending_pin_is_not_authorized_on_an_install_that_is_already_signed_in()
+    {
+        var tv = Tv();
+        tv.CheckPinAsync(PinId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new PlexPinStatus(Expired: false, AuthToken: null)));
+
+        using var factory = Factory(tv, Substitute.For<IPlexServerClient>());
+        using var api = new Session(factory);
+        await SignInAsync(api);
+
+        var (status, body) = await api.GetAsync($"{Endpoint}/pin/{PinId}");
+
+        status.Should().Be(HttpStatusCode.OK);
+        ((JsonObject)body!)["authorized"]!.GetValue<bool>().Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Listing_servers_maps_the_accounts_servers_without_their_tokens()
     {
         using var factory = Factory(Tv(), Substitute.For<IPlexServerClient>());

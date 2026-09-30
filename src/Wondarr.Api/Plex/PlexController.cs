@@ -72,13 +72,11 @@ public sealed class PlexController : ControllerBase
     {
         try
         {
+            // Authorized is this PIN's own answer: an install already signed in still sees a new,
+            // pending PIN as pending.
             var status = await _plex.CompleteSignInAsync(id, cancellationToken).ConfigureAwait(false);
 
-            // The core blanks the token before it returns the status, so "a token arrived and was
-            // stored" is read from the connection itself.
-            var state = await _plex.GetStateAsync(cancellationToken).ConfigureAwait(false);
-
-            return Ok(new PlexPinStatusResource(Authorized: state.SignedIn, Expired: status.Expired));
+            return Ok(new PlexPinStatusResource(Authorized: status.Authorized, Expired: status.Expired));
         }
         catch (PlexException exception)
         {
