@@ -79,6 +79,20 @@ public sealed class ReferenceLibraryScanCommandHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_library_whose_scan_fails_unexpectedly_does_not_stop_the_next_one()
+    {
+        var (first, second, _) = await AddLibrariesAsync(enabled: [true, true, false]);
+        _scanner
+            .ScanAsync(first, Arg.Any<Func<string, Task>?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ReferenceScanResult>(new InvalidOperationException("database is locked")));
+
+        var summary = await Handler.ExecuteAsync(Context(null), CancellationToken.None);
+
+        ScannedIds().Should().Equal(first, second);
+        summary.Should().Contain("1 unavailable");
+    }
+
+    [Fact]
     public async Task A_body_naming_a_library_that_does_not_exist_says_so()
     {
         await AddLibrariesAsync(enabled: [true]);

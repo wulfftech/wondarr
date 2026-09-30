@@ -130,9 +130,21 @@ public sealed partial class ReferenceScanner(
         }
 
         var skipped = new List<string>();
-        var files = Walk(root, skipped, cancellationToken);
+        List<string> files;
 
+        try
+        {
+            files = Walk(root, skipped, cancellationToken);
+        }
+        catch (ReferenceLibraryUnavailableException exception)
+        {
+            throw await UnavailableAsync(library, exception.Message, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Untracked: a row joins the change tracker only when the scan touches it, and leaves it at the
+        // next save, so a 50 000-file library never has 50 000 entities in every save's change detection.
         var rows = await database.ReferenceFiles
+            .AsNoTracking()
             .Where(row => row.ReferenceLibraryId == referenceLibraryId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -148,6 +160,7 @@ public sealed partial class ReferenceScanner(
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var byPath = rows.ToDictionary(row => row.RelativePath, StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var touched = new List<ReferenceFile>();
 
         var added = 0;
         var changed = 0;
@@ -159,6 +172,7 @@ public sealed partial class ReferenceScanner(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            var relative = Relative(root, file);
             FileInfo info;
 
             try
@@ -168,12 +182,13 @@ public sealed partial class ReferenceScanner(
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                // Gone between the walk and now; the next scan will see it or not.
+                // Listed a moment ago, so not gone: one that cannot be read now keeps its row as it is,
+                // exactly like a file under a folder the walk could not list.
                 LogEntrySkipped(logger, exception);
+                skipped.Add(relative);
                 continue;
             }
 
-            var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
             seen.Add(relative);
 
             byPath.TryGetValue(relative, out var row);
@@ -184,8 +199,30 @@ public sealed partial class ReferenceScanner(
                 row = new ReferenceFile { ReferenceLibraryId = referenceLibraryId, RelativePath = relative };
                 database.ReferenceFiles.Add(row);
             }
+            else
+            {
+                row = Track(row);
+            }
 
-            if (!isNew && row.Size == info.Length && row.ModifiedAt == info.LastWriteTimeUtc)
+            touched.Add(row);
+
+            var sameFile = !isNew && row.Size == info.Length && row.ModifiedAt == info.LastWriteTimeUtc;
+
+            if (sameFile && row.State == ReferenceFileState.Unreadable)
+            {
+                // Probed again on every scan: "unreadable" is as often a probe that failed (ffprobe gone,
+                // a timeout, a share that hiccuped) as a broken file, and the size and time alone would
+                // otherwise keep the verdict until the file changed.
+                await RescanAsync(row, file, info, now, isNew: false, cancellationToken).ConfigureAwait(false);
+
+                unchanged++;
+
+                if (row.State == ReferenceFileState.Unreadable)
+                {
+                    unreadable++;
+                }
+            }
+            else if (sameFile)
             {
                 row.LastSeenAt = now;
 
@@ -221,7 +258,7 @@ public sealed partial class ReferenceScanner(
 
             if (scanned % SaveBatchSize == 0)
             {
-                await SaveAsync(cancellationToken).ConfigureAwait(false);
+                await SaveAsync(touched, cancellationToken).ConfigureAwait(false);
 
                 if (progress is not null)
                 {
@@ -247,8 +284,10 @@ public sealed partial class ReferenceScanner(
 
             if (row.State != ReferenceFileState.Missing)
             {
-                row.State = ReferenceFileState.Missing;
-                row.MissingSince = now;
+                var tracked = Track(row);
+                tracked.State = ReferenceFileState.Missing;
+                tracked.MissingSince = now;
+                touched.Add(tracked);
             }
         }
 
@@ -257,7 +296,7 @@ public sealed partial class ReferenceScanner(
         library.LastScannedAt = now;
         library.LastScanMessage = Summary(result);
 
-        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await SaveAsync(touched, cancellationToken).ConfigureAwait(false);
 
         if (progress is not null)
         {
@@ -332,9 +371,39 @@ public sealed partial class ReferenceScanner(
         row.Tags = tags is null ? null : JsonSerializer.Serialize(tags, StoredJson);
     }
 
-    /// <summary>Saves the rows written so far, so a long walk never holds one transaction open.</summary>
-    private Task<int> SaveAsync(CancellationToken cancellationToken) =>
-        database.SaveChangesAsync(cancellationToken);
+    /// <summary>
+    /// The tracked instance of a row loaded without tracking: the one the context already holds (a
+    /// caller's own context may), or the row itself, attached as unchanged.
+    /// </summary>
+    private ReferenceFile Track(ReferenceFile row)
+    {
+        var entry = database.ReferenceFiles.Local.FindEntry(row.Id);
+
+        if (entry is not null)
+        {
+            return entry.Entity;
+        }
+
+        database.ReferenceFiles.Attach(row);
+
+        return row;
+    }
+
+    /// <summary>
+    /// Saves the rows written so far, so a long walk never holds one transaction open, and lets go of
+    /// them: the scan never touches a row twice.
+    /// </summary>
+    private async Task SaveAsync(List<ReferenceFile> touched, CancellationToken cancellationToken)
+    {
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        foreach (var row in touched)
+        {
+            database.Entry(row).State = EntityState.Detached;
+        }
+
+        touched.Clear();
+    }
 
     /// <summary>
     /// Records why the library cannot be scanned and rethrows. Nothing else is written: the caller sees
@@ -418,7 +487,7 @@ public sealed partial class ReferenceScanner(
             {
                 // The root not being listable is not a partially readable library: it is unavailable.
                 throw new ReferenceLibraryUnavailableException(
-                    $"'{directory}' cannot be listed: {exception.Message}", exception);
+                    $"the folder cannot be listed: {exception.Message}", exception);
             }
 
             LogFolderSkipped(logger, exception);
@@ -443,14 +512,15 @@ public sealed partial class ReferenceScanner(
             {
                 var attributes = File.GetAttributes(entry);
 
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    // A symlinked folder can point anywhere, including back at an ancestor.
-                    continue;
-                }
-
                 if ((attributes & FileAttributes.Directory) != 0)
                 {
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        // A symlinked folder or junction can point anywhere, including back at an
+                        // ancestor. A symlinked file is read like any other: reading it cannot loop.
+                        continue;
+                    }
+
                     Collect(root, entry, files, skipped, isRoot: false, cancellationToken);
                 }
                 else if (AudioExtensions.Contains(Path.GetExtension(entry)))
