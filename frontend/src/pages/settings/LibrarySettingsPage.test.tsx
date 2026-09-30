@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  COMPACT_PLAN,
   HEALTH_ENTRIES,
   LIBRARIES,
   PLEX_SECTIONS,
@@ -87,6 +88,10 @@ function install(
       return jsonResponse(plexState);
     }
 
+    if (url.includes('/compact')) {
+      return jsonResponse(COMPACT_PLAN);
+    }
+
     if (url.includes('/api/v1/library')) {
       // The collection answers with every library; the item endpoint with the one that was saved.
       return url.includes('/api/v1/library/') ? jsonResponse(library) : jsonResponse([library]);
@@ -126,6 +131,20 @@ describe('LibrarySettingsPage', () => {
 
       expect(body).toMatchObject({ albumPolicy: 'singlesOnly', layout: 'plexamp' });
     });
+  });
+
+  it('opens the Compact library dialog from the library card', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+    await user.click(screen.getByRole('button', { name: 'Compact library…' }));
+
+    const dialog = screen.getByRole('dialog');
+
+    expect(await within(dialog).findByText('4 albums → 2 albums, 2 songs move')).toBeInTheDocument();
   });
 
   it('hides the minimum album size for every other policy', async () => {
