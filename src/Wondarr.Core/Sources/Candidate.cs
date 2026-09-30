@@ -22,6 +22,13 @@ public static class SourceTypes
     /// searches for, replaces or writes such a file: it only records that the song is owned.
     /// </summary>
     public const string Reference = "reference";
+
+    /// <summary>
+    /// A copy of a reference-library file that was adopted into a managed library (Phase 3): from the
+    /// adoption on it is an ordinary library file, written, named and placed by the organizer. The
+    /// user's original stays exactly where it was.
+    /// </summary>
+    public const string Adopted = "adopted";
 }
 
 /// <summary>Whether a candidate is one file or a container (torrent, NZB) holding the file.</summary>
