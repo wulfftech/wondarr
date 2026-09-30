@@ -1,6 +1,10 @@
+using Wondarr.Core.HealthCheck;
+using Wondarr.Core.Importing;
+using Wondarr.Core.Messaging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace Wondarr.Core.Plex;
@@ -10,7 +14,8 @@ public static class PlexServiceCollectionExtensions
 {
     /// <summary>
     /// Adds the <c>plex</c> options and its validator, the plex.tv client, the named
-    /// <see cref="PlexServerClient.ClientName"/> client, and the connection service.
+    /// <see cref="PlexServerClient.ClientName"/> client, the connection service, the partial-scan
+    /// updater and its health check.
     /// </summary>
     /// <param name="services">The service collection to extend.</param>
     /// <param name="configuration">Configuration to bind the <c>plex</c> section from.</param>
@@ -54,6 +59,16 @@ public static class PlexServiceCollectionExtensions
         services.AddScoped<IPlexClientIdentifier, PlexClientIdentifier>();
         services.AddScoped<IPlexServerClient, PlexServerClient>();
         services.AddScoped<IPlexConnectionService, PlexConnectionService>();
+
+        // One instance is the import handler, the hosted service and the interface adoption and the
+        // compact task ask for: the pending batch lives in it, so a second copy would scan twice.
+        services.AddSingleton<PlexLibraryUpdater>();
+        services.AddSingleton<IPlexLibraryUpdater>(provider => provider.GetRequiredService<PlexLibraryUpdater>());
+        services.AddSingleton<IHandle<SongImportedEvent>>(provider => provider.GetRequiredService<PlexLibraryUpdater>());
+        services.AddHostedService(provider => provider.GetRequiredService<PlexLibraryUpdater>());
+
+        // Scoped like the database check: reading the connection needs the scoped DbContext.
+        services.AddScoped<IHealthCheck, PlexHealthCheck>();
 
         return services;
     }
