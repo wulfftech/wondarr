@@ -231,7 +231,8 @@ def main() -> int:
         raise SystemExit(f"FAIL: {left} files still in the Match queue after resolving every one")
     log(f"ok   resolved the remaining {len(queue)} files in the Match queue")
 
-    queued = api.call("POST", "/api/v1/command", {"name": "ReferenceAdopt", "body": {"referenceLibraryId": reference["id"]}})
+    # The command endpoint hands the whole body to the handler, so the library id sits beside the name.
+    queued = api.call("POST", "/api/v1/command", {"name": "ReferenceAdopt", "referenceLibraryId": reference["id"]})
     wait_for_command(api, queued["id"], args.timeout_s, "ReferenceAdopt")
     reference = api.call("GET", f"/api/v1/referencelibrary/{reference['id']}")
     counts = reference["counts"]

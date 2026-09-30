@@ -193,7 +193,8 @@ export function useSongSearchCommand(): UseMutationResult<void, Error, number> {
   return useMutation({
     mutationFn: async (songId: number): Promise<void> => {
       const { response } = await client.POST('/api/v1/command', {
-        body: { name: 'SongSearch', body: JSON.stringify({ songId }) },
+        // The endpoint hands the whole body to the handler, so the song id sits beside the name.
+        body: { name: 'SongSearch', songId },
       });
 
       if (!response.ok) {
