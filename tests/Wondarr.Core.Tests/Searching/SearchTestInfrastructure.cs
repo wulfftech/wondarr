@@ -6,6 +6,8 @@ using Wondarr.Core.Blocklisting;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.History;
+using Wondarr.Core.Importing;
+using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
@@ -83,6 +85,9 @@ internal sealed class SearchTestHost : IAsyncDisposable
     /// <summary>The scoped database context the services share.</summary>
     public WondarrDbContext Context => _scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
+    /// <summary>Every <see cref="SongGrabbedEvent"/> the search published, in order.</summary>
+    public GrabbedEventRecorder Events => _services.GetRequiredService<GrabbedEventRecorder>();
+
     /// <summary>Builds a host over a fresh database.</summary>
     public static async Task<SearchTestHost> CreateAsync(Action<SearchOptions>? configure = null)
     {
@@ -109,6 +114,9 @@ internal sealed class SearchTestHost : IAsyncDisposable
         services.AddScoped<IBlocklistService, BlocklistService>();
         services.AddScoped<ISoulseekUserService, SoulseekUserService>();
         services.AddScoped<IHistoryService, HistoryService>();
+        services.AddSingleton<IEventAggregator, EventAggregator>();
+        services.AddSingleton<GrabbedEventRecorder>();
+        services.AddSingleton<IHandle<SongGrabbedEvent>>(provider => provider.GetRequiredService<GrabbedEventRecorder>());
         services.AddScoped<ISongSearchService, SongSearchService>();
 
         var built = services.BuildServiceProvider();
@@ -220,6 +228,36 @@ internal sealed class SearchTestHost : IAsyncDisposable
         _scope.Dispose();
         await _services.DisposeAsync();
         _database.Dispose();
+    }
+}
+
+/// <summary>Keeps every grab the search announced, so a test can tell "published" from "published twice".</summary>
+internal sealed class GrabbedEventRecorder : IHandle<SongGrabbedEvent>
+{
+    private readonly Lock _gate = new();
+    private readonly List<SongGrabbedEvent> _grabs = [];
+
+    /// <summary>The announcements received so far.</summary>
+    public IReadOnlyList<SongGrabbedEvent> Grabs
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _grabs];
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public Task HandleAsync(SongGrabbedEvent message, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            _grabs.Add(message);
+        }
+
+        return Task.CompletedTask;
     }
 }
 
