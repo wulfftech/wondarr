@@ -76,6 +76,13 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
                 unavailable++;
                 LogUnavailable(logger, libraryId, exception.Message);
             }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One library's failure (a database error, an unexpected IO fault) never costs the
+                // others their scan.
+                unavailable++;
+                LogScanFailed(logger, libraryId, exception);
+            }
         }
 
         return string.Concat(
@@ -151,4 +158,7 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Reference library {ReferenceLibraryId} was not scanned; the batch continues")]
     private static partial void LogUnavailable(ILogger logger, long referenceLibraryId, string message);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Scanning reference library {ReferenceLibraryId} failed; the batch continues")]
+    private static partial void LogScanFailed(ILogger logger, long referenceLibraryId, Exception exception);
 }

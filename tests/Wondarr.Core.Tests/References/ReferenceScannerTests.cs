@@ -281,6 +281,72 @@ public sealed class ReferenceScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_probe_that_failed_is_tried_again_on_the_next_scan_of_the_unchanged_file()
+    {
+        Write("song.mp3", "one");
+        _probe.ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => Task.FromException<MediaProbeResult>(new TimeoutException("ffprobe timed out")),
+                _ => Task.FromResult(new MediaProbeResult(
+                    true,
+                    new MediaInfo("mp3", "mp3", 320, 44100, null, 2, 210_000, false, 1024),
+                    null)));
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+
+        var first = await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+        first.Unreadable.Should().Be(1);
+
+        var second = await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        second.Unchanged.Should().Be(1);
+        second.Unreadable.Should().Be(0);
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync();
+        row.State.Should().Be(ReferenceFileState.Pending);
+        row.Message.Should().BeNull();
+        row.Probe.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task An_unchanged_unreadable_file_is_counted_as_unreadable_again()
+    {
+        Write("broken.mp3", "one");
+        _probe.ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+        var second = await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        second.Unreadable.Should().Be(1);
+        second.Changed.Should().Be(0);
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync()).State.Should().Be(ReferenceFileState.Unreadable);
+    }
+
+    [Fact]
+    public async Task An_unchanged_skipped_file_stays_skipped()
+    {
+        Write("a.mp3", "one");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        var row = await database.ReferenceFiles.SingleAsync();
+        row.State = ReferenceFileState.Skipped;
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync()).State.Should().Be(ReferenceFileState.Skipped);
+    }
+
+    [Fact]
     public async Task A_link_inside_the_root_is_not_followed()
     {
         Write("a.mp3", "one");
