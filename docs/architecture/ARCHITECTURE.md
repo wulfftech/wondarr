@@ -122,9 +122,9 @@ Notifier
 | `metadata_cache` | `provider`, `key`, `payload` (json), `fetched_at`, `ttl` |
 | `notification` | `type`, `name`, `settings` (json), `events` (json) |
 | `job` | `name`, `interval`, `last_run_at`, `next_run_at`, `last_result` |
-| `reference_library` | `name`, `root_path`, `mode` (reference/adopt), `library_id?` (target when adopting), `last_scanned_at` |
-| `reference_file` | `reference_library_id`, `path`, `size`, `mtime`, `probe` (json), `fingerprint?`, `song_id?`, `confidence`, `state` (identified/ambiguous/unmatched/adopted) |
-| `match_candidate` | `reference_file_id`, `identity` (json: mbid/isrc/deezer id), `score`, `reason` |
+| `reference_library` | `name` (unique, case-insensitive), `root_path`, `mode` (reference/adopt), `library_id?` (the managed library songs are filed under; the target when adopting), `enabled`, `last_scanned_at?`, `last_scan_message?` |
+| `reference_file` | `reference_library_id`, `relative_path` (`/`-separated, unique per library), `size`, `modified_at` (UTC), `probe?` (json), `tags?` (json), `fingerprint?`, `acoust_id?`, `song_id?`, `confidence`, `state` (pending/identified/ambiguous/unmatched/adopted/unreadable/missing/skipped), `identified_by?`, `message?`, `last_seen_at`, `missing_since?` |
+| `match_candidate` | `reference_file_id`, `rank` (1 = best), `identity` (json: source, recording MBID, Deezer id, title, artist credit, length, album), `score`, `reason` |
 | `slskd_state` | `version`, `logged_in`, `sharing`, `shared_dirs` (json), `restart_required`, `last_checked_at` |
 | `setting` | `key`, `value` (json) — general settings, API key, auth, url base |
 

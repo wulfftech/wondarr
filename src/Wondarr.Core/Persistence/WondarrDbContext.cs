@@ -80,6 +80,15 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the Soulseek peer reputation and ignore list.</summary>
     public DbSet<SoulseekUser> SoulseekUsers => Set<SoulseekUser>();
 
+    /// <summary>Gets the folders of songs the user already has.</summary>
+    public DbSet<ReferenceLibrary> ReferenceLibraries => Set<ReferenceLibrary>();
+
+    /// <summary>Gets the audio files of the reference libraries.</summary>
+    public DbSet<ReferenceFile> ReferenceFiles => Set<ReferenceFile>();
+
+    /// <summary>Gets the ranked identification candidates of the reference files.</summary>
+    public DbSet<MatchCandidate> MatchCandidates => Set<MatchCandidate>();
+
     /// <summary>
     /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
     /// Everything is stored as UTC; mark it so on the way out to keep arithmetic with
