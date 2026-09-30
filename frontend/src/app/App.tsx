@@ -9,6 +9,7 @@ import { AppLayout } from '../components/AppLayout';
 import { ActivityPage } from '../pages/ActivityPage';
 import { AddSongsPage } from '../pages/AddSongsPage';
 import { LibraryPage } from '../pages/LibraryPage';
+import { MatchQueuePage } from '../pages/MatchQueuePage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { StatusPage } from '../pages/system/StatusPage';
@@ -27,6 +28,7 @@ const ROUTES: RouteObject[] = [
       { path: 'library', element: <LibraryPage /> },
       { path: 'add', element: <AddSongsPage /> },
       { path: 'add/unresolved', element: <UnresolvedPage /> },
+      { path: 'match', element: <MatchQueuePage /> },
       { path: 'wanted', element: <WantedPage /> },
       { path: 'wanted/:tab', element: <WantedPage /> },
       { path: 'activity', element: <ActivityPage /> },
