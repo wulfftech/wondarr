@@ -1,8 +1,10 @@
 using System.Globalization;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Lyrics;
 using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -65,13 +67,19 @@ public sealed record OrganizeRequest(
 /// layout has no album folder, the library does not want one, there was no JPEG cover, or one was
 /// already there.
 /// </param>
+/// <param name="LyricsPath">
+/// The lyrics sidecar written beside the placed file, when this call wrote one; <see langword="null"/>
+/// when LRCLIB had nothing, the library does not want sidecars, or the file already had one of either
+/// kind.
+/// </param>
 public sealed record OrganizeResult(
     OrganizeFailure Failure,
     string? Error,
     string? FinalPath,
     string? RecycledPath,
     IReadOnlyDictionary<string, string> TagsWritten,
-    string? CoverJpgPath = null)
+    string? CoverJpgPath = null,
+    string? LyricsPath = null)
 {
     /// <summary>Gets a value indicating whether the file is in the library.</summary>
     public bool Success => Failure == OrganizeFailure.None && FinalPath is not null;
@@ -107,12 +115,20 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
 
     private static readonly IReadOnlyDictionary<string, string> NothingWritten = new Dictionary<string, string>();
 
+    /// <summary>The lookup used when there is nothing to ask LRCLIB about, or nothing wanted.</summary>
+    private static readonly LyricsLookup NoLyrics = new(LyricsLookupStatus.NotFound, null, null, null);
+
+    /// <summary>How a sidecar is encoded: UTF-8, and without a byte-order mark.</summary>
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+
     private readonly ITagWriter _tagWriter;
     private readonly IFilePlacer _placer;
     private readonly ICoverFetcher _coverFetcher;
     private readonly IDiskOperations _disk;
     private readonly WondarrDbContext _db;
     private readonly ICoverImageProcessor _coverProcessor;
+    private readonly ILrclibClient _lrclib;
+    private readonly IOptionsMonitor<LyricsOptions> _lyricsOptions;
     private readonly IOptionsMonitor<ImportOptions> _options;
     private readonly ILogger<LibraryOrganizer> _logger;
 
@@ -123,6 +139,8 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     /// <param name="disk">Stages the copy of a kept source and writes the folder's cover.</param>
     /// <param name="db">Reads the album contexts of the folder the file is landing in.</param>
     /// <param name="coverProcessor">Bounds the cover before it is embedded.</param>
+    /// <param name="lrclib">Asks LRCLIB for the track's lyrics; a failure there is never an import failure.</param>
+    /// <param name="lyricsOptions">Whether lyrics are looked up at all.</param>
     /// <param name="options">The permissions applied to the cover Wondarr writes.</param>
     /// <param name="logger">The logger.</param>
     public LibraryOrganizer(
@@ -132,6 +150,8 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         IDiskOperations disk,
         WondarrDbContext db,
         ICoverImageProcessor coverProcessor,
+        ILrclibClient lrclib,
+        IOptionsMonitor<LyricsOptions> lyricsOptions,
         IOptionsMonitor<ImportOptions> options,
         ILogger<LibraryOrganizer> logger)
     {
@@ -141,6 +161,8 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(coverProcessor);
+        ArgumentNullException.ThrowIfNull(lrclib);
+        ArgumentNullException.ThrowIfNull(lyricsOptions);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -150,6 +172,8 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         _disk = disk;
         _db = db;
         _coverProcessor = coverProcessor;
+        _lrclib = lrclib;
+        _lyricsOptions = lyricsOptions;
         _options = options;
         _logger = logger;
     }
@@ -182,6 +206,11 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
 
         try
         {
+            // Lyrics are a nicety, so they are asked for once, here, and every outcome other than a hit
+            // simply means the file carries no lyrics: the lookup cannot fail or delay the organize
+            // beyond the client's own bounded timeout.
+            var lyrics = await LookupLyricsAsync(request, cancellationToken).ConfigureAwait(false);
+
             // --- Tag ----------------------------------------------------------------------------
             var cover = await _coverFetcher
                 .FetchAsync(request.Album.CoverUrl, cancellationToken)
@@ -197,6 +226,13 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
             }
 
             var tags = TagSetBuilder.Build(request.Song, request.Album, request.Credits, request.AcoustId, cover);
+
+            if (lyrics.Status == LyricsLookupStatus.Found && !string.IsNullOrWhiteSpace(lyrics.PlainLyrics))
+            {
+                // The tag carries the unsynced text; the sidecar written below is what carries timing.
+                tags = tags with { Lyrics = lyrics.PlainLyrics };
+            }
+
             var tagResult = await _tagWriter.WriteAsync(workingPath, tags, cancellationToken).ConfigureAwait(false);
 
             if (!tagResult.Success)
@@ -252,13 +288,18 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
             // missing sidecar, never a failed import: the audio file stays exactly where it is.
             var coverJpg = WriteCoverJpg(request, placement.FinalPath, cover, sidecar);
 
+            // Likewise a missing sidecar, and never a failed import: sidecars are per file, so every
+            // layout gets them, album folder or not.
+            var lyricsSidecar = WriteLyricsSidecar(placement.FinalPath, lyrics, sidecar);
+
             return new OrganizeResult(
                 OrganizeFailure.None,
                 null,
                 placement.FinalPath,
                 placement.RecycledPath,
                 tagResult.Written,
-                coverJpg);
+                coverJpg,
+                lyricsSidecar);
         }
         finally
         {
@@ -413,7 +454,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
                 throw;
             }
 
-            ApplyCoverPermissions(target);
+            ApplyFilePermissions(target);
 
             return target;
         }
@@ -428,8 +469,109 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         }
     }
 
-    /// <summary>Gives the cover the configured file mode, as the placer does for the audio file.</summary>
-    private void ApplyCoverPermissions(string target)
+    /// <summary>
+    /// Asks LRCLIB for the track's lyrics, when the library wants them and the file's length is known.
+    /// The length is what makes a lookup a match rather than a guess, so a file with no measured
+    /// duration is not looked up at all.
+    /// </summary>
+    /// <param name="request">The file, the song it is and the library it goes into.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The lookup, or a miss when there was nothing to ask about.</returns>
+    private async Task<LyricsLookup> LookupLyricsAsync(
+        OrganizeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!_lyricsOptions.CurrentValue.Enabled
+            || request.Media.DurationMs <= 0
+            || string.IsNullOrWhiteSpace(request.Song.Title))
+        {
+            return NoLyrics;
+        }
+
+        return await _lrclib
+            .FindAsync(
+                request.Song.Title,
+                PrimaryArtist(request.Song, request.Credits).Name,
+                (int)Math.Round(request.Media.DurationMs / 1000.0),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Writes the lyrics sidecar beside the placed file, exactly as <see cref="WriteCoverJpg"/> writes
+    /// the folder's cover: through a half-written partial, never over a file that is already there, and
+    /// never at the cost of the import. A sidecar belongs to one track, so every layout gets one.
+    /// </summary>
+    /// <param name="finalPath">Where the file was placed; the sidecar goes beside it.</param>
+    /// <param name="lyrics">What LRCLIB answered.</param>
+    /// <param name="sidecar">The library's sidecar options.</param>
+    /// <returns>The path written, or <see langword="null"/> when nothing was written.</returns>
+    private string? WriteLyricsSidecar(
+        string finalPath,
+        LyricsLookup lyrics,
+        LibrarySidecarOptions sidecar)
+    {
+        if (lyrics.Status != LyricsLookupStatus.Found || !sidecar.Lyrics)
+        {
+            return null;
+        }
+
+        var target = LyricsSidecar.PathFor(finalPath, lyrics);
+
+        if (target is null)
+        {
+            return null;
+        }
+
+        // A user's own lyrics file wins, whichever extension ours would have used.
+        if (_disk.FileExists(Path.ChangeExtension(finalPath, LyricsSidecar.SyncedExtension))
+            || _disk.FileExists(Path.ChangeExtension(finalPath, LyricsSidecar.PlainExtension)))
+        {
+            return null;
+        }
+
+        // A name of its own per attempt, so two files landing at once never share a half-written
+        // sidecar, and only this call's own file is ever removed.
+        var partial = string.Concat(target, ".", Guid.NewGuid().ToString("N"), DiskOperations.PartialSuffix);
+
+        try
+        {
+            // UTF-8 without a BOM: a byte-order mark would show up as the first character of the lyrics.
+            _disk.WriteAllBytes(partial, Utf8NoBom.GetBytes(LyricsSidecar.ContentFor(lyrics)));
+
+            try
+            {
+                _disk.MoveFile(partial, target);
+            }
+            catch (IOException) when (_disk.FileExists(target))
+            {
+                // Another file of the same track wrote a sidecar between the check and the move.
+                DeletePartial(partial);
+
+                return null;
+            }
+            catch
+            {
+                DeletePartial(partial);
+
+                throw;
+            }
+
+            ApplyFilePermissions(target);
+
+            return target;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            DeletePartial(partial);
+            LogLyricsNotWritten(_logger, target, exception.Message);
+
+            return null;
+        }
+    }
+
+    /// <summary>Gives a sidecar the configured file mode, as the placer does for the audio file.</summary>
+    private void ApplyFilePermissions(string target)
     {
         var options = _options.CurrentValue;
 
@@ -497,4 +639,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
 
     [LoggerMessage(EventId = 2305, Level = LogLevel.Warning, Message = "Could not remove the half-written cover {Path}: {Reason}")]
     private static partial void LogPartialNotDeleted(ILogger logger, string path, string reason);
+
+    [LoggerMessage(EventId = 2306, Level = LogLevel.Warning, Message = "Could not write the lyrics sidecar {Path}: {Reason}")]
+    private static partial void LogLyricsNotWritten(ILogger logger, string path, string reason);
 }
