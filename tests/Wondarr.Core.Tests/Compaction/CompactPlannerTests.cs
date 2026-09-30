@@ -73,7 +73,7 @@ public class CompactPlannerTests : IDisposable
             move.To.AlbumKey.Should().Be("r1");
             move.To.Kind.Should().Be(AlbumContextKind.Album);
             move.ToPath.Should().NotBeNull();
-            move.ToPath.Should().StartWith("/data/music/Daft Punk/Random Access Memories/");
+            move.ToPath.Should().StartWith(Placed("Daft Punk/Random Access Memories/"));
         });
 
         // The plan says where each file goes, and the numbering comes from the release's own tracks.
@@ -82,10 +82,10 @@ public class CompactPlannerTests : IDisposable
             .Should()
             .BeEquivalentTo(
             [
-                "/data/music/Daft Punk/Random Access Memories/01 - Track 1.flac",
-                "/data/music/Daft Punk/Random Access Memories/02 - Track 2.flac",
-                "/data/music/Daft Punk/Random Access Memories/03 - Track 3.flac",
-                "/data/music/Daft Punk/Random Access Memories/04 - Track 4.flac",
+                Placed("Daft Punk/Random Access Memories/01 - Track 1.flac"),
+                Placed("Daft Punk/Random Access Memories/02 - Track 2.flac"),
+                Placed("Daft Punk/Random Access Memories/03 - Track 3.flac"),
+                Placed("Daft Punk/Random Access Memories/04 - Track 4.flac"),
             ]);
     }
 
@@ -169,7 +169,7 @@ public class CompactPlannerTests : IDisposable
 
         var moved = plan.Moves.Single(move => move.SongId == managed);
         moved.FromPath.Should().Be("/data/music/Daft Punk/Single 1/01 - Track 1.flac");
-        moved.ToPath.Should().Be("/data/music/Daft Punk/Random Access Memories/01 - Track 1.flac");
+        moved.ToPath.Should().Be(Placed("Daft Punk/Random Access Memories/01 - Track 1.flac"));
 
         // A reference file lives in the user's own folder, so the move only changes the album context.
         var borrowed = plan.Moves.Single(move => move.SongId == reference);
@@ -261,6 +261,13 @@ public class CompactPlannerTests : IDisposable
     }
 
     /// <summary>Deletes this test's temp database.</summary>
+    /// <summary>
+    /// Where the placer would put a file under the library root, joined the way it joins paths on the
+    /// machine running the test (a <c>/data/music</c> root gains a drive letter on Windows).
+    /// </summary>
+    private static string Placed(string relative) =>
+        Path.GetFullPath(Path.Combine("/data/music", relative.Replace('/', Path.DirectorySeparatorChar)));
+
     public void Dispose()
     {
         _database.Dispose();
