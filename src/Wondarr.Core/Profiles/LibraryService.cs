@@ -116,6 +116,7 @@ public sealed class LibraryService : ILibraryService
         stored.AlbumPolicy = library.AlbumPolicy;
         stored.MinTracksPerRealAlbum = library.MinTracksPerRealAlbum;
         stored.PlexSectionId = library.PlexSectionId;
+        stored.PlexLibraryPath = library.PlexLibraryPath;
         stored.IsDefault = library.IsDefault;
 
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
