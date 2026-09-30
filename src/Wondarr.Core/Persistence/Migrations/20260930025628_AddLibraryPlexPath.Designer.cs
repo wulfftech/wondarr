@@ -11,7 +11,7 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    [Migration("20260930025225_AddLibraryPlexPath")]
+    [Migration("20260930025628_AddLibraryPlexPath")]
     partial class AddLibraryPlexPath
     {
         /// <inheritdoc />
@@ -604,6 +604,54 @@ namespace Wondarr.Core.Persistence.Migrations
                             SidecarOptions = "{}",
                             UpdatedAt = new DateTime(2026, 9, 28, 0, 0, 0, 0, DateTimeKind.Utc)
                         });
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.MatchCandidate", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Identity")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("identity");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("rank");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("ReferenceFileId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("reference_file_id");
+
+                    b.Property<double>("Score")
+                        .HasColumnType("REAL")
+                        .HasColumnName("score");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_match_candidate");
+
+                    b.HasIndex("ReferenceFileId")
+                        .HasDatabaseName("ix_match_candidate_reference_file_id");
+
+                    b.ToTable("match_candidate", (string)null);
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.Quality", b =>
@@ -1406,6 +1454,163 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.ToTable("queue_item", (string)null);
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.ReferenceFile", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AcoustId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("acoust_id");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("REAL")
+                        .HasColumnName("confidence");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Fingerprint")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<string>("IdentifiedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("identified_by");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<string>("Message")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("message");
+
+                    b.Property<DateTime?>("MissingSince")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("missing_since");
+
+                    b.Property<DateTime>("ModifiedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("modified_at");
+
+                    b.Property<string>("Probe")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("probe");
+
+                    b.Property<long>("ReferenceLibraryId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("reference_library_id");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("relative_path");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("size");
+
+                    b.Property<long?>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<string>("Tags")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tags");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_reference_file");
+
+                    b.HasIndex("SongId")
+                        .HasDatabaseName("ix_reference_file_song_id");
+
+                    b.HasIndex("State")
+                        .HasDatabaseName("ix_reference_file_state");
+
+                    b.HasIndex("ReferenceLibraryId", "RelativePath")
+                        .IsUnique()
+                        .HasDatabaseName("ix_reference_file_reference_library_id_relative_path");
+
+                    b.ToTable("reference_file", (string)null);
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.ReferenceLibrary", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("Enabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true)
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("LastScanMessage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_scan_message");
+
+                    b.Property<DateTime?>("LastScannedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_scanned_at");
+
+                    b.Property<long?>("LibraryId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("library_id");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("Reference")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name")
+                        .UseCollation("NOCASE");
+
+                    b.Property<string>("RootPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("root_path");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_reference_library");
+
+                    b.HasIndex("LibraryId")
+                        .HasDatabaseName("ix_reference_library_library_id");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_reference_library_name");
+
+                    b.ToTable("reference_library", (string)null);
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.SearchRun", b =>
                 {
                     b.Property<long>("Id")
@@ -2096,6 +2301,18 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Navigation("Song");
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.MatchCandidate", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.ReferenceFile", "ReferenceFile")
+                        .WithMany("Candidates")
+                        .HasForeignKey("ReferenceFileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_match_candidate_reference_file_reference_file_id");
+
+                    b.Navigation("ReferenceFile");
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.QualityProfile", b =>
                 {
                     b.HasOne("Wondarr.Core.Domain.Quality", "CutoffQuality")
@@ -2134,6 +2351,37 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Navigation("Candidate");
 
                     b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.ReferenceFile", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.ReferenceLibrary", "ReferenceLibrary")
+                        .WithMany()
+                        .HasForeignKey("ReferenceLibraryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_reference_file_reference_library_reference_library_id");
+
+                    b.HasOne("Wondarr.Core.Domain.Song", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_reference_file_song_song_id");
+
+                    b.Navigation("ReferenceLibrary");
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.ReferenceLibrary", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.Library", "Library")
+                        .WithMany()
+                        .HasForeignKey("LibraryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_reference_library_library_library_id");
+
+                    b.Navigation("Library");
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.SearchRun", b =>
@@ -2219,6 +2467,11 @@ namespace Wondarr.Core.Persistence.Migrations
             modelBuilder.Entity("Wondarr.Core.Domain.ImportList", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.ReferenceFile", b =>
+                {
+                    b.Navigation("Candidates");
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.Song", b =>
