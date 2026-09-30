@@ -186,10 +186,9 @@ describe('LibraryPage', () => {
     });
 
     const post = sent().find((request) => request.method === 'POST');
-    const body = JSON.parse(await (post?.body ?? Promise.resolve('{}'))) as { name: string; body: string };
+    const body = JSON.parse(await (post?.body ?? Promise.resolve('{}'))) as { name: string; songId: number };
 
-    expect(body.name).toBe('SongSearch');
-    expect(JSON.parse(body.body)).toEqual({ songId: 12 });
+    expect(body).toEqual({ name: 'SongSearch', songId: 12 });
   });
 
   it('opens the interactive search for a song when its button is used', async () => {

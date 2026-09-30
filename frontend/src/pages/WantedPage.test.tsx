@@ -141,10 +141,9 @@ describe('WantedPage', () => {
     });
 
     const post = sent().find((request) => request.method === 'POST');
-    const body = JSON.parse(await (post?.body ?? Promise.resolve('{}'))) as { name: string; body: string };
+    const body = JSON.parse(await (post?.body ?? Promise.resolve('{}'))) as { name: string; songId: number };
 
-    expect(body.name).toBe('SongSearch');
-    expect(JSON.parse(body.body)).toEqual({ songId: 1 });
+    expect(body).toEqual({ name: 'SongSearch', songId: 1 });
     expect(await screen.findByText('Searching for Teardrop')).toBeInTheDocument();
     expect(mock.calls.some((call) => call.url.includes('/api/v1/wanted/missing'))).toBe(true);
   });
