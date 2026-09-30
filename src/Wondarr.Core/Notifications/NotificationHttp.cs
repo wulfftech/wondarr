@@ -94,7 +94,10 @@ public static class NotificationHttp
 
         try
         {
-            return await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            // Headers only: the body is never read, so an endpoint cannot make Wondarr buffer a large one.
+            return await client
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (NotificationSendException)
         {

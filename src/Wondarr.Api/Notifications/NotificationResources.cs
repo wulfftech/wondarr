@@ -28,14 +28,14 @@ public sealed record NotificationResource(
 /// </summary>
 /// <param name="Name">The display name.</param>
 /// <param name="Implementation">The provider's implementation name.</param>
-/// <param name="Enabled">Whether the dispatcher sends it.</param>
+/// <param name="Enabled">Whether the dispatcher sends it; left out, it is <see langword="true"/>, as a new notification is.</param>
 /// <param name="Events">The subscribed event names.</param>
 /// <param name="Settings">The provider's settings.</param>
 /// <param name="Id">The row a test is about, or <see langword="null"/>.</param>
 public sealed record NotificationInputResource(
     string? Name,
     string? Implementation,
-    bool Enabled,
+    bool? Enabled,
     IReadOnlyList<string>? Events,
     JsonNode? Settings,
     long? Id = null);
@@ -98,7 +98,7 @@ internal static class NotificationResourceMapper
         return new NotificationDraft(
             resource.Name ?? string.Empty,
             resource.Implementation ?? string.Empty,
-            resource.Enabled,
+            resource.Enabled ?? true,
             resource.Events ?? [],
             ToElement(resource.Settings),
             resource.Id);

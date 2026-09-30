@@ -3019,7 +3019,7 @@ export interface components {
         NotificationInputResource: {
             name: null | string;
             implementation: null | string;
-            enabled: boolean;
+            enabled: null | boolean;
             events: null | string[];
             settings: null | components["schemas"]["JsonNode"];
             /** Format: int64 */

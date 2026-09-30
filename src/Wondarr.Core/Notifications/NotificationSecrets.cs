@@ -64,10 +64,18 @@ public static class NotificationSecrets
 
             if (merged[field.Name] is JsonValue value &&
                 value.TryGetValue<string>(out var text) &&
-                string.Equals(text, Mask, StringComparison.Ordinal) &&
-                existing?[field.Name] is { } kept)
+                string.Equals(text, Mask, StringComparison.Ordinal))
             {
-                merged[field.Name] = kept.DeepClone();
+                // The mask stands for what is stored; with nothing stored it stands for nothing, and
+                // must never become the secret itself.
+                if (existing?[field.Name] is { } kept)
+                {
+                    merged[field.Name] = kept.DeepClone();
+                }
+                else
+                {
+                    merged.Remove(field.Name);
+                }
             }
         }
 

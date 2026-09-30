@@ -181,7 +181,7 @@ public sealed partial class NotificationService : INotificationService
             "Wondarr reached this endpoint; nothing else was sent.");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(NotificationHttp.SendTimeout);
+        timeout.CancelAfter(NotificationHttp.DeliveryBudget);
 
         try
         {
@@ -193,7 +193,7 @@ public sealed partial class NotificationService : INotificationService
         {
             return new NotificationTestResult(
                 false,
-                $"the endpoint did not answer within {(int)NotificationHttp.SendTimeout.TotalSeconds} seconds.");
+                $"the endpoint did not answer within {(int)NotificationHttp.DeliveryBudget.TotalSeconds} seconds.");
         }
         catch (NotificationSendException exception)
         {
