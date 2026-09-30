@@ -96,7 +96,10 @@ internal sealed class PlexConnectionHarness : IDisposable
     public SecretRegistry Secrets { get; } = new();
 
     /// <summary>The identifier service over a fresh context, the way one scope of the app gets it.</summary>
-    public IPlexClientIdentifier CreateIdentifier() => new PlexClientIdentifier(NewRepository());
+    public IPlexClientIdentifier CreateIdentifier() => new PlexClientIdentifier(NewRepository(), IdentifierState);
+
+    /// <summary>The app-wide identifier state, shared by every scope this fixture hands out.</summary>
+    public PlexClientIdentifierState IdentifierState { get; } = new();
 
     public PlexConnectionService CreateService(
         IPlexTvClient? tv = null,

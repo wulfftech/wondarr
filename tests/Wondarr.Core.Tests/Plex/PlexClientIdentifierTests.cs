@@ -16,9 +16,6 @@ public class PlexClientIdentifierTests
     [Fact]
     public async Task Eight_first_uses_at_once_generate_one_identifier_and_store_it_once()
     {
-        // The cache is process-wide, and this test starts from its own empty database.
-        PlexClientIdentifier.ResetCacheForTests();
-
         using var database = new SqliteTestDatabase();
         await database.MigrateAsync(TimeProvider.System);
 
@@ -29,9 +26,11 @@ public class PlexClientIdentifierTests
 
         try
         {
-            // Eight scopes, each with its own settings repository over the one database.
+            // Eight scopes, each with its own settings repository over the one database, sharing the
+            // app's one state as the container gives it to them.
+            var state = new PlexClientIdentifierState();
             var identifiers = contexts
-                .Select(context => new PlexClientIdentifier(new SettingsRepository(context)))
+                .Select(context => new PlexClientIdentifier(new SettingsRepository(context), state))
                 .ToArray();
 
             var values = await Task.WhenAll(identifiers.Select(
@@ -58,8 +57,6 @@ public class PlexClientIdentifierTests
     [Fact]
     public async Task An_identifier_already_stored_is_kept_rather_than_replaced()
     {
-        PlexClientIdentifier.ResetCacheForTests();
-
         using var database = new SqliteTestDatabase();
         await database.MigrateAsync(TimeProvider.System);
 
@@ -73,7 +70,7 @@ public class PlexClientIdentifierTests
 
         using var reader = database.CreateContext(TimeProvider.System);
 
-        var value = await new PlexClientIdentifier(new SettingsRepository(reader))
+        var value = await new PlexClientIdentifier(new SettingsRepository(reader), new PlexClientIdentifierState())
             .GetAsync(CancellationToken.None);
 
         value.Should().Be("stored-identifier");

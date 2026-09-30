@@ -21,39 +21,35 @@ public interface IPlexClientIdentifier
 /// </summary>
 public sealed class PlexClientIdentifier : IPlexClientIdentifier
 {
-    /// <summary>
-    /// Serialises get-or-create across the whole process: the class is registered per scope, so an
-    /// instance field would leave each scope free to generate its own identifier.
-    /// </summary>
-    private static readonly SemaphoreSlim Gate = new(1, 1);
-
-    private static volatile string? _cached;
-
     private readonly ISettingsRepository _repository;
+    private readonly PlexClientIdentifierState _state;
 
     /// <summary>Initialises a new instance of the <see cref="PlexClientIdentifier"/> class.</summary>
     /// <param name="repository">The settings table the identifier lives in.</param>
-    public PlexClientIdentifier(ISettingsRepository repository)
+    /// <param name="state">The app-wide lock and cache every scope's instance shares.</param>
+    public PlexClientIdentifier(ISettingsRepository repository, PlexClientIdentifierState state)
     {
         ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(state);
 
         _repository = repository;
+        _state = state;
     }
 
     /// <inheritdoc />
     public async Task<string> GetAsync(CancellationToken cancellationToken)
     {
-        if (_cached is { } cached)
+        if (_state.Cached is { } cached)
         {
             return cached;
         }
 
-        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _state.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
             // Re-read under the lock: another scope may have generated one while this one waited.
-            if (_cached is { } current)
+            if (_state.Cached is { } current)
             {
                 return current;
             }
@@ -72,19 +68,34 @@ public sealed class PlexClientIdentifier : IPlexClientIdentifier
                     .ConfigureAwait(false);
             }
 
-            _cached = settings.ClientIdentifier;
+            _state.Cached = settings.ClientIdentifier;
 
-            return _cached;
+            return settings.ClientIdentifier;
         }
         finally
         {
-            Gate.Release();
+            _state.Gate.Release();
         }
     }
+}
 
-    /// <summary>
-    /// Forgets the cached identifier. The cache is process-wide, so a test that starts from its own
-    /// empty database has to drop it first; production never has a second database to move to.
-    /// </summary>
-    internal static void ResetCacheForTests() => _cached = null;
+/// <summary>
+/// The lock and cache behind <see cref="PlexClientIdentifier"/>, registered as a singleton: the
+/// identifier service is scoped, so its own fields would leave each scope free to generate an
+/// identifier of its own. One per app (not a static) keeps two hosts in one process — the API tests —
+/// from sharing an identifier that belongs to another host's database.
+/// </summary>
+public sealed class PlexClientIdentifierState
+{
+    /// <summary>Gets the lock that serialises get-or-create.</summary>
+    internal SemaphoreSlim Gate { get; } = new(1, 1);
+
+    /// <summary>Gets or sets the identifier once read or generated.</summary>
+    internal string? Cached
+    {
+        get => Volatile.Read(ref _cached);
+        set => Volatile.Write(ref _cached, value);
+    }
+
+    private string? _cached;
 }

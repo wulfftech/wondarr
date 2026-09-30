@@ -50,6 +50,7 @@ public static class PlexServiceCollectionExtensions
         })
             .ConfigurePrimaryHttpMessageHandler(NoRedirects);
 
+        services.AddSingleton<PlexClientIdentifierState>();
         services.AddScoped<IPlexClientIdentifier, PlexClientIdentifier>();
         services.AddScoped<IPlexServerClient, PlexServerClient>();
         services.AddScoped<IPlexConnectionService, PlexConnectionService>();
