@@ -137,9 +137,18 @@ internal static class ReferenceOwnership
         var tracked = database.SongFiles.Local.FirstOrDefault(file =>
             file.SongId == songId && database.Entry(file).State != EntityState.Deleted);
 
-        return tracked ?? await database.SongFiles
+        if (tracked is not null)
+        {
+            return tracked;
+        }
+
+        var stored = await database.SongFiles
             .FirstOrDefaultAsync(file => file.SongId == songId)
             .ConfigureAwait(false);
+
+        // A row this chunk removed is still in the database until the save, and the query hands back
+        // its tracked, deleted instance: the song holds nothing any more.
+        return stored is not null && database.Entry(stored).State == EntityState.Deleted ? null : stored;
     }
 
     /// <summary>Writes what the probe measured and where the file came from onto a <c>song_file</c> row.</summary>

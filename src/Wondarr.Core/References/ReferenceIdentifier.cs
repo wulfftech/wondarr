@@ -62,6 +62,9 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
     /// <summary>How the file was identified from an artist and title search.</summary>
     public const string SearchTier = "search";
 
+    /// <summary>The score of an ISRC or text match whose length could not confirm it.</summary>
+    private const double UnconfirmedConfidence = 0.7;
+
     /// <summary>What a file's confidence counts as when the AcoustID score is not backed by its tags.</summary>
     private const double AcoustIdCap = 0.89;
 
@@ -169,6 +172,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         var unmatched = 0;
         var deferred = 0;
         var acoustIdDisabled = false;
+        var acoustIdDown = false;
         var scanned = 0;
 
         for (var start = 0; start < pending.Count; start += options.BatchSize)
@@ -182,10 +186,29 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var outcome = await IdentifyRowAsync(row, library.RootPath, options, acoustIdDisabled, cancellationToken)
-                    .ConfigureAwait(false);
+                PlannedRow outcome;
+
+                try
+                {
+                    outcome = await IdentifyRowAsync(
+                            row,
+                            library.RootPath,
+                            options,
+                            acoustIdDisabled,
+                            acoustIdDown,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // One file whose lookup threw (MusicBrainz down, a malformed answer) must not stop
+                    // every file behind it in path order: it stays pending and the next scan retries it.
+                    LogRowFailed(_logger, row.Id, exception);
+                    outcome = Deferred(row, library.RootPath, "identification failed; the next scan retries this file", null);
+                }
 
                 acoustIdDisabled |= outcome.DisableAcoustId;
+                acoustIdDown |= outcome.AcoustIdDown;
                 planned.Add(outcome);
             }
 
@@ -234,9 +257,15 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
             foreach (var row in planned.Where(row => row.State != RowState.Identified))
             {
-                await ReleaseAsync(row, null).ConfigureAwait(false);
+                // "We could not ask" says nothing about the file: a deferred row keeps the song it was
+                // linked to, so that song is not wanted (and searched) again before the retry.
+                if (row.State != RowState.Deferred)
+                {
+                    await ReleaseAsync(row, null).ConfigureAwait(false);
 
-                row.Row.SongId = null;
+                    row.Row.SongId = null;
+                }
+
                 row.Row.AcoustId = row.AcoustId;
                 row.Row.Fingerprint = row.Fingerprint;
 
@@ -361,6 +390,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         string rootPath,
         ReferenceOptions options,
         bool acoustIdDisabled,
+        bool acoustIdDown,
         CancellationToken cancellationToken)
     {
         var probe = Read<MediaInfo>(row.Probe);
@@ -416,25 +446,39 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         {
             var resolved = await _resolver.ResolveAsync(tags!.Isrc!, cancellationToken).ConfigureAwait(false);
 
-            if (resolved.Status == ResolveStatus.Resolved
-                && resolved.Identity is { } isrcIdentity
-                && WithinTolerance(isrcIdentity.DurationMs, probe.DurationMs, options.DurationToleranceMs)
-                && IsrcConfidence >= options.AutoAcceptThreshold)
+            if (resolved.Status == ResolveStatus.Resolved && resolved.Identity is { } isrcIdentity)
             {
-                return Identified(
-                    row,
-                    rootPath,
-                    isrcIdentity,
-                    IsrcConfidence,
-                    IsrcTier,
-                    acoustId ?? tags.AcoustId,
-                    fingerprint,
-                    disableAcoustId,
-                    probe);
+                // Only a length both sides know can confirm an ISRC: one ISRC is reused across edits.
+                if (LengthAgrees(isrcIdentity.DurationMs, probe.DurationMs, options.DurationToleranceMs)
+                    && IsrcConfidence >= options.AutoAcceptThreshold)
+                {
+                    return Identified(
+                        row,
+                        rootPath,
+                        isrcIdentity,
+                        IsrcConfidence,
+                        IsrcTier,
+                        acoustId ?? tags.AcoustId,
+                        fingerprint,
+                        disableAcoustId,
+                        probe);
+                }
+
+                candidates.Add(new RankedCandidate(
+                    MatchIdentity.From(isrcIdentity),
+                    UnconfirmedConfidence,
+                    "ISRC, length unknown or differs"));
             }
         }
 
         // --- Tier 3: the acoustic fingerprint ------------------------------------------------------
+        if (!acoustIdDisabled && acoustIdDown)
+        {
+            // AcoustID already said no earlier in this run: asking again per file only burns requests
+            // and fingerprinting time, so the file waits for the next scan without a call.
+            return Deferred(row, rootPath, "AcoustID unavailable; the next scan retries this file", null);
+        }
+
         if (!acoustIdDisabled)
         {
             var printed = await _fingerprinter
@@ -458,7 +502,8 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                     case AcoustIdStatus.Unavailable or AcoustIdStatus.RateLimited:
                         // "We could not ask" is not evidence the file is unidentifiable: the row stays
                         // pending and the next scan asks again.
-                        return Deferred(row, rootPath, "AcoustID unavailable; the next scan retries this file", fingerprint);
+                        return Deferred(row, rootPath, "AcoustID unavailable; the next scan retries this file", fingerprint)
+                            with { AcoustIdDown = true };
 
                     case AcoustIdStatus.NotConfigured or AcoustIdStatus.InvalidKey:
                         // A configuration problem, not this file's: the tier is skipped for the whole
@@ -514,8 +559,18 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
             var resolved = await _resolver.ResolveAsync(query, cancellationToken).ConfigureAwait(false);
 
             if (resolved.Status == ResolveStatus.Resolved
-                && resolved.Identity is { } searchIdentity
-                && WithinTolerance(searchIdentity.DurationMs, probe.DurationMs, options.DurationToleranceMs))
+                && resolved.Identity is { } unconfirmed
+                && !LengthAgrees(unconfirmed.DurationMs, probe.DurationMs, options.DurationToleranceMs))
+            {
+                // A text match whose length nobody knows (or that disagrees) is a suggestion, never an
+                // automatic identification: the artist and title may have come from the file name.
+                candidates.Add(new RankedCandidate(
+                    MatchIdentity.From(unconfirmed),
+                    UnconfirmedConfidence,
+                    string.Concat("search ", unconfirmed.MbRecordingId ?? query, ", length unknown or differs")));
+            }
+            else if (resolved.Status == ResolveStatus.Resolved
+                && resolved.Identity is { } searchIdentity)
             {
                 if (SearchConfidence >= options.AutoAcceptThreshold)
                 {
@@ -588,9 +643,23 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
             .GetIdentityAsync(chosen.Id, null, cancellationToken)
             .ConfigureAwait(false);
 
-        var reason = qualifying.Count > 0
-            ? string.Concat("AcoustID ", Score(confidence), ", title matches")
-            : string.Concat("AcoustID ", Score(confidence));
+        // The fingerprint is taken from the start of the file, which an extended mix, a radio edit or
+        // a live take can share with the album version: a length that disagrees caps the confidence,
+        // whatever the tags say. An unknown length on both sides says nothing either way.
+        var knownMs = identity?.DurationMs
+            ?? (chosen.DurationSeconds is { } seconds ? (int)Math.Round(seconds * 1000) : null);
+        var lengthDiffers = !WithinTolerance(knownMs, probe.DurationMs, options.DurationToleranceMs);
+
+        if (lengthDiffers)
+        {
+            confidence = Math.Min(confidence, AcoustIdCap);
+        }
+
+        var reason = string.Concat(
+            "AcoustID ",
+            Score(confidence),
+            qualifying.Count > 0 ? ", title matches" : string.Empty,
+            lengthDiffers ? ", length differs" : string.Empty);
 
         foreach (var recording in result.Recordings.Take(CandidateLimit))
         {
@@ -712,6 +781,12 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         }
     }
 
+    /// <summary>Whether both lengths are known and agree: what an ISRC or a text match needs to be accepted.</summary>
+    private static bool LengthAgrees(int? knownMs, int probedMs, int toleranceMs) =>
+        knownMs is not null
+        && probedMs > 0
+        && Math.Abs(knownMs.Value - probedMs) <= toleranceMs;
+
     /// <summary>Whether a known recording length lets the file be that recording.</summary>
     private static bool WithinTolerance(int? knownMs, int probedMs, int toleranceMs) =>
         knownMs is null
@@ -814,6 +889,9 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         string? Message,
         bool DisableAcoustId)
     {
+        /// <summary>Gets a value indicating whether AcoustID refused this run (rate limit, outage).</summary>
+        public bool AcoustIdDown { get; init; }
+
         /// <summary>The song the scanner kept on the row, which the file may no longer be.</summary>
         public long? OldSongId { get; init; } = Row.SongId;
     }
@@ -843,4 +921,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "AcoustID is unusable ({Status}); the fingerprint tier is skipped for this run")]
     private static partial void LogAcoustIdDisabled(ILogger logger, string status);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Identifying reference file {ReferenceFileId} failed; it stays pending")]
+    private static partial void LogRowFailed(ILogger logger, long referenceFileId, Exception exception);
 }
