@@ -11,7 +11,7 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    [Migration("20260930115058_Notifications")]
+    [Migration("20260930122244_Notifications")]
     partial class Notifications
     {
         /// <inheritdoc />
@@ -82,6 +82,12 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<string>("OriginalDate")
                         .HasColumnType("TEXT")
                         .HasColumnName("original_date");
+
+                    b.Property<bool>("Pinned")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false)
+                        .HasColumnName("pinned");
 
                     b.Property<long>("SongId")
                         .HasColumnType("INTEGER")
