@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Wondarr.Core.Persistence;
 
@@ -10,9 +11,11 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    partial class WondarrDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260930122244_Notifications")]
+    partial class Notifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
@@ -337,70 +340,6 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasDatabaseName("ix_candidate_song_id_blocklist_key");
 
                     b.ToTable("candidate", (string)null);
-                });
-
-            modelBuilder.Entity("Wondarr.Core.Domain.CompactMoveRecord", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("FinalPath")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("final_path");
-
-                    b.Property<string>("FromPath")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("from_path");
-
-                    b.Property<long>("LibraryId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("library_id");
-
-                    b.Property<string>("Message")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("message");
-
-                    b.Property<string>("Proposed")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValue("{}")
-                        .HasColumnName("proposed");
-
-                    b.Property<long>("SongId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("song_id");
-
-                    b.Property<string>("StagedPath")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("staged_path");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("state");
-
-                    b.Property<string>("ToPath")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("to_path");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id")
-                        .HasName("pk_compact_move");
-
-                    b.HasIndex("LibraryId", "State")
-                        .HasDatabaseName("ix_compact_move_library_id_state");
-
-                    b.ToTable("compact_move", (string)null);
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.HistoryItem", b =>

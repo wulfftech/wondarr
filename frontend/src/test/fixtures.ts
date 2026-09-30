@@ -621,3 +621,188 @@ export const LIBRARY_PLEX_LINKED = {
   plexSectionId: '3',
   plexLibraryPath: '/music',
 };
+
+/**
+ * The notification providers and the settings form each one wants, as `GET
+ * /api/v1/notification/schema` sends it. The Webhook's headers are the one advanced field, so a page
+ * that ignores `advanced` puts them beside the URL.
+ */
+export const NOTIFICATION_SCHEMA = [
+  {
+    implementation: 'Webhook',
+    fields: [
+      {
+        name: 'url',
+        label: 'URL',
+        type: 'url',
+        required: true,
+        helpText: 'Where the JSON body is sent.',
+        options: null,
+        secret: false,
+        advanced: false,
+      },
+      {
+        name: 'method',
+        label: 'Method',
+        type: 'select',
+        required: false,
+        helpText: 'Which HTTP method to submit with.',
+        options: ['POST', 'PUT'],
+        secret: false,
+        advanced: false,
+      },
+      {
+        name: 'username',
+        label: 'Username',
+        type: 'text',
+        required: false,
+        helpText: 'For HTTP basic authentication.',
+        options: null,
+        secret: false,
+        advanced: false,
+      },
+      {
+        name: 'password',
+        label: 'Password',
+        type: 'password',
+        required: false,
+        helpText: 'For HTTP basic authentication.',
+        options: null,
+        secret: true,
+        advanced: false,
+      },
+      {
+        name: 'headers',
+        label: 'Headers',
+        type: 'keyValueList',
+        required: false,
+        helpText: 'Extra headers to send, as name/value pairs.',
+        options: null,
+        secret: false,
+        advanced: true,
+      },
+    ],
+  },
+  {
+    implementation: 'Discord',
+    fields: [
+      {
+        name: 'webHookUrl',
+        label: 'Webhook URL',
+        type: 'url',
+        required: true,
+        helpText: "The channel's webhook URL.",
+        options: null,
+        secret: true,
+        advanced: false,
+      },
+      {
+        name: 'username',
+        label: 'Username',
+        type: 'text',
+        required: false,
+        helpText: "The name to post as, if not Discord's default.",
+        options: null,
+        secret: false,
+        advanced: false,
+      },
+      {
+        name: 'avatar',
+        label: 'Avatar',
+        type: 'url',
+        required: false,
+        helpText: 'The avatar URL to post the message with.',
+        options: null,
+        secret: false,
+        advanced: false,
+      },
+    ],
+  },
+  {
+    implementation: 'Apprise',
+    fields: [
+      {
+        name: 'serverUrl',
+        label: 'Server URL',
+        type: 'url',
+        required: true,
+        helpText: 'The Apprise API server, including http(s):// and the port.',
+        options: null,
+        secret: false,
+        advanced: false,
+      },
+    ],
+  },
+];
+
+/**
+ * Two stored notifications. The Discord one's webhook URL reads back masked, which is what the form
+ * shows as its placeholder and what a save that leaves it alone sends back.
+ */
+export const NOTIFICATIONS = [
+  {
+    id: 1,
+    name: 'Home webhook',
+    implementation: 'Webhook',
+    enabled: true,
+    events: ['grab', 'import'],
+    settings: { url: 'https://hooks.example.com/wondarr', method: 'POST', username: null, password: null, headers: [] },
+  },
+  {
+    id: 2,
+    name: 'Discord alerts',
+    implementation: 'Discord',
+    enabled: false,
+    events: ['failure'],
+    settings: { webHookUrl: '********', username: null, avatar: null },
+  },
+];
+
+/**
+ * What `GET /api/v1/library/1/compact` would do: one song whose file moves with it and one that only
+ * changes album, so the table shows both the paths and the "album only" case.
+ */
+export const COMPACT_PLAN = {
+  libraryId: 1,
+  albumsBefore: 4,
+  albumsAfter: 2,
+  songsConsidered: 12,
+  moves: [
+    {
+      songId: 12,
+      title: 'Get Lucky',
+      artistCredit: 'Daft Punk',
+      from: { albumKey: 'singles', kind: 'pseudoSingles', albumTitle: 'Singles', albumArtist: 'Daft Punk' },
+      to: {
+        albumKey: '9c1b3a2f-random-access-memories',
+        kind: 'album',
+        albumTitle: 'Random Access Memories',
+        albumArtist: 'Daft Punk',
+      },
+      fromPath: '/data/music/Daft Punk/Singles/08 - Get Lucky.flac',
+      toPath: '/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac',
+    },
+    {
+      songId: 13,
+      title: 'Xtal',
+      artistCredit: 'Aphex Twin',
+      from: { albumKey: 'singles', kind: 'pseudoSingles', albumTitle: 'Singles', albumArtist: 'Aphex Twin' },
+      to: {
+        albumKey: 'selected-ambient-works',
+        kind: 'album',
+        albumTitle: 'Selected Ambient Works',
+        albumArtist: 'Aphex Twin',
+      },
+      fromPath: null,
+      toPath: null,
+    },
+  ],
+};
+
+/** The same dry run for a library that is already where the policy would put it. */
+export const COMPACT_PLAN_EMPTY = {
+  ...COMPACT_PLAN,
+  albumsBefore: 2,
+  albumsAfter: 2,
+  moves: [],
+};
