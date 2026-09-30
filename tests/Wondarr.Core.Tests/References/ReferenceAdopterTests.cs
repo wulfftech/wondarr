@@ -240,6 +240,38 @@ public sealed class ReferenceAdopterTests : IDisposable
     }
 
     [Fact]
+    public async Task An_organizer_that_throws_fails_that_file_and_the_next_one_is_still_adopted()
+    {
+        await using var context = await ContextAsync();
+        var (target, reference) = await LibrariesAsync(context, ReferenceLibraryMode.Adopt);
+        var artist = await ArtistAsync(context);
+
+        var first = await SongAsync(context, artist.Id, target.Id, title: "First");
+        var firstRow = await ReferenceFileAsync(context, reference.Id, first.Id, "a/first.flac");
+        await SongFileAsync(context, first.Id, AbsolutePath(firstRow.RelativePath), SourceTypes.Reference);
+
+        var second = await SongAsync(context, artist.Id, target.Id, title: "Second");
+        var secondRow = await ReferenceFileAsync(context, reference.Id, second.Id, "b/second.flac");
+        await SongFileAsync(context, second.Id, AbsolutePath(secondRow.RelativePath), SourceTypes.Reference);
+        context.ChangeTracker.Clear();
+
+        // The user deleted the original after the scan: the organizer's staging copy throws.
+        _organizer.Handler = request => request.Song.Id == first.Id
+            ? throw new FileNotFoundException("Could not find file 'first.flac'.")
+            : null;
+
+        var result = await Adopter(context).AdoptAsync(reference.Id, null, CancellationToken.None);
+
+        result.Should().Be(new ReferenceAdoptResult(1, 0, 1));
+
+        var failed = await RowAsync(context, firstRow.Id);
+        failed.State.Should().Be(ReferenceFileState.Identified);
+        failed.Message.Should().StartWith("adoption failed: Could not find file");
+        (await RowAsync(context, secondRow.Id)).State.Should().Be(ReferenceFileState.Adopted);
+        _events.Of<SongImportedEvent>().Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task A_song_without_an_album_context_fails_with_a_message()
     {
         await using var context = await ContextAsync();

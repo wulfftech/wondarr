@@ -131,6 +131,7 @@ public sealed partial class ReferenceAdopter(
             if (song is null || file is null || !Owns(row, absolutePath, file))
             {
                 LogNotAdoptable(logger, row.Id, absolutePath);
+                database.ChangeTracker.Clear();
                 skipped++;
                 continue;
             }
@@ -190,7 +191,11 @@ public sealed partial class ReferenceAdopter(
 
             // KeepSource is the whole promise of adoption: the organizer stages a copy of the file and
             // files that, and the user's own file is only ever read.
-            var placement = await organizer
+            OrganizeResult placement;
+
+            try
+            {
+                placement = await organizer
                 .OrganizeAsync(
                     new OrganizeRequest(
                         song,
@@ -207,6 +212,19 @@ public sealed partial class ReferenceAdopter(
                         ReplacesPath: null),
                     cancellationToken)
                 .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The organizer throws for what it cannot even start on — the original moved or
+                // deleted since the scan (the staging copy fails), a song without credits. That file
+                // fails; the files behind it are still adopted.
+                LogOrganizeFailed(logger, row.Id, exception);
+                database.ChangeTracker.Clear();
+
+                failed++;
+                await MarkFailedAsync(row.Id, exception.Message, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
 
             if (!placement.Success || placement.FinalPath is null)
             {
@@ -239,6 +257,7 @@ public sealed partial class ReferenceAdopter(
                 file.Channels = media.Channels;
                 file.DurationMs = media.DurationMs;
                 file.QualityId = measured;
+                file.AcoustId = row.AcoustId ?? file.AcoustId;
                 file.SourceType = SourceTypes.Adopted;
                 file.SourceRef = JsonSerializer.Serialize(
                     new AdoptedSource(library.Id, row.Id, absolutePath),
@@ -285,10 +304,17 @@ public sealed partial class ReferenceAdopter(
 
             adopted++;
 
+            var songId = song.Id;
+            var fileId = file.Id;
+
+            // Every file is saved on its own and never touched again, so the tracker lets go of it:
+            // a library of tens of thousands of files would otherwise make every save slower.
+            database.ChangeTracker.Clear();
+
             // The share rescan and the Plex partial scan follow a song that gained a library file,
             // exactly as they do after an import.
             await events
-                .PublishAsync(new SongImportedEvent(song.Id, file.Id, Upgraded: false), cancellationToken)
+                .PublishAsync(new SongImportedEvent(songId, fileId, Upgraded: false), cancellationToken)
                 .ConfigureAwait(false);
 
             if (progress is not null && adopted % ProgressEvery == 0)
@@ -335,6 +361,7 @@ public sealed partial class ReferenceAdopter(
         row.Message = string.Concat("adoption failed: ", error);
 
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        database.ChangeTracker.Clear();
     }
 
     private static T? Read<T>(string? json)
@@ -365,6 +392,9 @@ public sealed partial class ReferenceAdopter(
         Level = LogLevel.Debug,
         Message = "Reference file {ReferenceFileId} ({Path}) is not the file its song holds; left as it is.")]
     private static partial void LogNotAdoptable(ILogger logger, long referenceFileId, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Adopting reference file {ReferenceFileId} failed; the next file is still adopted")]
+    private static partial void LogOrganizeFailed(ILogger logger, long referenceFileId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Recording the adoption of reference file {ReferenceFileId} failed")]
     private static partial void LogRecordFailed(ILogger logger, long referenceFileId, Exception exception);
