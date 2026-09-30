@@ -13,8 +13,10 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
+import { usePlexSections, usePlexState } from '../../api/plex';
 import {
   ALBUM_POLICIES,
   LIBRARY_LAYOUTS,
@@ -40,6 +42,7 @@ const KNOWN_FIELDS = new Set([
   'albumPolicy',
   'minTracksPerRealAlbum',
   'plexSectionId',
+  'plexLibraryPath',
   'isDefault',
 ]);
 
@@ -178,6 +181,134 @@ function NamingTemplateField({
   );
 }
 
+/** The `localStorage` key the one-time Plex notice is remembered under, one per library. */
+const PLEX_NOTICE_KEY_PREFIX = 'wondarr.plexNotice.dismissed.';
+
+/**
+ * Whether this library's Plex notice has been dismissed, and how to dismiss it. The flag is read
+ * once per mount, so a dismissal survives re-renders and reloads; a browser that refuses storage
+ * (`localStorage` throws rather than being absent) only keeps it for the session.
+ */
+function usePlexNoticeDismissal(libraryId: number): { dismissed: boolean; dismiss: () => void } {
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(`${PLEX_NOTICE_KEY_PREFIX}${libraryId}`) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const dismiss = () => {
+    setDismissed(true);
+
+    try {
+      localStorage.setItem(`${PLEX_NOTICE_KEY_PREFIX}${libraryId}`, '1');
+    } catch {
+      // No storage: the notice comes back with the next reload, which is the safe way to fail.
+    }
+  };
+
+  return { dismissed, dismiss };
+}
+
+/**
+ * The Plex block of one library: the music section it feeds, where Plex sees its root folder, and
+ * the one-time notice about the scanner's "Prefer local metadata" setting (LIBRARY_OUTPUT §7.2).
+ */
+function PlexBlock({
+  libraryId,
+  rootPath,
+  layout,
+  sectionId,
+  libraryPath,
+  onSectionId,
+  onLibraryPath,
+}: {
+  libraryId: number;
+  rootPath: string;
+  layout: LibraryLayoutName;
+  sectionId: string | null;
+  libraryPath: string;
+  onSectionId: (id: string | null) => void;
+  onLibraryPath: (path: string) => void;
+}) {
+  const navigate = useNavigate();
+  const plex = usePlexState();
+  const hasServer = plex.data?.serverUrl != null;
+  const sections = usePlexSections(hasServer);
+  const notice = usePlexNoticeDismissal(libraryId);
+
+  // The scanner keys on the folder, so the section's own first location is the placeholder the
+  // user's answer is compared against.
+  const locations = new Map((sections.data ?? []).map((section) => [section.key, section.locations[0] ?? null]));
+  const placeholder = sectionId === null ? null : (locations.get(sectionId) ?? null);
+
+  return (
+    <Stack gap="xs">
+      <Text fw={600}>Plex</Text>
+
+      {!notice.dismissed && (
+        <Alert
+          color="yellow"
+          icon={<TriangleAlert size={16} />}
+          withCloseButton
+          closeButtonLabel="Dismiss"
+          onClose={notice.dismiss}
+        >
+          Plex groups and names albums by their tags only when <strong>Prefer local metadata</strong> is on. Turn it on
+          (and <strong>Use local assets</strong>) in the Plex library&apos;s advanced settings before the first scan, or
+          Plex may rename or split albums.
+          {(layout === 'flat' || layout === 'artist') && ' A flat or artist-only layout depends on it completely.'}
+        </Alert>
+      )}
+
+      {hasServer ? (
+        <>
+          <Select
+            label="Plex music section"
+            placeholder={sections.isPending ? 'Loading sections…' : 'Not linked'}
+            data={(sections.data ?? []).map((section) => ({ value: section.key, label: section.title }))}
+            value={sectionId}
+            disabled={sections.isPending}
+            clearable
+            onChange={onSectionId}
+            renderOption={({ option }) => (
+              <Stack gap={0}>
+                <Text size="sm">{option.label}</Text>
+                <Text size="xs" c="dimmed">
+                  {locations.get(option.value) ?? ''}
+                </Text>
+              </Stack>
+            )}
+          />
+
+          {sections.error !== null && (
+            <Text size="xs" c="red">
+              {sections.error.message}
+            </Text>
+          )}
+
+          <TextInput
+            label="Library folder as Plex sees it"
+            description={`Where ${rootPath} is mounted inside the Plex server, e.g. /music. Leave empty when Plex sees the same path.`}
+            placeholder={placeholder ?? undefined}
+            value={libraryPath}
+            onChange={(event) => onLibraryPath(event.currentTarget.value)}
+          />
+        </>
+      ) : (
+        <Text size="sm" c="dimmed">
+          Connect Plex in{' '}
+          <Anchor component="button" type="button" onClick={() => void navigate('/settings/plex')}>
+            Settings → Plex
+          </Anchor>{' '}
+          to link this library to a Plex section
+        </Text>
+      )}
+    </Stack>
+  );
+}
+
 /**
  * One library's form. It is mounted with `key={library.id}`, so a refetch that replaces the library
  * starts the fields from the stored values again rather than keeping edits that never saved.
@@ -190,6 +321,8 @@ function LibraryForm({ library }: { library: LibraryResource }) {
   const [namingTemplate, setNamingTemplate] = useState(library.namingTemplate);
   const [albumPolicy, setAlbumPolicy] = useState<AlbumPolicyName>(readEnum<AlbumPolicyName>(library.albumPolicy));
   const [minTracks, setMinTracks] = useState<number | string>(library.minTracksPerRealAlbum);
+  const [plexSectionId, setPlexSectionId] = useState<string | null>(library.plexSectionId ?? null);
+  const [plexLibraryPath, setPlexLibraryPath] = useState(library.plexLibraryPath ?? '');
 
   const fields = save.error instanceof ValidationError ? save.error.fields : {};
   const general = Object.entries(fields).filter(([field]) => !KNOWN_FIELDS.has(field));
@@ -205,6 +338,9 @@ function LibraryForm({ library }: { library: LibraryResource }) {
       namingTemplate,
       albumPolicy,
       minTracksPerRealAlbum: Number(minTracks),
+      plexSectionId,
+      // An emptied field means "Plex sees the same path", which the API stores as null.
+      plexLibraryPath: plexLibraryPath.trim() === '' ? null : plexLibraryPath,
     } as unknown as LibraryResource;
 
     save.mutate(body, {
@@ -275,6 +411,16 @@ function LibraryForm({ library }: { library: LibraryResource }) {
           onChange={setMinTracks}
         />
       )}
+
+      <PlexBlock
+        libraryId={Number(library.id)}
+        rootPath={rootPath}
+        layout={layout}
+        sectionId={plexSectionId}
+        libraryPath={plexLibraryPath}
+        onSectionId={setPlexSectionId}
+        onLibraryPath={setPlexLibraryPath}
+      />
 
       {general.map(([field, message]) => (
         <Alert key={field} color="red" icon={<CircleAlert size={16} />} title={field}>

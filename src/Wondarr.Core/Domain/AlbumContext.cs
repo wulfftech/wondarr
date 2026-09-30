@@ -65,6 +65,12 @@ public sealed class AlbumContext : EntityBase
     /// </summary>
     public bool Sticky { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the user chose this album explicitly; the Compact task
+    /// never re-plans a pinned song, and the album it sits in is kept so other songs can still join it.
+    /// </summary>
+    public bool Pinned { get; set; }
+
     /// <summary>Gets or sets the song being filed.</summary>
     public Song Song { get; set; } = null!;
 }

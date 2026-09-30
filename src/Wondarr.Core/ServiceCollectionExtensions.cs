@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using Wondarr.Core.Authentication;
 using Wondarr.Core.Blocklisting;
+using Wondarr.Core.Compaction;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.HealthCheck;
@@ -150,6 +151,10 @@ public static class ServiceCollectionExtensions
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();
+
+        // The Compact library task's dry run: it re-plans through the song service and reads the files
+        // it would move, in the same scope as they are.
+        services.AddScoped<ICompactPlanner, CompactPlanner>();
         services.AddScoped<IArtistService, ArtistService>();
 
         // The read side of the song lifecycle: wanted lists, history and the blocklist.

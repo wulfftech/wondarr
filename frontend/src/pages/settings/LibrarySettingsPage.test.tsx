@@ -1,7 +1,14 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HEALTH_ENTRIES, LIBRARIES, SYSTEM_STATUS } from '../../test/fixtures';
+import {
+  HEALTH_ENTRIES,
+  LIBRARIES,
+  PLEX_SECTIONS,
+  PLEX_STATE_SIGNED_IN,
+  PLEX_STATE_SIGNED_OUT,
+  SYSTEM_STATUS,
+} from '../../test/fixtures';
 import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../../test/helpers';
 
 beforeEach(() => {
@@ -54,7 +61,11 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
 
 function install(
   preview: () => Response = () => jsonResponse({ path: 'Music/Wondarr - Get Lucky.m4a', errors: [] }),
+  options: { library?: unknown; plexState?: unknown } = {},
 ): FetchMock {
+  const library = options.library ?? LIBRARIES[0];
+  const plexState = options.plexState ?? PLEX_STATE_SIGNED_OUT;
+
   return installFetch((url) => {
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
@@ -68,9 +79,17 @@ function install(
       return preview();
     }
 
+    if (url.includes('/api/v1/plex/sections')) {
+      return jsonResponse(PLEX_SECTIONS);
+    }
+
+    if (url.endsWith('/api/v1/plex')) {
+      return jsonResponse(plexState);
+    }
+
     if (url.includes('/api/v1/library')) {
       // The collection answers with every library; the item endpoint with the one that was saved.
-      return url.includes('/api/v1/library/') ? jsonResponse(LIBRARIES[0]) : jsonResponse(LIBRARIES);
+      return url.includes('/api/v1/library/') ? jsonResponse(library) : jsonResponse([library]);
     }
 
     return new Response('not found', { status: 404 });
@@ -119,6 +138,105 @@ describe('LibrarySettingsPage', () => {
     await pickOption(user, 'Album policy', 'Singles only');
 
     expect(screen.queryByLabelText('Minimum tracks per real album')).toBeNull();
+  });
+});
+
+describe('LibrarySettingsPage Plex', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('links a Plex section and records where Plex sees the library root', async () => {
+    install(undefined, { plexState: PLEX_STATE_SIGNED_IN });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+    // The block waits for the Plex state, so the picker is not there on the first render.
+    await screen.findByLabelText('Plex music section', { selector: 'input' });
+    await pickOption(user, 'Plex music section', 'Music');
+
+    // The chosen section's own first location is the placeholder the answer is compared against.
+    expect(screen.getByLabelText('Library folder as Plex sees it')).toHaveAttribute('placeholder', '/music');
+    expect(
+      screen.getByText(
+        'Where /data/music is mounted inside the Plex server, e.g. /music. Leave empty when Plex sees the same path.',
+      ),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Library folder as Plex sees it'), '/music');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const put = sent().find((request) => request.method === 'PUT');
+      const body: unknown = put === undefined ? null : JSON.parse(await put.body);
+
+      expect(body).toMatchObject({ plexSectionId: '3', plexLibraryPath: '/music' });
+    });
+  });
+
+  it('points at Settings → Plex while no server is selected', async () => {
+    install();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    expect(screen.getByText(/Connect Plex in/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Settings → Plex' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Plex music section')).toBeNull();
+  });
+
+  it('warns about Prefer local metadata for a library Plex would scan', async () => {
+    install();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    expect(screen.getByText(/Plex groups and names albums by their tags only when/)).toBeInTheDocument();
+    expect(screen.getByText(/may rename or split albums/)).toBeInTheDocument();
+    expect(screen.queryByText(/A flat or artist-only layout depends on it completely\./)).toBeNull();
+  });
+
+  it('adds the flat-layout warning to the notice', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], layout: 'flat' } });
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    expect(screen.getByText(/A flat or artist-only layout depends on it completely\./)).toBeInTheDocument();
+  });
+
+  it('adds the artist-layout warning to the notice', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], layout: 'artist' } });
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    expect(screen.getByText(/A flat or artist-only layout depends on it completely\./)).toBeInTheDocument();
+  });
+
+  it('remembers a dismissed notice for the library', async () => {
+    install();
+    const user = userEvent.setup();
+
+    const { unmount } = renderApp();
+
+    await screen.findByDisplayValue('Music');
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    expect(screen.queryByText(/Plex groups and names albums/)).toBeNull();
+
+    unmount();
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    expect(screen.queryByText(/Plex groups and names albums/)).toBeNull();
   });
 });
 

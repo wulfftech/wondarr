@@ -85,7 +85,22 @@ public interface ISongService
     /// <returns>The updated song, or <see langword="null"/> when the id is unknown.</returns>
     /// <exception cref="ArgumentException">The key is not one of the song's release options.</exception>
     Task<Song?> SetAlbumContextAsync(long songId, string albumKey, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Re-plans every song of a library under its album policy as if none were placed yet, and returns
+    /// what each one would become. Nothing is written: the plan is a proposal for the Compact task.
+    /// </summary>
+    /// <param name="libraryId">The library to re-plan.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>One proposal per re-planned song, in song id order.</returns>
+    /// <exception cref="KeyNotFoundException">The library does not exist.</exception>
+    Task<IReadOnlyList<ReplannedSong>> ReplanLibraryAsync(long libraryId, CancellationToken cancellationToken);
 }
+
+/// <summary>The album context a re-plan would give one song. The row is new and untracked: nothing is saved.</summary>
+/// <param name="SongId">The song the proposal is for.</param>
+/// <param name="Proposed">The album context that would replace the song's stored one.</param>
+public sealed record ReplannedSong(long SongId, AlbumContext Proposed);
 
 /// <summary>
 /// Turns resolved identities into songs (ARCHITECTURE §5.4). One batch is planned as a whole: the album
@@ -406,9 +421,150 @@ public sealed partial class SongService : ISongService
         }
 
         ApplyAssignment(context, assignment, cover);
+
+        // The user named this album, so the Compact task leaves it alone — and keeps the album itself,
+        // so the other songs of the library can still be planned into it.
+        context.Pinned = true;
+
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return song;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ReplannedSong>> ReplanLibraryAsync(
+        long libraryId,
+        CancellationToken cancellationToken)
+    {
+        var library = await _database.Libraries
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == libraryId, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new KeyNotFoundException(
+                $"Library {libraryId.ToString(CultureInfo.InvariantCulture)} does not exist.");
+
+        // A pinned song keeps the album the user chose, and a song with no album context was never
+        // placed at all: neither is re-planned.
+        var songs = await _database.Songs
+            .AsNoTracking()
+            .Include(song => song.PrimaryArtist)
+            .Include(song => song.AlbumContext)
+            .Where(song => song.LibraryId == libraryId && song.AlbumContext != null && !song.AlbumContext.Pinned)
+            .OrderBy(song => song.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var identities = new Dictionary<long, SongIdentity>();
+        var places = new List<SongToPlace>(songs.Count);
+        var planned = new List<PlannedSong>(songs.Count);
+
+        foreach (var song in songs)
+        {
+            if (song.MbRecordingId is null && song.DeezerId is null)
+            {
+                continue;
+            }
+
+            var identity = await _resolver
+                .GetIdentityAsync(song.MbRecordingId, song.DeezerId, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (identity is null)
+            {
+                continue;
+            }
+
+            var reference = song.Id.ToString(CultureInfo.InvariantCulture);
+
+            identities[song.Id] = identity;
+            places.Add(new SongToPlace
+            {
+                Ref = reference,
+                ArtistKey = song.PrimaryArtistId.ToString(CultureInfo.InvariantCulture),
+                ArtistName = song.PrimaryArtist.Name,
+                OriginalDate = identity.OriginalDate,
+                Flags = identity.Flags,
+                Options = identity.ReleaseOptions,
+            });
+            planned.Add(new PlannedSong(reference, 0, identity, song.PrimaryArtist));
+        }
+
+        if (places.Count == 0)
+        {
+            return [];
+        }
+
+        // Ignoring stickiness means handing the engine only the albums whose key must survive as it is:
+        // the ones a pinned song holds, plus the library's pseudo-album and compilation album, so those
+        // keep their synthetic keys instead of being given new ones. Every real album of a non-pinned
+        // song is deliberately left out — that is what re-planning from scratch looks like.
+        var libraryAlbums = await LoadLibraryAlbumsAsync(libraryId, cancellationToken).ConfigureAwait(false);
+        var pinnedKeys = await LoadPinnedAlbumKeysAsync(libraryId, cancellationToken).ConfigureAwait(false);
+
+        var kept = libraryAlbums.Albums
+            .Where(album => pinnedKeys.Contains(album.AlbumKey)
+                || album.Kind == AlbumContextKind.PseudoSingles
+                || (album.Kind == AlbumContextKind.Compilation && album.IsVariousArtists))
+            .ToList();
+
+        var assignments = _albumPolicy.Assign(new AlbumPolicyInput
+        {
+            Policy = library.AlbumPolicy,
+            MinTracksPerRealAlbum = library.MinTracksPerRealAlbum,
+            LibraryName = library.Name,
+            Songs = places,
+            ExistingAlbums = kept,
+        });
+
+        var assignmentByRef = new Dictionary<string, AlbumAssignment>(StringComparer.Ordinal);
+        var releases = new Dictionary<string, MbRelease?>(StringComparer.Ordinal);
+
+        foreach (var assignment in assignments)
+        {
+            var identity = identities[long.Parse(assignment.SongRef, CultureInfo.InvariantCulture)];
+
+            assignmentByRef[assignment.SongRef] = await WithTrackNumbersAsync(
+                assignment,
+                identity,
+                cancellationToken,
+                releases).ConfigureAwait(false);
+        }
+
+        var covers = await ResolveCoversAsync(planned, assignmentByRef, libraryAlbums, cancellationToken)
+            .ConfigureAwait(false);
+
+        var replanned = new List<ReplannedSong>(places.Count);
+
+        foreach (var place in places)
+        {
+            var assignment = assignmentByRef[place.Ref];
+
+            // A new row that is never attached to the context: the caller reads the proposal, and the
+            // change tracker is left exactly as it was.
+            var context = new AlbumContext { SongId = long.Parse(place.Ref, CultureInfo.InvariantCulture) };
+
+            ApplyAssignment(context, assignment, covers[assignment.AlbumKey]);
+            context.Pinned = false;
+
+            replanned.Add(new ReplannedSong(context.SongId, context));
+        }
+
+        LogReplanned(_logger, replanned.Count, libraryId);
+
+        return replanned;
+    }
+
+    /// <summary>The album keys a pinned song holds: the albums a re-plan must not plan away.</summary>
+    private async Task<HashSet<string>> LoadPinnedAlbumKeysAsync(long libraryId, CancellationToken cancellationToken)
+    {
+        var keys = await _database.AlbumContexts
+            .AsNoTracking()
+            .Where(context => context.Song.LibraryId == libraryId && context.Pinned)
+            .Select(context => context.AlbumKey)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return new HashSet<string>(keys, StringComparer.Ordinal);
     }
 
     /// <summary>The release options an explicit album choice is planned against.</summary>
@@ -1044,6 +1200,9 @@ public sealed partial class SongService : ISongService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Added {Added} songs, {Existing} already present")]
     private static partial void LogBatch(ILogger logger, int added, int existing);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Re-planned {Count} songs of library {LibraryId}")]
+    private static partial void LogReplanned(ILogger logger, int count, long libraryId);
 
     /// <summary>An album the library holds, as the policy engine reads it, plus the covers to reuse.</summary>
     private sealed record LibraryAlbums(
