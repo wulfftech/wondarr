@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Persistence;
 
@@ -47,10 +48,13 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
 
         var totals = new ReferenceScanResult(0, 0, 0, 0, 0, 0);
         var identified = new ReferenceIdentifyResult(0, 0, 0, 0);
+        var adopted = new ReferenceAdoptResult(0, 0, 0);
         var unavailable = 0;
 
-        foreach (var libraryId in libraries)
+        foreach (var library in libraries)
         {
+            var libraryId = library.Id;
+
             // A library that cannot be scanned must not stop the batch, and a scope of its own keeps its
             // half-written rows out of the next library's context.
             using var scope = scopes.CreateScope();
@@ -93,6 +97,31 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
                 {
                     LogIdentifyFailed(logger, libraryId, exception);
                 }
+
+                // Adoption follows identification in the same scope, for a library the user asked to
+                // adopt from: the rows just identified are the ones it hands over. An adoption that
+                // fails only costs this library its adoptions.
+                if (library.Mode == ReferenceLibraryMode.Adopt)
+                {
+                    try
+                    {
+                        var adopter = scope.ServiceProvider.GetRequiredService<IReferenceAdopter>();
+                        var outcome = await adopter
+                            .AdoptAsync(libraryId, context.ReportProgressAsync, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        adopted = adopted with
+                        {
+                            Adopted = adopted.Adopted + outcome.Adopted,
+                            Skipped = adopted.Skipped + outcome.Skipped,
+                            Failed = adopted.Failed + outcome.Failed,
+                        };
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        LogAdoptFailed(logger, libraryId, exception);
+                    }
+                }
             }
             catch (ReferenceLibraryUnavailableException exception)
             {
@@ -130,14 +159,20 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
             identified.Unmatched.ToString(CultureInfo.InvariantCulture),
             " unmatched, ",
             identified.Deferred.ToString(CultureInfo.InvariantCulture),
-            " deferred",
+            " deferred, ",
+            adopted.Adopted.ToString(CultureInfo.InvariantCulture),
+            " adopted, ",
+            adopted.Skipped.ToString(CultureInfo.InvariantCulture),
+            " skipped, ",
+            adopted.Failed.ToString(CultureInfo.InvariantCulture),
+            " failed",
             unavailable > 0
                 ? string.Concat(", ", unavailable.ToString(CultureInfo.InvariantCulture), " unavailable")
                 : string.Empty);
     }
 
     /// <summary>The libraries to scan: the one named, or every enabled one, in id order.</summary>
-    private async Task<List<long>> SelectAsync(long? requested, CancellationToken cancellationToken)
+    private async Task<List<LibraryToScan>> SelectAsync(long? requested, CancellationToken cancellationToken)
     {
         using var scope = scopes.CreateScope();
         var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
@@ -146,10 +181,15 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
             .AsNoTracking()
             .Where(library => requested == null ? library.Enabled : library.Id == requested)
             .OrderBy(library => library.Id)
-            .Select(library => library.Id)
+            .Select(library => new LibraryToScan(library.Id, library.Mode))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
+
+    /// <summary>One library of a batch: which one, and what the scan may do with its files.</summary>
+    /// <param name="Id">The library's id.</param>
+    /// <param name="Mode">Whether its identified files are handed over to the target library.</param>
+    private sealed record LibraryToScan(long Id, ReferenceLibraryMode Mode);
 
     /// <summary>The library a scan body names, or <see langword="null"/> for "every enabled library".</summary>
     private static long? ReadLibraryId(string? body)
@@ -195,4 +235,7 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Identifying the files of reference library {ReferenceLibraryId} failed; the batch continues")]
     private static partial void LogIdentifyFailed(ILogger logger, long referenceLibraryId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Adopting the files of reference library {ReferenceLibraryId} failed; the batch continues")]
+    private static partial void LogAdoptFailed(ILogger logger, long referenceLibraryId, Exception exception);
 }
