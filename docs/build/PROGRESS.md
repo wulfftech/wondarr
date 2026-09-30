@@ -200,3 +200,30 @@ ok   5 wrong file(s) caught and replaced without user action
 | P3-04 | Adoption | done | deepseek/deepseek-v4.1-flash | ~0.17 | One run. Reviewer agent FIX-FIRST: an exception from the organizer (the original deleted since the scan, a song without credits) stopped every later file of the library; the change tracker grew for the whole run → per-file catch, tracker cleared after every file. Copy only (`DECISIONS.md` build session 4 #5); the original's hash and mtime are asserted unchanged |
 | P3-03 | Reference-library API and the Match queue | done | deepseek/deepseek-v4.1-flash | ~0.25 | The worker hit its turn cap with everything written but uncommitted and three red tests (the scan body in PascalCase, the queue sorted descending by default, a wrong expectation) → finished by the orchestrator. Reviewer agent FIX-FIRST on the tests: the generated OpenAPI/TS files were stale (would have dropped the Plex endpoints), the "never touches the file" test hashed a file outside the library, the delete test could not tell the source-type guard from the null-ref guard → regenerated after merging, both tests rewritten (malformed source refs survive a delete) |
 | P3-11 | Frontend: Settings → Reference libraries and the Match queue page | done | deepseek/deepseek-v4.1-flash | ~0.25 | One run (the plan's P3-11a and P3-11b as one task). The worker found that `POST /api/v1/command` hands the **whole** body to the handler, so a command's parameters sit beside `name` — which exposed a Phase 2 bug: the automatic-search button (Queue, Library, Wanted pages) nested `songId` as a JSON string and every search it started failed; fixed with its three tests, and the Phase 3 gate's adopt call corrected the same way. Merged as is |
+| P3-13 | Phase 3 gate automation (CI) and the live checks | done (partly) | orchestrator | — | `scripts/phase3-gate.py` + the Phase 3 stage of `scripts/smoke-test.sh` (same container as Phase 2; `phase2-scenario.py --dropped-out` hands over the songs it deleted); 50 new replay recordings (cover art for adopted songs, one lookup) made with `SMOKE_METADATA=record` on `ch01`; the smoke test's imports no longer call LRCLIB unless `SMOKE_LYRICS=live`. The live run found a real bug (below) |
+| — | Not started (budget) | open | — | — | P3-12a (Settings → Plex; spec committed, updated with the live finding), P3-09a/b (Compact library), P3-10a/b (notifications), P3-12b (their UI). The key has USD 0.23 left |
+
+### Phase 3 gate — automated part PASS (2026-09-30); live part mostly demonstrated
+
+**CI** (`scripts/smoke-test.sh`, Phase 3 stage, replayed metadata, FakeSlskd's AcoustID stand-in; green on `0d90e6e`): a 34-file reference folder built inside the container from real encoded audio — 24 files tagged the way Picard tags (layered `Artist/Album/NN - Title`, recording MBID), 3 with only title/artist (flat `Artist - Title`), 2 untagged with meaningless names, 5 second copies of songs the library already holds — added in adopt mode and scanned:
+
+```
+ok   built 34 reference files in /data/reference ({'mbid': 24, 'text': 3, 'junk': 2, 'duplicate': 5})
+     scan: 34 files: 34 added, 0 changed, 0 unchanged, 0 missing, 0 unreadable in 78 s
+ok   32/34 identified automatically (94%)
+ok   resolved the remaining 2 files in the Match queue
+ok   29 files adopted (5 duplicates left identified)
+ok   every adopted song has a file; 86 new files under /data/music
+ok   the reference folder is byte-for-byte unchanged
+PHASE 3 GATE: PASS
+```
+
+**Live on `ch01`** (the published `develop` image, `SMOKE_LYRICS=live` so LRCLIB is real): the same result after one fix. The first live run adopted 28 of 29: `Oasis - Wonderwall.flac` failed with "Tag read-back verification failed for: Lyrics" — LRCLIB serves some records with a leading and trailing newline and ATL trims Vorbis comments on read, so **every FLAC import or adoption whose lyrics started or ended with a blank line failed**; the tag writer now writes lyrics trimmed with `\n` line endings (regression test over every format).
+
+**Fresh Plex Music library** (a throwaway, unclaimed Plex Media Server 1.43.4 on `ch01`, the adopted + imported library mounted read-only, a new Music section scanned): 47 artists, 47 albums, 47 tracks; **no split albums** (no artist with the same album title twice); every album is the artist's own "Singles" pseudo-album (one track each — the deliberate singles of the Plexamp preset; this library has one song per artist); **45 of 47 tracks carry a local lyrics stream** (`lrc`, provider `localmedia`) — exactly the 44 `.lrc` + 1 `.txt` sidecars written. One finding: with "Prefer local metadata" off, Plex's online agent renamed Massive Attack's "Singles" to "Singles Collection"; with `respectTags=1` and a refresh the tagged title came back → the notice now applies to every layout (`DECISIONS.md` build session 4 #9, `LIBRARY_OUTPUT.md` §7.2 item 2a, P3-12a spec).
+
+**Not yet demonstrated:** (1) the gate's **500-file** folder — CI and `ch01` use 34 generated files; a real 500-file folder of the owner's music is the remaining live check (the live instance now runs Phase 3, see below); (2) **Plexamp showing** the local lyrics — Plex exposes them as local lyrics streams (what Plexamp reads), but Plexamp's display needs a Plex Pass client and was not checked; (3) Wondarr's own Plex partial scan against a real server (unit-tested against recorded responses; the throwaway server was scanned directly).
+
+**Live instance:** `wondarr-test` on `ch01` redeployed on `ghcr.io/wulfftech/wondarr:develop` (`0d90e6e`) with its volumes (migrations applied; database backed up to `config/wondarr.db.pre-phase3.bak`; the previous container kept stopped as `wondarr-test-p2` for a rollback).
+
+**Worker spend, Phase 3:** USD 2.15 (key usage 7.62 → 9.77; 11 runs, per-task estimates sum to ≈ 2.02). The key's lifetime limit is still USD 10: USD 0.23 left.
