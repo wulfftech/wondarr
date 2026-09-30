@@ -8,6 +8,8 @@ using Wondarr.Core.Blocklisting;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.History;
+using Wondarr.Core.Importing;
+using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
@@ -146,6 +148,7 @@ public sealed partial class SongSearchService : ISongSearchService
     private readonly IBlocklistService _blocklist;
     private readonly ISoulseekUserService _users;
     private readonly IHistoryService _history;
+    private readonly IEventAggregator _events;
     private readonly IOptionsMonitor<SearchOptions> _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SongSearchService> _logger;
@@ -159,6 +162,7 @@ public sealed partial class SongSearchService : ISongSearchService
     /// <param name="blocklist">The blocklist, checked before every grab.</param>
     /// <param name="users">The Soulseek peer reputation and ignore list.</param>
     /// <param name="history">The song lifecycle log.</param>
+    /// <param name="events">The aggregator a successful grab is announced on.</param>
     /// <param name="options">The search limits.</param>
     /// <param name="timeProvider">The clock used to stamp the run.</param>
     /// <param name="logger">The logger.</param>
@@ -171,6 +175,7 @@ public sealed partial class SongSearchService : ISongSearchService
         IBlocklistService blocklist,
         ISoulseekUserService users,
         IHistoryService history,
+        IEventAggregator events,
         IOptionsMonitor<SearchOptions> options,
         TimeProvider timeProvider,
         ILogger<SongSearchService> logger)
@@ -183,6 +188,7 @@ public sealed partial class SongSearchService : ISongSearchService
         ArgumentNullException.ThrowIfNull(blocklist);
         ArgumentNullException.ThrowIfNull(users);
         ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -195,6 +201,7 @@ public sealed partial class SongSearchService : ISongSearchService
         _blocklist = blocklist;
         _users = users;
         _history = history;
+        _events = events;
         _options = options;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -668,6 +675,12 @@ public sealed partial class SongSearchService : ISongSearchService
 
             throw;
         }
+
+        // Announce the grab only once it is on disk and the handle is recorded. Handlers are isolated
+        // by the aggregator, so this cannot fail the grab, and it is deliberately the last thing here.
+        await _events
+            .PublishAsync(new SongGrabbedEvent(item.Id, record.SongId), cancellationToken)
+            .ConfigureAwait(false);
 
         return item.Id;
     }

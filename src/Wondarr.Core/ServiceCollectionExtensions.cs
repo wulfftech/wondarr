@@ -11,6 +11,8 @@ using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.Notifications;
+using Wondarr.Core.Notifications.Webhook;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
@@ -77,6 +79,27 @@ public static class ServiceCollectionExtensions
         services.AddTransient<IDownloadVerifier, DownloadVerifier>();
 
         services.AddSingleton<IEventAggregator, EventAggregator>();
+
+        // Notifications: the providers are stateless, the dispatcher is one instance (the four event
+        // handles and the hosted service must be the same object, because the queue lives in it), and
+        // the CRUD service reads and writes the scoped DbContext.
+        services.AddSingleton<INotificationProvider, WebhookProvider>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddSingleton<NotificationDispatcher>();
+        services.AddSingleton<IHandle<SongGrabbedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
+        services.AddSingleton<IHandle<SongImportedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
+        services.AddSingleton<IHandle<QueueItemChangedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
+        services.AddSingleton<IHandle<HealthCheckCompletedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
+        services.AddHostedService(provider => provider.GetRequiredService<NotificationDispatcher>());
+
+        // One client for every provider. No redirects (a webhook URL may carry a token, and following
+        // one would hand it to whoever the far end names) and no cookie jar (each send is independent).
+        services.AddHttpClient(NotificationHttp.ClientName, client => client.Timeout = NotificationHttp.SendTimeout)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                UseCookies = false,
+            });
 
         // Stateless apart from ATL's global settings, and it only touches the file it is handed.
         services.AddSingleton<ITagWriter, TagWriter>();
