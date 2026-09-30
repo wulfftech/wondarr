@@ -75,7 +75,7 @@ public sealed partial class WebhookProvider : INotificationProvider
             "Headers",
             "keyValueList",
             Required: false,
-            HelpText: "Extra headers to send, as name/value pairs.",
+            HelpText: "Extra headers to send, as name/value pairs. Their values are shown in full here; put credentials in Username and Password, which are not.",
             Advanced: true),
     ];
 

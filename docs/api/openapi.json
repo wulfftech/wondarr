@@ -3760,7 +3760,10 @@
             ]
           },
           "enabled": {
-            "type": "boolean"
+            "type": [
+              "null",
+              "boolean"
+            ]
           },
           "events": {
             "type": [
