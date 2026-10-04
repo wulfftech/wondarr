@@ -4,7 +4,7 @@
 
 Conceptually it is Sonarr/Radarr/Lidarr for **one song at a time** — which Lidarr cannot do, by design (its unit is the album).
 
-> **Status (2026-09-28):** Phase 0 (skeleton, auth, jobs, UI shell, bundled slskd, image, CI) and Phase 1 (song identity: MusicBrainz/Deezer resolution, album policy, add-by-search with previews, pasted lists, Wanted/History/Blocklist, quality profiles) are done; the project was renamed from *Compilarr* to *Wondarr* (Phase 1a). Phase 2 (the Soulseek source and the import pipeline) is next. See `docs/HANDOVER.md` if you are picking this up, and `CLAUDE.md` if you are an AI coding session.
+> **Status (2026-09-28):** Phase 0 (skeleton, auth, jobs, UI shell, bundled slskd, image, CI) and Phase 1 (song identity: MusicBrainz/Deezer resolution, album policy, add-by-search with previews, pasted lists, Wanted/History/Blocklist, quality profiles) are done; the project was renamed from *Compilarr* to *Wondarr* (Phase 1a). Phase 2 (the Soulseek source and the import pipeline) is next. See `docs/HANDOVER.md` if you are picking this up, and `AGENTS.md` if you are an AI coding session.
 
 ## Quick start (Docker)
 
@@ -23,7 +23,7 @@ Then open **http://localhost:1077**. Persistent state lives in `/config`, the li
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Prerequisites, build/test commands, repository map and contribution rules |
 | [`NOTICE.md`](NOTICE.md) | Ported-code attributions and the third-party programs bundled in the image |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
-| [`CLAUDE.md`](CLAUDE.md) | Instructions for AI coding sessions: the orchestrator/worker build workflow, rules, commands |
+| [`AGENTS.md`](AGENTS.md) | Instructions for AI coding sessions: the orchestrator/worker build workflow, rules, commands |
 | [`docs/HANDOVER.md`](docs/HANDOVER.md) | Where things stand and exactly how to start the next session |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) · [`docs/adr/`](docs/adr/) | Every decision taken with the owner, and the architectural ones as ADRs |
 | [`docs/product/PRODUCT.md`](docs/product/PRODUCT.md) · [`GOALS.md`](docs/product/GOALS.md) · [`RISKS.md`](docs/product/RISKS.md) | What we are building, what we are not, and the risk register |
