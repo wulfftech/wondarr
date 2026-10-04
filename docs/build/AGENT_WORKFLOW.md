@@ -75,7 +75,7 @@ OpenRouter model availability and prices change monthly, so the model id is conf
 
 - No merge without green build, tests, lint and typecheck run by the orchestrator.
 - Ported code has attribution headers and a `NOTICE.md` entry; AGPL code is never copied.
-- Workers cannot modify `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, or `.env*`; the worker system prompt says so and the orchestrator checks the diff for it.
+- Workers cannot modify `AGENTS.md`, `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, or `.env*`; the worker system prompt says so and the orchestrator checks the diff for it.
 - Secrets never appear in diffs, reports or commit messages.
 - Every task's done-report is kept until the phase closes; disagreements between report and diff are resolved by the diff.
 

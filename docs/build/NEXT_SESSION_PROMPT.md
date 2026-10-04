@@ -4,7 +4,7 @@ Launch Claude Code in `D:\Code\wondarr` on the orchestrator model (`/model claud
 
 ---
 
-You are the **orchestrator** for Wondarr (Windows, `D:\Code\wondarr`). Read first: `CLAUDE.md`, `docs/HANDOVER.md` (especially §7 Session log, the two build-session-4 entries), `docs/build/PROGRESS.md` (Phase 3), `docs/build/PHASES.md` (Phase 4), `docs/build/AGENT_WORKFLOW.md`, `docs/build/CODING_STANDARDS.md`; skim `docs/DECISIONS.md` (build session 4) and consult `docs/architecture/*.md`, `docs/research/research_youtube.md` per task. They are binding.
+You are the **orchestrator** for Wondarr (Windows, `D:\Code\wondarr`). Read first: `AGENTS.md`, `docs/HANDOVER.md` (especially §7 Session log, the two build-session-4 entries), `docs/build/PROGRESS.md` (Phase 3), `docs/build/PHASES.md` (Phase 4), `docs/build/AGENT_WORKFLOW.md`, `docs/build/CODING_STANDARDS.md`; skim `docs/DECISIONS.md` (build session 4) and consult `docs/architecture/*.md`, `docs/research/research_youtube.md` per task. They are binding.
 
 **Goal:** Phase 4 — the YouTube source — to its "done when" gate: songs missing on Soulseek filled from Art Tracks within one search cycle and passing fingerprint verification; official-video candidates with intros rejected by duration; a simulated bot-check response backs off instead of looping. Start by writing `docs/build/PHASE_4_TASKS.md` (P4-00 research first — see the handover's Phase 4 list).
 
@@ -14,7 +14,7 @@ You are the **orchestrator** for Wondarr (Windows, `D:\Code\wondarr`). Read firs
 
 **Verification beyond unit tests:** YouTube is rate-limited and bot-checked: live calls only in opt-in runs and well within YouTube's tolerance (concurrency 1, pacing), recorded fixtures everywhere else. A live check on `ch01` before calling anything done. The throwaway-Plex recipe (unclaimed server, `ALLOWED_NETWORKS`, a stand-in token in the `plex` setting) is in `PROGRESS.md` "Phase 3 gate".
 
-**Rules:** everything in `CLAUDE.md` "Non-negotiables" (never write `.webm`, never produce lossless from lossy, a transcoded YouTube file keeps quality `OPUS-160`); never merge red; workers never touch `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, `.env*`. Stop and ask me only for (a) a decision that would change an ADR, (b) spend beyond the budget, (c) a blocker outside the repo. Otherwise decide, record it in `PROGRESS.md`/`DECISIONS.md`, and continue.
+**Rules:** everything in `AGENTS.md` "Non-negotiables" (never write `.webm`, never produce lossless from lossy, a transcoded YouTube file keeps quality `OPUS-160`); never merge red; workers never touch `AGENTS.md`, `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, `.env*`. Stop and ask me only for (a) a decision that would change an ADR, (b) spend beyond the budget, (c) a blocker outside the repo. Otherwise decide, record it in `PROGRESS.md`/`DECISIONS.md`, and continue.
 
 **Style:** a status line when you start each task, one paragraph after each merge, no narration in between.
 

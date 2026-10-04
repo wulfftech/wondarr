@@ -33,7 +33,7 @@ python scripts/worker.py run docs/build/tasks/P0-01.md
 python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md
 ```
 
-These are exactly the commands listed under "Commands" in [`CLAUDE.md`](CLAUDE.md), plus `scripts/smoke-test.sh`. If you add a script, add it to that list instead of inventing a parallel one.
+These are exactly the commands listed under "Commands" in [`AGENTS.md`](AGENTS.md), plus `scripts/smoke-test.sh`. If you add a script, add it to that list instead of inventing a parallel one.
 
 ## Repository map
 
@@ -78,4 +78,4 @@ Product decisions get a dated entry in [`docs/DECISIONS.md`](docs/DECISIONS.md);
 
 ## AI-assisted development
 
-Most implementation is delegated to cheap worker sessions driven by [`scripts/worker.py`](scripts/worker.py) (headless `claude -p` against OpenRouter, or the `worker` subagent), which work in a git worktree on a self-contained task file under `docs/build/tasks/` and have no design authority. The orchestrator session owns specs, review, verification and commits. If you are an AI session picking this up, read [`CLAUDE.md`](CLAUDE.md) and [`docs/build/AGENT_WORKFLOW.md`](docs/build/AGENT_WORKFLOW.md) first.
+Most implementation is delegated to cheap worker sessions driven by [`scripts/worker.py`](scripts/worker.py) (headless `claude -p` against OpenRouter, or the `worker` subagent), which work in a git worktree on a self-contained task file under `docs/build/tasks/` and have no design authority. The orchestrator session owns specs, review, verification and commits. If you are an AI session picking this up, read [`AGENTS.md`](AGENTS.md) and [`docs/build/AGENT_WORKFLOW.md`](docs/build/AGENT_WORKFLOW.md) first.

@@ -41,9 +41,9 @@ Sanity check before delegating anything: `python scripts/worker.py --dry-run run
 - Optional: qBittorrent/SABnzbd/Prowlarr test instances for Phase 7.
 - Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), the OpenRouter key (lifetime limit USD 10 as of 2026-09-30; USD 9.77 used after build session 4), worker caps (100 turns / 60 min).
 
-## 5. What not to do (the short list; full list in `CLAUDE.md`)
+## 5. What not to do (the short list; full list in `AGENTS.md`)
 
-Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not write `.webm` or fake lossless; do not exceed the Soulseek search budget; do not put secrets or AI identifiers in commits; do not let workers edit decisions, ADRs, `CLAUDE.md`, `.claude/`, workflows or `.env*`; do not merge red.
+Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not write `.webm` or fake lossless; do not exceed the Soulseek search budget; do not put secrets or AI identifiers in commits; do not let workers edit decisions, ADRs, `AGENTS.md`, `.claude/`, workflows or `.env*`; do not merge red.
 
 ## 6. Knowledge map (nothing from the planning session is lost)
 
