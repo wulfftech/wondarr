@@ -46,7 +46,7 @@ REPORTS = REPO / ".worker"
 REFS = REPORTS / "ref"
 SYSTEM_PROMPT = REPO / "docs" / "build" / "WORKER_SYSTEM_PROMPT.md"
 STANDARDS = REPO / "docs" / "build" / "CODING_STANDARDS.md"
-PROTECTED = ("CLAUDE.md", "docs/DECISIONS.md", "docs/adr/", ".claude/", ".github/workflows/", ".env", "LICENSE")
+PROTECTED = ("AGENTS.md", "CLAUDE.md", "docs/DECISIONS.md", "docs/adr/", ".claude/", ".github/workflows/", ".env", "LICENSE")
 # Bash patterns are matched per sub-command, so `cd x && dotnet build` needs both `cd` and `dotnet` allowed.
 # Read-only helpers are included because denied calls still burn a turn (see the P0-01 bake-off).
 WORKER_TOOLS = (
@@ -288,7 +288,7 @@ def run_worker(args: argparse.Namespace) -> int:
         "--disallowedTools", ",".join(dict.fromkeys([deny_read_rule(REPO), deny_read_rule(main_checkout())])),
         "--append-system-prompt-file", str(SYSTEM_PROMPT),
         "--no-session-persistence",
-        # commits carry no AI co-author trailer (CLAUDE.md: no AI identifiers in commit messages)
+        # commits carry no AI co-author trailer (AGENTS.md: no AI identifiers in commit messages)
         "--settings", json.dumps({"includeCoAuthoredBy": False, "attribution": {"commit": "", "pr": ""}}),
     ]
     if REFS.is_dir():

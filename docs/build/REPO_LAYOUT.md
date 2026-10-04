@@ -4,7 +4,8 @@ Created incrementally from Phase 0 onward (docs/build/PHASE_0_TASKS.md). Names a
 
 ```
 wondarr/
-├── CLAUDE.md                      # AI session instructions (orchestrator + workers)
+├── AGENTS.md                      # AI session instructions (orchestrator + workers)
+├── CLAUDE.md                      # one-line pointer at AGENTS.md (Claude Code auto-loads this name)
 ├── README.md · LICENSE (GPL-3.0) · NOTICE.md (ported-code attributions) · CHANGELOG.md
 ├── .env.example · .editorconfig · .gitignore
 ├── global.json                    # pins the .NET 10 SDK
