@@ -1,6 +1,6 @@
-// The command line (format selection, sleep flags, --print after_move:filepath) is derived from
-// yt-dlp (https://github.com/yt-dlp/yt-dlp, Unlicense) and spotDL
-// (https://github.com/spotDL/spotify-downloader, MIT).
+// Ported from yt-dlp (https://github.com/yt-dlp/yt-dlp), the download invocation its README documents
+// (format selection, sleep flags, --print after_move:filepath), Unlicense.
+// Ported from spotDL (https://github.com/spotDL/spotify-downloader), the pacing and retry strategy, MIT.
 
 using System.Globalization;
 using Microsoft.Extensions.Logging;
