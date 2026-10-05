@@ -1,7 +1,7 @@
-// The error strings and their retry/blocklist split are derived from yt-dlp
-// (https://github.com/yt-dlp/yt-dlp, Unlicense) and spotDL
-// (https://github.com/spotDL/spotify-downloader, MIT), as re-verified in
-// docs/research/research_youtube.md §0.1.
+// Ported from yt-dlp (https://github.com/yt-dlp/yt-dlp), the user-facing error strings its YouTube
+// extractor emits, Unlicense.
+// Ported from spotDL (https://github.com/spotDL/spotify-downloader), the retry-vs-skip split for
+// those failures, MIT.
 
 namespace Wondarr.Sources.YouTube;
 
