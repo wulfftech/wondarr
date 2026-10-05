@@ -5,37 +5,32 @@
 | Role | Runs where | Model | Does | Never does |
 |---|---|---|---|---|
 | **Orchestrator** | The interactive agent session (VS Code harness) in this repo | **An OpenRouter model** picked from `MODEL_VALUE_MATRIX.md` ("Orchestrator" row), run in the VS Code harness | Reads the docs, picks tasks, writes task specs, launches workers, reviews every diff, runs verification, resolves conflicts, updates `PROGRESS.md`/docs, commits and pushes | Hand-types large volumes of routine code; skips review |
-| **Worker** | A separate headless process (`scripts/worker.py`) in its own git worktree | A **cheap model via OpenRouter** (`WONDARR_WORKER_MODEL`), or Claude Haiku via `.claude/agents/worker.md` when OpenRouter is not configured | Implements exactly one task file: code + tests, runs build/tests, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, commits to `main` |
-| **Reviewer** (optional) | `.claude/agents/reviewer.md` subagent or `scripts/worker.py review` | Mid-tier model (`WONDARR_REVIEWER_MODEL`) or Sonnet | Independent review of a worker diff against the task's acceptance criteria and `CODING_STANDARDS.md` | Edits code |
-| **Researcher** (optional) | `.claude/agents/researcher.md` | Sonnet/Haiku with web tools | Verifies an external API/library fact before a spec is written | Writes code |
+| **Worker** | A separate process (`scripts/worker.py run`) in its own git worktree | A **cheap OpenRouter model**, chosen per task by effort tier from `MODEL_VALUE_MATRIX.md` (`--model`; `WONDARR_WORKER_MODEL` is the default) | Implements exactly one task file: code + tests, runs build/tests, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, commits to `main` |
+| **Reviewer** (optional) | `scripts/worker.py review <branch>` | The T3 pick from `MODEL_VALUE_MATRIX.md` (`--model`; `WONDARR_REVIEWER_MODEL` is the default) | Independent review of a worker diff against the task's acceptance criteria and `CODING_STANDARDS.md` | Edits code |
+| **Researcher** (optional) | `.claude/agents/researcher.md` (harness subagent with web tools) | Whatever model the harness runs it on | Verifies an external API/library fact before a spec is written | Writes code |
 
-Why separate processes: Claude Code subagents inherit the session's API endpoint and cannot be routed to a different provider per agent ([sub-agents docs](https://code.claude.com/docs/en/sub-agents.md), [env vars](https://code.claude.com/docs/en/env-vars.md)). So the orchestrator runs in the VS Code harness on an OpenRouter model, and each worker is a separate process (`scripts/worker.py`, or a direct API call) launched with its own OpenRouter model in its environment. Model choice for every delegated call is by effort tier from `MODEL_VALUE_MATRIX.md`.
+Why separate processes: the worker has its own endpoint, model, budget and sandbox. `scripts/worker_agent.py` calls OpenRouter's chat-completions API directly with six tools (`read_file`, `write_file`, `edit_file`, `list_files`, `grep`, `run`), so nothing depends on a CLI, an Anthropic endpoint or a particular editor harness.
 
 ## 2. Mechanics
 
-### 2.1 Headless Claude Code worker on OpenRouter (default)
+### 2.1 Tool-calling worker on OpenRouter (default)
 
-`scripts/worker.py run docs/build/tasks/<id>.md` does, for one task file:
+`scripts/worker.py [--model <id>] run docs/build/tasks/<id>.md` does, for one task file:
 
 1. Loads `.env` (`OPENROUTER_API_KEY`, `WONDARR_WORKER_MODEL`, caps).
-2. Creates or reuses a git worktree `.worktrees/<id>` on branch `phase<n>/<id>-<slug>` from `main`.
-3. Runs `claude -p` in that worktree with **worker-only environment**:
-   - `ANTHROPIC_BASE_URL=https://openrouter.ai/api` (OpenRouter's Anthropic-compatible "skin"; Claude Code's own env-vars page shows `https://openrouter.ai/api/v1` — the script defaults to the former and `OPENROUTER_ANTHROPIC_BASE_URL` overrides it if you see 404s),
-   - `ANTHROPIC_API_KEY=$OPENROUTER_API_KEY` (and `ANTHROPIC_AUTH_TOKEN` cleared),
-   - `ANTHROPIC_MODEL=$WONDARR_WORKER_MODEL`, plus `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` set to the same id so nothing inside the worker escapes to an expensive model,
-   - flags: `--output-format json --max-turns $WONDARR_WORKER_MAX_TURNS --max-budget-usd <scaled cap> --permission-mode acceptEdits --allowedTools <WORKER_TOOLS> --disallowedTools "Read(<repo>/.env*)" --append-system-prompt-file docs/build/WORKER_SYSTEM_PROMPT.md --no-session-persistence`. `WORKER_TOOLS` in the script is Read/Edit/Write/Grep/Glob plus `dotnet`, `npm`/`npx`/`node`, harmless shell helpers (`cd`, `ls`, `mkdir`, `echo`, `pwd`) and local git; Bash rules match per sub-command, and every denied call still costs a turn.
-   - **Cost:** Claude Code prices model ids it does not know at Opus rates, so its own `total_cost_usd` is inflated ~30× for flash models. The script fetches the model's OpenRouter prices, scales `--max-budget-usd` so that `WONDARR_WORKER_BUDGET_USD` caps *real* spend, and computes the real cost from the token usage afterwards.
-4. Captures the JSON result to `.worker/<id>/stdout[.n].json`, extracts the done-report to `.worker/<id>/report[.n].md`, appends a line per run to `.worker/<id>/runs.jsonl` (model, turns, real cost, key-usage delta), and prints a summary. `--id <name>` overrides the task id so one spec can run in several worktrees (bake-offs).
-5. Progress streams live (`--output-format stream-json`): each worker appends one readable line per step — what it says, every tool call, tool errors — to `.worker/<id>/live.log`. Follow all running workers from any terminal (e.g. VS Code's) with `python scripts/worker.py watch` (`--replay` to print what is already there).
-6. The task file must be **committed on `main`** before the run: the worktree is created from `main`, so an uncommitted spec is invisible to the worker.
+2. Creates or reuses a git worktree `.worktrees/<id>` on branch `phase<n>/<id>-<slug>` from the base branch (`WONDARR_WORKER_BASE`, default `main`).
+3. Runs the agent loop (`scripts/worker_agent.py`) with `docs/build/WORKER_SYSTEM_PROMPT.md` as the system prompt and a short kickoff message. Each turn is one chat-completions call with the tool schema; the model's tool calls are executed in the sandbox and their output returned. The loop ends when the model replies without tool calls (its text is the done-report), or at a cap.
+   - **Sandbox (enforced in code):** paths must resolve inside the worktree (reads may also use `.worker/ref`); `.env*` is never readable; protected paths (`AGENTS.md`, `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, `.env*`, `LICENSE`) and `.git` are never writable; `run` allows only `dotnet`, `npm`, `npx`, `node`, local `git` (`status`, `diff`, `log`, `show`, `add`, `rm`, `mv`, `commit`, `update-index --chmod`), `sh -n` and the builtins `cd`, `pwd`, `ls`, `mkdir`, `echo`, chained with `&&` only (no pipes, redirects, `;` or subshells; no shell is invoked); child processes do not inherit `OPENROUTER_API_KEY`.
+   - **Caps:** `WONDARR_WORKER_MAX_TURNS` (on the last turn the model is told to stop and write a PARTIAL done-report), `WONDARR_WORKER_BUDGET_USD` (real USD, from OpenRouter's per-response `usage.cost`, falling back to token usage x the model's price list), `WONDARR_WORKER_TIMEOUT_MIN`, `WONDARR_WORKER_CMD_TIMEOUT_S` per build/test command, `WONDARR_WORKER_MAX_TOKENS` per response. Old tool output is trimmed when the context grows large.
+4. Writes `.worker/<id>/transcript[.n].json` (full message log) and the done-report to `.worker/<id>/report[.n].md`, appends a line per run to `.worker/<id>/runs.jsonl` (model, stop reason, turns, tokens, real cost, key-usage delta), and prints a summary, any uncommitted leftovers, and a warning if a protected path was touched. Exit code: 0 done, 3 out of turns, 4 budget, 5 API error, 124 timeout.
+5. Progress streams live: each worker appends one readable line per step (what it says, every tool call, tool errors) to `.worker/<id>/live.log`. Follow all running workers from any terminal with `python scripts/worker.py watch` (`--replay` to print what is already there).
+6. The task file must be **committed on the base branch** before the run: the worktree is created from it, so an uncommitted spec is invisible to the worker.
 
-The orchestrator then reviews with `git -C .worktrees/<id> diff main...HEAD`, runs the verification commands itself, asks the worker to fix (`worker.py run … --continue "fix: …"`) or merges (`git merge --no-ff phase<n>/<id>-…`), and removes the worktree.
+The model must support tool calling (the tier picks in `MODEL_VALUE_MATRIX.md` already filter for it). `python scripts/test_worker_agent.py` runs the offline tests (sandbox rules and the loop against a scripted fake endpoint); `WONDARR_OPENROUTER_BASE_URL` points the runner at such a fake.
 
-### 2.2 Claude-native worker (fallback)
+The orchestrator then reviews with `git -C .worktrees/<id> diff <base>...HEAD`, runs the verification commands itself, asks the worker to fix (`worker.py run … --continue "fix: …"`) or merges (`git merge --no-ff phase<n>/<id>-…`), and removes the worktree.
 
-`.claude/agents/worker.md` is a Haiku subagent with `isolation: worktree`, the same system prompt and a turn cap. Use it when `OPENROUTER_API_KEY` is absent or OpenRouter is down. Cost is higher than a cheap open-weight model but far below Opus.
-
-### 2.3 Single-shot API worker (cheapest)
+### 2.2 Single-shot API worker (cheapest)
 
 `scripts/worker.py api docs/build/tasks/<id>.md --files a.cs b.cs` sends the task plus the named files to OpenRouter's chat-completions API with no tools and writes the answer to `.worker/<id>/response.md`. Use for pure text transforms: port this class, write tests for this file, draft this doc section. The orchestrator applies the result.
 
