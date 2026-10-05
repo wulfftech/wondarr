@@ -13,7 +13,7 @@ The interactive session (Opus 5.5) orchestrates: specs, delegation, review, veri
 - Task specs and fixtures become first-class artefacts; the repo must stay navigable for small models (clear docs, small files).
 
 ## Amendment (2026-10-05, owner)
-The orchestrator is no longer tied to Anthropic or to Opus 5.5. It is any tool-calling model on any provider, chosen from the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md` (value per dollar from live OpenRouter prices) and run in the VS Code harness (OpenRouter models only). All delegated calls are routed by effort tier from the same matrix. The rest of this decision (cheap isolated workers, review gates, caps) is unchanged.
+The orchestrator is no longer tied to Anthropic or to Opus 5.5. It is any tool-calling model on any provider, chosen from the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md` (value per dollar from live OpenRouter prices) and run in the VS Code harness (OpenRouter models only). All delegated calls are routed by effort tier from the same matrix. Workers no longer run as headless `claude -p` processes: `scripts/worker.py run` drives a sandboxed tool-calling loop (`scripts/worker_agent.py`) directly against the OpenRouter API, and the Haiku/Sonnet subagent definitions (`.claude/agents/worker.md`, `reviewer.md`) are removed in favour of `worker.py run|review`. The rest of this decision (cheap isolated workers, review gates, caps) is unchanged.
 
 ## References
 `docs/build/AGENT_WORKFLOW.md` · `scripts/worker.py` · `.claude/agents/`

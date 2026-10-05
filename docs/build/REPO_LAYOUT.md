@@ -43,7 +43,10 @@ wondarr/
 │   ├── root/                      # s6-overlay init scripts, PUID/PGID handling
 │   └── docker-compose.yml
 ├── scripts/
-│   ├── worker.py                  # cheap-worker runner (OpenRouter / headless claude) — see AGENT_WORKFLOW.md
+│   ├── worker.py                  # cheap-worker runner (OpenRouter) — see AGENT_WORKFLOW.md
+│   ├── worker_agent.py            # sandboxed tool-calling agent loop used by worker.py run
+│   ├── test_worker_agent.py       # offline tests for it (python scripts/test_worker_agent.py)
+│   ├── openrouter_value.py        # live price/benchmark value matrix generator
 │   ├── fetch-slskd.sh             # downloads + verifies the pinned slskd release at image build
 │   └── dev.sh / dev.ps1           # run API + frontend locally
 ├── .github/workflows/             # ci.yml (build/test/lint), release.yml (multi-arch image → GHCR), codeql.yml

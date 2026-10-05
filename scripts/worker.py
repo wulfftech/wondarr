@@ -3,7 +3,7 @@
 Wondarr cheap-worker runner (standard library only, Python 3.10+, Windows/macOS/Linux).
 
 Modes
-  run   <task.md>   Run a headless `claude -p` worker against OpenRouter (or Anthropic) in a git worktree.
+  run   <task.md>   Run a tool-calling worker (direct OpenRouter API, sandboxed tools) in a git worktree.
   api   <task.md>   Single-shot OpenRouter chat-completions call (no tools); optional --files to inline.
   review <branch>   Ask the reviewer model to review `git diff main...<branch>` (single-shot, no tools).
 
@@ -20,8 +20,9 @@ Environment (.env in the repo root is loaded automatically; existing env vars wi
   WONDARR_WORKER_MAX_TURNS    default 25
   WONDARR_WORKER_TIMEOUT_MIN  default 20
   WONDARR_WORKER_BUDGET_USD   default 2.00 per run
-  OPENROUTER_ANTHROPIC_BASE_URL default https://openrouter.ai/api  (Claude Code docs show https://openrouter.ai/api/v1; switch if you get 404s)
-  WONDARR_WORKER_PROVIDER     "openrouter" (default) or "anthropic" (uses your normal Claude Code auth; model via WONDARR_WORKER_MODEL, e.g. "haiku")
+  WONDARR_OPENROUTER_BASE_URL default https://openrouter.ai/api/v1 (override for tests)
+  WONDARR_WORKER_MAX_TOKENS   default 16384 (per model response)
+  WONDARR_WORKER_CMD_TIMEOUT_S default 900 (per build/test command)
   WONDARR_WORKER_BASE         the branch worker worktrees start from and are diffed against (default "main"); set it
                               when the orchestrator itself works in a linked worktree on its own branch
 Run from a linked worktree, the script reads the main checkout's .env when the worktree has none (it is git-ignored).
@@ -33,7 +34,6 @@ import datetime as _dt
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import urllib.error
@@ -47,16 +47,6 @@ REFS = REPORTS / "ref"
 SYSTEM_PROMPT = REPO / "docs" / "build" / "WORKER_SYSTEM_PROMPT.md"
 STANDARDS = REPO / "docs" / "build" / "CODING_STANDARDS.md"
 PROTECTED = ("AGENTS.md", "CLAUDE.md", "docs/DECISIONS.md", "docs/adr/", ".claude/", ".github/workflows/", ".env", "LICENSE")
-# Bash patterns are matched per sub-command, so `cd x && dotnet build` needs both `cd` and `dotnet` allowed.
-# Read-only helpers are included because denied calls still burn a turn (see the P0-01 bake-off).
-WORKER_TOOLS = (
-    "Read", "Edit", "Write", "Grep", "Glob",
-    "Bash(dotnet *)", "Bash(npm *)", "Bash(npx *)", "Bash(node *)",
-    "Bash(cd *)", "Bash(pwd)", "Bash(ls*)", "Bash(mkdir *)", "Bash(echo *)",
-    "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)", "Bash(git add *)",
-    "Bash(git rm *)", "Bash(git mv *)", "Bash(git commit *)", "Bash(git update-index --chmod*)",
-    "Bash(sh -n *)",
-)
 
 
 # ----------------------------------------------------------------------------- env
@@ -93,10 +83,6 @@ def base_branch() -> str:
     return env("WONDARR_WORKER_BASE", "main") or "main"
 
 
-def deny_read_rule(root: Path) -> str:
-    return f"Read(//{root.drive[:1].lower()}{root.as_posix()[len(root.drive):]}/.env*)"
-
-
 def env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     if value in (None, "") and name.startswith("WONDARR_"):
@@ -112,15 +98,18 @@ def redact(value: str | None) -> str:
 
 
 # ----------------------------------------------------------------------------- pricing
-# Claude Code prices model ids it does not recognise at Opus rates (USD per token), so its
-# total_cost_usd and --max-budget-usd are inflated for OpenRouter models. We compute real cost
-# from token usage and OpenRouter's price list, and scale the budget flag so the .env cap means real USD.
-CLAUDE_UNKNOWN_RATES = {"prompt": 5e-6, "completion": 25e-6, "input_cache_read": 0.5e-6, "input_cache_write": 6.25e-6}
+# Real cost comes from OpenRouter's per-response `usage.cost` (falling back to token usage x the model's price
+# list), so WONDARR_WORKER_BUDGET_USD is a cap on real USD.
+OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+
+
+def openrouter_base() -> str:
+    return env("WONDARR_OPENROUTER_BASE_URL", OPENROUTER_BASE) or OPENROUTER_BASE
 
 
 def openrouter_pricing(model: str) -> dict[str, float] | None:
     try:
-        with urllib.request.urlopen("https://openrouter.ai/api/v1/models", timeout=60) as resp:
+        with urllib.request.urlopen(openrouter_base().rstrip("/") + "/models", timeout=60) as resp:
             models = json.loads(resp.read().decode("utf-8"))["data"]
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
         return None
@@ -138,36 +127,15 @@ def _is_number(value: object) -> bool:
         return False
 
 
-def budget_scale(model: str, pricing: dict[str, float] | None) -> float:
-    """Factor by which Claude Code over-counts this model, so real spend stays within the cap."""
-    if pricing is None or "claude" in model or "anthropic" in model:
-        return 1.0
-    ratios = [CLAUDE_UNKNOWN_RATES[k] / pricing[k] for k in CLAUDE_UNKNOWN_RATES if pricing.get(k, 0) > 0]
-    return max(1.0, min(ratios)) if ratios else 1.0
-
-
-def real_cost(model_usage: dict, pricing: dict[str, float] | None) -> float | None:
-    if pricing is None or not model_usage:
-        return None
-    total = 0.0
-    for usage in model_usage.values():
-        write_rate = pricing.get("input_cache_write") or pricing.get("prompt", 0)
-        total += usage.get("inputTokens", 0) * pricing.get("prompt", 0)
-        total += usage.get("outputTokens", 0) * pricing.get("completion", 0)
-        total += usage.get("cacheReadInputTokens", 0) * (pricing.get("input_cache_read") or pricing.get("prompt", 0))
-        total += usage.get("cacheCreationInputTokens", 0) * write_rate
-    return round(total, 4)
-
-
 def openrouter_key_usage() -> float | None:
     key = env("OPENROUTER_API_KEY")
     if not key:
         return None
-    req = urllib.request.Request("https://openrouter.ai/api/v1/key", headers={"Authorization": f"Bearer {key}"})
+    req = urllib.request.Request(openrouter_base().rstrip("/") + "/key", headers={"Authorization": f"Bearer {key}"})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return float(json.loads(resp.read().decode("utf-8"))["data"]["usage"])
-    except (urllib.error.URLError, TimeoutError, ValueError, KeyError):
+    except (urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -213,44 +181,15 @@ def ensure_worktree(task_id: str, task_file: Path, dry_run: bool) -> Path:
     return path
 
 
-# ----------------------------------------------------------------------------- claude worker
-def find_claude() -> str | None:
-    for candidate in ("claude", "claude.cmd", "claude.exe"):
-        found = shutil.which(candidate)
-        if found:
-            return found
-    return None
-
-
-def worker_env(provider: str, model: str) -> dict[str, str]:
-    e = dict(os.environ)
-    for key in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
-                "ANTHROPIC_DEFAULT_OPUS_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
-        e.pop(key, None)
-    if provider == "openrouter":
-        key = env("OPENROUTER_API_KEY")
-        if not key:
-            raise SystemExit("OPENROUTER_API_KEY is not set (put it in .env)")
-        e["ANTHROPIC_BASE_URL"] = env("OPENROUTER_ANTHROPIC_BASE_URL", "https://openrouter.ai/api") or ""
-        e["ANTHROPIC_API_KEY"] = key
-        e["ANTHROPIC_MODEL"] = model
-        # keep any nested subagent inside the worker on the same cheap model
-        for fam in ("HAIKU", "SONNET", "OPUS"):
-            e[f"ANTHROPIC_DEFAULT_{fam}_MODEL"] = model
-        e["CLAUDE_CODE_SUBAGENT_MODEL"] = model
-    e["WONDARR_WORKER"] = "1"
-    return e
-
-
+# ----------------------------------------------------------------------------- agent worker
 def build_prompt(task_file: Path, continue_note: str | None) -> str:
     task_rel = task_file.resolve().relative_to(REPO) if task_file.resolve().is_relative_to(REPO) else task_file
     parts = [
         f"Implement the task in `{task_rel}`. Work only inside this worktree.",
         f"Before writing code, read the task file, `{STANDARDS.relative_to(REPO)}`, and the docs it references.",
         "Protected paths you must not modify: " + ", ".join(PROTECTED) + ".",
-        "Your turn budget is small. Your working directory is already the worktree root: use relative paths and "
-        "never `cd` to an absolute path. Issue independent tool calls (reads, writes) in parallel in one turn. "
+        "Your turn budget is small. Paths are relative to the worktree root; never use absolute paths. "
+        "Issue independent tool calls (reads, writes) in parallel in one turn. "
         "You have no network tools: use the package versions the task gives; do not look versions up.",
         "Commit as soon as the build and tests are green (a partial commit beats none), then print the done-report.",
     ]
@@ -260,156 +199,81 @@ def build_prompt(task_file: Path, continue_note: str | None) -> str:
 
 
 def run_worker(args: argparse.Namespace) -> int:
+    import worker_agent
+
     task_file = Path(args.task).resolve()
     if not task_file.exists():
         raise SystemExit(f"task file not found: {task_file}")
     task_id = args.id or task_id_from(task_file)
-    provider = (env("WONDARR_WORKER_PROVIDER", "openrouter") or "openrouter").lower()
-    model = args.model or env("WONDARR_WORKER_MODEL") or ("haiku" if provider == "anthropic" else None)
+    model = args.model or env("WONDARR_WORKER_MODEL")
     if not model:
-        raise SystemExit("WONDARR_WORKER_MODEL is not set (pin it in .env after the bake-off)")
+        raise SystemExit("WONDARR_WORKER_MODEL is not set (pin it in .env, or pass --model from the tier picks in docs/build/MODEL_VALUE_MATRIX.md)")
+    key = env("OPENROUTER_API_KEY")
+    if not key and not args.dry_run:
+        raise SystemExit("OPENROUTER_API_KEY is not set (put it in .env)")
     max_turns = args.max_turns or int(env("WONDARR_WORKER_MAX_TURNS", "25") or 25)
     timeout_min = int(env("WONDARR_WORKER_TIMEOUT_MIN", "20") or 20)
     budget = float(env("WONDARR_WORKER_BUDGET_USD", "2.00") or 2.0)
-    pricing = openrouter_pricing(model) if provider == "openrouter" else None
-    scale = budget_scale(model, pricing)
+    max_tokens = int(env("WONDARR_WORKER_MAX_TOKENS", "16384") or 16384)
     worktree = ensure_worktree(task_id, task_file, args.dry_run)
-    claude = find_claude()
-    cmd = [
-        claude or "claude", "-p", build_prompt(task_file, args.continue_note),
-        # stream-json so progress can be followed live (`worker.py watch`); the final "result"
-        # event is the same object `--output-format json` would print
-        "--output-format", "stream-json", "--verbose",
-        "--max-turns", str(max_turns),
-        "--max-budget-usd", f"{budget * scale:.2f}",
-        "--permission-mode", "acceptEdits",
-        "--allowedTools", ",".join(WORKER_TOOLS),
-        # the worktree has no .env (git-ignored); keep the main checkout's secrets out of reach too
-        "--disallowedTools", ",".join(dict.fromkeys([deny_read_rule(REPO), deny_read_rule(main_checkout())])),
-        "--append-system-prompt-file", str(SYSTEM_PROMPT),
-        "--no-session-persistence",
-        # commits carry no AI co-author trailer (AGENTS.md: no AI identifiers in commit messages)
-        "--settings", json.dumps({"includeCoAuthoredBy": False, "attribution": {"commit": "", "pr": ""}}),
-    ]
-    if REFS.is_dir():
-        # upstream sources checked out for porting (git-ignored); readable, not writable, by the worker
-        cmd += ["--add-dir", str(REFS)]
-    if provider == "anthropic":
-        cmd += ["--model", model]
-    e = worker_env(provider, model)
-    print(f"[worker] task={task_id} provider={provider} model={model} turns={max_turns} budget=${budget:.2f} "
-          f"(claude flag x{scale:.1f}) timeout={timeout_min}m")
-    print(f"[worker] base_url={e.get('ANTHROPIC_BASE_URL', '<claude default>')} key={redact(e.get('ANTHROPIC_API_KEY'))}")
+    system = SYSTEM_PROMPT.read_text(encoding="utf-8")
+    prompt = build_prompt(task_file, args.continue_note)
+    print(f"[worker] task={task_id} model={model} turns={max_turns} budget=${budget:.2f} timeout={timeout_min}m")
+    print(f"[worker] base_url={openrouter_base()} key={redact(key)} tools={[t['function']['name'] for t in worker_agent.TOOLS]}")
     if args.dry_run:
-        print("[worker] dry run - command:")
-        print("  " + " ".join(repr(c) if " " in c else c for c in cmd))
+        print(f"[worker] dry run - system prompt {len(system)} chars; first message:\n{prompt}")
         return 0
-    if not claude:
-        raise SystemExit("claude CLI not found on PATH")
+    pricing = openrouter_pricing(model)
+    sandbox = worker_agent.Sandbox(root=worktree, protected=PROTECTED, refs=REFS if REFS.is_dir() else None,
+                                   command_timeout_s=int(env("WONDARR_WORKER_CMD_TIMEOUT_S", "900") or 900))
     REPORTS.mkdir(exist_ok=True)
     out_dir = REPORTS / task_id
     out_dir.mkdir(exist_ok=True)
     started = _dt.datetime.now()
-    usage_before = openrouter_key_usage() if provider == "openrouter" else None
-    run_no = len(list(out_dir.glob("stdout*.json"))) + 1
+    usage_before = openrouter_key_usage()
+    run_no = len(list(out_dir.glob("transcript*.json"))) + 1
     suffix = "" if run_no == 1 else f".{run_no}"
-    live = out_dir / "live.log"
-    returncode, result_json, stderr_text, timed_out = stream_worker(cmd, worktree, e, timeout_min * 60, live,
-                                                                    f"{task_id} run {run_no}")
-    if timed_out:
-        (out_dir / "report.md").write_text(f"TIMEOUT after {timeout_min} minutes\n", encoding="utf-8")
-        print(f"[worker] TIMEOUT after {timeout_min} minutes; worktree kept at {worktree}")
-        return 124
-    result = subprocess.CompletedProcess(cmd, returncode, result_json, stderr_text)
-    (out_dir / f"stdout{suffix}.json").write_text(result.stdout, encoding="utf-8")
-    (out_dir / f"stderr{suffix}.txt").write_text(result.stderr, encoding="utf-8")
-    report_text, cost, turns, model_usage = extract_report(result.stdout)
-    (out_dir / f"report{suffix}.md").write_text(report_text, encoding="utf-8")
-    elapsed = (_dt.datetime.now() - started).total_seconds() / 60
-    usd = real_cost(model_usage, pricing) if provider == "openrouter" else (float(cost) if _is_number(cost) else None)
-    usage_after = openrouter_key_usage() if provider == "openrouter" else None
-    key_delta = round(usage_after - usage_before, 4) if usage_before is not None and usage_after is not None else None
-    summary = {"task": task_id, "run": run_no, "model": model, "exit": result.returncode, "turns": turns,
-               "elapsed_min": round(elapsed, 1), "cost_usd": usd, "claude_reported_cost": cost,
-               "key_usage_delta_usd": key_delta, "continue": bool(args.continue_note)}
-    with (out_dir / "runs.jsonl").open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(summary) + "\n")
-    changed = git("diff", "--name-only", f"{base_branch()}...HEAD", cwd=worktree, check=False) or "(no committed changes yet)"
-    print(f"[worker] exit={result.returncode} cost=${usd} (claude-reported ${cost}; key delta ${key_delta}, "
-          f"includes any parallel runs) turns={turns} elapsed={elapsed:.1f}m")
-    print(f"[worker] files changed vs {base_branch()}:\n{changed}")
-    print(f"[worker] report: {out_dir / 'report.md'}")
-    protected_hits = [p for p in changed.splitlines() if any(p.startswith(x.rstrip('/')) for x in PROTECTED)]
-    if protected_hits:
-        print(f"[worker] WARNING protected paths touched: {protected_hits}")
-    return result.returncode
-
-
-def stream_worker(cmd: list[str], cwd: Path, env_vars: dict[str, str], timeout_s: int, live: Path,
-                  label: str) -> tuple[int, str, str, bool]:
-    """Run the worker, echoing a readable line per event to stdout and `live`; return the result event."""
-    import threading
-
-    proc = subprocess.Popen(cmd, cwd=str(cwd), env=env_vars, text=True, encoding="utf-8", errors="replace",
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    timed_out = threading.Event()
-
-    def on_timeout() -> None:
-        timed_out.set()
-        proc.kill()
-
-    timer = threading.Timer(timeout_s, on_timeout)
-    timer.start()
-    stderr_chunks: list[str] = []
-    drain = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read() if proc.stderr else ""))
-    drain.start()
-    result_json = ""
-    turn = 0
-    with live.open("a", encoding="utf-8") as log:
+    label = f"{task_id} run {run_no}"
+    with (out_dir / "live.log").open("a", encoding="utf-8") as log:
         def emit(text: str) -> None:
             line = f"{_dt.datetime.now():%H:%M:%S} [{label}] {text}"
             print(line, flush=True)
             log.write(line + "\n")
             log.flush()
 
-        emit("started")
-        assert proc.stdout is not None
-        for raw in proc.stdout:
-            try:
-                event = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            kind = event.get("type")
-            if kind == "assistant":
-                turn += 1
-                for block in event.get("message", {}).get("content", []):
-                    if block.get("type") == "text" and block.get("text", "").strip():
-                        emit(f"t{turn} says: {one_line(block['text'], 160)}")
-                    elif block.get("type") == "tool_use":
-                        emit(f"t{turn} {block.get('name')}: {describe_tool(block.get('input') or {})}")
-            elif kind == "user":
-                for block in event.get("message", {}).get("content", []) or []:
-                    if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
-                        emit(f"   ! tool error: {one_line(str(block.get('content')), 160)}")
-            elif kind == "result":
-                result_json = raw
-                emit(f"finished: {event.get('subtype')} after {event.get('num_turns')} turns")
-    proc.wait()
-    timer.cancel()
-    drain.join(timeout=5)
-    return proc.returncode, result_json, "".join(stderr_chunks), timed_out.is_set()
-
-
-def one_line(text: str, limit: int) -> str:
-    text = " ".join(str(text).split())
-    return text if len(text) <= limit else text[: limit - 3] + "..."
-
-
-def describe_tool(tool_input: dict) -> str:
-    for key in ("command", "file_path", "pattern", "path"):
-        if tool_input.get(key):
-            return one_line(tool_input[key], 140)
-    return one_line(json.dumps(tool_input), 140)
+        result = worker_agent.run_agent(base_url=openrouter_base(), key=key or "", model=model, system=system, user=prompt,
+                                        sandbox=sandbox, max_turns=max_turns, budget_usd=budget,
+                                        timeout_s=timeout_min * 60, pricing=pricing, emit=emit, max_tokens=max_tokens)
+    (out_dir / f"transcript{suffix}.json").write_text(json.dumps(result.messages, indent=1), encoding="utf-8")
+    report = result.text or f"(no done-report; run stopped: {result.stop})"
+    if result.stop in ("timeout", "budget", "error"):
+        report = f"STOPPED: {result.stop}\n\n{report}"
+    (out_dir / f"report{suffix}.md").write_text(report, encoding="utf-8")
+    if suffix:
+        (out_dir / "report.md").write_text(report, encoding="utf-8")
+    elapsed = (_dt.datetime.now() - started).total_seconds() / 60
+    usage_after = openrouter_key_usage()
+    key_delta = round(usage_after - usage_before, 4) if usage_before is not None and usage_after is not None else None
+    cost = round(result.cost_usd, 4)
+    code = {"done": 0, "max_turns": 3, "budget": 4, "error": 5, "timeout": 124}[result.stop]
+    summary = {"task": task_id, "run": run_no, "model": model, "exit": code, "stop": result.stop, "turns": result.turns,
+               "elapsed_min": round(elapsed, 1), "cost_usd": cost, "prompt_tokens": result.prompt_tokens,
+               "completion_tokens": result.completion_tokens, "key_usage_delta_usd": key_delta,
+               "continue": bool(args.continue_note)}
+    with (out_dir / "runs.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(summary) + "\n")
+    changed = git("diff", "--name-only", f"{base_branch()}...HEAD", cwd=worktree, check=False) or "(no committed changes yet)"
+    dirty = git("status", "--porcelain", cwd=worktree, check=False)
+    print(f"[worker] stop={result.stop} exit={code} cost=${cost} (key delta ${key_delta}, includes any parallel runs) "
+          f"turns={result.turns} elapsed={elapsed:.1f}m")
+    print(f"[worker] files changed vs {base_branch()}:\n{changed}")
+    if dirty:
+        print(f"[worker] WARNING uncommitted changes left in the worktree:\n{dirty}")
+    print(f"[worker] report: {out_dir / f'report{suffix}.md'}")
+    protected_hits = [p for p in changed.splitlines() if any(p.startswith(x.rstrip('/')) for x in PROTECTED)]
+    if protected_hits:
+        print(f"[worker] WARNING protected paths touched: {protected_hits}")
+    return code
 
 
 def run_watch(args: argparse.Namespace) -> int:
@@ -436,20 +300,6 @@ def run_watch(args: argparse.Namespace) -> int:
         return 0
 
 
-def extract_report(stdout: str) -> tuple[str, str, str, dict]:
-    """Best-effort extraction from `claude -p --output-format json` output."""
-    try:
-        data = json.loads(stdout)
-    except json.JSONDecodeError:
-        return stdout, "?", "?", {}
-    if not isinstance(data, dict):
-        return json.dumps(data, indent=2), "?", "?", {}
-    text = data.get("result")
-    cost = str(data.get("total_cost_usd", data.get("cost_usd", "?")))
-    turns = str(data.get("num_turns", "?"))
-    return (text or json.dumps(data, indent=2)), cost, turns, data.get("modelUsage") or {}
-
-
 # ----------------------------------------------------------------------------- single-shot API modes
 def openrouter_chat(model: str, system: str, user: str, temperature: float = 0.2) -> str:
     key = env("OPENROUTER_API_KEY")
@@ -461,7 +311,7 @@ def openrouter_chat(model: str, system: str, user: str, temperature: float = 0.2
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }).encode("utf-8")
     req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
+        openrouter_base().rstrip("/") + "/chat/completions",
         data=body,
         headers={
             "Authorization": f"Bearer {key}",
@@ -543,7 +393,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="print what would run; touch nothing")
     parser.add_argument("--model", help="override the model id for this run")
     sub = parser.add_subparsers(dest="mode", required=True)
-    p_run = sub.add_parser("run", help="headless claude worker in a worktree")
+    p_run = sub.add_parser("run", help="tool-calling worker in a git worktree (direct OpenRouter API)")
     p_run.add_argument("task")
     p_run.add_argument("--max-turns", type=int)
     p_run.add_argument("--continue", dest="continue_note", help="feedback for a continuation run on the same task")
