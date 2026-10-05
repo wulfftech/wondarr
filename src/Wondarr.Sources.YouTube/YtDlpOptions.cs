@@ -59,13 +59,24 @@ public sealed class YtDlpOptions
 }
 
 /// <summary>
-/// Validates <see cref="YtDlpOptions"/>. Every failure message starts with the YAML key so the user
-/// can find the offending line in <c>config.yml</c>.
+/// Validates the <c>youtube.ytdlp</c> section, reached through the bound <see cref="YouTubeOptions"/>
+/// type (the options pipeline only asks validators about the type it resolves). Every failure
+/// message starts with the YAML key so the user can find the offending line in <c>config.yml</c>.
 /// </summary>
-public sealed class YtDlpOptionsValidator : IValidateOptions<YtDlpOptions>
+public sealed class YtDlpOptionsValidator : IValidateOptions<YouTubeOptions>
 {
     /// <inheritdoc />
-    public ValidateOptionsResult Validate(string? name, YtDlpOptions options)
+    public ValidateOptionsResult Validate(string? name, YouTubeOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        return ValidateYtdlp(options.Ytdlp);
+    }
+
+    /// <summary>Validates the <c>youtube.ytdlp</c> sub-section on its own, for direct tests.</summary>
+    /// <param name="options">The sub-section to check.</param>
+    /// <returns>The failures, or success.</returns>
+    internal static ValidateOptionsResult ValidateYtdlp(YtDlpOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 

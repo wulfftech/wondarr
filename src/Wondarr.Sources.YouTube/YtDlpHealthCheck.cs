@@ -76,6 +76,9 @@ public sealed partial class YtDlpAvailability : IDisposable
     private async Task<YtDlpHealthStatus> RunAsync(CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
+
+        // A --version probe answers in well under a second; cap it at 30s so a huge configured
+        // download timeout cannot make a health check hang, without adding a second setting.
         var timeout = TimeSpan.FromSeconds(Math.Min(options.Ytdlp.TimeoutSeconds, 30));
 
         var version = await ProbeAsync(options.Ytdlp.BinaryPath, timeout, cancellationToken).ConfigureAwait(false);
