@@ -1,0 +1,812 @@
+{
+ "responseContext": {
+  "visitorData": "CgttSkR2ZXhrRzdtbyim847WBjIKCgJBVRIEGgAgOA%3D%3D",
+  "serviceTrackingParams": [
+   {
+    "service": "CSI",
+    "params": [
+     {
+      "key": "c",
+      "value": "WEB_REMIX"
+     },
+     {
+      "key": "cver",
+      "value": "1.20261005.01.00"
+     },
+     {
+      "key": "yt_li",
+      "value": "0"
+     },
+     {
+      "key": "GetSearch_rid",
+      "value": "0x50b9bc7b74e1e08b"
+     }
+    ]
+   },
+   {
+    "service": "GFEEDBACK",
+    "params": [
+     {
+      "key": "logged_in",
+      "value": "0"
+     }
+    ]
+   },
+   {
+    "service": "ECATCHER",
+    "params": [
+     {
+      "key": "client.version",
+      "value": "1.20000101"
+     },
+     {
+      "key": "client.name",
+      "value": "WEB_REMIX"
+     }
+    ]
+   }
+  ],
+  "maxAgeSeconds": 120,
+  "responseId": "IhMIk6iIvJCjlwMVdqDYBR05YQNZ"
+ },
+ "contents": {
+  "tabbedSearchResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "title": "YT Music",
+      "selected": true,
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "musicShelfRenderer": {
+           "title": {
+            "runs": [
+             {
+              "text": "Videos"
+             }
+            ]
+           },
+           "contents": [
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/CCHdMIEGaaM/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3khjOKM5r_NGiNeL-bkJzA_hhB9Ow",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "CCHdMIEGaaM",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                     }
+                    }
+                   }
+                  },
+                  "backgroundColor": 0
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Daft Punk - Get Lucky (Official Video) feat. Pharrell Williams and Nile Rodgers",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "CCHdMIEGaaM",
+                      "playerParams": "0gcJCTMC0OBS9m0t",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "convar HUN",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCH9fakOo40rOv7HGvbGc1rQ",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "58M views"
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "4:08"
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "CCHdMIEGaaM"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/5NV6Rdv1a3I/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mvsP8mFDRro1d2OpZBLOyPo9fHxA",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "5NV6Rdv1a3I",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  },
+                  "backgroundColor": 0
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Get Lucky (Official Audio) (feat. Pharrell Williams & Nile Rodgers)",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "5NV6Rdv1a3I",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Daft Punk",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCRr1xG_2WIDs18a6cIiCxeA",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "879M views"
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "4:09"
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "5NV6Rdv1a3I"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/0QVOc1aagSE/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lTWHPC2PdwVjy64xFwHZhgulGn1A",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "0QVOc1aagSE",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                     }
+                    }
+                   }
+                  },
+                  "backgroundColor": 0
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Daft Punk ft. Pharell Williams Get lucky Extended Version Original Video Full HD",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "0QVOc1aagSE",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "pfigueroah",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCbKnT31fS9wKDa1UtuCWLOQ",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "28M views"
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "18:08"
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "0QVOc1aagSE"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/VeauURD-qLk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3m78b4fpYI_03_XUViVh1shlRDfsA",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "VeauURD-qLk",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                     }
+                    }
+                   }
+                  },
+                  "backgroundColor": 0
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "D.a.f.t P.u.n.k Greatest Hits 🔥 Best D.a.f.t P.u.n.k Songs & Playlist 🔥 Full Album 2022",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "VeauURD-qLk",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Music EDM 2022",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCVprp8KCptJilcIrLW1dP5w",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "1M views"
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "1:11:15"
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "VeauURD-qLk"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/RG63kLb_Hqo/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kkryIMlEbWJhupEbKIuLkFQyQw1g",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "RG63kLb_Hqo",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                     }
+                    }
+                   }
+                  },
+                  "backgroundColor": 0
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Daft Punk - Get Lucky ft. Pharrell Williams - LOWER Key Slowed Down (Piano Karaoke Instrumental)",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "RG63kLb_Hqo",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "PianoNest",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UClrvoh_d5IxPlu6-zbkjOzQ",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "9.3K views"
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "3:24"
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "RG63kLb_Hqo"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/Q2FmlbZ2VQ0/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lZ0WkzBUaTioVDfS3YPuCoATcjbg",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                }
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "Q2FmlbZ2VQ0",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                     }
+                    }
+                   }
+                  },
+                  "backgroundColor": 0
+                 }
+                }
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Get Lucky - Daft Punk Remix2026 (Disco Funk) by Mo.Beats.Brothers",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "Q2FmlbZ2VQ0",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 }
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Mo Beats",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCuHA422wSPl0cphGsNnw3gQ",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "648 views"
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "4:56"
+                   }
+                  ]
+                 }
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "Q2FmlbZ2VQ0"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_TALL"
+             }
+            }
+           ],
+           "continuations": [
+            {
+             "nextContinuationData": {
+              "continuation": "EqwDEhNkYWZ0IHB1bmsgZ2V0IGx1Y2t5GpQDRWdXS0FRSVFBVWdVYWd3UURoQUtFQU1RQkJBSkVBV0NBUXREUTBoa1RVbEZSMkZoVFlJQkN6Vk9WalpTWkhZeFlUTkpnZ0VMTUZGV1QyTXhZV0ZuVTBXQ0FRdFdaV0YxVlZKRUxYRk1hNElCQzFKSE5qTnJUR0pmU0hGdmdnRUxVVEpHYld4aVdqSldVVENDQVF0M01uUlFSeTFUUkVKVGE0SUJDelZuYkVSQllVTmhZWHBqZ2dFTFdHeG1Na3RxWDIwNGEzT0NBUXRJV0VWS2FuUkNiM1ZTUVlJQkMwWkhRbWhSWW0xUWQwZzRnZ0VMTTJaRFZVZ3lOSHBYZVctQ0FRdHhSa3hvUjNFd01EWXdkNElCQzBacllteFhiVmRJZUhSWmdnRUxTVXBVVG1zME9GTmhWalNDQVF0WVFUTnFOMUY0YzI4MFZZSUJDM2xFVVdzMFFUbFpZV2xGZ2dFTExVaHRVRjlIVVhaTFFXZUNBUXRTVm1wU2VEVmpaVVF5VVlJQkMxRTJjVUZMVVU5dlFtMDQY8erQLg%3D%3D"
+             }
+            }
+           ],
+           "shelfDivider": {
+            "musicShelfDividerRenderer": {
+             "hidden": true
+            }
+           }
+          }
+         }
+        ],
+        "header": {
+         "chipCloudRenderer": {
+          "chips": [
+           {
+            "chipCloudChipRenderer": {
+             "navigationEndpoint": {
+              "searchEndpoint": {
+               "query": "daft punk get lucky"
+              }
+             },
+             "isSelected": false,
+             "uniqueId": "Clear filters"
+            }
+           },
+           {
+            "chipCloudChipRenderer": {
+             "text": {
+              "runs": [
+               {
+                "text": "Featured playlists"
+               }
+              ]
+             },
+             "navigationEndpoint": {
+              "searchEndpoint": {
+               "query": "daft punk get lucky",
+               "params": "EgeKAQQoADgBagwQDhAKEAMQBBAJEAU%3D"
+              }
+             },
+             "isSelected": false,
+             "uniqueId": "Featured playlists"
+            }
+           },
+           {
+            "chipCloudChipRenderer": {
+             "text": {
+              "runs": [
+               {
+                "text": "Community playlists"
+               }
+              ]
+             },
+             "navigationEndpoint": {
+              "searchEndpoint": {
+               "query": "daft punk get lucky",
+               "params": "EgeKAQQoAEABagwQDhAKEAMQBBAJEAU%3D"
+              }
+             },
+             "isSelected": false,
+             "uniqueId": "Community playlists"
+            }
+           },
+           {
+            "chipCloudChipRenderer": {
+             "text": {
+              "runs": [
+               {
+                "text": "Songs"
+               }
+              ]
+             },
+             "navigationEndpoint": {
+              "searchEndpoint": {
+               "query": "daft punk get lucky",
+               "params": "EgWKAQIIAWoMEA4QChADEAQQCRAF"
+              }
+             },
+             "isSelected": false,
+             "uniqueId": "Songs"
+            }
+           },
+           {
+            "chipCloudChipRenderer": {
+             "text": {
+              "runs": [
+               {
+                "text": "Videos"
+               }
+              ]
+             },
+             "navigationEndpoint": {
+              "searchEndpoint": {
+               "query": "daft punk get lucky",
+               "params": "EgWKAQIQAWoMEA4QChADEAQQCRAF"
+              }
+             },
+             "isSelected": true,
+             "uniqueId": "Videos"
+            }
+           },
+           {
+            "chipCloudChipRenderer": {
+             "text": {
+              "runs": [
+               {
+                "text": "Albums"
+               }
+              ]
+             },
+             "navigationEndpoint": {
+              "searchEndpoint": {
+               "query": "daft punk get lucky",
+               "params": "EgWKAQIYAWoMEA4QChADEAQQCRAF"
+              }
+             },
+             "isSelected": false,
+             "uniqueId": "Albums"
+            }
+           },
+           {
+            "chipCloudChipRenderer": {
+             "text": {
+              "runs": [
+               {
+                "text": "Artists"
+               }
+              ]
+             },
+             "navigationEndpoint": {
+              "searchEndpoint": {
+               "query": "daft punk get lucky",
+               "params": "EgWKAQIgAWoMEA4QChADEAQQCRAF"
+              }
+             },
+             "isSelected": false,
+             "uniqueId": "Artists"
+            }
+           }
+          ],
+          "collapsedRowCount": 1,
+          "horizontalScrollable": true
+         }
+        }
+       }
+      },
+      "tabIdentifier": "music_search_catalog"
+     }
+    }
+   ]
+  }
+ }
+}

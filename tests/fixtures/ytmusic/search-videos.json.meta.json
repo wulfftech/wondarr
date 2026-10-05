@@ -1,0 +1,6 @@
+{
+  "request": "POST https://music.youtube.com/youtubei/v1/search?alt=json (videos filter, query \"daft punk get lucky\")",
+  "status": 200,
+  "captured": "2026-10-05",
+  "note": "Recorded live, then trimmed: the first 6 of 20 shelf results kept, and renderer fields the parser never reads removed. The first result is a UGC re-upload (MUSIC_VIDEO_TYPE_UGC) titled 'Daft Punk - Get Lucky (Official Video) feat. Pharrell Williams and Nile Rodgers' at 4:08 — shorter than the 6:10 song, exactly the official-video-with-intro hazard the duration gate exists for (here inverted: a cut, not an intro)."
+}
