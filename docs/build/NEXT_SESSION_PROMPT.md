@@ -1,6 +1,6 @@
 # Next-session prompt (Phase 4)
 
-Launch the orchestrator with `python scripts/worker.py orchestrate` from `D:\Code\wondarr` (OpenRouter; model = `WONDARR_ORCHESTRATOR_MODEL`, set to the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md`; no Anthropic account needed; Opus 5.5 remains a valid premium choice), then paste the prompt below as the first message. (Earlier kickoff prompts are in this file's git history.)
+Run this in the VS Code harness from `D:\Code\wondarr` on an OpenRouter model (the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md`), then paste the prompt below as the first message. (Earlier kickoff prompts are in this file's git history.)
 
 ---
 

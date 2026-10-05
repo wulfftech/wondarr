@@ -106,5 +106,5 @@ Answers from the owner to the round-1 questions, and what each changed in this p
 
 | # | Topic | Decision | Why |
 |---|---|---|---|
-| 1 | The orchestrator is not tied to Anthropic | `python scripts/worker.py orchestrate` launches the interactive session on `WONDARR_ORCHESTRATOR_MODEL` through OpenRouter (or Anthropic with `WONDARR_ORCHESTRATOR_PROVIDER=anthropic`); the model comes from the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md` (amends ADR-0011) | Owner request: remove the Anthropic dependency and pay for value, not brand |
+| 1 | The orchestrator is not tied to Anthropic | The orchestrator runs in the VS Code harness on an OpenRouter model only; the model comes from the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md` (amends ADR-0011) | Owner request: remove the Anthropic dependency and pay for value, not brand |
 | 2 | Delegated calls are routed by effort tier | Each task spec names a tier (T1 mechanical, T2 standard, T3 hard/review); the model is the matrix's pick for it, passed as `worker.py --model` | Cheapest model that clears the tier's score floors; refresh with `scripts/openrouter_value.py` |
