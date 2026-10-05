@@ -186,6 +186,7 @@ public class YtDlpRunnerTests
         runner.Calls.Should().HaveCount(2);
         runner.Calls[0].Arguments.Should().Contain("https://music.youtube.com/watch?v=abc123");
         runner.Calls[1].Arguments.Should().Contain("https://music.youtube.com/watch?v=def456");
+        // Both downloads share the one fixture, so both paths name the fixture's id.
         results[0].FilePath.Should().Contain("abc123.opus");
         results[1].FilePath.Should().Contain("abc123.opus");
     }
@@ -251,15 +252,18 @@ public class YtDlpRunnerTests
     [Fact]
     public async Task Warns_when_the_formats_probe_ran_without_a_js_runtime()
     {
+        // Without a JS runtime extraction fails: yt-dlp exits 1 with the deprecation warning on
+        // stderr and no format rows on stdout.
         var runner = new FakeProcessRunner().Enqueue(
             new ProcessResult(
-                0,
+                1,
                 YtDlpFixtures.Read("formats-no-js.stdout"),
                 YtDlpFixtures.Read("formats-no-js.stderr"),
                 TimedOut: false));
 
-        var formats = await Build(runner).ProbeFormatsAsync("abc123", CancellationToken.None);
+        var act = () => Build(runner).ProbeFormatsAsync("abc123", CancellationToken.None);
 
-        formats.HasJsRuntime.Should().BeFalse();
+        var exception = await act.Should().ThrowAsync<YtDlpException>();
+        exception.Which.Kind.Should().Be(YtDlpErrorKind.BotCheck);
     }
 }

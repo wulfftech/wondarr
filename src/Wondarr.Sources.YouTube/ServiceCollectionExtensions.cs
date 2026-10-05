@@ -21,7 +21,9 @@ public static class ServiceCollectionExtensions
         // the defaults apply and the validator still runs.
         services.AddOptions<YouTubeOptions>();
 
-        services.AddSingleton<IValidateOptions<YtDlpOptions>, YtDlpOptionsValidator>();
+        // Registered against the bound YouTubeOptions type: the pipeline validates the type it
+        // resolves, so an IValidateOptions<YtDlpOptions> here would never be asked.
+        services.AddSingleton<IValidateOptions<YouTubeOptions>, YtDlpOptionsValidator>();
 
         // IProcessRunner is registered by Wondarr.Core.
         services.AddSingleton<YtDlpRunner>();
