@@ -23,7 +23,7 @@ The owner's preference is alignment with the other *arrs; with slskd external, C
 | DI / logging | Microsoft.Extensions.DependencyInjection; Serilog (JSON + rolling files) with key redaction | |
 | Tagging | ATL (`z440.atl.core`, MIT, managed, writes MP3/FLAC/M4A/Opus with pictures and lyrics); TagLib# as fallback | |
 | Fingerprinting | `fpcalc` subprocess + AcoustID HTTP (Lidarr's `FingerprintingService` is directly portable); AcoustID.NET optional | |
-| yt-dlp | YoutubeDLSharp (BSD-3) subprocess wrapper with `-J`/`--print` parsing; Deno bundled in the image | |
+| yt-dlp | Direct subprocess through the app's own `IProcessRunner` (the ffprobe/fpcalc pattern) with `--print after_move:filepath` and JSON output parsing; Deno bundled in the image | YoutubeDLSharp (BSD-3) was evaluated and dropped (2026-10-05): its option set is ~3 years stale against a tool that ships monthly; no wrapper library |
 | YouTube Music search | Small InnerTube client in C# (port of ytmusicapi's `search` parser for the `songs`/`videos` filters); the `YTMusicAPI` NuGet package is evaluated first | ytmusicapi is a thin wrapper over `music.youtube.com/youtubei/v1/search` |
 | MusicBrainz / CAA / Deezer / iTunes / LRCLIB / ListenBrainz / Last.fm | Thin typed `HttpClient`s with a shared rate limiter and the metadata cache | |
 | Plex | Port Lidarr's `PlexServerProxy` (sections, partial refresh) + `emptyTrash`; playlists via `/playlists/upload` | |

@@ -2,9 +2,24 @@
 
 > **Name:** this document predates the rename of the project from *Compilarr* to **Wondarr** (2026-09-28, `docs/DECISIONS.md` build session 2 #10); it keeps the old name as a historical record.
 
-Date: 2026-09-28. Prepared for the design doc of a Soulseek-first, single-song *arr-style app.
+Date: 2026-09-28 (re-verified 2026-10-05 for Phase 4; see §0.1). Prepared for the design doc of a Soulseek-first, single-song *arr-style app.
 Every claim carries a URL. "Primary" = project source code, READMEs, wiki markdown, changelogs, PyPI metadata.
 "Secondary" = third-party blogs/search snippets. Items marked **UNVERIFIED** could not be checked from this sandbox.
+
+## 0.1 Re-verification for Phase 4 (2026-10-05, researcher agent)
+
+Facts that changed or were pinned before the Phase 4 specs were written (all verified directly from source):
+
+- **InnerTube search is keyless.** ytmusicapi's current `main` sends **no API key and no `X-Goog-Api-Key` header for unauthenticated search** — the key constant (`AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30`, `constants.py`) is appended only for browser-cookie auth. The old WEB_REMIX key in §2 below (`…JCCTLW7cUh-AqyM`) is stale. Sources: https://raw.githubusercontent.com/sigma67/ytmusicapi/main/ytmusicapi/constants.py , `helpers.py`, `ytmusic.py`.
+- **Request shape:** `POST https://music.youtube.com/youtubei/v1/search?alt=json`, body `{"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.<YYYYMMDD>.01.00","hl":"en"},"user":{}},"query":…,"params":…}` — `clientVersion` is computed at runtime, not hardcoded. Headers: the Firefox 88 UA, `accept: */*`, `content-type: application/json`, `origin: https://music.youtube.com`, cookie `SOCS=CAI`; no Referer. The `X-Goog-Visitor-Id` ytmusicapi scrapes from the homepage is **not required for search**.
+- **`params` constants (current):** songs = `EgWKAQIIAWoMEA4QChADEAQQCRAF`; videos = `EgWKAQIQAWoMEA4QChADEAQQCRAF`; songs + ignore_spelling = `EgWKAQIIAUICCAFqDBAOEAoQAxAEEAkQBQ%3D%3D`. Source: `parsers/search.py`.
+- **Response path:** `contents.tabbedSearchResultsRenderer.tabs[0].tabRenderer.content.sectionListRenderer.contents[]` → `musicShelfRenderer` (top result: `musicCardShelfRenderer`, videoId/videoType under `onTap`). Per item: videoId under `overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId`; **musicVideoType at the same playNavigationEndpoint + `watchEndpointMusicSupportedConfigs.watchEndpointMusicConfig.musicVideoType`**; title = flexColumns[0] runs[0].text; artists = flexColumns[1] runs with a browseEndpoint; duration = the last run matching `^(\d+:)*\d+:\d+$`. **No `duration_seconds` in raw responses** — it is computed from the `M:SS` text. Sources: `mixins/search.py`, `parsers/search.py`, `navigation.py`.
+- **yt-dlp:** still 2026.08.19 (latest PyPI); Deno still the only-by-default runtime, min 2.3.0 (the pip `deno` extra pins `deno>=2.6.6`); `yt-dlp-ejs==0.8.0` in the default extra. Sources: https://pypi.org/pypi/yt-dlp/json , https://github.com/yt-dlp/yt-dlp/wiki/EJS .
+- **bgutil PO-token provider:** v2.0.1 (2026-10-02), HTTP server still port 4416, custom URL via `--extractor-args "youtubepot-bgutilhttp:base_url=http://…"`. Source: https://pypi.org/pypi/bgutil-ytdlp-pot-provider/json .
+- **Error strings (exact, for the taxonomy):** bot check = `"Sign in to confirm you're not a bot"` (stderr `ERROR: [youtube] <id>: Sign in to confirm you're not a bot. <hint>`); rate limit = `"This content isn't available, try again later"`; geo = `"The uploader has not made this video available in your country"`; age gate fatal = `"Login details are needed to download this content"` (warnings mention `age-restricted`); private/unavailable = `"This video is private"`, `"Video unavailable"`, `"This video does not exist"`. Exit codes: extraction failures → 1; cancelled → 101; usage → 2. Sources: `yt_dlp/extractor/youtube/_video.py`, `_base.py`, `yt_dlp/__init__.py`.
+- **YoutubeDLSharp is stale:** NuGet 1.2.0, option set last synced to yt-dlp ~3 years ago, repo slow-moving → **not used**; Wondarr shells out to yt-dlp directly (`DECISIONS.md` build session 5 #1). Sources: https://api.nuget.org/v3-flatcontainer/youtubedlsharp/index.json , https://github.com/Bluegrams/YoutubeDLSharp .
+
+---
 
 ## 0. How this was researched and what could NOT be reached
 
