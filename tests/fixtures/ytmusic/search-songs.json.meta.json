@@ -1,0 +1,6 @@
+{
+  "request": "POST https://music.youtube.com/youtubei/v1/search?alt=json (songs filter, query \"daft punk get lucky\")",
+  "status": 200,
+  "captured": "2026-10-05",
+  "note": "Recorded live, then trimmed: the first 6 of 20 shelf results kept, and renderer fields the parser never reads (menus, tracking params, accessibility labels, button styling) removed. The structure of every kept result is verbatim."
+}

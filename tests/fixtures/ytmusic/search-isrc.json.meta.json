@@ -1,0 +1,6 @@
+{
+  "request": "POST https://music.youtube.com/youtubei/v1/search?alt=json (no filter, query \"USWB19901214\" — a-ha 'Take On Me' ISRC)",
+  "status": 200,
+  "captured": "2026-10-05",
+  "note": "Recorded live, then trimmed: the top-result musicCardShelfRenderer plus the first 3 itemSectionRenderer sections (one item each) kept, renderer noise removed. The card is the right song (ATV, 3:46); the item sections are loosely-related results — the real shape an ISRC query returns. An earlier attempt with the songs filter + ignore_spelling on an ISRC returned junk (birthday songs), which is why the ISRC query runs with no filter, as spotDL does."
+}
