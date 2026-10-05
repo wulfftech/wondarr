@@ -1,3 +1,5 @@
 [youtube] Extracting URL: https://music.youtube.com/watch?v=abc123
 [youtube] abc123: Downloading webpage
+WARNING: [youtube] YouTube extraction without a JS runtime has been deprecated and may stop working. Please install Deno.
 ERROR: [youtube] abc123: Sign in to confirm you're not a bot. This helps protect our community.
+

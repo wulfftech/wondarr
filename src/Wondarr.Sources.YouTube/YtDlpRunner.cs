@@ -73,8 +73,9 @@ public sealed partial class YtDlpRunner : IDisposable
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        // The validator holds this at 1; the semaphore is built once, from the configured value.
-        var concurrency = Math.Max(1, options.CurrentValue.Ytdlp.Concurrency);
+        // The validator holds this at 1; the clamp is defence in depth so a misconfigured value can
+        // never widen the gate past YouTube's tolerance.
+        var concurrency = Math.Clamp(options.CurrentValue.Ytdlp.Concurrency, 1, 1);
         _gate = new SemaphoreSlim(concurrency, concurrency);
     }
 
@@ -145,6 +146,25 @@ public sealed partial class YtDlpRunner : IDisposable
 
         var options = _options.CurrentValue;
 
+        // The probe shares the download gate: a -F probe racing a download adds requests against
+        // the same YouTube tolerance the pacing flags exist for.
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            return await ProbeFormatsUngatedAsync(videoId, options, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<YtDlpFormats> ProbeFormatsUngatedAsync(
+        string videoId,
+        YouTubeOptions options,
+        CancellationToken cancellationToken)
+    {
         ProcessResult result;
 
         try
