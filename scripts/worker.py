@@ -5,6 +5,7 @@ Wondarr cheap-worker runner (standard library only, Python 3.10+, Windows/macOS/
 Modes
   run   <task.md>   Run a headless `claude -p` worker against OpenRouter (or Anthropic) in a git worktree.
   api   <task.md>   Single-shot OpenRouter chat-completions call (no tools); optional --files to inline.
+  orchestrate       Launch the interactive orchestrator session (`claude`) on any OpenRouter model, no Anthropic account needed.
   review <branch>   Ask the reviewer model to review `git diff main...<branch>` (single-shot, no tools).
 
 Examples
@@ -16,6 +17,7 @@ Examples
 Environment (.env in the repo root is loaded automatically; existing env vars win)
   OPENROUTER_API_KEY            required for OpenRouter modes
   WONDARR_WORKER_MODEL        e.g. "z-ai/glm-5.3-flash" (pin after the bake-off; see docs/build/AGENT_WORKFLOW.md §6)
+  WONDARR_ORCHESTRATOR_MODEL  orchestrator model for `orchestrate` (pick from docs/build/MODEL_VALUE_MATRIX.md, "Orchestrator" row)
   WONDARR_REVIEWER_MODEL      optional mid-tier model for `review`
   WONDARR_WORKER_MAX_TURNS    default 25
   WONDARR_WORKER_TIMEOUT_MIN  default 20
@@ -241,6 +243,35 @@ def worker_env(provider: str, model: str) -> dict[str, str]:
         e["CLAUDE_CODE_SUBAGENT_MODEL"] = model
     e["WONDARR_WORKER"] = "1"
     return e
+
+
+def orchestrator_env(provider: str, model: str) -> dict[str, str]:
+    """Environment for the interactive orchestrator: same endpoint switch as workers, but nested
+    subagents inherit the session's model (they are not pinned) and the session is not marked a worker."""
+    e = worker_env(provider, model)
+    e.pop("WONDARR_WORKER", None)
+    e.pop("CLAUDE_CODE_SUBAGENT_MODEL", None)
+    if provider == "openrouter":
+        # an unpinned HAIKU alias would otherwise point at the orchestrator model for cheap background calls
+        e["ANTHROPIC_SMALL_FAST_MODEL"] = env("WONDARR_WORKER_MODEL") or model
+    return e
+
+
+def run_orchestrate(args: argparse.Namespace) -> int:
+    provider = (env("WONDARR_ORCHESTRATOR_PROVIDER") or "openrouter").lower()
+    model = args.model or env("WONDARR_ORCHESTRATOR_MODEL")
+    if not model:
+        raise SystemExit("WONDARR_ORCHESTRATOR_MODEL is not set (pick the Orchestrator row in docs/build/MODEL_VALUE_MATRIX.md)")
+    claude = find_claude()
+    if not claude:
+        raise SystemExit("`claude` CLI not found on PATH")
+    cmd = [claude, "--model", model] + list(args.claude_args)
+    e = orchestrator_env(provider, model)
+    print(f"orchestrator: provider={provider} model={model}")
+    if args.dry_run:
+        print("would run:", " ".join(cmd))
+        return 0
+    return subprocess.call(cmd, cwd=REPO, env=e)
 
 
 def build_prompt(task_file: Path, continue_note: str | None) -> str:
@@ -554,11 +585,15 @@ def main() -> int:
     p_rev = sub.add_parser("review", help="single-shot review of git diff main...<branch>")
     p_rev.add_argument("branch")
     p_rev.add_argument("--task")
+    p_orc = sub.add_parser("orchestrate", help="launch the interactive orchestrator session on any provider/model")
+    p_orc.add_argument("claude_args", nargs="*", help="extra args passed to `claude` (e.g. the kickoff prompt)")
     p_watch = sub.add_parser("watch", help="follow all workers' live progress (run in a terminal you can see)")
     p_watch.add_argument("--replay", action="store_true", help="print existing log content first")
     args = parser.parse_args()
     if args.mode == "watch":
         return run_watch(args)
+    if args.mode == "orchestrate":
+        return run_orchestrate(args)
     if args.mode == "run":
         return run_worker(args)
     if args.mode == "api":

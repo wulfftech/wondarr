@@ -1,6 +1,6 @@
 # Next-session prompt (Phase 4)
 
-Launch Claude Code in `D:\Code\wondarr` on the orchestrator model (`/model claude-opus-5-5`), then paste the prompt below as the first message. (Earlier kickoff prompts are in this file's git history.)
+Launch the orchestrator with `python scripts/worker.py orchestrate` from `D:\Code\wondarr` (OpenRouter; model = `WONDARR_ORCHESTRATOR_MODEL`, set to the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md`; no Anthropic account needed; Opus 5.5 remains a valid premium choice), then paste the prompt below as the first message. (Earlier kickoff prompts are in this file's git history.)
 
 ---
 
@@ -8,7 +8,7 @@ You are the **orchestrator** for Wondarr (Windows, `D:\Code\wondarr`). Read firs
 
 **Goal:** Phase 4 — the YouTube source — to its "done when" gate: songs missing on Soulseek filled from Art Tracks within one search cycle and passing fingerprint verification; official-video candidates with intros rejected by duration; a simulated bot-check response backs off instead of looping. Start by writing `docs/build/PHASE_4_TASKS.md` (P4-00 research first — see the handover's Phase 4 list).
 
-**Pre-flight (one short report):** toolchain; `.env` presence (never print values; read them with `worker.py`'s loader); CI green on `main`; the OpenRouter key's remaining limit (USD 8.93 left of 20 on 2026-09-30; Phase 3 cost USD 3.45); the live instance on `ch01` (http://ch01.ad.wulff.com.au:1077, `develop` image) is up.
+**Pre-flight (one short report):** toolchain; the orchestrator model is the matrix's current "Orchestrator" pick (if the matrix is over 7 days old, refresh it first); `.env` presence (never print values; read them with `worker.py`'s loader); CI green on `main`; the OpenRouter key's remaining limit (USD 8.93 left of 20 on 2026-09-30; Phase 3 cost USD 3.45); the live instance on `ch01` (http://ch01.ad.wulff.com.au:1077, `develop` image) is up.
 
 **Per task:** spec from `WORKER_TASK_TEMPLATE.md` (state its tier) → commit the spec → `WONDARR_WORKER_BASE=<your base branch> python -u scripts/worker.py --model <tier pick> run docs/build/tasks/<id>.md` in the background **with a background timeout above the worker's 60-minute cap** → review adversarially and run the builds, tests and frontend checks yourself → the reviewer (T3 pick) for anything touching processes, files, time, the database, auth or external limits → fix the findings yourself when that is cheaper than a continuation → merge only through `scripts/safe-merge.sh` → update `PROGRESS.md`, docs, `NOTICE.md`, the OpenAPI snapshot and the frontend types (regenerate them *after* merging the base into a branch; regenerate a branch's migration when another migration merged first) → Conventional Commit, no model names, no AI trailer → push to `main`.
 
