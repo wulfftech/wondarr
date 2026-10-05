@@ -1,15 +1,15 @@
-# Agentic build workflow: Opus 5.5 orchestrator + cheap workers
+# Agentic build workflow: value-picked orchestrator + cheap workers
 
 ## 1. Roles
 
 | Role | Runs where | Model | Does | Never does |
 |---|---|---|---|---|
-| **Orchestrator** | The interactive Claude Code session in this repo | **Claude Opus 5.5** (`/model claude-opus-5-5`) | Reads the docs, picks tasks, writes task specs, launches workers, reviews every diff, runs verification, resolves conflicts, updates `PROGRESS.md`/docs, commits and pushes | Hand-types large volumes of routine code; skips review |
+| **Orchestrator** | The interactive Claude Code session in this repo | **Any tool-calling model on any provider**, picked from `MODEL_VALUE_MATRIX.md` ("Orchestrator" row) and launched with `python scripts/worker.py orchestrate` (`WONDARR_ORCHESTRATOR_MODEL`); Claude Opus 5.5 remains a valid premium choice | Reads the docs, picks tasks, writes task specs, launches workers, reviews every diff, runs verification, resolves conflicts, updates `PROGRESS.md`/docs, commits and pushes | Hand-types large volumes of routine code; skips review |
 | **Worker** | A separate headless process (`scripts/worker.py`) in its own git worktree | A **cheap model via OpenRouter** (`WONDARR_WORKER_MODEL`), or Claude Haiku via `.claude/agents/worker.md` when OpenRouter is not configured | Implements exactly one task file: code + tests, runs build/tests, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, commits to `main` |
 | **Reviewer** (optional) | `.claude/agents/reviewer.md` subagent or `scripts/worker.py review` | Mid-tier model (`WONDARR_REVIEWER_MODEL`) or Sonnet | Independent review of a worker diff against the task's acceptance criteria and `CODING_STANDARDS.md` | Edits code |
 | **Researcher** (optional) | `.claude/agents/researcher.md` | Sonnet/Haiku with web tools | Verifies an external API/library fact before a spec is written | Writes code |
 
-Why separate processes: Claude Code subagents inherit the session's API endpoint and cannot be routed to a different provider per agent ([sub-agents docs](https://code.claude.com/docs/en/sub-agents.md), [env vars](https://code.claude.com/docs/en/env-vars.md)). So the orchestrator stays on Anthropic, and each worker is a fresh `claude -p` (or a direct API call) launched with OpenRouter's Anthropic-compatible endpoint in its environment.
+Why separate processes: Claude Code subagents inherit the session's API endpoint and cannot be routed to a different provider per agent ([sub-agents docs](https://code.claude.com/docs/en/sub-agents.md), [env vars](https://code.claude.com/docs/en/env-vars.md)). So the orchestrator session and each worker are separate `claude` processes (workers headless `claude -p`, or a direct API call), each launched with its own endpoint and model in its environment: `worker.py orchestrate` points the interactive session at OpenRouter's Anthropic-compatible endpoint (or at Anthropic with `WONDARR_ORCHESTRATOR_PROVIDER=anthropic`), and nested subagents inherit that session model. Model choice for every delegated call is by effort tier from `MODEL_VALUE_MATRIX.md`.
 
 ## 2. Mechanics
 
