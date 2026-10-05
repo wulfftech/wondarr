@@ -1,0 +1,6 @@
+{
+  "request": "POST https://music.youtube.com/youtubei/v1/search?alt=json (songs filter, query \"daft punk get lucky\")",
+  "status": 400,
+  "captured": "2026-10-05",
+  "note": "Recorded live: the error body InnerTube returns for a malformed payload (here: cmd.exe-mangled JSON). Kept so the client's error path has a real response to read."
+}
