@@ -57,6 +57,5 @@ These are redistributed unmodified as separate programs inside the Docker image,
 | ffmpeg / ffprobe (static builds) | 9.0.2 | GPL (build-dependent) | Unmodified binaries, via [mwader/static-ffmpeg](https://github.com/mwader/static-ffmpeg) |
 | Chromaprint `fpcalc` | 1.6.1 | LGPL-2.1+ / MIT components | Unmodified binary, used for AcoustID fingerprinting |
 | Deno | 2.9.7 | MIT | Unmodified binary, required by yt-dlp's JavaScript challenge solver |
+| yt-dlp | 2026.08.19 | Unlicense | Unmodified binary (the official standalone executable), run as a separate process for YouTube downloads; licence and a link to its source (https://github.com/yt-dlp/yt-dlp/tree/2026.08.19) are shipped in the image |
 | s6-overlay | 3.2.3.2 | ISC | Init system, from https://github.com/just-containers/s6-overlay |
-
-yt-dlp (Unlicense) joins the image in Phase 4 (YouTube source).
