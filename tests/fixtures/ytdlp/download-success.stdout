@@ -1,0 +1,9 @@
+[youtube] Extracting URL: https://music.youtube.com/watch?v=abc123
+[youtube] abc123: Downloading webpage
+[youtube] abc123: Downloading tv client config
+[info] abc123: Downloading 1 format(s): 251
+[download] Destination: /grabs/queue-1/abc123.webm
+[download] 100% of 3.42MiB in 00:00:02 at 1.50MiB/s
+[ExtractAudio] Destination: /grabs/queue-1/abc123.opus
+Removing original file /grabs/queue-1/abc123.webm (pass -k to keep)
+/grabs/queue-1/abc123.opus

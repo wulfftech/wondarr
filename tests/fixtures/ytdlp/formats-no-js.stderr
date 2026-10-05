@@ -1,0 +1,2 @@
+WARNING: [youtube] YouTube extraction without a JS runtime has been deprecated and may stop working. Please install Deno.
+ERROR: [youtube] abc123: This content isn't available, try again later.
