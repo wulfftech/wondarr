@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Profiles;
 
 namespace Wondarr.Api.Profiles;
 
@@ -14,6 +15,10 @@ namespace Wondarr.Api.Profiles;
 /// <param name="Layout">The layout preset.</param>
 /// <param name="NamingTemplate">The Lidarr-style path template.</param>
 /// <param name="SidecarOptions">The sidecar options as a JSON object.</param>
+/// <param name="OutputPolicy">
+/// The output policy for YouTube-sourced files as a JSON object; a library without one reports the
+/// default (AAC 256 kbps CBR in an <c>.m4a</c>, ADR-0008).
+/// </param>
 /// <param name="AlbumPolicy">How songs are assigned to album folders.</param>
 /// <param name="MinTracksPerRealAlbum">How many owned tracks a real album needs before the policy uses it.</param>
 /// <param name="PlexSectionId">The Plex section id, or <see langword="null"/> while not linked.</param>
@@ -29,6 +34,7 @@ public sealed record LibraryResource(
     LibraryLayout Layout,
     string NamingTemplate,
     JsonElement SidecarOptions,
+    JsonElement OutputPolicy,
     AlbumPolicy AlbumPolicy,
     int MinTracksPerRealAlbum,
     string? PlexSectionId,
@@ -54,6 +60,9 @@ public static class LibraryResourceMapper
             library.Layout,
             library.NamingTemplate,
             ParseOptions(library.SidecarOptions),
+            ParseOptions(string.IsNullOrWhiteSpace(library.OutputPolicy)
+                ? OutputPolicy.Default.ToJson()
+                : library.OutputPolicy),
             library.AlbumPolicy,
             library.MinTracksPerRealAlbum,
             library.PlexSectionId,
@@ -78,6 +87,11 @@ public static class LibraryResourceMapper
             SidecarOptions = resource.SidecarOptions.ValueKind == JsonValueKind.Undefined
                 ? EmptyOptions
                 : resource.SidecarOptions.GetRawText(),
+            // An explicit null clears the policy back to the default (a PUT replaces the library,
+            // so "no policy" must be expressible); an omitted key keeps whatever the row held.
+            OutputPolicy = resource.OutputPolicy.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                ? null
+                : resource.OutputPolicy.GetRawText(),
             AlbumPolicy = resource.AlbumPolicy,
             MinTracksPerRealAlbum = resource.MinTracksPerRealAlbum,
             PlexSectionId = resource.PlexSectionId,

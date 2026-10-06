@@ -137,6 +137,107 @@ public sealed class LibraryApiTests
     }
 
     [Fact]
+    public async Task A_library_without_an_output_policy_reports_the_default()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = await GetLibraryAsync(client, 1);
+
+        var policy = (JsonObject)library["outputPolicy"]!;
+        policy["codec"]!.GetValue<string>().Should().Be("aac");
+        policy["mode"]!.GetValue<string>().Should().Be("cbr");
+        policy["bitrateKbps"]!.GetValue<int>().Should().Be(256);
+        policy["vbrQuality"]!.GetValue<int>().Should().Be(0);
+        policy["sampleRate"]!.GetValue<string>().Should().Be("keep");
+    }
+
+    [Fact]
+    public async Task Updating_a_library_persists_the_output_policy()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = await GetLibraryAsync(client, 1);
+        library["outputPolicy"] = new JsonObject
+        {
+            ["codec"] = "mp3",
+            ["mode"] = "vbr",
+            ["vbrQuality"] = 2,
+        };
+
+        using var response = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var reread = await GetLibraryAsync(client, 1);
+        var policy = (JsonObject)reread["outputPolicy"]!;
+        policy["codec"]!.GetValue<string>().Should().Be("mp3");
+        policy["mode"]!.GetValue<string>().Should().Be("vbr");
+        policy["vbrQuality"]!.GetValue<int>().Should().Be(2);
+        // The keys the body left out come back with their defaults.
+        policy["bitrateKbps"]!.GetValue<int>().Should().Be(256);
+        policy["sampleRate"]!.GetValue<string>().Should().Be("keep");
+    }
+
+    [Fact]
+    public async Task An_explicit_null_output_policy_clears_back_to_the_default()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        // Set a policy first, so clearing it has something to clear.
+        var library = await GetLibraryAsync(client, 1);
+        library["outputPolicy"] = new JsonObject { ["codec"] = "mp3" };
+
+        using (var put = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library)))
+        {
+            put.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        // A PUT that carries an explicit null clears the policy: the library reads back the default.
+        library = await GetLibraryAsync(client, 1);
+        library["outputPolicy"] = null;
+
+        using (var put = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library)))
+        {
+            put.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var reread = await GetLibraryAsync(client, 1);
+        var policy = (JsonObject)reread["outputPolicy"]!;
+        policy["codec"]!.GetValue<string>().Should().Be("aac", "the null cleared the stored policy");
+        policy["bitrateKbps"]!.GetValue<int>().Should().Be(256);
+    }
+
+    [Fact]
+    public async Task A_lossless_output_policy_is_a_bad_request_that_names_the_key()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = await GetLibraryAsync(client, 1);
+        library["outputPolicy"] = new JsonObject { ["codec"] = "flac" };
+
+        using var response = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ValidationErrorsAsync(response)).Should().ContainKey("codec");
+
+        // The stored policy is unchanged.
+        var reread = await GetLibraryAsync(client, 1);
+        ((JsonObject)reread["outputPolicy"]!)["codec"]!.GetValue<string>().Should().Be("aac");
+    }
+
+    [Fact]
     public async Task Reading_and_updating_an_unknown_library_is_a_not_found()
     {
         using var factory = new WondarrAppFactory();

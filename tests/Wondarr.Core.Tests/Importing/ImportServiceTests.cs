@@ -5,6 +5,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
+using Wondarr.Core.Profiles;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Verification;
 using Xunit;
@@ -363,6 +364,9 @@ public sealed class ImportServiceTests
         (await host.Context.Blocklist.CountAsync()).Should().Be(0);
         host.Search.Grabs.Should().BeEmpty();
     }
+
+    // The transcode-step tests (YouTube item, KeepOpus, Soulseek never, failed transcode) live in
+    // ImportServiceTranscodeTests, the file the P4-03 deliverable names.
 
     [Fact]
     public async Task Defers_the_import_when_the_verdict_could_not_be_reached()
