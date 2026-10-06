@@ -444,7 +444,12 @@ public sealed class DecisionEngine
             return 0;
         }
 
-        var pathTokens = TokenizePath(candidate.RemotePath);
+        // A source whose candidates carry parsed metadata (YouTube: the video id is the path, the
+        // artist is metadata) is matched on that; a path-shaped candidate (Soulseek) is matched on
+        // its path tokens, where the artist legitimately appears.
+        var candidateTokens = !string.IsNullOrWhiteSpace(candidate.Parsed.Artist)
+            ? TokenizePath(candidate.Parsed.Artist)
+            : TokenizePath(candidate.RemotePath);
         var best = 0.0;
 
         foreach (var artist in context.MainArtists)
@@ -460,7 +465,7 @@ public sealed class DecisionEngine
 
             foreach (var token in tokens)
             {
-                if (pathTokens.Contains(token))
+                if (candidateTokens.Contains(token))
                 {
                     found++;
                 }

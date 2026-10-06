@@ -1548,6 +1548,113 @@
         ],
         "rejections": {}
       }
+    },
+    {
+      "name": "youtube official video with an intro is rejected by the duration tolerance",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "omv",
+          "provider": "Daft Punk",
+          "remotePath": "CCHdMIEGaaM",
+          "extension": "opus",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": null,
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 388000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": null,
+          "qualityId": 28,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": null
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [],
+        "rejections": {
+          "omv": ["durationOutOfTolerance"]
+        }
+      }
+    },
+    {
+      "name": "youtube art track at the song's length is accepted",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "atv",
+          "provider": "Daft Punk",
+          "remotePath": "4D7u5KF7SP8",
+          "extension": "opus",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 370000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": null,
+          "qualityId": 28,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": null
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "atv"
+        ],
+        "rejections": {},
+        "scoreAtLeast": {
+          "atv": 850
+        }
+      }
     }
   ]
 }

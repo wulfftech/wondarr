@@ -6,6 +6,7 @@ using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Media;
+using Wondarr.Core.Searching;
 
 namespace Wondarr.Sources.YouTube;
 
@@ -22,7 +23,7 @@ public sealed record YtDlpDownload(string VideoId, string FilePath, string Exten
 public sealed record YtDlpFormats(string VideoId, string StandardOutput, bool HasJsRuntime);
 
 /// <summary>A classified yt-dlp failure; the kind decides retry-later vs blocklist.</summary>
-public sealed class YtDlpException : Exception
+public sealed class YtDlpException : Exception, ISourceGrabFailure
 {
     /// <summary>Initialises a new instance of the <see cref="YtDlpException"/> class.</summary>
     /// <param name="videoId">The video id that was being fetched.</param>
@@ -44,6 +45,9 @@ public sealed class YtDlpException : Exception
 
     /// <summary>Gets what the queue should do with the failure.</summary>
     public YtDlpErrorAction Action => YtDlpErrorTaxonomy.ActionFor(Kind);
+
+    /// <inheritdoc />
+    bool ISourceGrabFailure.BlocklistCandidate => Action == YtDlpErrorAction.Blocklist;
 }
 
 /// <summary>
@@ -51,7 +55,7 @@ public sealed class YtDlpException : Exception
 /// audio as a lossless Opus remux, one download at a time (YouTube's tolerance), and classifies every
 /// failure into the retry-later vs blocklist taxonomy.
 /// </summary>
-public sealed partial class YtDlpRunner : IDisposable
+public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 {
     private const string JsRuntimeWarning = "YouTube extraction without a JS runtime has been deprecated";
 
