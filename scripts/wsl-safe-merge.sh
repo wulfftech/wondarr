@@ -9,6 +9,14 @@ shim_dir="$(mktemp -d)"
 trap 'rm -rf "${shim_dir}"' EXIT
 printf '#!/usr/bin/env bash\nexec "/mnt/c/Program Files/dotnet/dotnet.exe" "$@"\n' > "${shim_dir}/dotnet"
 chmod +x "${shim_dir}/dotnet"
+# npm/node: the Windows install is not on WSL's PATH either. npm is npm.cmd, so the shim execs it
+# through cmd.exe; node.exe itself runs directly.
+printf '#!/usr/bin/env bash\nexec "/mnt/c/Program Files/nodejs/npm.cmd" "$@"\n' > "${shim_dir}/npm"
+chmod +x "${shim_dir}/npm"
+printf '#!/usr/bin/env bash\nexec "/mnt/c/Program Files/nodejs/node.exe" "$@"\n' > "${shim_dir}/node"
+chmod +x "${shim_dir}/node"
+printf '#!/usr/bin/env bash\nexec "/mnt/c/Program Files/nodejs/npx.cmd" "$@"\n' > "${shim_dir}/npx"
+chmod +x "${shim_dir}/npx"
 export PATH="${shim_dir}:$PATH"
 
 # WSL's HOME is not the Windows profile, so the global git identity is not found there. On this
