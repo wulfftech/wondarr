@@ -302,6 +302,12 @@ public sealed partial class ImportService : IImportService
                         .ConfigureAwait(false);
 
                     importPath = transcoded.Path;
+
+                    // The Opus original is deleted only after the transcode succeeded: it is the
+                    // source the new file was made from, and a failed transcode must be able to run
+                    // again. A delete that cannot run is the transcode's failure, not the import's:
+                    // both files on disk would make the next attempt hit an existing destination.
+                    File.Delete(downloadPath);
                 }
                 catch (OperationCanceledException)
                 {
@@ -326,10 +332,6 @@ public sealed partial class ImportService : IImportService
 
                     return ImportOutcome.Failed;
                 }
-
-                // The Opus original is deleted only after the transcode succeeded: it is the source
-                // the new file was made from, and a failed transcode must be able to run again.
-                File.Delete(downloadPath);
 
                 extension = Path.GetExtension(importPath).TrimStart('.').ToLowerInvariant();
             }

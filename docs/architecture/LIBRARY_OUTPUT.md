@@ -95,4 +95,3 @@ A YouTube download is the lossless remux of itag 251 (`.opus`); most players wan
 - `sampleRate`: `keep` or a rate in Hz.
 
 The transcode target is written next to the download under the video id (`<destinationDir>/<videoId>.<target-ext>`), one `ffmpeg` run with `-vn` and no `-y`, bounded by the media tools' shared timeout. The Opus original is deleted only after the transcode succeeded; a failed transcode fails the item without a blocklist entry and without grabbing the next candidate, and the original stays on disk for a later attempt. The transcoded file is ranked as the source it came from (OPUS-160), not the file the transcode wrote — see `QUALITY_DEFINITIONS.md` §"Output policy for YouTube-sourced files".
-

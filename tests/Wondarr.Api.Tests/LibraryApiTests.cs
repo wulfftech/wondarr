@@ -183,6 +183,40 @@ public sealed class LibraryApiTests
     }
 
     [Fact]
+    public async Task An_explicit_null_output_policy_clears_back_to_the_default()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        // Set a policy first, so clearing it has something to clear.
+        var library = await GetLibraryAsync(client, 1);
+        library["outputPolicy"] = new JsonObject { ["codec"] = "mp3" };
+
+        using (var put = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library)))
+        {
+            put.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        // A PUT that carries an explicit null clears the policy: the library reads back the default.
+        library = await GetLibraryAsync(client, 1);
+        library["outputPolicy"] = null;
+
+        using (var put = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library)))
+        {
+            put.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        var reread = await GetLibraryAsync(client, 1);
+        var policy = (JsonObject)reread["outputPolicy"]!;
+        policy["codec"]!.GetValue<string>().Should().Be("aac", "the null cleared the stored policy");
+        policy["bitrateKbps"]!.GetValue<int>().Should().Be(256);
+    }
+
+    [Fact]
     public async Task A_lossless_output_policy_is_a_bad_request_that_names_the_key()
     {
         using var factory = new WondarrAppFactory();
