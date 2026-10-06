@@ -25,7 +25,7 @@ public class ServiceCollectionExtensionsTests
     [Fact]
     public void AddWondarrYouTube_returns_the_same_service_collection()
     {
-        // A real collection: AddOptions inspects what is already registered.
+        // A real collection: AddOptions and AddHttpClient inspect what is already registered.
         var services = new ServiceCollection();
 
         services.AddWondarrYouTube().Should().BeSameAs(services);
