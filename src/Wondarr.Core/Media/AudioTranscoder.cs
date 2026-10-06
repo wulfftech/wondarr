@@ -116,13 +116,14 @@ public sealed partial class Transcoder : ITranscoder
         }
 
         var options = _tools.CurrentValue;
+        var timeout = Timeout(options);
         var run = await _runner
-            .RunAsync(options.FfmpegPath, BuildArguments(sourcePath, policy, destinationPath), Timeout(options), cancellationToken)
+            .RunAsync(options.FfmpegPath, BuildArguments(sourcePath, policy, destinationPath), timeout, cancellationToken)
             .ConfigureAwait(false);
 
         if (run.TimedOut)
         {
-            throw new TranscodeException($"ffmpeg was killed after {Timeout(options).TotalSeconds.ToString(CultureInfo.InvariantCulture)} s: {sourcePath}");
+            throw new TranscodeException($"ffmpeg was killed after {timeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} s: {sourcePath}");
         }
 
         if (run.ExitCode != 0)
@@ -146,12 +147,18 @@ public sealed partial class Transcoder : ITranscoder
 
         switch (policy.Codec, policy.Mode)
         {
-            case (OutputCodec.Aac, _):
+            case (OutputCodec.Aac, OutputMode.Cbr):
                 arguments.Add("-c:a");
                 arguments.Add("aac");
                 arguments.Add("-b:a");
                 arguments.Add(policy.BitrateKbps.ToString(CultureInfo.InvariantCulture) + "k");
                 break;
+
+            // The 0–9 quality scale is LAME's (MP3-only); a policy built by hand that asks for an
+            // AAC VBR is refused rather than silently run as CBR.
+            case (OutputCodec.Aac, OutputMode.Vbr):
+                throw new TranscodePolicyException(
+                    "outputPolicy: VBR is the LAME quality scale and exists for MP3 only; use mode \"cbr\" for AAC.");
 
             case (OutputCodec.Mp3, OutputMode.Cbr):
                 arguments.Add("-c:a");

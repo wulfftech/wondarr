@@ -87,7 +87,9 @@ public static class LibraryResourceMapper
             SidecarOptions = resource.SidecarOptions.ValueKind == JsonValueKind.Undefined
                 ? EmptyOptions
                 : resource.SidecarOptions.GetRawText(),
-            OutputPolicy = resource.OutputPolicy.ValueKind == JsonValueKind.Undefined
+            // An explicit null clears the policy back to the default (a PUT replaces the library,
+            // so "no policy" must be expressible); an omitted key keeps whatever the row held.
+            OutputPolicy = resource.OutputPolicy.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
                 ? null
                 : resource.OutputPolicy.GetRawText(),
             AlbumPolicy = resource.AlbumPolicy,
