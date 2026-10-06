@@ -49,8 +49,45 @@ public static class AcoustIdStubApp
 
         app.MapGet(LookupPath, (string? client, string? fingerprint) => Lookup(state, client, fingerprint));
 
+        // The Phase 4 gate's registration: FakeYT (the stand-in yt-dlp) posts the fingerprint of each
+        // Opus file it generated together with the recording the gate wants it to verify as, so the
+        // app's own verification passes for a YouTube download the way it passes for a Soulseek one.
+        // Loopback only, like /fake/log: it is a test hook, not an API.
+        app.MapPost("/v2/register", async (HttpContext context) =>
+        {
+            if (!IsLoopback(context.Connection.RemoteIpAddress))
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            var registration = await context.Request.ReadFromJsonAsync<AcoustIdRegistrationResource>().ConfigureAwait(false);
+
+            if (registration is null ||
+                string.IsNullOrWhiteSpace(registration.Fingerprint) ||
+                string.IsNullOrWhiteSpace(registration.RecordingId))
+            {
+                return Results.BadRequest(new { error = "fingerprint and recordingId are required" });
+            }
+
+            state.RememberIdentity(
+                registration.Fingerprint,
+                new ScenarioIdentity
+                {
+                    RecordingId = registration.RecordingId,
+                    Title = registration.Title ?? string.Empty,
+                    Artists = [.. registration.Artists.Select(artist => new ScenarioArtist { Id = artist.Id, Name = artist.Name })],
+                    DurationSeconds = registration.DurationSeconds,
+                });
+
+            return Results.Ok(new { status = "ok" });
+        });
+
         return app;
     }
+
+    /// <summary>Whether the peer is the container's own loopback, where the gate's tools live.</summary>
+    private static bool IsLoopback(System.Net.IPAddress? address) =>
+        address is not null && System.Net.IPAddress.IsLoopback(address);
 
     private static IResult Lookup(FakeSlskdState state, string? client, string? fingerprint)
     {
@@ -117,6 +154,22 @@ public sealed record AcoustIdRecordingResource(
 /// <param name="Id">The MusicBrainz artist id.</param>
 /// <param name="Name">The artist's name.</param>
 public sealed record AcoustIdArtistResource(string Id, string Name);
+
+/// <summary>
+/// The Phase 4 gate's registration: the fingerprint of an Opus file FakeYT generated, with the
+/// recording the gate wants the app's verification to resolve it to.
+/// </summary>
+/// <param name="Fingerprint">The file's chromaprint fingerprint, as fpcalc printed it.</param>
+/// <param name="RecordingId">The MusicBrainz recording id the lookup should answer.</param>
+/// <param name="Title">The recording's title.</param>
+/// <param name="Artists">The recording's artists.</param>
+/// <param name="DurationSeconds">The recording's length in seconds.</param>
+public sealed record AcoustIdRegistrationResource(
+    string Fingerprint,
+    string RecordingId,
+    string? Title,
+    IReadOnlyList<AcoustIdArtistResource> Artists,
+    double DurationSeconds);
 
 /// <summary>A failed lookup, in AcoustID's error shape.</summary>
 /// <param name="Error">What went wrong.</param>

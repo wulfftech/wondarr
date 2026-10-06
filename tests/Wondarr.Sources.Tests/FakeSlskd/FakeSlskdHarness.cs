@@ -39,12 +39,14 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
         FakeSlskdState state,
         HttpClient slskd,
         HttpClient acoustId,
+        HttpClient? innertube,
         WebhookReceiver webhooks)
     {
         Root = root;
         _state = state;
         Slskd = slskd;
         AcoustId = acoustId;
+        Innertube = innertube;
         Webhooks = webhooks;
     }
 
@@ -56,6 +58,9 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
 
     /// <summary>A client for the AcoustID stub; it needs no key.</summary>
     public HttpClient AcoustId { get; }
+
+    /// <summary>A client for the InnerTube stub, when the harness started one; it needs no key.</summary>
+    public HttpClient? Innertube { get; }
 
     /// <summary>The webhook receiver the fake posts <c>DownloadFileComplete</c> to.</summary>
     public WebhookReceiver Webhooks { get; }
@@ -77,11 +82,13 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
     /// <param name="username">The Soulseek username the fake claims; <see langword="null"/> reports as logged out.</param>
     /// <param name="generator">The audio generator; a byte-writing fake unless a test says otherwise.</param>
     /// <param name="shareDirectory">Whether a shared directory is configured.</param>
+    /// <param name="innertubeFixtures">The directory of recorded InnerTube responses; when set, the InnerTube stub starts too.</param>
     public static async Task<FakeSlskdHarness> StartAsync(
         string scenarioJson,
         string? username = "wondarr-test",
         IAudioGenerator? generator = null,
-        bool shareDirectory = true)
+        bool shareDirectory = true,
+        string? innertubeFixtures = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "fakeslskd-tests", Guid.NewGuid().ToString("N"));
 
@@ -92,6 +99,7 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
         var port = FreePort();
         var acoustIdPort = FreePort();
         var webhookPort = FreePort();
+        var innertubePort = FreePort();
 
         var webhooks = new WebhookReceiver();
         var webhookApp = BuildWebhookReceiver(webhookPort, webhooks);
@@ -124,6 +132,8 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
             Configuration = configuration,
             Scenario = Scenario.Parse(scenarioJson),
             AcoustIdPort = acoustIdPort,
+            InnertubePort = innertubePort,
+            InnertubeFixtureDir = innertubeFixtures,
             AudioGenerator = generator ?? new TestAudioGenerator(),
         };
 
@@ -134,15 +144,28 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
         await slskdApp.StartAsync().ConfigureAwait(false);
         await acoustIdApp.StartAsync().ConfigureAwait(false);
 
+        var apps = new List<WebApplication> { webhookApp, slskdApp, acoustIdApp };
+        HttpClient? innertube = null;
+
+        if (innertubeFixtures is not null)
+        {
+            var innertubeApp = InnertubeStubApp.Build(options, state);
+            await innertubeApp.StartAsync().ConfigureAwait(false);
+            apps.Add(innertubeApp);
+            innertube = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{innertubePort}/") };
+        }
+
         var slskd = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
         slskd.DefaultRequestHeaders.Add(FakeSlskdApp.ApiKeyHeader, ApiKey);
 
         var acoustId = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{acoustIdPort}/") };
 
-        var harness = new FakeSlskdHarness(root, state, slskd, acoustId, webhooks) { HasShare = shareDirectory };
-        harness._apps.Add(webhookApp);
-        harness._apps.Add(slskdApp);
-        harness._apps.Add(acoustIdApp);
+        var harness = new FakeSlskdHarness(root, state, slskd, acoustId, innertube, webhooks) { HasShare = shareDirectory };
+
+        foreach (var app in apps)
+        {
+            harness._apps.Add(app);
+        }
 
         return harness;
     }

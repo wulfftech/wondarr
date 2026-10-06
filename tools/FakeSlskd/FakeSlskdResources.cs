@@ -262,10 +262,12 @@ public sealed record DownloadDirectoryResource
 /// <param name="Searches">Every search the app submitted, newest last.</param>
 /// <param name="MaxInFlight">The most searches that were in flight at any moment.</param>
 /// <param name="Transfers">Every download the app queued.</param>
+/// <param name="InnertubeSearches">Every InnerTube search the YouTube source asked for, newest last.</param>
 public sealed record GateLogResource(
     IReadOnlyList<GateSearchResource> Searches,
     int MaxInFlight,
-    IReadOnlyList<GateTransferResource> Transfers);
+    IReadOnlyList<GateTransferResource> Transfers,
+    IReadOnlyList<GateInnertubeSearchResource> InnertubeSearches);
 
 /// <summary>One search, as the gate's log reports it.</summary>
 /// <param name="Id">The search's id.</param>
@@ -285,3 +287,9 @@ public sealed record GateSearchResource(
 /// <param name="Destination">The subdirectory of the downloads directory the file was moved to.</param>
 /// <param name="State">The transfer's state.</param>
 public sealed record GateTransferResource(Guid Id, string Username, string Filename, string Destination, string State);
+
+/// <summary>One InnerTube search, as the gate's log reports it.</summary>
+/// <param name="Query">The search text.</param>
+/// <param name="Params">The filter's <c>params</c>, or an empty string for an unfiltered query.</param>
+/// <param name="AskedAt">When it was asked, ISO-8601 UTC with milliseconds.</param>
+public sealed record GateInnertubeSearchResource(string Query, string Params, string AskedAt);

@@ -9,6 +9,9 @@ public sealed record FakeSlskdOptions
     /// <summary>Where the AcoustID stub listens unless the environment says otherwise.</summary>
     public const int DefaultAcoustIdPort = 5031;
 
+    /// <summary>Where the InnerTube stub listens unless the environment says otherwise.</summary>
+    public const int DefaultInnertubePort = 5032;
+
     /// <summary>The app's rendered slskd configuration.</summary>
     public required SlskdConfiguration Configuration { get; init; }
 
@@ -17,6 +20,12 @@ public sealed record FakeSlskdOptions
 
     /// <summary>The port the AcoustID stub listens on, on loopback only.</summary>
     public int AcoustIdPort { get; init; } = DefaultAcoustIdPort;
+
+    /// <summary>The port the InnerTube stub listens on, on loopback only.</summary>
+    public int InnertubePort { get; init; } = DefaultInnertubePort;
+
+    /// <summary>The directory of recorded InnerTube responses the stub answers from.</summary>
+    public string? InnertubeFixtureDir { get; init; }
 
     /// <summary>The audio generator; tests inject a fake because they do not have <c>ffmpeg</c>.</summary>
     public IAudioGenerator AudioGenerator { get; init; } = new FfmpegAudioGenerator();
@@ -61,6 +70,8 @@ public sealed record FakeSlskdOptions
             Configuration = configuration,
             Scenario = Scenario.Load(Environment.GetEnvironmentVariable("FAKE_SLSKD_SCENARIO")),
             AcoustIdPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_ACOUSTID_PORT")),
+            InnertubePort = ReadPort(Environment.GetEnvironmentVariable("FAKE_INNERTUBE_PORT")),
+            InnertubeFixtureDir = Environment.GetEnvironmentVariable("FAKE_INNERTUBE_FIXTURES"),
             ShareCachePath = string.IsNullOrWhiteSpace(appDirectory) ? null : Path.Combine(appDirectory, "fake-share-cache.json"),
         };
     }
