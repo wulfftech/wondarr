@@ -3,28 +3,6 @@ using Microsoft.Extensions.Options;
 namespace Wondarr.Sources.YouTube;
 
 /// <summary>
-/// The <c>youtube</c> section of <c>config.yml</c>: the cookies and PO-token server the extractor
-/// needs, and the <see cref="Ytdlp"/> sub-section that drives the runner.
-/// </summary>
-public sealed class YouTubeOptions
-{
-    /// <summary>
-    /// A Netscape-format cookies file for an age-gated account, or <see langword="null"/>. The path is
-    /// passed to yt-dlp; its contents are never read or logged by Wondarr.
-    /// </summary>
-    public string? CookiesPath { get; set; }
-
-    /// <summary>
-    /// The base URL of a bgutil PO-token server (for example <c>http://localhost:4416</c>), or
-    /// <see langword="null"/>. Only the base URL is passed on; no query string is ever added.
-    /// </summary>
-    public string? PoTokenBaseUrl { get; set; }
-
-    /// <summary>How yt-dlp is invoked: the <c>youtube.ytdlp</c> sub-section.</summary>
-    public YtDlpOptions Ytdlp { get; set; } = new();
-}
-
-/// <summary>
 /// The <c>youtube.ytdlp</c> section of <c>config.yml</c>: where the bundled yt-dlp is, how long one
 /// download may run, and the pacing flags every download carries.
 /// </summary>
