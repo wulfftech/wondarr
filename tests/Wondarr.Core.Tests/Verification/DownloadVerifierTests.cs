@@ -138,6 +138,23 @@ public sealed class DownloadVerifierTests
     }
 
     [Fact]
+    public async Task A_transcoded_file_is_reported_at_its_source_quality()
+    {
+        // The probe still runs — the file has to decode and be the right length — but a YouTube
+        // grab transcoded to AAC is ranked as the Opus stream it was, not the AAC it became.
+        var (verifier, _, _, _) = Create(lookup: Fixture("lookup-match.json"));
+
+        var result = await verifier.VerifyAsync(
+            Request() with { SourceQualityId = 28 },
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
+        result.MeasuredQualityId.Should().Be(28);
+        result.MeasuredQualityId.Should().NotBe(MeasuredQuality.FromMediaInfo(Mp3));
+        result.Media.Should().Be(Mp3);
+    }
+
+    [Fact]
     public async Task Needs_review_for_a_score_below_the_accept_threshold()
     {
         var (verifier, _, _, _) = Create(lookup: Fixture("lookup-low-score.json"));

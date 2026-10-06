@@ -18,6 +18,13 @@ public static class SeedData
     public const long DefaultLibraryId = 1;
 
     /// <summary>
+    /// The id of the seeded OPUS-160 quality: a YouTube Music stream is Opus at roughly 160 kbps
+    /// (itag 251), so a YouTube grab is ranked as this whatever the library's output policy turns
+    /// its file into (ADR-0008).
+    /// </summary>
+    public const long Opus160QualityId = 28;
+
+    /// <summary>
     /// Every seeded row shares this timestamp: <c>HasData</c> needs fixed values so that regenerating
     /// the migration is a no-op.
     /// </summary>
