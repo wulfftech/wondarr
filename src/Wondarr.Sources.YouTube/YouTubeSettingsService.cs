@@ -258,7 +258,12 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
         string? outputPolicy = null;
         var errors = new List<string>();
 
-        Apply(update, current, candidate, changes, errors, ref outputPolicy);
+        // The stored policy row, so the change is diffed against what is there rather than rewritten.
+        var storedPolicy = await _settingsRepository
+            .GetAsync<string>(OutputPolicyDefaultKey, cancellationToken)
+            .ConfigureAwait(false);
+
+        Apply(update, current, candidate, changes, errors, storedPolicy, ref outputPolicy);
 
         if (errors.Count > 0)
         {
@@ -309,7 +314,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
     {
         // A probe of one's own: the shared availability caches its answer for the process lifetime,
         // and a Test is asked precisely because the user wants to know how it answers now.
-        using var probe = new YtDlpAvailability(_runner, _options, _availabilityLogger);
+        using var probe = YtDlpAvailability.CreateProbe(_runner, _options, _availabilityLogger);
 
         return await probe.GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -344,6 +349,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
     /// actually differ. A read-only field is an error only when the value really changes: the UI
     /// posts the whole form back, so an untouched read-only field must not make saving impossible.
     /// </summary>
+    /// <param name="storedPolicyJson">The policy row as it is stored, for the diff.</param>
     /// <param name="outputPolicy">
     /// The default policy to store, normalised to the JSON the setting row holds, or
     /// <see langword="null"/> when the request did not carry one.
@@ -354,6 +360,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
         YouTubeOptions candidate,
         Dictionary<string, object?> changes,
         List<string> errors,
+        string? storedPolicyJson,
         ref string? outputPolicy)
     {
         ApplyFlag(update.Enabled, "enabled", current.Enabled, changes, errors, value => candidate.Enabled = value);
@@ -406,7 +413,14 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
         {
             // Parsed rather than trusted: the same rules a library's policy is judged by, and the
             // same JSON shape, so the two forms cannot drift apart.
-            outputPolicy = OutputPolicy.Parse(json).ToJson();
+            var normalised = OutputPolicy.Parse(json).ToJson();
+
+            // Diffed like every other field: a save that did not touch the policy must not rewrite
+            // the row, the way a save that did not touch a key must not write it.
+            if (!string.Equals(normalised, storedPolicyJson, StringComparison.Ordinal))
+            {
+                outputPolicy = normalised;
+            }
         }
         catch (ProfileValidationException exception)
         {

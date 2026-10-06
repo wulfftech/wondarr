@@ -97,16 +97,19 @@ interface PolicyState {
   sampleRate: string;
 }
 
-/** Reads the policy the server sent into the form's state. The API carries it as a JSON element, so every member is checked. */
+/** Reads the policy the server sent into the form's state. The API carries it as a JSON element, so every member is checked and an unknown value falls back to the default. */
 function policyState(policy: YouTubeSettingsResource['outputPolicy']): PolicyState {
   const source = (policy ?? {}) as Record<string, unknown>;
+  const codec = typeof source.codec === 'string' ? source.codec : '';
+  const mode = typeof source.mode === 'string' ? source.mode : '';
+  const sampleRate = typeof source.sampleRate === 'string' ? source.sampleRate : '';
 
   return {
-    codec: typeof source.codec === 'string' && source.codec !== '' ? (source.codec as PolicyCodec) : 'aac',
-    mode: typeof source.mode === 'string' && source.mode !== '' ? (source.mode as PolicyMode) : 'cbr',
+    codec: codec === 'aac' || codec === 'mp3' || codec === 'keep-opus' ? codec : 'aac',
+    mode: mode === 'cbr' || mode === 'vbr' ? mode : 'cbr',
     bitrateKbps: typeof source.bitrateKbps === 'number' ? source.bitrateKbps : 256,
     vbrQuality: typeof source.vbrQuality === 'number' ? source.vbrQuality : 0,
-    sampleRate: typeof source.sampleRate === 'string' && source.sampleRate !== '' ? source.sampleRate : 'keep',
+    sampleRate: sampleRate === 'keep' || sampleRate === '44100' || sampleRate === '48000' ? sampleRate : 'keep',
   };
 }
 
@@ -161,7 +164,7 @@ function StatusCard() {
   );
 }
 
-/** The YouTube settings form. Keyed on the settings it mounted with, so a refetch starts it over. */
+/** The YouTube settings form. Local state is seeded once; a save echoes back through the query cache. */
 function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
   const save = useUpdateYouTubeSettings();
   const locked = new Set(settings.readOnlyFields);
@@ -243,7 +246,9 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
 
   /** The enable toggle: the first enable shows the ToS disclaimer instead of flipping straight on. */
   const toggleEnabled = (checked: boolean) => {
-    if (checked && !settings.enabled && !tosAcknowledged()) {
+    // Gated on the acknowledgement alone, not on the server's stored state: a source that was
+    // enabled headlessly must still show the disclaimer to the first person who toggles it.
+    if (checked && !tosAcknowledged()) {
       setTosOpen(true);
 
       return;
@@ -510,7 +515,7 @@ export function YouTubeSettingsPage() {
 
       {settings.error !== null && <ErrorState message={settings.error.message} />}
 
-      {settings.data !== undefined && <YouTubeForm key={String(settings.data.enabled)} settings={settings.data} />}
+      {settings.data !== undefined && <YouTubeForm settings={settings.data} />}
     </Stack>
   );
 }

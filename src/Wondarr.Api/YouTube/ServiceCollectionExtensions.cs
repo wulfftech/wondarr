@@ -26,8 +26,9 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        // Merges with the options registration the source project already made: the validators and
-        // the ValidateOnStart stay, the binding is added here where the configuration root lives.
+        // The source project registers the options with its validators but no binding — the binding
+        // needs the configuration root, which lives here. This is the one Bind for YouTubeOptions;
+        // the validators and the ValidateOnStart the source registered stay in place.
         services
             .AddOptions<YouTubeOptions>()
             .Bind(configuration.GetSection(YouTubeSettingsService.Section))
