@@ -24,6 +24,7 @@ public sealed class FakeSlskdState : IDisposable
     private readonly Dictionary<Guid, ScheduledSearch> _searches = [];
     private readonly Dictionary<Guid, FakeTransfer> _transfers = [];
     private readonly Dictionary<string, ScenarioIdentity> _identities = new(StringComparer.Ordinal);
+    private readonly List<(string Query, string Params, DateTime AskedAt)> _innertubeSearches = [];
 
     private int _inFlight;
     private int _maxInFlight;
@@ -452,7 +453,23 @@ public sealed class FakeSlskdState : IDisposable
                         transfer.File.Path,
                         transfer.Destination,
                         transfer.State))
+                    .ToArray(),
+                _innertubeSearches
+                    .Select(search => new GateInnertubeSearchResource(search.Query, search.Params, Format(search.AskedAt)))
                     .ToArray());
+        }
+    }
+
+    /// <summary>Remembers one InnerTube search the YouTube source asked for.</summary>
+    /// <param name="query">The search text.</param>
+    /// <param name="parameters">The filter's <c>params</c>, or an empty string for an unfiltered query.</param>
+    public void RecordInnertubeSearch(string query, string parameters)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+
+        lock (_gate)
+        {
+            _innertubeSearches.Add((query, parameters, DateTime.UtcNow));
         }
     }
 

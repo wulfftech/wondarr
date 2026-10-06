@@ -18,14 +18,17 @@ public static class Program
 
         var app = FakeSlskdApp.Build(options, state);
         var acoustId = AcoustIdStubApp.Build(options, state);
+        var innertube = InnertubeStubApp.Build(options, state);
 
         try
         {
             await app.StartAsync().ConfigureAwait(false);
             await acoustId.StartAsync().ConfigureAwait(false);
+            await innertube.StartAsync().ConfigureAwait(false);
 
             FakeSlskdLog.Info($"Listening on {options.Configuration.WebIpAddress}:{options.Configuration.WebPort}");
             FakeSlskdLog.Info($"AcoustID stub listening on 127.0.0.1:{options.AcoustIdPort}");
+            FakeSlskdLog.Info($"InnerTube stub listening on 127.0.0.1:{options.InnertubePort}");
 
             if (options.Configuration.SoulseekUsername is { } username)
             {
@@ -37,7 +40,10 @@ public static class Program
                 FakeSlskdLog.Error("No Soulseek username is configured; reporting as logged out");
             }
 
-            await Task.WhenAll(app.WaitForShutdownAsync(), acoustId.WaitForShutdownAsync()).ConfigureAwait(false);
+            await Task.WhenAll(
+                app.WaitForShutdownAsync(),
+                acoustId.WaitForShutdownAsync(),
+                innertube.WaitForShutdownAsync()).ConfigureAwait(false);
 
             return 0;
         }
@@ -45,6 +51,7 @@ public static class Program
         {
             await app.DisposeAsync().ConfigureAwait(false);
             await acoustId.DisposeAsync().ConfigureAwait(false);
+            await innertube.DisposeAsync().ConfigureAwait(false);
         }
     }
 }
