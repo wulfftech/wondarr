@@ -5,6 +5,95 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/youtube/settings": {
+      "get": {
+        "tags": [
+          "YouTubeSettings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YouTubeSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "YouTubeSettings"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/YouTubeSettingsUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/YouTubeSettingsUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YouTubeSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/youtube/status": {
+      "get": {
+        "tags": [
+          "YouTubeSettings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YouTubeStatusResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/youtube/test": {
+      "post": {
+        "tags": [
+          "YouTubeSettings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YouTubeStatusResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/wanted/missing": {
       "get": {
         "tags": [
@@ -6330,10 +6419,221 @@
             ]
           }
         }
+      },
+      "YouTubeSettingsResource": {
+        "required": [
+          "enabled",
+          "cookiesPath",
+          "poTokenBaseUrl",
+          "allowVideos",
+          "searchLimit",
+          "outputPolicy",
+          "ytdlp",
+          "readOnlyFields"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "cookiesPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "poTokenBaseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "allowVideos": {
+            "type": "boolean"
+          },
+          "searchLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "outputPolicy": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "ytdlp": {
+            "$ref": "#/components/schemas/YouTubeYtdlpPacingResource"
+          },
+          "readOnlyFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "YouTubeSettingsUpdateResource": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "cookiesPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "poTokenBaseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "allowVideos": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "searchLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "outputPolicy": {},
+          "ytdlp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/YouTubeYtdlpPacingUpdateResource"
+              }
+            ]
+          }
+        }
+      },
+      "YouTubeStatusResource": {
+        "required": [
+          "version",
+          "hasJsRuntime",
+          "binaryAvailable"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasJsRuntime": {
+            "type": "boolean"
+          },
+          "binaryAvailable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "YouTubeYtdlpPacingResource": {
+        "required": [
+          "sleepRequestsSeconds",
+          "sleepIntervalSeconds",
+          "maxSleepIntervalSeconds",
+          "retries"
+        ],
+        "type": "object",
+        "properties": {
+          "sleepRequestsSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "sleepIntervalSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxSleepIntervalSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "retries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "YouTubeYtdlpPacingUpdateResource": {
+        "type": "object",
+        "properties": {
+          "sleepRequestsSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "sleepIntervalSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxSleepIntervalSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "retries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
       }
     }
   },
   "tags": [
+    {
+      "name": "YouTubeSettings"
+    },
     {
       "name": "Wanted"
     },
