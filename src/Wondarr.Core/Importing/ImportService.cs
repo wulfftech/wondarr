@@ -10,6 +10,7 @@ using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Profiles;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
@@ -95,6 +96,7 @@ public sealed partial class ImportService : IImportService
 
     private readonly WondarrDbContext _database;
     private readonly IDownloadVerifier _verifier;
+    private readonly ITranscoder _transcoder;
     private readonly ILibraryOrganizer _organizer;
     private readonly ISongSearchService _search;
     private readonly IEventAggregator _events;
@@ -105,6 +107,7 @@ public sealed partial class ImportService : IImportService
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the song and the file are written through it.</param>
     /// <param name="verifier">Decides whether the file is the wanted recording.</param>
+    /// <param name="transcoder">Turns a YouTube download into the library's output policy target.</param>
     /// <param name="organizer">Tags, names and places the file, recycling what it replaces.</param>
     /// <param name="search">Grabs the next candidate when a file is refused.</param>
     /// <param name="events">Publishes the queue and import events.</param>
@@ -114,6 +117,7 @@ public sealed partial class ImportService : IImportService
     public ImportService(
         WondarrDbContext database,
         IDownloadVerifier verifier,
+        ITranscoder transcoder,
         ILibraryOrganizer organizer,
         ISongSearchService search,
         IEventAggregator events,
@@ -123,6 +127,7 @@ public sealed partial class ImportService : IImportService
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(verifier);
+        ArgumentNullException.ThrowIfNull(transcoder);
         ArgumentNullException.ThrowIfNull(organizer);
         ArgumentNullException.ThrowIfNull(search);
         ArgumentNullException.ThrowIfNull(events);
@@ -132,6 +137,7 @@ public sealed partial class ImportService : IImportService
 
         _database = database;
         _verifier = verifier;
+        _transcoder = transcoder;
         _organizer = organizer;
         _search = search;
         _events = events;
@@ -268,6 +274,69 @@ public sealed partial class ImportService : IImportService
                 .ConfigureAwait(false);
         }
 
+        // --- Transcode (the library's output policy) ---------------------------------------------
+        // A YouTube download is the lossless remux of itag 251 (.opus); the library's output policy
+        // says what that file becomes before it is verified, tagged and placed (ADR-0008). A
+        // Soulseek file is never transcoded: it is imported as the peer served it.
+        var importPath = downloadPath;
+        long? sourceQualityId = null;
+
+        if (item.SourceType == SourceTypes.YouTube)
+        {
+            // The file is ranked as the Opus stream it was downloaded as, whatever the policy turns
+            // it into: a 256 kbps AAC made from it is still a YouTube grab.
+            sourceQualityId = SeedData.Opus160QualityId;
+
+            var policy = OutputPolicy.Parse(library.OutputPolicy);
+
+            if (policy.Codec != OutputCodec.KeepOpus)
+            {
+                var destination = Path.Combine(
+                    Path.GetDirectoryName(downloadPath) ?? string.Empty,
+                    string.Concat(item.Candidate.RemotePath, ".", policy.Container));
+
+                try
+                {
+                    var transcoded = await _transcoder
+                        .TranscodeAsync(downloadPath, policy, destination, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    importPath = transcoded.Path;
+
+                    // The Opus original is deleted only after the transcode succeeded: it is the
+                    // source the new file was made from, and a failed transcode must be able to run
+                    // again. A delete that cannot run is the transcode's failure, not the import's:
+                    // both files on disk would make the next attempt hit an existing destination.
+                    File.Delete(downloadPath);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    // The transcode is our own step, not the download's: the file passed nothing yet,
+                    // so there is nothing to blocklist and no reason to grab the next candidate —
+                    // the same rule as a tagging failure. The Opus original stays on disk, so a
+                    // later import can try the step again.
+                    LogTranscodeFailed(_logger, item.Id, exception);
+
+                    await FailAsync(
+                            item,
+                            $"Transcode failed: {exception.Message}",
+                            null,
+                            null,
+                            allowNextAttempt: false,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+
+                    return ImportOutcome.Failed;
+                }
+
+                extension = Path.GetExtension(importPath).TrimStart('.').ToLowerInvariant();
+            }
+        }
+
         // --- Verify -----------------------------------------------------------------------------
         var credits = song.Artists
             .OrderBy(credit => credit.Position)
@@ -277,13 +346,14 @@ public sealed partial class ImportService : IImportService
         var verification = await _verifier
             .VerifyAsync(
                 new VerificationRequest(
-                    downloadPath,
+                    importPath,
                     song.MbRecordingId,
                     song.Title,
                     [.. credits.Where(credit => credit.Role == ArtistRole.Main).Select(credit => credit.Artist.Name)],
                     song.DurationMs,
                     ParseFlags(song.VersionFlags),
-                    profile.DurationToleranceMs),
+                    profile.DurationToleranceMs,
+                    sourceQualityId),
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -378,7 +448,7 @@ public sealed partial class ImportService : IImportService
                     album,
                     credits,
                     library,
-                    downloadPath,
+                    importPath,
                     extension,
                     media,
                     measuredQuality,
@@ -1092,6 +1162,9 @@ public sealed partial class ImportService : IImportService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Queue item {QueueItemId} cannot be imported: the download has a .{Extension} extension")]
     private static partial void LogExtensionRefused(ILogger logger, long queueItemId, string extension);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The transcode of queue item {QueueItemId} failed")]
+    private static partial void LogTranscodeFailed(ILogger logger, long queueItemId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Refusing to delete {Path}: it is not the own download folder of queue item {QueueItemId}")]
     private static partial void LogDeleteRefused(ILogger logger, long queueItemId, string? path);

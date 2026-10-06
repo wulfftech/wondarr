@@ -32,6 +32,11 @@ public enum VerificationOutcome
 /// <param name="SongDurationMs">The song's known length in milliseconds, or <c>null</c> when unknown.</param>
 /// <param name="SongFlags">The version flags the song carries.</param>
 /// <param name="DurationToleranceMs">How far the file may be from the song's length before it is the wrong file.</param>
+/// <param name="SourceQualityId">
+/// The quality of the file the download <em>was</em>, when the import transcoded it on the way in
+/// (a YouTube grab is the Opus stream's OPUS-160 whatever the library's output policy turns it
+/// into), or <see langword="null"/> to report what the probe measures.
+/// </param>
 public sealed record VerificationRequest(
     string Path,
     string? SongMbRecordingId,
@@ -39,7 +44,8 @@ public sealed record VerificationRequest(
     IReadOnlyList<string> MainArtists,
     int? SongDurationMs,
     VersionFlags SongFlags,
-    int DurationToleranceMs);
+    int DurationToleranceMs,
+    long? SourceQualityId = null);
 
 /// <summary>The verdict on one downloaded file, with the reason the history shows.</summary>
 /// <param name="Outcome">What to do with the file.</param>
@@ -132,7 +138,11 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         }
 
         var media = probed.Info;
-        var quality = MeasuredQuality.FromMediaInfo(media);
+
+        // A transcoded file is ranked as the source it came from (ADR-0008): the probe still runs —
+        // the file has to decode and be the right length — but what the import records is the
+        // quality of the stream that was downloaded, not the one the transcode wrote.
+        var quality = request.SourceQualityId ?? MeasuredQuality.FromMediaInfo(media);
 
         // 2. It has to be as long as the song (a YouTube rip of a video with an intro fails here).
         if (request.SongDurationMs is { } songMs
