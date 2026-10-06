@@ -73,6 +73,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IFingerprinter, Fingerprinter>();
         services.AddSingleton<MediaToolAvailability>();
 
+        // The transcode step of the import pipeline: stateless beyond one ffmpeg run, so it sits
+        // with the other media tools.
+        services.AddSingleton<ITranscoder, Transcoder>();
+
         // Bounds the cover the organizer embeds; it holds no state of its own beyond the temp files
         // of one conversion, so it is a singleton next to the other media tools.
         services.AddSingleton<ICoverImageProcessor, CoverImageProcessor>();
