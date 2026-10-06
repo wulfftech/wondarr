@@ -1,8 +1,8 @@
 using Wondarr.Api.Extensions;
-using Wondarr.Api.YouTube;
 using Wondarr.Api.Frontend;
 using Wondarr.Api.Middleware;
 using Wondarr.Api.SignalR;
+using Wondarr.Api.YouTube;
 using Wondarr.Core;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Logging;

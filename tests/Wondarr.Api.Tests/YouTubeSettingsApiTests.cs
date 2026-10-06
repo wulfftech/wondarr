@@ -16,6 +16,19 @@ namespace Wondarr.Api.Tests;
 /// probe's answer and the Test button's fresh probe. The process runner is an NSubstitute fake, so no
 /// test runs yt-dlp, and the settings are written into the factory's own <c>config.yml</c>.
 /// </summary>
+/// <remarks>
+/// Not parallelised: the environment-lock test sets a real <c>APP__YOUTUBE__*</c> variable for the
+/// duration of its run, and a concurrently executing test that reads the environment would race it.
+/// </remarks>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class YouTubeSettingsApiTestsSeries
+{
+    /// <summary>The collection's name, shared by the test class.</summary>
+    public const string Name = "YouTube settings API";
+}
+
+/// <inheritdoc cref="YouTubeSettingsApiTestsSeries" />
+[Collection(YouTubeSettingsApiTestsSeries.Name)]
 public sealed class YouTubeSettingsApiTests
 {
     private const string Endpoint = "/api/v1/youtube";
@@ -159,6 +172,31 @@ public sealed class YouTubeSettingsApiTests
         var (_, reread) = await api.GetAsync($"{Endpoint}/settings");
 
         ((JsonObject)((JsonObject)reread!)["outputPolicy"]!)["codec"]!.GetValue<string>().Should().Be("mp3");
+    }
+
+    [Fact]
+    public async Task A_pacing_change_lands_in_the_nested_ytdlp_section_of_the_file()
+    {
+        using var factory = Factory();
+        using var api = new Session(factory);
+
+        var (status, body) = await api.PutAsync(
+            $"{Endpoint}/settings",
+            new { ytdlp = new { retries = 2, sleepIntervalSeconds = 15 } });
+
+        status.Should().Be(HttpStatusCode.OK);
+
+        var pacing = (JsonObject)((JsonObject)body!)["ytdlp"]!;
+
+        pacing["retries"]!.GetValue<int>().Should().Be(2);
+        pacing["sleepIntervalSeconds"]!.GetValue<int>().Should().Be(15);
+        pacing["sleepRequestsSeconds"]!.GetValue<double>().Should().Be(0.75, "an absent flag keeps its value");
+
+        // The nested keys land as a ytdlp: mapping, not as flat ytdlp:retries keys.
+        var yaml = await File.ReadAllTextAsync(Path.Combine(factory.ConfigDir, "config.yml"));
+
+        yaml.Should().Contain("ytdlp:").And.Contain("retries: 2").And.Contain("sleep_interval_seconds: 15");
+        yaml.Should().NotContain("ytdlp:retries");
     }
 
     [Fact]
