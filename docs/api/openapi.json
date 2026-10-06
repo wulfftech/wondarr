@@ -3305,6 +3305,7 @@
           "layout",
           "namingTemplate",
           "sidecarOptions",
+          "outputPolicy",
           "albumPolicy",
           "minTracksPerRealAlbum",
           "plexSectionId",
@@ -3334,6 +3335,9 @@
             "type": "string"
           },
           "sidecarOptions": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "outputPolicy": {
             "$ref": "#/components/schemas/JsonElement"
           },
           "albumPolicy": {

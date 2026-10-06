@@ -23,6 +23,13 @@ public sealed class Library : EntityBase
     /// <summary>Gets or sets the sidecar options as JSON text, defaulting to an empty object.</summary>
     public string SidecarOptions { get; set; } = "{}";
 
+    /// <summary>
+    /// Gets or sets the output policy for YouTube-sourced files as JSON text, or
+    /// <see langword="null"/> for the default (AAC 256 kbps CBR in an <c>.m4a</c>, ADR-0008). A
+    /// Soulseek file is never transcoded.
+    /// </summary>
+    public string? OutputPolicy { get; set; }
+
     /// <summary>Gets or sets how songs are assigned to album folders.</summary>
     public AlbumPolicy AlbumPolicy { get; set; } = AlbumPolicy.FewestAlbums;
 

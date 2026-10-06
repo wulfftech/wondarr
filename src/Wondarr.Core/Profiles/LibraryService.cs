@@ -113,6 +113,12 @@ public sealed class LibraryService : ILibraryService
         stored.Layout = library.Layout;
         stored.NamingTemplate = library.NamingTemplate;
         stored.SidecarOptions = library.SidecarOptions;
+
+        // The policy is stored in its canonical form — every key spelled out — so a column written
+        // by one version reads the same in the next.
+        stored.OutputPolicy = library.OutputPolicy is null
+            ? null
+            : OutputPolicy.Parse(library.OutputPolicy).ToJson();
         stored.AlbumPolicy = library.AlbumPolicy;
         stored.MinTracksPerRealAlbum = library.MinTracksPerRealAlbum;
         stored.PlexSectionId = library.PlexSectionId;
@@ -171,6 +177,17 @@ public sealed class LibraryService : ILibraryService
         if (!IsJsonObject(library.SidecarOptions))
         {
             errors.Add(("sidecarOptions", "sidecarOptions must be a JSON object."));
+        }
+
+        // The output policy is parsed, not just checked for shape: every failure names the JSON key
+        // it came from, so the Settings UI can point at the offending line.
+        try
+        {
+            OutputPolicy.Parse(library.OutputPolicy);
+        }
+        catch (ProfileValidationException exception)
+        {
+            errors.AddRange(exception.Errors);
         }
 
         if (!library.IsDefault && stored.IsDefault)

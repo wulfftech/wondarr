@@ -623,6 +623,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("naming_template");
 
+                    b.Property<string>("OutputPolicy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("output_policy");
+
                     b.Property<string>("PlexLibraryPath")
                         .HasColumnType("TEXT")
                         .HasColumnName("plex_library_path");
