@@ -79,8 +79,9 @@ public static class YouTubeCandidateMapper
                 FeaturedArtists: [],
                 HasUnexplainedBrackets: false),
             DurationMs = result.DurationMs,
-            // Unknown until yt-dlp has the stream: the container and the bitrate are decided then.
-            Extension = null,
+            // The runner always lands an .opus remux (it refuses anything else), so the candidate
+            // says so: the engine's not-audio check reads this before yt-dlp has run.
+            Extension = "opus",
             QualityId = Opus160QualityId,
             // The engine's YouTube rule is a flat 120 availability (MATCHING_ENGINE.md §6.2): a free
             // slot (80) and an empty queue (40). Nothing else about a stream is known up front.

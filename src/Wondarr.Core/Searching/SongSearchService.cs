@@ -312,32 +312,47 @@ public sealed partial class SongSearchService : ISongSearchService
         var candidates = new List<Candidate>();
         string? sourceMessage = null;
 
-        foreach (var provider in available)
+        // The sources run in tier order (MATCHING_ENGINE §6.4): Soulseek first, YouTube only when it
+        // found nothing the engine accepts, torrents last. A manual (interactive) search fans out over
+        // every tier, because the user asked for the whole pool.
+        foreach (var tier in available.GroupBy(SourceTier).OrderBy(group => group.Key))
         {
-            sources.Add(provider.SourceType);
-
-            var request = new SongSearchRequest(
-                song.Id,
-                song.Title,
-                song.ArtistCredit,
-                context.MainArtists,
-                context.AlbumTitle,
-                song.DurationMs,
-                context.SongFlags)
+            foreach (var provider in tier)
             {
-                // The interactive search runs every query so the user sees the whole pool; an
-                // automatic run stops early once a candidate is good enough (MATCHING_ENGINE §6.4).
-                IsPoolGoodEnough = trigger == SearchTrigger.Manual ? null : PoolIsGoodEnough(context),
-            };
+                sources.Add(provider.SourceType);
 
-            var result = await provider.SearchAsync(request, cancellationToken).ConfigureAwait(false);
+                var request = new SongSearchRequest(
+                    song.Id,
+                    song.Title,
+                    song.ArtistCredit,
+                    context.MainArtists,
+                    context.AlbumTitle,
+                    song.DurationMs,
+                    context.SongFlags)
+                {
+                    // The interactive search runs every query so the user sees the whole pool; an
+                    // automatic run stops early once a candidate is good enough (MATCHING_ENGINE §6.4).
+                    IsPoolGoodEnough = trigger == SearchTrigger.Manual ? null : PoolIsGoodEnough(context),
+                };
 
-            candidates.AddRange(result.Candidates);
-            queries.AddRange(result.Queries);
+                var result = await provider.SearchAsync(request, cancellationToken).ConfigureAwait(false);
 
-            if (result.Candidates.Count == 0 && !string.IsNullOrWhiteSpace(result.Message))
+                candidates.AddRange(result.Candidates);
+                queries.AddRange(result.Queries);
+
+                if (result.Candidates.Count == 0 && !string.IsNullOrWhiteSpace(result.Message))
+                {
+                    sourceMessage = result.Message;
+                }
+            }
+
+            // The same caveat as the pool callback: the verdict is taken with the reputation known
+            // before the search, so a candidate this check accepts can still be rejected by the final
+            // evaluation. Stopping here only means the later tiers are not asked.
+            if (trigger != SearchTrigger.Manual
+                && _engine.Evaluate(context, candidates).Any(decision => decision.Accepted))
             {
-                sourceMessage = result.Message;
+                break;
             }
         }
 
@@ -460,6 +475,14 @@ public sealed partial class SongSearchService : ISongSearchService
     private Func<IReadOnlyList<Candidate>, bool> PoolIsGoodEnough(DecisionContext context) =>
         pool => _engine.Evaluate(context, pool).Any(_engine.IsGoodEnough);
 
+    /// <summary>The tier a source runs in (MATCHING_ENGINE §6.4): Soulseek, then YouTube, then torrents.</summary>
+    private static int SourceTier(ISourceProvider provider) => provider.SourceType switch
+    {
+        SourceTypes.Soulseek => 1,
+        SourceTypes.YouTube => 2,
+        _ => 3,
+    };
+
     /// <summary>Whether another grab may start: the downloads in flight are below the configured limit.</summary>
     private async Task<bool> HasFreeSlotAsync(CancellationToken cancellationToken)
     {
@@ -537,6 +560,34 @@ public sealed partial class SongSearchService : ISongSearchService
             {
                 // The failed candidate is marked grabbed, so the loop moves on to the next best one.
                 LogGrabFailed(_logger, candidate.Id, exception.Message);
+
+                if (exception.InnerException is ISourceGrabFailure { BlocklistCandidate: false })
+                {
+                    // The source's own bad moment — a bot check, a rate limit, a missing tool: the
+                    // candidate is not dead, so it is not blocklisted, and the next one would fail the
+                    // same way. The item is already failed with the classified message; the song's own
+                    // backoff owns the retry.
+                    return null;
+                }
+
+                if (exception.InnerException is ISourceGrabFailure { BlocklistCandidate: true } failure)
+                {
+                    // The candidate is dead — geo-restricted, age-gated, gone: blocklist it for this
+                    // song so no later run tries it again, then move on to the next best candidate.
+                    await _blocklist
+                        .AddAsync(
+                            new BlocklistItem
+                            {
+                                SongId = candidate.SongId,
+                                SourceType = candidate.SourceType,
+                                BlocklistKey = candidate.BlocklistKey,
+                                Reason = failure.Message,
+                            },
+                            cancellationToken)
+                        .ConfigureAwait(false);
+
+                    blocked.Add(candidate.BlocklistKey);
+                }
                 failures++;
 
                 if (failures >= budget)
