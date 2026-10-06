@@ -176,9 +176,23 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
     /// An empty YAML sequence flattens to no configuration key at all, so a reader cannot tell
     /// <c>shared_folders: []</c> (the user deliberately shares nothing) from a file that never
     /// mentions the key (where a default applies). The marker is that difference, in the file.
+    /// <para>
+    /// A key may address a nested mapping with the configuration separator (<c>ytdlp:retries</c>
+    /// writes <c>retries</c> under <c>ytdlp:</c>); the intermediate mappings are created when the
+    /// file does not have them yet.
+    /// </para>
     /// </remarks>
     private static void SetKey(YamlMappingNode section, string key, object? value)
     {
+        var separator = key.IndexOf(':', StringComparison.Ordinal);
+
+        if (separator > 0)
+        {
+            SetKey(Nested(section, key[..separator]), key[(separator + 1)..], value);
+
+            return;
+        }
+
         // Replaced rather than assigned: a mapping's keys compare by content, and removing first
         // keeps the appended key in its new position rather than the old one.
         Remove(section, key);
@@ -197,6 +211,32 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
 
     /// <summary>The key that records "this list was written empty" beside an empty sequence.</summary>
     private static string MarkerKey(string key) => $"{key}_set";
+
+    /// <summary>
+    /// The mapping a nested key hangs off: the existing one when the section already holds a mapping
+    /// there, a fresh one otherwise (replacing whatever scalar stood there).
+    /// </summary>
+    private static YamlMappingNode Nested(YamlMappingNode section, string key)
+    {
+        foreach (var (candidate, value) in section.Children)
+        {
+            if (candidate is YamlScalarNode scalar && string.Equals(scalar.Value, key, StringComparison.Ordinal))
+            {
+                if (value is YamlMappingNode mapping)
+                {
+                    return mapping;
+                }
+
+                break;
+            }
+        }
+
+        var created = new YamlMappingNode();
+        Remove(section, key);
+        section.Children[new YamlScalarNode(key)] = created;
+
+        return created;
+    }
 
     private static void Remove(YamlMappingNode section, string key)
     {

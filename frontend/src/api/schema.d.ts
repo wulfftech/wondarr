@@ -4,6 +4,135 @@
  */
 
 export interface paths {
+    "/api/v1/youtube/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["YouTubeSettingsResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["YouTubeSettingsUpdateResource"];
+                    "application/*+json": components["schemas"]["YouTubeSettingsUpdateResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["YouTubeSettingsResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/youtube/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["YouTubeStatusResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/youtube/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["YouTubeStatusResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/wanted/missing": {
         parameters: {
             query?: never;
@@ -2934,6 +3063,7 @@ export interface components {
             layout: components["schemas"]["LibraryLayout"];
             namingTemplate: string;
             sidecarOptions: components["schemas"]["JsonElement"];
+            outputPolicy: components["schemas"]["JsonElement"];
             albumPolicy: components["schemas"]["AlbumPolicy"];
             /** Format: int32 */
             minTracksPerRealAlbum: number | string;
@@ -3579,6 +3709,52 @@ export interface components {
         UpdateAuthUserResource: {
             username: null | string;
             password: null | string;
+        };
+        YouTubeSettingsResource: {
+            enabled: boolean;
+            cookiesPath: null | string;
+            poTokenBaseUrl: null | string;
+            allowVideos: boolean;
+            /** Format: int32 */
+            searchLimit: number | string;
+            outputPolicy: components["schemas"]["JsonElement"];
+            ytdlp: components["schemas"]["YouTubeYtdlpPacingResource"];
+            readOnlyFields: string[];
+        };
+        YouTubeSettingsUpdateResource: {
+            enabled?: null | boolean;
+            cookiesPath?: null | string;
+            poTokenBaseUrl?: null | string;
+            allowVideos?: null | boolean;
+            /** Format: int32 */
+            searchLimit?: null | number | string;
+            outputPolicy?: unknown;
+            ytdlp?: null | components["schemas"]["YouTubeYtdlpPacingUpdateResource"];
+        };
+        YouTubeStatusResource: {
+            version: null | string;
+            hasJsRuntime: boolean;
+            binaryAvailable: boolean;
+        };
+        YouTubeYtdlpPacingResource: {
+            /** Format: double */
+            sleepRequestsSeconds: number | string;
+            /** Format: int32 */
+            sleepIntervalSeconds: number | string;
+            /** Format: int32 */
+            maxSleepIntervalSeconds: number | string;
+            /** Format: int32 */
+            retries: number | string;
+        };
+        YouTubeYtdlpPacingUpdateResource: {
+            /** Format: double */
+            sleepRequestsSeconds?: null | number | string;
+            /** Format: int32 */
+            sleepIntervalSeconds?: null | number | string;
+            /** Format: int32 */
+            maxSleepIntervalSeconds?: null | number | string;
+            /** Format: int32 */
+            retries?: null | number | string;
         };
     };
     responses: never;

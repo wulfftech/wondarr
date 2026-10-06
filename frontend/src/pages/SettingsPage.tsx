@@ -6,15 +6,24 @@ import { PlexSettingsPage } from './settings/PlexSettingsPage';
 import { QualityProfilesPage } from './settings/QualityProfilesPage';
 import { ReferenceLibrariesPage } from './settings/ReferenceLibrariesPage';
 import { SoulseekSettingsPage } from './settings/SoulseekSettingsPage';
+import { YouTubeSettingsPage } from './settings/YouTubeSettingsPage';
 
 /** The Settings sections, and the route segment each one owns. */
-type SettingsSection = 'profiles' | 'library' | 'references' | 'soulseek' | 'plex' | 'notifications';
+type SettingsSection =
+  | 'profiles'
+  | 'library'
+  | 'references'
+  | 'soulseek'
+  | 'youtube'
+  | 'plex'
+  | 'notifications';
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'profiles', label: 'Quality profiles' },
   { value: 'library', label: 'Library' },
   { value: 'references', label: 'Reference libraries' },
   { value: 'soulseek', label: 'Soulseek' },
+  { value: 'youtube', label: 'YouTube' },
   { value: 'plex', label: 'Plex' },
   { value: 'notifications', label: 'Notifications' },
 ];
@@ -43,6 +52,7 @@ export function SettingsPage() {
       {active === 'library' && <LibrarySettingsPage />}
       {active === 'references' && <ReferenceLibrariesPage />}
       {active === 'soulseek' && <SoulseekSettingsPage />}
+      {active === 'youtube' && <YouTubeSettingsPage />}
       {active === 'plex' && <PlexSettingsPage />}
       {active === 'notifications' && <NotificationsSettingsPage />}
     </Stack>
