@@ -32,6 +32,12 @@ public sealed class YouTubeOptions
     /// <summary>Where InnerTube lives. The real host by default; a test points it at its own stub.</summary>
     public string BaseUrl { get; set; } = "https://music.youtube.com/";
 
+    /// <summary>
+    /// Directory yt-dlp downloads the per-grab folders into — the source's own download directory,
+    /// the counterpart of slskd's <c>downloads_dir</c>. The queue item's destination is relative to it.
+    /// </summary>
+    public string DownloadsDir { get; set; } = "/data/downloads/youtube";
+
     /// <summary>How yt-dlp is invoked: the <c>youtube.ytdlp</c> sub-section.</summary>
     public YtDlpOptions Ytdlp { get; set; } = new();
 }

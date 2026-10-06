@@ -36,7 +36,8 @@ public class YouTubeCandidateMapperTests
         candidate.Parsed.Album.Should().Be("Random Access Memories");
         candidate.Parsed.VersionFlags.Should().Be(VersionFlags.None);
         candidate.DurationMs.Should().Be(370_000);
-        candidate.Extension.Should().BeNull();
+        // The runner always lands an .opus remux, so the candidate says so up front.
+        candidate.Extension.Should().Be("opus");
         candidate.QualityId.Should().Be(YouTubeCandidateMapper.Opus160QualityId);
         candidate.Availability.FreeUploadSlot.Should().BeTrue();
         candidate.Query.Should().Be("daft punk get lucky");

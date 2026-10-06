@@ -1,5 +1,6 @@
 using System.Net;
 using Wondarr.Core.HealthCheck;
+using Wondarr.Core.Sources;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -51,9 +52,13 @@ public static class ServiceCollectionExtensions
             });
 
         // IProcessRunner is registered by Wondarr.Core.
-        services.AddSingleton<YtDlpRunner>();
+        services.AddSingleton<IYtDlpRunner, YtDlpRunner>();
         services.AddSingleton<YtDlpAvailability>();
         services.AddSingleton<IHealthCheck, YtDlpHealthCheck>();
+
+        // The provider is a singleton, so the ISRC reader opens its own scope per call.
+        services.AddSingleton<ISongIsrcSource, SongIsrcSource>();
+        services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
 
         return services;
     }
