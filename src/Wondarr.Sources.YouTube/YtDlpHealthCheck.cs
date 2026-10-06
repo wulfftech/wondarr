@@ -73,6 +73,20 @@ public sealed partial class YtDlpAvailability : IDisposable
         }
     }
 
+    /// <summary>
+    /// A probe of one's own: an uncached availability sharing the same runner, options and logger
+    /// wiring, for the settings page's Test button. The constructor's signature is this factory's
+    /// contract — a new dependency lands here, not at the call site.
+    /// </summary>
+    /// <param name="runner">Runs the binaries without a shell.</param>
+    /// <param name="options">The <c>youtube</c> section of <c>config.yml</c>.</param>
+    /// <param name="logger">The probe's own logger.</param>
+    /// <returns>A fresh availability whose first check runs the binaries again.</returns>
+    public static YtDlpAvailability CreateProbe(
+        IProcessRunner runner,
+        IOptionsMonitor<YouTubeOptions> options,
+        ILogger<YtDlpAvailability> logger) => new(runner, options, logger);
+
     private async Task<YtDlpHealthStatus> RunAsync(CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;

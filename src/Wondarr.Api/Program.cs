@@ -2,6 +2,7 @@ using Wondarr.Api.Extensions;
 using Wondarr.Api.Frontend;
 using Wondarr.Api.Middleware;
 using Wondarr.Api.SignalR;
+using Wondarr.Api.YouTube;
 using Wondarr.Core;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Logging;
@@ -32,6 +33,7 @@ builder.Services.AddWondarrApi(paths);
 builder.Services.AddWondarrFrontend();
 builder.Services.AddWondarrSlskd(builder.Configuration);
 builder.Services.AddWondarrYouTube();
+builder.Services.AddWondarrYouTubeSettings(builder.Configuration);
 builder.Services.AddWondarrTorznab();
 
 // Every sink is behind the secret registry, so nothing logged can leak the API key.
