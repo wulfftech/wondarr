@@ -61,7 +61,7 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
 
         return Task.FromResult<(bool, string?)>(options.Enabled
             ? (true, null)
-            : (false, "YouTube is disabled (Settings → Sources)"));
+            : (false, "YouTube is not enabled"));
     }
 
     /// <inheritdoc />
@@ -205,15 +205,27 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
         var grab = Read(handle);
 
         // yt-dlp finished inside GrabAsync, so the handle is always a completed download: the file is
-        // where the runner left it, and the size is what is on disk.
+        // where the runner left it, and the size is what is on disk. A file that is gone (the folder
+        // was cleaned, the disk was wiped) is a failed grab, not a completed one pointing at nothing.
         var file = new FileInfo(Path.Combine(grab.DestinationDir, $"{grab.VideoId}.opus"));
-        var size = file.Exists ? file.Length : 0;
+
+        if (!file.Exists)
+        {
+            return Task.FromResult(new DownloadStatus(
+                DownloadState.Failed,
+                1,
+                0,
+                null,
+                null,
+                $"The downloaded file is gone: {file.FullName}",
+                null));
+        }
 
         return Task.FromResult(new DownloadStatus(
             DownloadState.Completed,
             1,
-            size,
-            size,
+            file.Length,
+            file.Length,
             null,
             null,
             file.FullName));

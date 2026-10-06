@@ -50,6 +50,23 @@ public class BotCheckBackoffTests
 
         // No blocklist row: the candidate is not dead, the source just had a bad moment.
         (await host.Context.Blocklist.AsNoTracking().ToListAsync(Token)).Should().BeEmpty();
+
+        // The second run (the song's own backoff schedule) tries again: one more grab, one more
+        // failed item — two failed items across two runs, never two grabs in one run.
+        host.Provider.Grabs.Clear();
+        host.Provider.GrabFailure = new StubGrabFailure(
+            "youtube:abc123",
+            blocklistCandidate: false,
+            "Sign in to confirm you're not a bot");
+
+        var second = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        second.Outcome.Should().Be(SearchOutcome.NoAcceptableCandidate);
+        host.Provider.Grabs.Should().ContainSingle("the next run retries once, not in a loop");
+
+        items = await host.Context.QueueItems.AsNoTracking().OrderBy(item => item.Id).ToListAsync(Token);
+        items.Should().HaveCount(2);
+        items.Should().OnlyContain(item => item.State == QueueItemState.Failed);
     }
 
     [Fact]
