@@ -1,15 +1,15 @@
-# Agentic build workflow: value-picked orchestrator + cheap workers
+# Agentic build workflow: Opus 5.5 orchestrator + cheap workers
 
 ## 1. Roles
 
 | Role | Runs where | Model | Does | Never does |
 |---|---|---|---|---|
-| **Orchestrator** | The interactive agent session (VS Code harness) in this repo | **An OpenRouter model** picked from `MODEL_VALUE_MATRIX.md` ("Orchestrator" row), run in the VS Code harness | Reads the docs, picks tasks, writes task specs, launches workers, reviews every diff, runs verification, resolves conflicts, updates `PROGRESS.md`/docs, commits and pushes | Hand-types large volumes of routine code; skips review |
+| **Orchestrator** | The interactive Claude Code session in this repo | **Claude Opus 5.5** (`/model claude-opus-5-5`) | Reads the docs, picks tasks, writes task specs, launches workers, reviews every diff, runs verification, resolves conflicts, updates `PROGRESS.md`/docs, commits and pushes | Hand-types large volumes of routine code; skips review |
 | **Worker** | A separate process (`scripts/worker.py run`) in its own git worktree | A **cheap OpenRouter model**, chosen per task by effort tier from `MODEL_VALUE_MATRIX.md` (`--model`; `WONDARR_WORKER_MODEL` is the default) | Implements exactly one task file: code + tests, runs build/tests, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, commits to `main` |
 | **Reviewer** (optional) | `scripts/worker.py review <branch>` | The T3 pick from `MODEL_VALUE_MATRIX.md` (`--model`; `WONDARR_REVIEWER_MODEL` is the default) | Independent review of a worker diff against the task's acceptance criteria and `CODING_STANDARDS.md` | Edits code |
-| **Researcher** (optional) | `.claude/agents/researcher.md` (harness subagent with web tools) | Whatever model the harness runs it on | Verifies an external API/library fact before a spec is written | Writes code |
+| **Researcher** (optional) | `.claude/agents/researcher.md` | Sonnet/Haiku with web tools | Verifies an external API/library fact before a spec is written | Writes code |
 
-Why separate processes: the worker has its own endpoint, model, budget and sandbox. `scripts/worker_agent.py` calls OpenRouter's chat-completions API directly with six tools (`read_file`, `write_file`, `edit_file`, `list_files`, `grep`, `run`), so nothing depends on a CLI, an Anthropic endpoint or a particular editor harness.
+Why separate processes: Claude Code subagents inherit the session's API endpoint and cannot be routed to a different provider per agent ([sub-agents docs](https://code.claude.com/docs/en/sub-agents.md), [env vars](https://code.claude.com/docs/en/env-vars.md)). So the orchestrator stays on Anthropic (Claude Code), and each worker is a separate process, `scripts/worker.py run`, that calls OpenRouter's chat-completions API directly with six sandboxed tools (`read_file`, `write_file`, `edit_file`, `list_files`, `grep`, `run`), with its own model, budget and sandbox. The worker, reviewer and single-shot modes need only `OPENROUTER_API_KEY`; the orchestrator needs only your Claude login. Model choice for every *delegated* call is by effort tier from `MODEL_VALUE_MATRIX.md`; the matrix's "Orchestrator" row is informational (what a cheaper orchestrator would cost), not a setting.
 
 ## 2. Mechanics
 

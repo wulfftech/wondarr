@@ -13,7 +13,7 @@ Wondarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) →
 
 ## How we build (summary of `docs/build/AGENT_WORKFLOW.md`)
 
-- **This session is the orchestrator** (an OpenRouter model picked from the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md`, run in the VS Code harness). It owns design, task specs, code review, verification and commits. It does *not* hand-type large volumes of routine code.
+- **This session is the orchestrator** (Claude Code on Claude Opus 5.5, `/model claude-opus-5-5`). It owns design, task specs, code review, verification and commits. It does *not* hand-type large volumes of routine code.
 - **Implementation is delegated to cheap workers**: `python scripts/worker.py run docs/build/tasks/<id>.md` runs a sandboxed tool-calling agent loop (`scripts/worker_agent.py`) directly against the **OpenRouter** API (`OPENROUTER_API_KEY` in `.env`; model per task from `docs/build/MODEL_VALUE_MATRIX.md`) inside a git worktree. No CLI or Anthropic account is involved. Workers get a self-contained task file (`docs/build/WORKER_TASK_TEMPLATE.md`), never design authority.
 - **Loop**: spec → worker → build/tests → orchestrator reviews the diff → fix or merge → update `PROGRESS.md` → commit. Risky areas also get `python scripts/worker.py review <branch>`.
 - Never merge red. Never let a worker touch `docs/DECISIONS.md`, `docs/adr/`, `AGENTS.md`, or `CLAUDE.md`.
