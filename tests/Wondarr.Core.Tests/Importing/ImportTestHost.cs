@@ -10,6 +10,7 @@ using Wondarr.Core.Lyrics;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Organizer;
+using Wondarr.Core.Profiles;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
@@ -76,6 +77,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The scripted verifier.</summary>
     public FakeDownloadVerifier Verifier { get; private init; } = null!;
 
+    /// <summary>The scripted transcoder, which hands files straight back unless a test says otherwise.</summary>
+    public FakeTranscoder Transcoder { get; private init; } = null!;
+
     /// <summary>The scripted tag writer.</summary>
     public FakeTagWriter TagWriter { get; private init; } = null!;
 
@@ -111,6 +115,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         Directory.CreateDirectory(downloads);
 
         var verifier = new FakeDownloadVerifier();
+        var transcoder = new FakeTranscoder();
         var tagWriter = new FakeTagWriter();
         var placer = new FakeFilePlacer();
         var covers = new FakeCoverFetcher();
@@ -129,6 +134,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<ILrclibClient>(lrclib);
         services.AddSingleton<ICoverImageProcessor>(coverProcessor);
         services.AddSingleton<IDownloadVerifier>(verifier);
+        services.AddSingleton<ITranscoder>(transcoder);
         services.AddSingleton<ITagWriter>(tagWriter);
         services.AddSingleton<IFilePlacer>(placer);
         services.AddSingleton<ICoverFetcher>(covers);
@@ -151,6 +157,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         {
             Options = options,
             Verifier = verifier,
+            Transcoder = transcoder,
             TagWriter = tagWriter,
             Placer = placer,
             Covers = covers,
@@ -256,7 +263,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         context.SearchRuns.Add(run);
         await context.SaveChangesAsync();
 
-        var remotePath = string.Concat("Music\\Daft Punk\\", options.DownloadName);
+        var remotePath = options.RemotePath ?? string.Concat("Music\\Daft Punk\\", options.DownloadName);
 
         var candidate = new CandidateRecord
         {
@@ -325,6 +332,17 @@ internal sealed class ImportTestHost : IAsyncDisposable
 
         var item = await context.QueueItems.SingleAsync(entry => entry.Id == queueItemId);
         item.DownloadPath = downloadPath;
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>Sets the default library's output policy, or clears it back to the default.</summary>
+    public async Task SetLibraryOutputPolicyAsync(string? outputPolicy)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var library = await context.Libraries.SingleAsync(entry => entry.Id == SeedData.DefaultLibraryId);
+        library.OutputPolicy = outputPolicy;
 
         await context.SaveChangesAsync();
     }
@@ -505,6 +523,12 @@ internal sealed class ImportSeedOptions
     /// <summary>The peer that served the file.</summary>
     public string Provider { get; set; } = "peer";
 
+    /// <summary>
+    /// The candidate's remote path, when the test names one: a YouTube candidate's remote path is
+    /// the video id, which the import builds the transcode target's name from.
+    /// </summary>
+    public string? RemotePath { get; set; }
+
     /// <summary>Whether the downloaded file exists on disk.</summary>
     public bool CreateDownload { get; set; } = true;
 
@@ -543,7 +567,54 @@ internal sealed class FakeDownloadVerifier : IDownloadVerifier
     {
         Requests.Add(request);
 
-        return Task.FromResult(Result);
+        // The contract the real verifier holds: a file the import transcoded on the way in is
+        // reported at the quality of the source it came from, not the one the probe measures.
+        var result = request.SourceQualityId is { } source && Result.MeasuredQualityId is not null
+            ? Result with { MeasuredQualityId = source }
+            : Result;
+
+        return Task.FromResult(result);
+    }
+}
+
+/// <summary>
+/// A transcoder that records what it was asked and answers with the scripted result: by default it
+/// "writes" the destination by copying the source, so the import's file handling runs for real.
+/// </summary>
+internal sealed class FakeTranscoder : ITranscoder
+{
+    /// <summary>What the next call returns, or <see langword="null"/> to copy the source to the destination.</summary>
+    public TranscodeResult? Result { get; set; }
+
+    /// <summary>Thrown by every call when set.</summary>
+    public Exception? Failure { get; set; }
+
+    /// <summary>Every transcode the import asked for.</summary>
+    public List<(string SourcePath, OutputPolicy Policy, string DestinationPath)> Requests { get; } = [];
+
+    /// <inheritdoc />
+    public Task<TranscodeResult> TranscodeAsync(
+        string sourcePath,
+        OutputPolicy policy,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        Requests.Add((sourcePath, policy, destinationPath));
+
+        if (Failure is { } failure)
+        {
+            return Task.FromException<TranscodeResult>(failure);
+        }
+
+        if (Result is { } scripted)
+        {
+            return Task.FromResult(scripted);
+        }
+
+        // The default: behave like a real transcode, so the import's delete-and-continue runs.
+        File.Copy(sourcePath, destinationPath);
+
+        return Task.FromResult(new TranscodeResult(destinationPath, policy.Container));
     }
 }
 
