@@ -2,7 +2,7 @@
 
 > **Name:** the project was renamed from *Compilarr* to **Wondarr** on 2026-09-28 (Phase 1a, `docs/DECISIONS.md` build session 2 #10). Session log entries before Phase 1a use the old name and paths.
 
-**Updated:** 2026-09-29, end of build session 3 (Phase 2) · **For:** the next build session, run locally from `D:\Code\wondarr` with Claude Code on **Claude Opus 5.5** as orchestrator.
+**Updated:** 2026-10-06, end of build session 5 (Phase 4) · **For:** the next build session, run locally from `D:\Code\wondarr` with the VS Code harness on an **OpenRouter** orchestrator model (the "Orchestrator" row of `docs/build/MODEL_VALUE_MATRIX.md`).
 
 ## 1. Where things stand
 
@@ -11,7 +11,8 @@
 - **Phase 1a renamed the project Compilarr → Wondarr** (owner, 2026-09-28): the image is `ghcr.io/wulfftech/wondarr` (`:develop` from main), the repository `github.com/wulfftech/wondarr` (the old URLs redirect). The folder on the dev PC is to be renamed `D:\Code\compilarr` → `D:\Code\wondarr` by the owner between sessions (see the Phase 1a entry in the Session log).
 - **Phase 2 is done (2026-09-29)** — Soulseek source, slskd management and the import pipeline; the gate passes in CI (FakeSlskd) and passed live on `ch01` (92 % at or above cutoff, zero wrong recordings in a 30-file audit). A live test instance stays up on `ch01` (http://ch01.ad.wulff.com.au:1077) for ongoing testing.
 - **Phase 3 is done (2026-09-30)** — reference libraries (scan, four-tier identification, the Match queue, adoption), the Plexamp preset specifics (covers, `cover.jpg`, folder consistency, lyrics from LRCLIB), Plex (sign-in, partial scans, Settings → Plex), the Compact library task (planner, dry run, executor with the Plex move-out / scan / empty-trash / move-back sequence, verified live against a real Plex server), and notifications (Webhook, Discord, Apprise; Settings → Notifications). The gate passes in CI and live on `ch01`; the owner's real 96-file folder was run live (it is a DJ set of edits, so most of it waits in the Match queue by design). One live check is left: a 500-file folder of unedited files. See the build-session-4 entries.
-- The next unit of work is **Phase 4 — YouTube source** (`docs/build/PHASES.md`; start with the three tasks at the end of the Session log).
+- **Phase 4 is done (2026-10-06)** — the YouTube source: the keyless InnerTube search client, the yt-dlp runner with its retry-later-vs-blocklist error taxonomy, the per-library output policy (AAC/MP3/keep-Opus, quality recorded as OPUS-160 so files stay upgradeable), the source-tier ordering (Soulseek first, YouTube when Soulseek yields nothing acceptable), the bot-check backoff (one grab per run, never a loop), the settings page with the one-time ToS disclaimer, and the gate tooling (FakeYT, the fake InnerTube, `scripts/phase4-gate.py`, the `SMOKE_PHASE4` smoke stage). The CI gate run and the live ch01 check are the follow-up session's first items. See the build-session-5 entry.
+- The next unit of work is **Phase 5 — upgrades and the tasks page** (`docs/build/PHASES.md`; start with the three tasks at the end of the Session log).
 
 ## 2. The product in one paragraph
 
@@ -233,3 +234,29 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 1. **P4-01 YouTube Music search client** — InnerTube `search` (songs, then videos), an ISRC query first, results mapped to the existing `Candidate` contract with ATV/OMV/UGC typing and the duration gate that rejects official videos with intros; recorded InnerTube responses as fixtures; no network in tests.
 2. **P4-02 yt-dlp runner** — YoutubeDLSharp (versions pinned), `bestaudio` Opus, cookies file, optional bgutil PO-token URL, Deno detection, concurrency 1 and pacing, the error taxonomy (bot check, 429/402, geo, age gate, unavailable) → retry-later vs blocklist, a health probe; a simulated bot check must back off, never loop (the phase's gate item).
 3. **P4-03 Output policy per library** — codec (AAC / MP3 / keep Opus), CBR/VBR, container, sample rate; defaults AAC-256 `.m4a`; the quality recorded as `OPUS-160` so the song stays upgradeable; lossless-from-lossy and `.webm` refused (ADR-0006/0008); the transcode step between download and verification, with its own migration for the per-library policy.
+
+### 2026-10-06 — Build session 5: Phase 4, the YouTube source (orchestrator on OpenRouter, workers on GLM)
+
+**Outcome.** Phase 4 is code-complete and merged: the InnerTube search client and response parser (P4-01), the yt-dlp runner with its error taxonomy and health probe (P4-02), the per-library output policy and the transcode step (P4-03), the YouTube source provider with the source-tier ordering and the bot-check backoff (P4-04), the settings API and page with the one-time ToS disclaimer (P4-05), and the Phase 4 gate tooling (P4-06: FakeYT, the fake InnerTube in FakeSlskd, the AcoustID registration endpoint, `scripts/phase4-gate.py` + `phase4-scenario.py`, the `SMOKE_PHASE4` smoke stage). Worker spend for the phase **USD 1.83** (P4-01 0.21, P4-02 0.25, P4-03 0.68, P4-04 0.53, P4-05 0.16; key 11.07 → 13.23 of 20, reviewers included). The CI gate for Phase 4 is written but not yet run end-to-end in CI (the image build with the new stage is the follow-up); the live ch01 run is the follow-up session's first item.
+
+**What the wave taught.**
+1. *The 100-turn cap is the norm, not the exception:* P4-01, P4-04 and P4-05 all stopped at the cap with their work uncommitted (P4-05's sandbox could not run npm on Windows at all — `WinError 193`). The standing pattern held: the orchestrator finishes, tests and commits the remainder itself; the frontend half of P4-05 was written by the orchestrator outright.
+2. *Two semantic conflicts the reviewers and the orchestrator caught:* the candidate mapper's `Extension = null` made the engine reject every YouTube candidate `notAudio` (the runner always lands `.opus` — the mapper now says so), and `ArtistOverlap` matched path tokens, but a YouTube candidate's `RemotePath` is a bare video id — the rule now matches `Parsed.Artist` when the candidate carries one (DECISIONS.md build session 5 #7).
+3. *The bot-check taxonomy is pinned by tests, not hope:* `YtDlpGrabFailureTests` map every kind through the real `YtDlpException` (retry-later kinds never blocklist; geo/age-gate/private always do), and `BotCheckBackoffTests` pin the two-run behaviour — one grab per run, the song's backoff owns the retry.
+4. *The gate's fakes follow FakeSlskd's spirit:* FakeYT is a stand-in yt-dlp answering the exact surface the runner uses (with the taxonomy's exact stderr strings), the InnerTube stub serves the recorded fixtures keyed by query+filter (an ISRC-shaped query — 2 country letters, 3 registrant, 2 year digits, 5 designator — gets the card fixture), and the AcoustID stub's new loopback-only `/v2/register` lets FakeYT's generated Opus files verify.
+
+**Worker lessons (continued).**
+1. *`dotnet test --no-build` after writing a NEW test file is worthless* — the stale binaries do not contain it; a missing using only surfaced in safe-merge's build. Always build after adding test files.
+2. *Orphaned test processes starve later runs:* a backgrounded wrong-directory `dotnet test` and its testhosts kept sockets busy and aborted a merge attempt (FakeSlskdTests connection refused + TESTRUNABORT). Kill stale testhost processes before big runs; check command lines first (keep MSBuild nodes, the NuGet MCP server, csdevkit).
+3. *Three concurrent suites can deadlock on a loaded machine:* the merged-tree check froze with all three testhosts at zero CPU; kill, abort the merge, retry on a quiet machine. The wsl-safe-merge wrapper now shims npm/node/npx too (npm is a batch file — the shim goes through `cmd.exe /c`).
+
+**Open items / follow-ups.**
+- **The Phase 4 gate in CI:** build the image and run `scripts/smoke-test.sh` with `SMOKE_PHASE4=on` (the default) — the stage restarts the container with the YouTube source enabled against the fakes; the first run may need scenario tuning (the gate's songs come from the Phase 2 leftovers).
+- **The live ch01 run (opt-in):** enable the source in Settings on the test instance, concurrency 1, pacing, and try the four songs the Phase 2 gate found missing on Soulseek (HUMBLE., Purple Rain, Bad Romance, Summer).
+- The Match queue on ch01 still holds the wedding files (a human pass in the UI); the 500-file live check is still open from Phase 3.
+- Backlog: 2026-09-30-01 (an API test flake under load), -02 (adoption duplicates `ImportService.LoadSongAsync`).
+
+**Next: Phase 5 — upgrades and the tasks page (`docs/build/PHASES.md`).** Start with:
+1. **P5-01 The cutoff-unmet upgrade loop** — a scheduled UpgradeSearch that re-searches songs whose file is below their profile's cutoff (the wanted list's "Cutoff Unmet" tab), reusing the search/verify/import pipeline with the not-an-upgrade rejection already in the engine; the per-song guard so a compaction staging a file and an upgrade landing cannot race (the Phase 3 open item).
+2. **P5-02 The tasks page** — the scheduled commands (MissingSearch, ReferenceLibraryScan, the new UpgradeSearch) with their last-run state, manual triggers, and the command history; a backup/download of the config and database; a log viewer over the app's own JSON log.
+3. **P5-03 External slskd mode** — point Wondarr at a user's existing slskd instead of the bundled one (the URL, the API key, the shared folders stay the user's), the health checks and the settings page adapting; the bundled mode stays the default.
