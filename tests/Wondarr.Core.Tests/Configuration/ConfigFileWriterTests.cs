@@ -310,6 +310,86 @@ public sealed class ConfigFileWriterTests
         section["username"].ToString().Should().Be("old-user");
     }
 
+    [Fact]
+    public async Task A_nested_key_creates_the_intermediate_mapping_and_binds_onto_it()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig("""
+            youtube:
+              enabled: true
+
+            """);
+
+        var writer = Writer(directory, out var configuration);
+
+        await writer.UpdateSectionAsync(
+            "youtube",
+            new Dictionary<string, object?> { ["ytdlp:retries"] = 3 },
+            CancellationToken.None);
+
+        var yaml = directory.ReadConfig();
+
+        yaml.Should().Contain("ytdlp:").And.Contain("retries: 3");
+        yaml.Should().NotContain("ytdlp:retries", "the separator addresses a nested mapping, not a flat key");
+
+        // The nested key binds onto the sub-section the way the options pipeline reads it.
+        configuration.GetSection("Youtube").GetSection("ytdlp").GetSection("retries").Value.Should().Be("3");
+    }
+
+    [Fact]
+    public async Task A_nested_key_reuses_the_mapping_that_is_already_there()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig("""
+            youtube:
+              enabled: true
+              ytdlp:
+                retries: 5
+                timeout_seconds: 600
+
+            """);
+
+        var writer = Writer(directory, out _);
+
+        await writer.UpdateSectionAsync(
+            "youtube",
+            new Dictionary<string, object?> { ["ytdlp:retries"] = 2, ["enabled"] = false },
+            CancellationToken.None);
+
+        var section = Section(Parse(directory.ReadConfig()), "youtube");
+
+        section["enabled"].ToString().Should().Be("false");
+
+        var nested = (YamlMappingNode)section["ytdlp"];
+
+        nested["retries"].ToString().Should().Be("2");
+        nested["timeout_seconds"].ToString().Should().Be("600", "a sibling key the write did not name keeps its value");
+    }
+
+    [Fact]
+    public async Task A_nested_key_replaces_a_scalar_that_stood_in_its_way()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig("""
+            youtube:
+              ytdlp: 5
+
+            """);
+
+        var writer = Writer(directory, out _);
+
+        await writer.UpdateSectionAsync(
+            "youtube",
+            new Dictionary<string, object?> { ["ytdlp:retries"] = 2 },
+            CancellationToken.None);
+
+        var section = Section(Parse(directory.ReadConfig()), "youtube");
+
+        var nested = (YamlMappingNode)section["ytdlp"];
+
+        nested["retries"].ToString().Should().Be("2");
+    }
+
     private static ConfigFileWriter Writer(TemporaryConfigDirectory directory, out IConfiguration configuration)
     {
         var builder = new ConfigurationBuilder();
@@ -328,8 +408,8 @@ public sealed class ConfigFileWriterTests
         return (YamlMappingNode)stream.Documents[0].RootNode;
     }
 
-    private static YamlMappingNode Section(YamlMappingNode root) =>
-        (YamlMappingNode)root.Children[new YamlScalarNode("soulseek")];
+    private static YamlMappingNode Section(YamlMappingNode root, string name = "soulseek") =>
+        (YamlMappingNode)root.Children[new YamlScalarNode(name)];
 
     /// <summary>Stands in for a bound options class: the YAML provider drops underscores, so the
     /// snake_case keys bind straight onto these properties.</summary>
