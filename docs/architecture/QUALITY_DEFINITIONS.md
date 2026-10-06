@@ -37,4 +37,3 @@ The policy is JSON in `library.output_policy`; a library without one uses the de
 Containers: `keepOpus` → `.opus` (no transcode runs), `aac` → `.m4a`, `mp3` → `.mp3`. The transcode target is written next to the download under the video id, and the Opus original is deleted only after the transcode succeeded.
 
 A transcoded file is ranked as the source it came from, not the file the transcode wrote: a YouTube grab is OPUS-160 whatever the policy turns it into, so the profile gate, the upgrade check and `song_file.quality_id` all see OPUS-160 while `song_file`'s bitrate, sample rate and container describe the file that was actually placed. A failed transcode fails the item without a blocklist entry and without grabbing the next candidate — the file passed nothing yet, and the Opus original stays on disk for a later attempt.
-
