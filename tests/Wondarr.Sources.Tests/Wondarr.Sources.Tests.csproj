@@ -26,6 +26,7 @@
     <None Include="..\..\tests\fixtures\musicbrainz\**\*.*" Link="fixtures\musicbrainz\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\tests\fixtures\deezer\**\*.*" Link="fixtures\deezer\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\tests\fixtures\itunes\**\*.*" Link="fixtures\itunes\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tests\fixtures\ytmusic\**\*.*" Link="fixtures\ytmusic\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
