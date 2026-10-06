@@ -48,6 +48,7 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 | spotDL (https://github.com/spotDL/spotify-downloader) | MIT | the pacing and retry strategy | `src/Wondarr.Sources.YouTube/YtDlpRunner.cs` |
 | yt-dlp (https://github.com/yt-dlp/yt-dlp) | Unlicense | the YouTube extractor's user-facing error strings | `src/Wondarr.Sources.YouTube/YtDlpErrorTaxonomy.cs` |
 | spotDL (https://github.com/spotDL/spotify-downloader) | MIT | the retry-vs-skip split for those failures | `src/Wondarr.Sources.YouTube/YtDlpErrorTaxonomy.cs` |
+| spotDL (https://github.com/spotDL/spotify-downloader) | MIT | the ISRC-first query strategy and its verified-result early return | `src/Wondarr.Sources.YouTube/YouTubeSourceProvider.cs` |
 
 Planned sources (see ADR-0002): Lidarr, Prowlarr, Sonarr (GPL-3.0); SoulSync, spotDL (MIT). Sockseek and slskd are AGPL-3.0 and are **not** copied.
 

@@ -24,7 +24,7 @@ public class YouTubeSourceProviderTests
         var (available, reason) = await provider.GetAvailabilityAsync(CancellationToken.None);
 
         available.Should().BeFalse();
-        reason.Should().Contain("YouTube is disabled");
+        reason.Should().Be("YouTube is not enabled");
 
         provider = Build(options: new YouTubeOptions { Enabled = true });
 
@@ -134,7 +134,7 @@ public class YouTubeSourceProviderTests
         var result = await provider.SearchAsync(Request(), CancellationToken.None);
 
         result.Candidates.Should().BeEmpty();
-        result.Message.Should().Contain("YouTube is disabled");
+        result.Message.Should().Be("YouTube is not enabled");
     }
 
     [Fact]
