@@ -137,6 +137,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
         services.AddScoped<ICommandHandler, MissingSearchCommandHandler>();
+        services.AddScoped<ICommandHandler, UpgradeSearchCommandHandler>();
         services.AddScoped<ICommandHandler, SongSearchCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceLibraryScanCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();

@@ -38,7 +38,7 @@ public sealed class SystemTaskTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var tasks = document.RootElement.EnumerateArray().ToList();
-        tasks.Should().HaveCount(5, "the catalog holds the two Phase 0 tasks, the missing-song search, the reference-library scan and the backup");
+        tasks.Should().HaveCount(6, "the catalog holds the two Phase 0 tasks, the missing-song and upgrade searches, the reference-library scan and the backup");
 
         var heartbeat = tasks.Single(task => task.GetProperty("taskName").GetString() == "Heartbeat");
         heartbeat.GetProperty("name").GetString().Should().Be("Heartbeat");
@@ -53,6 +53,10 @@ public sealed class SystemTaskTests
         var missingSearch = tasks.Single(task => task.GetProperty("taskName").GetString() == "MissingSearch");
         missingSearch.GetProperty("name").GetString().Should().Be("Missing Search");
         missingSearch.GetProperty("interval").GetInt32().Should().Be(360);
+
+        var upgradeSearch = tasks.Single(task => task.GetProperty("taskName").GetString() == "UpgradeSearch");
+        upgradeSearch.GetProperty("name").GetString().Should().Be("Upgrade Search");
+        upgradeSearch.GetProperty("interval").GetInt32().Should().Be(1440);
 
         var referenceScan = tasks.Single(task => task.GetProperty("taskName").GetString() == "ReferenceLibraryScan");
         referenceScan.GetProperty("interval").GetInt32().Should().Be(1440);

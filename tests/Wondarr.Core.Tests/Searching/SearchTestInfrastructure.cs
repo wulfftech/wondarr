@@ -182,6 +182,70 @@ internal sealed class SearchTestHost : IAsyncDisposable
         return song.Id;
     }
 
+    /// <summary>
+    /// Gives a seeded song a held file, as an import would: the quality the file was matched to,
+    /// where it came from, and the stored candidate that produced it (when one did).
+    /// </summary>
+    public async Task SeedFileAsync(
+        long songId,
+        long qualityId = 29,
+        string sourceType = "soulseek",
+        string? sourceRef = null,
+        DateTime? importedAt = null)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = $"/data/music/{songId}.mp3",
+            Size = 14_850_000,
+            Codec = "mp3",
+            Container = "mpeg",
+            QualityId = qualityId,
+            SourceType = sourceType,
+            SourceRef = sourceRef,
+            ImportedAt = importedAt ?? Time.GetUtcNow().UtcDateTime,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>Inserts one finished run and one stored candidate, and returns the candidate's id.</summary>
+    public async Task<long> SeedCandidateAsync(long songId, string scoreBreakdown)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var run = new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = Time.GetUtcNow().UtcDateTime,
+            FinishedAt = Time.GetUtcNow().UtcDateTime,
+            Outcome = SearchOutcome.Grabbed,
+        };
+
+        context.SearchRuns.Add(run);
+        await context.SaveChangesAsync();
+
+        var candidate = new CandidateRecord
+        {
+            SearchRunId = run.Id,
+            SongId = songId,
+            SourceType = SourceTypes.Soulseek,
+            BlocklistKey = "peer\u001fMusic\\held.flac",
+            DisplayName = "held.flac",
+            RemotePath = "Music\\held.flac",
+            Provider = "peer",
+            ScoreBreakdown = scoreBreakdown,
+        };
+
+        context.Candidates.Add(candidate);
+        await context.SaveChangesAsync();
+
+        return candidate.Id;
+    }
+
     /// <summary>A candidate that only needs a path and its version flags named.</summary>
     public static Candidate Candidate(
         string remotePath,
