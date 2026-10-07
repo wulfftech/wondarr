@@ -30,8 +30,6 @@ export type ImportListItemPage = components['schemas']['PagingResourceOfImportLi
 export type BulkAddAcceptedResource = components['schemas']['BulkAddAcceptedResource'];
 export type CommandResource = components['schemas']['CommandResource'];
 export type SongMoveAcceptedResource = components['schemas']['SongMoveAcceptedResource'];
-export type ConvertPlanResource = components['schemas']['ConvertPlanResource'];
-export type ConvertAcceptedResource = components['schemas']['ConvertAcceptedResource'];
 
 /** The query keys the library, add and review screens invalidate. */
 export const SONGS_QUERY_KEY = ['songs'] as const;
@@ -470,6 +468,66 @@ export function useBulkAdd(): UseMutationResult<
   });
 }
 
+/** The plan of a conversion, and the command it queues. */
+
+export type ConvertPlanResource = components['schemas']['ConvertPlanResource'];
+export type ConvertSongResource = components['schemas']['ConvertSongResource'];
+export type ConvertRequestResource = components['schemas']['ConvertRequestResource'];
+export type ConvertAcceptedResource = components['schemas']['ConvertAcceptedResource'];
+
+/** The dry run's query key, keyed by library so two libraries never share a plan. */
+export const CONVERT_PLAN_QUERY_KEY = ['convert-plan'] as const;
+
+/**
+ * What converting some songs — or a whole library, when no song and no rule is named — would do,
+ * read from the stored file rows alone (LIBRARY_OUTPUT §7.7). The plan is not cached across opens:
+ * the library's files change as imports and conversions land, so a remembered plan would be shown
+ * against a library that has moved on.
+ */
+export function useConvertPreview(
+  libraryId: number | null,
+  enabled: boolean,
+): UseQueryResult<ConvertPlanResource, Error> {
+  const client = useApiClient();
+
+  return useQuery({
+    queryKey: [...CONVERT_PLAN_QUERY_KEY, libraryId],
+    enabled: enabled && libraryId !== null,
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async (): Promise<ConvertPlanResource> => {
+      const { data, response } = await client.POST('/api/v1/song/convert/preview', {
+        // The document marks all three members required; a null song list and a null rule are what
+        // "this library, per its own rules" reads as.
+        body: { songIds: null, libraryId, rule: null },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The conversion plan request failed.');
+      }
+
+      return data;
+    },
+  });
+}
+
+/** Queues the conversion the request names; the API answers 202 with the command to follow. */
+export function useConvert(): UseMutationResult<ConvertAcceptedResource, Error, ConvertRequestResource> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async (request: ConvertRequestResource): Promise<ConvertAcceptedResource> => {
+      const { data, error, response } = await client.POST('/api/v1/song/convert', { body: request });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The conversion could not be queued.');
+      }
+
+      return data;
+    },
+  });
+}
+
 /** One command, optionally polled until it stops running. */
 export function useCommand(
   id: number | null,
@@ -642,7 +700,7 @@ function convertBody(input: ConvertInput): components['schemas']['ConvertRequest
 }
 
 /** What converting the songs would do, without converting anything. */
-export function useConvertPreview(): UseMutationResult<ConvertPlanResource, Error, ConvertInput> {
+export function useConvertSongsPreview(): UseMutationResult<ConvertPlanResource, Error, ConvertInput> {
   const client = useApiClient();
 
   return useMutation({
@@ -661,7 +719,7 @@ export function useConvertPreview(): UseMutationResult<ConvertPlanResource, Erro
 }
 
 /** Converts the songs' files in place, as a command the Activity page tracks. */
-export function useConvert(): UseMutationResult<ConvertAcceptedResource, Error, ConvertInput> {
+export function useConvertSongs(): UseMutationResult<ConvertAcceptedResource, Error, ConvertInput> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
