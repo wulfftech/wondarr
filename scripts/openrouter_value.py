@@ -163,12 +163,16 @@ def main():
 
     rows, n = collect(a.workers)
     md, result = render(rows, n, a)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")  # the Windows console code page cannot print "≥"
     print(md)
     if a.out != "-":
-        open(a.out, "w").write(md)
+        with open(a.out, "w", encoding="utf-8", newline="\n") as f:
+            f.write(md)
         print(f"wrote {a.out}", file=sys.stderr)
     if a.json:
-        json.dump(result, open(a.json, "w"), indent=1)
+        with open(a.json, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=1)
 
 
 if __name__ == "__main__":
