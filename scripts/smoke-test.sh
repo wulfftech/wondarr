@@ -56,10 +56,10 @@ REPLAY_PID=""
 cleanup() {
     if [ -n "$REPLAY_PID" ]; then kill "$REPLAY_PID" 2> /dev/null || true; fi
     $DOCKER logs "$NAME" > "$WORK/container.log" 2>&1 || true
-    $DOCKER rm -f "$NAME" > /dev/null 2>&1 || true
+    $DOCKER rm -f "$NAME" "${NAME}-fresh" "${NAME}-ext" "${NAME}-extfake" > /dev/null 2>&1 || true
     if [ "${KEEP_WORK:-0}" != 1 ]; then
         # files belong to PUID/PGID; remove them from inside a container to avoid needing root here
-        $DOCKER run --rm -v "$WORK:/w" --entrypoint /bin/sh "$IMAGE" -c 'rm -rf /w/config /w/data' > /dev/null 2>&1 || true
+        $DOCKER run --rm -v "$WORK:/w" --entrypoint /bin/sh "$IMAGE" -c 'rm -rf /w/config /w/data /w/fresh /w/ext' > /dev/null 2>&1 || true
         rm -rf "$WORK" 2> /dev/null || true
     fi
 }
@@ -284,3 +284,123 @@ pass "the container is back, FakeSlskd in place, the YouTube source enabled"
 
 python3 "$(dirname "$0")/phase4-gate.py" --url "$BASE" --api-key "$KEY" --scenario "$WORK/data/phase4-scenario.json"     --fake-log-cmd "$DOCKER run --rm --network container:$NAME curlimages/curl:8.11.1 -fsS http://127.0.0.1:5030/fake/log"     --rounds 2 --round-timeout-s 1200 --queue-timeout-s 1200     || fail "Phase 4 gate"
 echo "PHASE 4 GATE: PASS ($IMAGE, FakeYT + the fake InnerTube)"
+
+if [ "${SMOKE_PHASE5:-on}" = off ]; then
+    echo "Phase 5 gate skipped (SMOKE_PHASE5=off)"
+    exit 0
+fi
+
+# --- Phase 5a: the upgrade, on the same container -----------------------------------------------
+# A song the Phase 2 gate imported at MP3-320 gets a FLAC-cutoff profile; a FLAC of it appears on
+# FakeSlskd (POST /fake/scenario/files); UpgradeSearch replaces the file and recycles the old one.
+python3 "$(dirname "$0")/phase5-gate.py" upgrade --url "$BASE" --api-key "$KEY" \
+    --scenario "$WORK/data/phase2-scenario.json" \
+    --fake-add-cmd "$DOCKER run --rm -i --network container:$NAME curlimages/curl:8.11.1 -fsS -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5030/fake/scenario/files" \
+    --exec-cmd "$DOCKER exec $NAME" --timeout-s 1200 \
+    || fail "Phase 5 gate (upgrade)"
+
+# --- Phase 5b: a backup restores into a fresh container ------------------------------------------
+python3 "$(dirname "$0")/phase5-gate.py" backup-take --url "$BASE" --api-key "$KEY" \
+    --zip "$WORK/phase5-backup.zip" --snapshot "$WORK/phase5-snapshot.json" \
+    || fail "Phase 5 gate (backup)"
+
+FRESH="${NAME}-fresh"
+FRESH_PORT=$((PORT + 1))
+FRESH_BASE="http://localhost:${FRESH_PORT}${URL_BASE}"
+mkdir -p "$WORK/fresh/config" "$WORK/fresh/data" && chmod 777 "$WORK/fresh/config" "$WORK/fresh/data"
+# The same environment as the gate container (the env-set Soulseek fields are part of the settings the
+# snapshot compares); FakeSlskd stands in for slskd so the fresh container never reaches the network.
+$DOCKER run -d --name "$FRESH" \
+    "${METADATA_ARGS[@]}" \
+    -p "${FRESH_PORT}:1077" \
+    -e APP__LYRICS__ENABLED=false \
+    -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC \
+    -e APP__SERVER__URL_BASE="$URL_BASE" \
+    -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password \
+    -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/ \
+    -v "$WORK/fresh/config:/config" -v "$WORK/fresh/data:/data" -v "$WORK/fake:/opt/fake:ro" \
+    "$IMAGE" > /dev/null
+for _ in $(seq 1 90); do
+    [ "$($DOCKER inspect -f '{{.State.Health.Status}}' "$FRESH" 2> /dev/null)" = healthy ] && break
+    sleep 2
+done
+FRESH_KEY="$($DOCKER exec "$FRESH" sh -c "sed -n 's/^ *api_key: *//p' /config/config.yml" | tr -d '\"'\''\r ')"
+[ "${#FRESH_KEY}" -eq 32 ] || fail "could not read the fresh container's API key"
+[ "$FRESH_KEY" != "$KEY" ] || fail "the fresh container has the gate container's API key before the restore"
+python3 "$(dirname "$0")/phase5-gate.py" backup-verify --url "$FRESH_BASE" --api-key "$FRESH_KEY" \
+    --zip "$WORK/phase5-backup.zip" --snapshot "$WORK/phase5-snapshot.json" --timeout-s 300 \
+    || { $DOCKER logs --tail 60 "$FRESH" >&2; fail "Phase 5 gate (backup → fresh container)"; }
+$DOCKER rm -f "$FRESH" > /dev/null 2>&1 || true
+
+# --- Phase 5c: the Phase 2 gate, unchanged, against an external slskd -----------------------------
+# A fresh container in external mode, pointed at FakeSlskd running as a separate container that shares
+# its network namespace (so the loopback-only AcoustID stub stays reachable) and its /data (so the
+# downloads are where soulseek.downloads_dir says). The library is built the way Phases 1 and 2 build
+# it: the 50-song paste, then the Phase 2 scenario.
+EXT="${NAME}-ext"
+EXT_FAKE="${NAME}-extfake"
+EXT_PORT=$((PORT + 2))
+EXT_BASE="http://localhost:${EXT_PORT}${URL_BASE}"
+EXT_SLSKD_KEY="phase5-external-gate-key-0123456789abcdef"
+mkdir -p "$WORK/ext/config" "$WORK/ext/data/downloads/slskd/incomplete" "$WORK/ext/data/fake" \
+    && chmod -R 777 "$WORK/ext"
+cat > "$WORK/ext/data/fake/slskd.yml" <<EOF
+web:
+  port: 5030
+  ip_address: 127.0.0.1
+  authentication:
+    api_keys:
+      wondarr:
+        key: ${EXT_SLSKD_KEY}
+soulseek:
+  username: gate-external-user
+directories:
+  downloads: /data/downloads/slskd
+  incomplete: /data/downloads/slskd/incomplete
+EOF
+$DOCKER run -d --name "$EXT" \
+    "${METADATA_ARGS[@]}" \
+    -p "${EXT_PORT}:1077" \
+    -e APP__LYRICS__ENABLED=false \
+    -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC \
+    -e APP__SERVER__URL_BASE="$URL_BASE" \
+    -e APP__SOULSEEK__MODE=external \
+    -e APP__SOULSEEK__EXTERNAL__URL=http://127.0.0.1:5030 \
+    -e APP__SOULSEEK__EXTERNAL__API_KEY="$EXT_SLSKD_KEY" \
+    -e APP__SOULSEEK__DOWNLOADS_DIR=/data/downloads/slskd \
+    -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/ \
+    -v "$WORK/ext/config:/config" -v "$WORK/ext/data:/data" \
+    "$IMAGE" > /dev/null
+for _ in $(seq 1 90); do
+    [ "$($DOCKER inspect -f '{{.State.Health.Status}}' "$EXT" 2> /dev/null)" = healthy ] && break
+    sleep 2
+done
+EXT_KEY="$($DOCKER exec "$EXT" sh -c "sed -n 's/^ *api_key: *//p' /config/config.yml" | tr -d '\"'\''\r ')"
+[ "${#EXT_KEY}" -eq 32 ] || fail "could not read the external-mode container's API key"
+python3 "$(dirname "$0")/phase1-gate.py" --url "$EXT_BASE" --api-key "$EXT_KEY" > "$WORK/ext-phase1.log" 2>&1 \
+    || { tail -20 "$WORK/ext-phase1.log" >&2; fail "the external-mode library could not be built (Phase 1 paste)"; }
+python3 "$(dirname "$0")/phase2-scenario.py" --url "$EXT_BASE" --api-key "$EXT_KEY" \
+    --out "$WORK/ext/data/phase2-scenario.json" --keep 20 \
+    || fail "could not build the external-mode Phase 2 scenario"
+chmod 644 "$WORK/ext/data/phase2-scenario.json"
+$DOCKER run -d --name "$EXT_FAKE" --network "container:$EXT" --user "${PUID_WANT}:${PGID_WANT}" \
+    --entrypoint /opt/fake/slskd \
+    -e SLSKD_CONFIG=/data/fake/slskd.yml -e SLSKD_APP_DIR=/data/fake \
+    -e FAKE_SLSKD_SCENARIO=/data/phase2-scenario.json \
+    -v "$WORK/ext/data:/data" -v "$WORK/fake:/opt/fake:ro" \
+    "$IMAGE" > /dev/null
+for _ in $(seq 1 60); do
+    curl -fsS -H "X-Api-Key: $EXT_KEY" "${EXT_BASE}/api/v1/soulseek/status" | jq -e '.loggedIn == true' > /dev/null 2>&1 && break
+    sleep 2
+done
+curl -fsS -H "X-Api-Key: $EXT_KEY" "${EXT_BASE}/api/v1/soulseek/status" | jq -e '.mode == "external" and .loggedIn == true' > /dev/null \
+    || { $DOCKER logs --tail 40 "$EXT_FAKE" >&2; fail "the external FakeSlskd never reported a login: $(curl -sS -H "X-Api-Key: $EXT_KEY" "${EXT_BASE}/api/v1/soulseek/status")"; }
+pass "external-slskd mode: Wondarr polls FakeSlskd as the user's own slskd, logged in"
+# The Phase 2 gate exactly as above, minus the share toggle: in external mode the shares belong to the
+# user's slskd, not to Wondarr's settings.
+python3 "$(dirname "$0")/phase2-gate.py" --url "$EXT_BASE" --api-key "$EXT_KEY" --rounds 2 \
+    --round-timeout-s 1200 --queue-timeout-s 1200 --min-ratio 0.80 --expect-caught 1 \
+    --fake-log-cmd "$DOCKER run --rm --network container:$EXT curlimages/curl:8.11.1 -fsS http://127.0.0.1:5030/fake/log" \
+    || { $DOCKER logs --tail 60 "$EXT" >&2; fail "Phase 2 gate in external-slskd mode"; }
+$DOCKER rm -f "$EXT_FAKE" "$EXT" > /dev/null 2>&1 || true
+echo "PHASE 5 GATE: PASS ($IMAGE: upgrade, backup → fresh container, external slskd)"
