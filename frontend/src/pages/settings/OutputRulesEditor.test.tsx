@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   defaultOutputPolicy,
-  keepRule,
   readOutputPolicy,
   writeOutputPolicy,
   type OutputPolicy,
@@ -141,10 +140,12 @@ describe('OutputRulesEditor', () => {
     await pickOption(user, /Lossless files/, 'VBR quality', 'V2');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
+    // The API reads the bitrate and the quality as numbers, so a rule that does not use them
+    // carries the defaults a kept file ignores rather than the form's "keep".
     expect(onSave).toHaveBeenCalledWith({
       version: 2,
-      youtube: { codec: 'aac', mode: 'cbr', bitrateKbps: 256, vbrQuality: 'keep', sampleRate: 'keep', opusContainer: 'opus' },
-      lossy: keepRule(),
+      youtube: { codec: 'aac', mode: 'cbr', bitrateKbps: 256, vbrQuality: 0, sampleRate: 'keep', opusContainer: 'opus' },
+      lossy: { codec: 'keep', mode: 'cbr', bitrateKbps: 256, vbrQuality: 0, sampleRate: 'keep', opusContainer: 'opus' },
       lossless: { codec: 'mp3', mode: 'vbr', bitrateKbps: 256, vbrQuality: 2, sampleRate: 'keep', opusContainer: 'opus' },
     });
   });
