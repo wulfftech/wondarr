@@ -66,6 +66,21 @@ public sealed record InnertubeSearchResult(
         new(query, filter, null, []);
 }
 
+/// <summary>One row of a YouTube Music playlist, as the browse response stated it.</summary>
+/// <param name="VideoId">The video id the row plays; a row without one (an unavailable video) is skipped.</param>
+/// <param name="Title">The track title.</param>
+/// <param name="Artist">The first artist run's text — the main artist, which the sync's text lookup uses.</param>
+/// <param name="ArtistCredit">The whole credit line, separators included (<c>Luis Fonsi &amp; Daddy Yankee</c>).</param>
+/// <param name="Album">The album the row names, when it names one.</param>
+/// <param name="DurationMs">The length the row shows, in milliseconds; null when it shows none.</param>
+public sealed record InnertubePlaylistRow(
+    string VideoId,
+    string? Title,
+    string? Artist,
+    string? ArtistCredit,
+    string? Album,
+    int? DurationMs);
+
 /// <summary>What a result is, once its raw <c>musicVideoType</c> is classified.</summary>
 public enum InnertubeVideoKind
 {
