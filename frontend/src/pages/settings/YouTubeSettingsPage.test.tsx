@@ -166,16 +166,14 @@ describe('YouTubeSettingsPage', () => {
   });
 
   it('shows the server validation errors', async () => {
-    install(
-      {},
-      () =>
-        jsonResponse(
-          {
-            title: 'One or more validation errors occurred.',
-            errors: { settings: ['youtube.search_limit: must be between 1 and 50.'] },
-          },
-          400,
-        ),
+    install({}, () =>
+      jsonResponse(
+        {
+          title: 'One or more validation errors occurred.',
+          errors: { settings: ['youtube.search_limit: must be between 1 and 50.'] },
+        },
+        400,
+      ),
     );
     const user = userEvent.setup();
 
