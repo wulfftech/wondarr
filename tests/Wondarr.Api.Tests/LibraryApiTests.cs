@@ -88,7 +88,10 @@ public sealed class LibraryApiTests
             new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
             JsonContent(library));
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var returned = (JsonObject)(await ReadJsonAsync(response))!;
+        returned["plexSectionId"]!.GetValue<string>().Should().Be("3");
         returned["plexLibraryPath"]!.GetValue<string>().Should().Be("/plex/music");
 
         var reread = await GetLibraryAsync(client, 1);
@@ -141,12 +144,39 @@ public sealed class LibraryApiTests
 
         var library = await GetLibraryAsync(client, 1);
 
-        var policy = (JsonObject)library["outputPolicy"]!;
+        // Version 2 (DECISIONS build session 7 #4): YouTube → AAC 256, everything else kept.
+        var outputPolicy = (JsonObject)library["outputPolicy"]!;
+        outputPolicy["version"]!.GetValue<int>().Should().Be(2);
+        var policy = (JsonObject)outputPolicy["youtube"]!;
         policy["codec"]!.GetValue<string>().Should().Be("aac");
         policy["mode"]!.GetValue<string>().Should().Be("cbr");
         policy["bitrateKbps"]!.GetValue<int>().Should().Be(256);
         policy["vbrQuality"]!.GetValue<int>().Should().Be(0);
         policy["sampleRate"]!.GetValue<string>().Should().Be("keep");
+        ((JsonObject)outputPolicy["lossy"]!)["codec"]!.GetValue<string>().Should().Be("keep");
+        ((JsonObject)outputPolicy["lossless"]!)["codec"]!.GetValue<string>().Should().Be("keep");
+    }
+
+    [Fact]
+    public async Task A_version_1_output_policy_is_stored_as_the_youtube_rule_of_a_version_2_one()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = await GetLibraryAsync(client, 1);
+        library["outputPolicy"] = new JsonObject { ["codec"] = "mp3", ["bitrateKbps"] = 320 };
+
+        using var response = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var outputPolicy = (JsonObject)(await GetLibraryAsync(client, 1))["outputPolicy"]!;
+        outputPolicy["version"]!.GetValue<int>().Should().Be(2);
+        ((JsonObject)outputPolicy["youtube"]!)["codec"]!.GetValue<string>().Should().Be("mp3");
+        ((JsonObject)outputPolicy["youtube"]!)["bitrateKbps"]!.GetValue<int>().Should().Be(320);
+        ((JsonObject)outputPolicy["lossless"]!)["codec"]!.GetValue<string>().Should().Be("keep");
     }
 
     [Fact]
@@ -158,9 +188,13 @@ public sealed class LibraryApiTests
         var library = await GetLibraryAsync(client, 1);
         library["outputPolicy"] = new JsonObject
         {
-            ["codec"] = "mp3",
-            ["mode"] = "vbr",
-            ["vbrQuality"] = 2,
+            ["version"] = 2,
+            ["lossless"] = new JsonObject
+            {
+                ["codec"] = "mp3",
+                ["mode"] = "vbr",
+                ["vbrQuality"] = 2,
+            },
         };
 
         using var response = await client.PutAsync(
@@ -170,13 +204,21 @@ public sealed class LibraryApiTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var reread = await GetLibraryAsync(client, 1);
-        var policy = (JsonObject)reread["outputPolicy"]!;
+        var outputPolicy = (JsonObject)reread["outputPolicy"]!;
+        var policy = (JsonObject)outputPolicy["lossless"]!;
         policy["codec"]!.GetValue<string>().Should().Be("mp3");
         policy["mode"]!.GetValue<string>().Should().Be("vbr");
         policy["vbrQuality"]!.GetValue<int>().Should().Be(2);
-        // The keys the body left out come back with their defaults.
+        // The keys the body left out come back with their defaults, and the rules it left out too.
         policy["bitrateKbps"]!.GetValue<int>().Should().Be(256);
         policy["sampleRate"]!.GetValue<string>().Should().Be("keep");
+        ((JsonObject)outputPolicy["youtube"]!)["codec"]!.GetValue<string>().Should().Be("aac");
+
+        // What the API returned can be sent straight back.
+        using var echoed = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(reread));
+        echoed.StatusCode.Should().Be(HttpStatusCode.OK, await echoed.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -208,7 +250,7 @@ public sealed class LibraryApiTests
         }
 
         var reread = await GetLibraryAsync(client, 1);
-        var policy = (JsonObject)reread["outputPolicy"]!;
+        var policy = (JsonObject)((JsonObject)reread["outputPolicy"]!)["youtube"]!;
         policy["codec"]!.GetValue<string>().Should().Be("aac", "the null cleared the stored policy");
         policy["bitrateKbps"]!.GetValue<int>().Should().Be(256);
     }
@@ -227,11 +269,13 @@ public sealed class LibraryApiTests
             JsonContent(library));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await ValidationErrorsAsync(response)).Should().ContainKey("codec");
+
+        // A version-1 object is the YouTube rule, so that is where the error is named.
+        (await ValidationErrorsAsync(response)).Should().ContainKey("youtube.codec");
 
         // The stored policy is unchanged.
         var reread = await GetLibraryAsync(client, 1);
-        ((JsonObject)reread["outputPolicy"]!)["codec"]!.GetValue<string>().Should().Be("aac");
+        ((JsonObject)((JsonObject)reread["outputPolicy"]!)["youtube"]!)["codec"]!.GetValue<string>().Should().Be("aac");
     }
 
     [Fact]

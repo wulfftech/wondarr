@@ -143,7 +143,7 @@ public sealed class OutputPolicyTests
         foreach (var rule in new[] { "youtube", "lossy" })
         {
             var act = () => LibraryOutputPolicy.Parse(
-                $$"""{"version":2,"{{rule}}":{"codec":"flac"}}""");
+                $$$"""{"version":2,"{{{rule}}}":{"codec":"flac"}}""");
 
             var exception = act.Should().Throw<ProfileValidationException>();
             exception.Which.Errors.Should().ContainSingle()
