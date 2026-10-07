@@ -20,6 +20,11 @@
 #   - a reference folder of encoded audio (MBID-tagged, text-tagged, untagged, duplicates) is added in
 #     adopt mode and scanned: >= 90 % identified automatically, the rest resolved through the Match
 #     queue, every new song adopted into the library, the originals byte-for-byte unchanged
+# Phase 6 (scripts/phase6-gate.py; SMOKE_PHASE6=on | off (default until its metadata is recorded)), on
+#   a fresh container: a 200-track Exportify CSV resolves >= 95 % via ISRC, two search cycles download
+#   20 of its songs, a Plex playlist (FakeSlskd's fake Plex) holds them in order and is updated in
+#   place after a re-upload, an album added by search arrives pinned, a song moves to a second library
+#   (and Plex section), a FLAC is imported as an MP3 still ranked FLAC, and an MP3 is converted on demand.
 # Phase 4 (scripts/phase4-gate.py; SMOKE_PHASE4=on (default) | off), on the same container:
 #   - the YouTube source is enabled (videos allowed) against the fake InnerTube (answering the gate's
 #     songs from the scenario, everything else from the recorded fixtures) and the fake yt-dlp
@@ -57,7 +62,7 @@ REPLAY_PID=""
 cleanup() {
     if [ -n "$REPLAY_PID" ]; then kill "$REPLAY_PID" 2> /dev/null || true; fi
     $DOCKER logs "$NAME" > "$WORK/container.log" 2>&1 || true
-    $DOCKER rm -f "$NAME" "${NAME}-fresh" "${NAME}-ext" "${NAME}-extfake" > /dev/null 2>&1 || true
+    $DOCKER rm -f "$NAME" "${NAME}-fresh" "${NAME}-ext" "${NAME}-extfake" "${NAME}-p6" > /dev/null 2>&1 || true
     if [ "${KEEP_WORK:-0}" != 1 ]; then
         # files belong to PUID/PGID; remove them from inside a container to avoid needing root here
         $DOCKER run --rm -v "$WORK:/w" --entrypoint /bin/sh "$IMAGE" -c 'rm -rf /w/config /w/data /w/fresh /w/ext' > /dev/null 2>&1 || true
@@ -401,3 +406,42 @@ python3 "$(dirname "$0")/phase2-gate.py" --url "$EXT_BASE" --api-key "$EXT_KEY" 
     || { $DOCKER logs --tail 60 "$EXT" >&2; fail "Phase 2 gate in external-slskd mode"; }
 $DOCKER rm -f "$EXT_FAKE" "$EXT" > /dev/null 2>&1 || true
 echo "PHASE 5 GATE: PASS ($IMAGE: upgrade, backup → fresh container, external slskd)"
+
+if [ "${SMOKE_PHASE6:-off}" = off ]; then
+    echo "Phase 6 gate skipped (SMOKE_PHASE6=off)"
+    exit 0
+fi
+
+# --- Phase 6: import lists, playlists, albums, libraries and conversion, on a fresh container -------
+# FakeSlskd stands in for slskd (files are offered as the gate needs them), answers AcoustID, and runs
+# a fake Plex Media Server (and plex.tv's server list) on 127.0.0.1:5033 with sections 1 = /data/music
+# and 2 = /data/music2. Metadata comes from the recordings like every other phase. Searching is kept
+# to the gate's own two cycles of ten songs: search on add is off.
+P6="${NAME}-p6"
+P6_PORT=$((PORT + 3))
+P6_BASE="http://localhost:${P6_PORT}${URL_BASE}"
+mkdir -p "$WORK/p6/config" "$WORK/p6/data/music" "$WORK/p6/data/music2" && chmod -R 777 "$WORK/p6"
+$DOCKER run -d --name "$P6"     "${METADATA_ARGS[@]}"     -p "${P6_PORT}:1077"     -e APP__LYRICS__ENABLED=false     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC     -e APP__SERVER__URL_BASE="$URL_BASE"     -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password     -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/     -e APP__SEARCH__SEARCH_ON_ADD=false -e APP__SEARCH__MISSING_BATCH_SIZE=10     -e APP__PLEX__PLEX_TV_BASE_URL=http://127.0.0.1:5033/     -v "$WORK/p6/config:/config" -v "$WORK/p6/data:/data" -v "$WORK/fake:/opt/fake:ro"     "$IMAGE" > /dev/null
+for _ in $(seq 1 90); do
+    [ "$($DOCKER inspect -f '{{.State.Health.Status}}' "$P6" 2> /dev/null)" = healthy ] && break
+    sleep 2
+done
+P6_KEY="$($DOCKER exec "$P6" sh -c "sed -n 's/^ *api_key: *//p' /config/config.yml" | tr -d '\"'\''\r ')"
+[ "${#P6_KEY}" -eq 32 ] || fail "could not read the Phase 6 container's API key"
+P6_CURL="$DOCKER run --rm -i --network container:$P6 curlimages/curl:8.11.1 -fsS"
+P6_ARGS=(--url "$P6_BASE" --api-key "$P6_KEY" --state-in "$WORK/phase6-state.json" --state-out "$WORK/phase6-state.json")
+P6_FAKE_ADD="$P6_CURL -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5030/fake/scenario/files"
+P6_PLEX_STATE="$P6_CURL http://127.0.0.1:5033/fake/plex"
+P6_EXEC="$DOCKER exec $P6"
+GATE6="$(dirname "$0")/phase6-gate.py"
+python3 "$GATE6" plex "${P6_ARGS[@]}" || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (Plex)"; }
+python3 "$GATE6" lists "${P6_ARGS[@]}" --csv "$REPO/tests/gate/phase6-exportify.csv"     --fake-add-cmd "$P6_FAKE_ADD" --plex-state-cmd "$P6_PLEX_STATE" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 80 "$P6" >&2; fail "Phase 6 gate (the 200-track list, downloads, the Plex playlist)"; }
+python3 "$GATE6" album "${P6_ARGS[@]}" || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (album add)"; }
+python3 "$GATE6" library "${P6_ARGS[@]}" --plex-state-cmd "$P6_PLEX_STATE" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (a second library)"; }
+python3 "$GATE6" convert "${P6_ARGS[@]}" --fake-add-cmd "$P6_FAKE_ADD" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (conversion)"; }
+if [ "$METADATA" = replay ]; then
+    MISSES="$(curl -fsS "http://localhost:${REPLAY_PORT}/__misses")"
+    [ "$(echo "$MISSES" | jq 'length')" = 0 ] || fail "the Phase 6 gate asked for metadata tests/gate/replay has no recording of (re-record with SMOKE_METADATA=record): $MISSES"
+fi
+$DOCKER rm -f "$P6" > /dev/null 2>&1 || true
+echo "PHASE 6 GATE: PASS ($IMAGE: a 200-track Exportify list, a Plex playlist kept in place, album add, a second library, conversion)"
