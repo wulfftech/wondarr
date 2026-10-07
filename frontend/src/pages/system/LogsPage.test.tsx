@@ -109,7 +109,10 @@ describe('LogsPage', () => {
     renderApp();
 
     const link = await screen.findByRole('link', { name: 'wondarr-20261007.json' });
-    expect(link).toHaveAttribute('href', expect.stringContaining('/api/v1/log/file/wondarr-20261007.json'));
+    expect(link).toHaveAttribute(
+      'href',
+      expect.stringContaining('/api/v1/log/file/wondarr-20261007.json?apikey=test-api-key'),
+    );
   });
 
   it('says when only the newest part of the log was searched', async () => {
