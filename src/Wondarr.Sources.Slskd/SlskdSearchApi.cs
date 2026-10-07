@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace Wondarr.Sources.Slskd;
 
@@ -69,23 +68,18 @@ public sealed class SlskdSearchApi : ISlskdSearchApi
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _http;
-    private readonly SlskdSecretsStore _secrets;
+    private readonly ISlskdEndpoint _endpoint;
 
     /// <summary>Initialises a new instance of the <see cref="SlskdSearchApi"/> class.</summary>
     /// <param name="http">The typed client, whose base address is slskd's loopback API.</param>
-    /// <param name="options">Soulseek settings, for the port slskd listens on.</param>
-    /// <param name="secrets">Source of the API key this client authenticates with.</param>
-    public SlskdSearchApi(HttpClient http, IOptionsMonitor<SoulseekOptions> options, SlskdSecretsStore secrets)
+    /// <param name="endpoint">Where slskd is and how Wondarr authenticates to it.</param>
+    public SlskdSearchApi(HttpClient http, ISlskdEndpoint endpoint)
     {
         ArgumentNullException.ThrowIfNull(http);
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(secrets);
+        ArgumentNullException.ThrowIfNull(endpoint);
 
         _http = http;
-        _secrets = secrets;
-
-        // The bundled slskd is always on loopback; the port is the only part that moves.
-        _http.BaseAddress ??= new Uri($"http://127.0.0.1:{options.CurrentValue.WebPort}/", UriKind.Absolute);
+        _endpoint = endpoint;
     }
 
     /// <inheritdoc />
@@ -93,13 +87,13 @@ public sealed class SlskdSearchApi : ISlskdSearchApi
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var secrets = await _secrets.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
+        var (baseAddress, apiKey) = await _endpoint.ResolveAsync(cancellationToken).ConfigureAwait(false);
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, SearchesPath)
+        using var message = new HttpRequestMessage(HttpMethod.Post, new Uri(baseAddress, SearchesPath))
         {
             Content = JsonContent.Create(request, options: SerializerOptions),
         };
-        message.Headers.Add(SlskdClient.ApiKeyHeader, secrets.ApiKey);
+        message.Headers.Add(SlskdClient.ApiKeyHeader, apiKey);
 
         using var response = await _http
             .SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -195,10 +189,12 @@ public sealed class SlskdSearchApi : ISlskdSearchApi
         HttpContent? content,
         CancellationToken cancellationToken)
     {
-        var secrets = await _secrets.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
+        var (baseAddress, apiKey) = await _endpoint.ResolveAsync(cancellationToken).ConfigureAwait(false);
 
-        using var message = new HttpRequestMessage(method, path) { Content = content };
-        message.Headers.Add(SlskdClient.ApiKeyHeader, secrets.ApiKey);
+        // Not disposed here: the caller reads the response's content, which the request's content
+        // would take with it (SendAsync is only called without content today).
+        var message = new HttpRequestMessage(method, new Uri(baseAddress, path)) { Content = content };
+        message.Headers.Add(SlskdClient.ApiKeyHeader, apiKey);
 
         return await _http
             .SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken)

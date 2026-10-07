@@ -32,19 +32,20 @@ public sealed class SlskdDownloadFolderHealthCheck : IHealthCheck
     public async Task<HealthCheck> CheckAsync(CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
-
-        if (options.Mode == SoulseekMode.External)
-        {
-            return Result(HealthCheckResult.Ok, SoulseekHealthMessages.ExternalMode);
-        }
-
+        var external = options.Mode == SoulseekMode.External;
         var folder = options.DownloadsDir;
+
+        // What the folder is called in the message: in external mode it is where Wondarr *sees*
+        // the user's slskd's downloads (its own directories.downloads, mounted into this container).
+        var description = external
+            ? $"{folder} (the folder where Wondarr sees slskd's downloads)"
+            : folder;
 
         // Missing is its own answer: this check reports the state of the folder, it does not create
         // it. Making one here would hide a configuration mistake the host is about to report too.
         if (!Directory.Exists(folder))
         {
-            return Result(HealthCheckResult.Error, $"{folder} does not exist");
+            return Result(HealthCheckResult.Error, $"{description} does not exist");
         }
 
         // The probe file is named for this check, so a leftover one is traceable to it.
@@ -59,17 +60,17 @@ public sealed class SlskdDownloadFolderHealthCheck : IHealthCheck
                 .WaitAsync(ProbeTimeout, cancellationToken)
                 .ConfigureAwait(false);
 
-            return Result(HealthCheckResult.Ok, $"{folder} is writable");
+            return Result(HealthCheckResult.Ok, $"{description} is writable");
         }
         catch (TimeoutException)
         {
             return Result(
                 HealthCheckResult.Error,
-                $"{folder} did not answer within {ProbeTimeout.TotalSeconds:0} s");
+                $"{description} did not answer within {ProbeTimeout.TotalSeconds:0} s");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            return Result(HealthCheckResult.Error, $"{folder} is not writable: {exception.Message}");
+            return Result(HealthCheckResult.Error, $"{description} is not writable: {exception.Message}");
         }
         finally
         {
@@ -130,6 +131,7 @@ public sealed class SoulseekSharingHealthCheck : IHealthCheck
 
         if (options.Mode == SoulseekMode.External)
         {
+            // The user's slskd owns its shares; nothing of ours to check.
             return Task.FromResult(Result(HealthCheckResult.Ok, SoulseekHealthMessages.ExternalMode));
         }
 
@@ -160,6 +162,6 @@ public sealed class SoulseekSharingHealthCheck : IHealthCheck
 /// <summary>Messages both Soulseek storage checks share.</summary>
 internal static class SoulseekHealthMessages
 {
-    /// <summary>What a check says when Wondarr owns no process to check.</summary>
-    public const string ExternalMode = "External slskd mode (checked in Phase 5)";
+    /// <summary>What a check says when the user's slskd owns what it would look at.</summary>
+    public const string ExternalMode = "External slskd mode: the user's slskd owns its shares";
 }

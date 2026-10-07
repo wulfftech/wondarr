@@ -201,6 +201,19 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
     {
         var options = _options.CurrentValue;
 
+        if (options.Mode == SoulseekMode.External)
+        {
+            if (!options.External.RescanShares)
+            {
+                // Dropped silently: the user's slskd decides what it shares.
+                return true;
+            }
+
+            // The user's slskd is not a process of ours, so the supervisor's state says nothing
+            // about whether it will answer; just ask it.
+            return await RescanAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         if (!options.ShareLibrary || options.SharedFolders.Count == 0)
         {
             return true;
@@ -215,7 +228,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
             return false;
         }
 
-        // External mode, no binary, or the host stopping: there is no slskd of ours to ask.
+        // No binary, or the host stopping: there is no slskd of ours to ask.
         if (state != SlskdState.Running)
         {
             LogSkipped(_logger, state);
@@ -223,6 +236,12 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
             return true;
         }
 
+        return await RescanAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Asks slskd to rescan; <see langword="false"/> when it should be tried again.</summary>
+    private async Task<bool> RescanAsync(CancellationToken cancellationToken)
+    {
         try
         {
             using var scope = _scopes.CreateScope();

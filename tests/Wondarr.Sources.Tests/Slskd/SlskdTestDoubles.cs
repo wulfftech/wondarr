@@ -66,6 +66,63 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     }
 }
 
+/// <summary>A fixed <see cref="ISlskdEndpoint"/>, recording how often it was read.</summary>
+internal sealed class StubSlskdEndpoint : ISlskdEndpoint
+{
+    public StubSlskdEndpoint(Uri baseAddress, string apiKey)
+    {
+        BaseAddress = baseAddress;
+        ApiKey = apiKey;
+    }
+
+    public Uri BaseAddress { get; }
+
+    public string ApiKey { get; }
+
+    public int Resolutions { get; private set; }
+
+    public ValueTask<(Uri BaseAddress, string ApiKey)> ResolveAsync(CancellationToken cancellationToken)
+    {
+        Resolutions++;
+
+        return new((BaseAddress, ApiKey));
+    }
+}
+
+/// <summary>An <see cref="IOptionsMonitor{T}"/> whose value can change and whose listeners fire.</summary>
+internal sealed class FakeOptionsMonitor<T> : IOptionsMonitor<T>
+    where T : class
+{
+    private Action<T, string?>? _listeners;
+
+    public FakeOptionsMonitor(T value) => Value = value;
+
+    public T Value { get; private set; }
+
+    public T CurrentValue => Value;
+
+    public T Get(string? name) => Value;
+
+    public IDisposable OnChange(Action<T, string?> listener)
+    {
+        _listeners += listener;
+
+        return new Subscription(() => _listeners -= listener);
+    }
+
+    /// <summary>Changes the value and notifies every listener, as a real reload would.</summary>
+    public void Set(T value)
+    {
+        Value = value;
+        _listeners?.Invoke(value, null);
+    }
+
+    private sealed class Subscription(Action detach) : IDisposable
+    {
+        public void Dispose() => detach();
+    }
+}
+
 /// <summary>Shared builders for the slskd tests.</summary>
 internal static class SlskdTestData
 {

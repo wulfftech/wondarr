@@ -28,17 +28,18 @@ public class ScheduledTaskServiceTests
 
         var jobs = await host.ReadJobsAsync();
 
-        jobs.Select(job => job.Name).Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan");
+        jobs.Select(job => job.Name).Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan", "Backup");
         jobs.Should().OnlyContain(job => job.NextRunAt == host.Now + TimeSpan.FromSeconds(10));
         jobs.Single(job => job.Name == "Heartbeat").Interval.Should().Be(TimeSpan.FromMinutes(1));
         jobs.Single(job => job.Name == "CheckHealth").Interval.Should().Be(TimeSpan.FromMinutes(15));
         jobs.Single(job => job.Name == "MissingSearch").Interval.Should().Be(TimeSpan.FromHours(6));
+        jobs.Single(job => job.Name == "Backup").Interval.Should().Be(TimeSpan.FromDays(7));
         jobs.Single(job => job.Name == "UpgradeSearch").Interval.Should().Be(TimeSpan.FromHours(24));
         jobs.Should().OnlyContain(job => job.LastRunAt == null && job.LastResult == null);
 
         host.Triggers.Should().HaveCount(jobs.Count, "every row gets its own trigger");
         host.Triggers.Select(trigger => trigger.JobKey.Name)
-            .Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan");
+            .Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan", "Backup");
         host.Triggers.Should().OnlyContain(trigger =>
             trigger.StartTimeUtc == new DateTimeOffset(host.Now + TimeSpan.FromSeconds(10), TimeSpan.Zero));
         host.Triggers.Cast<ISimpleTrigger>()
@@ -114,13 +115,13 @@ public class ScheduledTaskServiceTests
 
         var jobs = await host.ReadJobsAsync();
 
-        jobs.Should().HaveCount(6);
+        jobs.Should().HaveCount(7);
         var orphan = jobs.Single(job => job.Name == "SomethingRemoved");
         orphan.Interval.Should().Be(TimeSpan.FromMinutes(3));
         orphan.NextRunAt.Should().BeNull("rows for tasks the catalog does not know are not touched");
         orphan.LastResult.Should().Be("successful: did work");
 
-        host.Triggers.Should().HaveCount(5, "no trigger is created for a name the catalog does not know");
+        host.Triggers.Should().HaveCount(6, "no trigger is created for a name the catalog does not know");
     }
 
     /// <summary>

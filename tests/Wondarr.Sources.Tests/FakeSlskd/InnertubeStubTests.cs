@@ -35,6 +35,68 @@ public sealed class InnertubeStubTests
     private const string Isrc = "USWB19901214";
 
     [Fact]
+    public void The_stub_uses_the_params_the_app_sends()
+    {
+        // Out of step once: the stub compared against made-up constants, so a videos search got the
+        // songs fixture.
+        InnertubeStubApp.SongsParams.Should().Be(InnertubeSearchRequest.SongsParams);
+        InnertubeStubApp.VideosParams.Should().Be(InnertubeSearchRequest.VideosParams);
+    }
+
+    [Fact]
+    public void A_gate_song_is_answered_from_the_scenario_not_the_fixtures()
+    {
+        var scenarioPath = Path.Combine(Path.GetTempPath(), $"phase4-scenario-{Guid.NewGuid():N}.json");
+        File.WriteAllText(scenarioPath, """
+            {
+              "songs": {
+                "Mr. Brightside": { "expect": "art-track", "videoId": "atvBright01", "artist": "The Killers", "durationSeconds": 222 },
+                "Hey Ya!": { "expect": "omv-rejected", "videoId": "atvHeyYa001", "omvVideoId": "omvHeyYa001", "artist": "Outkast", "durationSeconds": 235 }
+              },
+              "videos": { "omvHeyYa001": { "durationSeconds": 255 } }
+            }
+            """);
+
+        try
+        {
+            var fixtures = new InnertubeFixtures(FixturesDir, scenarioPath);
+
+            var songs = InnertubeResponseParser.Parse(
+                fixtures.Answer("The Killers - Mr. Brightside", InnertubeSearchRequest.SongsParams),
+                "The Killers - Mr. Brightside",
+                InnertubeSearchFilter.Songs);
+            var atv = songs.Results.Should().ContainSingle().Subject;
+            atv.VideoId.Should().Be("atvBright01");
+            atv.Title.Should().Be("Mr. Brightside");
+            atv.Artists.Should().Equal("The Killers");
+            atv.DurationMs.Should().Be(222_000);
+            atv.MusicVideoType.Should().Be("MUSIC_VIDEO_TYPE_ATV");
+
+            // The OMV case: no Art Track, and the videos shelf holds the long official video.
+            InnertubeResponseParser.Parse(fixtures.Answer("Outkast - Hey Ya!", InnertubeSearchRequest.SongsParams), "q", InnertubeSearchFilter.Songs)
+                .Results.Should().BeEmpty();
+            var omv = InnertubeResponseParser.Parse(
+                    fixtures.Answer("Outkast - Hey Ya!", InnertubeSearchRequest.VideosParams),
+                    "Outkast - Hey Ya!",
+                    InnertubeSearchFilter.Videos)
+                .Results.Should().ContainSingle().Subject;
+            omv.VideoId.Should().Be("omvHeyYa001");
+            omv.DurationMs.Should().Be(255_000);
+            omv.MusicVideoType.Should().Be("MUSIC_VIDEO_TYPE_OMV");
+
+            // ISRC queries find nothing while a gate scenario is loaded; other songs keep the fixtures.
+            InnertubeResponseParser.Parse(fixtures.Answer(Isrc, null), Isrc, InnertubeSearchFilter.None)
+                .TopResult.Should().BeNull();
+            InnertubeResponseParser.Parse(fixtures.Answer("daft punk get lucky", InnertubeSearchRequest.SongsParams), "q", InnertubeSearchFilter.Songs)
+                .Results.Should().NotBeEmpty();
+        }
+        finally
+        {
+            File.Delete(scenarioPath);
+        }
+    }
+
+    [Fact]
     public async Task An_isrc_query_answers_the_recorded_card()
     {
         await using var harness = await FakeSlskdHarness.StartAsync(
@@ -126,7 +188,7 @@ public sealed class InnertubeStubTests
     {
         await using var harness = await FakeSlskdHarness.StartAsync("{}");
 
-        // The Phase 4 gate's registration: FakeYT posts the fingerprint of the Opus file it
+        // The Phase 4 gate's registration: the fake yt-dlp posts the fingerprint of the Opus file it
         // generated together with the recording the gate wants it to verify as.
         var registration = new
         {
@@ -185,8 +247,8 @@ public sealed class InnertubeStubTests
     /// <summary>The <c>params</c> constant each filter carries, as the app's client sends them.</summary>
     private static string ParamsFor(InnertubeSearchFilter filter) => filter switch
     {
-        InnertubeSearchFilter.Songs => "bWVzaWNfZWdfeG1sX2ZpbHRlcnNfZGVzY3JpcHRvcg==",
-        InnertubeSearchFilter.Videos => "bWVzaWNfZWdfeG1sX2ZpbHRlcnNfdmlkZW9zX2Rlc2NyaXB0b3I=",
+        InnertubeSearchFilter.Songs => InnertubeSearchRequest.SongsParams,
+        InnertubeSearchFilter.Videos => InnertubeSearchRequest.VideosParams,
         _ => string.Empty,
     };
 }

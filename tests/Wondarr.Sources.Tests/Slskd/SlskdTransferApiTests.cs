@@ -370,13 +370,24 @@ public class SlskdTransferApiTests
         }
         """;
 
-    private static SlskdTransferApi Api(StubHttpMessageHandler handler)
+    [Fact]
+    public async Task External_mode_enqueues_to_the_configured_url_with_the_configured_key()
     {
-        var secrets = new SlskdSecretsStore(
-            SlskdTestData.RepositoryWithRuntimeSecrets(),
-            Substitute.For<ISecretRegistry>(),
-            SlskdTestData.Monitor(new SoulseekOptions()));
+        var handler = StubHttpMessageHandler.Ok("""{ "files": [] }""");
+        var endpoint = new StubSlskdEndpoint(new Uri("http://slskd.example:5030/"), "external-key-0123456789");
 
-        return new SlskdTransferApi(new HttpClient(handler), SlskdTestData.Monitor(new SoulseekOptions()), secrets);
+        await new SlskdTransferApi(new HttpClient(handler), endpoint)
+            .EnqueueAsync(
+                new SlskdEnqueueBatchRequest("peer", [new SlskdEnqueueFile(@"@@peer\x.flac", 1)], null),
+                CancellationToken.None);
+
+        handler.Requests.Should().ContainSingle();
+        handler.Requests[0].RequestUri!.ToString()
+            .Should().Be("http://slskd.example:5030/api/v0/transfers/downloads/batches");
+        handler.Requests[0].Headers.GetValues(SlskdClient.ApiKeyHeader)
+            .Should().ContainSingle().Which.Should().Be("external-key-0123456789");
     }
+
+    private static SlskdTransferApi Api(StubHttpMessageHandler handler) =>
+        new(new HttpClient(handler), SlskdClientTests.BundledEndpoint());
 }

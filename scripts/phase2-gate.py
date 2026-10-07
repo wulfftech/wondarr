@@ -294,7 +294,8 @@ def main() -> int:
     if args.songs:
         paste(api, args.songs, args.round_timeout_s)
 
-    songs_total = api.call("GET", "/api/v1/song?page=1&pageSize=1")["totalRecords"]
+    # Only monitored songs are wanted: songs set aside for a later gate (unmonitored) are not counted.
+    songs_total = sum(1 for song in api.all_pages("/api/v1/song") if song.get("monitored", True))
     started = time.monotonic()
     run_missing_search(api, args.rounds, args.round_timeout_s, args.queue_timeout_s)
     imported, missing, cutoff = imported_ratio(api, songs_total)
