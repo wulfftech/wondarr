@@ -39,7 +39,9 @@ check() {
     echo "safe-merge: dotnet test"
     # One test project at a time (-m:1): run side by side, the timing- and port-bound tests (the
     # pumped compaction runs, FakeSlskd's fixed ports and search budget) fail on a loaded machine.
-    dotnet test --no-build --nologo -v q -m:1 || return 1
+    # A hung test host is killed after five minutes and the hanging test named, instead of the merge
+    # waiting for ever.
+    dotnet test --no-build --nologo -v q -m:1 --blame-hang-timeout 5m --blame-hang-dump-type none || return 1
     if [[ "${run_frontend}" == "1" ]]; then
         echo "safe-merge: frontend checks"
         (

@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useLibraries } from '../api/profiles';
 import {
   useCommand,
-  useConvert,
-  useConvertPreview,
+  useConvertSongs,
+  useConvertSongsPreview,
   useMoveSongs,
   type ConvertPlanResource,
   type SongResource,
@@ -164,8 +164,8 @@ export function ConvertSongModal({
   opened: boolean;
   onClose: () => void;
 }) {
-  const preview = useConvertPreview();
-  const convert = useConvert();
+  const preview = useConvertSongsPreview();
+  const convert = useConvertSongs();
   const [codec, setCodec] = useState('');
   const [mode, setMode] = useState('cbr');
   const [bitrate, setBitrate] = useState('320');
@@ -198,9 +198,7 @@ export function ConvertSongModal({
   return (
     <Modal opened={opened} onClose={onClose} title="Convert">
       <Stack gap="md">
-        <Text size="sm">
-          Convert “{song?.title ?? ''}” in place. The original goes to the recycle bin.
-        </Text>
+        <Text size="sm">Convert “{song?.title ?? ''}” in place. The original goes to the recycle bin.</Text>
 
         <Group gap="sm" align="flex-end" wrap="nowrap">
           <Select
@@ -261,9 +259,7 @@ export function ConvertSongModal({
           </Alert>
         )}
 
-        {plan !== null && (
-          <Text size="sm">{planLine(plan)}</Text>
-        )}
+        {plan !== null && <Text size="sm">{planLine(plan)}</Text>}
 
         {convert.error !== null && (
           <Alert color="red" icon={<CircleAlert size={16} />}>
