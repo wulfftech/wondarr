@@ -1,0 +1,6 @@
+{
+  "request": "POST https://music.youtube.com/youtubei/v1/browse?alt=json (WEB_REMIX, browseId \"VLPL15B1E77BB5708555\" — a public 500-song pop playlist)",
+  "status": 200,
+  "captured": "2026-10-07",
+  "note": "Recorded live, then trimmed: the musicPlaylistShelfRenderer keeps its first 3 rows and the continuationItemRenderer (continuationEndpoint.continuationCommand.token) that ends a full page; frameworkUpdates/microformat/background removed. Rows: flexColumns[0] title, [1] artist runs (\" & \" separators), [2] album (empty for these video rows), fixedColumns[0] duration m:ss, playlistItemData.videoId."
+}
