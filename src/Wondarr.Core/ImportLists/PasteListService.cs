@@ -130,6 +130,12 @@ public sealed partial class PasteListService : IPasteListService
     /// <summary>How many candidates a line keeps for the review screen.</summary>
     private const int CandidateLimit = 5;
 
+    /// <summary>
+    /// How far a text match's length may be from the length a list gives before the match is left
+    /// for the review screen instead of added: wider than a remaster's drift, narrower than an edit.
+    /// </summary>
+    private const int TextMatchDurationToleranceMs = 10_000;
+
     private readonly WondarrDbContext _database;
     private readonly IIdentityResolver _resolver;
     private readonly ISongService _songs;
@@ -211,6 +217,9 @@ public sealed partial class PasteListService : IPasteListService
             Name = ListName(_timeProvider.GetUtcNow().UtcDateTime),
             QualityProfileId = profile,
             LibraryId = library,
+
+            // A paste is resolved once; there is no source to read again.
+            SyncIntervalHours = 0,
         };
 
         // A line that repeats an earlier one — whatever its case — would only produce a duplicate
@@ -224,6 +233,7 @@ public sealed partial class PasteListService : IPasteListService
             var item = new ImportListItem
             {
                 ExternalId = number.ToString(CultureInfo.InvariantCulture),
+                Position = index,
                 Raw = ImportListItemJson.Write(ImportListItemJson.Parse(line)),
             };
 
@@ -438,7 +448,10 @@ public sealed partial class PasteListService : IPasteListService
 
     /// <summary>
     /// Resolves one pending line and writes what came of it. A provider that fails on one line
-    /// leaves that line unresolved rather than failing the whole list.
+    /// leaves that line unresolved rather than failing the whole list. An item a synced list read
+    /// carries ids as well as its text: they are tried strongest first — recording MBID, ISRC,
+    /// Deezer id — and the text last, checked against the item's length (DECISIONS build session 7
+    /// #7). A pasted line is only its text, so it is looked up exactly as it always was.
     /// </summary>
     private async Task ResolveLineAsync(
         ImportListItem item,
@@ -447,12 +460,44 @@ public sealed partial class PasteListService : IPasteListService
         CancellationToken cancellationToken)
     {
         var line = ImportListItemJson.ReadLine(item).Line;
+        var entry = ImportListItemJson.ReadEntry(item);
 
         try
         {
-            var result = await _resolver.ResolveAsync(line, cancellationToken).ConfigureAwait(false);
+            ResolveResult? result = null;
 
-            switch (result.Status)
+            foreach (var input in LookupsFor(entry, line))
+            {
+                result = await _resolver.ResolveAsync(input, cancellationToken).ConfigureAwait(false);
+
+                if (result.Status is not (ResolveStatus.Resolved or ResolveStatus.ResolvedDeezerOnly))
+                {
+                    continue;
+                }
+
+                // A text match is a guess; the list's own length is the check on it. An id match
+                // needs none: the id names the recording.
+                if (string.Equals(input, line, StringComparison.Ordinal)
+                    && entry.DurationMs is { } listed
+                    && result.Identity!.DurationMs is { } found
+                    && Math.Abs(listed - found) > TextMatchDurationToleranceMs)
+                {
+                    result = new ResolveResult
+                    {
+                        Status = ResolveStatus.Unresolved,
+                        Candidates = await _resolver
+                            .SearchAsync(line, CandidateLimit, cancellationToken)
+                            .ConfigureAwait(false),
+                        Reason = string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"The closest match is {found / 1000} s long; the list says {listed / 1000} s."),
+                    };
+                }
+
+                break;
+            }
+
+            switch (result!.Status)
             {
                 case ResolveStatus.Resolved:
                 case ResolveStatus.ResolvedDeezerOnly:
@@ -488,6 +533,38 @@ public sealed partial class PasteListService : IPasteListService
             item.State = ImportListItemState.Unresolved;
             item.Reason = $"Lookup failed: {exception.Message}";
         }
+    }
+
+    /// <summary>
+    /// The inputs to look an item up by, strongest first: the ids a synced list carries, then the
+    /// line. A pasted line yields only itself (its text may be a URL or an ISRC, which the resolver
+    /// reads as such).
+    /// </summary>
+    private static List<string> LookupsFor(ImportListEntry entry, string line)
+    {
+        var inputs = new List<string>(4);
+
+        if (!string.IsNullOrWhiteSpace(entry.MbRecordingId))
+        {
+            inputs.Add("https://musicbrainz.org/recording/" + entry.MbRecordingId.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(entry.Isrc))
+        {
+            inputs.Add(entry.Isrc.Trim().ToUpperInvariant());
+        }
+
+        if (entry.DeezerId is { } deezerId)
+        {
+            inputs.Add("https://www.deezer.com/track/" + deezerId.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (!inputs.Contains(line, StringComparer.Ordinal))
+        {
+            inputs.Add(line);
+        }
+
+        return inputs;
     }
 
     /// <summary>What every song added by this list records as its origin, and where it lands.</summary>
@@ -671,6 +748,58 @@ public static class ImportListItemJson
             ?? new ImportListLine(item.Raw, null, null);
     }
 
+    /// <summary>Serializes an item a synced list read for its <c>raw</c> column: the line, plus its ids.</summary>
+    /// <param name="entry">The item as the provider read it.</param>
+    public static string Write(ImportListEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        return JsonSerializer.Serialize(
+            new StoredEntry(
+                entry.Line,
+                entry.Artist,
+                entry.Title,
+                entry.Album,
+                entry.DurationMs,
+                entry.Isrc,
+                entry.MbRecordingId,
+                entry.DeezerId),
+            StoredJson);
+    }
+
+    /// <summary>
+    /// Reads an item as an entry: the ids and length a synced list stored, or — for a pasted line —
+    /// only the artist and title parsed out of it.
+    /// </summary>
+    /// <param name="item">The item to read.</param>
+    public static ImportListEntry ReadEntry(ImportListItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        StoredEntry? stored;
+
+        try
+        {
+            stored = JsonSerializer.Deserialize<StoredEntry>(item.Raw, StoredJson);
+        }
+        catch (JsonException)
+        {
+            stored = null;
+        }
+
+        return stored is null
+            ? new ImportListEntry(item.ExternalId, null, null)
+            : new ImportListEntry(
+                item.ExternalId,
+                stored.Artist,
+                stored.Title,
+                stored.Album,
+                stored.DurationMs,
+                stored.Isrc,
+                stored.MbRecordingId,
+                stored.DeezerId);
+    }
+
     /// <summary>Reads the candidates of an unresolved line.</summary>
     /// <param name="item">The item to read.</param>
     /// <returns>The candidates, empty when the line has none.</returns>
@@ -680,4 +809,15 @@ public static class ImportListItemJson
 
         return JsonSerializer.Deserialize<List<ImportListCandidate>>(item.Candidates, StoredJson) ?? [];
     }
+
+    /// <summary>The stored shape of a synced item: a superset of <see cref="ImportListLine"/>, so the review screen reads both.</summary>
+    private sealed record StoredEntry(
+        string Line,
+        string? Artist,
+        string? Title,
+        string? Album,
+        int? DurationMs,
+        string? Isrc,
+        string? MbRecordingId,
+        long? DeezerId);
 }
