@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Wondarr.Core.Authentication;
+using Wondarr.Core.Backup;
 using Wondarr.Core.Blocklisting;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Configuration;
@@ -59,6 +60,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
+
+        // The System pages read the app's own log files through this; it holds no state beyond the
+        // resolved paths, so it is a singleton like the folder checks that share them.
+        services.AddSingleton<ILogFileReader, LogFileReader>();
 
         // The media tools only answer once per process (MediaToolAvailability caches), so both it and
         // the check that reads it are singletons like the folder checks.
@@ -145,6 +150,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, ReferenceLibraryScanCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();
         services.AddScoped<ICommandHandler, CompactLibraryCommandHandler>();
+
+        // The weekly Backup task: one scheduled backup, then the retention pass.
+        services.AddScoped<IBackupService, BackupService>();
+        services.AddScoped<ICommandHandler, BackupCommandHandler>();
+
+        // The stop a staged restore asks for, behind an interface so a test host can stub it out.
+        services.AddSingleton<IApplicationShutdown, HostApplicationShutdown>();
+
 
         // The scan writes the reference_file rows through the scoped DbContext.
         services.AddScoped<IReferenceScanner, ReferenceScanner>();
@@ -289,6 +302,14 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<QueueOptions>, QueueOptionsValidator>();
+
+        // The backup schedule and retention: read by the Backup command and the task catalog.
+        services.AddOptions<BackupOptions>()
+            .Bind(configuration.GetSection("Backup"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>();
+
         services.AddSingleton<ISecretRegistry, SecretRegistry>();
 
         return services;

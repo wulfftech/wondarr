@@ -12,6 +12,8 @@ import { LibraryPage } from '../pages/LibraryPage';
 import { MatchQueuePage } from '../pages/MatchQueuePage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { SettingsPage } from '../pages/SettingsPage';
+import { BackupPage } from '../pages/system/BackupPage';
+import { LogsPage } from '../pages/system/LogsPage';
 import { StatusPage } from '../pages/system/StatusPage';
 import { TasksPage } from '../pages/system/TasksPage';
 import { UnresolvedPage } from '../pages/UnresolvedPage';
@@ -37,6 +39,8 @@ const ROUTES: RouteObject[] = [
       { path: 'settings/:section', element: <SettingsPage /> },
       { path: 'system/status', element: <StatusPage /> },
       { path: 'system/tasks', element: <TasksPage /> },
+      { path: 'system/backup', element: <BackupPage /> },
+      { path: 'system/logs', element: <LogsPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

@@ -4,6 +4,7 @@ using Wondarr.Api.Middleware;
 using Wondarr.Api.SignalR;
 using Wondarr.Api.YouTube;
 using Wondarr.Core;
+using Wondarr.Core.Backup;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Metadata;
@@ -17,6 +18,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 var environment = Environment.GetEnvironmentVariables();
 var paths = WondarrPaths.Resolve(builder.Configuration, environment);
+
+// A restore staged through the API is applied before the database is opened and before the config
+// file is touched, so this start runs entirely against the restored files.
+var restoreApplied = PendingRestore.ApplyIfStaged(paths, out var restoreMessage);
 
 // Installs from before the rename (0.0.1-alpha.1) keep their data: compilarr.db becomes wondarr.db.
 var adoptedLegacyDatabase = paths.AdoptLegacyDatabase();
@@ -54,6 +59,15 @@ var app = builder.Build();
 if (adoptedLegacyDatabase)
 {
     ProgramLog.AdoptedLegacyDatabase(app.Logger, paths.LegacyDatabaseFile, paths.DatabaseFile);
+}
+
+if (restoreApplied)
+{
+    ProgramLog.RestoreApplied(app.Logger, restoreMessage!);
+}
+else if (restoreMessage is not null)
+{
+    ProgramLog.RestoreFailed(app.Logger, restoreMessage);
 }
 
 LoggingSetup.RegisterServerApiKey(
@@ -104,4 +118,10 @@ internal static partial class ProgramLog
 {
     [LoggerMessage(Level = LogLevel.Information, Message = "Renamed {LegacyDatabase} to {Database} (the project is now called Wondarr)")]
     public static partial void AdoptedLegacyDatabase(Microsoft.Extensions.Logging.ILogger logger, string legacyDatabase, string database);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Message}")]
+    public static partial void RestoreApplied(Microsoft.Extensions.Logging.ILogger logger, string message);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "{Message}")]
+    public static partial void RestoreFailed(Microsoft.Extensions.Logging.ILogger logger, string message);
 }

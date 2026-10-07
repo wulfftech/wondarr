@@ -49,7 +49,7 @@ public static class AcoustIdStubApp
 
         app.MapGet(LookupPath, (string? client, string? fingerprint) => Lookup(state, client, fingerprint));
 
-        // The Phase 4 gate's registration: FakeYT (the stand-in yt-dlp) posts the fingerprint of each
+        // The Phase 4 gate's registration: the fake yt-dlp (the stand-in yt-dlp) posts the fingerprint of each
         // Opus file it generated together with the recording the gate wants it to verify as, so the
         // app's own verification passes for a YouTube download the way it passes for a Soulseek one.
         // Loopback only, like /fake/log: it is a test hook, not an API.
@@ -156,7 +156,7 @@ public sealed record AcoustIdRecordingResource(
 public sealed record AcoustIdArtistResource(string Id, string Name);
 
 /// <summary>
-/// The Phase 4 gate's registration: the fingerprint of an Opus file FakeYT generated, with the
+/// The Phase 4 gate's registration: the fingerprint of an Opus file the fake yt-dlp generated, with the
 /// recording the gate wants the app's verification to resolve it to.
 /// </summary>
 /// <param name="Fingerprint">The file's chromaprint fingerprint, as fpcalc printed it.</param>

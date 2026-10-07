@@ -144,14 +144,66 @@ public class SlskdHealthCheckTests
     }
 
     [Fact]
-    public async Task External_mode_is_healthy_because_Wondarr_owns_no_process()
+    public async Task External_mode_reports_the_monitor_snapshot()
     {
+        var options = new SoulseekOptions
+        {
+            Mode = SoulseekMode.External,
+            External = new SoulseekExternalOptions
+            {
+                Url = "http://slskd.example:5030",
+                ApiKey = new string('k', 32),
+            },
+        };
+
         var result = await CheckAsync(
-            new SlskdStatusSnapshot(SlskdState.Disabled),
-            new SoulseekOptions { Mode = SoulseekMode.External });
+            new SlskdStatusSnapshot(
+                SlskdState.External,
+                Version: "0.26.0.0",
+                IsReachable: true,
+                IsLoggedIn: true,
+                SoulseekUsername: "wondarr-external"),
+            options);
 
         result.Type.Should().Be(HealthCheckResult.Ok);
-        result.Message.Should().Be("External slskd mode (checked in Phase 5)");
+        result.Message.Should().Be(
+            "External slskd 0.26.0.0 at slskd.example, logged in as wondarr-external");
+    }
+
+    [Theory]
+    [InlineData(false, false, "slskd is not reachable")]
+    [InlineData(true, false, "slskd is not logged in to Soulseek")]
+    public async Task External_mode_errors_when_the_slskd_is_not_usable(bool reachable, bool loggedIn, string message)
+    {
+        var result = await CheckAsync(
+            new SlskdStatusSnapshot(SlskdState.External, IsReachable: reachable, IsLoggedIn: loggedIn),
+            new SoulseekOptions { Mode = SoulseekMode.External });
+
+        result.Type.Should().Be(HealthCheckResult.Error);
+        result.Message.Should().Be(message);
+    }
+
+    [Fact]
+    public async Task External_mode_errors_with_the_snapshots_last_error()
+    {
+        var result = await CheckAsync(
+            new SlskdStatusSnapshot(
+                SlskdState.External,
+                IsReachable: false,
+                LastError: "slskd refused the API key"),
+            new SoulseekOptions { Mode = SoulseekMode.External });
+
+        result.Type.Should().Be(HealthCheckResult.Error);
+        result.Message.Should().Be("slskd refused the API key");
+    }
+
+    [Fact]
+    public async Task A_disabled_slskd_is_a_notice()
+    {
+        var result = await CheckAsync(new SlskdStatusSnapshot(SlskdState.Disabled), Configured());
+
+        result.Type.Should().Be(HealthCheckResult.Notice);
+        result.Message.Should().Be("slskd is disabled");
     }
 
     [Fact]
