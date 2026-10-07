@@ -1054,6 +1054,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/song/convert/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConvertRequestResource"];
+                    "application/*+json": components["schemas"]["ConvertRequestResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConvertPlanResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/song/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConvertRequestResource"];
+                    "application/*+json": components["schemas"]["ConvertRequestResource"];
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConvertAcceptedResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/song/move": {
         parameters: {
             query?: never;
@@ -3670,10 +3768,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/album/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    term?: string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlbumSearchResultResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/album/releasegroup/{id}/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlbumReleaseResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/album/{source}/{id}/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    source: string;
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlbumTrackResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/album/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AlbumAddResource"];
+                    "application/*+json": components["schemas"]["AlbumAddResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlbumAddAcceptedResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/song/{id}/album": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AlbumRefResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AlbumAddAcceptedResource: {
+            /** Format: int64 */
+            commandId: number | string;
+        };
+        AlbumAddResource: {
+            source: null | string;
+            id: null | string;
+            trackKeys: null | string[];
+            /** Format: int64 */
+            libraryId: null | number | string;
+            /** Format: int64 */
+            qualityProfileId: null | number | string;
+            monitored: null | boolean;
+        };
         AlbumContextKind: number;
         AlbumOptionResource: {
             key: string;
@@ -3692,6 +3994,51 @@ export interface components {
             isCurrent: boolean;
         };
         AlbumPolicy: number;
+        AlbumRefResource: {
+            source: string;
+            id: string;
+        };
+        AlbumReleaseResource: {
+            id: string;
+            title: string;
+            date: null | string;
+            country: null | string;
+            formats: null | string;
+            /** Format: int32 */
+            trackCount: null | number | string;
+            disambiguation: null | string;
+            isDefault: boolean;
+        };
+        AlbumSearchResultResource: {
+            source: string;
+            id: string;
+            title: string;
+            artist: string;
+            year: null | string;
+            type: null | string;
+            /** Format: int32 */
+            trackCount: null | number | string;
+            coverUrl: null | string;
+        };
+        AlbumTrackResource: {
+            /** Format: int32 */
+            disc: number | string;
+            /** Format: int32 */
+            position: number | string;
+            title: string;
+            artistCredit: string;
+            /** Format: int32 */
+            lengthMs: null | number | string;
+            mbRecordingId: null | string;
+            /** Format: int64 */
+            deezerTrackId: null | number | string;
+            isrcs: string[];
+            /** Format: int64 */
+            songId: null | number | string;
+            /** Format: int64 */
+            libraryId: null | number | string;
+            owned: boolean;
+        };
         ArtistResource: {
             /** Format: int64 */
             id: number | string;
@@ -3797,6 +4144,41 @@ export interface components {
             /** Format: int32 */
             songsConsidered: number | string;
             moves: components["schemas"]["CompactMoveResource"][];
+        };
+        ConvertAcceptedResource: {
+            /** Format: int64 */
+            commandId: number | string;
+        };
+        ConvertPlanResource: {
+            /** Format: int32 */
+            convert: number | string;
+            /** Format: int32 */
+            skip: number | string;
+            /** Format: int32 */
+            refuse: number | string;
+            /** Format: int64 */
+            currentSize: number | string;
+            /** Format: int64 */
+            estimatedSize: number | string;
+            songs: components["schemas"]["ConvertSongResource"][];
+        };
+        ConvertRequestResource: {
+            songIds: null | (number | string)[];
+            /** Format: int64 */
+            libraryId: null | number | string;
+            rule: null | components["schemas"]["JsonNode"];
+        };
+        ConvertSongResource: {
+            /** Format: int64 */
+            songId: number | string;
+            outcome: string;
+            reason: null | string;
+            fromCodec: null | string;
+            toCodec: null | string;
+            /** Format: int64 */
+            currentSize: number | string;
+            /** Format: int64 */
+            estimatedSize: number | string;
         };
         CsvPreviewInputResource: {
             sourceText: null | string;

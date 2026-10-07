@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Wondarr.Core.Albums;
 using Wondarr.Core.Authentication;
 using Wondarr.Core.Backup;
 using Wondarr.Core.Blocklisting;
@@ -146,6 +147,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
+        services.AddScoped<ICommandHandler, ConvertFilesCommandHandler>();
+        services.AddScoped<IFileConverter, FileConverter>();
         services.AddScoped<ICommandHandler, ImportListSyncCommandHandler>();
         services.AddScoped<ICommandHandler, MissingSearchCommandHandler>();
         services.AddScoped<ICommandHandler, UpgradeSearchCommandHandler>();
@@ -185,6 +188,10 @@ public static class ServiceCollectionExtensions
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();
+
+        // The album add: search, releases, tracklist, and the tracks as one pinned batch of songs.
+        services.AddScoped<IAlbumService, AlbumService>();
+        services.AddScoped<ICommandHandler, AddAlbumCommandHandler>();
 
         // The Compact library task's dry run: it re-plans through the song service and reads the files
         // it would move, in the same scope as they are.

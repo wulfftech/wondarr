@@ -43,6 +43,15 @@ public interface IDeezerClient
     /// <returns>The album, or <see langword="null"/> when Deezer does not know the id.</returns>
     Task<DeezerAlbum?> GetAlbumAsync(long id, CancellationToken cancellationToken = default);
 
+    /// <summary>Searches for albums. The query is plain text, like <see cref="SearchTracksAsync"/>.</summary>
+    /// <param name="query">Plain text, usually "artist album".</param>
+    /// <param name="limit">How many results to ask for; Deezer serves 1 to 100.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    Task<DeezerAlbumSearchResult> SearchAlbumsAsync(
+        string query,
+        int limit = 25,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Reads a track's preview URL <em>without</em> consulting the cache. Preview URLs are signed and
     /// expire after about half an hour, so a cached one is worthless by the time it is played.
@@ -151,6 +160,33 @@ public sealed class DeezerClient : IDeezerClient
         var body = await GetBodyAsync(uri, AlbumTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<DeezerAlbum>(body, SerializerOptions);
+    }
+
+    /// <inheritdoc />
+    public async Task<DeezerAlbumSearchResult> SearchAlbumsAsync(
+        string query,
+        int limit = 25,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+
+        if (limit is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(limit),
+                limit,
+                "Deezer serves between 1 and 100 search results per request.");
+        }
+
+        var uri = $"search/album?q={Uri.EscapeDataString(query)}"
+            + $"&limit={limit.ToString(CultureInfo.InvariantCulture)}";
+
+        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+
+        return body is null
+            ? new DeezerAlbumSearchResult()
+            : JsonSerializer.Deserialize<DeezerAlbumSearchResult>(body, SerializerOptions)
+                ?? new DeezerAlbumSearchResult();
     }
 
     /// <inheritdoc />
