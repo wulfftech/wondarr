@@ -16,9 +16,10 @@ import {
 } from '@mantine/core';
 import { CircleAlert, Disc3, Plus } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useQualityProfiles } from '../api/profiles';
 import { readEnum } from '../api/profiles';
+import { AddAlbumTab, type AlbumPrefill } from './AddAlbumTab';
 import {
   candidateAddInput,
   useAddSong,
@@ -41,6 +42,19 @@ import { formatDuration } from '../components/SongCells';
 
 /** The longest list the paste box takes, matching the API's own limit. */
 const MAX_LINES = 1000;
+
+/** The `?album=source:id` query value as a prefill, or `null` when the URL does not carry one. */
+function albumPrefill(search: URLSearchParams): AlbumPrefill | null {
+  const value = search.get('album');
+
+  if (value === null) {
+    return null;
+  }
+
+  const colon = value.indexOf(':');
+
+  return colon <= 0 ? null : { source: value.slice(0, colon), id: value.slice(colon + 1) };
+}
 
 /** The term the search box suggests, used as its placeholder. */
 const SEARCH_PLACEHOLDER = 'Artist - Title, a MusicBrainz or Deezer link, or an ISRC';
@@ -385,20 +399,28 @@ function PasteTab() {
   );
 }
 
-/** Add songs: search one at a time, or paste a list and review what did not resolve. */
+/** Add songs: search one at a time, open an album's tracklist, or paste a list and review it. */
 export function AddSongsPage() {
+  const [search] = useSearchParams();
+  const prefill = albumPrefill(search);
+
   return (
     <Stack gap="lg">
       <Title order={2}>Add songs</Title>
 
-      <Tabs defaultValue="search">
+      <Tabs defaultValue={prefill === null ? 'search' : 'album'}>
         <Tabs.List>
           <Tabs.Tab value="search">Search</Tabs.Tab>
+          <Tabs.Tab value="album">Album</Tabs.Tab>
           <Tabs.Tab value="paste">Paste a list</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="search" pt="md">
           <SearchTab />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="album" pt="md">
+          <AddAlbumTab prefill={prefill} />
         </Tabs.Panel>
 
         <Tabs.Panel value="paste" pt="md">

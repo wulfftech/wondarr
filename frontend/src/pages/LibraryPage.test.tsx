@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALBUM_OPTIONS, ARTISTS, HEALTH_ENTRIES, LIBRARY_SONGS, paged, SYSTEM_STATUS } from '../test/fixtures';
+import { ALBUM_OPTIONS, ARTISTS, HEALTH_ENTRIES, LIBRARIES, LIBRARY_SONGS, paged, SYSTEM_STATUS } from '../test/fixtures';
 import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../test/helpers';
 
 beforeEach(() => {
@@ -55,6 +55,10 @@ function install(write: () => Response = () => jsonResponse(LIBRARY_SONGS[0])): 
 
     if (url.includes('/api/v1/artist')) {
       return jsonResponse(ARTISTS);
+    }
+
+    if (url.includes('/api/v1/library')) {
+      return jsonResponse(LIBRARIES);
     }
 
     if (/\/api\/v1\/song\/\d+\/albumcontexts$/.test(url)) {
@@ -173,6 +177,10 @@ describe('LibraryPage', () => {
         return jsonResponse(ARTISTS);
       }
 
+      if (url.includes('/api/v1/library')) {
+        return jsonResponse(LIBRARIES);
+      }
+
       return jsonResponse(paged(LIBRARY_SONGS));
     });
     const user = userEvent.setup();
@@ -214,6 +222,10 @@ describe('LibraryPage', () => {
         return jsonResponse(ARTISTS);
       }
 
+      if (url.includes('/api/v1/library')) {
+        return jsonResponse(LIBRARIES);
+      }
+
       return jsonResponse(paged(LIBRARY_SONGS));
     });
     const user = userEvent.setup();
@@ -238,6 +250,10 @@ describe('LibraryPage', () => {
 
       if (url.includes('/api/v1/artist')) {
         return jsonResponse(ARTISTS);
+      }
+
+      if (url.includes('/api/v1/library')) {
+        return jsonResponse(LIBRARIES);
       }
 
       return jsonResponse(paged([]));
