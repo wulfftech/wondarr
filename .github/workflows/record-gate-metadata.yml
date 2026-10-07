@@ -1,0 +1,55 @@
+# Records the metadata a phase gate asks MusicBrainz, the Cover Art Archive, Deezer and iTunes for,
+# so CI can replay it (scripts/metadata-replay.py). Run by hand when a gate's songs change; it never
+# re-records what tests/gate/replay already holds. The new recordings come back as an artifact for the
+# orchestrator to review and commit.
+name: Record gate metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      only-phase6:
+        description: Run only Phase 1 and the Phase 6 stage (SMOKE_ONLY_PHASE6=on)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: wondarr:record
+          build-args: VERSION=0.0.0-record.${{ github.run_number }}
+          cache-from: type=gha
+      - name: List the recordings before the run
+        run: (cd tests/gate/replay && find . -type f | sort) > /tmp/before.txt
+      - name: Smoke test in record mode
+        env:
+          SMOKE_METADATA: record
+          SMOKE_PHASE6: "on"
+          SMOKE_ONLY_PHASE6: ${{ inputs.only-phase6 && 'on' || 'off' }}
+        run: scripts/smoke-test.sh wondarr:record
+      - name: Collect the new recordings
+        if: always()
+        run: |
+          (cd tests/gate/replay && find . -type f | sort) > /tmp/after.txt
+          comm -13 /tmp/before.txt /tmp/after.txt > /tmp/new.txt
+          echo "$(wc -l < /tmp/new.txt) new recordings"
+          mkdir -p /tmp/new-replay
+          (cd tests/gate/replay && tar -cf - -T /tmp/new.txt) | (cd /tmp/new-replay && tar -xf -)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: new-gate-recordings
+          path: /tmp/new-replay
+          retention-days: 7
