@@ -12,6 +12,9 @@ using Wondarr.Core.Importing;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.ImportLists.Csv;
 using Wondarr.Core.ImportLists.Deezer;
+using Wondarr.Core.ImportLists.LastFm;
+using Wondarr.Core.ImportLists.ListenBrainz;
+using Wondarr.Core.ImportLists.References;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
@@ -194,6 +197,20 @@ public static class ServiceCollectionExtensions
         services.AddScoped<DeezerArtistTopProvider>();
         services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<DeezerPlaylistProvider>());
         services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<DeezerArtistTopProvider>());
+
+        // The Last.fm and ListenBrainz providers read through the named clients that
+        // AddWondarrMetadata registers, and the reference-library provider reads the scoped
+        // DbContext; all three families are scoped for the same reason the Deezer ones are.
+        services.AddScoped<LastFmLovedProvider>();
+        services.AddScoped<LastFmTopProvider>();
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<LastFmLovedProvider>());
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<LastFmTopProvider>());
+        services.AddScoped<ListenBrainzLovedProvider>();
+        services.AddScoped<ListenBrainzPlaylistProvider>();
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<ListenBrainzLovedProvider>());
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<ListenBrainzPlaylistProvider>());
+        services.AddScoped<ReferenceLibraryListProvider>();
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<ReferenceLibraryListProvider>());
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();
