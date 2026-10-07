@@ -476,6 +476,45 @@ public class SongServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_album_add_pins_the_identities_that_carry_the_release_and_leaves_the_rest_to_the_policy()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+        StubRelease("r1", (3, "m-a"), (8, "m-b"));
+
+        var (commands, _) = Queue();
+        var added = await NewService(context, commands).AddIdentitiesAsync(
+            [
+                Identity("m-a", "Get Lucky", Album("r1", "Random Access Memories")),
+                Identity("m-b", "Lose Yourself to Dance", Single("s-b", "Lose Yourself to Dance")),
+            ],
+            new SongAddOptions { AlbumReleaseId = "r1" },
+            CancellationToken.None);
+
+        added.Should().HaveCount(2);
+        added.Should().OnlyContain(result => result.Outcome == SongAddOutcome.Added);
+
+        // The identity that carries the chosen release is planned against it alone, with the
+        // one-track minimum an explicit choice implies, and its context is saved pinned.
+        var pinned = await FindSongAsync(context, "m-a");
+        pinned.AlbumContext!.AlbumKey.Should().Be("r1");
+        pinned.AlbumContext!.MbReleaseId.Should().Be("r1");
+        pinned.AlbumContext!.Pinned.Should().BeTrue();
+        pinned.AlbumContext!.TrackNo.Should().Be(3);
+
+        // The identity without that release option is planned by the library's policy as usual.
+        var byPolicy = await FindSongAsync(context, "m-b");
+        byPolicy.AlbumContext!.Pinned.Should().BeFalse();
+
+        // The batch still queues one missing search, not one search per song.
+        await commands.Received(1).EnqueueAsync(
+            "MissingSearch",
+            null,
+            CommandTrigger.Unspecified,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task An_unknown_album_key_and_an_unknown_song_are_rejected()
     {
         await using var context = await ContextAsync();
