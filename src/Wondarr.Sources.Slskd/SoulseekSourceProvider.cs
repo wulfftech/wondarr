@@ -63,7 +63,26 @@ public sealed partial class SoulseekSourceProvider : ISourceProvider
 
         if (options.Mode == SoulseekMode.External)
         {
-            return Task.FromResult<(bool, string?)>((false, "External slskd mode arrives in Phase 5"));
+            var external = options.External;
+
+            if (string.IsNullOrWhiteSpace(external.Url) || string.IsNullOrWhiteSpace(external.ApiKey))
+            {
+                return Task.FromResult<(bool, string?)>((false, "External slskd is not configured"));
+            }
+
+            var externalSnapshot = _status.Current;
+
+            if (!externalSnapshot.IsReachable)
+            {
+                return Task.FromResult<(bool, string?)>((false, "slskd is not reachable"));
+            }
+
+            if (!externalSnapshot.IsLoggedIn)
+            {
+                return Task.FromResult<(bool, string?)>((false, "slskd is not logged in to Soulseek"));
+            }
+
+            return Task.FromResult<(bool, string?)>((true, null));
         }
 
         if (!options.HasCredentials)

@@ -63,6 +63,9 @@ public sealed class SoulseekOptions
     /// <summary>Loopback port slskd serves its own API and UI on.</summary>
     public int WebPort { get; set; } = 5030;
 
+    /// <summary>The user's own slskd, when <see cref="Mode"/> is <see cref="SoulseekMode.External"/>.</summary>
+    public SoulseekExternalOptions External { get; set; } = new();
+
     /// <summary>How Wondarr searches the network: the parameters and the budget it searches under.</summary>
     public SoulseekSearchOptions Search { get; set; } = new();
 
@@ -113,6 +116,31 @@ public sealed class SoulseekSearchOptions
 }
 
 /// <summary>
+/// The <c>soulseek.external</c> section: the slskd the user already runs, and how Wondarr talks to
+/// it. Ignored entirely in bundled mode.
+/// </summary>
+public sealed class SoulseekExternalOptions
+{
+    /// <summary>Absolute http(s) URL of the user's slskd, for example <c>http://slskd:5030</c>.</summary>
+    public string? Url { get; set; }
+
+    /// <summary>The user's slskd API key (16–255 characters). Never logged or echoed anywhere.</summary>
+    public string? ApiKey { get; set; }
+
+    /// <summary>Username for slskd's web login; only the options API (Phase 5 settings UI) needs it.</summary>
+    public string? WebUsername { get; set; }
+
+    /// <summary>Password for slskd's web login. Never logged or echoed anywhere.</summary>
+    public string? WebPassword { get; set; }
+
+    /// <summary>
+    /// Whether Wondarr asks the user's slskd to rescan its shares after imports. Off by default:
+    /// the user's slskd decides what it shares.
+    /// </summary>
+    public bool RescanShares { get; set; }
+}
+
+/// <summary>
 /// Validates <see cref="SoulseekOptions"/>. Every failure message starts with the YAML key so the
 /// user can find the offending line in <c>config.yml</c>.
 /// </summary>
@@ -155,9 +183,38 @@ public sealed class SoulseekOptionsValidator : IValidateOptions<SoulseekOptions>
             failures.Add("soulseek.username: must be set when soulseek.password is set");
         }
 
+        if (options.Mode == SoulseekMode.External)
+        {
+            ValidateExternal(options.External, failures);
+        }
+
         ValidateSearch(options.Search, failures);
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+
+    /// <summary>
+    /// Checks the external section. The URL and the key are the only things Wondarr cannot run
+    /// without in external mode; the key is never echoed, only its length is checked.
+    /// </summary>
+    private static void ValidateExternal(SoulseekExternalOptions external, List<string> failures)
+    {
+        if (string.IsNullOrWhiteSpace(external.Url))
+        {
+            failures.Add("soulseek.external.url: must be set in external mode (the URL of your slskd)");
+        }
+        else if (!Uri.TryCreate(external.Url, UriKind.Absolute, out var url)
+            || (url.Scheme != "http" && url.Scheme != "https")
+            || !string.IsNullOrEmpty(url.UserInfo)
+            || !string.IsNullOrEmpty(url.Query))
+        {
+            failures.Add("soulseek.external.url: must be an absolute http(s) URL without user info or a query");
+        }
+
+        if (string.IsNullOrEmpty(external.ApiKey) || external.ApiKey.Length is < 16 or > 255)
+        {
+            failures.Add("soulseek.external.api_key: must be between 16 and 255 characters");
+        }
     }
 
     /// <summary>
