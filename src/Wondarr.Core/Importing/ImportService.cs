@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
@@ -73,6 +74,12 @@ public sealed partial class ImportService : IImportService
     /// <summary>How long a deferred file waits before the import is attempted again.</summary>
     private static readonly TimeSpan DeferralDelay = TimeSpan.FromMinutes(15);
 
+    /// <summary>How long an import waits while a compaction has the song's file in its staging folder.</summary>
+    private static readonly TimeSpan CompactionWait = TimeSpan.FromMinutes(1);
+
+    /// <summary>What a compaction-deferred item says, as the user reads it.</summary>
+    internal const string CompactionWaitMessage = "Waiting for a library compaction to finish with this song";
+
     /// <summary>How many failures are kept per peer; the same number <see cref="SoulseekUserService"/> keeps.</summary>
     private const int MaxRecentFailures = 10;
 
@@ -102,6 +109,7 @@ public sealed partial class ImportService : IImportService
     private readonly IEventAggregator _events;
     private readonly IOptionsMonitor<SearchOptions> _options;
     private readonly TimeProvider _timeProvider;
+    private readonly ISongFileLock _songFileLock;
     private readonly ILogger<ImportService> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
@@ -113,6 +121,7 @@ public sealed partial class ImportService : IImportService
     /// <param name="events">Publishes the queue and import events.</param>
     /// <param name="options">The attempt budget a rejected file works within.</param>
     /// <param name="timeProvider">The clock every timestamp comes from.</param>
+    /// <param name="songFileLock">The per-song lock the compaction's stage step also takes.</param>
     /// <param name="logger">The logger.</param>
     public ImportService(
         WondarrDbContext database,
@@ -123,6 +132,7 @@ public sealed partial class ImportService : IImportService
         IEventAggregator events,
         IOptionsMonitor<SearchOptions> options,
         TimeProvider timeProvider,
+        ISongFileLock songFileLock,
         ILogger<ImportService> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -133,6 +143,7 @@ public sealed partial class ImportService : IImportService
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(songFileLock);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
@@ -143,6 +154,7 @@ public sealed partial class ImportService : IImportService
         _events = events;
         _options = options;
         _timeProvider = timeProvider;
+        _songFileLock = songFileLock;
         _logger = logger;
     }
 
@@ -237,6 +249,17 @@ public sealed partial class ImportService : IImportService
             return ImportOutcome.Failed;
         }
 
+        // --- Compaction guard (early) -------------------------------------------------------------
+        // A compaction with this song's file parked in its staging folder must finish before the
+        // import touches the song: the import's place-and-record step would otherwise rewrite the
+        // song's file row while the compaction's move back files the old staged file over it. The
+        // item stays Completed and the queue poll brings it back; nothing is counted, blocklisted
+        // or written to the history.
+        if (await HasUnfinishedCompactionMoveAsync(song.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return await DeferForCompactionAsync(item, downloadPath, cancellationToken).ConfigureAwait(false);
+        }
+
         item.State = QueueItemState.Importing;
         item.StateChangedAt = now;
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -274,6 +297,18 @@ public sealed partial class ImportService : IImportService
                 .ConfigureAwait(false);
         }
 
+        // --- Song file lock -----------------------------------------------------------------------
+        // The same per-song lock the compaction's stage step takes: from here to the record step,
+        // no compaction can stage this song's file, and no import can act on it either. The lock
+        // spans the transcode and the verification on purpose: the re-check further down — made
+        // before anything is placed or recorded — then always wins the race against a compaction
+        // that stages while the import is in flight, instead of the two writing the song's file
+        // row over each other. The verification's AcoustID lookup is the one network call this
+        // holds the lock across, and it is bounded by the client's own timeout.
+        await using var songFileLock = await _songFileLock
+            .AcquireAsync(song.Id, cancellationToken)
+            .ConfigureAwait(false);
+
         // --- Transcode (the library's output policy) ---------------------------------------------
         // A YouTube download is the lossless remux of itag 251 (.opus); the library's output policy
         // says what that file becomes before it is verified, tagged and placed (ADR-0008). A
@@ -289,8 +324,12 @@ public sealed partial class ImportService : IImportService
 
             var policy = OutputPolicy.Parse(library.OutputPolicy);
 
-            if (policy.Codec != OutputCodec.KeepOpus)
+            if (policy.Codec != OutputCodec.KeepOpus && extension != policy.Container)
             {
+                // (A download path that already holds the policy's container is a file this import
+                // transcoded on an earlier pass and then deferred: transcoding it again would mean
+                // copying a file over itself, so the step is skipped and the file is imported as it
+                // is — which is what the policy wanted the first time around.)
                 var destination = Path.Combine(
                     Path.GetDirectoryName(downloadPath) ?? string.Empty,
                     string.Concat(item.Candidate.RemotePath, ".", policy.Container));
@@ -438,6 +477,16 @@ public sealed partial class ImportService : IImportService
                     measured,
                     cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        // --- Compaction guard (re-check) ---------------------------------------------------------
+        // A compaction may have planned or staged since the early check above — while this import
+        // was transcoding and verifying, most often, which is why this sits inside the song lock.
+        // The item is Importing now, so it goes back to Completed and the poll brings it back;
+        // the downloaded (and, if it got that far, transcoded) file is left exactly where it is.
+        if (await HasUnfinishedCompactionMoveAsync(song.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return await DeferForCompactionAsync(item, importPath, cancellationToken).ConfigureAwait(false);
         }
 
         // --- Tag, name, place ---------------------------------------------------------------------
@@ -599,6 +648,53 @@ public sealed partial class ImportService : IImportService
         LogImported(_logger, item.Id, song.Id, placement.FinalPath, measuredName, upgraded);
 
         return upgraded ? ImportOutcome.Upgraded : ImportOutcome.Imported;
+    }
+
+    /// <summary>
+    /// Whether the song has a compaction move that has not finished: planned, staged, or failed
+    /// with its file still in the staging folder. Such a song's file is not the import's to touch.
+    /// </summary>
+    private Task<bool> HasUnfinishedCompactionMoveAsync(long songId, CancellationToken cancellationToken) =>
+        _database.CompactMoves
+            .AsNoTracking()
+            .Where(CompactMoveRules.IsUnfinished)
+            .AnyAsync(row => row.SongId == songId, cancellationToken);
+
+    /// <summary>
+    /// Defers an item while a compaction has its song's file: the item goes back to
+    /// <see cref="QueueItemState.Completed"/> with a check a minute out. No attempt is counted,
+    /// nothing is blocklisted and no history row is written — the file is exactly where it was.
+    /// </summary>
+    /// <param name="item">The item being imported.</param>
+    /// <param name="importPath">
+    /// Where the file to import is right now: the download path, or the transcoded file when the
+    /// transcode step already ran. A transcoded file is pointed back at as the item's download
+    /// path, so the next pass finds it (and skips the transcode) instead of a deleted original.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    private async Task<ImportOutcome> DeferForCompactionAsync(
+        QueueItem item,
+        string importPath,
+        CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        item.State = QueueItemState.Completed;
+        item.StateChangedAt = now;
+        item.NextCheckAt = now + CompactionWait;
+        item.Message = CompactionWaitMessage;
+
+        if (!string.Equals(item.DownloadPath, importPath, StringComparison.Ordinal))
+        {
+            item.DownloadPath = importPath;
+        }
+
+        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishQueueItemAsync(item, cancellationToken).ConfigureAwait(false);
+
+        LogDeferred(_logger, item.Id, CompactionWaitMessage);
+
+        return ImportOutcome.Deferred;
     }
 
     /// <summary>Loads the song with everything the import needs.</summary>

@@ -62,6 +62,14 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The import pipeline under test.</summary>
     public IImportService Import => _scope.ServiceProvider.GetRequiredService<IImportService>();
 
+    /// <summary>A fresh import over a new scope, as the queue poll would get one.</summary>
+    public IImportService FreshImport()
+    {
+        var scope = _services.CreateScope();
+
+        return scope.ServiceProvider.GetRequiredService<IImportService>();
+    }
+
     /// <summary>The scoped database context the services share.</summary>
     public WondarrDbContext Context => _scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
@@ -101,6 +109,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The event aggregator, which records what was published.</summary>
     public RecordingEventAggregator Events { get; private init; } = null!;
 
+    /// <summary>The per-song file lock the import and a compaction share in the race tests.</summary>
+    public ISongFileLock SongFileLock => _scope.ServiceProvider.GetRequiredService<ISongFileLock>();
+
     /// <summary>Builds a host over a fresh database and a fresh downloads folder.</summary>
     public static async Task<ImportTestHost> CreateAsync(Action<SearchOptions>? configure = null)
     {
@@ -123,6 +134,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         var lrclib = new FakeLrclibClient();
         var search = new FakeSongSearchService();
         var events = new RecordingEventAggregator();
+        var songFileLock = new SongFileLock();
 
         var services = new ServiceCollection();
 
@@ -140,6 +152,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<ICoverFetcher>(covers);
         services.AddSingleton<ISongSearchService>(search);
         services.AddSingleton<IEventAggregator>(events);
+        services.AddSingleton<ISongFileLock>(songFileLock);
         services.AddDbContext<WondarrDbContext>(builder => builder
             .UseSqlite($"Data Source={database.FilePath}")
             .UseSnakeCaseNamingConvention());
@@ -542,6 +555,9 @@ internal sealed class FakeDownloadVerifier : IDownloadVerifier
     /// <summary>The verdict every call returns.</summary>
     public VerificationResult Result { get; set; } = Passed();
 
+    /// <summary>Run inside every verification before the verdict is returned, to block the import.</summary>
+    public Func<VerificationRequest, Task>? OnVerifyAsync { get; set; }
+
     /// <summary>Every request the verifier was handed.</summary>
     public List<VerificationRequest> Requests { get; } = [];
 
@@ -563,9 +579,14 @@ internal sealed class FakeDownloadVerifier : IDownloadVerifier
             true);
 
     /// <inheritdoc />
-    public Task<VerificationResult> VerifyAsync(VerificationRequest request, CancellationToken cancellationToken)
+    public async Task<VerificationResult> VerifyAsync(VerificationRequest request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
+
+        if (OnVerifyAsync is { } hook)
+        {
+            await hook(request);
+        }
 
         // The contract the real verifier holds: a file the import transcoded on the way in is
         // reported at the quality of the source it came from, not the one the probe measures.
@@ -573,7 +594,7 @@ internal sealed class FakeDownloadVerifier : IDownloadVerifier
             ? Result with { MeasuredQualityId = source }
             : Result;
 
-        return Task.FromResult(result);
+        return result;
     }
 }
 
