@@ -4962,6 +4962,18 @@
               "string"
             ],
             "format": "int32"
+          },
+          "plexPlaylist": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "m3uExport": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -5160,6 +5172,20 @@
           "hasFile": {
             "type": "boolean",
             "default": false
+          },
+          "plexPlaylist": {
+            "type": "boolean",
+            "default": false
+          },
+          "m3uExport": {
+            "type": "boolean",
+            "default": false
+          },
+          "plexPlaylistKey": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

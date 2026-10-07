@@ -29,6 +29,7 @@ public sealed class ImportListServiceTests : IDisposable
     private readonly IIdentityResolver _resolver = Substitute.For<IIdentityResolver>();
     private readonly ISongService _songs = Substitute.For<ISongService>();
     private readonly FakeProvider _provider = new();
+    private readonly IPlaylistWriter _playlists = Substitute.For<IPlaylistWriter>();
 
     [Fact]
     public async Task Create_validates_the_type_the_policy_and_the_providers_settings()
@@ -45,12 +46,8 @@ public sealed class ImportListServiceTests : IDisposable
         var csv = async () => await service.CreateAsync(Draft(ImportList.CsvType), CancellationToken.None);
         (await csv.Should().ThrowAsync<ImportListValidationException>()).Which.Detail.Should().Contain("Upload a CSV file");
 
-        // Only "add only" until the sync applies the other policies.
-        var mirror = async () => await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "Mirror" }, CancellationToken.None);
-        (await mirror.Should().ThrowAsync<ImportListValidationException>()).Which.Field.Should().Be("policy");
-
-        var list = await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "addonly" }, CancellationToken.None);
-        list.Policy.Should().Be("AddOnly");
+        var list = await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "mirror" }, CancellationToken.None);
+        list.Policy.Should().Be("Mirror");
         list.LibraryId.Should().Be(SeedData.DefaultLibraryId);
         list.QualityProfileId.Should().Be(SeedData.StandardProfileId);
     }
@@ -122,6 +119,79 @@ public sealed class ImportListServiceTests : IDisposable
         _provider.Entries = [new("a", "Queen", "Bohemian Rhapsody", Isrc: "GBUM71029604")];
         await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
         (await Items(context)).Single(item => item.ExternalId == "a").RemovedAt.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("AddOnly", true, 1)]
+    [InlineData("AddAndUnmonitor", false, 1)]
+    [InlineData("Mirror", false, 0)]
+    public async Task A_policy_applies_to_a_song_only_this_list_added_when_it_leaves_the_source(
+        string policy,
+        bool monitoredAfter,
+        int songsAfter)
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = policy }, CancellationToken.None);
+        var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111", addedBy: $"list:{list.Id}");
+        var daft = await SeedSongAsync(context, "Get Lucky", "22222222-2222-2222-2222-222222222222", addedBy: "ui");
+        StubIsrcs(queen, daft);
+        _songs.DeleteAsync(Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            context.Songs.Remove(await context.Songs.SingleAsync(song => song.Id == call.Arg<long>()));
+            await context.SaveChangesAsync();
+
+            return true;
+        });
+
+        _provider.Entries =
+        [
+            new("a", "Queen", "Bohemian Rhapsody", Isrc: "GBUM71029604"),
+            new("b", "Daft Punk", "Get Lucky", Isrc: "USQX91300108"),
+        ];
+        await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        // Both leave the source. The song added by hand ("ui") is never the list's to touch.
+        _provider.Entries = [];
+        await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.Songs.CountAsync(song => song.Id == queen.Id)).Should().Be(songsAfter);
+        if (songsAfter == 1)
+        {
+            (await context.Songs.SingleAsync(song => song.Id == queen.Id)).Monitored.Should().Be(monitoredAfter);
+        }
+
+        (await context.Songs.SingleAsync(song => song.Id == daft.Id)).Monitored.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Mirror_never_deletes_a_song_that_has_a_file_or_that_another_list_still_wants()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "Mirror" }, CancellationToken.None);
+        var other = await service.CreateAsync(Draft(FakeProvider.FakeType), CancellationToken.None);
+        var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111", addedBy: $"list:{list.Id}", withFile: true);
+        var daft = await SeedSongAsync(context, "Get Lucky", "22222222-2222-2222-2222-222222222222", addedBy: $"list:{list.Id}");
+        StubIsrcs(queen, daft);
+
+        _provider.Entries =
+        [
+            new("a", "Queen", "Bohemian Rhapsody", Isrc: "GBUM71029604"),
+            new("b", "Daft Punk", "Get Lucky", Isrc: "USQX91300108"),
+        ];
+        await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+        _provider.Entries = [new("b", "Daft Punk", "Get Lucky", Isrc: "USQX91300108")];
+        await service.SyncAsync(other.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        _provider.Entries = [];
+        await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.Songs.SingleAsync(song => song.Id == queen.Id)).Monitored.Should().BeFalse("a song with a file is unmonitored, never deleted");
+        (await context.Songs.SingleAsync(song => song.Id == daft.Id)).Monitored.Should().BeTrue("the other list still wants it");
+        await _songs.DidNotReceive().DeleteAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -248,7 +318,12 @@ public sealed class ImportListServiceTests : IDisposable
         Artists = [new IdentityArtist(title, title, null, null, ArtistRole.Main, 0)],
     };
 
-    private static async Task<Song> SeedSongAsync(WondarrDbContext context, string title, string mbRecordingId)
+    private static async Task<Song> SeedSongAsync(
+        WondarrDbContext context,
+        string title,
+        string mbRecordingId,
+        string addedBy = "api",
+        bool withFile = false)
     {
         var artist = new Artist { Name = title, SortName = title };
         context.Artists.Add(artist);
@@ -261,9 +336,25 @@ public sealed class ImportListServiceTests : IDisposable
             MbRecordingId = mbRecordingId,
             QualityProfileId = SeedData.StandardProfileId,
             LibraryId = SeedData.DefaultLibraryId,
+            AddedBy = addedBy,
         };
         context.Songs.Add(song);
         await context.SaveChangesAsync();
+
+        if (withFile)
+        {
+            context.SongFiles.Add(new SongFile
+            {
+                SongId = song.Id,
+                Path = "/music/" + title + ".flac",
+                Codec = "flac",
+                Container = "flac",
+                QualityId = 36,
+                SourceType = "soulseek",
+                ImportedAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            });
+            await context.SaveChangesAsync();
+        }
 
         return song;
     }
@@ -300,6 +391,8 @@ public sealed class ImportListServiceTests : IDisposable
         new(
             context,
             new PasteListService(context, _resolver, _songs, _timeProvider, NullLogger<PasteListService>.Instance),
+            _songs,
+            _playlists,
             [_provider, new CsvImportListProvider()],
             _timeProvider,
             NullLogger<ImportListService>.Instance);

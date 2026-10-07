@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Jobs;
 
@@ -21,18 +22,21 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
         PropertyNameCaseInsensitive = true,
     };
 
-    private readonly IImportListService _lists;
+    private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<ImportListSyncCommandHandler> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="ImportListSyncCommandHandler"/> class.</summary>
-    /// <param name="lists">The import-list service.</param>
+    /// <param name="scopes">
+    /// Builds the scope the import-list service runs in (resolved when the command runs, not when the
+    /// handler is built: it reaches Plex, the metadata providers and the database).
+    /// </param>
     /// <param name="logger">The logger.</param>
-    public ImportListSyncCommandHandler(IImportListService lists, ILogger<ImportListSyncCommandHandler> logger)
+    public ImportListSyncCommandHandler(IServiceScopeFactory scopes, ILogger<ImportListSyncCommandHandler> logger)
     {
-        ArgumentNullException.ThrowIfNull(lists);
+        ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(logger);
 
-        _lists = lists;
+        _scopes = scopes;
         _logger = logger;
     }
 
@@ -44,14 +48,17 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        using var scope = _scopes.CreateScope();
+        var lists = scope.ServiceProvider.GetRequiredService<IImportListService>();
+
         if (ReadImportListId(context.Body) is { } id)
         {
             // One list, asked for by hand: a source that cannot be read fails the command, so the
             // user sees why.
-            return await _lists.SyncAsync(id, context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
+            return await lists.SyncAsync(id, context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
         }
 
-        var due = await _lists.GetDueAsync(cancellationToken).ConfigureAwait(false);
+        var due = await lists.GetDueAsync(cancellationToken).ConfigureAwait(false);
         var synced = 0;
         var failed = 0;
 
@@ -61,7 +68,7 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
 
             try
             {
-                await _lists.SyncAsync(listId, context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
+                await lists.SyncAsync(listId, context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
                 synced++;
             }
             catch (ImportListSyncException)
@@ -76,9 +83,17 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
             }
         }
 
-        return due.Count == 0
+        // Songs that got their files since the last sync belong in the playlists now, whether or not
+        // their list is due for a read of its source.
+        var playlists = await lists.RefreshPlaylistsAsync(cancellationToken).ConfigureAwait(false);
+
+        var summary = due.Count == 0
             ? "No import list is due"
             : string.Create(CultureInfo.InvariantCulture, $"Synced {synced} import lists, {failed} failed");
+
+        return playlists == 0
+            ? summary
+            : string.Create(CultureInfo.InvariantCulture, $"{summary}; playlists of {playlists} lists written");
     }
 
     private static long? ReadImportListId(string? body)
