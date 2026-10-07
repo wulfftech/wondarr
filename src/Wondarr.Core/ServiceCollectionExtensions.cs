@@ -56,6 +56,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IQualityDefinitionService, QualityDefinitionService>();
         services.AddScoped<IQualityProfileService, QualityProfileService>();
         services.AddScoped<ILibraryService, LibraryService>();
+        services.AddScoped<ISongLibraryMover, SongLibraryMover>();
 
         services.TryAddSingleton(TimeProvider.System);
 
@@ -156,6 +157,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, ReferenceLibraryScanCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();
         services.AddScoped<ICommandHandler, CompactLibraryCommandHandler>();
+        services.AddScoped<ICommandHandler, MoveSongsCommandHandler>();
 
         // The weekly Backup task: one scheduled backup, then the retention pass.
         services.AddScoped<IBackupService, BackupService>();
