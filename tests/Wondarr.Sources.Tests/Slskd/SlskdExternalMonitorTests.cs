@@ -44,7 +44,7 @@ public class SlskdExternalMonitorTests
         var (monitor, status, client, _, _) = Monitor(() => Task.FromResult(LoggedIn));
 
         await monitor.StartAsync(CancellationToken.None);
-        await UntilAsync(() => status.Current.State == SlskdState.External);
+        await UntilAsync(() => status.Current.IsReachable);
         await monitor.StopAsync(CancellationToken.None);
 
         var snapshot = status.Current;
@@ -68,7 +68,7 @@ public class SlskdExternalMonitorTests
         var (monitor, status, _, _, _) = Monitor(Refused);
 
         await monitor.StartAsync(CancellationToken.None);
-        await UntilAsync(() => status.Current.LastError is not null);
+        await UntilAsync(() => status.Current.LastError == "slskd refused the API key");
         await monitor.StopAsync(CancellationToken.None);
 
         var snapshot = status.Current;
@@ -84,7 +84,7 @@ public class SlskdExternalMonitorTests
         var (monitor, status, _, _, _) = Monitor(Unreachable);
 
         await monitor.StartAsync(CancellationToken.None);
-        await UntilAsync(() => status.Current.LastError is not null);
+        await UntilAsync(() => status.Current.LastError?.EndsWith("is not reachable", StringComparison.Ordinal) == true);
         await monitor.StopAsync(CancellationToken.None);
 
         var snapshot = status.Current;
@@ -132,7 +132,7 @@ public class SlskdExternalMonitorTests
         var (monitor, status, client, _, time) = Monitor(() => Task.FromResult(LoggedIn));
 
         await monitor.StartAsync(CancellationToken.None);
-        await UntilAsync(() => status.Current.State == SlskdState.External);
+        await UntilAsync(() => status.Current.IsReachable);
 
         // The wait between polls is 30 s of fake time; without a change, nothing more is polled.
         time.Advance(TimeSpan.FromSeconds(10));
@@ -145,6 +145,45 @@ public class SlskdExternalMonitorTests
         await UntilAsync(() => status.Current.LastCheckedAt > firstCheckedAt);
         await client.Received(2).GetApplicationStateAsync(Arg.Any<CancellationToken>());
 
+        await monitor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Before_the_first_answer_it_says_it_is_checking()
+    {
+        var never = new TaskCompletionSource<SlskdApplicationState>();
+        var (monitor, status, _, _, _) = Monitor(() => never.Task);
+
+        await monitor.StartAsync(CancellationToken.None);
+        await UntilAsync(() => status.Current.State == SlskdState.External);
+
+        status.Current.LastError.Should().Be("checking slskd at slskd.example", "not the bundled 'not configured' state");
+        status.Current.IsReachable.Should().BeFalse();
+
+        never.SetResult(LoggedIn);
+        await monitor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_change_that_lands_during_a_poll_is_not_lost()
+    {
+        // The first poll hangs until released; the settings change arrives while it runs. Before the
+        // fix the change cancelled a token source that was then thrown away, and the next poll waited
+        // the full 30 s.
+        var firstPoll = new TaskCompletionSource<SlskdApplicationState>();
+        var calls = 0;
+        var (monitor, status, client, _, _) = Monitor(() => Interlocked.Increment(ref calls) == 1
+            ? firstPoll.Task
+            : Task.FromResult(LoggedIn));
+
+        await monitor.StartAsync(CancellationToken.None);
+        await UntilAsync(() => Volatile.Read(ref calls) == 1);
+
+        Options.Set(ExternalOptions());
+        firstPoll.SetResult(LoggedIn);
+
+        // No fake time passes: only the remembered change can start the second poll.
+        await UntilAsync(() => Volatile.Read(ref calls) >= 2, "the change to trigger a second poll");
         await monitor.StopAsync(CancellationToken.None);
     }
 
