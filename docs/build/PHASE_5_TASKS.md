@@ -1,5 +1,7 @@
 # Phase 5 tasks — upgrades and operations
 
+> **Outcome (2026-10-07):** all tasks merged (P5-07 without slskd's YAML options write path; P5-05, P5-07 and P5-08 largely by the orchestrator); the gate passes in CI and live on `ch01`. Results, costs and deviations: `PROGRESS.md` "Phase 5".
+
 Each task is sized for one cheap-worker run (≤ ~10 files, ≤ ~400 lines of diff; see `AGENT_WORKFLOW.md`). The full spec for each lives in `docs/build/tasks/<id>.md` and is committed on `main` before its worker starts. The one external fact this phase depends on — what a user's own slskd lets an API key do (searches, transfers, options, shares) — was verified by the researcher agent before P5-06 was specified (P5-00, below).
 
 Gate (`PHASES.md` Phase 5): a song imported at MP3-320 with a FLAC cutoff is upgraded when a FLAC appears (old file recycled, history "upgraded"); a backup restores into a fresh container; external-slskd mode passes the Phase 2 gate unchanged.
