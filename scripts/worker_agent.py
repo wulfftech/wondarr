@@ -244,6 +244,17 @@ def _child_env() -> dict[str, str]:
     return e
 
 
+def _resolve_exe(exe: str) -> str | None:
+    """Find an executable on PATH. On Windows, prefer a PATHEXT match: Python 3.12.0's `shutil.which("npm")`
+    returns Node's extension-less POSIX shim, which CreateProcess cannot start (WinError 193)."""
+    if os.name == "nt" and not os.path.splitext(exe)[1]:
+        for ext in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";"):
+            path = shutil.which(exe + ext) if ext else None
+            if path:
+                return path
+    return shutil.which(exe)
+
+
 def tool_run(sb: Sandbox, a: dict) -> str:
     command = str(a.get("command", "")).strip()
     if not command:
@@ -276,9 +287,12 @@ def tool_run(sb: Sandbox, a: dict) -> str:
             for raw in [x for x in argv[1:] if not x.startswith("-")]:
                 sb.resolve(raw, write=True, cwd=cwd).mkdir(parents=True, exist_ok=True)
         else:
-            path = shutil.which(exe)
+            path = _resolve_exe(exe)
             if not path:
                 raise ToolError(f"{exe}: not found on PATH")
+            if path.lower().endswith((".cmd", ".bat")) and any(c in arg for arg in argv[1:] for c in "%^!\"&|<>"):
+                # A batch file runs through cmd.exe, which would expand or split these characters.
+                raise ToolError(f"`{exe}` is a batch file on this machine: its arguments cannot contain % ^ ! \" & | < >")
             timeout = sb.command_timeout_s
             if sb.deadline is not None:
                 timeout = max(5, min(timeout, int(sb.deadline - time.monotonic())))

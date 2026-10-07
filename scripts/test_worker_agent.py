@@ -95,6 +95,20 @@ class SandboxTests(unittest.TestCase):
         self.assertFalse(err, out)
         self.assertIn("[exit 0]", out)
 
+    def test_npm_runs_when_installed(self):
+        # On Windows, Node ships an extension-less POSIX `npm` shim next to npm.cmd; running the shim fails with
+        # WinError 193, so the runner must pick the PATHEXT match.
+        import shutil
+        if not shutil.which("npm"):
+            self.skipTest("npm not installed")
+        out, err = self.call("run", command="npm --version")
+        self.assertFalse(err, out)
+        self.assertIn("[exit 0]", out)
+        if sys.platform == "win32":
+            self.assertTrue(wa._resolve_exe("npm").lower().endswith(".cmd"))
+            out, err = self.call("run", command="npm run x%PATH%")
+            self.assertTrue(err, out)
+
     def test_child_env_hides_key(self):
         import os
         os.environ["OPENROUTER_API_KEY"] = "k"
