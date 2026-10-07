@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import type { AppConfig } from '../api/bootstrap';
 import { HEALTH_QUERY_KEY, TASKS_QUERY_KEY } from '../api/hooks';
 import { QUEUE_QUERY_KEY } from '../api/queue';
-import { SONGS_QUERY_KEY } from '../api/songs';
+import { COMMANDS_QUERY_KEY, SONGS_QUERY_KEY } from '../api/songs';
 import { asHealthEntries } from '../api/types';
 import { HISTORY_QUERY_KEY, WANTED_QUERY_KEY } from '../api/wanted';
 
@@ -51,7 +51,9 @@ export function applyEventMessage(queryClient: QueryClient, message: unknown): v
   if (message.name === 'health') {
     queryClient.setQueryData(HEALTH_QUERY_KEY, asHealthEntries(message.body));
   } else if (message.name === 'command') {
+    // `['commands']` covers the single command a page polls and the Tasks page's history.
     void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: COMMANDS_QUERY_KEY });
   } else if (message.name === 'queue') {
     // One key covers the list and the status: both hang off `['queue']`.
     void queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY });

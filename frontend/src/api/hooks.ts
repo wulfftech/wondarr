@@ -6,13 +6,16 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import type { components } from './schema';
-import { apiRequest } from './client';
-import { useApiClient, useAppConfig } from './context';
+import { useApiClient } from './context';
 import { ApiError } from './errors';
-import { asHealthEntries, type CommandRequest, type HealthEntry, type TaskResource } from './types';
+import { COMMAND_HISTORY_QUERY_KEY } from './system';
+import { asHealthEntries, type CommandRequest, type HealthEntry } from './types';
 
 /** `GET /api/v1/system/status`, typed from the generated schema. */
 export type SystemStatus = components['schemas']['SystemResource'];
+
+/** The scheduled task, typed from the generated schema (it carries the `taskName` "Run now" needs). */
+export type TaskResource = components['schemas']['TaskResource'];
 
 /** The health list. `['health']` is also the key the SignalR event stream writes into. */
 export const HEALTH_QUERY_KEY = ['health'] as const;
@@ -58,26 +61,38 @@ export function useHealth(): UseQueryResult<HealthEntry[], Error> {
 
 /** The scheduled tasks the System section lists. */
 export function useTasks(): UseQueryResult<TaskResource[], Error> {
-  const config = useAppConfig();
+  const client = useApiClient();
 
   return useQuery({
     queryKey: TASKS_QUERY_KEY,
-    queryFn: () => apiRequest<TaskResource[]>(config, 'api/v1/system/task'),
+    queryFn: async (): Promise<TaskResource[]> => {
+      const { data, response } = await client.GET('/api/v1/system/task');
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The task list request failed.');
+      }
+
+      return data;
+    },
   });
 }
 
 /** Runs a scheduled task by name. */
 export function useRunCommand(): UseMutationResult<void, Error, CommandRequest> {
-  const config = useAppConfig();
+  const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (command: CommandRequest) =>
-      apiRequest<void>(config, 'api/v1/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(command),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY }),
+    mutationFn: async (command: CommandRequest): Promise<void> => {
+      const { response } = await client.POST('/api/v1/command', { body: command });
+
+      if (!response.ok) {
+        throw new ApiError(response.status, 'The command could not be queued.');
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: COMMAND_HISTORY_QUERY_KEY });
+    },
   });
 }
