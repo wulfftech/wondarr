@@ -29,6 +29,8 @@
     <None Include="..\..\tests\fixtures\decisions.json" Link="fixtures\decisions.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\tests\fixtures\plex\**\*.json" Link="fixtures\plex\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\tests\fixtures\lrclib\**\*.json" Link="fixtures\lrclib\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tests\fixtures\listenbrainz\**\*.json" Link="fixtures\listenbrainz\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\tests\fixtures\listenbrainz\*.html" Link="fixtures\listenbrainz\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
