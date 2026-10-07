@@ -68,8 +68,8 @@ function install(routes: RouteTable = {}): FetchMock {
       return jsonResponse(QUALITY_PROFILES);
     }
 
-    if (routes.libraries !== undefined && url.includes('/api/v1/library')) {
-      return routes.libraries();
+    if (url.includes('/api/v1/library')) {
+      return routes.libraries !== undefined ? routes.libraries() : jsonResponse(LIBRARIES);
     }
 
     if (url.includes('/api/v1/song/lookup')) {
@@ -117,7 +117,8 @@ describe('AddSongsPage', () => {
     expect(screen.getByText('6:09')).toBeInTheDocument();
     expect(screen.getByText('MusicBrainz')).toBeInTheDocument();
     expect(screen.getByText('Deezer only')).toBeInTheDocument();
-    expect(screen.getByText('Album')).toBeInTheDocument();
+    // Scoped to the panel: the page also has an Album tab of the same name.
+    expect(within(screen.getByRole('tabpanel', { name: 'Search' })).getByText('Album')).toBeInTheDocument();
 
     await waitFor(async () => {
       const post = await lastBody('POST');
