@@ -90,6 +90,8 @@ public sealed class ImportListController : ControllerBase
     [HttpPost]
     [Consumes("application/json")]
     [Produces("application/json")]
+    [ProducesResponseType<ImportListResource>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ImportListResource>> AddImportList(
         [FromBody] ImportListInputResource resource,
         CancellationToken cancellationToken)
@@ -116,6 +118,9 @@ public sealed class ImportListController : ControllerBase
     [HttpPut("{id:long}")]
     [Consumes("application/json")]
     [Produces("application/json")]
+    [ProducesResponseType<ImportListResource>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ImportListResource>> UpdateImportList(
         long id,
         [FromBody] ImportListInputResource resource,
@@ -155,6 +160,7 @@ public sealed class ImportListController : ControllerBase
     [HttpPost("{id:long}/sync")]
     [Produces("application/json")]
     [ProducesResponseType<ImportListSyncAcceptedResource>(StatusCodes.Status202Accepted)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SyncImportList(long id, CancellationToken cancellationToken)
     {
@@ -194,6 +200,8 @@ public sealed class ImportListController : ControllerBase
     [HttpPost("csv/preview")]
     [Consumes("application/json")]
     [Produces("application/json")]
+    [ProducesResponseType<CsvPreviewResource>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public ActionResult<CsvPreviewResource> PreviewCsv([FromBody] CsvPreviewInputResource resource)
     {
         ArgumentNullException.ThrowIfNull(resource);

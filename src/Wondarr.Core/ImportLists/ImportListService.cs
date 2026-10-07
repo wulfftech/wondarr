@@ -135,8 +135,11 @@ public sealed partial class ImportListService : IImportListService
     /// <summary>The longest uploaded file, in characters (about 5 MB of CSV).</summary>
     public const int MaxSourceTextLength = 5 * 1024 * 1024;
 
-    /// <summary>The policies a list may name (DECISIONS build session 7 #9).</summary>
-    public static readonly IReadOnlyList<string> Policies = [ImportList.AddOnlyPolicy, "AddAndUnmonitor", "Mirror"];
+    /// <summary>
+    /// The policies a list may name (DECISIONS build session 7 #9). Only "add only" is offered until
+    /// the sync applies the others (P6-03): a list must never claim a policy it does not carry out.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Policies = [ImportList.AddOnlyPolicy];
 
     private readonly WondarrDbContext _database;
     private readonly IPasteListService _items;
@@ -325,7 +328,9 @@ public sealed partial class ImportListService : IImportListService
             or JsonException
             or FormatException)
         {
-            fetched = ImportListFetchResult.Failed(exception.Message);
+            // The message is stored on the list and shown by the API, so it is written here rather
+            // than copied from the exception, whose text may quote a request URL (and a key in it).
+            fetched = ImportListFetchResult.Failed(Describe(exception));
         }
 
         if (!fetched.Success)
@@ -370,6 +375,17 @@ public sealed partial class ImportListService : IImportListService
             .ThenBy(list => list.Id)
             .Select(list => list.Id)];
     }
+
+    private static string Describe(Exception exception) => exception switch
+    {
+        HttpRequestException { StatusCode: { } status } => string.Create(
+            CultureInfo.InvariantCulture,
+            $"The source answered HTTP {(int)status}."),
+        HttpRequestException => "The source could not be reached.",
+        TaskCanceledException => "The source did not answer in time.",
+        JsonException or FormatException => "The source sent something that could not be read.",
+        _ => "The source could not be read.",
+    };
 
     private static ImportListView View(ImportList list, Dictionary<long, Counts> counts) =>
         counts.TryGetValue(list.Id, out var count)
@@ -570,6 +586,13 @@ public sealed partial class ImportListService : IImportListService
             {
                 known.Position = position;
                 known.RemovedAt = null;
+
+                // An item not added yet is looked up again from what the source says now (a
+                // retitled track, an ISRC filled in later); an added one keeps the text it was added by.
+                if (known.State != ImportListItemState.Added)
+                {
+                    known.Raw = ImportListItemJson.Write(entry);
+                }
             }
             else
             {
