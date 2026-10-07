@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Backup;
+using Wondarr.Core.ImportLists;
 using Wondarr.Core.References;
 using Wondarr.Core.Searching;
 
@@ -22,6 +23,12 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
 
     /// <summary>How often the cutoff-unmet upgrade search runs, when <c>search.upgrade_interval_hours</c> is left alone.</summary>
     public static readonly TimeSpan DefaultUpgradeSearchInterval = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// How often the import-list sync looks for due lists; each list has its own interval
+    /// (<c>import_list.sync_interval_hours</c>), so this is only the granularity.
+    /// </summary>
+    public static readonly TimeSpan ImportListSyncInterval = TimeSpan.FromHours(1);
 
     /// <summary>How often the reference libraries are walked (ARCHITECTURE §5.5: daily).</summary>
     public static readonly TimeSpan ReferenceLibraryScanInterval = TimeSpan.FromHours(24);
@@ -47,6 +54,7 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
                 UpgradeSearchCommandHandler.CommandName,
                 TimeSpan.FromHours(searchOptions.Value.UpgradeIntervalHours)),
             new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
+            new(ImportListSyncCommandHandler.CommandName, ImportListSyncInterval),
             new(
                 BackupCommandHandler.CommandName,
                 TimeSpan.FromDays(backupOptions.Value.IntervalDays)),
