@@ -39,7 +39,8 @@ public sealed class SlskdHealthCheck : IHealthCheck
     private static HealthCheck Evaluate(SlskdStatusSnapshot snapshot, SoulseekOptions options) =>
         snapshot.State switch
         {
-            SlskdState.Disabled => Result(HealthCheckResult.Ok, "External slskd mode (checked in Phase 5)"),
+            SlskdState.Disabled => Result(HealthCheckResult.Notice, "slskd is disabled"),
+            SlskdState.External => External(snapshot, options),
             SlskdState.BinaryMissing => Result(
                 HealthCheckResult.Warning,
                 snapshot.LastError ?? $"slskd binary not found at {options.BinaryPath}; the Soulseek source is unavailable"),
@@ -58,6 +59,20 @@ public sealed class SlskdHealthCheck : IHealthCheck
                     : $"slskd is running but not reachable: {snapshot.LastError}"),
             _ => Result(HealthCheckResult.Error, "slskd is in an unknown state"),
         };
+
+    /// <summary>
+    /// The user's own slskd: healthy while it answers and is logged in. The snapshot's
+    /// <c>LastError</c> says why it is not — never the API key, never the full URL.
+    /// </summary>
+    private static HealthCheck External(SlskdStatusSnapshot snapshot, SoulseekOptions options) =>
+        !snapshot.IsReachable
+            ? Result(HealthCheckResult.Error, snapshot.LastError ?? "slskd is not reachable")
+            : !snapshot.IsLoggedIn
+                ? Result(HealthCheckResult.Error, "slskd is not logged in to Soulseek")
+                : Result(
+                    HealthCheckResult.Ok,
+                    $"External slskd {Version(snapshot)} at {SlskdExternalMonitor.ExternalHost(options)}, "
+                    + $"logged in as {snapshot.SoulseekUsername ?? "(unknown)"}");
 
     /// <summary>
     /// A login problem slskd's log reported is an error the user has to act on: slskd's API shows

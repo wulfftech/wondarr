@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace Wondarr.Sources.Slskd;
 
@@ -74,23 +73,18 @@ public sealed class SlskdTransferApi : ISlskdTransferApi
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _http;
-    private readonly SlskdSecretsStore _secrets;
+    private readonly ISlskdEndpoint _endpoint;
 
     /// <summary>Initialises a new instance of the <see cref="SlskdTransferApi"/> class.</summary>
     /// <param name="http">The typed client, whose base address is slskd's loopback API.</param>
-    /// <param name="options">Soulseek settings, for the port slskd listens on.</param>
-    /// <param name="secrets">Source of the API key this client authenticates with.</param>
-    public SlskdTransferApi(HttpClient http, IOptionsMonitor<SoulseekOptions> options, SlskdSecretsStore secrets)
+    /// <param name="endpoint">Where slskd is and how Wondarr authenticates to it.</param>
+    public SlskdTransferApi(HttpClient http, ISlskdEndpoint endpoint)
     {
         ArgumentNullException.ThrowIfNull(http);
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(secrets);
+        ArgumentNullException.ThrowIfNull(endpoint);
 
         _http = http;
-        _secrets = secrets;
-
-        // The bundled slskd is always on loopback; the port is the only part that moves.
-        _http.BaseAddress ??= new Uri($"http://127.0.0.1:{options.CurrentValue.WebPort}/", UriKind.Absolute);
+        _endpoint = endpoint;
     }
 
     /// <inheritdoc />
@@ -100,10 +94,8 @@ public sealed class SlskdTransferApi : ISlskdTransferApi
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, BatchesPath)
-        {
-            Content = JsonContent.Create(request, options: SerializerOptions),
-        };
+        using var message = await RequestAsync(HttpMethod.Post, BatchesPath, cancellationToken).ConfigureAwait(false);
+        message.Content = JsonContent.Create(request, options: SerializerOptions);
 
         using var response = await SendAsync(message, cancellationToken).ConfigureAwait(false);
 
@@ -136,7 +128,7 @@ public sealed class SlskdTransferApi : ISlskdTransferApi
     /// <inheritdoc />
     public async Task<SlskdTransfer?> GetAsync(string username, Guid id, CancellationToken cancellationToken)
     {
-        using var message = new HttpRequestMessage(HttpMethod.Get, TransferPath(username, id));
+        using var message = await RequestAsync(HttpMethod.Get, TransferPath(username, id), cancellationToken).ConfigureAwait(false);
 
         using var response = await SendAsync(message, cancellationToken).ConfigureAwait(false);
 
@@ -155,7 +147,7 @@ public sealed class SlskdTransferApi : ISlskdTransferApi
     /// <inheritdoc />
     public async Task<IReadOnlyList<SlskdUserTransfers>> ListAsync(CancellationToken cancellationToken)
     {
-        using var message = new HttpRequestMessage(HttpMethod.Get, DownloadsPath);
+        using var message = await RequestAsync(HttpMethod.Get, DownloadsPath, cancellationToken).ConfigureAwait(false);
 
         using var response = await SendAsync(message, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
@@ -170,7 +162,8 @@ public sealed class SlskdTransferApi : ISlskdTransferApi
     /// <inheritdoc />
     public async Task<int?> GetPlaceInQueueAsync(string username, Guid id, CancellationToken cancellationToken)
     {
-        using var message = new HttpRequestMessage(HttpMethod.Get, $"{TransferPath(username, id)}/position");
+        using var message = await RequestAsync(
+            HttpMethod.Get, $"{TransferPath(username, id)}/position", cancellationToken).ConfigureAwait(false);
 
         using var response = await SendAsync(message, cancellationToken).ConfigureAwait(false);
 
@@ -210,8 +203,9 @@ public sealed class SlskdTransferApi : ISlskdTransferApi
     /// <inheritdoc />
     public async Task CancelAsync(string username, Guid id, bool remove, CancellationToken cancellationToken)
     {
-        var path = $"{TransferPath(username, id)}?remove={(remove ? "true" : "false")}";
-        using var message = new HttpRequestMessage(HttpMethod.Delete, path);
+        using var message = await RequestAsync(
+            HttpMethod.Delete, $"{TransferPath(username, id)}?remove={(remove ? "true" : "false")}", cancellationToken)
+            .ConfigureAwait(false);
 
         using var response = await SendAsync(message, cancellationToken).ConfigureAwait(false);
 
@@ -255,13 +249,25 @@ public sealed class SlskdTransferApi : ISlskdTransferApi
     private static string TransferPath(string username, Guid id) =>
         $"{DownloadsPath}/{Uri.EscapeDataString(username)}/{id:D}";
 
-    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage message, CancellationToken cancellationToken)
+    /// <summary>
+    /// Builds an authenticated request to the endpoint slskd is on. The message is not disposed
+    /// here: the caller reads the response's content, which the request's content would take with it.
+    /// </summary>
+    private async Task<HttpRequestMessage> RequestAsync(
+        HttpMethod method,
+        string path,
+        CancellationToken cancellationToken)
     {
-        var secrets = await _secrets.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
-        message.Headers.Add(SlskdClient.ApiKeyHeader, secrets.ApiKey);
+        var (baseAddress, apiKey) = await _endpoint.ResolveAsync(cancellationToken).ConfigureAwait(false);
 
-        return await _http
+        var message = new HttpRequestMessage(method, new Uri(baseAddress, path));
+        message.Headers.Add(SlskdClient.ApiKeyHeader, apiKey);
+
+        return message;
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage message, CancellationToken cancellationToken) =>
+        await _http
             .SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-    }
 }

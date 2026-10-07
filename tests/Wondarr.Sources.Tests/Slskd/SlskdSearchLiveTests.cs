@@ -43,9 +43,8 @@ public sealed class SlskdSearchLiveTests
         services.AddSingleton<ISoulseekSearchBudget, SoulseekSearchBudget>();
         services.AddSingleton<ISlskdSearchRunner, SlskdSearchRunner>();
         services.AddScoped<ISlskdSearchApi>(provider => new SlskdSearchApi(
-            new HttpClient { BaseAddress = new Uri(url), Timeout = TimeSpan.FromSeconds(120) },
-            provider.GetRequiredService<IOptionsMonitor<SoulseekOptions>>(),
-            provider.GetRequiredService<SlskdSecretsStore>()));
+            new HttpClient { Timeout = TimeSpan.FromSeconds(120) },
+            new StubSlskdEndpoint(new Uri(url), apiKey)));
 
         // The key comes from the environment rather than the settings table, so it is handed to the
         // store through the repository it reads: a live test must not write to a real config.
