@@ -481,7 +481,6 @@ export function ImportListsSettingsPage() {
 
   const rows = lists.data ?? [];
   const providers = schema.data ?? [];
-  const types = providers.map((provider) => provider.displayName);
   const picked = providers.find((provider) => provider.type === type);
 
   /** The whole resource, so a toggle of one switch does not drop the settings or the file. */
@@ -637,7 +636,14 @@ export function ImportListsSettingsPage() {
 
       <Modal opened={picking} onClose={() => setPicking(false)} title="Add an import list">
         <Stack gap="md">
-          <Select label="Type" data={types} value={type} onChange={setType} allowDeselect={false} />
+          {/* The option's value is the provider's `type`; its label is what the user reads. */}
+          <Select
+            label="Type"
+            data={providers.map((provider) => ({ value: provider.type, label: provider.displayName }))}
+            value={type}
+            onChange={setType}
+            allowDeselect={false}
+          />
 
           {schema.error !== null && (
             <Text size="sm" c="red">
