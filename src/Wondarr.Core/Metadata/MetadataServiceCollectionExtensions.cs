@@ -38,6 +38,21 @@ public static class ServiceCollectionExtensions
     /// <summary>The key the AcoustID request-spacing gate is registered under.</summary>
     public const string AcoustIdGateKey = "acoustid";
 
+    /// <summary>The name of the <see cref="HttpClient"/> the Last.fm import-list providers read through.</summary>
+    public const string LastFmClientName = "lastfm";
+
+    /// <summary>The name of the <see cref="HttpClient"/> the ListenBrainz import-list providers read through.</summary>
+    public const string ListenBrainzClientName = "listenbrainz";
+
+    /// <summary>Last.fm's 2.0 API, which the loved and top lists are read from.</summary>
+    public const string LastFmBaseUrl = "https://ws.audioscrobbler.com/2.0/";
+
+    /// <summary>ListenBrainz's 1.0 API, which the loved and playlist lists are read from.</summary>
+    public const string ListenBrainzBaseUrl = "https://api.listenbrainz.org/1/";
+
+    /// <summary>How long one Last.fm or ListenBrainz request may take.</summary>
+    private static readonly TimeSpan ListClientTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>How long one AcoustID request may take before the lookup is reported as unavailable.</summary>
     private static readonly TimeSpan AcoustIdTimeout = TimeSpan.FromSeconds(15);
 
@@ -254,6 +269,64 @@ public static class ServiceCollectionExtensions
 
         itunes.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(ITunesGateKey)));
+
+        // The import-list providers of Last.fm and ListenBrainz read through named clients rather
+        // than typed ones: a provider's one operation is "read the next page of this list", which a
+        // typed interface would only restate. They carry the same identifying User-Agent as the
+        // metadata providers, because they fetch from the same kind of host.
+        var lastFm = services.AddHttpClient(LastFmClientName, (serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            client.BaseAddress = new Uri(LastFmBaseUrl, UriKind.Absolute);
+            client.Timeout = ListClientTimeout;
+            AddProviderHeaders(client, options);
+        });
+
+        lastFm.AddResilienceHandler("lastfm", (builder, context) =>
+        {
+            var options = context.ServiceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            builder.AddRetry(new HttpRetryStrategyOptions
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = options.RetryBaseDelay,
+                ShouldRetryAfterHeader = true,
+            });
+        });
+
+        var listenBrainz = services.AddHttpClient(ListenBrainzClientName, (serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            client.BaseAddress = new Uri(ListenBrainzBaseUrl, UriKind.Absolute);
+            client.Timeout = ListClientTimeout;
+            AddProviderHeaders(client, options);
+        });
+
+        listenBrainz.AddResilienceHandler("listenbrainz", (builder, context) =>
+        {
+            var options = context.ServiceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+            builder.AddRetry(new HttpRetryStrategyOptions
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = options.RetryBaseDelay,
+                ShouldRetryAfterHeader = true,
+
+                // A 429 is the quota being spent, and the provider reads X-RateLimit-Reset-In itself:
+                // retrying it would only spend more of the budget, so it surfaces at once.
+                ShouldHandle = args => ValueTask.FromResult(
+                    args.Outcome.Exception is not null
+                    || (args.Outcome.Result is { } response
+                        && response.StatusCode != HttpStatusCode.TooManyRequests
+                        && IsRetryable(response.StatusCode))),
+            });
+        });
 
         // The cover client the import pipeline downloads embedded artwork with. Named rather than
         // typed: its one operation is "GET this image URL and hand me the bytes", which a typed
