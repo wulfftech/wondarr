@@ -228,10 +228,17 @@ public sealed partial class FileConverter : IFileConverter
         var ids = await ResolveSongsAsync(request, cancellationToken).ConfigureAwait(false);
         var oneOff = ParseRule(request.RuleJson);
 
-        var songs = await _database.Songs
+        var query = _database.Songs
             .AsNoTracking()
             .Include(song => song.File).ThenInclude(file => file!.Quality)
-            .Where(song => ids.Contains(song.Id))
+            .AsQueryable();
+
+        // A whole library is read by its id, not by a list of thousands of song ids.
+        query = request.LibraryId is { } libraryId
+            ? query.Where(song => song.LibraryId == libraryId && song.File != null)
+            : query.Where(song => ids.Contains(song.Id));
+
+        var songs = await query
             .OrderBy(song => song.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -437,7 +444,7 @@ public sealed partial class FileConverter : IFileConverter
             var from = new ConvertedFile(file.Codec, file.BitrateKbps, currentPath);
 
             file.Path = finalPath;
-            file.Size = new FileInfo(finalPath).Length;
+            file.Size = media.SizeBytes > 0 ? media.SizeBytes : new FileInfo(finalPath).Length;
             file.Codec = media.Codec;
             file.Container = media.Container;
             file.BitrateKbps = media.BitrateKbps;
@@ -456,7 +463,36 @@ public sealed partial class FileConverter : IFileConverter
                     Json),
             });
 
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The new file is in the library and the original in the recycle bin; only the
+                // bookkeeping failed. The least the row must say is where the song's file is now, so
+                // it is written on its own (as the compaction executor does); the rest is logged.
+                LogFailed(_logger, songId, exception);
+                _database.ChangeTracker.Clear();
+
+                var fileId = file.Id;
+                await _database.SongFiles
+                    .Where(candidate => candidate.Id == fileId)
+                    .ExecuteUpdateAsync(
+                        update => update
+                            .SetProperty(candidate => candidate.Path, finalPath)
+                            .SetProperty(candidate => candidate.Codec, media.Codec)
+                            .SetProperty(candidate => candidate.Container, media.Container),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                return new ConvertSongResult(
+                    songId,
+                    ConvertOutcome.Failed,
+                    $"Converted to {finalPath}, but recording it failed: {exception.Message}",
+                    info.Codec,
+                    media.Codec);
+            }
 
             var newFolder = Path.GetDirectoryName(finalPath) ?? library.RootPath;
             var oldFolder = Path.GetDirectoryName(currentPath) ?? library.RootPath;
