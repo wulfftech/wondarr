@@ -31,7 +31,13 @@ public sealed record SoulseekSettingsResource(
     bool DistributedNetwork,
     string DownloadsDir,
     string IncompleteDir,
-    List<string> ReadOnlyFields)
+    List<string> ReadOnlyFields,
+    string Mode,
+    string? ExternalUrl,
+    bool ExternalApiKeySet,
+    string? ExternalWebUsername,
+    bool ExternalWebPasswordSet,
+    bool ExternalRescanShares)
 {
     /// <summary>Maps the service's settings onto the resource.</summary>
     public static SoulseekSettingsResource From(SoulseekSettings settings)
@@ -49,7 +55,13 @@ public sealed record SoulseekSettingsResource(
             settings.DistributedNetwork,
             settings.DownloadsDir,
             settings.IncompleteDir,
-            [.. settings.ReadOnlyFields]);
+            [.. settings.ReadOnlyFields],
+            settings.Mode,
+            settings.ExternalUrl,
+            settings.ExternalApiKeySet,
+            settings.ExternalWebUsername,
+            settings.ExternalWebPasswordSet,
+            settings.ExternalRescanShares);
     }
 }
 
@@ -78,7 +90,13 @@ public sealed record SoulseekSettingsUpdateResource(
     int? UploadSpeedLimitKib = null,
     bool? DistributedNetwork = null,
     string? DownloadsDir = null,
-    string? IncompleteDir = null)
+    string? IncompleteDir = null,
+    string? Mode = null,
+    string? ExternalUrl = null,
+    string? ExternalApiKey = null,
+    string? ExternalWebUsername = null,
+    string? ExternalWebPassword = null,
+    bool? ExternalRescanShares = null)
 {
     /// <summary>Maps the request body onto the service's update.</summary>
     public SoulseekSettingsUpdate ToUpdate() => new(
@@ -91,13 +109,32 @@ public sealed record SoulseekSettingsUpdateResource(
         UploadSpeedLimitKib,
         DistributedNetwork,
         DownloadsDir,
-        IncompleteDir);
+        IncompleteDir,
+        Mode,
+        ExternalUrl,
+        ExternalApiKey,
+        ExternalWebUsername,
+        ExternalWebPassword,
+        ExternalRescanShares);
 }
 
 /// <summary>What a successful settings change returns: the stored settings and whether slskd restarts.</summary>
 /// <param name="Settings">The settings as they are now stored.</param>
 /// <param name="RestartsSlskd">Whether the change is one the supervisor restarts slskd for.</param>
-public sealed record SoulseekSettingsUpdateResponseResource(SoulseekSettingsResource Settings, bool RestartsSlskd);
+/// <param name="RestartsWondarr">Whether the change (a new mode) takes effect only when Wondarr restarts.</param>
+public sealed record SoulseekSettingsUpdateResponseResource(SoulseekSettingsResource Settings, bool RestartsSlskd, bool RestartsWondarr);
+
+/// <summary>A connection test against a user's own slskd. A missing key means the stored one.</summary>
+/// <param name="Url">The slskd URL to try.</param>
+/// <param name="ApiKey">The API key to try, or <see langword="null"/> for the stored one. Never logged or returned.</param>
+public sealed record SoulseekConnectionTestResource(string Url, string? ApiKey);
+
+/// <summary>What the connection test found.</summary>
+/// <param name="Ok">Whether slskd answered with the key.</param>
+/// <param name="Version">slskd's version, when it answered.</param>
+/// <param name="LoggedIn">Whether that slskd is logged in to Soulseek.</param>
+/// <param name="Message">A sentence for the page: what worked, or what did not (never the key).</param>
+public sealed record SoulseekConnectionTestResultResource(bool Ok, string? Version, bool LoggedIn, string Message);
 
 /// <summary>What Soulseek is sharing, as slskd last reported it.</summary>
 /// <param name="Enabled">The "share my library" toggle.</param>
