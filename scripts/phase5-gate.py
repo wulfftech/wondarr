@@ -362,6 +362,8 @@ def main() -> int:
             p.add_argument("--zip", required=True)
             p.add_argument("--snapshot", required=True)
     args = parser.parse_args()
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")  # the Windows console code page cannot print the arrows
     {"upgrade": upgrade, "backup-take": backup_take, "backup-verify": backup_verify}[args.command](args)
     return 0
 
