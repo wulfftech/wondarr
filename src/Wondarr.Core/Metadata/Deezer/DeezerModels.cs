@@ -96,11 +96,34 @@ public sealed record DeezerAlbum
     /// <summary>Gets the 1000×1000 cover URL, when Deezer has one.</summary>
     public string? CoverXl { get; init; }
 
+    /// <summary>Gets the 250×250 cover URL, as a search result carries it.</summary>
+    public string? CoverMedium { get; init; }
+
     /// <summary>Gets the album artist.</summary>
     public DeezerArtist? Artist { get; init; }
 
     /// <summary>Gets the number of tracks on the album.</summary>
     public int? NbTracks { get; init; }
+
+    /// <summary>Gets the album's tracklist; an album lookup fills it in, a search does not.</summary>
+    public DeezerAlbumTracks? Tracks { get; init; }
+}
+
+/// <summary>The tracklist of a Deezer album, as <c>tracks.data</c>.</summary>
+public sealed record DeezerAlbumTracks
+{
+    /// <summary>Gets the tracks, in album order.</summary>
+    public IReadOnlyList<DeezerTrack> Data { get; init; } = [];
+}
+
+/// <summary>The album search response envelope: <c>{ data, total }</c>.</summary>
+public sealed record DeezerAlbumSearchResult
+{
+    /// <summary>Gets the page of albums.</summary>
+    public IReadOnlyList<DeezerAlbum> Data { get; init; } = [];
+
+    /// <summary>Gets the total number of matches, not the number returned.</summary>
+    public int Total { get; init; }
 }
 
 /// <summary>The search response envelope: <c>{ data, total }</c>.</summary>
