@@ -47,6 +47,59 @@ public interface IPlexServerClient
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns><see langword="false"/> when the section is gone, which is not an error here.</returns>
     Task<bool> IsRefreshingAsync(Uri server, string token, string sectionKey, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Finds a section's tracks by title, with the files each one is made of — enough to find the
+    /// rating key of the track a file is (<c>GET /library/sections/{key}/all?type=10&amp;title=</c>).
+    /// </summary>
+    Task<IReadOnlyList<PlexTrack>> FindTracksAsync(
+        Uri server,
+        string token,
+        string sectionKey,
+        string title,
+        CancellationToken cancellationToken);
+
+    /// <summary>A playlist's items in order, or <see langword="null"/> when the playlist no longer exists.</summary>
+    Task<IReadOnlyList<PlexPlaylistItem>?> GetPlaylistItemsAsync(
+        Uri server,
+        string token,
+        string playlistKey,
+        CancellationToken cancellationToken);
+
+    /// <summary>Creates an audio playlist holding the tracks in order; returns its rating key.</summary>
+    Task<string> CreatePlaylistAsync(
+        Uri server,
+        string token,
+        string machineIdentifier,
+        string title,
+        IReadOnlyList<string> ratingKeys,
+        CancellationToken cancellationToken);
+
+    /// <summary>Appends tracks to a playlist, in order.</summary>
+    Task AddPlaylistItemsAsync(
+        Uri server,
+        string token,
+        string machineIdentifier,
+        string playlistKey,
+        IReadOnlyList<string> ratingKeys,
+        CancellationToken cancellationToken);
+
+    /// <summary>Removes one item from a playlist.</summary>
+    Task RemovePlaylistItemAsync(
+        Uri server,
+        string token,
+        string playlistKey,
+        string playlistItemId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Moves one item after another, or to the top when <paramref name="afterPlaylistItemId"/> is null.</summary>
+    Task MovePlaylistItemAsync(
+        Uri server,
+        string token,
+        string playlistKey,
+        string playlistItemId,
+        string? afterPlaylistItemId,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -181,6 +234,197 @@ public sealed class PlexServerClient : IPlexServerClient
     /// Builds one request against a server URL. The URL is treated as a directory, so a prefix such as
     /// <c>https://host/plex</c> survives the relative path.
     /// </summary>
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<PlexTrack>> FindTracksAsync(
+        Uri server,
+        string token,
+        string sectionKey,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sectionKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        var relative = $"library/sections/{Uri.EscapeDataString(sectionKey)}/all?type=10&title={Uri.EscapeDataString(title)}";
+
+        var request = await NewRequestAsync(HttpMethod.Get, server, relative, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        using (request)
+        {
+            var body = await SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            using var document = PlexHttp.Parse(body, request, Subject);
+            var container = PlexJson.Child(document.RootElement, "MediaContainer") ?? document.RootElement;
+
+            return
+            [
+                .. PlexJson.Items(PlexJson.Child(container, "Metadata")).Select(track => new PlexTrack(
+                    RatingKey: PlexJson.TextOrNumber(track, "ratingKey") ?? string.Empty,
+                    Title: PlexJson.Text(track, "title") ?? string.Empty,
+                    Files:
+                    [
+                        .. PlexJson.Items(PlexJson.Child(track, "Media"))
+                            .SelectMany(media => PlexJson.Items(PlexJson.Child(media, "Part")))
+                            .Select(part => PlexJson.Text(part, "file") ?? string.Empty)
+                            .Where(file => file.Length > 0),
+                    ])),
+            ];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<PlexPlaylistItem>?> GetPlaylistItemsAsync(
+        Uri server,
+        string token,
+        string playlistKey,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playlistKey);
+
+        var relative = $"playlists/{Uri.EscapeDataString(playlistKey)}/items";
+
+        var request = await NewRequestAsync(HttpMethod.Get, server, relative, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        using (request)
+        {
+            var http = _factory.CreateClient(ClientName);
+            var response = await PlexHttp.SendAsync(http, request, Subject, cancellationToken).ConfigureAwait(false);
+
+            // A playlist the user deleted in Plex is gone: the caller makes a new one.
+            if (response.Status == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
+            var body = PlexHttp.Read(response, request, Subject);
+
+            using var document = PlexHttp.Parse(body, request, Subject);
+            var container = PlexJson.Child(document.RootElement, "MediaContainer") ?? document.RootElement;
+
+            return
+            [
+                .. PlexJson.Items(PlexJson.Child(container, "Metadata")).Select(item => new PlexPlaylistItem(
+                    RatingKey: PlexJson.TextOrNumber(item, "ratingKey") ?? string.Empty,
+                    PlaylistItemId: PlexJson.TextOrNumber(item, "playlistItemID") ?? string.Empty)),
+            ];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<string> CreatePlaylistAsync(
+        Uri server,
+        string token,
+        string machineIdentifier,
+        string title,
+        IReadOnlyList<string> ratingKeys,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineIdentifier);
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentNullException.ThrowIfNull(ratingKeys);
+
+        var relative = "playlists?type=audio&smart=0"
+            + $"&title={Uri.EscapeDataString(title)}"
+            + $"&uri={Uri.EscapeDataString(ItemsUri(machineIdentifier, ratingKeys))}";
+
+        var request = await NewRequestAsync(HttpMethod.Post, server, relative, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        using (request)
+        {
+            var body = await SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            using var document = PlexHttp.Parse(body, request, Subject);
+            var container = PlexJson.Child(document.RootElement, "MediaContainer") ?? document.RootElement;
+            var created = PlexJson.Items(PlexJson.Child(container, "Metadata")).FirstOrDefault();
+
+            return created.ValueKind == JsonValueKind.Undefined
+                ? throw new PlexException($"{Subject} created a playlist but did not say which.")
+                : PlexJson.TextOrNumber(created, "ratingKey")
+                    ?? throw new PlexException($"{Subject} created a playlist without a rating key.");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task AddPlaylistItemsAsync(
+        Uri server,
+        string token,
+        string machineIdentifier,
+        string playlistKey,
+        IReadOnlyList<string> ratingKeys,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineIdentifier);
+        ArgumentException.ThrowIfNullOrWhiteSpace(playlistKey);
+        ArgumentNullException.ThrowIfNull(ratingKeys);
+
+        var relative = $"playlists/{Uri.EscapeDataString(playlistKey)}/items"
+            + $"?uri={Uri.EscapeDataString(ItemsUri(machineIdentifier, ratingKeys))}";
+
+        var request = await NewRequestAsync(HttpMethod.Put, server, relative, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        using (request)
+        {
+            await SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task RemovePlaylistItemAsync(
+        Uri server,
+        string token,
+        string playlistKey,
+        string playlistItemId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playlistKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(playlistItemId);
+
+        var relative = $"playlists/{Uri.EscapeDataString(playlistKey)}/items/{Uri.EscapeDataString(playlistItemId)}";
+
+        var request = await NewRequestAsync(HttpMethod.Delete, server, relative, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        using (request)
+        {
+            await SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task MovePlaylistItemAsync(
+        Uri server,
+        string token,
+        string playlistKey,
+        string playlistItemId,
+        string? afterPlaylistItemId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playlistKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(playlistItemId);
+
+        var relative = $"playlists/{Uri.EscapeDataString(playlistKey)}/items/{Uri.EscapeDataString(playlistItemId)}/move"
+            + (afterPlaylistItemId is null ? string.Empty : $"?after={Uri.EscapeDataString(afterPlaylistItemId)}");
+
+        var request = await NewRequestAsync(HttpMethod.Put, server, relative, token, cancellationToken)
+            .ConfigureAwait(false);
+
+        using (request)
+        {
+            await SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The library URI a playlist call names its tracks with (python-plexapi's <c>_uriRoot()</c> +
+    /// <c>/library/metadata/{keys}</c>, comma-separated in order).
+    /// </summary>
+    private static string ItemsUri(string machineIdentifier, IReadOnlyList<string> ratingKeys) =>
+        $"server://{machineIdentifier}/com.plexapp.plugins.library/library/metadata/{string.Join(',', ratingKeys)}";
+
     private async Task<HttpRequestMessage> NewRequestAsync(
         HttpMethod method,
         Uri server,
