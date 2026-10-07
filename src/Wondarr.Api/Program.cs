@@ -12,6 +12,7 @@ using Wondarr.Sources.Slskd;
 using Wondarr.Sources.Torznab;
 using Wondarr.Sources.YouTube;
 using Microsoft.Extensions.Options;
+using Scalar.AspNetCore;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -99,8 +100,14 @@ app.MapControllers();
 // as ?access_token= — which is why the hub gets its own policy rather than the API fallback.
 app.MapHub<EventsHub>("/signalr/events").RequireAuthorization("SignalR");
 
-// Behind the default API-key policy: the document describes the API, so it is served like the API.
-app.MapOpenApi("/docs/{documentName}/openapi.json");
+// The API's description and its reference page at /docs are served without a key (DECISIONS build
+// session 6 #8): they describe the open-source API surface and carry no data, and a browser opening
+// /docs cannot send X-Api-Key. Every endpoint they describe still requires the key.
+app.MapOpenApi("/docs/{documentName}/openapi.json").AllowAnonymous();
+app.MapScalarApiReference("/docs", options => options
+        .WithTitle("Wondarr API")
+        .WithOpenApiRoutePattern("/docs/{documentName}/openapi.json"))
+    .AllowAnonymous();
 
 app.MapWondarrSpa();
 
