@@ -320,8 +320,9 @@ def lists(args: argparse.Namespace) -> None:
         fail(f"the .m3u8 lists {len(entries)} files, expected {len(expected)}")
     ok(f"the .m3u8 lists the {len(entries)} files")
 
-    # Re-upload: the first row dropped, the last two swapped; the playlist must be updated in place.
-    changed = rows[1:-2] + [rows[-1], rows[-2]]
+    # Re-upload: the first row dropped and the next two swapped (both downloaded); the playlist must be
+    # updated in place — one item removed, two moved.
+    changed = [rows[2], rows[1]] + rows[3:]
     api.call("PUT", f"/api/v1/importlist/{list_id}", {
         "type": "csv", "name": LIST_NAME, "settings": {}, "sourceText": write_csv(changed), "policy": "AddOnly",
         "syncIntervalHours": 0, "plexPlaylist": True, "m3uExport": True,
@@ -331,6 +332,8 @@ def lists(args: argparse.Namespace) -> None:
     log(f"     sync: {finished.get('message')}")
     first_isrc = rows[0]["ISRC"].upper()
     kept = [record for record in imported if first_isrc not in {i.upper() for i in record.get("isrcs") or []}]
+    if len(kept) >= 2:
+        kept[0], kept[1] = kept[1], kept[0]
     key2 = check_playlist(api, args, list_id, [file_path(record) for record in kept], "after the re-upload")
     if key2 != key:
         fail(f"the playlist was made again ({key} -> {key2}) instead of updated in place")

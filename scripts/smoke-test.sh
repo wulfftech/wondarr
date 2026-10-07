@@ -20,7 +20,7 @@
 #   - a reference folder of encoded audio (MBID-tagged, text-tagged, untagged, duplicates) is added in
 #     adopt mode and scanned: >= 90 % identified automatically, the rest resolved through the Match
 #     queue, every new song adopted into the library, the originals byte-for-byte unchanged
-# Phase 6 (scripts/phase6-gate.py; SMOKE_PHASE6=on | off (default until its metadata is recorded)), on
+# Phase 6 (scripts/phase6-gate.py; SMOKE_PHASE6=on (default) | off; SMOKE_ONLY_PHASE6=on skips Phases 2-5), on
 #   a fresh container: a 200-track Exportify CSV resolves >= 95 % via ISRC, two search cycles download
 #   20 of its songs, a Plex playlist (FakeSlskd's fake Plex) holds them in order and is updated in
 #   place after a re-upload, an album added by search arrives pinned, a song moves to a second library
@@ -451,7 +451,7 @@ python3 "$(dirname "$0")/phase2-gate.py" --url "$EXT_BASE" --api-key "$EXT_KEY" 
 $DOCKER rm -f "$EXT_FAKE" "$EXT" > /dev/null 2>&1 || true
 echo "PHASE 5 GATE: PASS ($IMAGE: upgrade, backup → fresh container, external slskd)"
 
-if [ "${SMOKE_PHASE6:-off}" = off ]; then
+if [ "${SMOKE_PHASE6:-on}" = off ]; then
     echo "Phase 6 gate skipped (SMOKE_PHASE6=off)"
     exit 0
 fi
