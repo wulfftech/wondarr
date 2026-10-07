@@ -286,12 +286,38 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
             }
         }
 
-        file.Path = finalPath;
-        file.Size = _disk.GetFileSize(finalPath);
+        try
+        {
+            file.Path = finalPath;
+            file.Size = _disk.GetFileSize(finalPath);
 
-        WriteHistory(song.Id, fromLibrary?.Id, targetLibraryId, fromPath, finalPath);
+            WriteHistory(song.Id, fromLibrary?.Id, targetLibraryId, fromPath, finalPath);
 
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The file is in the target library already; only the bookkeeping failed. The least the
+            // rows must say is where the file is and which library it belongs to, written on their own
+            // (as the compaction executor does); the history is lost and the reason is returned.
+            LogMoveFailed(_logger, song.Id, targetLibraryId, exception.Message);
+            _database.ChangeTracker.Clear();
+
+            var fileId = file.Id;
+            var movedSongId = song.Id;
+            await _database.SongFiles
+                .Where(candidate => candidate.Id == fileId)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, finalPath), cancellationToken)
+                .ConfigureAwait(false);
+            await _database.Songs
+                .Where(candidate => candidate.Id == movedSongId)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.LibraryId, targetLibraryId), cancellationToken)
+                .ConfigureAwait(false);
+
+            return new SongMoveResult(
+                SongMoveOutcome.Failed,
+                $"Moved to {finalPath}, but recording it failed: {exception.Message}");
+        }
 
         await CleanUpFolderAsync(fromLibrary, fromPath, cancellationToken).ConfigureAwait(false);
 
