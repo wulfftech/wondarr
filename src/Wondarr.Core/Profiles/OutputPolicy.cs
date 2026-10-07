@@ -534,6 +534,10 @@ public sealed class LibraryOutputPolicy
         {
             switch (entry.Name)
             {
+                case "version":
+                    // Checked by the caller: it is what made this a version-2 policy.
+                    break;
+
                 case "youtube":
                     youtube = ParseRule(entry.Value.GetRawText(), "youtube", allowLossless: false);
                     break;
