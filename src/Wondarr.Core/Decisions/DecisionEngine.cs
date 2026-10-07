@@ -199,6 +199,23 @@ public sealed class DecisionEngine
                     ").")));
         }
 
+        // The identity rule for upgrades (MATCHING_ENGINE §6.6): a strictly better file may replace
+        // the held one, but never one that matches the song less well. Only applies when the held
+        // file's own identity score is known, and never to a grab the user asked for by hand.
+        if (context.CurrentFileIdentityScore is { } held &&
+            !context.IsManualGrab &&
+            score.Identity < held)
+        {
+            rejections.Add(new Rejection(
+                RejectionReason.WorseIdentity,
+                string.Concat(
+                    "Identity score ",
+                    score.Identity.ToString(CultureInfo.InvariantCulture),
+                    " is below the current file's ",
+                    held.ToString(CultureInfo.InvariantCulture),
+                    ".")));
+        }
+
         AddDurationRejection(context, candidate, rejections);
         AddVersionRejection(context, candidate, rejections);
         AddArtistRejection(context, candidate, rejections);

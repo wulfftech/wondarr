@@ -33,8 +33,9 @@ from typing import Callable
 
 SKIP_DIRS = {".git", "node_modules", "bin", "obj", "dist", ".vs", ".worktrees", ".worker"}
 MAX_TOOL_OUTPUT = 12000
-READ_DEFAULT_LINES = 2000
-COMPACT_AFTER_CHARS = 300_000
+READ_DEFAULT_LINES = 800  # long files are read in ranges; the tail says which offset comes next
+COMPACT_AFTER_CHARS = 260_000  # tool output is kept in full until it passes this...
+COMPACT_TARGET_CHARS = 160_000  # ...then the oldest results are trimmed until it is below this
 KEEP_FULL_TOOL_RESULTS = 6
 
 EXTERNAL_COMMANDS = {"dotnet", "npm", "npx", "node"}
@@ -432,13 +433,21 @@ def _turn_cost(usage: dict, pricing: dict[str, float] | None) -> float:
 
 
 def _compact(messages: list[dict]) -> None:
+    """Trim the oldest tool results until the total is below COMPACT_TARGET_CHARS. Trimming everything but the
+    last few results at once made workers forget every file they had read, re-read them all and trip the trim
+    again: a loop that spent whole turn budgets without writing a line (seen 2026-10-07)."""
     tool_idx = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
-    if sum(len(str(messages[i].get("content", ""))) for i in tool_idx) <= COMPACT_AFTER_CHARS:
+    total = sum(len(str(messages[i].get("content", ""))) for i in tool_idx)
+    if total <= COMPACT_AFTER_CHARS:
         return
     for i in tool_idx[:-KEEP_FULL_TOOL_RESULTS]:
+        if total <= COMPACT_TARGET_CHARS:
+            break
         content = str(messages[i].get("content", ""))
         if len(content) > 600:
-            messages[i]["content"] = content[:500] + "\n... [older output trimmed to save context; re-run the tool if you need it]"
+            trimmed = content[:500] + "\n... [older output trimmed to save context; re-run the tool if you need it]"
+            messages[i]["content"] = trimmed
+            total -= len(content) - len(trimmed)
 
 
 def run_agent(*, base_url: str, key: str, model: str, system: str, user: str, sandbox: Sandbox, max_turns: int,
