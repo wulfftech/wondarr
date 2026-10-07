@@ -41,6 +41,7 @@ python scripts/worker.py watch                               # follow running wo
 scripts/smoke-test.sh <image> ["sudo docker"]                # Phase 0 + Phase 1 gates against a built image (SMOKE_METADATA=replay|record|live|off)
 python scripts/phase1-gate.py --url <base> --api-key <key>   # the Phase 1 gate against any running instance
 python scripts/phase5-gate.py upgrade|backup-take|backup-verify --url <base> --api-key <key> …   # Phase 5 gate pieces (SMOKE_PHASE5 runs them in the smoke test)
+python scripts/phase6-gate.py plex|lists|album|library|convert --url <base> --api-key <key> …   # Phase 6 gate pieces (SMOKE_PHASE6 runs them; SMOKE_ONLY_PHASE6=on skips Phases 2-5; record new metadata with the "Record gate metadata" workflow)
 python scripts/metadata-replay.py --mode record|replay --dir tests/gate/replay   # record/replay MusicBrainz, CAA, Deezer, iTunes
 python scripts/check-notice.py [--fix]                       # ported-code attribution check (CI)
 ```
