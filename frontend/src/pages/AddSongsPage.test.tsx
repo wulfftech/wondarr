@@ -50,6 +50,8 @@ interface RouteTable {
   /** How many times the command has been asked about, so it can finish on the second poll. */
   commands?: () => Response;
   importList?: () => Response;
+  /** The libraries songs can be filed into; two or more make the picker appear. */
+  libraries?: () => Response;
 }
 
 function install(routes: RouteTable = {}): FetchMock {
@@ -67,7 +69,7 @@ function install(routes: RouteTable = {}): FetchMock {
     }
 
     if (url.includes('/api/v1/library')) {
-      return jsonResponse(LIBRARIES);
+      return routes.libraries !== undefined ? routes.libraries() : jsonResponse(LIBRARIES);
     }
 
     if (url.includes('/api/v1/song/lookup')) {
@@ -143,6 +145,47 @@ describe('AddSongsPage', () => {
 
       expect(post?.url).toContain('/api/v1/song');
       expect(post?.body).toMatchObject({ mbRecordingId: '833f5a5d-9c2a-4a1c-9b6f-2f5b2f0a1c3d' });
+    });
+  });
+
+  it('offers the library picker once there are two libraries and sends the chosen one', async () => {
+    install({
+      libraries: () =>
+        jsonResponse([
+          LIBRARIES[0],
+          { ...LIBRARIES[0], id: 2, name: 'Singles', rootPath: '/data/singles', isDefault: false },
+        ]),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+    await search(user, 'Daft Punk - Get Lucky');
+    await screen.findByText('album version');
+
+    // The default library is the picker's starting value, and both are offered. The paste tab has
+    // its own picker, so the search panel's is the one read here.
+    const panel = screen.getByRole('tabpanel', { name: 'Search' });
+    const select = await within(panel).findByLabelText('Library', { selector: 'input' });
+
+    expect(select).toHaveValue('Music');
+
+    await user.click(select);
+
+    const listbox = document.getElementById(select.getAttribute('aria-controls') ?? '');
+
+    await user.click(within(listbox as HTMLElement).getByText('Singles'));
+    await user.click(within(panel).getAllByRole('button', { name: 'Add' })[0]);
+
+    expect(await screen.findByText('In library')).toBeInTheDocument();
+
+    await waitFor(async () => {
+      const post = await lastBody('POST');
+
+      expect(post?.url).toContain('/api/v1/song');
+      expect(post?.body).toMatchObject({
+        mbRecordingId: '833f5a5d-9c2a-4a1c-9b6f-2f5b2f0a1c3d',
+        libraryId: 2,
+      });
     });
   });
 
