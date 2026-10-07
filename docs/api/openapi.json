@@ -966,6 +966,66 @@
         }
       }
     },
+    "/api/v1/release/push": {
+      "post": {
+        "tags": [
+          "ReleasePush"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReleasePushResource"
+                  }
+                ]
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReleasePushResource"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleasePushDecisionResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReleasePushValidationFailure"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/matchqueue": {
       "get": {
         "tags": [
@@ -5173,7 +5233,17 @@
           "qualityName",
           "createdAt",
           "stateChangedAt",
-          "finishedAt"
+          "finishedAt",
+          "title",
+          "status",
+          "trackedDownloadStatus",
+          "protocol",
+          "size",
+          "sizeleft",
+          "downloadId",
+          "outputPath",
+          "artistId",
+          "statusMessages"
         ],
         "type": "object",
         "properties": {
@@ -5293,6 +5363,58 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trackedDownloadStatus": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sizeleft": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "downloadId": {
+            "type": "string"
+          },
+          "outputPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "artistId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "statusMessages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -5577,6 +5699,170 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ReleasePushDecisionResource": {
+        "required": [
+          "approved",
+          "rejected",
+          "temporarilyRejected",
+          "rejections",
+          "songId",
+          "songTitle"
+        ],
+        "type": "object",
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "rejected": {
+            "type": "boolean"
+          },
+          "temporarilyRejected": {
+            "type": "boolean"
+          },
+          "rejections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "songTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ReleasePushResource": {
+        "required": [
+          "title",
+          "infoUrl",
+          "downloadUrl",
+          "magnetUrl",
+          "size",
+          "indexer",
+          "downloadProtocol",
+          "protocol",
+          "publishDate",
+          "downloadClientId",
+          "downloadClient"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "infoUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "downloadUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "magnetUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "indexer": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "downloadProtocol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "protocol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publishDate": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "downloadClientId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "downloadClient": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ReleasePushValidationFailure": {
+        "required": [
+          "propertyName",
+          "errorMessage",
+          "errorCode",
+          "attemptedValue",
+          "severity"
+        ],
+        "type": "object",
+        "properties": {
+          "propertyName": {
+            "type": "string"
+          },
+          "errorMessage": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "string"
+          },
+          "attemptedValue": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "severity": {
+            "type": "string"
           }
         }
       },
@@ -7174,6 +7460,9 @@
     },
     {
       "name": "Release"
+    },
+    {
+      "name": "ReleasePush"
     },
     {
       "name": "MatchQueue"
