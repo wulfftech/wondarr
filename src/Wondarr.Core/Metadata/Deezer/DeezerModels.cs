@@ -137,6 +137,42 @@ public sealed record DeezerSearchResult
 }
 
 /// <summary>
+/// One page of a tracklist — a playlist's tracks or an artist's top — as <c>{ data, total }</c>. The
+/// <c>next</c> link Deezer adds is not read: the caller pages by <c>index</c>.
+/// </summary>
+public sealed record DeezerTrackPage
+{
+    /// <summary>Gets the page's tracks, in the source's order.</summary>
+    public IReadOnlyList<DeezerTrack> Data { get; init; } = [];
+
+    /// <summary>Gets the total number of tracks, not the number this page returned.</summary>
+    public int Total { get; init; }
+}
+
+/// <summary>An artist as a search result: the id, the name and how many fans Deezer counts.</summary>
+public sealed record DeezerArtistSearchHit
+{
+    /// <summary>Gets the Deezer artist id.</summary>
+    public long Id { get; init; }
+
+    /// <summary>Gets the artist's name.</summary>
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>Gets how many fans Deezer counts for the artist.</summary>
+    public long? NbFan { get; init; }
+}
+
+/// <summary>The artist search response envelope: <c>{ data, total }</c>.</summary>
+public sealed record DeezerArtistSearchResult
+{
+    /// <summary>Gets the page of artists.</summary>
+    public IReadOnlyList<DeezerArtistSearchHit> Data { get; init; } = [];
+
+    /// <summary>Gets the total number of matches, not the number returned.</summary>
+    public int Total { get; init; }
+}
+
+/// <summary>
 /// Deezer's error body, which arrives with <em>HTTP 200</em>: <c>{ "error": { … } }</c>.
 /// </summary>
 public sealed record DeezerErrorBody
