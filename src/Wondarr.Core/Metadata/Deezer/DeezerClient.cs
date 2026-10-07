@@ -53,6 +53,37 @@ public interface IDeezerClient
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads one page of a playlist's tracks, in playlist order. Deezer answers "no data" for an
+    /// unknown or private playlist.
+    /// </summary>
+    /// <param name="playlistId">The Deezer playlist id.</param>
+    /// <param name="index">The page's first track (0, 100, 200, …).</param>
+    /// <param name="limit">How many tracks to ask for; Deezer serves 1 to 100.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The page, or <see langword="null"/> when the playlist is unknown or private.</returns>
+    Task<DeezerTrackPage?> GetPlaylistTracksAsync(
+        long playlistId,
+        int index,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reads an artist's top tracks, most played first. These rows carry no ISRC.</summary>
+    /// <param name="artistId">The Deezer artist id.</param>
+    /// <param name="limit">How many tracks to ask for; Deezer serves 1 to 100.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The page, or <see langword="null"/> when Deezer does not know the artist.</returns>
+    Task<DeezerTrackPage?> GetArtistTopAsync(long artistId, int limit, CancellationToken cancellationToken = default);
+
+    /// <summary>Searches for artists. The query is plain text, like <see cref="SearchTracksAsync"/>.</summary>
+    /// <param name="name">The artist's name, as the user typed it.</param>
+    /// <param name="limit">How many results to ask for; Deezer serves 1 to 100.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    Task<DeezerArtistSearchResult> SearchArtistsAsync(
+        string name,
+        int limit = 5,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads a track's preview URL <em>without</em> consulting the cache. Preview URLs are signed and
     /// expire after about half an hour, so a cached one is worthless by the time it is played.
     /// </summary>
@@ -89,6 +120,12 @@ public sealed class DeezerClient : IDeezerClient
 
     /// <summary>How long an album stays fresh.</summary>
     private static readonly TimeSpan AlbumTtl = TimeSpan.FromDays(30);
+
+    /// <summary>How long a playlist's track page stays fresh: a playlist changes, and a sync an hour later must see the change.</summary>
+    private static readonly TimeSpan PlaylistTtl = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long an artist's top tracks stay fresh.</summary>
+    private static readonly TimeSpan ArtistTopTtl = TimeSpan.FromDays(1);
 
     /// <summary>How long a "no data" answer stays unanswered.</summary>
     private static readonly TimeSpan NoDataTtl = TimeSpan.FromDays(1);
@@ -187,6 +224,57 @@ public sealed class DeezerClient : IDeezerClient
             ? new DeezerAlbumSearchResult()
             : JsonSerializer.Deserialize<DeezerAlbumSearchResult>(body, SerializerOptions)
                 ?? new DeezerAlbumSearchResult();
+    }
+
+    /// <inheritdoc />
+    public async Task<DeezerTrackPage?> GetPlaylistTracksAsync(
+        long playlistId,
+        int index,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (index < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), index, "A page starts at 0.");
+        }
+
+        var uri = $"playlist/{NormalizeId(playlistId, nameof(playlistId))}/tracks"
+            + $"?index={index.ToString(CultureInfo.InvariantCulture)}"
+            + $"&limit={Limit(limit, nameof(limit))}";
+
+        var body = await GetBodyAsync(uri, PlaylistTtl, cancellationToken).ConfigureAwait(false);
+
+        return body is null ? null : JsonSerializer.Deserialize<DeezerTrackPage>(body, SerializerOptions) ?? new DeezerTrackPage();
+    }
+
+    /// <inheritdoc />
+    public async Task<DeezerTrackPage?> GetArtistTopAsync(
+        long artistId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var uri = $"artist/{NormalizeId(artistId, nameof(artistId))}/top?limit={Limit(limit, nameof(limit))}";
+
+        var body = await GetBodyAsync(uri, ArtistTopTtl, cancellationToken).ConfigureAwait(false);
+
+        return body is null ? null : JsonSerializer.Deserialize<DeezerTrackPage>(body, SerializerOptions) ?? new DeezerTrackPage();
+    }
+
+    /// <inheritdoc />
+    public async Task<DeezerArtistSearchResult> SearchArtistsAsync(
+        string name,
+        int limit = 5,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        var uri = $"search/artist?q={Uri.EscapeDataString(name)}&limit={Limit(limit, nameof(limit))}";
+
+        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+
+        return body is null
+            ? new DeezerArtistSearchResult()
+            : JsonSerializer.Deserialize<DeezerArtistSearchResult>(body, SerializerOptions) ?? new DeezerArtistSearchResult();
     }
 
     /// <inheritdoc />
@@ -323,4 +411,10 @@ public sealed class DeezerClient : IDeezerClient
 
         return id;
     }
+
+    /// <summary>Checks the page size Deezer serves (1 to 100) and returns it.</summary>
+    private static int Limit(int limit, string parameterName) =>
+        limit is < 1 or > 100
+            ? throw new ArgumentOutOfRangeException(parameterName, limit, "Deezer serves between 1 and 100 items per request.")
+            : limit;
 }

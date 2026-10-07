@@ -31,6 +31,9 @@ public enum HistoryEventType
 
     /// <summary>Files were moved or renamed.</summary>
     Renamed,
+
+    /// <summary>A file was converted to another format on demand; the original went to the recycle bin.</summary>
+    Converted,
 }
 
 /// <summary>

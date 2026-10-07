@@ -1,4 +1,5 @@
 using Wondarr.Core.Domain;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Tests.Persistence;
@@ -279,6 +280,306 @@ public class LibraryServiceTests
 
         libraries.Select(library => library.IsDefault).Should().Equal(false, true);
         (await new LibraryService(readBack).GetDefaultAsync(CancellationToken.None))!.Name.Should().Be("Archive");
+    }
+
+    [Fact]
+    public async Task Creating_a_library_defaults_the_naming_template_from_its_layout()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var service = new LibraryService(context);
+
+        var created = await service.CreateAsync(new Library
+        {
+            Name = "Archive",
+            RootPath = "/data/archive",
+            Layout = LibraryLayout.ArtistAlbum,
+            AlbumPolicy = AlbumPolicy.OriginalAlbum,
+        }, CancellationToken.None);
+
+        created.Id.Should().BeGreaterThan(0);
+        created.NamingTemplate.Should().Be(NamingTemplate.PresetTemplates[LibraryLayout.ArtistAlbum]);
+        created.IsDefault.Should().BeFalse();
+
+        (await service.GetAsync(created.Id, CancellationToken.None))!.Name.Should().Be("Archive");
+    }
+
+    [Fact]
+    public async Task Creating_a_library_refuses_a_root_that_overlaps_another_library()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var service = new LibraryService(context);
+
+        // Inside, containing and equal are all refused; a sibling that shares a prefix is not.
+        foreach (var root in new[] { "/data/music/extra", "/data", "/data/music", "/data/music/" })
+        {
+            var act = async () => await service.CreateAsync(new Library
+            {
+                Name = "Second",
+                RootPath = root,
+                Layout = LibraryLayout.Flat,
+            }, CancellationToken.None);
+
+            var exception = await act.Should().ThrowAsync<ProfileValidationException>();
+            exception.Which.Errors.Should().Contain(error => error.Property == "rootPath");
+        }
+
+        var beside = await service.CreateAsync(new Library
+        {
+            Name = "Second",
+            RootPath = "/data/music2",
+            Layout = LibraryLayout.Flat,
+        }, CancellationToken.None);
+
+        beside.RootPath.Should().Be("/data/music2");
+    }
+
+    [Fact]
+    public async Task Creating_a_library_refuses_a_root_that_overlaps_a_reference_library()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            context.ReferenceLibraries.Add(new ReferenceLibrary
+            {
+                Name = "The old collection",
+                RootPath = "/data/reference",
+                Mode = ReferenceLibraryMode.Reference,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            var service = new LibraryService(context);
+
+            var act = async () => await service.CreateAsync(new Library
+            {
+                Name = "Second",
+                RootPath = "/data/reference/2020s",
+                Layout = LibraryLayout.Flat,
+            }, CancellationToken.None);
+
+            var exception = await act.Should().ThrowAsync<ProfileValidationException>();
+            exception.Which.Errors.Should().ContainSingle()
+                .Which.Property.Should().Be("rootPath");
+        }
+    }
+
+    [Fact]
+    public async Task Updating_a_library_refuses_a_root_that_overlaps_another_library()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            context.Libraries.Add(new Library
+            {
+                Name = "Archive",
+                RootPath = "/data/archive",
+                NamingTemplate = "{Album Artist Name}/{Album Title}/{track:00} - {Track Title}",
+                Layout = LibraryLayout.ArtistAlbum,
+                AlbumPolicy = AlbumPolicy.OriginalAlbum,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await using var edit = database.CreateContext(timeProvider);
+        var service = new LibraryService(edit);
+
+        var update = SeededLibrary();
+        update.RootPath = "/data/archive/live";
+
+        var act = async () => await service.UpdateAsync(update, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<ProfileValidationException>();
+        exception.Which.Errors.Should().ContainSingle()
+            .Which.Property.Should().Be("rootPath");
+    }
+
+    [Fact]
+    public async Task Changing_the_root_of_a_library_that_holds_files_is_refused()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            var artist = new Artist { Name = "Daft Punk", SortName = "Daft Punk", MbArtistId = "a1" };
+            context.Artists.Add(artist);
+            await context.SaveChangesAsync();
+
+            context.Songs.Add(new Song
+            {
+                Title = "Track 1",
+                ArtistCredit = "Daft Punk",
+                PrimaryArtistId = artist.Id,
+                MbRecordingId = "m-1",
+                QualityProfileId = SeedData.StandardProfileId,
+                LibraryId = SeedData.DefaultLibraryId,
+                AddedBy = "api",
+            });
+            await context.SaveChangesAsync();
+
+            context.SongFiles.Add(new SongFile
+            {
+                SongId = context.Songs.Single().Id,
+                Path = "/data/music/Daft Punk/01 - Track 1.flac",
+                Size = 30_000_000,
+                Codec = "flac",
+                Container = "flac",
+                QualityId = 36,
+                SourceType = "soulseek",
+                ImportedAt = new DateTime(2026, 9, 29, 12, 0, 0, DateTimeKind.Utc),
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await using var edit = database.CreateContext(timeProvider);
+        var service = new LibraryService(edit);
+
+        var update = SeededLibrary();
+        update.RootPath = "/data/elsewhere";
+
+        var act = async () => await service.UpdateAsync(update, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<ProfileValidationException>();
+        exception.Which.Errors.Should().ContainSingle()
+            .Which.Property.Should().Be("rootPath");
+
+        // A library whose songs have no files can be re-pointed.
+        await using (var clear = database.CreateContext(timeProvider))
+        {
+            clear.SongFiles.Remove(clear.SongFiles.Single());
+            await clear.SaveChangesAsync();
+        }
+
+        var moved = await service.UpdateAsync(update, CancellationToken.None);
+        moved.RootPath.Should().Be("/data/elsewhere");
+    }
+
+    [Fact]
+    public async Task Deleting_the_default_library_is_refused()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var service = new LibraryService(context);
+
+        var act = async () => await service.DeleteAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<ProfileValidationException>();
+        exception.Which.Errors.Should().ContainSingle()
+            .Which.Property.Should().Be("isDefault");
+
+        (await service.GetAllAsync(CancellationToken.None)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Deleting_a_library_that_holds_songs_or_an_import_list_files_into_is_refused()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        long secondId;
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            var second = new Library
+            {
+                Name = "Archive",
+                RootPath = "/data/archive",
+                NamingTemplate = "{Album Artist Name}/{Album Title}/{track:00} - {Track Title}",
+                Layout = LibraryLayout.ArtistAlbum,
+                AlbumPolicy = AlbumPolicy.OriginalAlbum,
+            };
+            context.Libraries.Add(second);
+            await context.SaveChangesAsync();
+            secondId = second.Id;
+
+            var artist = new Artist { Name = "Daft Punk", SortName = "Daft Punk", MbArtistId = "a1" };
+            context.Artists.Add(artist);
+            await context.SaveChangesAsync();
+
+            context.Songs.Add(new Song
+            {
+                Title = "Track 1",
+                ArtistCredit = "Daft Punk",
+                PrimaryArtistId = artist.Id,
+                MbRecordingId = "m-1",
+                QualityProfileId = SeedData.StandardProfileId,
+                LibraryId = secondId,
+                AddedBy = "api",
+            });
+            context.ImportLists.Add(new ImportList
+            {
+                Name = "The list",
+                LibraryId = secondId,
+                QualityProfileId = SeedData.StandardProfileId,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await using var context2 = database.CreateContext(timeProvider);
+        var service = new LibraryService(context2);
+
+        var act = async () => await service.DeleteAsync(secondId, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<ProfileValidationException>();
+        exception.Which.Errors.Select(error => error.Property).Should().Equal("songs", "importLists");
+        exception.Which.Errors[0].Message.Should().Contain("1 song");
+        exception.Which.Errors[1].Message.Should().Contain("The list");
+
+        (await service.GetAsync(secondId, CancellationToken.None)).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Deleting_an_empty_library_removes_it()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        long secondId;
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            var second = new Library
+            {
+                Name = "Archive",
+                RootPath = "/data/archive",
+                NamingTemplate = "{Album Artist Name}/{Album Title}/{track:00} - {Track Title}",
+                Layout = LibraryLayout.ArtistAlbum,
+                AlbumPolicy = AlbumPolicy.OriginalAlbum,
+            };
+            context.Libraries.Add(second);
+            await context.SaveChangesAsync();
+            secondId = second.Id;
+        }
+
+        await using var context2 = database.CreateContext(timeProvider);
+        var service = new LibraryService(context2);
+
+        await service.DeleteAsync(secondId, CancellationToken.None);
+
+        (await service.GetAsync(secondId, CancellationToken.None)).Should().BeNull();
+        (await service.GetAllAsync(CancellationToken.None)).Should().ContainSingle();
     }
 
     /// <summary>The seeded library with its stored values, ready to be edited.</summary>
