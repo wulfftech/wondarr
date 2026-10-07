@@ -12,6 +12,9 @@ public sealed record FakeSlskdOptions
     /// <summary>Where the InnerTube stub listens unless the environment says otherwise.</summary>
     public const int DefaultInnertubePort = 5032;
 
+    /// <summary>The loopback port of the fake Plex Media Server (and plex.tv) when <c>FAKE_PLEX_PORT</c> is not set.</summary>
+    public const int DefaultPlexPort = 5033;
+
     /// <summary>The app's rendered slskd configuration.</summary>
     public required SlskdConfiguration Configuration { get; init; }
 
@@ -23,6 +26,9 @@ public sealed record FakeSlskdOptions
 
     /// <summary>The port the InnerTube stub listens on, on loopback only.</summary>
     public int InnertubePort { get; init; } = DefaultInnertubePort;
+
+    /// <summary>Gets the loopback port the fake Plex listens on.</summary>
+    public int PlexPort { get; init; } = DefaultPlexPort;
 
     /// <summary>The directory of recorded InnerTube responses the stub answers from.</summary>
     public string? InnertubeFixtureDir { get; init; }
@@ -74,6 +80,7 @@ public sealed record FakeSlskdOptions
             Scenario = Scenario.Load(Environment.GetEnvironmentVariable("FAKE_SLSKD_SCENARIO")),
             AcoustIdPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_ACOUSTID_PORT"), DefaultAcoustIdPort),
             InnertubePort = ReadPort(Environment.GetEnvironmentVariable("FAKE_INNERTUBE_PORT"), DefaultInnertubePort),
+            PlexPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_PLEX_PORT"), DefaultPlexPort),
             InnertubeFixtureDir = Environment.GetEnvironmentVariable("FAKE_INNERTUBE_FIXTURES"),
             YouTubeScenarioPath = Environment.GetEnvironmentVariable("FAKE_YT_SCENARIO"),
             ShareCachePath = string.IsNullOrWhiteSpace(appDirectory) ? null : Path.Combine(appDirectory, "fake-share-cache.json"),
