@@ -128,6 +128,7 @@ public class CompactExecutorTests : IDisposable
             _plex,
             _updater,
             _timeProvider,
+            new SongFileLock(),
             NullLogger<CompactExecutor>.Instance);
     }
 
@@ -586,6 +587,90 @@ public class CompactExecutorTests : IDisposable
         var run = async () => await handler.ExecuteAsync(command, CancellationToken.None);
 
         await run.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task A_move_whose_songs_file_changed_since_the_plan_fails_and_moves_nothing()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        Plan(context, [song]);
+
+        // The song's file was replaced after the plan was made.
+        var file = await context.SongFiles.SingleAsync(candidate => candidate.SongId == song);
+        file.Path = Path.Combine(_root, "Daft Punk", "Elsewhere.flac");
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Should().Be(new CompactResult(0, 0, 1, 0));
+
+        var row = await context.CompactMoves.SingleAsync();
+        row.State.Should().Be(CompactMoveState.Failed);
+        row.Message.Should().Be("the song's file changed since the plan");
+        row.StagedPath.Should().BeNull();
+
+        File.Exists(Path.Combine(_root, "Daft Punk", "Single 1", "01 - Track 1.flac")).Should().BeTrue();
+        Directory.Exists(Path.Combine(_root, ".wondarr-compact")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_move_whose_song_is_being_imported_fails_and_moves_nothing()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        Plan(context, [song]);
+
+        var run = new SearchRun
+        {
+            SongId = song,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = _timeProvider.GetUtcNow().UtcDateTime,
+        };
+
+        context.SearchRuns.Add(run);
+        await context.SaveChangesAsync();
+
+        var candidate = new CandidateRecord
+        {
+            SearchRunId = run.Id,
+            SongId = song,
+            SourceType = SourceTypes.Soulseek,
+            BlocklistKey = "peer\u001fMusic\\inflight.flac",
+            DisplayName = "inflight.flac",
+            RemotePath = "Music\\inflight.flac",
+            Provider = "peer",
+        };
+
+        context.Candidates.Add(candidate);
+        await context.SaveChangesAsync();
+
+        context.QueueItems.Add(new QueueItem
+        {
+            SongId = song,
+            CandidateId = candidate.Id,
+            SearchRunId = run.Id,
+            SourceType = SourceTypes.Soulseek,
+            Destination = $"wondarr/{run.Id}",
+            State = QueueItemState.Importing,
+            Attempt = 1,
+        });
+
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Should().Be(new CompactResult(0, 0, 1, 0));
+
+        var row = await context.CompactMoves.SingleAsync();
+        row.State.Should().Be(CompactMoveState.Failed);
+        row.Message.Should().Be("the song is being imported");
+        row.StagedPath.Should().BeNull();
+
+        File.Exists(Path.Combine(_root, "Daft Punk", "Single 1", "01 - Track 1.flac")).Should().BeTrue();
+        Directory.Exists(Path.Combine(_root, ".wondarr-compact")).Should().BeFalse();
     }
 
     /// <summary>Deletes this test's temp database and folders.</summary>

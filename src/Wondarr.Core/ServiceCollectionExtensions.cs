@@ -137,6 +137,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRecycleBin, RecycleBin>();
         services.AddSingleton<IFilePlacer, FilePlacer>();
 
+        // The per-song file guard between imports and compaction: one process-wide instance, so
+        // every import and every compaction stage step of the process shares it.
+        services.AddSingleton<ISongFileLock, SongFileLock>();
+
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
