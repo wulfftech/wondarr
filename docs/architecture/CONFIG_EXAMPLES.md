@@ -72,6 +72,10 @@ sources:
     api_key: "<prowlarr key>"
     download_client: qbittorrent
     partial_download: true
+search:                                     # the scheduled search loops (§5.5)
+  upgrade_interval_hours: 24                # the Cutoff Unmet loop
+  upgrade_batch_size: 50                    # songs per run, to be polite to the network
+  search_on_add: true                       # queue a SongSearch the moment a song is added
 libraries:
   - name: Plexamp
     root: /data/music
