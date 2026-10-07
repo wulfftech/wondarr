@@ -152,7 +152,9 @@ The scheduler must survive restarts (state in DB), run jobs with concurrency lim
 Conventions mirror the *arrs: `X-Api-Key` header (also `?apikey=`), JSON, `/api/v1`, pagination via `page`/`pageSize`/`sortKey`/`sortDirection`, and a `/api/v1/system/status` endpoint that dashboards (Homarr/Homepage) and Notifiarr-style tools can probe.
 
 ```
-GET    /api/v1/system/status | /health | /log
+GET    /api/v1/system/status | /health | /system/task
+GET    /api/v1/log?page=&pageSize=&level=&filter=   (the app's own log, newest first; `X-Wondarr-Log-Truncated: true` when the scan stopped at its 10 MB bound)
+GET    /api/v1/log/file   GET /api/v1/log/file/{name}   (text/plain)
 GET    /api/v1/system/backup  | POST /api/v1/system/backup  DELETE /api/v1/system/backup/{id}
 GET    /api/v1/system/backup/{id}/download
 POST   /api/v1/system/backup/restore/{id} | /restore/upload   (stage the restore; answered `restartRequired`, applied on the next start)
