@@ -45,8 +45,12 @@ public sealed class ImportListServiceTests : IDisposable
         var csv = async () => await service.CreateAsync(Draft(ImportList.CsvType), CancellationToken.None);
         (await csv.Should().ThrowAsync<ImportListValidationException>()).Which.Detail.Should().Contain("Upload a CSV file");
 
-        var list = await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "mirror" }, CancellationToken.None);
-        list.Policy.Should().Be("Mirror");
+        // Only "add only" until the sync applies the other policies.
+        var mirror = async () => await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "Mirror" }, CancellationToken.None);
+        (await mirror.Should().ThrowAsync<ImportListValidationException>()).Which.Field.Should().Be("policy");
+
+        var list = await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "addonly" }, CancellationToken.None);
+        list.Policy.Should().Be("AddOnly");
         list.LibraryId.Should().Be(SeedData.DefaultLibraryId);
         list.QualityProfileId.Should().Be(SeedData.StandardProfileId);
     }
