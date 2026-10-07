@@ -123,10 +123,11 @@ public sealed class TaskController : ControllerBase
     {
         var duration = endedAt - startedAt;
 
-        // A clock that ran backwards between the two stamps reports no time at all.
+        // A clock that ran backwards between the two stamps reports no time at all; whole seconds, as
+        // the *arrs show it (the raw value carried seven decimals: 00:00:01.8914309).
         return duration < TimeSpan.Zero
             ? UnknownDuration
-            : duration.ToString("c", CultureInfo.InvariantCulture);
+            : TimeSpan.FromSeconds(Math.Floor(duration.TotalSeconds)).ToString("c", CultureInfo.InvariantCulture);
     }
 }
 
