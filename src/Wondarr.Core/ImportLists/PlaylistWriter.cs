@@ -219,8 +219,9 @@ public sealed partial class PlaylistWriter : IPlaylistWriter
 
             builder.Append(CultureInfo.InvariantCulture, $"#EXTINF:{seconds},{song.ArtistCredit} - {song.Title}\n");
 
-            // Relative to the playlist's own folder, with forward slashes, which every player reads.
-            builder.Append(Path.GetRelativePath(folder, file.Path).Replace('\\', '/')).Append('\n');
+            // Relative to the playlist's own folder, with forward slashes, which every player reads;
+            // a file on another drive (another library) keeps its full path.
+            builder.Append(PlaylistPath(folder, file.Path)).Append('\n');
         }
 
         try
@@ -380,6 +381,18 @@ public sealed partial class PlaylistWriter : IPlaylistWriter
         item.PlexRatingKeyPath = match is null ? null : file.Path;
 
         return match?.RatingKey;
+    }
+
+    private static string PlaylistPath(string folder, string file)
+    {
+        try
+        {
+            return Path.GetRelativePath(folder, file).Replace('\\', '/');
+        }
+        catch (ArgumentException)
+        {
+            return file.Replace('\\', '/');
+        }
     }
 
     private static bool SamePath(string plexPath, string serverPath) =>

@@ -32,8 +32,8 @@ public sealed record ImportListDraft(
     long? LibraryId,
     bool Enabled = true,
     int SyncIntervalHours = 24,
-    bool PlexPlaylist = false,
-    bool M3uExport = false);
+    bool? PlexPlaylist = null,
+    bool? M3uExport = null);
 
 /// <summary>A list with the counts of its items, as the list screens show it.</summary>
 /// <param name="List">The list.</param>
@@ -427,6 +427,8 @@ public sealed partial class ImportListService : IImportListService
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        var written = 0;
+
         foreach (var id in ids)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -434,10 +436,11 @@ public sealed partial class ImportListService : IImportListService
             if (await _playlists.WriteAsync(id, cancellationToken).ConfigureAwait(false) is { } result)
             {
                 LogPlaylistsWritten(_logger, id, result);
+                written++;
             }
         }
 
-        return ids.Count;
+        return written;
     }
 
     private static ImportListView View(ImportList list, Dictionary<long, Counts> counts) =>
@@ -553,8 +556,9 @@ public sealed partial class ImportListService : IImportListService
         list.Policy = NormalisePolicy(draft.Policy);
         list.Enabled = draft.Enabled;
         list.SyncIntervalHours = draft.SyncIntervalHours;
-        list.PlexPlaylist = draft.PlexPlaylist;
-        list.M3uExport = draft.M3uExport;
+        // Left out of an update, the playlist outputs keep what they were.
+        list.PlexPlaylist = draft.PlexPlaylist ?? list.PlexPlaylist;
+        list.M3uExport = draft.M3uExport ?? list.M3uExport;
         list.QualityProfileId = await ProfileIdAsync(draft.QualityProfileId, cancellationToken).ConfigureAwait(false);
         list.LibraryId = await LibraryIdAsync(draft.LibraryId, cancellationToken).ConfigureAwait(false);
     }
@@ -705,35 +709,43 @@ public sealed partial class ImportListService : IImportListService
         var unmonitored = 0;
         var deleted = 0;
 
-        foreach (var songId in songIds)
+        // Three lookups for the whole batch, not three per song: a list whose source rotated can
+        // drop hundreds of songs at once.
+        var songs = await _database.Songs
+            .Include(candidate => candidate.File)
+            .Where(candidate => songIds.Contains(candidate.Id) && candidate.AddedBy == addedBy)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var wantedElsewhere = (await _database.ImportListItems
+                .AsNoTracking()
+                .Where(item => item.SongId != null && songIds.Contains(item.SongId.Value) && item.RemovedAt == null)
+                .Select(item => item.SongId!.Value)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false))
+            .ToHashSet();
+
+        var queued = (await _database.QueueItems
+                .AsNoTracking()
+                .Where(item => songIds.Contains(item.SongId)
+                    && item.State != QueueItemState.Imported
+                    && item.State != QueueItemState.Failed
+                    && item.State != QueueItemState.Cancelled)
+                .Select(item => item.SongId)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false))
+            .ToHashSet();
+
+        foreach (var song in songs)
         {
-            var song = await _database.Songs
-                .Include(candidate => candidate.File)
-                .FirstOrDefaultAsync(candidate => candidate.Id == songId, cancellationToken)
-                .ConfigureAwait(false);
+            var songId = song.Id;
 
-            if (song is null || !string.Equals(song.AddedBy, addedBy, StringComparison.Ordinal))
+            if (wantedElsewhere.Contains(songId))
             {
                 continue;
             }
 
-            var wantedElsewhere = await _database.ImportListItems
-                .AnyAsync(item => item.SongId == songId && item.RemovedAt == null, cancellationToken)
-                .ConfigureAwait(false);
-
-            if (wantedElsewhere)
-            {
-                continue;
-            }
-
-            var inQueue = await _database.QueueItems
-                .AnyAsync(
-                    item => item.SongId == songId
-                        && item.State != QueueItemState.Imported
-                        && item.State != QueueItemState.Failed
-                        && item.State != QueueItemState.Cancelled,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            var inQueue = queued.Contains(songId);
 
             if (list.Policy == MirrorPolicy && song.File is null && !inQueue)
             {
