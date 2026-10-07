@@ -47,17 +47,34 @@ public class SlskdDownloadFolderHealthCheckTests : IDisposable
         Directory.Exists(folder).Should().BeFalse("the check must not create what it is checking");
     }
 
-    
     [Fact]
-    public async Task External_mode_is_ok_because_Wondarr_owns_the_folder()
+    public async Task External_mode_still_checks_the_folder_where_Wondarr_sees_the_downloads()
     {
-        var options = Options(Path.Combine(_root, "downloads"));
+        // Wondarr moves completed files out of downloads_dir, so it must exist and be writable even
+        // when the slskd writing into it is the user's own.
+        var folder = Path.Combine(_root, "downloads");
+        Directory.CreateDirectory(folder);
+        var options = Options(folder);
         options.Mode = SoulseekMode.External;
 
         var result = await CheckAsync(options);
 
         result.Type.Should().Be(HealthCheckResult.Ok);
-        result.Message.Should().Be("External slskd mode (checked in Phase 5)");
+        result.Message.Should().Be($"{folder} (the folder where Wondarr sees slskd's downloads) is writable");
+    }
+
+    [Fact]
+    public async Task External_mode_still_errors_when_that_folder_is_missing()
+    {
+        var folder = Path.Combine(_root, "downloads");
+        var options = Options(folder);
+        options.Mode = SoulseekMode.External;
+
+        var result = await CheckAsync(options);
+
+        result.Type.Should().Be(HealthCheckResult.Error);
+        result.Message.Should().Be(
+            $"{folder} (the folder where Wondarr sees slskd's downloads) does not exist");
     }
 
     public void Dispose()
@@ -139,7 +156,7 @@ public class SoulseekSharingHealthCheckTests : IDisposable
         var result = await CheckAsync(options);
 
         result.Type.Should().Be(HealthCheckResult.Ok);
-        result.Message.Should().Be("External slskd mode (checked in Phase 5)");
+        result.Message.Should().Be("External slskd mode: the user's slskd owns its shares");
     }
 
     public void Dispose()

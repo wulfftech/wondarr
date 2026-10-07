@@ -26,6 +26,12 @@ public enum SlskdState
 
     /// <summary>The supervisor stopped the process because the host is shutting down.</summary>
     Stopped,
+
+    /// <summary>
+    /// External mode: Wondarr does not own the process; <c>IsReachable</c>/<c>IsLoggedIn</c> come from
+    /// polling the user's slskd (<see cref="SlskdExternalMonitor"/>).
+    /// </summary>
+    External,
 }
 
 /// <summary>

@@ -52,14 +52,29 @@ public class SlskdClientTests
             .Which.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task External_mode_sends_to_the_configured_url_with_the_configured_key()
+    {
+        var handler = StubHttpMessageHandler.Ok(SlskdTestData.ReadFixture("application-logged-in.json"));
+        var endpoint = new StubSlskdEndpoint(new Uri("http://slskd.example:5030/"), "external-key-0123456789");
+
+        await new SlskdClient(new HttpClient(handler), endpoint)
+            .GetApplicationStateAsync(CancellationToken.None);
+
+        handler.Requests.Should().ContainSingle();
+        handler.Requests[0].RequestUri!.ToString().Should().Be("http://slskd.example:5030/api/v0/application");
+        handler.Requests[0].Headers.GetValues(SlskdClient.ApiKeyHeader)
+            .Should().ContainSingle().Which.Should().Be("external-key-0123456789");
+    }
+
     private static SlskdClient Client(StubHttpMessageHandler handler)
     {
         var http = new HttpClient(handler);
-        var secrets = new SlskdSecretsStore(
-            SlskdTestData.RepositoryWithRuntimeSecrets(),
-            Substitute.For<ISecretRegistry>(),
-            SlskdTestData.Monitor(new SoulseekOptions()));
 
-        return new SlskdClient(http, SlskdTestData.Monitor(new SoulseekOptions()), secrets);
+        return new SlskdClient(http, BundledEndpoint());
     }
+
+    /// <summary>The bundled endpoint: loopback and the generated key, as the real one resolves it.</summary>
+    internal static StubSlskdEndpoint BundledEndpoint() =>
+        new(new Uri("http://127.0.0.1:5030/"), SlskdTestData.Secrets.ApiKey);
 }
