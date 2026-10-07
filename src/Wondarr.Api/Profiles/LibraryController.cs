@@ -5,9 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Wondarr.Api.Profiles;
 
 /// <summary>
-/// The libraries songs are filed in. Libraries are seeded and edited, never created or deleted here
-/// (P1-08 is out of scope for that), so the endpoint is list, read and update. The rules live in
-/// <see cref="ILibraryService"/>.
+/// The libraries songs are filed in. Libraries are listed, read, created, edited and deleted; the
+/// rules live in <see cref="ILibraryService"/>.
 /// </summary>
 [ApiController]
 [Route("api/v1/library")]
@@ -70,6 +69,70 @@ public sealed class LibraryController : ControllerBase
         catch (KeyNotFoundException)
         {
             return NotFound();
+        }
+    }
+
+    /// <summary>Creates a library.</summary>
+    /// <param name="resource">The new library's values; the body's <c>id</c> is ignored.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>201 and the stored library; 400 when the library is not valid.</returns>
+    [HttpPost]
+    [Consumes("application/json")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(LibraryResource), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<LibraryResource>> CreateLibrary(
+        [FromBody] LibraryResource resource,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var created = await _libraries
+                .CreateAsync(resource.ToLibrary(0), cancellationToken)
+                .ConfigureAwait(false);
+
+            return CreatedAtAction(nameof(GetLibrary), new { id = created.Id }, created.ToResource());
+        }
+        catch (ProfileValidationException exception)
+        {
+            foreach (var (property, message) in exception.Errors)
+            {
+                ModelState.AddModelError(property, message);
+            }
+
+            return ValidationProblem(ModelState);
+        }
+    }
+
+    /// <summary>Deletes a library that holds nothing and nothing files into.</summary>
+    /// <param name="id">The library id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>200; 400 naming the field that refuses, or 404 when the id is unknown.</returns>
+    [HttpDelete("{id:long}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteLibrary(long id, CancellationToken cancellationToken)
+    {
+        if (await _libraries.GetAsync(id, cancellationToken).ConfigureAwait(false) is null)
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            await _libraries.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+            return Ok();
+        }
+        catch (ProfileValidationException exception)
+        {
+            foreach (var (property, message) in exception.Errors)
+            {
+                ModelState.AddModelError(property, message);
+            }
+
+            return ValidationProblem(ModelState);
         }
     }
 

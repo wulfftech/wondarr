@@ -297,6 +297,133 @@ public sealed class LibraryApiTests
         updated.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Creating_a_library_answers_201_and_the_list_holds_two()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = new JsonObject
+        {
+            ["name"] = "Archive",
+            ["rootPath"] = "/data/archive",
+            ["layout"] = "artistAlbum",
+            ["namingTemplate"] = "{Album Artist Name}/{Album Title}/{track:00} - {Track Title}",
+            ["sidecarOptions"] = new JsonObject(),
+            ["outputPolicy"] = null,
+            ["albumPolicy"] = "originalAlbum",
+            ["minTracksPerRealAlbum"] = 2,
+            ["plexSectionId"] = null,
+            ["plexLibraryPath"] = null,
+            ["isDefault"] = false,
+        };
+
+        using var created = await client.PostAsync(
+            new Uri(LibrariesEndpoint, UriKind.Relative),
+            JsonContent(library));
+
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
+
+        var returned = (JsonObject)(await ReadJsonAsync(created))!;
+        returned["name"]!.GetValue<string>().Should().Be("Archive");
+        returned["id"]!.GetValue<long>().Should().BeGreaterThan(1);
+
+        using var list = await client.GetAsync(new Uri(LibrariesEndpoint, UriKind.Relative));
+        var libraries = (JsonArray)(await ReadJsonAsync(list))!;
+        libraries.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Creating_a_library_that_overlaps_the_default_is_a_bad_request()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = new JsonObject
+        {
+            ["name"] = "Inside",
+            ["rootPath"] = "/data/music/inside",
+            ["layout"] = "flat",
+            ["namingTemplate"] = "{Artist Name} - {Track Title}",
+            ["sidecarOptions"] = new JsonObject(),
+            ["albumPolicy"] = "fewestAlbums",
+            ["minTracksPerRealAlbum"] = 2,
+            ["isDefault"] = false,
+        };
+
+        using var created = await client.PostAsync(
+            new Uri(LibrariesEndpoint, UriKind.Relative),
+            JsonContent(library));
+
+        created.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ValidationErrorsAsync(created)).Should().ContainKey("rootPath");
+    }
+
+    [Fact]
+    public async Task Deleting_the_default_library_is_a_bad_request()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        using var deleted = await client.DeleteAsync(new Uri($"{LibrariesEndpoint}/1", UriKind.Relative));
+
+        deleted.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ValidationErrorsAsync(deleted)).Should().ContainKey("isDefault");
+
+        using var unknown = await client.DeleteAsync(new Uri($"{LibrariesEndpoint}/987654", UriKind.Relative));
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Moving_songs_is_accepted()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var response = await MoveAsync(client, new JsonObject { ["songIds"] = new JsonArray(1), ["libraryId"] = 1 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        var accepted = (JsonObject)(await ReadJsonAsync(response))!;
+        accepted["commandId"]!.GetValue<long>().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Moving_songs_to_an_unknown_library_is_a_bad_request()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        using var response = await MoveAsync(client, new JsonObject { ["songIds"] = new JsonArray(1), ["libraryId"] = 987_654 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("libraryId");
+    }
+
+    [Fact]
+    public async Task Moving_no_songs_is_a_bad_request()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        using var empty = await MoveAsync(client, new JsonObject { ["songIds"] = new JsonArray(), ["libraryId"] = 1 });
+        empty.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await empty.Content.ReadAsStringAsync()).Should().Contain("songIds");
+
+        using var none = await MoveAsync(client, new JsonObject { ["libraryId"] = 1 });
+        none.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    /// <summary>Posts a move request and returns the response without disposing it.</summary>
+    private static async Task<HttpResponseMessage> MoveAsync(HttpClient client, JsonNode body)
+    {
+        var response = await client.PostAsync(
+            new Uri("/api/v1/song/move", UriKind.Relative),
+            JsonContent(body));
+
+        return response;
+    }
+
     private static HttpClient Authenticated(WondarrAppFactory factory)
     {
         var client = factory.CreateClient();
