@@ -158,12 +158,60 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
         var id = NormalizeMbid(releaseId, nameof(releaseId));
 
         var body = await GetBodyAsync(
-                $"release/{id}?inc=recordings+artist-credits+release-groups&fmt=json",
+                $"release/{id}?inc=recordings+artist-credits+release-groups+isrcs&fmt=json",
                 ReleaseTtl,
                 cancellationToken)
             .ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<MbRelease>(body, SerializerOptions);
+    }
+
+    /// <inheritdoc />
+    public async Task<MbReleaseGroupSearchResult> SearchReleaseGroupsAsync(
+        string luceneQuery,
+        int limit = 25,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(luceneQuery);
+
+        if (limit is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(limit),
+                limit,
+                "MusicBrainz serves between 1 and 100 search results per request.");
+        }
+
+        var uri = $"release-group?query={Uri.EscapeDataString(luceneQuery)}"
+            + $"&limit={limit.ToString(CultureInfo.InvariantCulture)}&fmt=json";
+
+        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+
+        return body is null
+            ? new MbReleaseGroupSearchResult()
+            : JsonSerializer.Deserialize<MbReleaseGroupSearchResult>(body, SerializerOptions)
+                ?? new MbReleaseGroupSearchResult();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<MbRelease>> GetReleasesForReleaseGroupAsync(
+        string releaseGroupId,
+        CancellationToken cancellationToken = default)
+    {
+        var id = NormalizeMbid(releaseGroupId, nameof(releaseGroupId));
+
+        var body = await GetBodyAsync(
+                $"release?release-group={id}&status=official&inc=media&limit=100&fmt=json",
+                LookupTtl,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (body is null)
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<MbReleaseBrowsePage>(body, SerializerOptions)?.Releases ?? [];
     }
 
     /// <summary>

@@ -43,4 +43,28 @@ public static class MusicBrainzQuery
 
         return $"recording:\"{Escape(title)}\" AND artist:\"{Escape(artist)}\"";
     }
+
+    /// <summary>
+    /// Builds the album search query from what the user typed. <c>Queen - A Night at the Opera</c>
+    /// becomes a "this album, by this artist" query; anything else is searched as a release-group
+    /// phrase, with the plain text as the fallback so a single word still matches.
+    /// </summary>
+    /// <param name="term">The raw search term.</param>
+    /// <returns>The Lucene query.</returns>
+    public static string ReleaseGroupByTerm(string term)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(term);
+
+        var separator = term.IndexOf(" - ", StringComparison.Ordinal);
+
+        if (separator > 0 && separator < term.Length - 3)
+        {
+            var artist = term[..separator].Trim();
+            var title = term[(separator + 3)..].Trim();
+
+            return $"releasegroup:\"{Escape(title)}\" AND artist:\"{Escape(artist)}\"";
+        }
+
+        return $"releasegroup:\"{Escape(term)}\" OR {Escape(term)}";
+    }
 }
