@@ -57,10 +57,15 @@ public sealed class SongFileLock : ISongFileLock
     /// <inheritdoc />
     public async ValueTask<IAsyncDisposable> AcquireAsync(long songId, CancellationToken cancellationToken)
     {
-        var entry = _entries.GetOrAdd(songId, _ => new Entry());
+        Entry entry;
 
+        // Found (or added) and counted in one step: looked up outside the lock, an entry could be
+        // dropped by its last holder between the lookup and the count, and a later caller would then
+        // get a fresh entry — two holders of the same song's lock.
         lock (_gate)
         {
+            entry = _entries.GetOrAdd(songId, _ => new Entry());
+
             // Counted before the wait: while this waiter exists, the entry cannot be dropped.
             entry.References++;
         }

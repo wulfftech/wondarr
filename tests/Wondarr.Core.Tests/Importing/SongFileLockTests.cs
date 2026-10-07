@@ -66,4 +66,36 @@ public sealed class SongFileLockTests
 
         songLock.EntryCount.Should().Be(0);
     }
+
+    [Fact]
+    public async Task Never_two_holders_under_contention()
+    {
+        // A sanity check under contention. The specific interleaving that once allowed two holders (the
+        // last holder dropping the entry between a newcomer's lookup and its count) is too narrow to
+        // hit by chance; it is closed by construction — the lookup and the count share one lock.
+        var songLock = new SongFileLock();
+        var inside = 0;
+        var overlaps = 0;
+
+        async Task WorkAsync()
+        {
+            for (var round = 0; round < 2000; round++)
+            {
+                await using (await songLock.AcquireAsync(7, CancellationToken.None))
+                {
+                    if (Interlocked.Increment(ref inside) > 1)
+                    {
+                        Interlocked.Increment(ref overlaps);
+                    }
+
+                    Interlocked.Decrement(ref inside);
+                }
+            }
+        }
+
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(WorkAsync)));
+
+        overlaps.Should().Be(0);
+        songLock.EntryCount.Should().Be(0);
+    }
 }
