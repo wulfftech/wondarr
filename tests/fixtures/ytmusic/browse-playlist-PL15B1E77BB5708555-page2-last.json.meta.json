@@ -1,0 +1,6 @@
+{
+  "request": "POST https://music.youtube.com/youtubei/v1/browse?alt=json (WEB_REMIX, continuation = the token from page 1)",
+  "status": 200,
+  "captured": "2026-10-07",
+  "note": "Recorded live, then trimmed to its first 2 rows and WITHOUT the trailing continuationItemRenderer, so it reads as the last page. A continuation answer has no contents: its rows are in onResponseReceivedActions[0].appendContinuationItemsAction.continuationItems."
+}
