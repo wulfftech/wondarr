@@ -88,6 +88,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The scripted transcoder, which hands files straight back unless a test says otherwise.</summary>
     public FakeTranscoder Transcoder { get; private init; } = null!;
 
+    /// <summary>The scripted probe, which answers with a decodable FLAC unless a test says otherwise.</summary>
+    public FakeMediaProbe Probe { get; private init; } = null!;
+
     /// <summary>The scripted tag writer.</summary>
     public FakeTagWriter TagWriter { get; private init; } = null!;
 
@@ -127,6 +130,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
 
         var verifier = new FakeDownloadVerifier();
         var transcoder = new FakeTranscoder();
+        var probe = new FakeMediaProbe();
         var tagWriter = new FakeTagWriter();
         var placer = new FakeFilePlacer();
         var covers = new FakeCoverFetcher();
@@ -147,6 +151,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<ICoverImageProcessor>(coverProcessor);
         services.AddSingleton<IDownloadVerifier>(verifier);
         services.AddSingleton<ITranscoder>(transcoder);
+        services.AddSingleton<IMediaProbe>(probe);
         services.AddSingleton<ITagWriter>(tagWriter);
         services.AddSingleton<IFilePlacer>(placer);
         services.AddSingleton<ICoverFetcher>(covers);
@@ -171,6 +176,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
             Options = options,
             Verifier = verifier,
             Transcoder = transcoder,
+            Probe = probe,
             TagWriter = tagWriter,
             Placer = placer,
             Covers = covers,
@@ -611,16 +617,17 @@ internal sealed class FakeTranscoder : ITranscoder
     public Exception? Failure { get; set; }
 
     /// <summary>Every transcode the import asked for.</summary>
-    public List<(string SourcePath, OutputPolicy Policy, string DestinationPath)> Requests { get; } = [];
+    public List<(string SourcePath, OutputPolicy Policy, string DestinationPath, bool SourceIsLossless)> Requests { get; } = [];
 
     /// <inheritdoc />
     public Task<TranscodeResult> TranscodeAsync(
         string sourcePath,
         OutputPolicy policy,
         string destinationPath,
+        bool sourceIsLossless,
         CancellationToken cancellationToken)
     {
-        Requests.Add((sourcePath, policy, destinationPath));
+        Requests.Add((sourcePath, policy, destinationPath, sourceIsLossless));
 
         if (Failure is { } failure)
         {
@@ -636,6 +643,27 @@ internal sealed class FakeTranscoder : ITranscoder
         File.Copy(sourcePath, destinationPath);
 
         return Task.FromResult(new TranscodeResult(destinationPath, policy.Container));
+    }
+}
+
+/// <summary>A probe that records what it was asked and answers with one scripted result.</summary>
+internal sealed class FakeMediaProbe : IMediaProbe
+{
+    /// <summary>The answer every call returns; a decodable FLAC unless a test says otherwise.</summary>
+    public MediaProbeResult Result { get; set; } = new(true, Flac(), null);
+
+    /// <summary>Every file the probe was asked about.</summary>
+    public List<string> Requests { get; } = [];
+
+    /// <summary>A lossless FLAC, 44.1 kHz 16-bit, as ffprobe would have measured it.</summary>
+    public static MediaInfo Flac() => new("flac", "flac", 1000, 44_100, 16, 2, 369_000, true, 30_000_000);
+
+    /// <inheritdoc />
+    public Task<MediaProbeResult> ProbeAsync(string path, CancellationToken cancellationToken)
+    {
+        Requests.Add(path);
+
+        return Task.FromResult(Result);
     }
 }
 

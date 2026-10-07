@@ -83,7 +83,7 @@ function toNumber(value: number | string): number {
 }
 
 /** The output policy's codec, as the library API's JSON carries it. */
-type PolicyCodec = 'keep-opus' | 'aac' | 'mp3';
+type PolicyCodec = 'keep' | 'aac' | 'mp3';
 
 /** The output policy's mode, as the library API's JSON carries it. */
 type PolicyMode = 'cbr' | 'vbr';
@@ -105,7 +105,13 @@ function policyState(policy: YouTubeSettingsResource['outputPolicy']): PolicySta
   const sampleRate = typeof source.sampleRate === 'string' ? source.sampleRate : '';
 
   return {
-    codec: codec === 'aac' || codec === 'mp3' || codec === 'keep-opus' ? codec : 'aac',
+    // 'keepOpus' (and the 'keep-opus' an earlier page sent) are the old spellings of 'keep'.
+    codec:
+      codec === 'aac' || codec === 'mp3'
+        ? codec
+        : codec === 'keep' || codec === 'keepOpus' || codec === 'keep-opus'
+          ? 'keep'
+          : 'aac',
     mode: mode === 'cbr' || mode === 'vbr' ? mode : 'cbr',
     bitrateKbps: typeof source.bitrateKbps === 'number' ? source.bitrateKbps : 256,
     vbrQuality: typeof source.vbrQuality === 'number' ? source.vbrQuality : 0,
@@ -338,13 +344,13 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
             data={[
               { value: 'aac', label: 'AAC' },
               { value: 'mp3', label: 'MP3' },
-              { value: 'keep-opus', label: 'Keep Opus' },
+              { value: 'keep', label: 'Keep Opus' },
             ]}
             value={policy.codec}
             onChange={(value) => setPolicy((state) => ({ ...state, codec: value }))}
           />
 
-          {policy.codec !== 'keep-opus' && (
+          {policy.codec !== 'keep' && (
             <>
               <SegmentedControl
                 aria-label="Output mode"
