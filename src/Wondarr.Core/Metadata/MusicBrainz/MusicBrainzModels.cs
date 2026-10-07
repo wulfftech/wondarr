@@ -111,6 +111,12 @@ public sealed record MbReleaseGroup
 
     /// <summary>Gets the first release date of the group.</summary>
     public string? FirstReleaseDate { get; init; }
+
+    /// <summary>Gets the credited artist, as returned by a release-group search.</summary>
+    public IReadOnlyList<MbArtistCredit> ArtistCredit { get; init; } = [];
+
+    /// <summary>Gets the search score, from 0 to 100; a browse does not return one.</summary>
+    public int? Score { get; init; }
 }
 
 /// <summary>A release: a concrete product a recording appears on.</summary>
@@ -130,6 +136,9 @@ public sealed record MbRelease
 
     /// <summary>Gets the release country, as an ISO-3166 code.</summary>
     public string? Country { get; init; }
+
+    /// <summary>Gets the MusicBrainz disambiguation comment.</summary>
+    public string? Disambiguation { get; init; }
 
     /// <summary>Gets the artist credit for the release as a whole.</summary>
     public IReadOnlyList<MbArtistCredit> ArtistCredit { get; init; } = [];
@@ -175,8 +184,24 @@ public sealed record MbTrack
     /// <summary>Gets the track length in milliseconds.</summary>
     public int? Length { get; init; }
 
+    /// <summary>Gets the track's own artist credit, which may differ from the release's.</summary>
+    public IReadOnlyList<MbArtistCredit> ArtistCredit { get; init; } = [];
+
     /// <summary>Gets the recording the track plays; a release lookup fills in id and title.</summary>
     public MbRecording? Recording { get; init; }
+}
+
+/// <summary>The release-group search response envelope.</summary>
+public sealed record MbReleaseGroupSearchResult
+{
+    /// <summary>Gets the total number of matches, not the number returned.</summary>
+    public int Count { get; init; }
+
+    /// <summary>Gets the offset the page starts at.</summary>
+    public int Offset { get; init; }
+
+    /// <summary>Gets the page of release groups.</summary>
+    public IReadOnlyList<MbReleaseGroup> ReleaseGroups { get; init; } = [];
 }
 
 /// <summary>The recording search response envelope.</summary>
