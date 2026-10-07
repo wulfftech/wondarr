@@ -194,7 +194,7 @@ public static class PlexStubApp
                     title = playlist.Title,
                     items = playlist.Snapshot().Select(item => new { ratingKey = item.RatingKey, file = plex.PathOf(item.RatingKey) }),
                 }),
-                refreshes = plex.Refreshes.ToArray(),
+                refreshes = plex.Refreshes.Select(refresh => new { section = refresh.Section, path = refresh.Path }),
             },
             Json));
 
