@@ -37,6 +37,7 @@ READ_DEFAULT_LINES = 800  # long files are read in ranges; the tail says which o
 COMPACT_AFTER_CHARS = 260_000  # tool output is kept in full until it passes this...
 COMPACT_TARGET_CHARS = 160_000  # ...then the oldest results are trimmed until it is below this
 KEEP_FULL_TOOL_RESULTS = 6
+MAX_NUDGES = 2  # replies with no tool call and no done-report that are answered with a nudge
 
 EXTERNAL_COMMANDS = {"dotnet", "npm", "npx", "node"}
 GIT_SUBCOMMANDS = {"status", "diff", "log", "show", "add", "rm", "mv", "commit", "update-index"}
@@ -472,6 +473,7 @@ def run_agent(*, base_url: str, key: str, model: str, system: str, user: str, sa
         res.completion_tokens += int(usage.get("completion_tokens", 0) or 0)
         res.cost_usd += _turn_cost(usage, pricing)
 
+    nudges = 0
     emit("started")
     while True:
         if time.monotonic() - started > timeout_s:
@@ -505,6 +507,16 @@ def run_agent(*, base_url: str, key: str, model: str, system: str, user: str, sa
         if text:
             emit(f"t{res.turns} says: {one_line(text, 160)}")
         calls = msg.get("tool_calls") or []
+        finish = payload["choices"][0].get("finish_reason")
+        if not calls and not last_turn and nudges < MAX_NUDGES and ("Done-report" not in text or finish == "length"):
+            # An empty or cut-off reply is not a done-report: a run once ended "done" on an empty reply
+            # 14 turns in with nothing written (2026-10-07). Ask once more instead of stopping.
+            nudges += 1
+            emit(f"   ! t{res.turns} ended without a tool call or a done-report (finish: {finish}); nudging")
+            messages.append({"role": "user", "content": (
+                "Your last reply had no tool call and no done-report (it was empty or cut off). Continue the task "
+                "with tool calls; keep each reply short. When you are finished, reply with the done-report.")})
+            continue
         if not calls or last_turn:
             res.text = text
             res.stop = "max_turns" if last_turn else "done"
