@@ -192,6 +192,17 @@ class LoopTests(unittest.TestCase):
         args.update(kw)
         return wa.run_agent(**args)
 
+    def test_an_empty_reply_is_nudged_not_taken_as_done(self):
+        Handler.script = [
+            text_msg(""),
+            tool_msg(("read_file", {"path": "src/a.txt"})),
+            text_msg("## Done-report\n- Result: DONE"),
+        ]
+        res = self.run_agent()
+        self.assertEqual(res.stop, "done")
+        self.assertEqual(res.turns, 3)
+        self.assertIn("DONE", res.text)
+
     def test_full_task_commits_and_reports(self):
         Handler.script = [
             tool_msg(("write_file", {"path": "src/new.txt", "content": "hello\n"}), ("read_file", {"path": "src/a.txt"})),

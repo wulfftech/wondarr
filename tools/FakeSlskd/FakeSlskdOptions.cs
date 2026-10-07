@@ -27,6 +27,9 @@ public sealed record FakeSlskdOptions
     /// <summary>The directory of recorded InnerTube responses the stub answers from.</summary>
     public string? InnertubeFixtureDir { get; init; }
 
+    /// <summary>The Phase 4 gate scenario (<c>FAKE_YT_SCENARIO</c>) the InnerTube stub answers gate songs from.</summary>
+    public string? YouTubeScenarioPath { get; init; }
+
     /// <summary>The audio generator; tests inject a fake because they do not have <c>ffmpeg</c>.</summary>
     public IAudioGenerator AudioGenerator { get; init; } = new FfmpegAudioGenerator();
 
@@ -72,6 +75,7 @@ public sealed record FakeSlskdOptions
             AcoustIdPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_ACOUSTID_PORT"), DefaultAcoustIdPort),
             InnertubePort = ReadPort(Environment.GetEnvironmentVariable("FAKE_INNERTUBE_PORT"), DefaultInnertubePort),
             InnertubeFixtureDir = Environment.GetEnvironmentVariable("FAKE_INNERTUBE_FIXTURES"),
+            YouTubeScenarioPath = Environment.GetEnvironmentVariable("FAKE_YT_SCENARIO"),
             ShareCachePath = string.IsNullOrWhiteSpace(appDirectory) ? null : Path.Combine(appDirectory, "fake-share-cache.json"),
         };
     }

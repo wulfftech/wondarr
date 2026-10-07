@@ -38,10 +38,13 @@ class Api:
         self.base = base.rstrip("/")
         self.key = key
 
-    def call(self, method: str, path: str) -> object:
-        request = urllib.request.Request(self.base + path, method=method)
+    def call(self, method: str, path: str, body: object | None = None) -> object:
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        request = urllib.request.Request(self.base + path, data=data, method=method)
         request.add_header("X-Api-Key", self.key)
         request.add_header("Accept", "application/json")
+        if data is not None:
+            request.add_header("Content-Type", "application/json")
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 raw = response.read()
@@ -104,12 +107,25 @@ def main() -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--keep", type=int, default=20)
     parser.add_argument("--dropped-out", help="write the deleted songs here (for the Phase 3 gate)")
+    parser.add_argument("--reserve", type=int, default=0,
+                        help="keep this many more songs in the library, unmonitored and with nothing on the fake "
+                             "Soulseek: the Phase 4 gate monitors them again as its YouTube-only songs")
+    parser.add_argument("--reserved-out", help="write the reserved songs here (for the Phase 4 scenario)")
     args = parser.parse_args()
 
     api = Api(args.url, args.api_key)
     songs = sorted(api.call("GET", "/api/v1/song?page=1&pageSize=1000&sortKey=id&sortDirection=ascending")["records"],
                    key=lambda song: song["id"])
-    keep, drop = songs[: args.keep], songs[args.keep:]
+    keep = songs[: args.keep]
+    reserved = songs[args.keep: args.keep + args.reserve]
+    drop = songs[args.keep + args.reserve:]
+    for song in reserved:
+        api.call("PUT", f"/api/v1/song/{song['id']}", {"monitored": False})
+    if args.reserved_out:
+        fields = ("id", "title", "artistCredit", "mbRecordingId", "durationMs")
+        with open(args.reserved_out, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump([{field: song.get(field) for field in fields} for song in reserved], handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
     if args.dropped_out:
         fields = ("id", "title", "artistCredit", "mbRecordingId", "durationMs")
         with open(args.dropped_out, "w", encoding="utf-8", newline="\n") as handle:
