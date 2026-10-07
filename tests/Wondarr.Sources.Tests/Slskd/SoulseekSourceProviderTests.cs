@@ -27,13 +27,55 @@ public class SoulseekSourceProviderTests
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     [Fact]
-    public async Task External_mode_is_unavailable()
+    public async Task An_unconfigured_external_slskd_is_unavailable()
     {
         var (available, reason) = await Provider(snapshot: Running, options: Options(SoulseekMode.External))
             .GetAvailabilityAsync(CancellationToken.None);
 
         available.Should().BeFalse();
-        reason.Should().Be("External slskd mode arrives in Phase 5");
+        reason.Should().Be("External slskd is not configured");
+    }
+
+    [Fact]
+    public async Task An_unreachable_external_slskd_is_unavailable()
+    {
+        var (available, reason) = await Provider(
+                snapshot: new SlskdStatusSnapshot(SlskdState.External, IsReachable: false),
+                options: ExternalOptions())
+            .GetAvailabilityAsync(CancellationToken.None);
+
+        available.Should().BeFalse();
+        reason.Should().Be("slskd is not reachable");
+    }
+
+    [Fact]
+    public async Task A_logged_out_external_slskd_is_unavailable()
+    {
+        var (available, reason) = await Provider(
+                snapshot: new SlskdStatusSnapshot(SlskdState.External, IsReachable: true, IsLoggedIn: false),
+                options: ExternalOptions())
+            .GetAvailabilityAsync(CancellationToken.None);
+
+        available.Should().BeFalse();
+        reason.Should().Be("slskd is not logged in to Soulseek");
+    }
+
+    [Fact]
+    public async Task A_logged_in_external_slskd_is_available_without_local_credentials()
+    {
+        var options = ExternalOptions();
+
+        // The user's slskd holds its own Soulseek credentials; Wondarr needs none.
+        options.Username = null;
+        options.Password = null;
+
+        var (available, reason) = await Provider(
+                snapshot: new SlskdStatusSnapshot(SlskdState.External, IsReachable: true, IsLoggedIn: true),
+                options: options)
+            .GetAvailabilityAsync(CancellationToken.None);
+
+        available.Should().BeTrue();
+        reason.Should().BeNull();
     }
 
     [Fact]
@@ -298,6 +340,16 @@ public class SoulseekSourceProviderTests
         Mode = mode,
         Username = "wondarr",
         Password = "test-password",
+    };
+
+    private static SoulseekOptions ExternalOptions() => new()
+    {
+        Mode = SoulseekMode.External,
+        External = new SoulseekExternalOptions
+        {
+            Url = "http://slskd.example:5030",
+            ApiKey = new string('k', 32),
+        },
     };
 
     private static SongSearchRequest Request(Func<IReadOnlyList<Candidate>, bool>? pool = null) =>

@@ -28,8 +28,10 @@ services:
   # qbittorrent: ...   sabnzbd: ...   prowlarr: ...   bgutil-provider: brainicism/bgutil-ytdlp-pot-provider
 
   # External-slskd mode instead of the bundled one: set APP__SOULSEEK__MODE=external,
-  # APP__SLSKD__URL, APP__SLSKD__API_KEY (+ web username/password for the options API) and run
-  # slskd/slskd:latest with SLSKD_REMOTE_CONFIGURATION=true.
+  # APP__SOULSEEK__EXTERNAL__URL (the URL of your slskd, e.g. http://slskd:5030),
+  # APP__SOULSEEK__EXTERNAL__API_KEY (your slskd's API key) and APP__SOULSEEK__DOWNLOADS_DIR
+  # (the same folder your slskd downloads into, seen from this container), and run
+  # slskd/slskd:latest with SLSKD_REMOTE_CONFIGURATION=true (§9.5, "External mode").
 ```
 
 `/config/<app>/config.yml` (subset):
@@ -49,6 +51,12 @@ soulseek:                                  # rendered into /config/slskd/slskd.y
   shared_folders: [/data/music]
   upload_slots: 10
   upload_speed_limit_kib: 2000
+  # external:                              # only in external mode (§9.5, "External mode")
+  #   url: http://slskd:5030
+  #   api_key: <your slskd's API key>
+  #   web_username: <slskd web login>      # only for slskd's YAML options API
+  #   web_password: <slskd web password>
+  #   rescan_shares: false                 # ask your slskd to rescan its shares after imports
 sources:
   - type: slskd
     name: Soulseek
