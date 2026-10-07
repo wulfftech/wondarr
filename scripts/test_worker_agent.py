@@ -150,6 +150,27 @@ def text_msg(text):
             "usage": {"prompt_tokens": 100, "completion_tokens": 10, "cost": 0.001}}
 
 
+class CompactTests(unittest.TestCase):
+    def test_trims_oldest_first_only_down_to_the_target(self):
+        size = 20_000
+        messages = [{"role": "system", "content": "s"}]
+        for n in range(20):
+            messages.append({"role": "tool", "tool_call_id": str(n), "content": str(n % 10) * size})
+        wa._compact(messages)
+        tools = [m["content"] for m in messages if m["role"] == "tool"]
+        total = sum(len(c) for c in tools)
+        self.assertLessEqual(total, wa.COMPACT_TARGET_CHARS)
+        trimmed = [len(c) < size for c in tools]
+        # A prefix is trimmed, the rest is intact: the newest reads survive, not just the last six.
+        self.assertEqual(trimmed, sorted(trimmed, reverse=True))
+        self.assertGreater(trimmed.count(False), wa.KEEP_FULL_TOOL_RESULTS)
+
+    def test_below_threshold_nothing_changes(self):
+        messages = [{"role": "tool", "tool_call_id": "1", "content": "x" * 10_000}]
+        wa._compact(messages)
+        self.assertEqual(len(messages[0]["content"]), 10_000)
+
+
 class LoopTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
