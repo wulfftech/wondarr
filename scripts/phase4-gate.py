@@ -5,7 +5,7 @@
 verification; official-video candidates with intros are rejected by duration; a simulated bot-check
 response backs off instead of looping."
 
-What this script does, against any running instance (CI with FakeSlskd + FakeYT, or ch01 live):
+What this script does, against any running instance (CI with FakeSlskd + the fake yt-dlp, or ch01 live):
   1. reads the gate scenario (scripts/phase4-scenario.py: the songs, their videos and behaviours);
   2. runs MissingSearch once and waits for the download queue to drain;
   3. the Art-Track fills: each such song now has a file, imported in that one cycle, with an AcoustID

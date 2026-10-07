@@ -20,9 +20,10 @@
 #   - a reference folder of encoded audio (MBID-tagged, text-tagged, untagged, duplicates) is added in
 #     adopt mode and scanned: >= 90 % identified automatically, the rest resolved through the Match
 #     queue, every new song adopted into the library, the originals byte-for-byte unchanged
-# Phase 4 (scripts/phase4-gate.py with tools/FakeYT; SMOKE_PHASE4=on (default) | off), on the same container:
+# Phase 4 (scripts/phase4-gate.py; SMOKE_PHASE4=on (default) | off), on the same container:
 #   - the YouTube source is enabled (videos allowed) against the fake InnerTube (answering the gate's
-#     songs from the scenario, everything else from the recorded fixtures) and FakeYT
+#     songs from the scenario, everything else from the recorded fixtures) and the fake yt-dlp
+#     (FakeSlskd --fake-ytdlp)
 #     (a stand-in yt-dlp producing real encoded Opus); songs missing on Soulseek are filled from
 #     Art Tracks within one search cycle and pass fingerprint verification, an official-video
 #     candidate with an intro is rejected by duration, and a simulated bot-check response backs
@@ -254,21 +255,17 @@ if [ "${SMOKE_PHASE4:-on}" = off ]; then
     exit 0
 fi
 
-# Phase 4, on the same container: the YouTube source against the fake InnerTube and FakeYT.
+# Phase 4, on the same container: the YouTube source against the fake InnerTube and the fake yt-dlp.
 # The app is restarted with the YouTube source enabled, its InnerTube client pointed at the fake's
-# stub (the recorded fixtures), yt-dlp pointed at FakeYT, and the AcoustID stub still answering.
-# FakeYT is a Python script; the image ships python3 (the healthcheck's wget is busybox, but the
-# s6 init runs bash) — it is mounted next to FakeSlskd and run through the image's interpreter.
-mkdir -p "$WORK/fakeyt" && cp "$(dirname "$0")/../tools/FakeYT/yt-dlp.py" "$WORK/fakeyt/yt-dlp" && chmod 755 "$WORK/fakeyt/yt-dlp"
-cat > "$WORK/fakeyt/wrapper" <<'EOF'
-#!/bin/sh
-exec python3 /opt/fakeyt/yt-dlp.py "$@"
-EOF
+# stub, yt-dlp pointed at the fake, and the AcoustID stub still answering. The image has no Python,
+# so the fake yt-dlp is the FakeSlskd binary itself in its --fake-ytdlp mode, behind a sh wrapper.
+mkdir -p "$WORK/fakeyt"
+printf '#!/bin/sh\nexec /opt/fake/slskd --fake-ytdlp "$@"\n' > "$WORK/fakeyt/wrapper"
 chmod 755 "$WORK/fakeyt/wrapper"
 
 # The Phase 4 scenario: five songs the Phase 2 scenario reserved (kept unmonitored, nothing on the
 # fake Soulseek) are monitored again — three Art-Track fills, one OMV case, one bot-check case. The
-# fake InnerTube answers searches for them from the same scenario FakeYT reads.
+# fake InnerTube answers searches for them from the same scenario the fake yt-dlp reads.
 python3 "$(dirname "$0")/phase4-scenario.py" --url "$BASE" --api-key "$KEY"     --reserved "$WORK/phase2-reserved.json" --out "$WORK/data/phase4-scenario.json"     || fail "could not build the Phase 4 scenario"
 chmod 644 "$WORK/data/phase4-scenario.json"
 
@@ -283,7 +280,7 @@ curl -fsS -H "X-Api-Key: $KEY" "${BASE}/api/v1/soulseek/status" | jq -e '.logged
 pass "the container is back, FakeSlskd in place, the YouTube source enabled"
 
 python3 "$(dirname "$0")/phase4-gate.py" --url "$BASE" --api-key "$KEY" --scenario "$WORK/data/phase4-scenario.json"     --fake-log-cmd "$DOCKER run --rm --network container:$NAME curlimages/curl:8.11.1 -fsS http://127.0.0.1:5030/fake/log"     --rounds 2 --round-timeout-s 1200 --queue-timeout-s 1200     || fail "Phase 4 gate"
-echo "PHASE 4 GATE: PASS ($IMAGE, FakeYT + the fake InnerTube)"
+echo "PHASE 4 GATE: PASS ($IMAGE, the fake yt-dlp + the fake InnerTube)"
 
 if [ "${SMOKE_PHASE5:-on}" = off ]; then
     echo "Phase 5 gate skipped (SMOKE_PHASE5=off)"
