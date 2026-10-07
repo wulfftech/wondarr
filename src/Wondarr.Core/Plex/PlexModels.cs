@@ -115,3 +115,14 @@ public sealed class PlexUnauthorizedException : PlexException
     {
     }
 }
+
+/// <summary>One track of a Plex music section, with the files it is made of (as the server sees them).</summary>
+/// <param name="RatingKey">The track's rating key.</param>
+/// <param name="Title">The track title.</param>
+/// <param name="Files">The paths of its media parts.</param>
+public sealed record PlexTrack(string RatingKey, string Title, IReadOnlyList<string> Files);
+
+/// <summary>One item of a Plex playlist.</summary>
+/// <param name="RatingKey">The track's rating key.</param>
+/// <param name="PlaylistItemId">The item's own id within the playlist (what remove and move name).</param>
+public sealed record PlexPlaylistItem(string RatingKey, string PlaylistItemId);
