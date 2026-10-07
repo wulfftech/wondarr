@@ -1,8 +1,9 @@
 // Ported from Lidarr (https://github.com/Lidarr/Lidarr), src/Lidarr.Api.V1/System/Tasks/TaskController.cs, GPL-3.0.
 // Adapted for Wondarr: the scheduled state lives in the job table rather than in a task manager, the
-// interval is stored as a TimeSpan and reported in whole minutes, and lastDuration is a placeholder
-// until the command table records a run's start time alongside its end.
+// interval is stored as a TimeSpan and reported in whole minutes, and the run times come from the
+// command table, which records a run's start alongside its end.
 
+using System.Globalization;
 using Wondarr.Api.Commands;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Persistence;
@@ -19,7 +20,7 @@ namespace Wondarr.Api.SystemInfo;
 [Route("api/v1/system/task")]
 public sealed class TaskController : ControllerBase
 {
-    /// <summary>What <c>lastDuration</c> reports until run times are recorded per task.</summary>
+    /// <summary>What <c>lastDuration</c> reports for a task that has never run.</summary>
     public const string UnknownDuration = "00:00:00";
 
     private readonly WondarrDbContext _context;
@@ -44,7 +45,11 @@ public sealed class TaskController : ControllerBase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return Ok(jobs.Select(ToResource).ToList());
+        var runTimes = await LatestRunTimesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Ok(jobs
+            .Select(job => ToResource(job, runTimes.TryGetValue(job.Name, out var runTime) ? runTime : null))
+            .ToList());
     }
 
     /// <summary>Reads one scheduled task.</summary>
@@ -59,20 +64,73 @@ public sealed class TaskController : ControllerBase
             .FirstOrDefaultAsync(row => row.Id == id, cancellationToken)
             .ConfigureAwait(false);
 
-        return job is null ? NotFound() : Ok(ToResource(job));
+        if (job is null)
+        {
+            return NotFound();
+        }
+
+        var runTimes = await LatestRunTimesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Ok(ToResource(job, runTimes.TryGetValue(job.Name, out var runTime) ? runTime : null));
     }
 
-    private static TaskResource ToResource(Job job) => new(
+    /// <summary>
+    /// The most recent finished command per name, one row per name. The executor runs up to three
+    /// commands at a time, so the newest end time and the newest start time could come from different
+    /// rows; taking whole rows keeps them paired. Only one row per name leaves the database: the
+    /// command table is never pruned, and the heartbeat alone adds one row a minute.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, TaskRunTime>> LatestRunTimesAsync(CancellationToken cancellationToken)
+    {
+        var finished = await _context.Commands
+            .AsNoTracking()
+            .Where(command => command.StartedAt != null && command.EndedAt != null)
+            .GroupBy(command => command.Name)
+            .Select(group => group
+                .OrderByDescending(command => command.EndedAt)
+                .ThenByDescending(command => command.Id)
+                .Select(command => new { command.Name, command.StartedAt, command.EndedAt })
+                .First())
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var latest = new Dictionary<string, TaskRunTime>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var command in finished.OrderBy(command => command.EndedAt))
+        {
+            latest[command.Name] = new TaskRunTime(command.StartedAt!.Value, command.EndedAt!.Value);
+        }
+
+        return latest;
+    }
+
+    private static TaskResource ToResource(Job job, TaskRunTime? runTime) => new(
         job.Id,
         CommandResourceMapper.SplitCamelCase(job.Name),
         job.Name,
         IntervalMinutes(job.Interval),
         job.LastRunAt,
-        job.LastRunAt,
+        runTime?.StartedAt ?? job.LastRunAt,
         job.NextRunAt,
-        UnknownDuration,
+        runTime is null ? UnknownDuration : FormatDuration(runTime.StartedAt, runTime.EndedAt),
         job.LastResult);
 
     private static int IntervalMinutes(TimeSpan? interval) =>
         interval is { } value ? (int)Math.Round(value.TotalMinutes) : 0;
+
+    /// <summary>Whole seconds, the way the *arrs show a task's run time.</summary>
+    private static string FormatDuration(DateTime startedAt, DateTime endedAt)
+    {
+        var duration = endedAt - startedAt;
+
+        // A clock that ran backwards between the two stamps reports no time at all.
+        return duration < TimeSpan.Zero
+            ? UnknownDuration
+            : duration.ToString("c", CultureInfo.InvariantCulture);
+    }
 }
+
+/// <summary>When a task's last run started and ended, from the command table.</summary>
+/// <param name="StartedAt">The UTC instant the command was picked up.</param>
+/// <param name="EndedAt">The UTC instant it reached a terminal state.</param>
+internal sealed record TaskRunTime(DateTime StartedAt, DateTime EndedAt);

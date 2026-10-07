@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Backup;
 using Wondarr.Core.References;
 using Wondarr.Core.Searching;
 
@@ -28,10 +29,12 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     private readonly IReadOnlyList<ScheduledTaskDefinition> _tasks;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskCatalog"/> class.</summary>
-    /// <param name="options">The search settings, which decide how often the missing-song task runs.</param>
-    public ScheduledTaskCatalog(IOptions<SearchOptions> options)
+    /// <param name="searchOptions">The search settings, which decide how often the missing-song task runs.</param>
+    /// <param name="backupOptions">The backup settings, which decide how often the backup task runs.</param>
+    public ScheduledTaskCatalog(IOptions<SearchOptions> searchOptions, IOptions<BackupOptions> backupOptions)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(searchOptions);
+        ArgumentNullException.ThrowIfNull(backupOptions);
 
         _tasks =
         [
@@ -39,11 +42,14 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
             new(CheckHealthCommandHandler.CommandName, CheckHealthInterval),
             new(
                 MissingSearchCommandHandler.CommandName,
-                TimeSpan.FromHours(options.Value.MissingIntervalHours)),
+                TimeSpan.FromHours(searchOptions.Value.MissingIntervalHours)),
             new(
                 UpgradeSearchCommandHandler.CommandName,
-                TimeSpan.FromHours(options.Value.UpgradeIntervalHours)),
+                TimeSpan.FromHours(searchOptions.Value.UpgradeIntervalHours)),
             new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
+            new(
+                BackupCommandHandler.CommandName,
+                TimeSpan.FromDays(backupOptions.Value.IntervalDays)),
         ];
     }
 
