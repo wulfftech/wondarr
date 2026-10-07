@@ -4920,6 +4920,16 @@ export interface components {
         SongAlbumContextUpdateResource: {
             albumKey: null | string;
         };
+        SongFileResource: {
+            path: string;
+            codec: string;
+            container: string;
+            /** Format: int32 */
+            bitrateKbps: null | number | string;
+            /** Format: int64 */
+            size: number | string;
+            sourceType: string;
+        };
         SongLookupRequest: {
             term: null | string;
         };
@@ -4981,6 +4991,7 @@ export interface components {
             /** Format: int64 */
             qualityId: null | number | string;
             albumContext: null | components["schemas"]["SongAlbumContextResource"];
+            file?: null | components["schemas"]["SongFileResource"];
         };
         SongUpdateResource: {
             monitored: null | boolean;
