@@ -114,11 +114,11 @@ public sealed class LibraryService : ILibraryService
         stored.NamingTemplate = library.NamingTemplate;
         stored.SidecarOptions = library.SidecarOptions;
 
-        // The policy is stored in its canonical form — every key spelled out — so a column written
-        // by one version reads the same in the next.
+        // The policy is stored in its canonical form — version 2, every rule spelled out — so a
+        // column written by one version reads the same in the next.
         stored.OutputPolicy = library.OutputPolicy is null
             ? null
-            : OutputPolicy.Parse(library.OutputPolicy).ToJson();
+            : LibraryOutputPolicy.Parse(library.OutputPolicy).ToJson();
         stored.AlbumPolicy = library.AlbumPolicy;
         stored.MinTracksPerRealAlbum = library.MinTracksPerRealAlbum;
         stored.PlexSectionId = library.PlexSectionId;
@@ -183,7 +183,7 @@ public sealed class LibraryService : ILibraryService
         // it came from, so the Settings UI can point at the offending line.
         try
         {
-            OutputPolicy.Parse(library.OutputPolicy);
+            LibraryOutputPolicy.Parse(library.OutputPolicy);
         }
         catch (ProfileValidationException exception)
         {
