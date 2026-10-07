@@ -192,7 +192,9 @@ describe('ConvertLibraryModal', () => {
     await waitFor(async () => {
       const post = sent().find(
         (request) =>
-          request.method === 'POST' && request.url.includes('/api/v1/song/convert') && !request.url.includes('/preview'),
+          request.method === 'POST' &&
+          request.url.includes('/api/v1/song/convert') &&
+          !request.url.includes('/preview'),
       );
 
       expect(post).toBeDefined();

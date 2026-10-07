@@ -531,7 +531,14 @@ function AddLibraryModal({
           onChange={(event) => setRootPath(event.currentTarget.value)}
         />
 
-        <Select label="Layout" data={LAYOUT_OPTIONS} value={layout} error={fields.layout} allowDeselect={false} onChange={(value) => setLayout(readEnum<LibraryLayoutName>(value ?? layout))} />
+        <Select
+          label="Layout"
+          data={LAYOUT_OPTIONS}
+          value={layout}
+          error={fields.layout}
+          allowDeselect={false}
+          onChange={(value) => setLayout(readEnum<LibraryLayoutName>(value ?? layout))}
+        />
 
         <Checkbox
           label="Make this the default library"
@@ -648,7 +655,11 @@ export function LibrarySettingsPage() {
             {rows.map((library) => (
               <Tabs.Tab key={String(library.id)} value={String(library.id)}>
                 {library.name}
-                {library.isDefault && <Badge variant="light" ml="xs">default</Badge>}
+                {library.isDefault && (
+                  <Badge variant="light" ml="xs">
+                    default
+                  </Badge>
+                )}
               </Tabs.Tab>
             ))}
           </Tabs.List>
@@ -683,11 +694,7 @@ export function LibrarySettingsPage() {
         </Tabs>
       </Stack>
 
-      <AddLibraryModal
-        opened={adding}
-        onClose={() => setAdding(false)}
-        onCreated={(id) => setActive(String(id))}
-      />
+      <AddLibraryModal opened={adding} onClose={() => setAdding(false)} onCreated={(id) => setActive(String(id))} />
 
       <CompactLibraryModal
         libraryId={Number(compacting?.id ?? 0)}
@@ -703,9 +710,7 @@ export function LibrarySettingsPage() {
         onClose={() => setConverting(null)}
       />
 
-      {deleting !== null && (
-        <DeleteLibraryModal library={deleting} opened onClose={() => setDeleting(null)} />
-      )}
+      {deleting !== null && <DeleteLibraryModal library={deleting} opened onClose={() => setDeleting(null)} />}
     </Card>
   );
 }
