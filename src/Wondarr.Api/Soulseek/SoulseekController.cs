@@ -15,6 +15,8 @@ namespace Wondarr.Api.Soulseek;
 [Route("api/v1/soulseek")]
 public sealed class SoulseekController : ControllerBase
 {
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
     private readonly ISoulseekSettingsService _settings;
     private readonly IOptionsMonitor<SoulseekOptions> _options;
     private readonly SlskdStatus _status;
@@ -83,7 +85,88 @@ public sealed class SoulseekController : ControllerBase
 
         return Ok(new SoulseekSettingsUpdateResponseResource(
             SoulseekSettingsResource.From(_settings.Get()),
-            result.RestartsSlskd));
+            result.RestartsSlskd,
+            result.RestartsWondarr));
+    }
+
+    /// <summary>
+    /// Tries a user's own slskd: <c>GET /api/v0/application</c> with the given (or the stored) API key.
+    /// Redirects are not followed, so the key never travels to another host; the answer names the
+    /// host only, never the key.
+    /// </summary>
+    /// <param name="resource">The URL to try, and the key (or none for the stored one).</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    [HttpPost("test")]
+    [Consumes("application/json")]
+    [Produces("application/json")]
+    public async Task<ActionResult<SoulseekConnectionTestResultResource>> TestConnection(
+        [FromBody] SoulseekConnectionTestResource resource,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+
+        if (!Uri.TryCreate(resource.Url?.Trim(), UriKind.Absolute, out var url)
+            || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps)
+            || !string.IsNullOrEmpty(url.UserInfo))
+        {
+            return Ok(new SoulseekConnectionTestResultResource(false, null, false, "The URL must be an absolute http or https address"));
+        }
+
+        var key = string.IsNullOrEmpty(resource.ApiKey) ? _options.CurrentValue.External.ApiKey : resource.ApiKey;
+
+        if (string.IsNullOrEmpty(key))
+        {
+            return Ok(new SoulseekConnectionTestResultResource(false, null, false, "No API key: enter the one from your slskd's settings"));
+        }
+
+        using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            new Uri(new Uri(url.GetLeftPart(UriPartial.Path).TrimEnd('/') + "/"), "api/v0/application"));
+        request.Headers.Add(SlskdClient.ApiKeyHeader, key);
+
+        try
+        {
+            using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            {
+                return Ok(new SoulseekConnectionTestResultResource(false, null, false, "slskd refused the API key"));
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return Ok(new SoulseekConnectionTestResultResource(false, null, false, $"slskd at {url.Host} answered {(int)response.StatusCode}"));
+            }
+
+            var state = await JsonSerializer
+                .DeserializeAsync<SlskdApplicationState>(
+                    await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+                    WebJson,
+                    cancellationToken)
+                .ConfigureAwait(false) ?? new SlskdApplicationState();
+
+            var version = string.IsNullOrWhiteSpace(state.Version.Current) ? null : state.Version.Current;
+            var loggedIn = state.Server.IsLoggedIn;
+
+            return Ok(new SoulseekConnectionTestResultResource(
+                true,
+                version,
+                loggedIn,
+                loggedIn
+                    ? $"Connected to slskd {version} at {url.Host}, logged in to Soulseek"
+                    : $"Connected to slskd {version} at {url.Host}, but it is not logged in to Soulseek"));
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            return Ok(new SoulseekConnectionTestResultResource(false, null, false, $"slskd at {url.Host} did not answer"));
+        }
     }
 
     /// <summary>Reports whether Soulseek is logged in, what is shared and how much of the allowance is left.</summary>

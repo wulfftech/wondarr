@@ -215,6 +215,93 @@ public sealed class SoulseekSettingsServiceTests
         writer.Calls.Should().BeEmpty();
     }
 
+    private static SoulseekOptions External() => new()
+    {
+        Mode = SoulseekMode.External,
+        External = new SoulseekExternalOptions { Url = "http://slskd:5030", ApiKey = "external-key-0123456789" },
+    };
+
+    [Fact]
+    public void Get_in_external_mode_reports_the_connection_and_shows_slskds_own_fields_read_only()
+    {
+        var settings = Service(External()).Get();
+
+        settings.Mode.Should().Be("external");
+        settings.ExternalUrl.Should().Be("http://slskd:5030");
+        settings.ExternalApiKeySet.Should().BeTrue();
+        settings.ToString().Should().NotContain("external-key-0123456789");
+        settings.ReadOnlyFields.Should().Contain(["username", "listenPort", "sharedFolders", "uploadSlots"])
+            .And.NotContain("downloadsDir", "Wondarr's view of the download folder stays Wondarr's");
+    }
+
+    [Fact]
+    public async Task Saving_in_external_mode_validates_with_the_stored_connection()
+    {
+        // The validation candidate once lacked the external section, so every save in external mode
+        // failed "external url required".
+        var writer = new RecordingWriter();
+
+        var result = await Service(External(), writer: writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(DownloadsDir: "/data/slskd-downloads"), CancellationToken.None);
+
+        result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+        writer.Calls.Should().ContainSingle().Which.Values.Should().ContainKey("downloads_dir");
+    }
+
+    [Fact]
+    public async Task Switching_to_external_writes_the_nested_keys_and_says_wondarr_restarts()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(new SoulseekOptions(), writer: writer).UpdateAsync(
+            new SoulseekSettingsUpdate(Mode: "external", ExternalUrl: "http://slskd:5030", ExternalApiKey: "external-key-0123456789"),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+        result.RestartsWondarr.Should().BeTrue();
+        result.RestartsSlskd.Should().BeFalse();
+        writer.Calls.Should().ContainSingle().Which.Values.Should()
+            .Contain("mode", "external").And.Contain("external:url", "http://slskd:5030").And.ContainKey("external:api_key");
+    }
+
+    [Fact]
+    public async Task Switching_to_external_without_a_url_is_refused()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(new SoulseekOptions(), writer: writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(Mode: "external"), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        writer.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task In_external_mode_slskds_own_settings_are_changed_in_slskd()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(External(), writer: writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(ListenPort: 52000), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Should().Contain("listenPort belongs to your own slskd");
+        writer.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_empty_api_key_clears_it_and_a_missing_one_keeps_it()
+    {
+        var writer = new RecordingWriter();
+        var service = Service(new SoulseekOptions { External = new SoulseekExternalOptions { ApiKey = "external-key-0123456789" } }, writer: writer);
+
+        (await service.UpdateAsync(new SoulseekSettingsUpdate(ExternalUrl: "http://slskd:5030"), CancellationToken.None)).Success.Should().BeTrue();
+        writer.Calls.Single().Values.Should().NotContainKey("external:api_key");
+
+        (await service.UpdateAsync(new SoulseekSettingsUpdate(ExternalApiKey: string.Empty), CancellationToken.None)).Success.Should().BeTrue();
+        writer.Calls.Last().Values.Should().Contain("external:api_key", null);
+    }
+
     private static SoulseekSettingsService Service(
         SoulseekOptions options,
         IDictionary? environment = null,
