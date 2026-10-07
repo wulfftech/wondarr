@@ -229,7 +229,7 @@ def write_csv(rows: list[dict]) -> str:
 
 
 def list_items(api: Api, list_id: int) -> list[dict]:
-    items = api.all_pages(f"/api/v1/importlistitem?importListId={list_id}&sortKey=line")
+    items = api.all_pages(f"/api/v1/importlistitem?importListId={list_id}&sortKey=line&sortDirection=ascending")
     return [item for item in items if not item.get("removed")]
 
 
