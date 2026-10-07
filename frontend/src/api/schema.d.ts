@@ -1130,6 +1130,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/release/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": null | components["schemas"]["ReleasePushResource"];
+                    "application/*+json": null | components["schemas"]["ReleasePushResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReleasePushDecisionResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReleasePushValidationFailure"][];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/matchqueue": {
         parameters: {
             query?: never;
@@ -3762,6 +3811,19 @@ export interface components {
             stateChangedAt: string;
             /** Format: date-time */
             finishedAt: null | string;
+            title: string;
+            status: string;
+            trackedDownloadStatus: string;
+            protocol: string;
+            /** Format: int64 */
+            size: number | string;
+            /** Format: int64 */
+            sizeleft: number | string;
+            downloadId: string;
+            outputPath: null | string;
+            /** Format: int64 */
+            artistId: null | number | string;
+            statusMessages: string[];
         };
         QueueStatusResource: {
             /** Format: int32 */
@@ -3825,6 +3887,38 @@ export interface components {
             trackNo: null | number | string;
             flags: string[];
             pathFlags: string[];
+        };
+        ReleasePushDecisionResource: {
+            approved: boolean;
+            rejected: boolean;
+            temporarilyRejected: boolean;
+            rejections: string[];
+            /** Format: int64 */
+            songId: null | number | string;
+            songTitle: null | string;
+        };
+        ReleasePushResource: {
+            title: null | string;
+            infoUrl: null | string;
+            downloadUrl: null | string;
+            magnetUrl: null | string;
+            /** Format: int64 */
+            size: null | number | string;
+            indexer: null | string;
+            downloadProtocol: null | string;
+            protocol: null | string;
+            /** Format: date-time */
+            publishDate: null | string;
+            /** Format: int32 */
+            downloadClientId: null | number | string;
+            downloadClient: null | string;
+        };
+        ReleasePushValidationFailure: {
+            propertyName: string;
+            errorMessage: string;
+            errorCode: string;
+            attemptedValue: null | string;
+            severity: string;
         };
         ReleaseRejectionResource: {
             reason: string;
