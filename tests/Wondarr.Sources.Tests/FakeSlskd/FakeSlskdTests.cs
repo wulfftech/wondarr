@@ -155,6 +155,16 @@ public sealed class FakeSlskdTests
     }
 
     [Fact]
+    public void Each_stub_port_falls_back_to_its_own_default()
+    {
+        // Unset, the InnerTube stub once fell back to the AcoustID port and the fake died binding it twice.
+        FakeSlskdOptions.ReadPort(null, FakeSlskdOptions.DefaultInnertubePort).Should().Be(5032);
+        FakeSlskdOptions.ReadPort("", FakeSlskdOptions.DefaultAcoustIdPort).Should().Be(5031);
+        FakeSlskdOptions.ReadPort("6000", FakeSlskdOptions.DefaultInnertubePort).Should().Be(6000);
+        FakeSlskdOptions.ReadPort("70000", FakeSlskdOptions.DefaultInnertubePort).Should().Be(5032);
+    }
+
+    [Fact]
     public async Task Files_added_after_the_start_are_found_by_later_searches()
     {
         await using var harness = await FakeSlskdHarness.StartAsync(ScenarioJson(searchDelayMs: 60_000));
