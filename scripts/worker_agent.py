@@ -33,7 +33,7 @@ from typing import Callable
 
 SKIP_DIRS = {".git", "node_modules", "bin", "obj", "dist", ".vs", ".worktrees", ".worker"}
 MAX_TOOL_OUTPUT = 12000
-READ_DEFAULT_LINES = 2000
+READ_DEFAULT_LINES = 800  # long files are read in ranges; the tail says which offset comes next
 COMPACT_AFTER_CHARS = 260_000  # tool output is kept in full until it passes this...
 COMPACT_TARGET_CHARS = 160_000  # ...then the oldest results are trimmed until it is below this
 KEEP_FULL_TOOL_RESULTS = 6
