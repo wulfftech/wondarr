@@ -1,5 +1,6 @@
 using System.Net;
 using Wondarr.Core.HealthCheck;
+using Wondarr.Core.ImportLists;
 using Wondarr.Core.Sources;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -59,6 +60,12 @@ public static class ServiceCollectionExtensions
         // The provider is a singleton, so the ISRC reader opens its own scope per call.
         services.AddSingleton<ISongIsrcSource, SongIsrcSource>();
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();
+
+        // Reading a playlist is metadata only: it does not depend on the YouTube source being enabled.
+        // It takes the IInnertubeClient above, which is a typed HttpClient and therefore scoped, so the
+        // provider is scoped too; ImportListService takes IEnumerable<IImportListProvider>.
+        services.AddScoped<YouTubeMusicPlaylistProvider>();
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<YouTubeMusicPlaylistProvider>());
 
         return services;
     }

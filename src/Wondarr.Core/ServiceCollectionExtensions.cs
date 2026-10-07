@@ -11,6 +11,7 @@ using Wondarr.Core.History;
 using Wondarr.Core.Importing;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.ImportLists.Csv;
+using Wondarr.Core.ImportLists.Deezer;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
@@ -183,6 +184,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IImportListService, ImportListService>();
         services.AddSingleton<CsvImportListProvider>();
         services.AddSingleton<IImportListProvider>(provider => provider.GetRequiredService<CsvImportListProvider>());
+
+        // The Deezer providers read through the shared IDeezerClient, a typed HttpClient and therefore
+        // scoped; ImportListService takes IEnumerable<IImportListProvider>, so mixing lifetimes is fine.
+        services.AddScoped<DeezerPlaylistProvider>();
+        services.AddScoped<DeezerArtistTopProvider>();
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<DeezerPlaylistProvider>());
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<DeezerArtistTopProvider>());
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();
