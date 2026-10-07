@@ -222,6 +222,50 @@ mkdir -p "$WORK/fake" && chmod 777 "$WORK/fake"
 $DOCKER run --rm -v "$REPO:/src:ro" -v "$WORK/fake:/out" -e DOTNET_CLI_TELEMETRY_OPTOUT=1     mcr.microsoft.com/dotnet/sdk:10.0-noble sh -c     "mkdir -p /tmp/src/tools && cp /src/global.json /src/Directory.Build.props /src/Directory.Packages.props /src/.editorconfig /tmp/src/ && cp -r /src/tools/FakeSlskd /tmp/src/tools/ && rm -rf /tmp/src/tools/FakeSlskd/bin /tmp/src/tools/FakeSlskd/obj && cd /tmp/src && dotnet publish tools/FakeSlskd -c Release -r $RID --self-contained -p:PublishSingleFile=true -o /out -v q --nologo"     > "$WORK/fake-publish.log" 2>&1 || { tail -30 "$WORK/fake-publish.log" >&2; fail "could not publish FakeSlskd"; }
 pass "FakeSlskd published ($RID)"
 
+# The Phase 6 stage, a function so SMOKE_ONLY_PHASE6=on can run it straight after Phase 1 (to record its
+# metadata without running Phases 2-5 first).
+run_phase6() {
+
+    # --- Phase 6: import lists, playlists, albums, libraries and conversion, on a fresh container -------
+    # FakeSlskd stands in for slskd (files are offered as the gate needs them), answers AcoustID, and runs
+    # a fake Plex Media Server (and plex.tv's server list) on 127.0.0.1:5033 with sections 1 = /data/music
+    # and 2 = /data/music2. Metadata comes from the recordings like every other phase. Searching is kept
+    # to the gate's own two cycles of ten songs: search on add is off.
+    P6="${NAME}-p6"
+    P6_PORT=$((PORT + 3))
+    P6_BASE="http://localhost:${P6_PORT}${URL_BASE}"
+    mkdir -p "$WORK/p6/config" "$WORK/p6/data/music" "$WORK/p6/data/music2" && chmod -R 777 "$WORK/p6"
+    $DOCKER run -d --name "$P6"     "${METADATA_ARGS[@]}"     -p "${P6_PORT}:1077"     -e APP__LYRICS__ENABLED=false     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC     -e APP__SERVER__URL_BASE="$URL_BASE"     -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password     -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/     -e APP__SEARCH__SEARCH_ON_ADD=false -e APP__SEARCH__MISSING_BATCH_SIZE=10     -e APP__PLEX__PLEX_TV_BASE_URL=http://127.0.0.1:5033/     -v "$WORK/p6/config:/config" -v "$WORK/p6/data:/data" -v "$WORK/fake:/opt/fake:ro"     "$IMAGE" > /dev/null
+    for _ in $(seq 1 90); do
+        [ "$($DOCKER inspect -f '{{.State.Health.Status}}' "$P6" 2> /dev/null)" = healthy ] && break
+        sleep 2
+    done
+    P6_KEY="$($DOCKER exec "$P6" sh -c "sed -n 's/^ *api_key: *//p' /config/config.yml" | tr -d '\"'\''\r ')"
+    [ "${#P6_KEY}" -eq 32 ] || fail "could not read the Phase 6 container's API key"
+    P6_CURL="$DOCKER run --rm -i --network container:$P6 curlimages/curl:8.11.1 -fsS"
+    P6_ARGS=(--url "$P6_BASE" --api-key "$P6_KEY" --state-in "$WORK/phase6-state.json" --state-out "$WORK/phase6-state.json")
+    P6_FAKE_ADD="$P6_CURL -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5030/fake/scenario/files"
+    P6_PLEX_STATE="$P6_CURL http://127.0.0.1:5033/fake/plex"
+    P6_EXEC="$DOCKER exec $P6"
+    GATE6="$(dirname "$0")/phase6-gate.py"
+    python3 "$GATE6" plex "${P6_ARGS[@]}" || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (Plex)"; }
+    python3 "$GATE6" lists "${P6_ARGS[@]}" --csv "$REPO/tests/gate/phase6-exportify.csv"     --fake-add-cmd "$P6_FAKE_ADD" --plex-state-cmd "$P6_PLEX_STATE" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 80 "$P6" >&2; fail "Phase 6 gate (the 200-track list, downloads, the Plex playlist)"; }
+    python3 "$GATE6" album "${P6_ARGS[@]}" || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (album add)"; }
+    python3 "$GATE6" library "${P6_ARGS[@]}" --plex-state-cmd "$P6_PLEX_STATE" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (a second library)"; }
+    python3 "$GATE6" convert "${P6_ARGS[@]}" --fake-add-cmd "$P6_FAKE_ADD" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (conversion)"; }
+    if [ "$METADATA" = replay ]; then
+        MISSES="$(curl -fsS "http://localhost:${REPLAY_PORT}/__misses")"
+        [ "$(echo "$MISSES" | jq 'length')" = 0 ] || fail "the Phase 6 gate asked for metadata tests/gate/replay has no recording of (re-record with SMOKE_METADATA=record): $MISSES"
+    fi
+    $DOCKER rm -f "$P6" > /dev/null 2>&1 || true
+    echo "PHASE 6 GATE: PASS ($IMAGE: a 200-track Exportify list, a Plex playlist kept in place, album add, a second library, conversion)"
+}
+
+if [ "${SMOKE_ONLY_PHASE6:-off}" = on ]; then
+    run_phase6
+    exit 0
+fi
+
 python3 "$(dirname "$0")/phase2-scenario.py" --url "$BASE" --api-key "$KEY" --out "$WORK/data/phase2-scenario.json" --keep 20     --dropped-out "$WORK/phase2-dropped.json" --reserve 5 --reserved-out "$WORK/phase2-reserved.json" || fail "could not build the Phase 2 scenario"
 chmod 644 "$WORK/data/phase2-scenario.json"
 
@@ -411,37 +455,4 @@ if [ "${SMOKE_PHASE6:-off}" = off ]; then
     echo "Phase 6 gate skipped (SMOKE_PHASE6=off)"
     exit 0
 fi
-
-# --- Phase 6: import lists, playlists, albums, libraries and conversion, on a fresh container -------
-# FakeSlskd stands in for slskd (files are offered as the gate needs them), answers AcoustID, and runs
-# a fake Plex Media Server (and plex.tv's server list) on 127.0.0.1:5033 with sections 1 = /data/music
-# and 2 = /data/music2. Metadata comes from the recordings like every other phase. Searching is kept
-# to the gate's own two cycles of ten songs: search on add is off.
-P6="${NAME}-p6"
-P6_PORT=$((PORT + 3))
-P6_BASE="http://localhost:${P6_PORT}${URL_BASE}"
-mkdir -p "$WORK/p6/config" "$WORK/p6/data/music" "$WORK/p6/data/music2" && chmod -R 777 "$WORK/p6"
-$DOCKER run -d --name "$P6"     "${METADATA_ARGS[@]}"     -p "${P6_PORT}:1077"     -e APP__LYRICS__ENABLED=false     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC     -e APP__SERVER__URL_BASE="$URL_BASE"     -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password     -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/     -e APP__SEARCH__SEARCH_ON_ADD=false -e APP__SEARCH__MISSING_BATCH_SIZE=10     -e APP__PLEX__PLEX_TV_BASE_URL=http://127.0.0.1:5033/     -v "$WORK/p6/config:/config" -v "$WORK/p6/data:/data" -v "$WORK/fake:/opt/fake:ro"     "$IMAGE" > /dev/null
-for _ in $(seq 1 90); do
-    [ "$($DOCKER inspect -f '{{.State.Health.Status}}' "$P6" 2> /dev/null)" = healthy ] && break
-    sleep 2
-done
-P6_KEY="$($DOCKER exec "$P6" sh -c "sed -n 's/^ *api_key: *//p' /config/config.yml" | tr -d '\"'\''\r ')"
-[ "${#P6_KEY}" -eq 32 ] || fail "could not read the Phase 6 container's API key"
-P6_CURL="$DOCKER run --rm -i --network container:$P6 curlimages/curl:8.11.1 -fsS"
-P6_ARGS=(--url "$P6_BASE" --api-key "$P6_KEY" --state-in "$WORK/phase6-state.json" --state-out "$WORK/phase6-state.json")
-P6_FAKE_ADD="$P6_CURL -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:5030/fake/scenario/files"
-P6_PLEX_STATE="$P6_CURL http://127.0.0.1:5033/fake/plex"
-P6_EXEC="$DOCKER exec $P6"
-GATE6="$(dirname "$0")/phase6-gate.py"
-python3 "$GATE6" plex "${P6_ARGS[@]}" || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (Plex)"; }
-python3 "$GATE6" lists "${P6_ARGS[@]}" --csv "$REPO/tests/gate/phase6-exportify.csv"     --fake-add-cmd "$P6_FAKE_ADD" --plex-state-cmd "$P6_PLEX_STATE" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 80 "$P6" >&2; fail "Phase 6 gate (the 200-track list, downloads, the Plex playlist)"; }
-python3 "$GATE6" album "${P6_ARGS[@]}" || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (album add)"; }
-python3 "$GATE6" library "${P6_ARGS[@]}" --plex-state-cmd "$P6_PLEX_STATE" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (a second library)"; }
-python3 "$GATE6" convert "${P6_ARGS[@]}" --fake-add-cmd "$P6_FAKE_ADD" --exec-cmd "$P6_EXEC"     || { $DOCKER logs --tail 60 "$P6" >&2; fail "Phase 6 gate (conversion)"; }
-if [ "$METADATA" = replay ]; then
-    MISSES="$(curl -fsS "http://localhost:${REPLAY_PORT}/__misses")"
-    [ "$(echo "$MISSES" | jq 'length')" = 0 ] || fail "the Phase 6 gate asked for metadata tests/gate/replay has no recording of (re-record with SMOKE_METADATA=record): $MISSES"
-fi
-$DOCKER rm -f "$P6" > /dev/null 2>&1 || true
-echo "PHASE 6 GATE: PASS ($IMAGE: a 200-track Exportify list, a Plex playlist kept in place, album add, a second library, conversion)"
+run_phase6
