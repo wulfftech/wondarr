@@ -113,19 +113,25 @@ internal static class LastFmFetch
     /// Asks for one page of a user's loved or top tracks. The API key travels in the query, as
     /// Last.fm's own clients send it, so nothing here is logged and no error repeats the URL.
     /// </summary>
+    /// <param name="period">The top-tracks period, or <see langword="null"/> for a loved read.</param>
     public static async Task<LastFmAnswer> PageAsync(
         HttpClient http,
         string method,
         string user,
         string apiKey,
+        string? period,
         int limit,
         int page,
         CancellationToken cancellationToken)
     {
+        var periodPart = period is null ? string.Empty : string.Create(
+            CultureInfo.InvariantCulture,
+            $"&period={Uri.EscapeDataString(period)}");
         var query = string.Create(
             CultureInfo.InvariantCulture,
             $"?method={method}&user={Uri.EscapeDataString(user)}&api_key={Uri.EscapeDataString(apiKey)}"
-            + $"&format=json&limit={limit.ToString(CultureInfo.InvariantCulture)}&page={page.ToString(CultureInfo.InvariantCulture)}");
+            + $"{periodPart}&format=json&limit={limit.ToString(CultureInfo.InvariantCulture)}"
+            + $"&page={page.ToString(CultureInfo.InvariantCulture)}");
 
         HttpResponseMessage response;
 

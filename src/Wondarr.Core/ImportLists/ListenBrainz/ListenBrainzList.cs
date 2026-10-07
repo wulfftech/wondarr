@@ -117,11 +117,22 @@ internal static class ListenBrainzSettings
     }
 
     /// <summary>
-    /// The recording MBID of one value, when it is one: the same id a JSPF track's
-    /// <c>identifier</c> URLs carry.
+    /// The recording MBID of one value: a bare MBID as the feedback rows carry it, or the id inside
+    /// a <c>https://musicbrainz.org/recording/{mbid}</c> URL.
     /// </summary>
-    public static string? RecordingMbid(string? value) =>
-        value is null ? null : RecordingMbid([value]);
+    public static string? RecordingMbid(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var text = value.Trim();
+
+        return Guid.TryParseExact(text, "D", out var id)
+            ? id.ToString("D", CultureInfo.InvariantCulture)
+            : RecordingMbid([text]);
+    }
 
     /// <summary>
     /// The recording MBID among a track's <c>identifier</c> URLs — the first one, because a JSPF
@@ -227,9 +238,9 @@ internal static class ListenBrainzFetch
                 return ListenBrainzAnswer.Failed("ListenBrainz is rate limiting Wondarr; the list will be read again later.");
             }
 
-            return response.StatusCode != HttpStatusCode.OK
-                ? ListenBrainzAnswer.Failed($"ListenBrainz answered {(int)response.StatusCode}.")
-                : new ListenBrainzAnswer(response.StatusCode, body, Wait(response), null);
+            // Any other status travels to the provider, which knows which "not found" means what:
+            // a user Wondarr has never heard of, or a playlist that is private.
+            return new ListenBrainzAnswer(response.StatusCode, body, Wait(response), null);
         }
     }
 

@@ -108,7 +108,7 @@ public sealed class LastFmLovedProvider : IImportListProvider
         for (var page = 1; page <= MaxPages; page++)
         {
             var answer = await LastFmFetch
-                .PageAsync(http, "user.getlovedtracks", user, apiKey, PageSize, page, cancellationToken)
+                .PageAsync(http, "user.getlovedtracks", user, apiKey, null, PageSize, page, cancellationToken)
                 .ConfigureAwait(false);
 
             if (!answer.Ok)

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using FluentAssertions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.ImportLists.LastFm;
@@ -194,7 +195,12 @@ public sealed class LastFmProvidersTests
     {
         var provider = new LastFmLovedProvider(new ListHttpClientFactory(Empty(), BaseAddress), TimeProvider.System);
 
-        provider.Validate(Settings("{}"), null).Should().ContainSingle().Which.Should().Contain("user");
+        // Empty settings are missing both fields, and the form shows both messages at once.
+        var problems = provider.Validate(Settings("{}"), null);
+        problems.Should().HaveCount(2);
+        problems.Should().Contain(problem => problem.Contains("user", StringComparison.Ordinal));
+        problems.Should().Contain(problem => problem.Contains("API key", StringComparison.Ordinal));
+
         provider.Validate(Settings("""{"user":"someone"}"""), null).Should().ContainSingle().Which.Should().Contain("API key");
         provider.Validate(Settings($$"""{"user":"{{User}}","apiKey":"{{ApiKey}}"}"""), null).Should().BeEmpty();
     }
@@ -222,11 +228,25 @@ public sealed class LastFmProvidersTests
             .Single(field => field.Name == "apiKey").Secret.Should().BeTrue();
     }
 
-    private static ImportList List(string type, string? settings = null) => new()
+    private static ImportList List(string type, string? settings = null)
     {
-        Type = type,
-        Settings = settings ?? $$"""{"user":"{{User}}","apiKey":"{{ApiKey}}"}""",
-    };
+        // The user and the key every Last.fm read needs, with whatever the test overrides on top.
+        var merged = new JsonObject
+        {
+            ["user"] = User,
+            ["apiKey"] = ApiKey,
+        };
+
+        if (settings is not null)
+        {
+            foreach (var property in JsonNode.Parse(settings)!.AsObject())
+            {
+                merged[property.Key] = property.Value?.DeepClone();
+            }
+        }
+
+        return new ImportList { Type = type, Settings = merged.ToJsonString() };
+    }
 
     private static string LovedPage(string track, int totalPages) => string.Concat(
         @"{""lovedtracks"":{""track"":[",
