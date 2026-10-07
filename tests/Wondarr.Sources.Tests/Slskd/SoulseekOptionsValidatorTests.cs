@@ -118,4 +118,89 @@ public class SoulseekOptionsValidatorTests
 
         result.Failures.Should().ContainSingle().Which.Should().StartWith("soulseek.username:");
     }
+
+    [Fact]
+    public void External_mode_requires_a_url_and_a_key()
+    {
+        var result = _validator.Validate(null, new SoulseekOptions { Mode = SoulseekMode.External });
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().Contain(
+            message => message.StartsWith("soulseek.external.url:", StringComparison.Ordinal));
+        result.Failures.Should().Contain(
+            message => message.StartsWith("soulseek.external.api_key:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void External_mode_accepts_a_full_url_and_key()
+    {
+        var result = _validator.Validate(null, External());
+
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("slskd.example:5030")]          // not absolute
+    [InlineData("ftp://slskd.example:5030")]    // not http(s)
+    [InlineData("http://user:pass@slskd")]      // user info
+    [InlineData("http://slskd?x=1")]            // query
+    public void External_mode_rejects_a_bad_url(string url)
+    {
+        var options = External();
+        options.External.Url = url;
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().ContainSingle().Which.Should().StartWith("soulseek.external.url:");
+    }
+
+    [Theory]
+    [InlineData("short")]
+    [InlineData("12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456")]
+    public void External_mode_rejects_a_key_outside_its_length_range(string key)
+    {
+        var options = External();
+        options.External.ApiKey = key;
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().ContainSingle().Which.Should().StartWith("soulseek.external.api_key:");
+    }
+
+    [Fact]
+    public void Bundled_mode_ignores_the_external_section()
+    {
+        var result = _validator.Validate(null, new SoulseekOptions
+        {
+            Mode = SoulseekMode.Bundled,
+            External = new SoulseekExternalOptions { Url = "not a url", ApiKey = "short" },
+        });
+
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void External_failures_never_echo_the_key()
+    {
+        var options = External();
+        options.External.Url = null;
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().NotContain(
+            message => message.Contains(options.External.ApiKey!, StringComparison.Ordinal));
+    }
+
+    private static SoulseekOptions External() => new()
+    {
+        Mode = SoulseekMode.External,
+        External = new SoulseekExternalOptions
+        {
+            Url = "http://slskd.example:5030",
+            ApiKey = new string('k', 32),
+        },
+    };
 }
