@@ -159,11 +159,9 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
                         || item.State == QueueItemState.Importing)))
                 // A song whose file is in a compaction's staging folder is not upgradeable: the
                 // compaction has to place it first, and the import would defer anyway.
-                .Where(song => !database.CompactMoves.Any(row =>
-                    row.SongId == song.Id
-                    && (row.State == CompactMoveState.Planned
-                        || row.State == CompactMoveState.Staged
-                        || (row.State == CompactMoveState.Failed && row.StagedPath != null))));
+                .Where(song => !database.CompactMoves
+                    .Where(CompactMoveRules.IsUnfinished)
+                    .Any(row => row.SongId == song.Id));
 
             candidates = await wanted
                 .Select(song => new UpgradeSongRow(
