@@ -350,6 +350,10 @@ public sealed partial class ImportService : IImportService
                     File.Move(downloadPath, renamed);
                     importPath = renamed;
                     extension = "ogg";
+
+                    // The renamed file is the download from here on: a rejection deletes it, and a
+                    // deferred import finds it (and renames nothing) when the poll brings it back.
+                    item.DownloadPath = renamed;
                 }
             }
             else if (extension != rule.Container)
