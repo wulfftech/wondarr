@@ -77,7 +77,7 @@ public sealed partial class ConvertFilesCommandHandler : ICommandHandler
             await context
                 .ReportProgressAsync(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"Converted {counts.GetValueOrDefault(ConvertOutcome.Converted)} of {songIds.Count} ({done} done)"))
+                    $"{done} of {songIds.Count} done, {counts.GetValueOrDefault(ConvertOutcome.Converted)} converted"))
                 .ConfigureAwait(false);
         }
 
