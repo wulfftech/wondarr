@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Persistence;
@@ -155,7 +156,14 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
                         || item.State == QueueItemState.RemotelyQueued
                         || item.State == QueueItemState.Downloading
                         || item.State == QueueItemState.Completed
-                        || item.State == QueueItemState.Importing)));
+                        || item.State == QueueItemState.Importing)))
+                // A song whose file is in a compaction's staging folder is not upgradeable: the
+                // compaction has to place it first, and the import would defer anyway.
+                .Where(song => !database.CompactMoves.Any(row =>
+                    row.SongId == song.Id
+                    && (row.State == CompactMoveState.Planned
+                        || row.State == CompactMoveState.Staged
+                        || (row.State == CompactMoveState.Failed && row.StagedPath != null))));
 
             candidates = await wanted
                 .Select(song => new UpgradeSongRow(

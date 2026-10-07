@@ -116,6 +116,37 @@ public sealed class UpgradeSearchCommandHandlerTests
         message.Should().Be("0 songs: 0 grabbed, 0 without an acceptable result, 0 skipped");
     }
 
+    [Fact]
+    public async Task A_song_whose_file_is_in_a_compactions_staging_folder_is_not_upgraded()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        await host.SeedFileAsync(songId, qualityId: 23);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        await using (var context = host.Database.CreateContext(host.Time))
+        {
+            context.CompactMoves.Add(new CompactMoveRecord
+            {
+                LibraryId = SeedData.DefaultLibraryId,
+                SongId = songId,
+                FromPath = "/data/music/Aphex Twin/Alpha.flac",
+                StagedPath = "/data/music/.wondarr-compact/1/Alpha.flac",
+                ToPath = "/data/music/Aphex Twin/Alpha.flac",
+                Proposed = "{}",
+                State = CompactMoveState.Staged,
+            });
+
+            await context.SaveChangesAsync(Token);
+        }
+
+        var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Should().BeEmpty("the compaction has the song's file");
+        message.Should().Be("0 songs: 0 grabbed, 0 without an acceptable result, 0 skipped");
+    }
+
     [Theory]
     [InlineData(0, 0.5, false)]
     [InlineData(0, 2.0, true)]

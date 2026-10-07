@@ -102,6 +102,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     private readonly IPlexServerClient _plex;
     private readonly IPlexLibraryUpdater _updater;
     private readonly TimeProvider _time;
+    private readonly ISongFileLock _songFileLock;
     private readonly ILogger<CompactExecutor> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="CompactExecutor"/> class.</summary>
@@ -114,6 +115,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <param name="plex">The scans and the empty trash that make Plex forget a track.</param>
     /// <param name="updater">The debounced partial scan of the folders the files land in.</param>
     /// <param name="time">The clock every wait and poll is measured against.</param>
+    /// <param name="songFileLock">The per-song lock the import's place-and-record step also takes.</param>
     /// <param name="logger">The log sink.</param>
     public CompactExecutor(
         WondarrDbContext database,
@@ -125,6 +127,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         IPlexServerClient plex,
         IPlexLibraryUpdater updater,
         TimeProvider time,
+        ISongFileLock songFileLock,
         ILogger<CompactExecutor> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -136,6 +139,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         ArgumentNullException.ThrowIfNull(plex);
         ArgumentNullException.ThrowIfNull(updater);
         ArgumentNullException.ThrowIfNull(time);
+        ArgumentNullException.ThrowIfNull(songFileLock);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
@@ -147,6 +151,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         _plex = plex;
         _updater = updater;
         _time = time;
+        _songFileLock = songFileLock;
         _logger = logger;
     }
 
@@ -411,9 +416,59 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <returns>Where the file is parked, or <see langword="null"/> when the move failed and the file stayed where it was.</returns>
     private async Task<string?> StageAsync(Library library, Move row, CancellationToken cancellationToken)
     {
+        // The per-song file guard: the import's transcode-to-record span holds the same lock, so a
+        // compaction stage and an import can never act on the same song's file at once. The
+        // library gate is taken before this lock and released after it — never the other way round.
+        await using var _ = await _songFileLock
+            .AcquireAsync(row.SongId, cancellationToken)
+            .ConfigureAwait(false);
+
         var from = row.FromPath!;
         var staged = StagingPathFor(library, row.Id, from);
         var directory = Path.GetDirectoryName(staged)!;
+
+        // The plan's file must still be the song's file: an import may have replaced it since the
+        // plan was made, and one that is importing right now will. A row whose song moved
+        // underneath it is failed and nothing is moved — the file is never touched.
+        var currentPath = await _database.SongFiles
+            .AsNoTracking()
+            .Where(file => file.SongId == row.SongId)
+            .Select(file => file.Path)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (currentPath is null || !PathRules.AreEqual(currentPath, from))
+        {
+            await SetStateAsync(
+                    row.Id,
+                    CompactMoveState.Failed,
+                    staged: null,
+                    final: null,
+                    message: "the song's file changed since the plan",
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return null;
+        }
+
+        if (await _database.QueueItems
+                .AsNoTracking()
+                .AnyAsync(
+                    item => item.SongId == row.SongId && item.State == QueueItemState.Importing,
+                    cancellationToken)
+                .ConfigureAwait(false))
+        {
+            await SetStateAsync(
+                    row.Id,
+                    CompactMoveState.Failed,
+                    staged: null,
+                    final: null,
+                    message: "the song is being imported",
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return null;
+        }
 
         if (!_disk.FileExists(from) && _disk.FileExists(staged))
         {
@@ -749,6 +804,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <returns><see langword="true"/> when the file is at its new path and recorded there.</returns>
     private async Task<bool> PlaceAsync(Library library, Move row, CancellationToken cancellationToken)
     {
+        // No song lock here, on purpose: while this row is Staged, an import for the song defers
+        // (its guard sees the unfinished move), so nothing but this executor can act on the song's
+        // file, and the lock would only be held across the Plex wait for nothing.
         var staged = row.StagedPath!;
 
         // The song is loaded exactly as the import loads it: the album context decides the folder and
