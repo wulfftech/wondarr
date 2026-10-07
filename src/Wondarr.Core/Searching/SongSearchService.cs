@@ -846,12 +846,76 @@ public sealed partial class SongSearchService : ISongSearchService
             Profile = profile,
             Qualities = qualities,
             CurrentFileQualityId = song.File?.QualityId,
+            CurrentFileIdentityScore = await ReadHeldIdentityAsync(song.File, cancellationToken).ConfigureAwait(false),
             IsManualGrab = trigger == SearchTrigger.Manual,
             SourceTier = 1,
             IsBlocklisted = key => blockedKeys.Contains(key),
             IgnoredUsers = ignored,
         };
     }
+
+    /// <summary>
+    /// The identity sub-score of the candidate that produced the file the song already holds, or
+    /// <see langword="null"/> when nothing can say: no file, no source ref, no candidate id in it, no
+    /// stored candidate row, or a breakdown without the value. Malformed JSON is
+    /// <see langword="null"/> too, never an error — the search must not fail over a column it can
+    /// re-derive nothing from (MATCHING_ENGINE §6.6).
+    /// </summary>
+    /// <param name="file">The file the song holds, when it holds one.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The held candidate's identity sub-score, or <see langword="null"/>.</returns>
+    private async Task<int?> ReadHeldIdentityAsync(SongFile? file, CancellationToken cancellationToken)
+    {
+        if (file?.SourceRef is not { Length: > 0 } sourceRef)
+        {
+            return null;
+        }
+
+        HeldSourceReference? reference;
+
+        try
+        {
+            reference = JsonSerializer.Deserialize<HeldSourceReference>(sourceRef, Json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        if (reference?.CandidateId is not { } candidateId)
+        {
+            return null;
+        }
+
+        var record = await _database.Candidates
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == candidateId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (record is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var breakdown = JsonDocument.Parse(record.ScoreBreakdown);
+
+            return breakdown.RootElement.ValueKind == JsonValueKind.Object
+                && breakdown.RootElement.TryGetProperty("identity", out var identity)
+                && identity.TryGetInt32(out var value)
+                ? value
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The part of <c>song_file.source_ref</c> the identity rule needs.</summary>
+    /// <param name="CandidateId">The stored candidate that produced the file, when one did.</param>
+    private sealed record HeldSourceReference(long? CandidateId);
 
     /// <summary>Stores the best of what the run saw, with the score and every rejection.</summary>
     private async Task StoreCandidatesAsync(

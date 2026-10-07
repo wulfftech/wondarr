@@ -19,6 +19,9 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often the missing-song search runs, when <c>search.missing_interval_hours</c> is left alone.</summary>
     public static readonly TimeSpan DefaultMissingSearchInterval = TimeSpan.FromHours(6);
 
+    /// <summary>How often the cutoff-unmet upgrade search runs, when <c>search.upgrade_interval_hours</c> is left alone.</summary>
+    public static readonly TimeSpan DefaultUpgradeSearchInterval = TimeSpan.FromHours(24);
+
     /// <summary>How often the reference libraries are walked (ARCHITECTURE §5.5: daily).</summary>
     public static readonly TimeSpan ReferenceLibraryScanInterval = TimeSpan.FromHours(24);
 
@@ -37,6 +40,9 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
             new(
                 MissingSearchCommandHandler.CommandName,
                 TimeSpan.FromHours(options.Value.MissingIntervalHours)),
+            new(
+                UpgradeSearchCommandHandler.CommandName,
+                TimeSpan.FromHours(options.Value.UpgradeIntervalHours)),
             new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
         ];
     }
