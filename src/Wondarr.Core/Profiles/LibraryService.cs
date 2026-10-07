@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Organizer;
 using Microsoft.EntityFrameworkCore;
 
 namespace Wondarr.Core.Profiles;
@@ -26,6 +27,19 @@ public interface ILibraryService
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <exception cref="ProfileValidationException">The library is not valid, or its id is unknown.</exception>
     Task<Library> UpdateAsync(Library library, CancellationToken cancellationToken);
+
+    /// <summary>Validates and stores a new library.</summary>
+    /// <param name="library">The library to create; its id is ignored.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>The stored library, with its id.</returns>
+    /// <exception cref="ProfileValidationException">The library is not valid.</exception>
+    Task<Library> CreateAsync(Library library, CancellationToken cancellationToken);
+
+    /// <summary>Deletes a library that holds nothing and nothing files into.</summary>
+    /// <param name="id">The library id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <exception cref="ProfileValidationException">The library cannot be deleted, or its id is unknown.</exception>
+    Task DeleteAsync(long id, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -89,6 +103,21 @@ public sealed class LibraryService : ILibraryService
             ?? throw new ProfileValidationException([("id", $"Library {library.Id} does not exist.")]);
 
         var errors = await ValidateAsync(library, stored, cancellationToken).ConfigureAwait(false);
+        errors.AddRange(await RootOverlapErrorsAsync(library.RootPath, library.Id, cancellationToken).ConfigureAwait(false));
+
+        if (!PathRules.AreEqual(stored.RootPath, library.RootPath)
+            && await _context.Songs
+                .AsNoTracking()
+                .AnyAsync(song => song.LibraryId == library.Id && song.File != null, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            // The rows would say the files are where they no longer are: the move is the user's to
+            // make first, song by song or by hand.
+            errors.Add((
+                "rootPath",
+                "the library holds songs with files; move or delete them first, or move the folder yourself and point the library at it."));
+        }
+
         if (errors.Count > 0)
         {
             throw new ProfileValidationException(errors);
@@ -129,6 +158,176 @@ public sealed class LibraryService : ILibraryService
 
         return stored;
     }
+
+    /// <inheritdoc />
+    public async Task<Library> CreateAsync(Library library, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+
+        library.Id = 0;
+
+        // An empty template takes the layout's preset, so a library created with nothing but a name
+        // and a root still files its songs the way its layout says.
+        if (string.IsNullOrWhiteSpace(library.NamingTemplate))
+        {
+            library.NamingTemplate = NamingTemplate.PresetTemplates[library.Layout];
+        }
+
+        // A fresh library: nothing is stored under this id yet, so nothing can collide with it.
+        var errors = await ValidateAsync(library, new Library(), cancellationToken).ConfigureAwait(false);
+        errors.AddRange(await RootOverlapErrorsAsync(library.RootPath, excludeId: null, cancellationToken).ConfigureAwait(false));
+
+        if (errors.Count > 0)
+        {
+            throw new ProfileValidationException(errors);
+        }
+
+        if (library.IsDefault)
+        {
+            await ClearOtherDefaultsAsync(library.Id, cancellationToken).ConfigureAwait(false);
+        }
+
+        // The policy is stored in its canonical form — version 2, every rule spelled out.
+        library.OutputPolicy = library.OutputPolicy is null
+            ? null
+            : LibraryOutputPolicy.Parse(library.OutputPolicy).ToJson();
+
+        _context.Libraries.Add(library);
+
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return library;
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAsync(long id, CancellationToken cancellationToken)
+    {
+        var stored = await _context.Libraries
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new ProfileValidationException([("id", $"Library {id} does not exist.")]);
+
+        var errors = new List<(string Property, string Message)>();
+
+        if (stored.IsDefault)
+        {
+            errors.Add(("isDefault", "the default library cannot be deleted; make another library the default first."));
+        }
+
+        var songs = await _context.Songs
+            .AsNoTracking()
+            .CountAsync(song => song.LibraryId == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (songs > 0)
+        {
+            errors.Add(("songs", $"holds {songs} songs; move or delete them first"));
+        }
+
+        var lists = await _context.ImportLists
+            .AsNoTracking()
+            .Where(list => list.LibraryId == id)
+            .Select(list => list.Name)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (lists.Count > 0)
+        {
+            errors.Add(("importLists", $"import lists file into it: {string.Join(", ", lists)}"));
+        }
+
+        if (errors.Count > 0)
+        {
+            throw new ProfileValidationException(errors);
+        }
+
+        // Files are never touched: a library that holds none has none to leave behind.
+        _context.Libraries.Remove(stored);
+
+        await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Clears the default flag on every library but <paramref name="id"/>.</summary>
+    private async Task ClearOtherDefaultsAsync(long id, CancellationToken cancellationToken)
+    {
+        // Only one library is the default; the flag moves between rows in one SaveChanges.
+        var previousDefaults = await _context.Libraries
+            .Where(candidate => candidate.Id != id && candidate.IsDefault)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var previous in previousDefaults)
+        {
+            previous.IsDefault = false;
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="rootPath"/> equals, sits inside or contains the root of another
+    /// library or a reference library. Full paths are compared case-insensitively, each with a
+    /// trailing separator, so <c>/data/music2</c> beside <c>/data/music</c> does not count.
+    /// </summary>
+    private async Task<List<(string Property, string Message)>> RootOverlapErrorsAsync(
+        string rootPath,
+        long? excludeId,
+        CancellationToken cancellationToken)
+    {
+        var errors = new List<(string Property, string Message)>();
+
+        string normalized;
+
+        try
+        {
+            normalized = NormalizedRoot(rootPath);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Not a usable path; the field's own rule (an absolute path) names it.
+            return errors;
+        }
+
+        var libraries = await _context.Libraries
+            .AsNoTracking()
+            .Where(library => excludeId == null || library.Id != excludeId)
+            .Select(library => new { library.Name, library.RootPath })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var library in libraries)
+        {
+            if (RootsOverlap(normalized, NormalizedRoot(library.RootPath)))
+            {
+                errors.Add(("rootPath", $"rootPath overlaps the library '{library.Name}'."));
+            }
+        }
+
+        var references = await _context.ReferenceLibraries
+            .AsNoTracking()
+            .Select(reference => new { reference.Name, reference.RootPath })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var reference in references)
+        {
+            if (RootsOverlap(normalized, NormalizedRoot(reference.RootPath)))
+            {
+                errors.Add(("rootPath", $"rootPath overlaps the reference library '{reference.Name}'."));
+            }
+        }
+
+        return errors;
+    }
+
+    /// <summary>Whether two roots are the same folder, or one holds the other.</summary>
+    private static bool RootsOverlap(string first, string second) =>
+        first.StartsWith(second, StringComparison.OrdinalIgnoreCase)
+        || second.StartsWith(first, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A full path with a trailing separator, so a prefix comparison cannot bite a sibling.</summary>
+    private static string NormalizedRoot(string path) =>
+        string.Concat(
+            Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.DirectorySeparatorChar);
 
     /// <summary>Checks <paramref name="library"/> against the rules and returns every problem found.</summary>
     private async Task<List<(string Property, string Message)>> ValidateAsync(
