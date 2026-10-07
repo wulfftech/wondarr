@@ -10,10 +10,10 @@ namespace Wondarr.Api.SystemInfo;
 /// <param name="Id">The backup's id (its file name).</param>
 /// <param name="Name">The backup's file name.</param>
 /// <param name="Path">The download path, <c>/backup/{type}/{name}</c>.</param>
-/// <param name="Type">Whether the scheduled task or the user created it.</param>
+/// <param name="Type"><c>scheduled</c> or <c>manual</c>: whether the scheduled task or the user created it.</param>
 /// <param name="Size">The zip's size in bytes.</param>
 /// <param name="Time">When it was made.</param>
-public sealed record BackupResource(string Id, string Name, string Path, BackupType Type, long Size, DateTime Time);
+public sealed record BackupResource(string Id, string Name, string Path, string Type, long Size, DateTime Time);
 
 /// <summary>The answer to a restore request: the restore is staged, and the app must restart.</summary>
 /// <param name="RestartRequired">Always <see langword="true"/>: the restore is applied on the next start.</param>

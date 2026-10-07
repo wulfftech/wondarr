@@ -140,12 +140,15 @@ public sealed partial class YtDlpAvailability : IDisposable
 public sealed class YtDlpHealthCheck : IHealthCheck
 {
     private readonly YtDlpAvailability _availability;
+    private readonly IOptionsMonitor<YouTubeOptions> _options;
 
     /// <summary>Initialises a new instance of the <see cref="YtDlpHealthCheck"/> class.</summary>
     /// <param name="availability">The process-lifetime cache of the version checks.</param>
-    public YtDlpHealthCheck(YtDlpAvailability availability)
+    /// <param name="options">The YouTube settings: a source that is off has nothing to warn about.</param>
+    public YtDlpHealthCheck(YtDlpAvailability availability, IOptionsMonitor<YouTubeOptions> options)
     {
         _availability = availability ?? throw new ArgumentNullException(nameof(availability));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
     /// <inheritdoc />
@@ -154,6 +157,13 @@ public sealed class YtDlpHealthCheck : IHealthCheck
     /// <inheritdoc />
     public async Task<HealthReport> CheckAsync(CancellationToken cancellationToken)
     {
+        if (!_options.CurrentValue.Enabled)
+        {
+            // The source is off by default (DECISIONS build session 5 #6); a missing yt-dlp only matters
+            // once the user turns it on.
+            return new HealthReport(Name, HealthCheckResult.Ok, "The YouTube source is off", null);
+        }
+
         var status = await _availability.GetStatusAsync(cancellationToken).ConfigureAwait(false);
 
         if (!status.BinaryAvailable)

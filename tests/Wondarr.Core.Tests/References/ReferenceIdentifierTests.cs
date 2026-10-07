@@ -926,6 +926,8 @@ public class ReferenceIdentifierTests : IDisposable
             new AlbumPolicyEngine(() => new Guid(++counter, 0, 0, new byte[8])),
             _musicBrainz,
             _coverArt,
+            Wondarr.Core.Tests.Songs.SearchOnAddOff.Commands,
+            Wondarr.Core.Tests.Songs.SearchOnAddOff.Options,
             NullLogger<SongService>.Instance);
     }
 

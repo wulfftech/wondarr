@@ -52,17 +52,21 @@ public sealed class BackupController : ControllerBase
     /// <returns>201 with the new backup.</returns>
     [HttpPost]
     [Produces("application/json")]
+    [ProducesResponseType<BackupResource>(StatusCodes.Status201Created)]
     public async Task<ActionResult<BackupResource>> CreateBackup(CancellationToken cancellationToken)
     {
         var backup = await _backups.CreateAsync(BackupType.Manual, cancellationToken).ConfigureAwait(false);
 
-        return CreatedAtAction(nameof(GetBackups), routeValues: null, value: ToResource(backup));
+        // There is no single-backup GET to point a Location header at: the list is where it shows up.
+        return StatusCode(StatusCodes.Status201Created, ToResource(backup));
     }
 
     /// <summary>Deletes one backup.</summary>
     /// <param name="id">The backup's id (its file name).</param>
     /// <returns>204, or 404 when no such backup exists.</returns>
     [HttpDelete("{id}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult DeleteBackup(string id) => _backups.Delete(id) ? NoContent() : NotFound();
 
     /// <summary>Downloads one backup.</summary>
@@ -70,6 +74,8 @@ public sealed class BackupController : ControllerBase
     /// <returns>The zip, or 404 when no such backup exists.</returns>
     [HttpGet("{id}/download")]
     [Produces("application/zip")]
+    [ProducesResponseType<FileStreamResult>(StatusCodes.Status200OK, "application/zip")]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult DownloadBackup(string id)
     {
         var zip = _backups.OpenRead(id);
@@ -85,6 +91,8 @@ public sealed class BackupController : ControllerBase
     /// <returns><c>{ restartRequired: true }</c>, or 400 problem details when the archive is not a valid backup.</returns>
     [HttpPost("restore/{id}")]
     [Produces("application/json")]
+    [ProducesResponseType<RestoreResource>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RestoreBackup(string id, CancellationToken cancellationToken) =>
         await StageRestoreAsync(() => _backups.StageRestoreAsync(id, cancellationToken), cancellationToken)
             .ConfigureAwait(false);
@@ -96,6 +104,8 @@ public sealed class BackupController : ControllerBase
     [RequestSizeLimit(MaximumUploadBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = MaximumUploadBytes)]
     [Produces("application/json")]
+    [ProducesResponseType<RestoreResource>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UploadAndRestoreBackup(CancellationToken cancellationToken)
     {
         var form = await Request.ReadFormAsync(cancellationToken).ConfigureAwait(false);
@@ -140,7 +150,7 @@ public sealed class BackupController : ControllerBase
         backup.Id,
         backup.Name,
         $"/backup/{backup.Type.ToString().ToLowerInvariant()}/{backup.Name}",
-        backup.Type,
+        backup.Type.ToString().ToLowerInvariant(),
         backup.Size,
         backup.Time);
 }

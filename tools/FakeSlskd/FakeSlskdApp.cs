@@ -60,6 +60,12 @@ public static class FakeSlskdApp
                 ? Results.Json(state.GateLog())
                 : Results.StatusCode(StatusCodes.Status403Forbidden));
 
+        // The upgrade gate makes a better file appear mid-run; loopback only, like the log.
+        app.MapPost("/fake/scenario/files", (HttpContext context, ScenarioFile[] files) =>
+            IsLoopback(context.Connection.RemoteIpAddress)
+                ? Results.Json(new { files = state.AddScenarioFiles(files) })
+                : Results.StatusCode(StatusCodes.Status403Forbidden));
+
         return app;
     }
 

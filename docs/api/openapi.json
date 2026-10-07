@@ -158,8 +158,8 @@
           "Backup"
         ],
         "responses": {
-          "200": {
-            "description": "OK",
+          "201": {
+            "description": "Created",
             "content": {
               "application/json": {
                 "schema": {
@@ -187,8 +187,28 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "OK"
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -212,7 +232,21 @@
           "200": {
             "description": "OK",
             "content": {
-              "application/zip": {}
+              "application/zip": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileStreamResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
             }
           }
         }
@@ -237,7 +271,21 @@
           "200": {
             "description": "OK",
             "content": {
-              "application/json": {}
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
             }
           }
         }
@@ -252,7 +300,21 @@
           "200": {
             "description": "OK",
             "content": {
-              "application/json": {}
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
             }
           }
         }
@@ -2778,7 +2840,7 @@
             "type": "string"
           },
           "type": {
-            "$ref": "#/components/schemas/BackupType"
+            "type": "string"
           },
           "size": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -2793,9 +2855,6 @@
             "format": "date-time"
           }
         }
-      },
-      "BackupType": {
-        "type": "integer"
       },
       "BlocklistResource": {
         "required": [
@@ -3138,6 +3197,57 @@
             "items": {
               "$ref": "#/components/schemas/CompactMoveResource"
             }
+          }
+        }
+      },
+      "EntityTagHeaderValue": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "$ref": "#/components/schemas/StringSegment"
+          },
+          "isWeak": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FileStreamResult": {
+        "type": "object",
+        "properties": {
+          "fileStream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "contentType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fileDownloadName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastModified": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "entityTag": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EntityTagHeaderValue"
+              }
+            ]
+          },
+          "enableRangeProcessing": {
+            "type": "boolean"
           }
         }
       },
@@ -5471,6 +5581,17 @@
           }
         }
       },
+      "RestoreResource": {
+        "required": [
+          "restartRequired"
+        ],
+        "type": "object",
+        "properties": {
+          "restartRequired": {
+            "type": "boolean"
+          }
+        }
+      },
       "ScoreAdjustment": {
         "required": [
           "name",
@@ -6356,6 +6477,46 @@
           },
           "searchBudget": {
             "$ref": "#/components/schemas/SoulseekSearchBudgetResource"
+          }
+        }
+      },
+      "Stream": {
+        "type": "string",
+        "format": "binary"
+      },
+      "StringSegment": {
+        "type": "object",
+        "properties": {
+          "buffer": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "length": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasValue": {
+            "type": "boolean"
           }
         }
       },
