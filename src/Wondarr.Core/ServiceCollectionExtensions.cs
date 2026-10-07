@@ -60,6 +60,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
 
+        // The System pages read the app's own log files through this; it holds no state beyond the
+        // resolved paths, so it is a singleton like the folder checks that share them.
+        services.AddSingleton<ILogFileReader, LogFileReader>();
+
         // The media tools only answer once per process (MediaToolAvailability caches), so both it and
         // the check that reads it are singletons like the folder checks.
         services.AddSingleton<IHealthCheck, MediaToolsHealthCheck>();
