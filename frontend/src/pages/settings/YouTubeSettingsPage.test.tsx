@@ -165,6 +165,25 @@ describe('YouTubeSettingsPage', () => {
     expect(await screen.findByText('Saved')).toBeInTheDocument();
   });
 
+  it('saves the old keepOpus spelling back as keep', async () => {
+    install({
+      outputPolicy: { codec: 'keepOpus', mode: 'cbr', bitrateKbps: 256, vbrQuality: 0, sampleRate: 'keep' },
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const put = sent().find((request) => request.method === 'PUT');
+      const body: unknown = put === undefined ? null : JSON.parse(await put.body);
+
+      expect(body).toMatchObject({ outputPolicy: { codec: 'keep' } });
+    });
+  });
+
   it('shows the server validation errors', async () => {
     install({}, () =>
       jsonResponse(

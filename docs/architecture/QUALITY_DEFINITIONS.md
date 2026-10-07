@@ -22,7 +22,7 @@ Additions over Lidarr: explicit Opus tiers (Lidarr folds Opus into Vorbis Q-leve
 
 ## Output policy for YouTube-sourced files (ADR-0008)
 
-A YouTube download is the lossless remux of itag 251 (`.opus`); most players want AAC or MP3, so each library carries an output policy that says what a YouTube file becomes before it is verified, tagged and placed. A Soulseek file is never transcoded — it is imported as the peer served it.
+A YouTube download is the lossless remux of itag 251 (`.opus`); most players want AAC or MP3, so each library carries an output policy that says what a YouTube file becomes before it is verified, tagged and placed. Since Phase 6 the policy has a rule for lossy and for lossless files from other sources too (LIBRARY_OUTPUT §7.7; ADR-0008 amended 2026-10-07), and the same ranking rule applies to all of them: a converted file is ranked as the quality that was downloaded, never as the target the conversion wrote. The table below is one rule (the `youtube` rule, or a version-1 policy).
 
 The policy is JSON in `library.output_policy`; a library without one uses the default. Keys (camelCase, every failure names the key it came from):
 
