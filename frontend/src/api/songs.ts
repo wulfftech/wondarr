@@ -29,6 +29,7 @@ export type ImportListCandidate = components['schemas']['ImportListCandidate'];
 export type ImportListItemPage = components['schemas']['PagingResourceOfImportListItemResource'];
 export type BulkAddAcceptedResource = components['schemas']['BulkAddAcceptedResource'];
 export type CommandResource = components['schemas']['CommandResource'];
+export type SongMoveAcceptedResource = components['schemas']['SongMoveAcceptedResource'];
 
 /** The query keys the library, add and review screens invalidate. */
 export const SONGS_QUERY_KEY = ['songs'] as const;
@@ -80,7 +81,7 @@ function listQuery(values: Record<string, string | number>): never {
  * body is the one the client has already parsed: the response's own body is consumed by then, so
  * re-reading it would lose the detail the alert quotes.
  */
-function problemError(status: number, body: unknown, fallback: string): ValidationError {
+export function problemError(status: number, body: unknown, fallback: string): ValidationError {
   const problem = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
   const detail = problem.detail ?? problem.title;
   const message = typeof detail === 'string' && detail !== '' ? detail : fallback;
@@ -89,7 +90,7 @@ function problemError(status: number, body: unknown, fallback: string): Validati
 }
 
 /** Refreshes everything an add, a delete or a resolve changes. */
-function invalidateLibrary(queryClient: QueryClient): void {
+export function invalidateLibrary(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: SONGS_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: WANTED_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: IMPORT_LISTS_QUERY_KEY });
@@ -467,6 +468,66 @@ export function useBulkAdd(): UseMutationResult<
   });
 }
 
+/** The plan of a conversion, and the command it queues. */
+
+export type ConvertPlanResource = components['schemas']['ConvertPlanResource'];
+export type ConvertSongResource = components['schemas']['ConvertSongResource'];
+export type ConvertRequestResource = components['schemas']['ConvertRequestResource'];
+export type ConvertAcceptedResource = components['schemas']['ConvertAcceptedResource'];
+
+/** The dry run's query key, keyed by library so two libraries never share a plan. */
+export const CONVERT_PLAN_QUERY_KEY = ['convert-plan'] as const;
+
+/**
+ * What converting some songs — or a whole library, when no song and no rule is named — would do,
+ * read from the stored file rows alone (LIBRARY_OUTPUT §7.7). The plan is not cached across opens:
+ * the library's files change as imports and conversions land, so a remembered plan would be shown
+ * against a library that has moved on.
+ */
+export function useConvertPreview(
+  libraryId: number | null,
+  enabled: boolean,
+): UseQueryResult<ConvertPlanResource, Error> {
+  const client = useApiClient();
+
+  return useQuery({
+    queryKey: [...CONVERT_PLAN_QUERY_KEY, libraryId],
+    enabled: enabled && libraryId !== null,
+    staleTime: 0,
+    gcTime: 0,
+    queryFn: async (): Promise<ConvertPlanResource> => {
+      const { data, response } = await client.POST('/api/v1/song/convert/preview', {
+        // The document marks all three members required; a null song list and a null rule are what
+        // "this library, per its own rules" reads as.
+        body: { songIds: null, libraryId, rule: null },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The conversion plan request failed.');
+      }
+
+      return data;
+    },
+  });
+}
+
+/** Queues the conversion the request names; the API answers 202 with the command to follow. */
+export function useConvert(): UseMutationResult<ConvertAcceptedResource, Error, ConvertRequestResource> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async (request: ConvertRequestResource): Promise<ConvertAcceptedResource> => {
+      const { data, error, response } = await client.POST('/api/v1/song/convert', { body: request });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The conversion could not be queued.');
+      }
+
+      return data;
+    },
+  });
+}
+
 /** One command, optionally polled until it stops running. */
 export function useCommand(
   id: number | null,
@@ -585,6 +646,89 @@ export function useSkipItem(): UseMutationResult<ImportListItemResource, Error, 
 
       if (!response.ok || data === undefined) {
         throw new ApiError(response.status, 'The line could not be skipped.');
+      }
+
+      return data;
+    },
+    onSuccess: () => invalidateLibrary(queryClient),
+  });
+}
+
+/** Moves songs to another library, as a command the Activity page tracks. */
+export function useMoveSongs(): UseMutationResult<
+  SongMoveAcceptedResource,
+  Error,
+  { songIds: number[]; libraryId: number }
+> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (move: { songIds: number[]; libraryId: number }): Promise<SongMoveAcceptedResource> => {
+      const { data, error, response } = await client.POST('/api/v1/song/move', {
+        body: { songIds: move.songIds, libraryId: move.libraryId },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The songs could not be moved.');
+      }
+
+      return data;
+    },
+    onSuccess: () => invalidateLibrary(queryClient),
+  });
+}
+
+/** What a conversion asks for: the songs, and the one-off rule (`null` for each library's own). */
+export interface ConvertInput {
+  /** The songs to convert; the endpoint takes at most a few dozen at a time. */
+  songIds: number[];
+  /**
+   * A one-off output rule — `{ codec: 'mp3', bitrateKbps: 320 }` — or `null` to convert by each
+   * library's own policy. The document types it as an unknown JSON node, so it is asserted once here.
+   */
+  rule?: Record<string, unknown> | null;
+}
+
+/** The body both convert endpoints take; the document marks every member required. */
+function convertBody(input: ConvertInput): components['schemas']['ConvertRequestResource'] {
+  return {
+    songIds: input.songIds,
+    libraryId: null,
+    rule: input.rule ?? null,
+  };
+}
+
+/** What converting the songs would do, without converting anything. */
+export function useConvertSongsPreview(): UseMutationResult<ConvertPlanResource, Error, ConvertInput> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async (input: ConvertInput): Promise<ConvertPlanResource> => {
+      const { data, error, response } = await client.POST('/api/v1/song/convert/preview', {
+        body: convertBody(input),
+      });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The conversion could not be planned.');
+      }
+
+      return data;
+    },
+  });
+}
+
+/** Converts the songs' files in place, as a command the Activity page tracks. */
+export function useConvertSongs(): UseMutationResult<ConvertAcceptedResource, Error, ConvertInput> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: ConvertInput): Promise<ConvertAcceptedResource> => {
+      const { data, error, response } = await client.POST('/api/v1/song/convert', { body: convertBody(input) });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The conversion could not be started.');
       }
 
       return data;

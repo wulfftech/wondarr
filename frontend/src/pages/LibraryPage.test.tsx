@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALBUM_OPTIONS, ARTISTS, HEALTH_ENTRIES, LIBRARY_SONGS, paged, SYSTEM_STATUS } from '../test/fixtures';
+import { ALBUM_OPTIONS, ARTISTS, HEALTH_ENTRIES, LIBRARIES, LIBRARY_SONGS, paged, SYSTEM_STATUS } from '../test/fixtures';
 import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../test/helpers';
 
 beforeEach(() => {
@@ -55,6 +55,10 @@ function install(write: () => Response = () => jsonResponse(LIBRARY_SONGS[0])): 
 
     if (url.includes('/api/v1/artist')) {
       return jsonResponse(ARTISTS);
+    }
+
+    if (url.includes('/api/v1/library')) {
+      return jsonResponse(LIBRARIES);
     }
 
     if (/\/api\/v1\/song\/\d+\/albumcontexts$/.test(url)) {
@@ -173,6 +177,10 @@ describe('LibraryPage', () => {
         return jsonResponse(ARTISTS);
       }
 
+      if (url.includes('/api/v1/library')) {
+        return jsonResponse(LIBRARIES);
+      }
+
       return jsonResponse(paged(LIBRARY_SONGS));
     });
     const user = userEvent.setup();
@@ -214,6 +222,10 @@ describe('LibraryPage', () => {
         return jsonResponse(ARTISTS);
       }
 
+      if (url.includes('/api/v1/library')) {
+        return jsonResponse(LIBRARIES);
+      }
+
       return jsonResponse(paged(LIBRARY_SONGS));
     });
     const user = userEvent.setup();
@@ -224,6 +236,56 @@ describe('LibraryPage', () => {
 
     expect(await screen.findByText('No source returned anything: Nothing answered.')).toBeInTheDocument();
     expect(screen.getByText('No candidate came back for this song.')).toBeInTheDocument();
+  });
+
+  it('offers the rest of the album and opens it on the Add page', async () => {
+    installFetch((url) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse(SYSTEM_STATUS);
+      }
+
+      if (url.includes('/api/v1/health')) {
+        return jsonResponse(HEALTH_ENTRIES);
+      }
+
+      if (url.includes('/api/v1/artist')) {
+        return jsonResponse(ARTISTS);
+      }
+
+      if (url.includes('/api/v1/library')) {
+        return jsonResponse(LIBRARIES);
+      }
+
+      // The release the song is pinned to, as `GET /api/v1/song/{id}/album` answers.
+      if (/\/api\/v1\/song\/\d+\/album$/.test(url)) {
+        return jsonResponse({ source: 'musicbrainz', id: '9c1b3a2f-0000-0000-0000-000000000000' });
+      }
+
+      if (/\/api\/v1\/song\/\d+\/albumcontexts$/.test(url)) {
+        return jsonResponse(ALBUM_OPTIONS);
+      }
+
+      if (/\/api\/v1\/song\/\d+$/.test(url)) {
+        return jsonResponse(LIBRARY_SONGS[0]);
+      }
+
+      if (url.includes('/api/v1/song')) {
+        return jsonResponse(paged(LIBRARY_SONGS));
+      }
+
+      return new Response('not found', { status: 404 });
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Get Lucky');
+    await openRowMenu(user, 'Get Lucky');
+
+    await user.click(await screen.findByRole('menuitem', { name: 'Add the rest of this album' }));
+
+    expect(window.location.pathname).toBe('/add');
+    expect(window.location.search).toBe('?album=musicbrainz:9c1b3a2f-0000-0000-0000-000000000000');
   });
 
   it('shows the empty state when the filters match nothing', async () => {
@@ -238,6 +300,10 @@ describe('LibraryPage', () => {
 
       if (url.includes('/api/v1/artist')) {
         return jsonResponse(ARTISTS);
+      }
+
+      if (url.includes('/api/v1/library')) {
+        return jsonResponse(LIBRARIES);
       }
 
       return jsonResponse(paged([]));
