@@ -137,10 +137,10 @@ public sealed class LastFmTopProvider : IImportListProvider
         var limit = Math.Min(count, PageSize);
         var entries = new List<ImportListEntry>(count);
 
-        for (var page = 1; page <= MaxPages && entries.Count < count; page++)
+        for (var page = 1; page <= MaxPages; page++)
         {
             var answer = await LastFmFetch
-                .PageAsync(http, "user.gettoptracks", user, apiKey, limit, page, cancellationToken)
+                .PageAsync(http, "user.gettoptracks", user, apiKey, period, limit, page, cancellationToken)
                 .ConfigureAwait(false);
 
             if (!answer.Ok)
@@ -168,6 +168,8 @@ public sealed class LastFmTopProvider : IImportListProvider
                 }
             }
 
+            // The count caps the rows the list keeps; the read itself follows the pages Last.fm
+            // says the user's chart has, and stops at the first page that came back short.
             if (page >= LastFmFetch.TotalPages(read.Attributes) || read.Track.Count < limit)
             {
                 break;

@@ -86,6 +86,11 @@ public sealed class ListenBrainzPlaylistProvider : IImportListProvider
             return ImportListFetchResult.Failed(answer.Error!);
         }
 
+        if (answer.Status != HttpStatusCode.OK)
+        {
+            return ImportListFetchResult.Failed($"ListenBrainz answered {(int)answer.Status}.");
+        }
+
         var read = ListenBrainzFetch.Playlist(answer.Body);
 
         if (read?.Playlist?.Track is null)
