@@ -104,6 +104,7 @@ public sealed partial class ImportService : IImportService
     private readonly WondarrDbContext _database;
     private readonly IDownloadVerifier _verifier;
     private readonly ITranscoder _transcoder;
+    private readonly IMediaProbe _probe;
     private readonly ILibraryOrganizer _organizer;
     private readonly ISongSearchService _search;
     private readonly IEventAggregator _events;
@@ -115,7 +116,8 @@ public sealed partial class ImportService : IImportService
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the song and the file are written through it.</param>
     /// <param name="verifier">Decides whether the file is the wanted recording.</param>
-    /// <param name="transcoder">Turns a YouTube download into the library's output policy target.</param>
+    /// <param name="transcoder">Turns a download into the library's output policy target.</param>
+    /// <param name="probe">Measures what a downloaded file really is, so the right rule is applied.</param>
     /// <param name="organizer">Tags, names and places the file, recycling what it replaces.</param>
     /// <param name="search">Grabs the next candidate when a file is refused.</param>
     /// <param name="events">Publishes the queue and import events.</param>
@@ -127,6 +129,7 @@ public sealed partial class ImportService : IImportService
         WondarrDbContext database,
         IDownloadVerifier verifier,
         ITranscoder transcoder,
+        IMediaProbe probe,
         ILibraryOrganizer organizer,
         ISongSearchService search,
         IEventAggregator events,
@@ -138,6 +141,7 @@ public sealed partial class ImportService : IImportService
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(transcoder);
+        ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(organizer);
         ArgumentNullException.ThrowIfNull(search);
         ArgumentNullException.ThrowIfNull(events);
@@ -149,6 +153,7 @@ public sealed partial class ImportService : IImportService
         _database = database;
         _verifier = verifier;
         _transcoder = transcoder;
+        _probe = probe;
         _organizer = organizer;
         _search = search;
         _events = events;
@@ -309,35 +314,58 @@ public sealed partial class ImportService : IImportService
             .AcquireAsync(song.Id, cancellationToken)
             .ConfigureAwait(false);
 
-        // --- Transcode (the library's output policy) ---------------------------------------------
-        // A YouTube download is the lossless remux of itag 251 (.opus); the library's output policy
-        // says what that file becomes before it is verified, tagged and placed (ADR-0008). A
-        // Soulseek file is never transcoded: it is imported as the peer served it.
+        // --- Convert (the library's output policy) ------------------------------------------------
+        // Every download is converted per the library's output policy: one rule per source class —
+        // youtube, lossy, lossless (ADR-0008). A YouTube download is the lossless remux of itag 251
+        // (.opus); a file from any other source is probed, and the rule its class names is applied.
+        // Whatever the conversion writes, the file is ranked as the quality that was downloaded.
         var importPath = downloadPath;
         long? sourceQualityId = null;
 
+        // The temporary file a non-YouTube conversion is written to: deleted again on every exit
+        // but the one that places it, so a .wondarr-convert. file is never left behind.
+        using var convertTemp = new ConvertTempFile();
+
+        var policy = LibraryOutputPolicy.Parse(library.OutputPolicy);
+
         if (item.SourceType == SourceTypes.YouTube)
         {
-            // The file is ranked as the Opus stream it was downloaded as, whatever the policy turns
+            // The file is ranked as the Opus stream it was downloaded as, whatever the rule turns
             // it into: a 256 kbps AAC made from it is still a YouTube grab.
             sourceQualityId = SeedData.Opus160QualityId;
 
-            var policy = OutputPolicy.Parse(library.OutputPolicy);
+            var rule = policy.YouTube;
 
-            if (policy.Codec != OutputCodec.KeepOpus && extension != policy.Container)
+            if (rule.Codec is OutputCodec.Keep or OutputCodec.Opus)
             {
-                // (A download path that already holds the policy's container is a file this import
+                // Keeping the Opus remux — or re-encoding it as Opus, which is the same codec — is
+                // no transcode at all. An .opus file is already an Ogg container, so a rule that
+                // names the ogg container only renames the file: same bytes, never a re-encode.
+                if (rule.OpusContainer == "ogg" && extension == "opus")
+                {
+                    var renamed = Path.Combine(
+                        Path.GetDirectoryName(downloadPath) ?? string.Empty,
+                        string.Concat(Path.GetFileNameWithoutExtension(downloadPath), ".ogg"));
+
+                    File.Move(downloadPath, renamed);
+                    importPath = renamed;
+                    extension = "ogg";
+                }
+            }
+            else if (extension != rule.Container)
+            {
+                // (A download path that already holds the rule's container is a file this import
                 // transcoded on an earlier pass and then deferred: transcoding it again would mean
                 // copying a file over itself, so the step is skipped and the file is imported as it
-                // is — which is what the policy wanted the first time around.)
+                // is — which is what the rule wanted the first time around.)
                 var destination = Path.Combine(
                     Path.GetDirectoryName(downloadPath) ?? string.Empty,
-                    string.Concat(item.Candidate.RemotePath, ".", policy.Container));
+                    string.Concat(item.Candidate.RemotePath, ".", rule.Container));
 
                 try
                 {
                     var transcoded = await _transcoder
-                        .TranscodeAsync(downloadPath, policy, destination, cancellationToken)
+                        .TranscodeAsync(downloadPath, rule, destination, sourceIsLossless: false, cancellationToken)
                         .ConfigureAwait(false);
 
                     importPath = transcoded.Path;
@@ -373,6 +401,67 @@ public sealed partial class ImportService : IImportService
                 }
 
                 extension = Path.GetExtension(importPath).TrimStart('.').ToLowerInvariant();
+            }
+        }
+        else
+        {
+            // What the file really is decides which rule applies — and whether one applies at all:
+            // a file that does not decode is left as it is, and the verifier fails it as today.
+            var probed = await _probe.ProbeAsync(downloadPath, cancellationToken).ConfigureAwait(false);
+
+            if (probed.Decodable && probed.Info is { } info)
+            {
+                var rule = policy.RuleFor(item.SourceType, info.IsLossless);
+
+                if (rule.Codec != OutputCodec.Keep && !LibraryOutputPolicy.SameCodec(rule, info.Codec))
+                {
+                    // The file is ranked as what was downloaded, not what the conversion writes:
+                    // a FLAC converted to MP3-320 is still a FLAC grab, so the profile gate, the
+                    // upgrade check and song_file.quality_id all see the FLAC.
+                    sourceQualityId = MeasuredQuality.FromMediaInfo(info);
+
+                    convertTemp.Path = Path.Combine(
+                        Path.GetDirectoryName(downloadPath) ?? string.Empty,
+                        string.Concat(
+                            Path.GetFileNameWithoutExtension(downloadPath),
+                            ".wondarr-convert.",
+                            rule.Container));
+
+                    // A leftover from an earlier attempt would make the encoder refuse to write.
+                    convertTemp.Delete();
+
+                    try
+                    {
+                        var transcoded = await _transcoder
+                            .TranscodeAsync(downloadPath, rule, convertTemp.Path, info.IsLossless, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        importPath = transcoded.Path;
+                        extension = rule.Container;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        // As for a YouTube transcode: the file passed nothing yet, so there is
+                        // nothing to blocklist and no reason to grab the next candidate. The
+                        // downloaded original stays on disk, so a later import can try again.
+                        LogTranscodeFailed(_logger, item.Id, exception);
+
+                        await FailAsync(
+                                item,
+                                $"Transcode failed: {exception.Message}",
+                                null,
+                                null,
+                                allowNextAttempt: false,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+
+                        return ImportOutcome.Failed;
+                    }
+                }
             }
         }
 
@@ -501,12 +590,18 @@ public sealed partial class ImportService : IImportService
 
         // --- Compaction guard (re-check) ---------------------------------------------------------
         // A compaction may have planned or staged since the early check above — while this import
-        // was transcoding and verifying, most often, which is why this sits inside the song lock.
+        // was converting and verifying, most often, which is why this sits inside the song lock.
         // The item is Importing now, so it goes back to Completed and the poll brings it back;
         // the downloaded (and, if it got that far, transcoded) file is left exactly where it is.
         if (await HasUnfinishedCompactionMoveAsync(song.Id, cancellationToken).ConfigureAwait(false))
         {
-            return await DeferForCompactionAsync(item, importPath, cancellationToken).ConfigureAwait(false);
+            // A converted file is a temporary this import owns: the item keeps pointing at the
+            // downloaded original, and the temp is deleted when this scope ends.
+            return await DeferForCompactionAsync(
+                    item,
+                    convertTemp.Path is null ? importPath : downloadPath,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // --- Tag, name, place ---------------------------------------------------------------------
@@ -656,6 +751,16 @@ public sealed partial class ImportService : IImportService
                     $"Imported to {placement.FinalPath} but recording it failed: {exception.Message}",
                     cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        // The converted file is in the library and recorded, so the temporary it was made in and
+        // the downloaded original are no longer needed. The original goes through the same
+        // own-download-folder check every delete does: a file Wondarr did not download into that
+        // folder is not Wondarr's to delete.
+        if (convertTemp.Path is not null)
+        {
+            convertTemp.Delete();
+            DeleteDownloadedOriginal(item, downloadPath);
         }
 
         DeleteEmptyDownloadFolder(item, downloadPath);
@@ -1128,6 +1233,83 @@ public sealed partial class ImportService : IImportService
         {
             LogDeleteFailed(_logger, downloadPath!, exception.Message);
         }
+    }
+
+    /// <summary>
+    /// Deletes the downloaded original a converted file was made from, once that file is placed and
+    /// recorded — the file only, never the folder, which <see cref="DeleteEmptyDownloadFolder"/>
+    /// cleans up right after. The same own-download-folder check <see cref="DeleteDownload"/> uses
+    /// applies: a file Wondarr did not download into that folder is not Wondarr's to delete.
+    /// </summary>
+    private void DeleteDownloadedOriginal(QueueItem item, string? downloadPath)
+    {
+        if (!IsOwnDownloadFolder(item, downloadPath, out _))
+        {
+            LogDeleteRefused(_logger, item.Id, downloadPath);
+
+            return;
+        }
+
+        try
+        {
+            var path = Path.GetFullPath(downloadPath!);
+
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException exception)
+        {
+            LogDeleteFailed(_logger, downloadPath!, exception.Message);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            LogDeleteFailed(_logger, downloadPath!, exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// The temporary file a non-YouTube conversion is written to. It is deleted again on every
+    /// exit but the one that places it — the organizer moves it into the library, so a temp that is
+    /// still there when the scope ends was never placed, and a <c>.wondarr-convert.</c> file is
+    /// never left behind.
+    /// </summary>
+    private sealed class ConvertTempFile : IDisposable
+    {
+        private string? _path;
+
+        /// <summary>Gets or sets the temp file this scope owns, or <see langword="null"/> while there is none.</summary>
+        public string? Path
+        {
+            get => _path;
+            set => _path = value;
+        }
+
+        /// <summary>Deletes the temp file, when it is still there.</summary>
+        public void Delete()
+        {
+            if (_path is not { } path || !File.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+                // A temp that will not delete is worth nothing: the import's outcome does not
+                // depend on it, and the next attempt deletes it before it writes its own.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        /// <inheritdoc />
+        public void Dispose() => Delete();
     }
 
     /// <summary>

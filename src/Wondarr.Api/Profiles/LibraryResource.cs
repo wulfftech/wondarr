@@ -16,8 +16,12 @@ namespace Wondarr.Api.Profiles;
 /// <param name="NamingTemplate">The Lidarr-style path template.</param>
 /// <param name="SidecarOptions">The sidecar options as a JSON object.</param>
 /// <param name="OutputPolicy">
-/// The output policy for YouTube-sourced files as a JSON object; a library without one reports the
-/// default (AAC 256 kbps CBR in an <c>.m4a</c>, ADR-0008).
+/// The output policy as a JSON object, version 2: one rule per source class — <c>youtube</c>,
+/// <c>lossy</c>, <c>lossless</c> — each naming a codec (<c>keep</c>, <c>aac</c>, <c>mp3</c>,
+/// <c>opus</c>, <c>flac</c>, <c>alac</c>), a mode, a bitrate and a sample rate (ADR-0008). A
+/// library without one reports the default (YouTube downloads become AAC 256 kbps CBR in an
+/// <c>.m4a</c>, everything else is kept as it was served). A <c>PUT</c> may still send a
+/// version-1 object — the flat, YouTube-only shape — which is stored and read back as version 2.
 /// </param>
 /// <param name="AlbumPolicy">How songs are assigned to album folders.</param>
 /// <param name="MinTracksPerRealAlbum">How many owned tracks a real album needs before the policy uses it.</param>
@@ -61,7 +65,7 @@ public static class LibraryResourceMapper
             library.NamingTemplate,
             ParseOptions(library.SidecarOptions),
             ParseOptions(string.IsNullOrWhiteSpace(library.OutputPolicy)
-                ? OutputPolicy.Default.ToJson()
+                ? LibraryOutputPolicy.Default.ToJson()
                 : library.OutputPolicy),
             library.AlbumPolicy,
             library.MinTracksPerRealAlbum,

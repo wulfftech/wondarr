@@ -23,6 +23,7 @@ public interface ITranscoder
     /// <param name="sourcePath">The file to read; never overwritten.</param>
     /// <param name="policy">What the target is: codec, mode, bitrate, sample rate.</param>
     /// <param name="destinationPath">Where the target is written; the folder must exist.</param>
+    /// <param name="sourceIsLossless">Whether the source itself is lossless; only such a source may become FLAC or ALAC.</param>
     /// <param name="cancellationToken">Cancels the encoder run.</param>
     /// <returns>The file that now holds the audio, and its container.</returns>
     /// <exception cref="TranscodePolicyException">The policy asks for a target that is never written.</exception>
@@ -31,6 +32,7 @@ public interface ITranscoder
         string sourcePath,
         OutputPolicy policy,
         string destinationPath,
+        bool sourceIsLossless,
         CancellationToken cancellationToken);
 }
 
@@ -92,24 +94,34 @@ public sealed partial class Transcoder : ITranscoder
         string sourcePath,
         OutputPolicy policy,
         string destinationPath,
+        bool sourceIsLossless,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
 
-        // Keeping the Opus remux is not a transcode: the file is handed back untouched, and the
-        // caller imports it as it is.
-        if (policy.Codec == OutputCodec.KeepOpus)
+        // Keeping the file is not a transcode: it is handed back untouched, and the caller imports
+        // it as it is — under whatever extension it already has.
+        if (policy.Codec == OutputCodec.Keep)
         {
-            return new TranscodeResult(sourcePath, policy.Container);
+            return new TranscodeResult(
+                sourcePath,
+                Path.GetExtension(sourcePath).TrimStart('.').ToLowerInvariant());
         }
 
-        // Defence in depth: the policy cannot name a lossless codec, so this catches a caller that
-        // built its own destination. Never lossless from lossy (ADR-0006).
+        // Defence in depth: the import refuses a lossless target from a lossy source before it gets
+        // here, so this catches a caller that built its own policy or destination. Never lossless
+        // from lossy (ADR-0006), and never a .webm (ADR-0006).
         var extension = Path.GetExtension(destinationPath).TrimStart('.').ToLowerInvariant();
 
-        if (OutputPolicy.LosslessContainers.Contains(extension))
+        if (extension == "webm")
+        {
+            throw new TranscodePolicyException("Never transcode to a .webm target (ADR-0006).");
+        }
+
+        if (!sourceIsLossless
+            && (OutputPolicy.LosslessContainers.Contains(extension) || policy.Codec == OutputCodec.Alac))
         {
             throw new TranscodePolicyException(
                 $"Never transcode to a lossless target (.{extension}): the source is lossy already (ADR-0006).");
@@ -137,13 +149,14 @@ public sealed partial class Transcoder : ITranscoder
     }
 
     /// <summary>
-    /// The encoder command: <c>-i</c> the source, <c>-vn</c> (a YouTube remux carries no video, and
-    /// a cover image is embedded by the tag writer, not the encoder), the codec switches the policy
-    /// chose, then the target.
+    /// The encoder command: <c>-i</c> the source, <c>-vn</c> (a cover image is embedded by the tag
+    /// writer, not the encoder), <c>-map 0:a:0</c> (an embedded cover-art stream in a FLAC or MP3
+    /// source never becomes a video stream in the target), the codec switches the policy chose,
+    /// then the target.
     /// </summary>
     private static List<string> BuildArguments(string sourcePath, OutputPolicy policy, string destinationPath)
     {
-        var arguments = new List<string> { "-i", sourcePath, "-vn" };
+        var arguments = new List<string> { "-i", sourcePath, "-vn", "-map", "0:a:0" };
 
         switch (policy.Codec, policy.Mode)
         {
@@ -155,10 +168,11 @@ public sealed partial class Transcoder : ITranscoder
                 break;
 
             // The 0–9 quality scale is LAME's (MP3-only); a policy built by hand that asks for an
-            // AAC VBR is refused rather than silently run as CBR.
+            // AAC or Opus VBR is refused rather than silently run as CBR.
             case (OutputCodec.Aac, OutputMode.Vbr):
+            case (OutputCodec.Opus, OutputMode.Vbr):
                 throw new TranscodePolicyException(
-                    "outputPolicy: VBR is the LAME quality scale and exists for MP3 only; use mode \"cbr\" for AAC.");
+                    "outputPolicy: VBR is the LAME quality scale and exists for MP3 only; use mode \"cbr\".");
 
             case (OutputCodec.Mp3, OutputMode.Cbr):
                 arguments.Add("-c:a");
@@ -172,6 +186,25 @@ public sealed partial class Transcoder : ITranscoder
                 arguments.Add("libmp3lame");
                 arguments.Add("-q:a");
                 arguments.Add(policy.VbrQuality.ToString(CultureInfo.InvariantCulture));
+                break;
+
+            // libopus writes VBR by default; -b:a is its target bitrate either way.
+            case (OutputCodec.Opus, OutputMode.Cbr):
+                arguments.Add("-c:a");
+                arguments.Add("libopus");
+                arguments.Add("-b:a");
+                arguments.Add(policy.BitrateKbps.ToString(CultureInfo.InvariantCulture) + "k");
+                break;
+
+            // FLAC and ALAC have no bitrate to choose; the mode is the rule's, unused here.
+            case (OutputCodec.Flac, _):
+                arguments.Add("-c:a");
+                arguments.Add("flac");
+                break;
+
+            case (OutputCodec.Alac, _):
+                arguments.Add("-c:a");
+                arguments.Add("alac");
                 break;
         }
 

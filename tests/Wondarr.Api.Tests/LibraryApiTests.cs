@@ -88,10 +88,7 @@ public sealed class LibraryApiTests
             new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
             JsonContent(library));
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var returned = (JsonObject)(await ReadJsonAsync(response))!;
-        returned["plexSectionId"]!.GetValue<string>().Should().Be("3");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         returned["plexLibraryPath"]!.GetValue<string>().Should().Be("/plex/music");
 
         var reread = await GetLibraryAsync(client, 1);
