@@ -16,8 +16,9 @@ import {
 import { CircleAlert, EllipsisVertical, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
+import { useSongAlbum, type AlbumRefResource } from '../api/albums';
 import { firstPage, type Paging } from '../api/paging';
-import { readEnum } from '../api/profiles';
+import { readEnum, useLibraries } from '../api/profiles';
 import {
   useAlbumOptions,
   useArtists,
@@ -30,6 +31,7 @@ import {
 import { SongSearchButtons } from '../components/InteractiveSearchModal';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
+import { ConvertSongModal, MoveSongModal } from './SongActionModals';
 
 /** Library: the songs Wondarr manages, with their album assignment and monitored flag. */
 
@@ -92,13 +94,17 @@ function TitleCell({ song }: { song: SongResource }) {
 }
 
 /**
- * The table's columns. The two row actions are handed in rather than owned by the table, because
- * the page keeps a single dialog state for whichever song a menu was opened on.
+ * The table's columns. The row actions are handed in rather than owned by the table, because the page
+ * keeps a single dialog state for whichever song a menu was opened on.
  */
 function libraryColumns(
   onUpdate: (id: number, monitored: boolean) => void,
   onOpenAlbum: (song: SongResource) => void,
   onOpenDelete: (song: SongResource) => void,
+  onOpenMove: (song: SongResource) => void,
+  onOpenConvert: (song: SongResource) => void,
+  onRestOfAlbum: (album: AlbumRefResource) => void,
+  canMove: boolean,
 ): PagedColumn<SongResource>[] {
   return [
     {
@@ -142,23 +148,68 @@ function libraryColumns(
       sortKey: null,
       width: 60,
       render: (song) => (
-        <Menu withinPortal>
-          <Menu.Target>
-            <Button
-              variant="subtle"
-              size="compact-sm"
-              aria-label={`Actions for ${song.title}`}
-              leftSection={<EllipsisVertical size={16} />}
-            />
-          </Menu.Target>
-          <Menu.Dropdown>
-            <Menu.Item onClick={() => onOpenAlbum(song)}>Change album…</Menu.Item>
-            <Menu.Item onClick={() => onOpenDelete(song)}>Delete</Menu.Item>
-          </Menu.Dropdown>
-        </Menu>
+        <SongMenu
+          song={song}
+          canMove={canMove}
+          onOpenAlbum={onOpenAlbum}
+          onOpenDelete={onOpenDelete}
+          onOpenMove={onOpenMove}
+          onOpenConvert={onOpenConvert}
+          onRestOfAlbum={onRestOfAlbum}
+        />
       ),
     },
   ];
+}
+
+/**
+ * One row's menu. The release the song is pinned to is asked for only once the menu has been opened,
+ * so a page of songs costs no extra requests until a menu is used; a song filed under a pseudo-album
+ * has none, and then the item is simply absent.
+ */
+function SongMenu({
+  song,
+  canMove,
+  onOpenAlbum,
+  onOpenDelete,
+  onOpenMove,
+  onOpenConvert,
+  onRestOfAlbum,
+}: {
+  song: SongResource;
+  canMove: boolean;
+  onOpenAlbum: (song: SongResource) => void;
+  onOpenDelete: (song: SongResource) => void;
+  onOpenMove: (song: SongResource) => void;
+  onOpenConvert: (song: SongResource) => void;
+  onRestOfAlbum: (album: AlbumRefResource) => void;
+}) {
+  const [opened, setOpened] = useState(false);
+  const album = useSongAlbum(opened ? Number(song.id) : null);
+  const albumRef = album.data;
+
+  return (
+    <Menu withinPortal>
+      <Menu.Target>
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          aria-label={`Actions for ${song.title}`}
+          leftSection={<EllipsisVertical size={16} />}
+          onClick={() => setOpened(true)}
+        />
+      </Menu.Target>
+      <Menu.Dropdown>
+        {albumRef != null && (
+          <Menu.Item onClick={() => onRestOfAlbum(albumRef)}>Add the rest of this album</Menu.Item>
+        )}
+        <Menu.Item onClick={() => onOpenAlbum(song)}>Change album…</Menu.Item>
+        {canMove && <Menu.Item onClick={() => onOpenMove(song)}>Move to library…</Menu.Item>}
+        <Menu.Item onClick={() => onOpenConvert(song)}>Convert…</Menu.Item>
+        <Menu.Item onClick={() => onOpenDelete(song)}>Delete</Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
 }
 
 /** The album picker: the releases a song could be filed under, and its artist's Singles album. */
@@ -290,9 +341,12 @@ export function LibraryPage() {
   const [artistId, setArtistId] = useState<string | null>(() => params.get('artistId'));
   const [monitored, setMonitored] = useState<MonitoredFilter>('all');
   const [paging, setPaging] = useState<Paging>(() => firstPage());
-  const [dialog, setDialog] = useState<{ song: SongResource; kind: 'album' | 'delete' } | null>(null);
+  const [dialog, setDialog] = useState<
+    { song: SongResource; kind: 'album' | 'delete' | 'move' | 'convert' } | null
+  >(null);
 
   const artists = useArtists();
+  const libraries = useLibraries();
   const update = useUpdateSong();
   const songs = useSongs(paging, {
     artistId: artistId === null ? undefined : Number(artistId),
@@ -303,6 +357,12 @@ export function LibraryPage() {
     value: String(artist.id),
     label: artist.name,
   }));
+
+  const canMove = (libraries.data ?? []).length > 1;
+
+  const onRestOfAlbum = (album: AlbumRefResource) => {
+    void navigate(`/add?album=${album.source}:${album.id}`);
+  };
 
   return (
     <Stack gap="lg">
@@ -349,6 +409,10 @@ export function LibraryPage() {
           (id, wanted) => update.mutate({ id, monitored: wanted }),
           (song) => setDialog({ song, kind: 'album' }),
           (song) => setDialog({ song, kind: 'delete' }),
+          (song) => setDialog({ song, kind: 'move' }),
+          (song) => setDialog({ song, kind: 'convert' }),
+          onRestOfAlbum,
+          canMove,
         )}
         rows={songs.data?.records ?? []}
         totalRecords={Number(songs.data?.totalRecords ?? 0)}
@@ -369,6 +433,18 @@ export function LibraryPage() {
       <DeleteSongModal
         song={dialog?.kind === 'delete' ? dialog.song : null}
         opened={dialog?.kind === 'delete'}
+        onClose={() => setDialog(null)}
+      />
+
+      <MoveSongModal
+        song={dialog?.kind === 'move' ? dialog.song : null}
+        opened={dialog?.kind === 'move'}
+        onClose={() => setDialog(null)}
+      />
+
+      <ConvertSongModal
+        song={dialog?.kind === 'convert' ? dialog.song : null}
+        opened={dialog?.kind === 'convert'}
         onClose={() => setDialog(null)}
       />
     </Stack>
