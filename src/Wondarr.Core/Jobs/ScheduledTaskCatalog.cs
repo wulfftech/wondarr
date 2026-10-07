@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Backup;
 using Wondarr.Core.References;
 using Wondarr.Core.Searching;
 
@@ -19,16 +20,21 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often the missing-song search runs, when <c>search.missing_interval_hours</c> is left alone.</summary>
     public static readonly TimeSpan DefaultMissingSearchInterval = TimeSpan.FromHours(6);
 
+    /// <summary>How often the cutoff-unmet upgrade search runs, when <c>search.upgrade_interval_hours</c> is left alone.</summary>
+    public static readonly TimeSpan DefaultUpgradeSearchInterval = TimeSpan.FromHours(24);
+
     /// <summary>How often the reference libraries are walked (ARCHITECTURE §5.5: daily).</summary>
     public static readonly TimeSpan ReferenceLibraryScanInterval = TimeSpan.FromHours(24);
 
     private readonly IReadOnlyList<ScheduledTaskDefinition> _tasks;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskCatalog"/> class.</summary>
-    /// <param name="options">The search settings, which decide how often the missing-song task runs.</param>
-    public ScheduledTaskCatalog(IOptions<SearchOptions> options)
+    /// <param name="searchOptions">The search settings, which decide how often the missing-song task runs.</param>
+    /// <param name="backupOptions">The backup settings, which decide how often the backup task runs.</param>
+    public ScheduledTaskCatalog(IOptions<SearchOptions> searchOptions, IOptions<BackupOptions> backupOptions)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(searchOptions);
+        ArgumentNullException.ThrowIfNull(backupOptions);
 
         _tasks =
         [
@@ -36,8 +42,14 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
             new(CheckHealthCommandHandler.CommandName, CheckHealthInterval),
             new(
                 MissingSearchCommandHandler.CommandName,
-                TimeSpan.FromHours(options.Value.MissingIntervalHours)),
+                TimeSpan.FromHours(searchOptions.Value.MissingIntervalHours)),
+            new(
+                UpgradeSearchCommandHandler.CommandName,
+                TimeSpan.FromHours(searchOptions.Value.UpgradeIntervalHours)),
             new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
+            new(
+                BackupCommandHandler.CommandName,
+                TimeSpan.FromDays(backupOptions.Value.IntervalDays)),
         ];
     }
 

@@ -20,13 +20,28 @@ public class YtDlpHealthCheckTests
         return (availability, runner);
     }
 
+    private static readonly TestOptionsMonitor<YouTubeOptions> Enabled = new(new YouTubeOptions { Enabled = true });
+
+    [Fact]
+    public async Task Is_quiet_when_the_source_is_off_even_without_yt_dlp()
+    {
+        var (availability, runner) = Build();
+        runner.EnqueueMissing("yt-dlp").Enqueue("deno 2.9.7\n");
+
+        var report = await new YtDlpHealthCheck(availability, new TestOptionsMonitor<YouTubeOptions>(new YouTubeOptions()))
+            .CheckAsync(CancellationToken.None);
+
+        report.Type.Should().Be(HealthCheckResult.Ok);
+        report.Message.Should().Contain("off");
+    }
+
     [Fact]
     public async Task Reports_the_version_when_yt_dlp_answers()
     {
         var (availability, runner) = Build();
         runner.Enqueue("2025.01.15\n").Enqueue("deno 2.9.7\n");
 
-        var report = await new YtDlpHealthCheck(availability).CheckAsync(CancellationToken.None);
+        var report = await new YtDlpHealthCheck(availability, Enabled).CheckAsync(CancellationToken.None);
 
         report.Source.Should().Be("youtube");
         report.Type.Should().Be(HealthCheckResult.Ok);
@@ -39,7 +54,7 @@ public class YtDlpHealthCheckTests
         var (availability, runner) = Build();
         runner.Enqueue("2025.01.15\n").EnqueueMissing("deno");
 
-        var report = await new YtDlpHealthCheck(availability).CheckAsync(CancellationToken.None);
+        var report = await new YtDlpHealthCheck(availability, Enabled).CheckAsync(CancellationToken.None);
 
         report.Type.Should().Be(HealthCheckResult.Ok);
         report.Message.Should().Contain("JS runtime").And.Contain("Deno");
@@ -51,7 +66,7 @@ public class YtDlpHealthCheckTests
         var (availability, runner) = Build();
         runner.EnqueueMissing("yt-dlp").Enqueue("deno 2.9.7\n");
 
-        var report = await new YtDlpHealthCheck(availability).CheckAsync(CancellationToken.None);
+        var report = await new YtDlpHealthCheck(availability, Enabled).CheckAsync(CancellationToken.None);
 
         report.Source.Should().Be("youtube");
         report.Type.Should().Be(HealthCheckResult.Warning);
@@ -64,7 +79,7 @@ public class YtDlpHealthCheckTests
         var (availability, runner) = Build();
         runner.Enqueue("2025.01.15\n").Enqueue("deno 2.9.7\n");
 
-        var check = new YtDlpHealthCheck(availability);
+        var check = new YtDlpHealthCheck(availability, Enabled);
 
         await check.CheckAsync(CancellationToken.None);
         await check.CheckAsync(CancellationToken.None);

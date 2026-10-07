@@ -133,8 +133,8 @@ Notifier
 
 | Job | Default interval | Notes |
 |---|---|---|
-| Wanted search (missing) | every 6 h, plus immediately on add | Per-song backoff after repeated failures: 1 h → 6 h → 24 h → 72 h → weekly (capped); "search on add" configurable |
-| Cutoff-unmet upgrade search | every 24 h | Bounded per run (e.g. max 50 songs) to be polite to Soulseek |
+| Wanted search (missing) | every 6 h, plus immediately on add | Per-song backoff after repeated failures: 1 h → 6 h → 24 h → 72 h → weekly (capped); "search on add" (`search.search_on_add`, default on) queues a `SongSearch` per added monitored song |
+| Cutoff-unmet upgrade search | every 24 h (`search.upgrade_interval_hours`) | Bounded per run (`search.upgrade_batch_size`, default 50 songs) to be polite to Soulseek; its own backoff counts only `Upgrade` runs |
 | Queue poll | every 10 s (active) / 60 s (idle) | Progress + completion detection; per-source stall timeouts |
 | Import scan of completed folder | on completion event + every 5 min | Catches downloads finished while the app was down |
 | Import list sync | per list (default 12 h) | Adds new items; policy decides about removals |
@@ -143,7 +143,7 @@ Notifier
 | Metadata refresh | weekly | Re-pull cover/ISRC/durations for songs missing them |
 | Housekeeping | daily | Vacuum, expire blocklist entries, prune old candidates/search runs |
 | Health checks | every 15 min | slskd reachable & logged in; clients reachable; root folders writable; yt-dlp up to date |
-| Backup | weekly | DB + config zip in `/config/backups`, keep N |
+| Backup | weekly (`backup.interval_days`, default 7) | The `Backup` command: a zip of `wondarr.db` (SQLite's online backup API, never a copy of the live WAL file) and `config.yml` under `/config/backups/{scheduled,manual}`; scheduled backups older than `backup.retention_days` (default 28) are deleted, manual ones never |
 
 The scheduler must survive restarts (state in DB), run jobs with concurrency limits per source (Soulseek: 1 search at a time, ≤ N downloads in flight; YouTube: 1 download at a time with sleep between; torrents: unlimited), and expose "Run now" for every job.
 
@@ -155,6 +155,9 @@ Conventions mirror the *arrs: `X-Api-Key` header (also `?apikey=`), JSON, `/api/
 GET    /api/v1/system/status | /health | /system/task
 GET    /api/v1/log?page=&pageSize=&level=&filter=   (the app's own log, newest first; `X-Wondarr-Log-Truncated: true` when the scan stopped at its 10 MB bound)
 GET    /api/v1/log/file   GET /api/v1/log/file/{name}   (text/plain)
+GET    /api/v1/system/backup  | POST /api/v1/system/backup  DELETE /api/v1/system/backup/{id}
+GET    /api/v1/system/backup/{id}/download
+POST   /api/v1/system/backup/restore/{id} | /restore/upload   (stage the restore; answered `restartRequired`, applied on the next start)
 GET    /api/v1/song?artistId=&monitored=&page=…        POST /api/v1/song      PUT/DELETE /api/v1/song/{id}
 POST   /api/v1/song/lookup?term=… | ?mbid= | ?isrc= | ?spotifyId= | ?deezerId= | ?url=   (resolve without adding)
 GET    /api/v1/song/{id}/albumcontexts                   PUT /api/v1/song/{id}/albumcontext
@@ -168,7 +171,7 @@ GET    /api/v1/history?songId=&eventType=
 GET    /api/v1/blocklist | DELETE /api/v1/blocklist/{id}
 GET    /api/v1/release?songId=  (interactive search; runs all sources)   POST /api/v1/release (grab a candidate)
 POST   /api/v1/release/push  (autobrr-style push of a candidate)
-POST   /api/v1/command  {name: SongSearch|MissingSearch|CutoffUnmetSearch|ImportListSync|RescanLibrary|RefreshSong…}
+POST   /api/v1/command  {name: SongSearch|MissingSearch|UpgradeSearch|CutoffUnmetSearch|ImportListSync|RescanLibrary|RefreshSong…}
 GET/PUT /api/v1/qualityprofile | /qualitydefinition | /sourceprofile
 GET/POST/PUT/DELETE /api/v1/source | /downloadclient | /importlist | /notification | /library
 POST   /api/v1/library/{id}/preview  {songId}  -> rendered path

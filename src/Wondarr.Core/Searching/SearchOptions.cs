@@ -15,6 +15,18 @@ public sealed class SearchOptions
     /// <summary>How many songs one <c>MissingSearch</c> run searches at most.</summary>
     public int MissingBatchSize { get; set; } = 50;
 
+    /// <summary>How often the <c>UpgradeSearch</c> task runs (ARCHITECTURE §5.5, MATCHING_ENGINE §6.6).</summary>
+    public int UpgradeIntervalHours { get; set; } = 24;
+
+    /// <summary>How many songs one <c>UpgradeSearch</c> run searches at most, to be polite to the network.</summary>
+    public int UpgradeBatchSize { get; set; } = 50;
+
+    /// <summary>
+    /// Whether adding a monitored song queues a <c>SongSearch</c> for it at once; the regular
+    /// <c>MissingSearch</c> is the fallback when this is off.
+    /// </summary>
+    public bool SearchOnAdd { get; set; } = true;
+
     /// <summary>How many candidates one search run may try before giving up on it.</summary>
     public int MaxAutoAttemptsPerSearch { get; set; } = 4;
 
@@ -55,6 +67,16 @@ public sealed class SearchOptionsValidator : IValidateOptions<SearchOptions>
         if (options.MissingBatchSize is < 1 or > 500)
         {
             failures.Add($"search.missing_batch_size: must be between 1 and 500 (was {options.MissingBatchSize})");
+        }
+
+        if (options.UpgradeIntervalHours is < 1 or > 168)
+        {
+            failures.Add($"search.upgrade_interval_hours: must be between 1 and 168 (was {options.UpgradeIntervalHours})");
+        }
+
+        if (options.UpgradeBatchSize is < 1 or > 500)
+        {
+            failures.Add($"search.upgrade_batch_size: must be between 1 and 500 (was {options.UpgradeBatchSize})");
         }
 
         if (options.MaxAutoAttemptsPerSearch is < 1 or > 10)
