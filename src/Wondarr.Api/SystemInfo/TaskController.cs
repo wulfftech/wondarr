@@ -75,24 +75,28 @@ public sealed class TaskController : ControllerBase
     }
 
     /// <summary>
-    /// The most recent finished command per name, in one query for every task. The executor runs up
-    /// to three commands at a time, so the newest end time and the newest start time could come from
-    /// different rows; folding the rows in order keeps them paired.
+    /// The most recent finished command per name, one row per name. The executor runs up to three
+    /// commands at a time, so the newest end time and the newest start time could come from different
+    /// rows; taking whole rows keeps them paired. Only one row per name leaves the database: the
+    /// command table is never pruned, and the heartbeat alone adds one row a minute.
     /// </summary>
     private async Task<IReadOnlyDictionary<string, TaskRunTime>> LatestRunTimesAsync(CancellationToken cancellationToken)
     {
         var finished = await _context.Commands
             .AsNoTracking()
             .Where(command => command.StartedAt != null && command.EndedAt != null)
-            .OrderBy(command => command.EndedAt)
-            .ThenBy(command => command.Id)
-            .Select(command => new { command.Name, command.StartedAt, command.EndedAt })
+            .GroupBy(command => command.Name)
+            .Select(group => group
+                .OrderByDescending(command => command.EndedAt)
+                .ThenByDescending(command => command.Id)
+                .Select(command => new { command.Name, command.StartedAt, command.EndedAt })
+                .First())
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         var latest = new Dictionary<string, TaskRunTime>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var command in finished)
+        foreach (var command in finished.OrderBy(command => command.EndedAt))
         {
             latest[command.Name] = new TaskRunTime(command.StartedAt!.Value, command.EndedAt!.Value);
         }
