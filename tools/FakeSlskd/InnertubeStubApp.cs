@@ -108,7 +108,7 @@ public sealed class InnertubeFixtures
     /// <param name="parameters">The filter's <c>params</c>, or <c>null</c> for an unfiltered query.</param>
     public string Answer(string query, string? parameters)
     {
-        // The Phase 4 gate's songs: answered from its scenario (the same file FakeYT reads), so a
+        // The Phase 4 gate's songs: answered from its scenario (the same file the fake yt-dlp reads), so a
         // search for a gate song finds that song's Art Track (or official video) and nothing else. The
         // recorded fixtures are one real song's results; every other song would only see a mismatch.
         if (GateScenario.Load(_scenarioPath) is { } scenario)
@@ -264,7 +264,7 @@ public sealed class GateScenario
     /// <summary>Gets the gate songs by title.</summary>
     public Dictionary<string, GateSong> Songs { get; init; } = [];
 
-    /// <summary>Gets the videos FakeYT knows, by id (only the length is read here).</summary>
+    /// <summary>Gets the videos the fake yt-dlp knows, by id (only the length is read here).</summary>
     public Dictionary<string, GateVideo> Videos { get; init; } = [];
 
     /// <summary>Reads the scenario, or <see langword="null"/> when there is none.</summary>

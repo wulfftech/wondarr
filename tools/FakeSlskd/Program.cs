@@ -10,8 +10,14 @@ public static class Program
 {
     /// <summary>Runs the fake until the host is stopped.</summary>
     /// <returns>The process exit code.</returns>
-    public static async Task<int> Main()
+    public static async Task<int> Main(string[] args)
     {
+        // The same binary stands in for yt-dlp in the Phase 4 gate (the image ships no Python).
+        if (args.Length > 0 && args[0] == FakeYtDlp.Switch)
+        {
+            return await FakeYtDlp.RunAsync(args[1..], Console.Out, Console.Error).ConfigureAwait(false);
+        }
+
         var options = FakeSlskdOptions.FromEnvironment();
 
         using var state = new FakeSlskdState(options);

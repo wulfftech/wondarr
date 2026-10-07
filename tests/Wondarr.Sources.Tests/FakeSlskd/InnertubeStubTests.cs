@@ -188,7 +188,7 @@ public sealed class InnertubeStubTests
     {
         await using var harness = await FakeSlskdHarness.StartAsync("{}");
 
-        // The Phase 4 gate's registration: FakeYT posts the fingerprint of the Opus file it
+        // The Phase 4 gate's registration: the fake yt-dlp posts the fingerprint of the Opus file it
         // generated together with the recording the gate wants it to verify as.
         var registration = new
         {
