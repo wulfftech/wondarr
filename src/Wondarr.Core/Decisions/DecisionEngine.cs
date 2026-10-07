@@ -35,6 +35,18 @@ public sealed class DecisionEngine
     /// <summary>The cap applied to a candidate whose duration — or the song's — is unknown.</summary>
     public const int UnknownDurationCap = 849;
 
+    /// <summary>
+    /// How far below the held file's identity sub-score an automatic upgrade may fall before the
+    /// identity rule rejects it (DECISIONS build session 7 #11).
+    /// </summary>
+    public const int IdentityTolerance = 40;
+
+    /// <summary>
+    /// The most a held file's identity sub-score counts for in the identity rule: a hard identity hit
+    /// scores 400, which no candidate scored from its name and length can reach.
+    /// </summary>
+    public const int HeldIdentityCeiling = 360;
+
     /// <summary>Below this a file cannot be the song, whatever the source claims.</summary>
     private const long MinimumSizeBytes = 500_000;
 
@@ -200,18 +212,22 @@ public sealed class DecisionEngine
         }
 
         // The identity rule for upgrades (MATCHING_ENGINE §6.6): a strictly better file may replace
-        // the held one, but never one that matches the song less well. Only applies when the held
-        // file's own identity score is known, and never to a grab the user asked for by hand.
+        // the held one, but never one that matches the song clearly less well. Only applies when the
+        // held file's own identity score is known, and never to a grab the user asked for by hand.
+        // The tolerance and the ceiling keep a near-perfect (or hard-hit) held score from blocking
+        // every candidate; fingerprint confirmation of automatic upgrades does the fine work.
         if (context.CurrentFileIdentityScore is { } held &&
             !context.IsManualGrab &&
-            score.Identity < held)
+            score.Identity < Math.Min(held, HeldIdentityCeiling) - IdentityTolerance)
         {
             rejections.Add(new Rejection(
                 RejectionReason.WorseIdentity,
                 string.Concat(
                     "Identity score ",
                     score.Identity.ToString(CultureInfo.InvariantCulture),
-                    " is below the current file's ",
+                    " is more than ",
+                    IdentityTolerance.ToString(CultureInfo.InvariantCulture),
+                    " below the current file's ",
                     held.ToString(CultureInfo.InvariantCulture),
                     ".")));
         }
