@@ -1,11 +1,9 @@
 /**
- * Resource shapes the SPA reads that the committed `docs/api/openapi.json` does not describe yet.
+ * Resource shapes the SPA reads that the committed `docs/api/openapi.json` does not describe usefully.
  *
- * `/api/v1/health` is documented but untyped (the controller returns `IActionResult`), and the task
- * scheduler endpoints (`/api/v1/system/task`, `/api/v1/command`) are not published at all, so there
- * is nothing for `openapi-typescript` to generate. These interfaces mirror the *arr payloads the
- * backend will emit; delete them once the endpoints are in the document and the generated types
- * cover them.
+ * `/api/v1/health` is documented but untyped (the controller returns `IActionResult`), so there is
+ * nothing for `openapi-typescript` to generate. This interface mirrors the *arr payload the backend
+ * emits; delete it once the endpoint is typed in the document and the generated types cover it.
  */
 
 /** The four outcomes of a health check, serialised camelCase by the API. */
@@ -17,19 +15,6 @@ export interface HealthEntry {
   type: HealthCheckOutcome;
   message: string;
   wikiUrl: string | null;
-}
-
-/** One scheduled task, as `GET /api/v1/system/task` returns it. */
-export interface TaskResource {
-  id: number;
-  name: string;
-  /** How often the task runs, in minutes. */
-  interval: number;
-  lastExecution: string | null;
-  lastStartTime: string | null;
-  lastDuration: string | null;
-  nextExecution: string | null;
-  lastResult: string | null;
 }
 
 /** The body of `POST /api/v1/command`. */
