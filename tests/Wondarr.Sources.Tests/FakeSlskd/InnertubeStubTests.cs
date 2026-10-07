@@ -220,6 +220,24 @@ public sealed class InnertubeStubTests
 
         recording["id"]!.GetValue<string>().Should().Be("833f00e1-781f-4edd-90e4-e52712618862");
         recording["title"]!.GetValue<string>().Should().Be("Get Lucky");
+
+        // After the app's transcode the fingerprint differs; the stub stands in for AcoustID's fuzzy
+        // matching by length, within 2 s, and only for registered (YouTube) identities.
+        async Task<int> ResultsForAsync(string duration)
+        {
+            using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["client"] = "gate",
+                ["fingerprint"] = "AQAAAOtranscodedDiffers",
+                ["duration"] = duration,
+            });
+            using var response = await harness.AcoustId.PostAsync("/v2/lookup", form);
+
+            return JsonNode.Parse(await response.Content.ReadAsStringAsync())!["results"]!.AsArray().Count;
+        }
+
+        (await ResultsForAsync("371")).Should().Be(1);
+        (await ResultsForAsync("380")).Should().Be(0);
     }
 
     /// <summary>Posts one search the way the app's client does, and parses it with the app's parser.</summary>

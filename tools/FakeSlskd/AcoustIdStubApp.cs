@@ -44,10 +44,10 @@ public static class AcoustIdStubApp
 
             var form = await context.Request.ReadFormAsync().ConfigureAwait(false);
 
-            return Lookup(state, form["client"].ToString(), form["fingerprint"].ToString());
+            return Lookup(state, form["client"].ToString(), form["fingerprint"].ToString(), form["duration"].ToString());
         });
 
-        app.MapGet(LookupPath, (string? client, string? fingerprint) => Lookup(state, client, fingerprint));
+        app.MapGet(LookupPath, (string? client, string? fingerprint, string? duration) => Lookup(state, client, fingerprint, duration));
 
         // The Phase 4 gate's registration: the fake yt-dlp (the stand-in yt-dlp) posts the fingerprint of each
         // Opus file it generated together with the recording the gate wants it to verify as, so the
@@ -69,7 +69,7 @@ public static class AcoustIdStubApp
                 return Results.BadRequest(new { error = "fingerprint and recordingId are required" });
             }
 
-            state.RememberIdentity(
+            state.RememberTranscodableIdentity(
                 registration.Fingerprint,
                 new ScenarioIdentity
                 {
@@ -89,7 +89,7 @@ public static class AcoustIdStubApp
     private static bool IsLoopback(System.Net.IPAddress? address) =>
         address is not null && System.Net.IPAddress.IsLoopback(address);
 
-    private static IResult Lookup(FakeSlskdState state, string? client, string? fingerprint)
+    private static IResult Lookup(FakeSlskdState state, string? client, string? fingerprint, string? duration)
     {
         if (string.IsNullOrEmpty(client))
         {
@@ -101,7 +101,11 @@ public static class AcoustIdStubApp
             return Error(InvalidFingerprintCode, "invalid fingerprint");
         }
 
-        var identity = state.FindIdentity(fingerprint);
+        var identity = state.FindIdentity(
+            fingerprint,
+            double.TryParse(duration, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds)
+                ? seconds
+                : null);
 
         if (identity is null)
         {
