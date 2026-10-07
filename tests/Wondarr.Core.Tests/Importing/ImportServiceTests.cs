@@ -140,6 +140,52 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
+    public async Task An_automatic_upgrade_the_fingerprint_cannot_confirm_is_rejected()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        var held = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = held;
+            options.CurrentFileQualityId = 29;
+        });
+
+        // AcoustID does not know the file: it passes on probe and length only.
+        host.Verifier.Result = FakeDownloadVerifier.Passed() with
+        {
+            Reason = "Not in AcoustID; verified by probe and duration only",
+            AcoustId = null,
+            FingerprintScore = null,
+            FingerprintVerified = false,
+        };
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Rejected);
+        host.Placer.Requests.Should().BeEmpty("the held file is never touched");
+        (await host.Context.SongFiles.SingleAsync()).Path.Should().Be(held);
+        (await host.Context.QueueItems.SingleAsync(item => item.Id == seed.QueueItemId)).Message
+            .Should().Contain("could not be confirmed by its fingerprint");
+    }
+
+    [Fact]
+    public async Task A_manual_grab_may_replace_a_file_with_one_the_fingerprint_cannot_confirm()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+            options.CurrentFileQualityId = 29;
+            options.Trigger = SearchTrigger.Manual;
+        });
+        host.Verifier.Result = FakeDownloadVerifier.Passed() with { AcoustId = null, FingerprintScore = null, FingerprintVerified = false };
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Upgraded);
+    }
+
+    [Fact]
     public async Task Replaces_the_file_a_manual_grab_brought_even_when_it_is_not_an_upgrade()
     {
         await using var host = await ImportTestHost.CreateAsync();

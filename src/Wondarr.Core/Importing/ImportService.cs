@@ -479,6 +479,26 @@ public sealed partial class ImportService : IImportService
                 .ConfigureAwait(false);
         }
 
+        // A first import may rest on the probe and the length when AcoustID does not know a file —
+        // better than nothing. Replacing a file the song already has needs more: an automatic upgrade
+        // must be confirmed by its fingerprint (DECISIONS build session 6 #9). Seen live on 2026-10-07:
+        // "Paint It Black (Chris Farlowe)" from a Rolling Stones box-set folder, unknown to AcoustID,
+        // passed on its length and replaced the Rolling Stones' recording.
+        if (song.File is not null
+            && !fingerprintVerified
+            && await IsAutomaticGrabAsync(item, cancellationToken).ConfigureAwait(false))
+        {
+            return await RejectAsync(
+                    item,
+                    song,
+                    "Not an upgrade: the replacement could not be confirmed by its fingerprint, and an automatic "
+                    + "upgrade never replaces a file with one it cannot confirm",
+                    verification.Reason,
+                    measured,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         // --- Compaction guard (re-check) ---------------------------------------------------------
         // A compaction may have planned or staged since the early check above — while this import
         // was transcoding and verifying, most often, which is why this sits inside the song lock.
