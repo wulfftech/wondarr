@@ -18,7 +18,7 @@ public static class CsvText
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        if (text.Length > 0 && text[0] == '﻿')
+        if (text.Length > 0 && text[0] == '\uFEFF')
         {
             text = text[1..];
         }

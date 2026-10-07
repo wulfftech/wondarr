@@ -17,7 +17,7 @@ public sealed class CsvImportListProviderTests
     [Fact]
     public void Reads_quoted_fields_line_breaks_and_a_byte_order_mark()
     {
-        var rows = CsvText.Read("﻿a,b,c\r\n\"x, y\",\"say \"\"hi\"\"\",\"two\nlines\"\r\n\r\n1,,3");
+        var rows = CsvText.Read("\uFEFFa,b,c\r\n\"x, y\",\"say \"\"hi\"\"\",\"two\nlines\"\r\n\r\n1,,3");
 
         rows.Should().HaveCount(3);
         rows[0].Should().Equal("a", "b", "c");
