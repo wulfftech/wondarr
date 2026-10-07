@@ -15,6 +15,8 @@ export type SoulseekSettingsResource = components['schemas']['SoulseekSettingsRe
 export type SoulseekSettingsUpdateResource = components['schemas']['SoulseekSettingsUpdateResource'];
 export type SoulseekSettingsUpdateResponseResource = components['schemas']['SoulseekSettingsUpdateResponseResource'];
 export type SoulseekStatusResource = components['schemas']['SoulseekStatusResource'];
+export type SoulseekConnectionTestResource = components['schemas']['SoulseekConnectionTestResource'];
+export type SoulseekConnectionTestResultResource = components['schemas']['SoulseekConnectionTestResultResource'];
 
 export const SOULSEEK_SETTINGS_QUERY_KEY = ['soulseek', 'settings'] as const;
 export const SOULSEEK_STATUS_QUERY_KEY = ['soulseek', 'status'] as const;
@@ -204,6 +206,27 @@ export function useUpdateSoulseekSettings(): UseMutationResult<
       // (state, sharing, search budget) has probably moved on with the write.
       queryClient.setQueryData(SOULSEEK_SETTINGS_QUERY_KEY, result.settings);
       void queryClient.invalidateQueries({ queryKey: SOULSEEK_STATUS_QUERY_KEY });
+    },
+  });
+}
+
+/** Tries a user's own slskd with a URL and a key (or the stored key); the answer never echoes the key. */
+export function useTestSoulseekConnection(): UseMutationResult<
+  SoulseekConnectionTestResultResource,
+  Error,
+  SoulseekConnectionTestResource
+> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async (body: SoulseekConnectionTestResource): Promise<SoulseekConnectionTestResultResource> => {
+      const { data, response } = await client.POST('/api/v1/soulseek/test', { body });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The connection test could not run.');
+      }
+
+      return data;
     },
   });
 }

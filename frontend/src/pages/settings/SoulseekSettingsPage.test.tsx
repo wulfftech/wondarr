@@ -17,6 +17,12 @@ const SETTINGS = {
   downloadsDir: '/data/downloads/slskd',
   incompleteDir: '/data/downloads/slskd/incomplete',
   readOnlyFields: [] as string[],
+  mode: 'bundled',
+  externalUrl: null as string | null,
+  externalApiKeySet: false,
+  externalWebUsername: null as string | null,
+  externalWebPasswordSet: false,
+  externalRescanShares: false,
 };
 
 /** What slskd is doing, as `GET /api/v1/soulseek/status` sends it. */
@@ -75,6 +81,15 @@ function install(
 
     if (url.includes('/api/v1/soulseek/status')) {
       return jsonResponse(STATUS);
+    }
+
+    if (url.includes('/api/v1/soulseek/test')) {
+      return jsonResponse({
+        ok: true,
+        version: '0.26.0',
+        loggedIn: true,
+        message: 'Connected to slskd 0.26.0 at slskd, logged in to Soulseek',
+      });
     }
 
     return new Response('not found', { status: 404 });
@@ -185,5 +200,50 @@ describe('SoulseekSettingsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText('Saved — slskd restarts to apply it')).toBeInTheDocument();
+  });
+
+  it('in external mode shows the connection and keeps the fields of slskd itself read-only', async () => {
+    install({
+      mode: 'external',
+      externalUrl: 'http://slskd:5030',
+      externalApiKeySet: true,
+      readOnlyFields: ['listenPort', 'username'],
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    expect(await screen.findByDisplayValue('http://slskd:5030')).toBeInTheDocument();
+    expect(screen.getByLabelText('Listen port')).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Test' }));
+
+    expect(await screen.findByTestId('soulseek-test-result')).toHaveTextContent('logged in to Soulseek');
+    const test = sent().find((request) => request.url.includes('/api/v1/soulseek/test'));
+    expect(JSON.parse((await test?.body) ?? '{}')).toEqual({ url: 'http://slskd:5030', apiKey: null });
+  });
+
+  it('switching to my own slskd saves the mode and says Wondarr has to restart', async () => {
+    install({}, () =>
+      jsonResponse({ settings: { ...SETTINGS, mode: 'external' }, restartsSlskd: false, restartsWondarr: true }),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('wondarr-user');
+    await user.click(screen.getByText('My own slskd'));
+    await user.type(screen.getByLabelText('slskd URL'), 'http://slskd:5030');
+    await user.type(screen.getByLabelText('API key'), 'a-key-of-sixteen-chars');
+    await user.click(screen.getByRole('button', { name: 'Save connection' }));
+
+    expect(await screen.findByTestId('soulseek-restart-notice')).toBeInTheDocument();
+    const put = sent().find((request) => request.method === 'PUT');
+    expect(JSON.parse((await put?.body) ?? '{}')).toEqual({
+      mode: 'external',
+      externalUrl: 'http://slskd:5030',
+      externalApiKey: 'a-key-of-sixteen-chars',
+      externalRescanShares: false,
+    });
   });
 });
