@@ -347,7 +347,30 @@ public sealed partial class ImportService : IImportService
                         Path.GetDirectoryName(downloadPath) ?? string.Empty,
                         string.Concat(Path.GetFileNameWithoutExtension(downloadPath), ".ogg"));
 
-                    File.Move(downloadPath, renamed);
+                    try
+                    {
+                        // A leftover .ogg from an attempt that stopped half-way would make the move
+                        // refuse: it is the same bytes, so the fresh remux replaces it.
+                        File.Move(downloadPath, renamed, overwrite: true);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                    {
+                        // Like a failed transcode: our own step, nothing to blocklist, and the remux
+                        // stays where it was for a later attempt.
+                        LogTranscodeFailed(_logger, item.Id, exception);
+
+                        await FailAsync(
+                                item,
+                                $"Renaming the Opus remux to .ogg failed: {exception.Message}",
+                                null,
+                                null,
+                                allowNextAttempt: false,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+
+                        return ImportOutcome.Failed;
+                    }
+
                     importPath = renamed;
                     extension = "ogg";
 
@@ -417,6 +440,9 @@ public sealed partial class ImportService : IImportService
             {
                 var rule = policy.RuleFor(item.SourceType, info.IsLossless);
 
+                // A file the rule keeps sets no source quality: the verifier measures it, and what
+                // it measures is what was downloaded. Only a converted file needs the probe's answer
+                // carried past the conversion.
                 if (rule.Codec != OutputCodec.Keep && !LibraryOutputPolicy.SameCodec(rule, info.Codec))
                 {
                     // The file is ranked as what was downloaded, not what the conversion writes:
