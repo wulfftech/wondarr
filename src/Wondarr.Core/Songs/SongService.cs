@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Jobs;
@@ -14,6 +13,7 @@ using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Wondarr.Core.Songs;
 
@@ -791,27 +791,35 @@ public sealed partial class SongService : ISongService
             .Distinct()
             .ToList();
 
-        foreach (var songId in added)
+        if (added.Count == 0)
         {
-            try
-            {
-                await _commands
-                    .EnqueueAsync(
-                        SongSearchCommandHandler.CommandName,
-                        JsonSerializer.Serialize(new SearchOnAddBody(SongSearchCommandHandler.CommandName, songId), BodyJson),
-                        CommandTrigger.Unspecified,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                // The song is saved; only the immediate search is lost, and MissingSearch will find it.
-                LogSearchOnAddFailed(_logger, songId, exception);
-            }
+            return;
+        }
+
+        // One song gets its own search. A batch (a pasted list, a whole playlist) gets one MissingSearch
+        // instead: it takes never-searched songs first, in bounded batches, waiting for download slots —
+        // a thousand SongSearch commands would hold the command queue for hours behind the Soulseek
+        // budget.
+        var (name, body) = added.Count == 1
+            ? (SongSearchCommandHandler.CommandName,
+                JsonSerializer.Serialize(new SearchOnAddBody(SongSearchCommandHandler.CommandName, added[0]), BodyJson))
+            : (MissingSearchCommandHandler.CommandName, (string?)null);
+
+        try
+        {
+            await _commands
+                .EnqueueAsync(name, body, CommandTrigger.Unspecified, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            // The songs are saved; only the immediate search is lost, and the scheduled MissingSearch
+            // finds them.
+            LogSearchOnAddFailed(_logger, name, added.Count, exception);
         }
     }
 
@@ -1283,8 +1291,8 @@ public sealed partial class SongService : ISongService
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-planned {Count} songs of library {LibraryId}")]
     private static partial void LogReplanned(ILogger logger, int count, long libraryId);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Queueing the search-on-add for song {SongId} failed; MissingSearch is the fallback")]
-    private static partial void LogSearchOnAddFailed(ILogger logger, long songId, Exception exception);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Queueing {Command} for {Count} added songs failed; the scheduled MissingSearch is the fallback")]
+    private static partial void LogSearchOnAddFailed(ILogger logger, string command, int count, Exception exception);
 
     /// <summary>An album the library holds, as the policy engine reads it, plus the covers to reuse.</summary>
     private sealed record LibraryAlbums(

@@ -542,6 +542,36 @@ public class SongServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Adding_several_songs_queues_one_missing_search_not_one_search_each()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+        StubRelease("r1", (3, "m-a"), (4, "m-b"));
+
+        var (commands, _) = Queue();
+        var added = await NewService(context, commands).AddIdentitiesAsync(
+            [
+                Identity("m-a", "Get Lucky", Album("r1", "Random Access Memories")),
+                Identity("m-b", "Lose Yourself to Dance", Album("r1", "Random Access Memories")),
+            ],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        added.Should().OnlyContain(result => result.Outcome == SongAddOutcome.Added);
+
+        await commands.Received(1).EnqueueAsync(
+            "MissingSearch",
+            null,
+            CommandTrigger.Unspecified,
+            Arg.Any<CancellationToken>());
+        await commands.DidNotReceive().EnqueueAsync(
+            "SongSearch",
+            Arg.Any<string?>(),
+            Arg.Any<CommandTrigger>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Adding_an_unmonitored_song_queues_nothing()
     {
         await using var context = await ContextAsync();
