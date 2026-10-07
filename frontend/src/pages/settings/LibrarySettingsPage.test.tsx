@@ -62,12 +62,18 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
 
 function install(
   preview: () => Response = () => jsonResponse({ path: 'Music/Wondarr - Get Lucky.m4a', errors: [] }),
-  options: { library?: unknown; plexState?: unknown } = {},
+  options: {
+    library?: unknown;
+    libraries?: unknown[];
+    create?: () => Response;
+    remove?: () => Response;
+    plexState?: unknown;
+  } = {},
 ): FetchMock {
-  const library = options.library ?? LIBRARIES[0];
+  const libraries = options.libraries ?? [options.library ?? LIBRARIES[0]];
   const plexState = options.plexState ?? PLEX_STATE_SIGNED_OUT;
 
-  return installFetch((url) => {
+  return installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
     }
@@ -93,8 +99,20 @@ function install(
     }
 
     if (url.includes('/api/v1/library')) {
+      if (init?.method === 'POST') {
+        return options.create?.() ?? jsonResponse({ ...LIBRARIES[0], id: 2, name: 'Singles' }, 201);
+      }
+
+      if (init?.method === 'DELETE') {
+        return options.remove?.() ?? new Response(null, { status: 204 });
+      }
+
       // The collection answers with every library; the item endpoint with the one that was saved.
-      return url.includes('/api/v1/library/') ? jsonResponse(library) : jsonResponse([library]);
+      const id = Number(/\/api\/v1\/library\/(\d+)/.exec(url)?.[1] ?? 0);
+
+      return id > 0
+        ? jsonResponse(libraries.find((candidate) => (candidate as { id: number }).id === id) ?? libraries[0])
+        : jsonResponse(libraries);
     }
 
     return new Response('not found', { status: 404 });
@@ -342,5 +360,101 @@ describe('LibrarySettingsPage naming template', () => {
     expect(screen.getByLabelText('Naming template')).toHaveValue(
       '{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}',
     );
+  });
+});
+
+describe('LibrarySettingsPage several libraries', () => {
+  /** The default library and a second one under it, as `GET /api/v1/library` answers. */
+  const TWO_LIBRARIES = [
+    LIBRARIES[0],
+    { ...LIBRARIES[0], id: 2, name: 'Singles', rootPath: '/data/singles', isDefault: false },
+  ];
+
+  it('shows every library as a tab, the default one badged, and one panel at a time', async () => {
+    install(undefined, { libraries: TWO_LIBRARIES });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const music = await screen.findByRole('tab', { name: /Music/ });
+
+    expect(within(music).getByText('default')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Singles/ })).toBeInTheDocument();
+
+    // The chosen library's form is the one on show; the other waits hidden behind its tab.
+    expect(screen.getByDisplayValue('/data/music')).toBeVisible();
+    expect(screen.getByDisplayValue('/data/singles')).not.toBeVisible();
+
+    await user.click(screen.getByRole('tab', { name: /Singles/ }));
+
+    expect(await screen.findByDisplayValue('/data/singles')).toBeVisible();
+    expect(screen.getByDisplayValue('/data/music')).not.toBeVisible();
+  });
+
+  it('offers Delete on the other libraries only, and deletes after the confirmation', async () => {
+    install(undefined, { libraries: TWO_LIBRARIES });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+
+    expect(screen.queryByRole('button', { name: 'Delete library…' })).toBeNull();
+
+    await user.click(screen.getByRole('tab', { name: /Singles/ }));
+    await screen.findByDisplayValue('/data/singles');
+    await user.click(screen.getByRole('button', { name: 'Delete library…' }));
+
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).getByText(/Delete the library Singles/)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete library' }));
+
+    await waitFor(() => {
+      const remove = sent().find((request) => request.method === 'DELETE');
+
+      expect(remove?.url).toContain('/api/v1/library/2');
+    });
+  });
+
+  it('says what the API refused about a new library on its own field', async () => {
+    install(undefined, {
+      create: () =>
+        jsonResponse(
+          {
+            title: 'The library was not accepted',
+            detail: 'The root path overlaps another library.',
+            errors: { rootPath: ['/data/singles is inside the library Singles at /data/singles.'] },
+          },
+          400,
+        ),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+    await user.click(screen.getByRole('button', { name: 'Add library…' }));
+
+    const dialog = screen.getByRole('dialog');
+
+    await user.type(within(dialog).getByLabelText('Name'), 'Classical');
+    await user.type(within(dialog).getByLabelText('Root path'), '/data/singles');
+    await user.click(within(dialog).getByRole('button', { name: 'Add library' }));
+
+    await waitFor(async () => {
+      const post = sent().find((request) => request.method === 'POST' && request.url.endsWith('/api/v1/library'));
+
+      expect(post).toBeDefined();
+
+      const body: unknown = post === undefined ? null : JSON.parse(await post.body);
+
+      expect(body).toMatchObject({ name: 'Classical', rootPath: '/data/singles', layout: 'artistAlbum' });
+    });
+
+    expect(
+      within(dialog).getByText('/data/singles is inside the library Singles at /data/singles.'),
+    ).toBeInTheDocument();
   });
 });
