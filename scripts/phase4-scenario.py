@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""Builds the Phase 4 gate scenario from the songs the Phase 2 scenario left missing on Soulseek.
+"""Builds the Phase 4 gate scenario from the songs the Phase 2 scenario reserved.
 
-The Phase 4 gate needs songs that Soulseek cannot fill (so the YouTube source is the only way),
-plus its own OMV-with-intro and bot-check cases. This script reads the Phase 2 scenario's dropped
-songs (the ones deleted from the library), picks the ones FakeSlskd offers nothing for, and writes
-the Phase 4 scenario: each song's video id in the fake InnerTube's recorded fixtures, the behaviour
-FakeYT should answer with, and the identity the AcoustID stub should resolve the generated file to.
+The Phase 4 gate needs songs that Soulseek cannot fill (so the YouTube source is the only way), plus
+its own OMV-with-intro and bot-check cases. scripts/phase2-scenario.py --reserve keeps such songs in the
+library, unmonitored and with nothing on the fake Soulseek; this script monitors them again and writes
+the scenario both fakes answer from:
 
-The video ids come from the recorded songs fixture (`tests/fixtures/ytmusic/search-songs.json`):
-the gate reuses the real ids the parser saw, so the candidate the app grabs is the one the fixture
-offered. The first fixture result is the Art Track the gate fills with; the videos fixture's first
-result (a UGC re-upload titled "Official Video", 4:08 against the 6:10 song) is the OMV case.
+  * FakeYT (tools/FakeYT/yt-dlp.py) reads "videos": what each video id downloads as (or fails with);
+  * the fake InnerTube stub (tools/FakeSlskd, FAKE_YT_SCENARIO) reads "songs": a search for a gate
+    song answers that song's Art Track (songs shelf) or official video (videos shelf), with the
+    song's own title, artist and length — so the decision engine judges them as it would real ones.
+
+Cases:
+  art-track     the songs shelf offers an Art Track of the right length; it downloads, verifies by
+                fingerprint (the AcoustID stub learns the generated file) and is imported.
+  omv-rejected  no Art Track; the videos shelf offers the official video, 20 s longer than the song
+                (an intro): the duration tolerance rejects it and the song stays missing.
+  bot-check     the Art Track's download answers YouTube's bot check: the item fails once with the
+                reason, nothing loops, the song's backoff owns the retry.
 
 usage: scripts/phase4-scenario.py --url http://localhost:1077 --api-key KEY
-       --dropped phase2-dropped.json --out phase4-scenario.json
+       --reserved phase2-reserved.json --out phase4-scenario.json [--fills 3]
 """
 
 from __future__ import annotations
@@ -24,8 +31,6 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
 
 
 class Api:
@@ -48,144 +53,81 @@ class Api:
         return json.loads(raw) if raw else None
 
 
-def fixture_results(name: str) -> list[dict]:
-    """The video ids and titles of one recorded fixture's shelf, in order."""
-    document = json.loads((ROOT / "tests" / "fixtures" / "ytmusic" / f"search-{name}.json").read_text(encoding="utf-8"))
+def seconds_of(song: dict) -> int:
+    return max(30, round((song.get("durationMs") or 240000) / 1000))
 
-    results: list[dict] = []
 
-    def walk(node: object) -> None:
-        if isinstance(node, dict):
-            if "musicResponsiveListItemRenderer" in node:
-                item = node["musicResponsiveListItemRenderer"]
-                video_id = find_video_id(item)
-                title = find_title(item)
-                if video_id:
-                    results.append({"videoId": video_id, "title": title or video_id})
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
+def main_artist(song: dict) -> str:
+    return song.get("artistCredit", "").split(" feat")[0].split(" & ")[0].split(", ")[0].strip()
 
-    def find_video_id(item: dict) -> str | None:
-        text = json.dumps(item)
-        marker = '"videoId":"'
-        at = text.find(marker)
-        return text[at + len(marker) :].split('"', 1)[0] if at >= 0 else None
 
-    def find_title(item: dict) -> str | None:
-        text = json.dumps(item)
-        marker = '"text":"'
-        at = text.find(marker)
-        return text[at + len(marker) :].split('"', 1)[0] if at >= 0 else None
-
-    walk(document)
-    return results
+def identity_of(song: dict) -> dict:
+    return {
+        "recordingId": song["mbRecordingId"],
+        "title": song["title"],
+        "artists": [{"id": "", "name": main_artist(song)}],
+        "durationSeconds": seconds_of(song),
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--url", required=True)
     parser.add_argument("--api-key", required=True)
-    parser.add_argument("--dropped", required=True, help="the songs scripts/phase2-scenario.py deleted (JSON)")
+    parser.add_argument("--reserved", required=True, help="the songs scripts/phase2-scenario.py reserved (JSON)")
     parser.add_argument("--out", required=True)
     parser.add_argument("--fills", type=int, default=3, help="how many Art-Track fills the scenario asks for")
     args = parser.parse_args()
 
     api = Api(args.url, args.api_key)
-    with open(args.dropped, encoding="utf-8") as handle:
-        dropped = json.load(handle)
+    with open(args.reserved, encoding="utf-8") as handle:
+        reserved = json.load(handle)
 
-    # The songs still missing a file: the Phase 3 gate adopted some of the dropped ones back, so the
-    # ones without a file are the gate's YouTube-only candidates.
-    songs = api.call("GET", "/api/v1/song?sortKey=id&sortDirection=ascending&page=1&pageSize=1000")
-    records = songs["records"] if isinstance(songs, dict) else songs
-    by_title = {song["title"]: song for song in records}
-    missing = [
-        song
-        for song in dropped
-        if song.get("mbRecordingId")
-        and not by_title.get(song.get("title", ""), {}).get("hasFile")
-    ]
+    songs = api.call("GET", "/api/v1/song?sortKey=id&sortDirection=ascending&page=1&pageSize=1000")["records"]
+    by_id = {song["id"]: song for song in songs}
+    missing = [by_id[song["id"]] for song in reserved
+               if song["id"] in by_id and not by_id[song["id"]].get("hasFile") and by_id[song["id"]].get("mbRecordingId")]
 
-    if len(missing) < args.fills + 2:
-        raise SystemExit(
-            f"FAIL: only {len(missing)} songs are missing on Soulseek; the gate needs "
-            f"{args.fills + 2} ({args.fills} fills, one OMV case, one bot-check case)"
-        )
+    needed = args.fills + 2
+    if len(missing) < needed:
+        raise SystemExit(f"FAIL: only {len(missing)} reserved songs are missing a file; the gate needs {needed} "
+                         f"({args.fills} fills, one OMV case, one bot-check case)")
 
-    songs_fixture = fixture_results("songs")
-    videos_fixture = fixture_results("videos")
+    chosen = missing[:needed]
+    for song in chosen:
+        api.call("PUT", f"/api/v1/song/{song['id']}", {"monitored": True})
 
-    if not songs_fixture or not videos_fixture:
-        raise SystemExit("FAIL: the recorded fixtures hold no results; re-record tests/fixtures/ytmusic")
+    scenario: dict = {"version": "2026.08.19", "songs": {}, "videos": {}}
 
-    scenario = {"version": "2026.08.19", "songs": {}, "videos": {}}
-
-    # The Art-Track fills: the songs fixture's first results, real durations, distinct seeds.
-    for index, song in enumerate(missing[: args.fills]):
-        video = songs_fixture[index % len(songs_fixture)]
+    for index, song in enumerate(chosen[: args.fills]):
+        video_id = f"gateATV{index:04d}"
         scenario["songs"][song["title"]] = {
-            "expect": "art-track",
-            "source": "youtube",
-            "videoId": video["videoId"],
+            "expect": "art-track", "videoId": video_id, "artist": main_artist(song), "durationSeconds": seconds_of(song),
         }
-        scenario["videos"][video["videoId"]] = {
-            "kind": "ok",
-            "durationSeconds": max(30, round((song.get("durationMs") or 240000) / 1000)),
-            "seed": 100 + index,
-            "frequency": 440 + index * 37,
-            "identity": {
-                "recordingId": song["mbRecordingId"],
-                "title": song["title"],
-                "artists": [{"id": "", "name": song.get("artistCredit", "").split(" feat")[0]}],
-                "durationSeconds": max(30, round((song.get("durationMs") or 240000) / 1000)),
-            },
+        scenario["videos"][video_id] = {
+            "kind": "ok", "durationSeconds": seconds_of(song), "seed": 100 + index, "frequency": 440 + index * 37,
+            "identity": identity_of(song),
         }
 
-    # The OMV case: the videos fixture's first result runs 4:08 against the 6:10 song — the
-    # duration tolerance rejects it. The song's own Art Track is offered as the next candidate.
-    omv_song = missing[args.fills]
-    omv_video = videos_fixture[0]
-    atv_video = songs_fixture[(args.fills + 1) % len(songs_fixture)]
+    omv_song = chosen[args.fills]
     scenario["songs"][omv_song["title"]] = {
-        "expect": "omv-rejected",
-        "source": "youtube",
-        "videoId": atv_video["videoId"],
-        "omvVideoId": omv_video["videoId"],
+        "expect": "omv-rejected", "videoId": "gateATV9998", "omvVideoId": "gateOMV0001",
+        "artist": main_artist(omv_song), "durationSeconds": seconds_of(omv_song),
     }
-    scenario["videos"][omv_video["videoId"]] = {
-        "kind": "ok",
-        "durationSeconds": 248,  # the fixture's 4:08 against the 6:10 song: out of tolerance
-        "seed": 200,
-        "frequency": 523,
-    }
-    scenario["videos"][atv_video["videoId"]] = {
-        "kind": "ok",
-        "durationSeconds": max(30, round((omv_song.get("durationMs") or 240000) / 1000)),
-        "seed": 201,
-        "frequency": 587,
-        "identity": {
-            "recordingId": omv_song["mbRecordingId"],
-            "title": omv_song["title"],
-            "artists": [{"id": "", "name": omv_song.get("artistCredit", "").split(" feat")[0]}],
-            "durationSeconds": max(30, round((omv_song.get("durationMs") or 240000) / 1000)),
-        },
+    # An official video with a 20 s intro: well outside the default 3 s tolerance.
+    scenario["videos"]["gateOMV0001"] = {
+        "kind": "ok", "durationSeconds": seconds_of(omv_song) + 20, "seed": 200, "frequency": 523,
     }
 
-    # The bot-check case: the first grab answers the bot check; the item fails, the backoff owns it.
-    bot_song = missing[args.fills + 1]
-    bot_video = songs_fixture[(args.fills + 2) % len(songs_fixture)]
+    bot_song = chosen[args.fills + 1]
     scenario["songs"][bot_song["title"]] = {
-        "expect": "bot-check",
-        "source": "youtube",
-        "videoId": bot_video["videoId"],
+        "expect": "bot-check", "videoId": "gateBOT0001", "artist": main_artist(bot_song), "durationSeconds": seconds_of(bot_song),
     }
-    scenario["videos"][bot_video["videoId"]] = {"kind": "bot-check"}
+    scenario["videos"]["gateBOT0001"] = {"kind": "bot-check"}
 
-    Path(args.out).write_text(json.dumps(scenario, indent=2) + "\n", encoding="utf-8")
-    print(f"ok   wrote {args.out}: {len(scenario['songs'])} songs, {len(scenario['videos'])} videos", flush=True)
+    Path(args.out).write_text(json.dumps(scenario, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"ok   wrote {args.out}: {len(scenario['songs'])} songs ({args.fills} fills, one OMV, one bot check), "
+          f"monitored again", flush=True)
     return 0
 
 
