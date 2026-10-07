@@ -605,6 +605,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/soulseek/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SoulseekConnectionTestResource"];
+                    "application/*+json": components["schemas"]["SoulseekConnectionTestResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SoulseekConnectionTestResultResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/soulseek/status": {
         parameters: {
             query?: never;
@@ -4079,6 +4119,16 @@ export interface components {
             /** Format: int64 */
             qualityProfileId: null | number | string;
         };
+        SoulseekConnectionTestResource: {
+            url: string;
+            apiKey: null | string;
+        };
+        SoulseekConnectionTestResultResource: {
+            ok: boolean;
+            version: null | string;
+            loggedIn: boolean;
+            message: string;
+        };
         SoulseekSearchBudgetResource: {
             /** Format: int32 */
             submittedInWindow: number | string;
@@ -4106,6 +4156,12 @@ export interface components {
             downloadsDir: string;
             incompleteDir: string;
             readOnlyFields: string[];
+            mode: string;
+            externalUrl: null | string;
+            externalApiKeySet: boolean;
+            externalWebUsername: null | string;
+            externalWebPasswordSet: boolean;
+            externalRescanShares: boolean;
         };
         SoulseekSettingsUpdateResource: {
             username?: null | string;
@@ -4121,10 +4177,17 @@ export interface components {
             distributedNetwork?: null | boolean;
             downloadsDir?: null | string;
             incompleteDir?: null | string;
+            mode?: null | string;
+            externalUrl?: null | string;
+            externalApiKey?: null | string;
+            externalWebUsername?: null | string;
+            externalWebPassword?: null | string;
+            externalRescanShares?: null | boolean;
         };
         SoulseekSettingsUpdateResponseResource: {
             settings: components["schemas"]["SoulseekSettingsResource"];
             restartsSlskd: boolean;
+            restartsWondarr: boolean;
         };
         SoulseekSharingResource: {
             enabled: boolean;
