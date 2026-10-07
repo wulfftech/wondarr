@@ -11,7 +11,7 @@ One file per decision, numbered, never deleted; superseded ADRs get a "Supersede
 | 0005 | Source ladder Soulseek → YouTube Music → torrents/usenet behind one SourceProvider interface | Accepted |
 | 0006 | Every import is verified (ffprobe, duration, AcoustID) and failures auto-retry the next candidate | Accepted |
 | 0007 | Library layouts and the Plexamp preset keep an album layer with a sticky "fewest albums" policy | Accepted |
-| 0008 | Quality model derived from Lidarr with Opus tiers; default cutoff 320; transcodes keep source quality | Accepted |
+| 0008 | Quality model derived from Lidarr with Opus tiers; default cutoff 320; transcodes keep source quality | Accepted (amended 2026-10-07) |
 | 0009 | Torrent/usenet v1 scope: qBittorrent selective single-file download and SABnzbd whole-post | Accepted |
 | 0010 | *arr-compatible API, Docker conventions, port 1077 | Accepted |
 | 0011 | Agentic build workflow: Opus 5.5 orchestrator, cheap OpenRouter workers, review gates | Accepted |
