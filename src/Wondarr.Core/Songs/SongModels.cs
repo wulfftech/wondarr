@@ -15,6 +15,13 @@ public sealed record SongAddOptions
     /// <summary>Gets a value indicating whether the new songs are wanted.</summary>
     public bool Monitored { get; init; } = true;
 
+    /// <summary>
+    /// Gets the release the songs are pinned to, when the caller chose an album (an album add). Every
+    /// identity that carries this release option is planned against it alone, with the one-track
+    /// minimum an explicit choice implies, and its album context is saved pinned.
+    /// </summary>
+    public string? AlbumReleaseId { get; init; }
+
     /// <summary>Gets what added the songs: <c>ui</c>, <c>api</c> or <c>list:{id}</c>.</summary>
     public string AddedBy { get; init; } = "ui";
 }
