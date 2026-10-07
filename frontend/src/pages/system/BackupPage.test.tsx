@@ -70,7 +70,7 @@ describe('BackupPage', () => {
     expect(screen.getByText('manual')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: `Download ${BACKUP.name}` })).toHaveAttribute(
       'href',
-      expect.stringContaining(`/api/v1/system/backup/${encodeURIComponent(BACKUP.id)}/download`),
+      expect.stringContaining(`/api/v1/system/backup/${encodeURIComponent(BACKUP.id)}/download?apikey=test-api-key`),
     );
   });
 

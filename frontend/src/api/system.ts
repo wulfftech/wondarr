@@ -16,8 +16,9 @@ import { COMMANDS_QUERY_KEY, type CommandStatusName } from './songs';
 
 /**
  * The System section's own data: the backups, the app log and the recent commands. Every download
- * URL is built through {@link apiOrigin} so it follows the URL base, and the cookie — not the API
- * key — authenticates it, because a plain link cannot carry a header.
+ * URL is built through {@link apiOrigin} so it follows the URL base. A plain link cannot carry a
+ * header and the API does not take the login cookie, so the key travels as `?apikey=` (the request
+ * log records paths without their query string).
  */
 
 export type BackupResource = components['schemas']['BackupResource'];
@@ -185,14 +186,14 @@ export function useUploadRestore(): UseMutationResult<RestoreResource, Error, Fi
   });
 }
 
-/** The URL that downloads one backup, through the URL base, so the session cookie travels with it. */
+/** The URL that downloads one backup, through the URL base, with the key a plain link needs. */
 export function backupDownloadUrl(config: AppConfig, id: string): string {
-  return `${apiOrigin(config)}/api/v1/system/backup/${encodeURIComponent(id)}/download`;
+  return `${apiOrigin(config)}/api/v1/system/backup/${encodeURIComponent(id)}/download?apikey=${encodeURIComponent(config.apiKey)}`;
 }
 
 /** The URL that downloads one log file, through the URL base. */
 export function logFileDownloadUrl(config: AppConfig, filename: string): string {
-  return `${apiOrigin(config)}/api/v1/log/file/${encodeURIComponent(filename)}`;
+  return `${apiOrigin(config)}/api/v1/log/file/${encodeURIComponent(filename)}?apikey=${encodeURIComponent(config.apiKey)}`;
 }
 
 /** The log entries, newest first, filtered and paged. */
