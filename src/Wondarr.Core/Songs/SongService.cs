@@ -631,6 +631,22 @@ public sealed partial class SongService : ISongService
         return ordered.ThenBy(song => song.Id);
     }
 
+    /// <summary>Runs the album policy over one group of the batch's songs.</summary>
+    private static IReadOnlyList<AlbumAssignment> Assign(
+        IAlbumPolicyEngine albumPolicy,
+        Library library,
+        AlbumPolicy policy,
+        IReadOnlyList<ExistingAlbum> existingAlbums,
+        IReadOnlyList<SongToPlace> places,
+        int minTracksPerRealAlbum) => albumPolicy.Assign(new AlbumPolicyInput
+    {
+        Policy = policy,
+        MinTracksPerRealAlbum = minTracksPerRealAlbum,
+        LibraryName = library.Name,
+        Songs = places,
+        ExistingAlbums = existingAlbums,
+    });
+
     /// <summary>Creates the songs of one batch: artists, planning, track numbers, covers and the write.</summary>
     private async Task CreateAsync(
         IReadOnlyList<SongIdentity> identities,
@@ -648,6 +664,28 @@ public sealed partial class SongService : ISongService
         var creditsByIndex = new Dictionary<int, List<(Artist Artist, IdentityArtist Credit)>>();
         var plannedByRef = new Dictionary<string, PlannedSong>(StringComparer.Ordinal);
         var places = new List<SongToPlace>(pending.Count);
+
+        // An album add pins the songs it names to one release: the identities that carry that release
+        // option are planned against it alone, with the one-track minimum an explicit choice implies,
+        // and their album context is saved pinned. The rest of the batch is planned by the library's
+        // policy exactly as before.
+        var pinnedOptions = new Dictionary<int, ReleaseOption>();
+
+        if (options.AlbumReleaseId is { Length: > 0 } albumReleaseId)
+        {
+            foreach (var index in pending)
+            {
+                foreach (var option in identities[index].ReleaseOptions)
+                {
+                    if (string.Equals(option.Key, albumReleaseId, StringComparison.Ordinal))
+                    {
+                        pinnedOptions.Add(index, option);
+
+                        break;
+                    }
+                }
+            }
+        }
 
         // 2. Artists: reused when an id or a name matches, created otherwise; the primary artist is
         // the credit at position 0.
@@ -678,19 +716,39 @@ public sealed partial class SongService : ISongService
                 ArtistName = primary.Name,
                 OriginalDate = identity.OriginalDate,
                 Flags = identity.Flags,
-                Options = identity.ReleaseOptions,
+                Options = pinnedOptions.TryGetValue(index, out var pinned) ? [pinned] : identity.ReleaseOptions,
             });
         }
 
-        // 3./4. One planning run for the whole batch, against the library's existing albums.
-        var assignments = _albumPolicy.Assign(new AlbumPolicyInput
-        {
-            Policy = library.AlbumPolicy,
-            MinTracksPerRealAlbum = library.MinTracksPerRealAlbum,
-            LibraryName = library.Name,
-            Songs = places,
-            ExistingAlbums = libraryAlbums.Albums,
-        });
+        // 3./4. One planning run for the whole batch, against the library's existing albums. A pinned
+        // song is planned in its own run, because the one-track minimum is not the library's.
+        var assignments = pinnedOptions.Count == 0
+            ? Assign(
+                _albumPolicy,
+                library,
+                library.AlbumPolicy,
+                libraryAlbums.Albums,
+                places,
+                library.MinTracksPerRealAlbum)
+            : [
+
+                // The user named the release: like a hand-picked album (SetAlbumContextAsync), it is
+                // planned as "fewest albums" over that one option, whatever the library's policy says.
+                .. Assign(
+                    _albumPolicy,
+                    library,
+                    AlbumPolicy.FewestAlbums,
+                    libraryAlbums.Albums,
+                    places.Where(place => pinnedOptions.ContainsKey(int.Parse(place.Ref, CultureInfo.InvariantCulture))).ToList(),
+                    1),
+                .. Assign(
+                    _albumPolicy,
+                    library,
+                    library.AlbumPolicy,
+                    libraryAlbums.Albums,
+                    places.Where(place => !pinnedOptions.ContainsKey(int.Parse(place.Ref, CultureInfo.InvariantCulture))).ToList(),
+                    library.MinTracksPerRealAlbum),
+            ];
 
         var assignmentByRef = new Dictionary<string, AlbumAssignment>(StringComparer.Ordinal);
         var releases = new Dictionary<string, MbRelease?>(StringComparer.Ordinal);
@@ -745,6 +803,9 @@ public sealed partial class SongService : ISongService
 
             song.AlbumContext = new AlbumContext();
             ApplyAssignment(song.AlbumContext, assignment, covers[assignment.AlbumKey]);
+            // Pinned only when the song really landed on the named release.
+            song.AlbumContext.Pinned = pinnedOptions.TryGetValue(index, out var pinnedOption)
+                && string.Equals(assignment.AlbumKey, pinnedOption.Key, StringComparison.Ordinal);
 
             _database.Songs.Add(song);
             results[index] = new SongAddResult(identity, SongAddOutcome.Added, song);
