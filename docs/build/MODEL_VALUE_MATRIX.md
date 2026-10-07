@@ -1,6 +1,6 @@
 # OpenRouter best value models — 2026-10-07
 
-Live data for 465 models (289 with Artificial Analysis scores and a usable endpoint).
+Live data for 465 models (288 with Artificial Analysis scores and a usable endpoint).
 
 **Method:** price = cheapest live endpoint *after* its `discount`; blended $/M = (3×input + output)/4; value = index ÷ blended $/M. `:free` excluded, `:batch` (async) excluded. Quality floor: Coding ≥ 50, Intelligence ≥ 30, Agentic ≥ 40. 'List value' uses the pre-discount price (what you get if the promo ends).
 
@@ -35,7 +35,7 @@ Best $0 options (`:free`, rate-limited): `thinkingmachines/inkling-small:free` (
 | 7 | `z-ai/glm-5.3` | 44.8 | 0.126 / 0.396 | 70% | 0.194 | 232 | 69 | Novita |
 | 8 | `deepseek/deepseek-v4-flash-vision-exp` | 34.8 | 0.106 / 0.317 | 51% | 0.158 | 220 | 108 | DeepInfra |
 | 9 | `openai/gpt-5.6-luna` | 37.3 | 0.100 / 0.600 | 0% | 0.225 | 166 | 166 | OpenAI |
-| 10 | `google/gemini-3.8-flash` | 40.9 | 0.188 / 0.938 | 50% | 0.375 | 109 | 55 | Google AI Studio |
+| 10 | `z-ai/glm-5.2` | 33.7 | 0.132 / 0.810 | 55% | 0.301 | 112 | 50 | Decart |
 
 Best $0 options (`:free`, rate-limited): `thinkingmachines/inkling-small:free` (25.7), `thinkingmachines/inkling:free` (25.0), `nvidia/nemotron-3-ultra-550b-a55b:free` (22.9)
 
