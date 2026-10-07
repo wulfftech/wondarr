@@ -16,10 +16,11 @@ Gate (`PHASES.md` Phase 6, extended by the owner on 2026-10-07): a 200-track Exp
 | P6-07 | Several libraries backend: create/delete (#3), a song's library change as a `MoveSongs` command (file move under the per-song lock, album re-plan, Plex scans of both folders) | — | M | T3 worker |
 | P6-08 | Conversion policy v2 (#4, #5): the per-class rules, version-1 compatibility, the import applying it to every source with the source's quality kept, the transcoder's new targets | — | M | T3 worker |
 | P6-09 | Conversion on demand (#6): the `ConvertFiles` command with a dry run, `POST /api/v1/song/convert`, history "converted" | P6-08 | M | T3 worker |
-| P6-10 | Frontend: album search and add, "rest of the album", Settings → Libraries (add/delete, per-library Plex section), the library picker on add, "move to library", the conversion rules editor, "convert…" on songs | P6-06…P6-09 | M | T2 worker |
+| P6-10a | Frontend: Settings → Library for several libraries (add/delete, per-library Plex section), the conversion rules editor, "convert existing files…" with a dry run, the library picker on add | P6-07…P6-09 | M | T2 worker |
+| P6-10b | Frontend: the Album tab (search, release, tracklist, add), and per song "add the rest of this album", "move to library…", "convert…" | P6-06, P6-07, P6-09 | M | T2 worker |
 | P6-11 | Phase 6 gate: `scripts/phase6-gate.py` + the `SMOKE_PHASE6` stage (FakeSlskd, the replayed metadata, a throwaway Plex), live on `ch01` | all | M | orchestrator |
 
-Waves: **A** P6-01 ∥ P6-06 ∥ P6-08 → **B** P6-02 ∥ P6-07 ∥ P6-09 → **C** P6-03 ∥ P6-04 → **D** P6-05 ∥ P6-10 → **E** P6-11. At most three workers at once; the orchestrator never runs three test suites at once.
+Waves: **A** P6-01 ∥ P6-06 ∥ P6-08 → **B** P6-02 ∥ P6-07 ∥ P6-09 → **C** P6-03 ∥ P6-04 → **D** P6-05 ∥ P6-10a ∥ P6-10b → **E** P6-11. Workers cannot run a command with an environment-variable prefix, so the orchestrator regenerates `docs/api/openapi.json` and the frontend types when it merges a branch that changes the API. At most three workers at once; the orchestrator never runs three test suites at once.
 
 Migrations: P6-01 (list item order, a list's last sync result, sync interval), P6-03 (the list's Plex playlist id and output settings), P6-08 none (the policy is JSON), P6-09 none. Two branches that both add a migration are merged one at a time and the second regenerates its migration on top of the first (Phase 3's lesson).
 
