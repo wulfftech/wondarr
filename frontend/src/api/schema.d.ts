@@ -2708,6 +2708,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/importlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    includePasted?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportListResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ImportListInputResource"];
+                    "application/*+json": components["schemas"]["ImportListInputResource"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportListResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/importlist/{id}": {
         parameters: {
             query?: never;
@@ -2737,8 +2807,210 @@ export interface paths {
                 };
             };
         };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ImportListInputResource"];
+                    "application/*+json": components["schemas"]["ImportListInputResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportListResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/importlist/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportListSchemaResource"][];
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/importlist/{id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportListSyncAcceptedResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/importlist/csv/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CsvPreviewInputResource"];
+                    "application/*+json": components["schemas"]["CsvPreviewInputResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CsvPreviewResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -3403,6 +3675,18 @@ export interface components {
             songsConsidered: number | string;
             moves: components["schemas"]["CompactMoveResource"][];
         };
+        CsvPreviewInputResource: {
+            sourceText: null | string;
+            settings: null | components["schemas"]["JsonNode"];
+        };
+        CsvPreviewResource: {
+            format: string;
+            headers: string[];
+            /** Format: int32 */
+            rowCount: number | string;
+            sample: components["schemas"]["ImportListEntryResource"][];
+            problems: string[];
+        };
         EntityTagHeaderValue: {
             tag?: components["schemas"]["StringSegment"];
             isWeak?: boolean;
@@ -3457,6 +3741,35 @@ export interface components {
             unresolved: number | string;
             /** Format: int32 */
             skipped: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            removed: number | string;
+        };
+        ImportListEntryResource: {
+            externalId: string;
+            artist: null | string;
+            title: null | string;
+            album: null | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            isrc: null | string;
+            mbRecordingId: null | string;
+        };
+        ImportListInputResource: {
+            type: null | string;
+            name: null | string;
+            settings: null | components["schemas"]["JsonNode"];
+            sourceText: null | string;
+            policy: null | string;
+            /** Format: int64 */
+            qualityProfileId: null | number | string;
+            /** Format: int64 */
+            libraryId: null | number | string;
+            enabled: null | boolean;
+            /** Format: int32 */
+            syncIntervalHours: null | number | string;
         };
         ImportListItemResolveResource: {
             mbRecordingId: null | string;
@@ -3478,6 +3791,8 @@ export interface components {
             /** Format: int64 */
             songId: null | number | string;
             candidates: components["schemas"]["ImportListCandidate"][];
+            /** @default false */
+            removed: boolean;
         };
         ImportListItemState: number;
         ImportListResource: {
@@ -3490,6 +3805,38 @@ export interface components {
             /** Format: date-time */
             lastSyncedAt: null | string;
             counts: components["schemas"]["ImportListCountsResource"];
+            /** @default false */
+            enabled: boolean;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            syncIntervalHours: number | string;
+            /** @default AddOnly */
+            policy: string;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            qualityProfileId: number | string;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            libraryId: number | string;
+            lastSyncMessage?: null | string;
+            settings?: unknown;
+            /** @default false */
+            hasFile: boolean;
+        };
+        ImportListSchemaResource: {
+            type: string;
+            displayName: string;
+            fields: components["schemas"]["NotificationFieldResource"][];
+        };
+        ImportListSyncAcceptedResource: {
+            /** Format: int64 */
+            commandId: number | string;
         };
         InteractiveSearchResource: {
             /** Format: int64 */
@@ -4275,6 +4622,17 @@ export interface components {
         UpdateAuthUserResource: {
             username: null | string;
             password: null | string;
+        };
+        ValidationProblemDetails: {
+            type?: null | string;
+            title?: null | string;
+            /** Format: int32 */
+            status?: null | number | string;
+            detail?: null | string;
+            instance?: null | string;
+            errors?: {
+                [key: string]: string[];
+            };
         };
         YouTubeSettingsResource: {
             enabled: boolean;
