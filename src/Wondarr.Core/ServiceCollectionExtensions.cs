@@ -9,6 +9,7 @@ using Wondarr.Core.HealthCheck;
 using Wondarr.Core.History;
 using Wondarr.Core.Importing;
 using Wondarr.Core.ImportLists;
+using Wondarr.Core.ImportLists.Csv;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
@@ -144,6 +145,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
+        services.AddScoped<ICommandHandler, ImportListSyncCommandHandler>();
         services.AddScoped<ICommandHandler, MissingSearchCommandHandler>();
         services.AddScoped<ICommandHandler, UpgradeSearchCommandHandler>();
         services.AddScoped<ICommandHandler, SongSearchCommandHandler>();
@@ -175,6 +177,9 @@ public static class ServiceCollectionExtensions
 
         // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
         services.AddScoped<IPasteListService, PasteListService>();
+        services.AddScoped<IImportListService, ImportListService>();
+        services.AddSingleton<CsvImportListProvider>();
+        services.AddSingleton<IImportListProvider>(provider => provider.GetRequiredService<CsvImportListProvider>());
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();

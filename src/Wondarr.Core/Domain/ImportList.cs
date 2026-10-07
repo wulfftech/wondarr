@@ -3,19 +3,22 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Domain;
 
 /// <summary>
-/// One import list: a named source of songs Wondarr resolves and adds. Phase 1 only knows the
-/// <c>paste</c> type — a block of text the user pasted — but the shape is the *arr one so the CSV
-/// and Spotify exports of Phase 6 are the same table with a different <see cref="Type"/>.
+/// One import list: a named source of songs Wondarr resolves and adds. A <c>paste</c> list is a block
+/// of text the user pasted, resolved once; every other type is a provider (a CSV export, a playlist,
+/// a scrobble list) that a sync reads again on <see cref="SyncIntervalHours"/>.
 /// </summary>
 public sealed class ImportList : EntityBase
 {
-    /// <summary>The <see cref="Type"/> of a pasted list: the only one Phase 1 writes.</summary>
+    /// <summary>The <see cref="Type"/> of a pasted list, resolved once and never synced.</summary>
     public const string PasteType = "paste";
+
+    /// <summary>The <see cref="Type"/> of an uploaded CSV file (Exportify's export, or any mapped CSV).</summary>
+    public const string CsvType = "csv";
 
     /// <summary>The <see cref="Policy"/> of a list that only ever adds, never removes.</summary>
     public const string AddOnlyPolicy = "AddOnly";
 
-    /// <summary>Gets or sets the list type. Phase 1 only ever writes <c>paste</c>.</summary>
+    /// <summary>Gets or sets the list type: <c>paste</c>, or a provider's type such as <c>csv</c>.</summary>
     public string Type { get; set; } = PasteType;
 
     /// <summary>Gets or sets the display name, for example <c>Pasted list 2026-09-28 10:31 UTC</c>.</summary>
@@ -35,6 +38,23 @@ public sealed class ImportList : EntityBase
 
     /// <summary>Gets or sets the UTC instant the list was last processed, or <see langword="null"/>.</summary>
     public DateTime? LastSyncedAt { get; set; }
+
+    /// <summary>Gets or sets the one-line result of the last sync, or why it failed.</summary>
+    public string? LastSyncMessage { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the scheduled sync reads this list.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets how many hours pass between scheduled syncs; <c>0</c> means "only when asked".
+    /// </summary>
+    public int SyncIntervalHours { get; set; } = 24;
+
+    /// <summary>
+    /// Gets or sets the content the list was read from when the source is a file the user uploaded
+    /// (a CSV), so the list lives in the database — and in its backups — rather than in a loose file.
+    /// </summary>
+    public string? SourceText { get; set; }
 
     /// <summary>Gets or sets the lines of the list, in the order they were pasted.</summary>
     public List<ImportListItem> Items { get; set; } = [];
@@ -70,6 +90,15 @@ public sealed class ImportListItem : EntityBase
     /// source's row id for the CSV and streaming imports of Phase 6.
     /// </summary>
     public string ExternalId { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets where the item sits in the source, from 0: the playlist order.</summary>
+    public int Position { get; set; }
+
+    /// <summary>
+    /// Gets or sets the UTC instant a sync found the item gone from its source, or
+    /// <see langword="null"/> while it is still there.
+    /// </summary>
+    public DateTime? RemovedAt { get; set; }
 
     /// <summary>Gets or sets the song the line became, or <see langword="null"/> while it has none.</summary>
     public long? SongId { get; set; }
