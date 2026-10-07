@@ -141,11 +141,7 @@ export function useCreateImportList(): UseMutationResult<ImportListResource, Err
 }
 
 /** Replaces an import list's settings. */
-export function useUpdateImportList(): UseMutationResult<
-  ImportListResource,
-  Error,
-  ImportListInput & { id: number }
-> {
+export function useUpdateImportList(): UseMutationResult<ImportListResource, Error, ImportListInput & { id: number }> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 

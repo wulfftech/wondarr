@@ -1,13 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  COMMAND_COMPLETED,
-  HEALTH_ENTRIES,
-  LIBRARIES,
-  QUALITY_PROFILES,
-  SYSTEM_STATUS,
-} from '../../test/fixtures';
+import { COMMAND_COMPLETED, HEALTH_ENTRIES, LIBRARIES, QUALITY_PROFILES, SYSTEM_STATUS } from '../../test/fixtures';
 import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../../test/helpers';
 
 beforeEach(() => {
@@ -308,9 +302,9 @@ describe('ImportListsSettingsPage', () => {
     await user.click(within(row).getByRole('button', { name: 'Sync now' }));
 
     await waitFor(() => {
-      expect(sent().some((request) => request.method === 'POST' && request.url.includes('/api/v1/importlist/7/sync'))).toBe(
-        true,
-      );
+      expect(
+        sent().some((request) => request.method === 'POST' && request.url.includes('/api/v1/importlist/7/sync')),
+      ).toBe(true);
     });
 
     expect(await screen.findByText('Synced Deezer favourites')).toBeInTheDocument();

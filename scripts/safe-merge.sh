@@ -48,7 +48,7 @@ check() {
         (
             cd frontend
             [[ -d node_modules ]] || npm ci --no-audit --no-fund
-            npm run lint && npm run typecheck && npm test && npm run build
+            npm run lint && npm run typecheck && npm run format && npm test && npm run build
         ) || return 1
     fi
 }

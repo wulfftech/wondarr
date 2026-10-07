@@ -1,7 +1,15 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALBUM_OPTIONS, ARTISTS, HEALTH_ENTRIES, LIBRARIES, LIBRARY_SONGS, paged, SYSTEM_STATUS } from '../test/fixtures';
+import {
+  ALBUM_OPTIONS,
+  ARTISTS,
+  HEALTH_ENTRIES,
+  LIBRARIES,
+  LIBRARY_SONGS,
+  paged,
+  SYSTEM_STATUS,
+} from '../test/fixtures';
 import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../test/helpers';
 
 beforeEach(() => {

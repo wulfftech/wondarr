@@ -114,7 +114,14 @@ export function keepRule(): OutputRule {
 export function defaultOutputPolicy(): OutputPolicy {
   return {
     version: 2,
-    youtube: { codec: 'aac', mode: 'cbr', bitrateKbps: 256, vbrQuality: 'keep', sampleRate: 'keep', opusContainer: 'opus' },
+    youtube: {
+      codec: 'aac',
+      mode: 'cbr',
+      bitrateKbps: 256,
+      vbrQuality: 'keep',
+      sampleRate: 'keep',
+      opusContainer: 'opus',
+    },
     lossy: keepRule(),
     lossless: keepRule(),
   };
@@ -147,7 +154,7 @@ function readRule(value: unknown, source: keyof Omit<OutputPolicy, 'version'>): 
     // VBR is the LAME quality scale, so only an MP3 target can carry it; anything else reads CBR.
     mode: codec === 'mp3' && rule.mode === 'vbr' ? 'vbr' : 'cbr',
     // A converting rule always shows a bitrate and a quality, so a missing one takes the default.
-    bitrateKbps: codec === 'keep' ? 'keep' : (bitrate === 'keep' ? 256 : bitrate),
+    bitrateKbps: codec === 'keep' ? 'keep' : bitrate === 'keep' ? 256 : bitrate,
     vbrQuality: codec === 'mp3' ? (vbr === 'keep' ? 0 : vbr) : 'keep',
     sampleRate: codec === 'keep' ? 'keep' : sampleRate,
     opusContainer: rule.opusContainer === 'ogg' ? 'ogg' : 'opus',

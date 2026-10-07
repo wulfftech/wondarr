@@ -1,4 +1,19 @@
-import { Alert, Badge, Button, Card, Checkbox, Group, Modal, Select, Stack, Switch, Table, Text, TextInput, Title } from '@mantine/core';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  Group,
+  Modal,
+  Select,
+  Stack,
+  Switch,
+  Table,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { CircleAlert, Plus } from 'lucide-react';
 import { useState } from 'react';

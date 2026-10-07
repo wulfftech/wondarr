@@ -3,12 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  defaultOutputPolicy,
-  readOutputPolicy,
-  writeOutputPolicy,
-  type OutputPolicy,
-} from '../../api/profiles';
+import { defaultOutputPolicy, readOutputPolicy, writeOutputPolicy, type OutputPolicy } from '../../api/profiles';
 import { OutputRulesEditor } from './OutputRulesEditor';
 
 beforeEach(() => {
@@ -144,9 +139,23 @@ describe('OutputRulesEditor', () => {
     // carries the defaults a kept file ignores rather than the form's "keep".
     expect(onSave).toHaveBeenCalledWith({
       version: 2,
-      youtube: { codec: 'aac', mode: 'cbr', bitrateKbps: 256, vbrQuality: 0, sampleRate: 'keep', opusContainer: 'opus' },
+      youtube: {
+        codec: 'aac',
+        mode: 'cbr',
+        bitrateKbps: 256,
+        vbrQuality: 0,
+        sampleRate: 'keep',
+        opusContainer: 'opus',
+      },
       lossy: { codec: 'keep', mode: 'cbr', bitrateKbps: 256, vbrQuality: 0, sampleRate: 'keep', opusContainer: 'opus' },
-      lossless: { codec: 'mp3', mode: 'vbr', bitrateKbps: 256, vbrQuality: 2, sampleRate: 'keep', opusContainer: 'opus' },
+      lossless: {
+        codec: 'mp3',
+        mode: 'vbr',
+        bitrateKbps: 256,
+        vbrQuality: 2,
+        sampleRate: 'keep',
+        opusContainer: 'opus',
+      },
     });
   });
 

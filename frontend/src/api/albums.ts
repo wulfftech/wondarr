@@ -62,10 +62,7 @@ export function useReleases(releaseGroupId: string | null): UseQueryResult<Album
 }
 
 /** The tracklist of one release (or one Deezer album), with what the library already holds. */
-export function useTracklist(
-  source: string | null,
-  id: string | null,
-): UseQueryResult<AlbumTrackResource[], Error> {
+export function useTracklist(source: string | null, id: string | null): UseQueryResult<AlbumTrackResource[], Error> {
   const client = useApiClient();
 
   return useQuery({
