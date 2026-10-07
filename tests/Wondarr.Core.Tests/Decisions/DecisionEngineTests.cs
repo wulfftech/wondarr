@@ -192,11 +192,12 @@ public class DecisionEngineTests
     [Fact]
     public void Rejects_an_upgrade_whose_identity_score_is_below_the_current_files()
     {
-        // A held MP3-256 whose candidate matched the song at 390, and a FLAC that matches it less
-        // well: the quality rule alone would take it, the identity rule must not.
+        // A held MP3-256 whose candidate matched the song at 390, and a FLAC that matches it clearly
+        // less well (more than the tolerance below): the quality rule alone would take it, the
+        // identity rule must not.
         var context = Context() with { CurrentFileQualityId = 23, CurrentFileIdentityScore = 390 };
 
-        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Get Lucky (Remix)" });
+        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Lucky Star" });
 
         Judge(context, worse).Accepted.Should().BeFalse();
         Judge(context, worse).Rejections.Should().ContainSingle()
@@ -206,10 +207,25 @@ public class DecisionEngineTests
         Judge(context, NewCandidate(qualityId: 36, sizeBytes: 43_600_000)).Accepted.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(390)]
+    [InlineData(400)]
+    public void A_near_perfect_or_hard_hit_held_score_does_not_block_a_slightly_worse_match(int held)
+    {
+        // DECISIONS build session 7 #11: live, a held score no name-scored candidate could reach
+        // rejected 978 of 978 candidates. A FLAC a little less well matched (here: a two-second
+        // longer edit) is within the tolerance, and fingerprint confirmation does the rest.
+        var context = Context() with { CurrentFileQualityId = 23, CurrentFileIdentityScore = held };
+
+        var slightlyWorse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, durationMs: 371_000);
+
+        Judge(context, slightlyWorse).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.WorseIdentity);
+    }
+
     [Fact]
     public void The_identity_rule_never_applies_without_a_known_held_score_or_to_a_manual_grab()
     {
-        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Get Lucky (Remix)" });
+        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Lucky Star" });
 
         // No stored candidate behind the held file (adopted, or imported before scores were kept):
         // the quality rule is all there is.
