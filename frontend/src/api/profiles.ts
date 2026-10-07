@@ -32,6 +32,176 @@ export type LibraryLayoutName = 'flat' | 'artist' | 'artistAlbum' | 'plexamp';
 /** The wire spelling of `AlbumPolicy`; see {@link LibraryLayoutName}. */
 export type AlbumPolicyName = 'fewestAlbums' | 'singlesOnly' | 'originalAlbum' | 'singleRelease' | 'compilation';
 
+/**
+ * The conversion rule one source class carries, with every key the library's save sends
+ * (LIBRARY_OUTPUT §7.7). A key the rule does not use reads and writes `"keep"`.
+ */
+export interface OutputRule {
+  /** What the file becomes: `keep`, or the codec it is re-encoded to. */
+  codec: OutputCodecName;
+  /** How the target bitrate is chosen: a fixed `bitrateKbps`, or the LAME quality scale (MP3 only). */
+  mode: OutputModeName;
+  /** The constant bitrate in kbps, or `"keep"` when the rule does not use one. */
+  bitrateKbps: number | 'keep';
+  /** The LAME VBR quality, 0 (best) to 9 (smallest), or `"keep"` when the rule does not use one. */
+  vbrQuality: number | 'keep';
+  /** The target sample rate in Hz, or `"keep"` to keep the source's. */
+  sampleRate: number | 'keep';
+  /** The container an Opus target — or a kept Opus file — is named with. */
+  opusContainer: OpusContainerName;
+}
+
+/** The conversion rules the library's output policy carries, one per source class. */
+export interface OutputPolicy {
+  version: 2;
+  youtube: OutputRule;
+  lossy: OutputRule;
+  lossless: OutputRule;
+}
+
+/** The wire spelling of `OutputCodec`; see {@link LibraryLayoutName}. */
+export type OutputCodecName = 'keep' | 'aac' | 'mp3' | 'opus' | 'flac' | 'alac';
+
+/** The wire spelling of `OutputMode`; see {@link LibraryLayoutName}. */
+export type OutputModeName = 'cbr' | 'vbr';
+
+/** The wire spelling of the Opus container; see {@link LibraryLayoutName}. */
+export type OpusContainerName = 'opus' | 'ogg';
+
+/** The source classes the policy carries one rule for, with the labels the form shows them by. */
+export const OUTPUT_RULE_SOURCES: { key: keyof Omit<OutputPolicy, 'version'>; label: string }[] = [
+  { key: 'youtube', label: 'YouTube downloads' },
+  { key: 'lossy', label: 'Lossy files (MP3, AAC, Opus, Vorbis…)' },
+  { key: 'lossless', label: 'Lossless files (FLAC, ALAC, WAV…)' },
+];
+
+/** The codecs a rule that is not a lossless source's can name, in the order the form offers them. */
+export const LOSSY_CODECS: { value: OutputCodecName; label: string }[] = [
+  { value: 'keep', label: 'Keep as downloaded' },
+  { value: 'aac', label: 'AAC (.m4a)' },
+  { value: 'mp3', label: 'MP3' },
+  { value: 'opus', label: 'Opus' },
+];
+
+/** The two codecs only a lossless source may be converted to (ADR-0006: never lossless from lossy). */
+export const LOSSLESS_ONLY_CODECS: { value: OutputCodecName; label: string }[] = [
+  { value: 'flac', label: 'FLAC' },
+  { value: 'alac', label: 'ALAC (.m4a)' },
+];
+
+/** The constant bitrates the form offers, in kbps. */
+export const BITRATE_OPTIONS = [128, 160, 192, 256, 320];
+
+/** The LAME VBR qualities the form offers, 0 (best) to 9 (smallest). */
+export const VBR_QUALITY_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+/** The sample rates the form offers besides keeping the source's. */
+export const SAMPLE_RATE_OPTIONS = [44100, 48000];
+
+/** The rule a source class without one falls back to: the file is kept as it was served. */
+export function keepRule(): OutputRule {
+  return {
+    codec: 'keep',
+    mode: 'cbr',
+    bitrateKbps: 'keep',
+    vbrQuality: 'keep',
+    sampleRate: 'keep',
+    opusContainer: 'opus',
+  };
+}
+
+/** The policy a library without one reports: YouTube → AAC 256 kbps CBR, the rest kept (§7.7). */
+export function defaultOutputPolicy(): OutputPolicy {
+  return {
+    version: 2,
+    youtube: { codec: 'aac', mode: 'cbr', bitrateKbps: 256, vbrQuality: 'keep', sampleRate: 'keep', opusContainer: 'opus' },
+    lossy: keepRule(),
+    lossless: keepRule(),
+  };
+}
+
+/** The codecs one row offers: the lossless row also takes FLAC and ALAC. */
+export function codecOptions(source: keyof Omit<OutputPolicy, 'version'>): { value: OutputCodecName; label: string }[] {
+  return source === 'lossless' ? [...LOSSY_CODECS, ...LOSSLESS_ONLY_CODECS] : LOSSY_CODECS;
+}
+
+/** Reads one rule the policy may not carry, or may not spell the way the form expects. */
+function readRule(value: unknown, source: keyof Omit<OutputPolicy, 'version'>): OutputRule {
+  if (typeof value !== 'object' || value === null) {
+    return keepRule();
+  }
+
+  const rule = value as Record<string, unknown>;
+  const allowed = codecOptions(source).map((option) => option.value);
+  const codec = allowed.includes(rule.codec as OutputCodecName) ? (rule.codec as OutputCodecName) : 'keep';
+  const bitrate =
+    typeof rule.bitrateKbps === 'number' && rule.bitrateKbps >= 64 && rule.bitrateKbps <= 320
+      ? rule.bitrateKbps
+      : 'keep';
+  const vbr =
+    typeof rule.vbrQuality === 'number' && rule.vbrQuality >= 0 && rule.vbrQuality <= 9 ? rule.vbrQuality : 'keep';
+  const sampleRate = typeof rule.sampleRate === 'number' && rule.sampleRate > 0 ? rule.sampleRate : 'keep';
+
+  return {
+    codec,
+    // VBR is the LAME quality scale, so only an MP3 target can carry it; anything else reads CBR.
+    mode: codec === 'mp3' && rule.mode === 'vbr' ? 'vbr' : 'cbr',
+    // A converting rule always shows a bitrate and a quality, so a missing one takes the default.
+    bitrateKbps: codec === 'keep' ? 'keep' : (bitrate === 'keep' ? 256 : bitrate),
+    vbrQuality: codec === 'mp3' ? (vbr === 'keep' ? 0 : vbr) : 'keep',
+    sampleRate: codec === 'keep' ? 'keep' : sampleRate,
+    opusContainer: rule.opusContainer === 'ogg' ? 'ogg' : 'opus',
+  };
+}
+
+/**
+ * Reads the library's stored `outputPolicy` (a `JsonElement`, so untyped on the wire) into the
+ * version-2 shape the form edits. A library without a policy reports the default (§7.7); a
+ * version-1 object — the flat Phase 4 shape — is the YouTube rule with the other two kept.
+ */
+export function readOutputPolicy(value: unknown): OutputPolicy {
+  if (typeof value !== 'object' || value === null) {
+    return defaultOutputPolicy();
+  }
+
+  const policy = value as Record<string, unknown>;
+
+  if (policy.version !== 2) {
+    return { version: 2, youtube: readRule(policy, 'youtube'), lossy: keepRule(), lossless: keepRule() };
+  }
+
+  return {
+    version: 2,
+    youtube: readRule(policy.youtube, 'youtube'),
+    lossy: readRule(policy.lossy, 'lossy'),
+    lossless: readRule(policy.lossless, 'lossless'),
+  };
+}
+
+/** One rule as the library's save sends it: every key spelled out. */
+function writeRule(rule: OutputRule): OutputRule {
+  return {
+    codec: rule.codec,
+    mode: rule.mode,
+    // The API reads these two as numbers (`OutputPolicy.Parse`), so a rule that does not use them
+    // carries the defaults a kept file ignores rather than the form's "keep".
+    bitrateKbps: rule.bitrateKbps === 'keep' ? 256 : rule.bitrateKbps,
+    vbrQuality: rule.vbrQuality === 'keep' ? 0 : rule.vbrQuality,
+    sampleRate: rule.sampleRate,
+    opusContainer: rule.opusContainer,
+  };
+}
+
+/** The `outputPolicy` object the library's save sends: version 2, one rule per source class. */
+export function writeOutputPolicy(policy: OutputPolicy): OutputPolicy {
+  return {
+    version: 2,
+    youtube: writeRule(policy.youtube),
+    lossy: writeRule(policy.lossy),
+    lossless: writeRule(policy.lossless),
+  };
+}
+
 /** The layout presets, in the order the Settings form offers them. */
 export const LIBRARY_LAYOUTS: { value: LibraryLayoutName; label: string }[] = [
   { value: 'flat', label: 'Flat' },
@@ -235,6 +405,44 @@ export function useLibraries(): UseQueryResult<LibraryResource[], Error> {
 
       return data;
     },
+  });
+}
+
+/** Creates a library; the API answers 400 with the field messages when the values do not fit. */
+export function useCreateLibrary(): UseMutationResult<LibraryResource, Error, LibraryResource> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (library: LibraryResource): Promise<LibraryResource> => {
+      const { data, error, response } = await client.POST('/api/v1/library', { body: library });
+
+      if (!response.ok || data === undefined) {
+        throw readProblem(response.status, error, 'The library could not be created.');
+      }
+
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: LIBRARIES_QUERY_KEY }),
+  });
+}
+
+/** Deletes a library that holds nothing; the API answers 400 naming what is still in it. */
+export function useDeleteLibrary(): UseMutationResult<void, Error, number> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: number): Promise<void> => {
+      const { error, response } = await client.DELETE('/api/v1/library/{id}', {
+        params: { path: { id } },
+      });
+
+      if (!response.ok) {
+        throw readProblem(response.status, error, 'The library could not be deleted.');
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: LIBRARIES_QUERY_KEY }),
   });
 }
 
