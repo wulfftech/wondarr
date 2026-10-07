@@ -1956,6 +1956,72 @@
         }
       }
     },
+    "/api/v1/log": {
+      "get": {
+        "tags": [
+          "Log"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfLogResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/log/file": {
+      "get": {
+        "tags": [
+          "Log"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LogFileResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/log/file/{filename}": {
+      "get": {
+        "tags": [
+          "Log"
+        ],
+        "parameters": [
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
+      }
+    },
     "/api/v1/song/bulk": {
       "post": {
         "tags": [
@@ -3457,6 +3523,75 @@
           }
         }
       },
+      "LogFileResource": {
+        "required": [
+          "id",
+          "filename",
+          "lastWriteTime",
+          "contentsUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "lastWriteTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "contentsUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "LogResource": {
+        "required": [
+          "id",
+          "time",
+          "level",
+          "logger",
+          "message",
+          "exception"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "level": {
+            "type": "string"
+          },
+          "logger": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "exception": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "MatchBulkRequestResource": {
         "required": [
           "ids"
@@ -4095,6 +4230,55 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ImportListItemResource"
+            }
+          }
+        }
+      },
+      "PagingResourceOfLogResource": {
+        "required": [
+          "page",
+          "pageSize",
+          "sortKey",
+          "sortDirection",
+          "totalRecords",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sortKey": {
+            "type": "string"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "totalRecords": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LogResource"
             }
           }
         }
@@ -6690,6 +6874,9 @@
     },
     {
       "name": "Notification"
+    },
+    {
+      "name": "Log"
     },
     {
       "name": "BulkAdd"
