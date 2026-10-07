@@ -36,11 +36,7 @@ import {
   type ImportListSchemaResource,
 } from '../../api/importLists';
 import { useLibraries, useQualityProfiles, readEnum, ValidationError } from '../../api/profiles';
-import {
-  useCommand,
-  type CommandStatusName,
-  type ImportListResource,
-} from '../../api/songs';
+import { useCommand, type CommandStatusName, type ImportListResource } from '../../api/songs';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 import { formatDuration } from '../../components/SongCells';
 import { initialValues, SettingsField, wireValue } from '../../components/SchemaFields';
@@ -81,15 +77,7 @@ function parseProgress(message: string | null | undefined): { done: number; tota
 }
 
 /** The command a **Sync now** started: its progress while it runs, its message once it stops. */
-function SyncProgress({
-  commandId,
-  name,
-  onFinished,
-}: {
-  commandId: number;
-  name: string;
-  onFinished: () => void;
-}) {
+function SyncProgress({ commandId, name, onFinished }: { commandId: number; name: string; onFinished: () => void }) {
   const command = useCommand(commandId, { poll: true });
   const told = useRef(false);
 
@@ -282,24 +270,23 @@ function ImportListForm({
           ),
       )}
 
-      {advanced.length > 0 &&
-        showColumns && (
-          <details>
-            <summary>Advanced</summary>
-            <Stack gap="md" mt="sm">
-              {advanced.map((field) => (
-                <SettingsField
-                  key={field.name}
-                  field={field}
-                  value={values[field.name]}
-                  masked={masked.has(field.name)}
-                  error={serverFields[field.name]}
-                  onChange={(next) => setValue(field, next)}
-                />
-              ))}
-            </Stack>
-          </details>
-        )}
+      {advanced.length > 0 && showColumns && (
+        <details>
+          <summary>Advanced</summary>
+          <Stack gap="md" mt="sm">
+            {advanced.map((field) => (
+              <SettingsField
+                key={field.name}
+                field={field}
+                value={values[field.name]}
+                masked={masked.has(field.name)}
+                error={serverFields[field.name]}
+                onChange={(next) => setValue(field, next)}
+              />
+            ))}
+          </Stack>
+        </details>
+      )}
 
       {isCsv && (
         <Stack gap="xs">
@@ -505,8 +492,8 @@ export function ImportListsSettingsPage() {
       <Title order={3}>Import lists</Title>
 
       <Text size="sm" c="dimmed">
-        Wondarr reads each enabled list on its interval and adds the songs it holds. A list never deletes a file;
-        what it does when a song leaves the list is the list's policy.
+        Wondarr reads each enabled list on its interval and adds the songs it holds. A list never deletes a file; what
+        it does when a song leaves the list is the list's policy.
       </Text>
 
       <Group justify="flex-end">
@@ -547,7 +534,9 @@ export function ImportListsSettingsPage() {
                 return (
                   <Table.Tr key={list.id}>
                     <Table.Td>{list.name}</Table.Td>
-                    <Table.Td>{providers.find((provider) => provider.type === list.type)?.displayName ?? list.type}</Table.Td>
+                    <Table.Td>
+                      {providers.find((provider) => provider.type === list.type)?.displayName ?? list.type}
+                    </Table.Td>
                     <Table.Td>
                       <Stack gap={0}>
                         <Text size="xs">Added {list.counts.added}</Text>
@@ -605,11 +594,7 @@ export function ImportListsSettingsPage() {
                         >
                           Items
                         </Button>
-                        <Button
-                          variant="light"
-                          size="xs"
-                          onClick={() => setForm({ list, type: list.type })}
-                        >
+                        <Button variant="light" size="xs" onClick={() => setForm({ list, type: list.type })}>
                           Edit
                         </Button>
                         <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(list)}>
@@ -681,7 +666,11 @@ export function ImportListsSettingsPage() {
             key={form.list?.id ?? form.type}
             list={form.list}
             provider={
-              providers.find((provider) => provider.type === form.type) ?? { type: form.type, displayName: form.type, fields: [] }
+              providers.find((provider) => provider.type === form.type) ?? {
+                type: form.type,
+                displayName: form.type,
+                fields: [],
+              }
             }
             onClose={() => setForm(null)}
           />

@@ -183,11 +183,7 @@ export function AddAlbumTab({ prefill }: { prefill: AlbumPrefill | null }) {
   const releaseList = releases.data ?? [];
   const defaultRelease = releaseList.find((release) => release.isDefault) ?? releaseList[0] ?? null;
   const releaseId =
-    chosen === null
-      ? null
-      : chosen.isReleaseGroup
-        ? (pickedReleaseId ?? defaultRelease?.id ?? null)
-        : chosen.id;
+    chosen === null ? null : chosen.isReleaseGroup ? (pickedReleaseId ?? defaultRelease?.id ?? null) : chosen.id;
 
   const tracklist = useTracklist(chosen === null ? null : chosen.source, releaseId);
   const tracks = tracklist.data ?? [];

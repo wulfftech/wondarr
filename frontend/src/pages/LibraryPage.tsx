@@ -200,9 +200,7 @@ function SongMenu({
         />
       </Menu.Target>
       <Menu.Dropdown>
-        {albumRef != null && (
-          <Menu.Item onClick={() => onRestOfAlbum(albumRef)}>Add the rest of this album</Menu.Item>
-        )}
+        {albumRef != null && <Menu.Item onClick={() => onRestOfAlbum(albumRef)}>Add the rest of this album</Menu.Item>}
         <Menu.Item onClick={() => onOpenAlbum(song)}>Change album…</Menu.Item>
         {canMove && <Menu.Item onClick={() => onOpenMove(song)}>Move to library…</Menu.Item>}
         <Menu.Item onClick={() => onOpenConvert(song)}>Convert…</Menu.Item>
@@ -341,9 +339,9 @@ export function LibraryPage() {
   const [artistId, setArtistId] = useState<string | null>(() => params.get('artistId'));
   const [monitored, setMonitored] = useState<MonitoredFilter>('all');
   const [paging, setPaging] = useState<Paging>(() => firstPage());
-  const [dialog, setDialog] = useState<
-    { song: SongResource; kind: 'album' | 'delete' | 'move' | 'convert' } | null
-  >(null);
+  const [dialog, setDialog] = useState<{ song: SongResource; kind: 'album' | 'delete' | 'move' | 'convert' } | null>(
+    null,
+  );
 
   const artists = useArtists();
   const libraries = useLibraries();
