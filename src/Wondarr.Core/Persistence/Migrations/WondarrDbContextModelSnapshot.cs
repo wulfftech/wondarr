@@ -468,6 +468,14 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("LastSyncMessage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_sync_message");
+
                     b.Property<DateTime?>("LastSyncedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("last_synced_at");
@@ -496,6 +504,14 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasDefaultValue("{}")
                         .HasColumnName("settings");
+
+                    b.Property<string>("SourceText")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_text");
+
+                    b.Property<int>("SyncIntervalHours")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("sync_interval_hours");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -545,6 +561,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("import_list_id");
 
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("position");
+
                     b.Property<string>("Raw")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -555,6 +575,10 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<string>("Reason")
                         .HasColumnType("TEXT")
                         .HasColumnName("reason");
+
+                    b.Property<DateTime?>("RemovedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("removed_at");
 
                     b.Property<long?>("SongId")
                         .HasColumnType("INTEGER")
