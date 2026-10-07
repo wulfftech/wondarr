@@ -25,6 +25,7 @@ namespace Wondarr.Api.Songs;
 /// <param name="HasFile">Whether a file satisfies the song.</param>
 /// <param name="QualityId">The file's quality, or <see langword="null"/> when there is no file.</param>
 /// <param name="AlbumContext">The album the song is filed under, or <see langword="null"/> until assigned.</param>
+/// <param name="File">The file the song holds, or <see langword="null"/> while it has none.</param>
 public sealed record SongResource(
     long Id,
     string Title,
@@ -43,7 +44,23 @@ public sealed record SongResource(
     DateTime Added,
     bool HasFile,
     long? QualityId,
-    SongAlbumContextResource? AlbumContext);
+    SongAlbumContextResource? AlbumContext,
+    SongFileResource? File = null);
+
+/// <summary>The file a song holds: where it is and what is on disk (its quality is the song's <c>qualityId</c>).</summary>
+/// <param name="Path">The file's path in the library.</param>
+/// <param name="Codec">The codec on disk (<c>mp3</c>, <c>flac</c>, <c>aac</c>, <c>opus</c>, …).</param>
+/// <param name="Container">The container on disk.</param>
+/// <param name="BitrateKbps">The measured bitrate, when known.</param>
+/// <param name="Size">The size in bytes.</param>
+/// <param name="SourceType">Where it came from: <c>soulseek</c>, <c>youtube</c>, <c>reference</c>, ….</param>
+public sealed record SongFileResource(
+    string Path,
+    string Codec,
+    string Container,
+    int? BitrateKbps,
+    long Size,
+    string SourceType);
 
 /// <summary>
 /// The song's album context: what the folder layout and Plex's grouping key on. A song always has one
@@ -112,7 +129,10 @@ public static class SongResourceExtensions
             song.CreatedAt,
             song.File is not null,
             song.File?.QualityId,
-            song.AlbumContext?.ToResource());
+            song.AlbumContext?.ToResource(),
+            song.File is { } file
+                ? new SongFileResource(file.Path, file.Codec, file.Container, file.BitrateKbps, file.Size, file.SourceType)
+                : null);
     }
 
     /// <summary>Maps an album context.</summary>
