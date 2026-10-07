@@ -6,6 +6,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Songs;
 
 namespace Wondarr.Core.ImportLists;
 
@@ -19,6 +20,8 @@ namespace Wondarr.Core.ImportLists;
 /// <param name="LibraryId">The library new songs are filed in, or <see langword="null"/> for the default.</param>
 /// <param name="Enabled">Whether the scheduled sync reads the list.</param>
 /// <param name="SyncIntervalHours">Hours between scheduled syncs; 0 = only when asked.</param>
+/// <param name="PlexPlaylist">Whether the list is kept as a Plex playlist.</param>
+/// <param name="M3uExport">Whether the list is written as an <c>.m3u8</c>.</param>
 public sealed record ImportListDraft(
     string Type,
     string Name,
@@ -28,7 +31,9 @@ public sealed record ImportListDraft(
     long? QualityProfileId,
     long? LibraryId,
     bool Enabled = true,
-    int SyncIntervalHours = 24);
+    int SyncIntervalHours = 24,
+    bool PlexPlaylist = false,
+    bool M3uExport = false);
 
 /// <summary>A list with the counts of its items, as the list screens show it.</summary>
 /// <param name="List">The list.</param>
@@ -110,6 +115,14 @@ public interface IImportListService
     /// <exception cref="ImportListSyncException">The source could not be read.</exception>
     Task<string> SyncAsync(long id, Func<string, Task> reportProgress, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Rewrites the playlists of every enabled list that writes one, so songs that got their files
+    /// since the last sync appear in them.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    /// <returns>How many lists' playlists were written.</returns>
+    Task<int> RefreshPlaylistsAsync(CancellationToken cancellationToken);
+
     /// <summary>The ids of the enabled synced lists whose interval has passed, oldest sync first.</summary>
     /// <param name="cancellationToken">Cancels the query.</param>
     Task<IReadOnlyList<long>> GetDueAsync(CancellationToken cancellationToken);
@@ -135,14 +148,19 @@ public sealed partial class ImportListService : IImportListService
     /// <summary>The longest uploaded file, in characters (about 5 MB of CSV).</summary>
     public const int MaxSourceTextLength = 5 * 1024 * 1024;
 
-    /// <summary>
-    /// The policies a list may name (DECISIONS build session 7 #9). Only "add only" is offered until
-    /// the sync applies the others (P6-03): a list must never claim a policy it does not carry out.
-    /// </summary>
-    public static readonly IReadOnlyList<string> Policies = [ImportList.AddOnlyPolicy];
+    /// <summary>The policy that also unmonitors songs only this list wanted, when they leave it.</summary>
+    public const string AddAndUnmonitorPolicy = "AddAndUnmonitor";
+
+    /// <summary>The policy that also deletes such songs when they have no file (and unmonitors them when they do).</summary>
+    public const string MirrorPolicy = "Mirror";
+
+    /// <summary>The policies a list may name (DECISIONS build session 7 #9).</summary>
+    public static readonly IReadOnlyList<string> Policies = [ImportList.AddOnlyPolicy, AddAndUnmonitorPolicy, MirrorPolicy];
 
     private readonly WondarrDbContext _database;
     private readonly IPasteListService _items;
+    private readonly ISongService _songs;
+    private readonly IPlaylistWriter _playlists;
     private readonly IReadOnlyList<IImportListProvider> _providers;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ImportListService> _logger;
@@ -150,24 +168,32 @@ public sealed partial class ImportListService : IImportListService
     /// <summary>Initialises a new instance of the <see cref="ImportListService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="items">The item pipeline the bulk add uses: resolve, then one batch add.</param>
+    /// <param name="songs">The song service, for the policies' unmonitor and delete.</param>
+    /// <param name="playlists">Writes the list's playlists after a sync.</param>
     /// <param name="providers">Every registered provider.</param>
     /// <param name="timeProvider">The clock.</param>
     /// <param name="logger">The logger.</param>
     public ImportListService(
         WondarrDbContext database,
         IPasteListService items,
+        ISongService songs,
+        IPlaylistWriter playlists,
         IEnumerable<IImportListProvider> providers,
         TimeProvider timeProvider,
         ILogger<ImportListService> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(songs);
+        ArgumentNullException.ThrowIfNull(playlists);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
         _items = items;
+        _songs = songs;
+        _playlists = playlists;
         _providers = [.. providers];
         _timeProvider = timeProvider;
         _logger = logger;
@@ -344,9 +370,12 @@ public sealed partial class ImportListService : IImportListService
         // one batch so the album policy sees an artist's songs together and one search is queued.
         var processed = await _items.ProcessAsync(list.Id, reportProgress, cancellationToken).ConfigureAwait(false);
 
+        var policy = await ApplyPolicyAsync(list, diff.GoneItemIds, cancellationToken).ConfigureAwait(false);
+        var playlists = await _playlists.WriteAsync(list.Id, cancellationToken).ConfigureAwait(false);
+
         var message = string.Create(
             CultureInfo.InvariantCulture,
-            $"Read {diff.Read} items ({diff.New} new, {diff.Gone} no longer in the list{(diff.Cut ? $", cut at {MaxItems}" : string.Empty)}); {processed}");
+            $"Read {diff.Read} items ({diff.New} new, {diff.Gone} no longer in the list{(diff.Cut ? $", cut at {MaxItems}" : string.Empty)}); {processed}{policy}{(playlists is null ? string.Empty : "; " + playlists)}");
 
         list.LastSyncedAt = now;
         list.LastSyncMessage = message;
@@ -386,6 +415,30 @@ public sealed partial class ImportListService : IImportListService
         JsonException or FormatException => "The source sent something that could not be read.",
         _ => "The source could not be read.",
     };
+
+    /// <inheritdoc />
+    public async Task<int> RefreshPlaylistsAsync(CancellationToken cancellationToken)
+    {
+        var ids = await _database.ImportLists
+            .AsNoTracking()
+            .Where(list => list.Enabled && (list.PlexPlaylist || list.M3uExport))
+            .OrderBy(list => list.Id)
+            .Select(list => list.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var id in ids)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (await _playlists.WriteAsync(id, cancellationToken).ConfigureAwait(false) is { } result)
+            {
+                LogPlaylistsWritten(_logger, id, result);
+            }
+        }
+
+        return ids.Count;
+    }
 
     private static ImportListView View(ImportList list, Dictionary<long, Counts> counts) =>
         counts.TryGetValue(list.Id, out var count)
@@ -500,6 +553,8 @@ public sealed partial class ImportListService : IImportListService
         list.Policy = NormalisePolicy(draft.Policy);
         list.Enabled = draft.Enabled;
         list.SyncIntervalHours = draft.SyncIntervalHours;
+        list.PlexPlaylist = draft.PlexPlaylist;
+        list.M3uExport = draft.M3uExport;
         list.QualityProfileId = await ProfileIdAsync(draft.QualityProfileId, cancellationToken).ConfigureAwait(false);
         list.LibraryId = await LibraryIdAsync(draft.LibraryId, cancellationToken).ConfigureAwait(false);
     }
@@ -609,19 +664,93 @@ public sealed partial class ImportListService : IImportListService
             position++;
         }
 
-        var gone = 0;
+        var gone = new List<long>();
         foreach (var item in byExternalId.Values)
         {
             if (!seen.Contains(item.ExternalId) && item.RemovedAt is null)
             {
                 item.RemovedAt = now;
-                gone++;
+                gone.Add(item.Id);
             }
         }
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return new FetchDiff(position, added, gone, cut);
+        return new FetchDiff(position, added, gone.Count, cut, gone);
+    }
+
+    /// <summary>
+    /// What the list's policy does with the songs of the items that just left the source (DECISIONS
+    /// build session 7 #9). Only a song this list added (<c>added_by = list:{id}</c>) that no other item
+    /// still in any list wants is touched: "add and unmonitor" unmonitors it; "mirror" deletes it when
+    /// it has no file and nothing for it is in the queue, and unmonitors it otherwise. A file is never
+    /// deleted by a list.
+    /// </summary>
+    private async Task<string> ApplyPolicyAsync(ImportList list, IReadOnlyList<long> goneItemIds, CancellationToken cancellationToken)
+    {
+        if (goneItemIds.Count == 0 || list.Policy == ImportList.AddOnlyPolicy)
+        {
+            return string.Empty;
+        }
+
+        var addedBy = string.Create(CultureInfo.InvariantCulture, $"list:{list.Id}");
+        var songIds = await _database.ImportListItems
+            .AsNoTracking()
+            .Where(item => goneItemIds.Contains(item.Id) && item.SongId != null)
+            .Select(item => item.SongId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var unmonitored = 0;
+        var deleted = 0;
+
+        foreach (var songId in songIds)
+        {
+            var song = await _database.Songs
+                .Include(candidate => candidate.File)
+                .FirstOrDefaultAsync(candidate => candidate.Id == songId, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (song is null || !string.Equals(song.AddedBy, addedBy, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var wantedElsewhere = await _database.ImportListItems
+                .AnyAsync(item => item.SongId == songId && item.RemovedAt == null, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (wantedElsewhere)
+            {
+                continue;
+            }
+
+            var inQueue = await _database.QueueItems
+                .AnyAsync(
+                    item => item.SongId == songId
+                        && item.State != QueueItemState.Imported
+                        && item.State != QueueItemState.Failed
+                        && item.State != QueueItemState.Cancelled,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (list.Policy == MirrorPolicy && song.File is null && !inQueue)
+            {
+                await _songs.DeleteAsync(songId, cancellationToken).ConfigureAwait(false);
+                deleted++;
+            }
+            else if (song.Monitored)
+            {
+                song.Monitored = false;
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                unmonitored++;
+            }
+        }
+
+        return unmonitored + deleted == 0
+            ? string.Empty
+            : string.Create(CultureInfo.InvariantCulture, $"; {unmonitored} unmonitored, {deleted} deleted (no file)");
     }
 
     private async Task<string> FailAsync(ImportList list, string reason, DateTime now, CancellationToken cancellationToken)
@@ -656,10 +785,13 @@ public sealed partial class ImportListService : IImportListService
     [LoggerMessage(Level = LogLevel.Information, Message = "Synced import list {ImportListId}: {Read} items, {New} new, {Gone} gone")]
     private static partial void LogSynced(ILogger logger, long importListId, int read, int @new, int gone);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Playlists of import list {ImportListId}: {Result}")]
+    private static partial void LogPlaylistsWritten(ILogger logger, long importListId, string result);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Syncing import list {ImportListId} failed: {Reason}")]
     private static partial void LogSyncFailed(ILogger logger, long importListId, string reason);
 
     private sealed record Counts(int Pending = 0, int Added = 0, int Unresolved = 0, int Skipped = 0, int Removed = 0);
 
-    private sealed record FetchDiff(int Read, int New, int Gone, bool Cut);
+    private sealed record FetchDiff(int Read, int New, int Gone, bool Cut, IReadOnlyList<long> GoneItemIds);
 }

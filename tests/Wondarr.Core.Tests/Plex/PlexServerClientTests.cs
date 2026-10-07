@@ -180,6 +180,66 @@ public class PlexServerClientTests
         exception.Which.Message.Should().NotContain(Token);
     }
 
+    [Fact]
+    public async Task FindTracks_reads_each_tracks_rating_key_and_files()
+    {
+        var handler = new StubHttpMessageHandler(_ => PlexFixtures.Body(
+            """{"MediaContainer":{"size":1,"Metadata":[{"ratingKey":"4021","title":"Get Lucky","Media":[{"Part":[{"file":"/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac"}]}]}]}}"""));
+
+        var tracks = await CreateClient(handler).FindTracksAsync(Server, Token, "5", "Get Lucky", CancellationToken.None);
+
+        tracks.Should().ContainSingle();
+        tracks[0].RatingKey.Should().Be("4021");
+        tracks[0].Files.Should().Equal("/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+        handler.Requests[0].RequestUri!.PathAndQuery.Should().Be("/library/sections/5/all?type=10&title=Get%20Lucky");
+    }
+
+    [Fact]
+    public async Task CreatePlaylist_names_the_tracks_in_order_and_reads_the_new_key()
+    {
+        var handler = new StubHttpMessageHandler(_ => PlexFixtures.Body(
+            """{"MediaContainer":{"size":1,"Metadata":[{"ratingKey":"9001","type":"playlist","title":"Road trip"}]}}"""));
+
+        var key = await CreateClient(handler).CreatePlaylistAsync(Server, Token, "machine", "Road trip", ["11", "12"], CancellationToken.None);
+
+        key.Should().Be("9001");
+        var request = handler.Requests[0];
+        request.Method.Should().Be(HttpMethod.Post);
+        Uri.UnescapeDataString(request.RequestUri!.Query).Should().Be(
+            "?type=audio&smart=0&title=Road trip&uri=server://machine/com.plexapp.plugins.library/library/metadata/11,12");
+    }
+
+    [Fact]
+    public async Task GetPlaylistItems_reads_the_items_and_answers_null_for_a_deleted_playlist()
+    {
+        var handler = new StubHttpMessageHandler(request => request.RequestUri!.AbsolutePath.Contains("/9001/", StringComparison.Ordinal)
+            ? PlexFixtures.Body("""{"MediaContainer":{"size":2,"Metadata":[{"ratingKey":"11","playlistItemID":501},{"ratingKey":"12","playlistItemID":502}]}}""")
+            : new HttpResponseMessage(HttpStatusCode.NotFound));
+        var client = CreateClient(handler);
+
+        var items = await client.GetPlaylistItemsAsync(Server, Token, "9001", CancellationToken.None);
+        var gone = await client.GetPlaylistItemsAsync(Server, Token, "9002", CancellationToken.None);
+
+        items!.Select(item => (item.RatingKey, item.PlaylistItemId)).Should().Equal(("11", "501"), ("12", "502"));
+        gone.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Remove_and_move_name_the_playlist_item()
+    {
+        var handler = new StubHttpMessageHandler(_ => PlexFixtures.Empty());
+        var client = CreateClient(handler);
+
+        await client.RemovePlaylistItemAsync(Server, Token, "9001", "501", CancellationToken.None);
+        await client.MovePlaylistItemAsync(Server, Token, "9001", "502", null, CancellationToken.None);
+        await client.MovePlaylistItemAsync(Server, Token, "9001", "503", "502", CancellationToken.None);
+
+        handler.Requests.Select(request => $"{request.Method} {request.RequestUri!.PathAndQuery}").Should().Equal(
+            "DELETE /playlists/9001/items/501",
+            "PUT /playlists/9001/items/502/move",
+            "PUT /playlists/9001/items/503/move?after=502");
+    }
+
     private static PlexServerClient CreateClient(HttpMessageHandler handler, TimeSpan? timeout = null)
     {
         var identifier = Substitute.For<IPlexClientIdentifier>();

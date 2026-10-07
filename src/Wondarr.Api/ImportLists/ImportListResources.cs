@@ -45,6 +45,9 @@ public sealed record ImportListCountsResource(int Pending, int Added, int Unreso
 /// <param name="LastSyncMessage">The last sync's one-line result, or why it failed.</param>
 /// <param name="Settings">The provider's settings, secrets masked.</param>
 /// <param name="HasFile">Whether an uploaded file is stored (a CSV list).</param>
+/// <param name="PlexPlaylist">Whether the list is kept as a Plex playlist of the same name.</param>
+/// <param name="M3uExport">Whether the list is written as an <c>.m3u8</c> in its library's <c>Playlists</c> folder.</param>
+/// <param name="PlexPlaylistKey">The Plex playlist's rating key, once it exists.</param>
 public sealed record ImportListResource(
     long Id,
     string Type,
@@ -59,7 +62,10 @@ public sealed record ImportListResource(
     long LibraryId = 0,
     string? LastSyncMessage = null,
     JsonNode? Settings = null,
-    bool HasFile = false);
+    bool HasFile = false,
+    bool PlexPlaylist = false,
+    bool M3uExport = false,
+    string? PlexPlaylistKey = null);
 
 /// <summary>A synced import list as the caller creates or changes it.</summary>
 /// <param name="Type">The provider type, for example <c>csv</c> (see <c>GET /api/v1/importlist/schema</c>).</param>
@@ -71,6 +77,8 @@ public sealed record ImportListResource(
 /// <param name="LibraryId">The library new songs are filed in, or <see langword="null"/> for the default.</param>
 /// <param name="Enabled">Whether the scheduled sync reads the list (default true).</param>
 /// <param name="SyncIntervalHours">Hours between scheduled syncs, 0–720; 0 = only when asked (default 24).</param>
+/// <param name="PlexPlaylist">Keep the list as a Plex playlist (default false).</param>
+/// <param name="M3uExport">Write the list as an <c>.m3u8</c> (default false).</param>
 public sealed record ImportListInputResource(
     string? Type,
     string? Name,
@@ -80,7 +88,9 @@ public sealed record ImportListInputResource(
     long? QualityProfileId,
     long? LibraryId,
     bool? Enabled,
-    int? SyncIntervalHours);
+    int? SyncIntervalHours,
+    bool? PlexPlaylist = null,
+    bool? M3uExport = null);
 
 /// <summary>One provider the caller can create a list of, and its settings form.</summary>
 /// <param name="Type">The type to send when creating a list.</param>
@@ -190,7 +200,10 @@ public static class ImportListResourceExtensions
             list.LibraryId,
             list.LastSyncMessage,
             provider is null ? JsonNode.Parse(settings.GetRawText()) : NotificationSecrets.Masked(settings, provider.Fields),
-            !string.IsNullOrEmpty(list.SourceText));
+            !string.IsNullOrEmpty(list.SourceText),
+            list.PlexPlaylist,
+            list.M3uExport,
+            list.PlexPlaylistKey);
     }
 
     /// <summary>Maps one entry a provider read.</summary>

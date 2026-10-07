@@ -484,10 +484,22 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("library_id");
 
+                    b.Property<bool>("M3uExport")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("m3u_export");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("name");
+
+                    b.Property<bool>("PlexPlaylist")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("plex_playlist");
+
+                    b.Property<string>("PlexPlaylistKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("plex_playlist_key");
 
                     b.Property<string>("Policy")
                         .IsRequired()
@@ -560,6 +572,14 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<long>("ImportListId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("import_list_id");
+
+                    b.Property<string>("PlexRatingKey")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("plex_rating_key");
+
+                    b.Property<string>("PlexRatingKeyPath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("plex_rating_key_path");
 
                     b.Property<int>("Position")
                         .HasColumnType("INTEGER")
