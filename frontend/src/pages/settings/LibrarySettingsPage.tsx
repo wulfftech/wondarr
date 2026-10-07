@@ -1,13 +1,17 @@
 import {
   Alert,
   Anchor,
+  Badge,
   Button,
   Card,
+  Checkbox,
   Group,
+  Modal,
   NumberInput,
   Popover,
   Select,
   Stack,
+  Tabs,
   Text,
   TextInput,
 } from '@mantine/core';
@@ -21,16 +25,23 @@ import {
   ALBUM_POLICIES,
   LIBRARY_LAYOUTS,
   readEnum,
+  readOutputPolicy,
+  useCreateLibrary,
+  useDeleteLibrary,
   useLibraries,
   useNamingPreview,
   useSaveLibrary,
   ValidationError,
+  writeOutputPolicy,
   type AlbumPolicyName,
   type LibraryLayoutName,
   type LibraryResource,
+  type OutputPolicy,
 } from '../../api/profiles';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 import { CompactLibraryModal } from './CompactLibraryModal';
+import { ConvertLibraryModal } from './ConvertLibraryModal';
+import { OutputRulesEditor } from './OutputRulesEditor';
 
 /** The members the API's validation messages can be attached to. */
 const KNOWN_FIELDS = new Set([
@@ -324,6 +335,7 @@ function LibraryForm({ library }: { library: LibraryResource }) {
   const [minTracks, setMinTracks] = useState<number | string>(library.minTracksPerRealAlbum);
   const [plexSectionId, setPlexSectionId] = useState<string | null>(library.plexSectionId ?? null);
   const [plexLibraryPath, setPlexLibraryPath] = useState(library.plexLibraryPath ?? '');
+  const [outputPolicy, setOutputPolicy] = useState<OutputPolicy>(() => readOutputPolicy(library.outputPolicy));
 
   const fields = save.error instanceof ValidationError ? save.error.fields : {};
   const general = Object.entries(fields).filter(([field]) => !KNOWN_FIELDS.has(field));
@@ -342,6 +354,8 @@ function LibraryForm({ library }: { library: LibraryResource }) {
       plexSectionId,
       // An emptied field means "Plex sees the same path", which the API stores as null.
       plexLibraryPath: plexLibraryPath.trim() === '' ? null : plexLibraryPath,
+      // The rules as the API reads them: version 2, one rule per source class, every key spelled out.
+      outputPolicy: writeOutputPolicy(outputPolicy),
     } as unknown as LibraryResource;
 
     save.mutate(body, {
@@ -423,6 +437,8 @@ function LibraryForm({ library }: { library: LibraryResource }) {
         onLibraryPath={setPlexLibraryPath}
       />
 
+      <OutputRulesEditor policy={outputPolicy} onChange={setOutputPolicy} />
+
       {general.map(([field, message]) => (
         <Alert key={field} color="red" icon={<CircleAlert size={16} />} title={field}>
           {message}
@@ -444,10 +460,161 @@ function LibraryForm({ library }: { library: LibraryResource }) {
   );
 }
 
-/** The library settings: the default library's layout, naming template and album policy. */
+/** The add-library dialog: the three values a library needs, and whether new songs go to it. */
+function AddLibraryModal({
+  opened,
+  onClose,
+  onCreated,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  onCreated: (id: number) => void;
+}) {
+  const create = useCreateLibrary();
+  const [name, setName] = useState('');
+  const [rootPath, setRootPath] = useState('');
+  const [layout, setLayout] = useState<LibraryLayoutName>('artistAlbum');
+  const [isDefault, setIsDefault] = useState(false);
+
+  const fields = create.error instanceof ValidationError ? create.error.fields : {};
+  const general = Object.entries(fields).filter(([field]) => !['name', 'rootPath', 'layout'].includes(field));
+
+  const close = () => {
+    setName('');
+    setRootPath('');
+    setLayout('artistAlbum');
+    setIsDefault(false);
+    onClose();
+  };
+
+  const submit = () => {
+    // A new library carries only what the dialog asks for: the template takes the layout's preset on
+    // the server, and an absent policy is the default one (YouTube → AAC 256, the rest kept).
+    create.mutate(
+      {
+        id: 0,
+        name,
+        rootPath,
+        layout,
+        namingTemplate: LAYOUT_TEMPLATES[layout],
+        sidecarOptions: {},
+        albumPolicy: 'fewestAlbums',
+        minTracksPerRealAlbum: 2,
+        plexSectionId: null,
+        plexLibraryPath: null,
+        isDefault,
+      } as unknown as LibraryResource,
+      {
+        onSuccess: (created) => {
+          notifications.show({ message: 'Library created.', color: 'green' });
+          onCreated(Number(created.id));
+          close();
+        },
+      },
+    );
+  };
+
+  return (
+    <Modal opened={opened} onClose={close} title="Add library">
+      <Stack gap="md">
+        <TextInput
+          label="Name"
+          value={name}
+          error={fields.name}
+          onChange={(event) => setName(event.currentTarget.value)}
+        />
+
+        <TextInput
+          label="Root path"
+          value={rootPath}
+          error={fields.rootPath}
+          onChange={(event) => setRootPath(event.currentTarget.value)}
+        />
+
+        <Select label="Layout" data={LAYOUT_OPTIONS} value={layout} error={fields.layout} allowDeselect={false} onChange={(value) => setLayout(readEnum<LibraryLayoutName>(value ?? layout))} />
+
+        <Checkbox
+          label="Make this the default library"
+          description="New songs are filed here when nothing else chooses."
+          checked={isDefault}
+          onChange={(event) => setIsDefault(event.currentTarget.checked)}
+        />
+
+        {general.map(([field, message]) => (
+          <Alert key={field} color="red" icon={<CircleAlert size={16} />} title={field}>
+            {message}
+          </Alert>
+        ))}
+
+        {create.error !== null && general.length === 0 && (
+          <Alert color="red" icon={<CircleAlert size={16} />}>
+            {create.error.message}
+          </Alert>
+        )}
+
+        <Group justify="flex-end">
+          <Button variant="default" onClick={close}>
+            Cancel
+          </Button>
+          <Button loading={create.isPending} onClick={submit}>
+            Add library
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+/** The delete-library dialog: one confirmation, and the reason the API refuses when it does. */
+function DeleteLibraryModal({
+  library,
+  opened,
+  onClose,
+}: {
+  library: LibraryResource;
+  opened: boolean;
+  onClose: () => void;
+}) {
+  const remove = useDeleteLibrary();
+
+  return (
+    <Modal opened={opened} onClose={onClose} title={`Delete ${library.name}`}>
+      <Stack gap="md">
+        <Text size="sm">
+          Delete the library {library.name} ({library.rootPath})? Files on disk are not touched.
+        </Text>
+
+        {remove.error !== null && (
+          <Alert color="red" icon={<CircleAlert size={16} />}>
+            {remove.error.message}
+          </Alert>
+        )}
+
+        <Group justify="flex-end">
+          <Button variant="default" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            color="red"
+            loading={remove.isPending}
+            onClick={() => remove.mutate(Number(library.id), { onSuccess: onClose })}
+          >
+            Delete library
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
+/** The library settings: one panel per library, each with its form, rules and commands. */
 export function LibrarySettingsPage() {
   const libraries = useLibraries();
-  const [compacting, setCompacting] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [compacting, setCompacting] = useState<LibraryResource | null>(null);
+  const [converting, setConverting] = useState<LibraryResource | null>(null);
+  const [deleting, setDeleting] = useState<LibraryResource | null>(null);
+  const [active, setActive] = useState<string | null>(null);
 
   if (libraries.isPending) {
     return <LoadingState />;
@@ -458,31 +625,87 @@ export function LibrarySettingsPage() {
   }
 
   const rows = libraries.data ?? [];
-  const library = rows.find((candidate) => candidate.isDefault) ?? rows[0];
 
-  if (library === undefined) {
+  if (rows.length === 0) {
     return <EmptyState message="No library is configured." />;
   }
+
+  // The first library is shown until the user picks one; a created library is shown at once.
+  const selected = active ?? String(rows[0].id);
 
   return (
     <Card withBorder padding="md">
       <Stack gap="md">
         <Group justify="space-between">
-          <Text fw={600}>{library.isDefault ? 'Default library' : 'Library'}</Text>
-          <Button variant="light" onClick={() => setCompacting(true)}>
-            Compact library…
+          <Text fw={600}>Libraries</Text>
+          <Button variant="light" onClick={() => setAdding(true)}>
+            Add library…
           </Button>
         </Group>
 
-        <LibraryForm key={String(library.id)} library={library} />
+        <Tabs value={selected} onChange={setActive}>
+          <Tabs.List>
+            {rows.map((library) => (
+              <Tabs.Tab key={String(library.id)} value={String(library.id)}>
+                {library.name}
+                {library.isDefault && <Badge variant="light" ml="xs">default</Badge>}
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+
+          {rows.map((library) => (
+            <Tabs.Panel key={String(library.id)} value={String(library.id)} pt="md">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Group gap="xs">
+                    <Text fw={600}>{library.isDefault ? 'Default library' : 'Library'}</Text>
+                  </Group>
+
+                  <Group gap="xs">
+                    <Button variant="light" onClick={() => setConverting(library)}>
+                      Convert existing files…
+                    </Button>
+                    <Button variant="light" onClick={() => setCompacting(library)}>
+                      Compact library…
+                    </Button>
+                    {!library.isDefault && (
+                      <Button variant="light" color="red" onClick={() => setDeleting(library)}>
+                        Delete library…
+                      </Button>
+                    )}
+                  </Group>
+                </Group>
+
+                <LibraryForm key={String(library.id)} library={library} />
+              </Stack>
+            </Tabs.Panel>
+          ))}
+        </Tabs>
       </Stack>
 
-      <CompactLibraryModal
-        libraryId={Number(library.id)}
-        libraryName={library.name}
-        opened={compacting}
-        onClose={() => setCompacting(false)}
+      <AddLibraryModal
+        opened={adding}
+        onClose={() => setAdding(false)}
+        onCreated={(id) => setActive(String(id))}
       />
+
+      <CompactLibraryModal
+        libraryId={Number(compacting?.id ?? 0)}
+        libraryName={compacting?.name ?? ''}
+        opened={compacting !== null}
+        onClose={() => setCompacting(null)}
+      />
+
+      <ConvertLibraryModal
+        libraryId={Number(converting?.id ?? 0)}
+        libraryName={converting?.name ?? ''}
+        opened={converting !== null}
+        onClose={() => setConverting(null)}
+      />
+
+      {deleting !== null && (
+        <DeleteLibraryModal library={deleting} opened onClose={() => setDeleting(null)} />
+      )}
     </Card>
   );
 }
