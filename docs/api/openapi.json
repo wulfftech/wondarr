@@ -7868,6 +7868,48 @@
           }
         }
       },
+      "SongFileResource": {
+        "required": [
+          "path",
+          "codec",
+          "container",
+          "bitrateKbps",
+          "size",
+          "sourceType"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "codec": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "bitrateKbps": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sourceType": {
+            "type": "string"
+          }
+        }
+      },
       "SongLookupRequest": {
         "required": [
           "term"
@@ -8176,6 +8218,16 @@
               },
               {
                 "$ref": "#/components/schemas/SongAlbumContextResource"
+              }
+            ]
+          },
+          "file": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SongFileResource"
               }
             ]
           }
