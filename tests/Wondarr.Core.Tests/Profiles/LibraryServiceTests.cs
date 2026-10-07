@@ -87,6 +87,31 @@ public class LibraryServiceTests
     }
 
     [Fact]
+    public async Task A_version_1_output_policy_is_stored_as_version_2()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using (var context = database.CreateContext(timeProvider))
+        {
+            var service = new LibraryService(context);
+
+            var update = SeededLibrary();
+            update.OutputPolicy = """{"codec":"mp3","mode":"vbr","vbrQuality":2}""";
+
+            await service.UpdateAsync(update, CancellationToken.None);
+        }
+
+        await using var readBack = database.CreateContext(timeProvider);
+        var stored = await readBack.Libraries.SingleAsync(x => x.Id == SeedData.DefaultLibraryId);
+
+        // The version-1 shape is the youtube rule; the other two rules are the default keep.
+        stored.OutputPolicy.Should().Be(
+            """{"version":2,"youtube":{"codec":"mp3","mode":"vbr","bitrateKbps":256,"vbrQuality":2,"sampleRate":"keep"},"lossy":{"codec":"keep","mode":"cbr","bitrateKbps":256,"vbrQuality":0,"sampleRate":"keep","opusContainer":"opus"},"lossless":{"codec":"keep","mode":"cbr","bitrateKbps":256,"vbrQuality":0,"sampleRate":"keep","opusContainer":"opus"}}""");
+    }
+
+    [Fact]
     public async Task An_empty_name_is_rejected()
     {
         using var database = new SqliteTestDatabase();
