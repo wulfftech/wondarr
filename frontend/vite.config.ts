@@ -28,5 +28,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // The form tests type into many fields; on a loaded machine (a backend test run beside them) the
+    // default 5 s timed out a correct test.
+    testTimeout: 15000,
   },
 });
