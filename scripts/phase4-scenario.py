@@ -6,7 +6,7 @@ its own OMV-with-intro and bot-check cases. scripts/phase2-scenario.py --reserve
 library, unmonitored and with nothing on the fake Soulseek; this script monitors them again and writes
 the scenario both fakes answer from:
 
-  * FakeYT (tools/FakeYT/yt-dlp.py) reads "videos": what each video id downloads as (or fails with);
+  * the fake yt-dlp (tools/FakeSlskd/FakeYtDlp.cs) reads "videos": what each video id downloads as (or fails with);
   * the fake InnerTube stub (tools/FakeSlskd, FAKE_YT_SCENARIO) reads "songs": a search for a gate
     song answers that song's Art Track (songs shelf) or official video (videos shelf), with the
     song's own title, artist and length — so the decision engine judges them as it would real ones.

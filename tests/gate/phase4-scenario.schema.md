@@ -1,12 +1,12 @@
 # Phase 4 gate scenario
 
-What `tools/FakeYT` (the stand-in yt-dlp) answers for each video, and what the gate expects the app
+What `tools/the fake yt-dlp` (the stand-in yt-dlp) answers for each video, and what the gate expects the app
 to do with it. `scripts/phase4-scenario.py` writes the file; the smoke test passes its path as
 `FAKE_YT_SCENARIO`.
 
 ```jsonc
 {
-  // The version FakeYT's --version probe prints.
+  // The version the fake yt-dlp's --version probe prints.
   "version": "2026.08.19",
 
   // The gate's expectations, keyed by song title (the gate looks the songs up by title).
@@ -19,7 +19,7 @@ to do with it. `scripts/phase4-scenario.py` writes the file; the smoke test pass
     }
   },
 
-  // What FakeYT answers per video id. An id the scenario does not name answers "ok" with a 30 s file.
+  // What the fake yt-dlp answers per video id. An id the scenario does not name answers "ok" with a 30 s file.
   "videos": {
     "4D7u5KF7SP8": {
       "kind": "ok",                // "ok" | "bot-check" | "rate-limited" | "geo" | "age-gated" | "private" | "unavailable"
@@ -28,7 +28,7 @@ to do with it. `scripts/phase4-scenario.py` writes the file; the smoke test pass
       "frequency": 440,
 
       // What the AcoustID stub should answer for this file's fingerprint: the recording the app's
-      // verification resolves it to. FakeYT registers it with the stub right after generating the
+      // verification resolves it to. the fake yt-dlp registers it with the stub right after generating the
       // file (FAKE_ACOUSTID_REGISTER points at the stub's /v2/register).
       "identity": {
         "recordingId": "833f00e1-781f-4edd-90e4-e52712618862",
