@@ -1,4 +1,5 @@
-import type { HealthEntry, TaskResource } from '../api/types';
+import type { TaskResource } from '../api/hooks';
+import type { HealthEntry } from '../api/types';
 
 /** Canned API payloads. They mirror what the backend emits; no test reaches the network. */
 
@@ -45,6 +46,7 @@ export const TASKS: TaskResource[] = [
   {
     id: 1,
     name: 'Heartbeat',
+    taskName: 'Heartbeat',
     interval: 60,
     lastExecution: '2026-01-01T00:00:00Z',
     lastStartTime: '2026-01-01T00:00:00Z',
