@@ -1,6 +1,9 @@
 using System.Net;
 using System.Text.Json;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Identity;
+using Wondarr.Core.Metadata.CoverArt;
+using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Persistence;
 using FluentAssertions;
@@ -93,7 +96,7 @@ public sealed class AlbumApiTests
     [Fact]
     public async Task The_tracklist_of_a_release_carries_the_song_the_library_already_holds()
     {
-        using var factory = SongApiTests.FakeProviders(musicBrainz: ReleaseStub());
+        using var factory = ReleaseFactory();
         using var client = SongApiTests.Authenticated(factory);
 
         var songId = await SeedOwnedSongAsync(factory);
@@ -122,7 +125,7 @@ public sealed class AlbumApiTests
     [Fact]
     public async Task An_unknown_release_and_an_unknown_source_are_not_answered()
     {
-        using var factory = SongApiTests.FakeProviders(musicBrainz: ReleaseStub());
+        using var factory = ReleaseFactory();
         using var client = SongApiTests.Authenticated(factory);
 
         using var missing = await client.GetAsync(
@@ -137,7 +140,7 @@ public sealed class AlbumApiTests
     [Fact]
     public async Task An_add_is_accepted_with_the_command_that_will_run_it()
     {
-        using var factory = SongApiTests.FakeProviders(musicBrainz: ReleaseStub());
+        using var factory = ReleaseFactory();
         using var client = SongApiTests.Authenticated(factory);
 
         using var response = await client.PostAsync(

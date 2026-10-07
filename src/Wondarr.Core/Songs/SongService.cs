@@ -635,11 +635,12 @@ public sealed partial class SongService : ISongService
     private static IReadOnlyList<AlbumAssignment> Assign(
         IAlbumPolicyEngine albumPolicy,
         Library library,
+        AlbumPolicy policy,
         IReadOnlyList<ExistingAlbum> existingAlbums,
         IReadOnlyList<SongToPlace> places,
         int minTracksPerRealAlbum) => albumPolicy.Assign(new AlbumPolicyInput
     {
-        Policy = library.AlbumPolicy,
+        Policy = policy,
         MinTracksPerRealAlbum = minTracksPerRealAlbum,
         LibraryName = library.Name,
         Songs = places,
@@ -725,19 +726,25 @@ public sealed partial class SongService : ISongService
             ? Assign(
                 _albumPolicy,
                 library,
+                library.AlbumPolicy,
                 libraryAlbums.Albums,
                 places,
                 library.MinTracksPerRealAlbum)
             : [
+
+                // The user named the release: like a hand-picked album (SetAlbumContextAsync), it is
+                // planned as "fewest albums" over that one option, whatever the library's policy says.
                 .. Assign(
                     _albumPolicy,
                     library,
+                    AlbumPolicy.FewestAlbums,
                     libraryAlbums.Albums,
                     places.Where(place => pinnedOptions.ContainsKey(int.Parse(place.Ref, CultureInfo.InvariantCulture))).ToList(),
                     1),
                 .. Assign(
                     _albumPolicy,
                     library,
+                    library.AlbumPolicy,
                     libraryAlbums.Albums,
                     places.Where(place => !pinnedOptions.ContainsKey(int.Parse(place.Ref, CultureInfo.InvariantCulture))).ToList(),
                     library.MinTracksPerRealAlbum),
@@ -796,7 +803,9 @@ public sealed partial class SongService : ISongService
 
             song.AlbumContext = new AlbumContext();
             ApplyAssignment(song.AlbumContext, assignment, covers[assignment.AlbumKey]);
-            song.AlbumContext.Pinned = pinnedOptions.ContainsKey(index);
+            // Pinned only when the song really landed on the named release.
+            song.AlbumContext.Pinned = pinnedOptions.TryGetValue(index, out var pinnedOption)
+                && string.Equals(assignment.AlbumKey, pinnedOption.Key, StringComparison.Ordinal);
 
             _database.Songs.Add(song);
             results[index] = new SongAddResult(identity, SongAddOutcome.Added, song);
