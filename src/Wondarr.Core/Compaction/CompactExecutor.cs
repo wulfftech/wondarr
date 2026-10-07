@@ -55,14 +55,13 @@ public sealed partial class CompactExecutor : ICompactExecutor
     internal const int ProgressEvery = 25;
 
     /// <summary>The sidecar extensions that travel with their audio file.</summary>
-    internal static readonly string[] SidecarExtensions = [".lrc", ".txt"];
+    internal static readonly string[] SidecarExtensions = SongFileRules.SidecarExtensions;
 
     /// <summary>What counts as an audio file when deciding whether a folder is one we emptied.</summary>
-    internal static readonly string[] AudioExtensions =
-        [".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".aiff", ".alac", ".wma", ".aac"];
+    internal static readonly string[] AudioExtensions = SongFileRules.AudioExtensions;
 
     /// <summary>The album folder's art sidecar.</summary>
-    internal const string CoverJpgName = "cover.jpg";
+    internal const string CoverJpgName = SongFileRules.CoverJpgName;
 
     /// <summary>How often the section's <c>refreshing</c> flag is read while a scan runs.</summary>
     internal static readonly TimeSpan ScanPollInterval = TimeSpan.FromSeconds(2);
@@ -564,17 +563,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
         var files = _disk.EnumerateFiles(folder).ToList();
 
-        // An audio file the move did not take with it means this is not a folder we emptied.
-        if (files.Any(file => HasExtension(file, AudioExtensions)))
-        {
-            return;
-        }
-
-        var covers = files
-            .Where(file => string.Equals(Path.GetFileName(file), CoverJpgName, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (files.Count != covers.Count)
+        // An audio file the move did not take with it, or anything beside the art, means this is not
+        // a folder we emptied.
+        if (!SongFileRules.HoldsOnlyCovers(_disk, folder, out var covers))
         {
             return;
         }
@@ -1043,26 +1034,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// </summary>
     private void MoveSidecars(string stagedPath, string finalPath)
     {
-        var stagedBase = Path.ChangeExtension(stagedPath, null);
-        var placedBase = Path.ChangeExtension(finalPath, null);
-
-        if (stagedBase is null || placedBase is null)
+        foreach (var (staged, target, targetTaken) in SongFileRules.SidecarMoves(_disk, stagedPath, finalPath))
         {
-            return;
-        }
-
-        foreach (var extension in SidecarExtensions)
-        {
-            var staged = string.Concat(stagedBase, extension);
-
-            if (!_disk.FileExists(staged))
-            {
-                continue;
-            }
-
-            var target = string.Concat(placedBase, extension);
-
-            if (_disk.FileExists(target))
+            if (targetTaken)
             {
                 LogSidecarLeftBehind(_logger, staged, target);
 
@@ -1109,25 +1083,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     }
 
     /// <summary>The sidecars that sit beside a file, as it is now: the same name, <c>.lrc</c> or <c>.txt</c>.</summary>
-    private IEnumerable<string> SidecarsOf(string audioPath)
-    {
-        var stem = Path.ChangeExtension(audioPath, null);
-
-        if (stem is null)
-        {
-            yield break;
-        }
-
-        foreach (var extension in SidecarExtensions)
-        {
-            var candidate = string.Concat(stem, extension);
-
-            if (_disk.FileExists(candidate))
-            {
-                yield return candidate;
-            }
-        }
-    }
+    private IEnumerable<string> SidecarsOf(string audioPath) => SongFileRules.SidecarsOf(_disk, audioPath);
 
     /// <summary>Copies every proposed field onto the tracked album context. Pinned is not one of them.</summary>
     private static void Apply(AlbumContext album, string proposed)
@@ -1169,22 +1125,6 @@ public sealed partial class CompactExecutor : ICompactExecutor
             album.CoverUrl,
             album.IsVariousArtists),
         ProposedJson);
-
-    /// <summary>Whether a file's name (or its name with the leading dot) is one of <paramref name="names"/>.</summary>
-    private static bool HasExtension(string path, IReadOnlyList<string> names)
-    {
-        var name = Path.GetFileName(path);
-
-        foreach (var candidate in names)
-        {
-            if (name.EndsWith(candidate, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     /// <summary>The fields of a proposed album context, as the <c>proposed</c> column stores them.</summary>
     private sealed record ProposedAlbum(
