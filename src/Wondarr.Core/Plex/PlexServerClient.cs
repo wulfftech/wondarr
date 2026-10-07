@@ -338,11 +338,11 @@ public sealed class PlexServerClient : IPlexServerClient
 
             using var document = PlexHttp.Parse(body, request, Subject);
             var container = PlexJson.Child(document.RootElement, "MediaContainer") ?? document.RootElement;
-            var created = PlexJson.Items(PlexJson.Child(container, "Metadata")).FirstOrDefault();
+            var created = PlexJson.Items(PlexJson.Child(container, "Metadata"));
 
-            return created.ValueKind == JsonValueKind.Undefined
+            return created.Count == 0
                 ? throw new PlexException($"{Subject} created a playlist but did not say which.")
-                : PlexJson.TextOrNumber(created, "ratingKey")
+                : PlexJson.TextOrNumber(created[0], "ratingKey")
                     ?? throw new PlexException($"{Subject} created a playlist without a rating key.");
         }
     }

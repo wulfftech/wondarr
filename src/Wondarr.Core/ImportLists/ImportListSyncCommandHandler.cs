@@ -76,9 +76,17 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
             }
         }
 
-        return due.Count == 0
+        // Songs that got their files since the last sync belong in the playlists now, whether or not
+        // their list is due for a read of its source.
+        var playlists = await _lists.RefreshPlaylistsAsync(cancellationToken).ConfigureAwait(false);
+
+        var lists = due.Count == 0
             ? "No import list is due"
             : string.Create(CultureInfo.InvariantCulture, $"Synced {synced} import lists, {failed} failed");
+
+        return playlists == 0
+            ? lists
+            : string.Create(CultureInfo.InvariantCulture, $"{lists}; playlists of {playlists} lists written");
     }
 
     private static long? ReadImportListId(string? body)
