@@ -27,6 +27,16 @@ namespace Wondarr.Api.Queue;
 /// <param name="CreatedAt">The UTC instant the grab was recorded.</param>
 /// <param name="StateChangedAt">The UTC instant the state last changed.</param>
 /// <param name="FinishedAt">The UTC instant the grab finished, or <see langword="null"/> while it is in flight.</param>
+/// <param name="Title">Lidarr's <c>title</c>: the file being downloaded (for Unpackerr and dashboards).</param>
+/// <param name="Status">Lidarr's lowercase <c>status</c>: <c>queued</c>, <c>downloading</c>, <c>completed</c> or <c>failed</c>.</param>
+/// <param name="TrackedDownloadStatus">Lidarr's <c>trackedDownloadStatus</c>: <c>ok</c>, or <c>error</c> once the grab failed.</param>
+/// <param name="Protocol">Lidarr's <c>protocol</c>: the source type. Unpackerr only extracts <c>torrent</c>/<c>usenet</c> downloads.</param>
+/// <param name="Size">Lidarr's <c>size</c> in bytes, 0 when unknown.</param>
+/// <param name="Sizeleft">Lidarr's <c>sizeleft</c> in bytes, 0 when unknown or done.</param>
+/// <param name="DownloadId">Lidarr's <c>downloadId</c>: the item id as a string.</param>
+/// <param name="OutputPath">Lidarr's <c>outputPath</c>: the finished download, when known.</param>
+/// <param name="ArtistId">Lidarr's <c>artistId</c>: the song's primary artist.</param>
+/// <param name="StatusMessages">Lidarr's <c>statusMessages</c>; always empty.</param>
 public sealed record QueueResource(
     long Id,
     long SongId,
@@ -47,7 +57,17 @@ public sealed record QueueResource(
     string? QualityName,
     DateTime CreatedAt,
     DateTime StateChangedAt,
-    DateTime? FinishedAt);
+    DateTime? FinishedAt,
+    string Title,
+    string Status,
+    string TrackedDownloadStatus,
+    string Protocol,
+    long Size,
+    long Sizeleft,
+    string DownloadId,
+    string? OutputPath,
+    long? ArtistId,
+    IReadOnlyList<string> StatusMessages);
 
 /// <summary>Maps a stored queue item onto the wire.</summary>
 public static class QueueResourceExtensions
@@ -89,6 +109,25 @@ public static class QueueResourceExtensions
             qualityNames.TryGetValue(qualityId, out var name) ? name : null,
             item.CreatedAt,
             item.StateChangedAt,
-            item.FinishedAt);
+            item.FinishedAt,
+            candidate?.DisplayName ?? item.Song?.Title ?? string.Empty,
+            LidarrStatus(item.State),
+            item.State is QueueItemState.Failed or QueueItemState.Cancelled ? "error" : "ok",
+            item.SourceType,
+            item.SizeBytes ?? 0,
+            item.SizeBytes is { } size ? Math.Max(0, size - item.BytesTransferred) : 0,
+            item.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            item.DownloadPath,
+            item.Song?.PrimaryArtistId,
+            []);
     }
+
+    /// <summary>The queue state the way Lidarr spells a queue record's <c>status</c>.</summary>
+    private static string LidarrStatus(QueueItemState state) => state switch
+    {
+        QueueItemState.Queued or QueueItemState.RemotelyQueued => "queued",
+        QueueItemState.Downloading => "downloading",
+        QueueItemState.Completed or QueueItemState.Importing or QueueItemState.Imported => "completed",
+        _ => "failed",
+    };
 }
