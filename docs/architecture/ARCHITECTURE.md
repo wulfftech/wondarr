@@ -143,7 +143,7 @@ Notifier
 | Metadata refresh | weekly | Re-pull cover/ISRC/durations for songs missing them |
 | Housekeeping | daily | Vacuum, expire blocklist entries, prune old candidates/search runs |
 | Health checks | every 15 min | slskd reachable & logged in; clients reachable; root folders writable; yt-dlp up to date |
-| Backup | weekly | DB + config zip in `/config/backups`, keep N |
+| Backup | weekly (`backup.interval_days`, default 7) | The `Backup` command: a zip of `wondarr.db` (SQLite's online backup API, never a copy of the live WAL file) and `config.yml` under `/config/backups/{scheduled,manual}`; scheduled backups older than `backup.retention_days` (default 28) are deleted, manual ones never |
 
 The scheduler must survive restarts (state in DB), run jobs with concurrency limits per source (Soulseek: 1 search at a time, ≤ N downloads in flight; YouTube: 1 download at a time with sleep between; torrents: unlimited), and expose "Run now" for every job.
 
@@ -153,6 +153,9 @@ Conventions mirror the *arrs: `X-Api-Key` header (also `?apikey=`), JSON, `/api/
 
 ```
 GET    /api/v1/system/status | /health | /log
+GET    /api/v1/system/backup  | POST /api/v1/system/backup  DELETE /api/v1/system/backup/{id}
+GET    /api/v1/system/backup/{id}/download
+POST   /api/v1/system/backup/restore/{id} | /restore/upload   (stage the restore; answered `restartRequired`, applied on the next start)
 GET    /api/v1/song?artistId=&monitored=&page=…        POST /api/v1/song      PUT/DELETE /api/v1/song/{id}
 POST   /api/v1/song/lookup?term=… | ?mbid= | ?isrc= | ?spotifyId= | ?deezerId= | ?url=   (resolve without adding)
 GET    /api/v1/song/{id}/albumcontexts                   PUT /api/v1/song/{id}/albumcontext
