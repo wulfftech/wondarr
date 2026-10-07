@@ -92,6 +92,89 @@ public sealed class DeezerClientTests
     }
 
     [Fact]
+    public async Task A_playlist_page_parses_its_tracks_and_total()
+    {
+        var (client, handler, _) = CreateClient(_ =>
+            DeezerFixtures.Json(DeezerFixtures.Read("playlist-908622995-tracks-p0.json")));
+
+        var page = await client.GetPlaylistTracksAsync(908622995, 0, 100);
+
+        page.Should().NotBeNull();
+        page!.Total.Should().Be(50);
+        page.Data.Should().HaveCount(2);
+
+        var first = page.Data[0];
+        first.Id.Should().Be(116348632);
+        first.Title.Should().Be("Hey Jude (Remastered 2015)");
+        first.Isrc.Should().Be("GBUM71505902");
+        first.Duration.Should().Be(429);
+        first.Artist.Name.Should().Be("The Beatles");
+        first.Album.Title.Should().Be("1 (Remastered 2015)");
+
+        var uri = handler.Requests.Should().ContainSingle().Subject;
+        uri.AbsolutePath.Should().Be("/playlist/908622995/tracks");
+        uri.Query.Should().Contain("index=0");
+        uri.Query.Should().Contain("limit=100");
+    }
+
+    [Fact]
+    public async Task An_unknown_or_private_playlist_is_null_and_negative_cached()
+    {
+        var (client, handler, cache) = CreateClient(_ =>
+            DeezerFixtures.Json(DeezerFixtures.Read("playlist-unknown.json")));
+
+        (await client.GetPlaylistTracksAsync(908622995, 0, 100)).Should().BeNull();
+        (await client.GetPlaylistTracksAsync(908622995, 0, 100)).Should().BeNull();
+
+        handler.Requests.Should().ContainSingle().Subject.AbsolutePath.Should().Be("/playlist/908622995/tracks");
+        cache.SetCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task An_artist_top_page_parses_its_tracks_without_isrcs()
+    {
+        var (client, handler, _) = CreateClient(_ => DeezerFixtures.Json(DeezerFixtures.Read("artist-27-top-3.json")));
+
+        var page = await client.GetArtistTopAsync(27, 3);
+
+        page.Should().NotBeNull();
+        page!.Total.Should().Be(100);
+        page.Data.Should().HaveCount(3);
+
+        var first = page.Data[0];
+        first.Id.Should().Be(67238732);
+        first.Title.Should().Be("Instant Crush (feat. Julian Casablancas)");
+        first.Duration.Should().Be(337);
+        first.Isrc.Should().BeNull();
+        first.Artist.Name.Should().Be("Daft Punk");
+        first.Album.Title.Should().Be("Random Access Memories");
+
+        handler.Requests.Should().ContainSingle().Subject.AbsolutePath.Should().Be("/artist/27/top");
+        handler.Requests[0].Query.Should().Contain("limit=3");
+    }
+
+    [Fact]
+    public async Task An_artist_search_parses_names_and_fan_counts()
+    {
+        var (client, handler, _) = CreateClient(_ =>
+            DeezerFixtures.Json(DeezerFixtures.Read("search-artist-daft-punk.json")));
+
+        var search = await client.SearchArtistsAsync("daft punk", 3);
+
+        search.Total.Should().Be(16);
+        search.Data.Should().HaveCount(3);
+        search.Data[0].Id.Should().Be(27);
+        search.Data[0].Name.Should().Be("Daft Punk");
+        search.Data[0].NbFan.Should().Be(5_217_271);
+        search.Data[1].Name.Should().Be("Daft Punk - Stardust");
+
+        var uri = handler.Requests.Should().ContainSingle().Subject;
+        uri.AbsolutePath.Should().Be("/search/artist");
+        Uri.UnescapeDataString(uri.Query).Should().Contain("q=daft punk");
+        uri.Query.Should().Contain("limit=3");
+    }
+
+    [Fact]
     public async Task A_fresh_preview_bypasses_the_cache()
     {
         var (client, handler, _) = CreateClient(_ => DeezerFixtures.Json(DeezerFixtures.Read("track-isrc-GBUM71029604.json")));

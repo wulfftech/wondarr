@@ -11,6 +11,7 @@ using Wondarr.Core.History;
 using Wondarr.Core.Importing;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.ImportLists.Csv;
+using Wondarr.Core.ImportLists.Deezer;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
@@ -55,6 +56,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IQualityDefinitionService, QualityDefinitionService>();
         services.AddScoped<IQualityProfileService, QualityProfileService>();
         services.AddScoped<ILibraryService, LibraryService>();
+        services.AddScoped<ISongLibraryMover, SongLibraryMover>();
 
         services.TryAddSingleton(TimeProvider.System);
 
@@ -146,6 +148,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, HeartbeatCommandHandler>();
         services.AddScoped<ICommandHandler, CheckHealthCommandHandler>();
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
+        services.AddScoped<ICommandHandler, ConvertFilesCommandHandler>();
+        services.AddScoped<IFileConverter, FileConverter>();
         services.AddScoped<ICommandHandler, ImportListSyncCommandHandler>();
         services.AddScoped<ICommandHandler, MissingSearchCommandHandler>();
         services.AddScoped<ICommandHandler, UpgradeSearchCommandHandler>();
@@ -153,6 +157,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, ReferenceLibraryScanCommandHandler>();
         services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();
         services.AddScoped<ICommandHandler, CompactLibraryCommandHandler>();
+        services.AddScoped<ICommandHandler, MoveSongsCommandHandler>();
 
         // The weekly Backup task: one scheduled backup, then the retention pass.
         services.AddScoped<IBackupService, BackupService>();
@@ -179,8 +184,16 @@ public static class ServiceCollectionExtensions
         // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
         services.AddScoped<IPasteListService, PasteListService>();
         services.AddScoped<IImportListService, ImportListService>();
+        services.AddScoped<IPlaylistWriter, PlaylistWriter>();
         services.AddSingleton<CsvImportListProvider>();
         services.AddSingleton<IImportListProvider>(provider => provider.GetRequiredService<CsvImportListProvider>());
+
+        // The Deezer providers read through the shared IDeezerClient, a typed HttpClient and therefore
+        // scoped; ImportListService takes IEnumerable<IImportListProvider>, so mixing lifetimes is fine.
+        services.AddScoped<DeezerPlaylistProvider>();
+        services.AddScoped<DeezerArtistTopProvider>();
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<DeezerPlaylistProvider>());
+        services.AddScoped<IImportListProvider>(provider => provider.GetRequiredService<DeezerArtistTopProvider>());
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();

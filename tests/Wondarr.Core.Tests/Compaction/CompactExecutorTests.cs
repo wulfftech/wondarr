@@ -30,8 +30,15 @@ namespace Wondarr.Core.Tests.Compaction;
 /// success, which is exactly what the real one does for the files these tests seed, without the tag
 /// writer's and the placer's own tests being repeated here.
 /// </summary>
+[Collection(CompactExecutorTests.Serial)]
 public class CompactExecutorTests : IDisposable
 {
+    /// <summary>
+    /// The pumped runs move a fake clock against real timers and a real database; with the rest of the
+    /// assembly running beside them they were starved now and then, so they run on their own.
+    /// </summary>
+    public const string Serial = "compaction-serial";
+
     private const string Section = "1";
 
     /// <summary>The seeded FLAC quality, which the executor reads off the file row.</summary>
@@ -978,4 +985,10 @@ public class CompactExecutorTests : IDisposable
                     new Dictionary<string, string>(StringComparer.Ordinal) { ["TITLE"] = request.Song.Title }));
         }
     }
+}
+
+/// <summary>Runs the compaction executor's tests after the parallel ones, alone.</summary>
+[CollectionDefinition(CompactExecutorTests.Serial, DisableParallelization = true)]
+public sealed class CompactExecutorSerialGroup
+{
 }

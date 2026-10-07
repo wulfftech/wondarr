@@ -56,6 +56,15 @@ public sealed class ImportList : EntityBase
     /// </summary>
     public string? SourceText { get; set; }
 
+    /// <summary>Gets or sets a value indicating whether the list is kept as a Plex playlist of the same name.</summary>
+    public bool PlexPlaylist { get; set; }
+
+    /// <summary>Gets or sets the rating key of the Plex playlist the list writes, or <see langword="null"/> before the first write.</summary>
+    public string? PlexPlaylistKey { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the list is written as an <c>.m3u8</c> file in its library's <c>Playlists</c> folder.</summary>
+    public bool M3uExport { get; set; }
+
     /// <summary>Gets or sets the lines of the list, in the order they were pasted.</summary>
     public List<ImportListItem> Items { get; set; } = [];
 }
@@ -99,6 +108,15 @@ public sealed class ImportListItem : EntityBase
     /// <see langword="null"/> while it is still there.
     /// </summary>
     public DateTime? RemovedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Plex rating key of the track the item's file is, as last found, or
+    /// <see langword="null"/>; valid only while the file is still at <see cref="PlexRatingKeyPath"/>.
+    /// </summary>
+    public string? PlexRatingKey { get; set; }
+
+    /// <summary>Gets or sets the file path <see cref="PlexRatingKey"/> was found for.</summary>
+    public string? PlexRatingKeyPath { get; set; }
 
     /// <summary>Gets or sets the song the line became, or <see langword="null"/> while it has none.</summary>
     public long? SongId { get; set; }
