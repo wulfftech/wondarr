@@ -37,7 +37,9 @@ check() {
     echo "safe-merge: dotnet build -warnaserror"
     dotnet build -warnaserror --nologo -v q || return 1
     echo "safe-merge: dotnet test"
-    dotnet test --no-build --nologo -v q || return 1
+    # One test project at a time (-m:1): run side by side, the timing- and port-bound tests (the
+    # pumped compaction runs, FakeSlskd's fixed ports and search budget) fail on a loaded machine.
+    dotnet test --no-build --nologo -v q -m:1 || return 1
     if [[ "${run_frontend}" == "1" ]]; then
         echo "safe-merge: frontend checks"
         (

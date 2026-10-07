@@ -176,6 +176,10 @@ GET/PUT /api/v1/qualityprofile | /qualitydefinition | /sourceprofile
 GET/POST/PUT/DELETE /api/v1/source | /downloadclient | /importlist | /notification | /library
 GET    /api/v1/importlist/schema | POST /api/v1/importlist/{id}/sync (202, an ImportListSync command)
 POST   /api/v1/importlist/csv/preview  {sourceText, settings?} -> format, headers, row count, sample, problems
+GET    /api/v1/album/lookup?term= | /album/releasegroup/{id}/releases | /album/{musicbrainz|deezer}/{id}/tracks
+POST   /api/v1/album/add  {source, id, trackKeys?, libraryId?, qualityProfileId?, monitored?}  (202, an AddAlbum command)
+GET    /api/v1/song/{id}/album  (the release a song is filed under, for "add the rest of this album")
+POST   /api/v1/song/convert/preview | /song/convert  {songIds? | libraryId?, rule?}  (dry run; 202, a ConvertFiles command)
 POST   /api/v1/library/{id}/preview  {songId}  -> rendered path
 POST   /api/v1/library/{id}/scan     (adopt existing files)
 GET    /api/v1/tag  …
