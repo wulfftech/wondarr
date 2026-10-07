@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -8,6 +8,7 @@ import {
   COMMAND_RUNNING,
   HEALTH_ENTRIES,
   IMPORT_LIST,
+  LIBRARIES,
   LOOKUP_RESULTS,
   QUALITY_PROFILES,
   SYSTEM_STATUS,
@@ -65,6 +66,10 @@ function install(routes: RouteTable = {}): FetchMock {
       return jsonResponse(QUALITY_PROFILES);
     }
 
+    if (url.includes('/api/v1/library')) {
+      return jsonResponse(LIBRARIES);
+    }
+
     if (url.includes('/api/v1/song/lookup')) {
       return (routes.lookup ?? (() => jsonResponse(LOOKUP_RESULTS)))();
     }
@@ -110,7 +115,8 @@ describe('AddSongsPage', () => {
     expect(screen.getByText('6:09')).toBeInTheDocument();
     expect(screen.getByText('MusicBrainz')).toBeInTheDocument();
     expect(screen.getByText('Deezer only')).toBeInTheDocument();
-    expect(screen.getByText('Album')).toBeInTheDocument();
+    // Scoped to the panel: the page also has an Album tab of the same name.
+    expect(within(screen.getByRole('tabpanel', { name: 'Search' })).getByText('Album')).toBeInTheDocument();
 
     await waitFor(async () => {
       const post = await lastBody('POST');
