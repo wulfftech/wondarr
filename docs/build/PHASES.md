@@ -58,8 +58,9 @@ Effort is for one developer working with AI assistance, in focused weeks; treat 
 
 - ImportList providers: **CSV** (Exportify's Spotify column set — `Track Name`, `Artist Name(s)`, `Album Name`, `Track Duration (ms)`, `ISRC`, `Album Release Date`, `Explicit?` — plus a generic column mapper), Deezer playlist (no auth), YouTube Music playlist, Last.fm loved/top tracks, ListenBrainz loved/playlists, artist top-N (Deezer/Last.fm), and reference libraries (§7.6) as a list source; Spotify Web API import kept optional (owner's own client id).
 - Sync policies (add-only / add-and-unmonitor-removed / mirror); unresolved-item review; per-list quality profile, source profile and library.
-- Playlist output: Plex playlist via `/playlists/upload` or rating keys; `.m3u8` export.
-- **Done when:** a 200-track Exportify CSV imports, resolves via ISRC ≥ 95 %, downloads, and appears as a Plex playlist after two search cycles.
+- Playlist output: Plex playlist by rating keys, updated in place (DECISIONS build session 7 #10); `.m3u8` export.
+- Added by the owner on 2026-10-07 (DECISIONS build session 7 #1–#6): **album add** (search an album, add all or some of its tracks as songs with the album pinned; "add the rest of this album" from a song); **several libraries**, each with its own Plex section, songs assigned to and moved between them; **conversion for every source** (per-library rules for YouTube, lossy and lossless files; ADR-0008 amended) and **conversion on demand** for files already in the library.
+- **Done when:** a 200-track Exportify CSV imports, resolves via ISRC ≥ 95 %, downloads, and appears as a Plex playlist after two search cycles; an album added by search arrives as its tracks under that album; a song moved to a second library lands in that library's folder and Plex section; a library set to convert lossless to MP3 imports a FLAC as an MP3 still ranked `FLAC`, and an on-demand conversion replaces an existing file with the original in the recycle bin.
 
 ### Phase 7 — qBittorrent and SABnzbd sources (≈2 weeks)
 
