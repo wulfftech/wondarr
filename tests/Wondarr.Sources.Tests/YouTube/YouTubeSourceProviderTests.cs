@@ -237,6 +237,9 @@ internal sealed class StubInnertubeClient : IInnertubeClient
 
         return Task.FromResult(_responses.Dequeue().Result);
     }
+
+    public Task<IReadOnlyList<InnertubePlaylistRow>> BrowsePlaylistAsync(string playlistId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<InnertubePlaylistRow>>([]);
 }
 
 /// <summary>Records every download; answers with the file it was asked to place.</summary>
