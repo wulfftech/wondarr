@@ -51,6 +51,7 @@ number of searches that were ever in flight, and every transfer with its destina
 | `GET /api/v0/transfers/downloads` (`/{username}/{id}`, `/{id}/position`) | users → directories → files |
 | `DELETE /api/v0/transfers/downloads/{username}/{id}?remove=` | 204; a pending transfer becomes `Completed, Cancelled` |
 | `GET /fake/log` | the gate's log (loopback only) |
+| `POST /fake/scenario/files` | adds scenario files (a JSON array of scenario entries) that later searches and transfers see — the Phase 5 upgrade gate makes a better file appear this way (loopback only) |
 
 Every `/api/v0` request needs `X-API-Key` matching one of `web.authentication.api_keys.*.key`, or gets
 401 — unless `web.authentication.disabled` is true.
