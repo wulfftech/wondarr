@@ -46,6 +46,9 @@ public enum RejectionReason
 
     /// <summary>The candidate's score is below the profile's minimum.</summary>
     BelowMinimumScore,
+
+    /// <summary>The candidate's identity score is below the current file's (MATCHING_ENGINE §6.6).</summary>
+    WorseIdentity,
 }
 
 /// <summary>Maps <see cref="RejectionReason"/> onto the camel-case wire name the API returns.</summary>
@@ -143,6 +146,14 @@ public sealed record DecisionContext
 
     /// <summary>The quality of the file the song already has, when it has one.</summary>
     public long? CurrentFileQualityId { get; init; }
+
+    /// <summary>
+    /// The identity sub-score of the candidate that produced the file the song already holds, when
+    /// that is known. An upgrade never trades identity for bitrate: an automatic candidate below it
+    /// is rejected (MATCHING_ENGINE §6.6); <see langword="null"/> when the held file's score is
+    /// unknown, and then only the quality rule applies.
+    /// </summary>
+    public int? CurrentFileIdentityScore { get; init; }
 
     /// <summary>Whether a person asked for this grab by hand; manual grabs are exempt from the upgrade rule.</summary>
     public bool IsManualGrab { get; init; }

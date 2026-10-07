@@ -1,15 +1,19 @@
+using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Tests.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Xunit;
@@ -516,6 +520,108 @@ public class SongServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Adding_a_monitored_song_queues_a_song_search_for_it()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+        StubRelease("r1", (3, "m-a"));
+
+        var (commands, _) = Queue();
+        var added = await NewService(context, commands).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", Album("r1", "Random Access Memories"))],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        added[0].Outcome.Should().Be(SongAddOutcome.Added);
+
+        await commands.Received(1).EnqueueAsync(
+            "SongSearch",
+            Arg.Is<string?>(body => ReadsSongId(body) == added[0].Song.Id),
+            CommandTrigger.Unspecified,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Adding_an_unmonitored_song_queues_nothing()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+        StubRelease("r1", (3, "m-a"));
+
+        var (commands, _) = Queue();
+        await NewService(context, commands).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", Album("r1", "Random Access Memories"))],
+            new SongAddOptions { Monitored = false },
+            CancellationToken.None);
+
+        await commands.DidNotReceive().EnqueueAsync(
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<CommandTrigger>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Search_on_add_can_be_turned_off()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+        StubRelease("r1", (3, "m-a"));
+
+        var (commands, options) = Queue(searchOnAdd: false);
+        await NewService(context, commands, options).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", Album("r1", "Random Access Memories"))],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        await commands.DidNotReceive().EnqueueAsync(
+            Arg.Any<string>(),
+            Arg.Any<string?>(),
+            Arg.Any<CommandTrigger>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_failing_enqueue_does_not_fail_the_add()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+        StubRelease("r1", (3, "m-a"));
+
+        var (commands, _) = Queue();
+        commands.EnqueueAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CommandTrigger>(), Arg.Any<CancellationToken>())
+            .Returns<Task<CommandRecord>>(_ => throw new InvalidOperationException("the queue is down"));
+
+        var added = await NewService(context, commands).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", Album("r1", "Random Access Memories"))],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        added[0].Outcome.Should().Be(SongAddOutcome.Added, "the song is saved; only the immediate search is lost");
+        (await context.Songs.CountAsync()).Should().Be(1);
+    }
+
+    /// <summary>A substituted queue and options monitor, wired the way the service reads them.</summary>
+    private static (ICommandQueue Commands, IOptionsMonitor<SearchOptions> Options) Queue(bool searchOnAdd = true)
+    {
+        var commands = Substitute.For<ICommandQueue>();
+        var options = Substitute.For<IOptionsMonitor<SearchOptions>>();
+        options.CurrentValue.Returns(new SearchOptions { SearchOnAdd = searchOnAdd });
+
+        return (commands, options);
+    }
+
+    /// <summary>Reads the song id out of a queued <c>SongSearch</c> body.</summary>
+    private static long? ReadsSongId(string? body)
+    {
+        using var document = JsonDocument.Parse(body ?? "{}");
+
+        return document.RootElement.TryGetProperty("songId", out var songId) && songId.TryGetInt64(out var value)
+            ? value
+            : null;
+    }
+
+    [Fact]
     public async Task Adding_one_id_goes_through_the_resolver()
     {
         await using var context = await ContextAsync();
@@ -554,7 +660,10 @@ public class SongServiceTests : IDisposable
         return _database.CreateContext(_timeProvider);
     }
 
-    private SongService NewService(WondarrDbContext context)
+    private SongService NewService(
+        WondarrDbContext context,
+        ICommandQueue? commands = null,
+        IOptionsMonitor<SearchOptions>? options = null)
     {
         var counter = 0;
 
@@ -564,6 +673,8 @@ public class SongServiceTests : IDisposable
             new AlbumPolicyEngine(() => new Guid(++counter, 0, 0, new byte[8])),
             _musicBrainz,
             _coverArt,
+            commands ?? SearchOnAddOff.Commands,
+            options ?? Queue().Options,
             NullLogger<SongService>.Instance);
     }
 

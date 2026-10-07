@@ -216,6 +216,7 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     /// <summary>
     /// Whether the song's backoff has expired: the nth consecutive fruitless run waits
     /// <c>BackoffHours[min(n − 1, last)]</c>, and a song that was never searched is always eligible.
+    /// The arithmetic lives in <see cref="SearchBackoff"/>, which the upgrade loop shares.
     /// </summary>
     /// <remarks>
     /// Only the runs the automatic loop itself finished speak for the backoff. A run the user asked
@@ -224,43 +225,8 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     /// source to ask — counts as neither a fruitless attempt (which would lengthen the wait) nor a
     /// success (which would reset it).
     /// </remarks>
-    private static bool IsEligible(IReadOnlyList<SearchRun> runs, SearchOptions options, DateTime now)
-    {
-        if (options.BackoffHours.Count == 0)
-        {
-            return true;
-        }
-
-        var counted = runs
-            .Where(run => run.Trigger != SearchTrigger.Manual
-                && run.Outcome is SearchOutcome.NoResults or SearchOutcome.NoAcceptableCandidate or SearchOutcome.Grabbed)
-            .OrderByDescending(run => run.StartedAt)
-            .ThenByDescending(run => run.Id)
-            .ToList();
-
-        if (counted.Count == 0)
-        {
-            return true;
-        }
-
-        var failures = 0;
-
-        foreach (var run in counted)
-        {
-            if (run.Outcome is SearchOutcome.NoResults or SearchOutcome.NoAcceptableCandidate)
-            {
-                failures++;
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        var index = Math.Clamp(failures - 1, 0, options.BackoffHours.Count - 1);
-
-        return now - counted[0].StartedAt >= TimeSpan.FromHours(options.BackoffHours[index]);
-    }
+    private static bool IsEligible(IReadOnlyList<SearchRun> runs, SearchOptions options, DateTime now) =>
+        SearchBackoff.IsEligible(runs, options, now, run => run.Trigger != SearchTrigger.Manual);
 
     /// <summary>Waits until fewer than <see cref="SearchOptions.MaxActiveDownloads"/> grabs are in flight.</summary>
     private async Task WaitForSlotAsync(SearchOptions options, CancellationToken cancellationToken)
