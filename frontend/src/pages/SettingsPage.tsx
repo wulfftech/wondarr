@@ -1,5 +1,6 @@
 import { SegmentedControl, Stack, Title } from '@mantine/core';
 import { useNavigate, useParams } from 'react-router';
+import { ImportListsSettingsPage } from './settings/ImportListsSettingsPage';
 import { LibrarySettingsPage } from './settings/LibrarySettingsPage';
 import { NotificationsSettingsPage } from './settings/NotificationsSettingsPage';
 import { PlexSettingsPage } from './settings/PlexSettingsPage';
@@ -9,7 +10,15 @@ import { SoulseekSettingsPage } from './settings/SoulseekSettingsPage';
 import { YouTubeSettingsPage } from './settings/YouTubeSettingsPage';
 
 /** The Settings sections, and the route segment each one owns. */
-type SettingsSection = 'profiles' | 'library' | 'references' | 'soulseek' | 'youtube' | 'plex' | 'notifications';
+type SettingsSection =
+  | 'profiles'
+  | 'library'
+  | 'references'
+  | 'soulseek'
+  | 'youtube'
+  | 'plex'
+  | 'importlists'
+  | 'notifications';
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'profiles', label: 'Quality profiles' },
@@ -18,6 +27,7 @@ const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'soulseek', label: 'Soulseek' },
   { value: 'youtube', label: 'YouTube' },
   { value: 'plex', label: 'Plex' },
+  { value: 'importlists', label: 'Import lists' },
   { value: 'notifications', label: 'Notifications' },
 ];
 
@@ -47,6 +57,7 @@ export function SettingsPage() {
       {active === 'soulseek' && <SoulseekSettingsPage />}
       {active === 'youtube' && <YouTubeSettingsPage />}
       {active === 'plex' && <PlexSettingsPage />}
+      {active === 'importlists' && <ImportListsSettingsPage />}
       {active === 'notifications' && <NotificationsSettingsPage />}
     </Stack>
   );
