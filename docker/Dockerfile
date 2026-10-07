@@ -82,12 +82,16 @@ RUN set -eux; \
             s6sha=e6befcc96a437a3831386ecfc51808c5d3e939dc5fe3c02ae9284599e8aa2408; \
             denosha=c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490; \
             fpcalcsha=fc16cd37a70168040bc9ceb45f1d4d1216f5a75bc4c9cf8564bea70ac6a45733; \
+            ytdlpfile=yt-dlp_linux; \
+            ytdlpsha=58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a; \
             ;; \
         arm64) \
             s6arch=aarch64; denoarch=aarch64; fpcalcarch=arm64; slskdarch=arm64; \
             s6sha=b17f17a82e7a515c682a91edaf2ffdabb73f891981b6c1fd712115693a2f8b4c; \
             denosha=c832298b1ad4422481334855f6003e0f54145762c5a134f20a489511d2f65bbf; \
             fpcalcsha=7eaf5d655c4aa172ab28e3c870b8bb61dd2c327ac94de145676f88842cf6215a; \
+            ytdlpfile=yt-dlp_linux_aarch64; \
+            ytdlpsha=b16e4dab368a816cd05d477d698a605a6ae87ccee1c8ffd38fa21d7254141fcc; \
             ;; \
         *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
@@ -110,6 +114,14 @@ RUN set -eux; \
     mkdir -p /tools/deno; \
     unzip -q -o /tmp/deno.zip -d /tools/deno; \
     chmod 0755 /tools/deno/deno; \
+    \
+    # yt-dlp 2026.08.19 (Unlicense), the standalone build that needs no Python. The YouTube source is
+    # off by default; this is the binary it runs once the user turns it on.
+    wget -q -O /tmp/yt-dlp \
+        "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/${ytdlpfile}"; \
+    printf '%s  %s\n' "$ytdlpsha" /tmp/yt-dlp | sha256sum -c -; \
+    mkdir -p /tools/yt-dlp; \
+    install -m 0755 /tmp/yt-dlp /tools/yt-dlp/yt-dlp; \
     \
     # fpcalc 1.6.1 (static chromaprint) — AcoustID fingerprinting.
     wget -q -O /tmp/fpcalc.tar.gz \
@@ -157,7 +169,7 @@ COPY --from=downloads /s6/ /
 
 COPY --from=build /app /app
 COPY --from=downloads /opt/slskd /opt/slskd
-COPY --from=downloads /tools/deno/deno /tools/fpcalc/fpcalc /usr/local/bin/
+COPY --from=downloads /tools/deno/deno /tools/fpcalc/fpcalc /tools/yt-dlp/yt-dlp /usr/local/bin/
 COPY --from=downloads /tools/ffmpeg/ffmpeg /tools/ffprobe/ffprobe /usr/local/bin/
 
 COPY docker/root/ /
