@@ -63,9 +63,19 @@ public sealed partial class MoveSongsCommandHandler : ICommandHandler
             using var scope = _scopes.CreateScope();
             var mover = scope.ServiceProvider.GetRequiredService<ISongLibraryMover>();
 
-            var result = await mover
-                .MoveAsync(songIds[index], libraryId, cancellationToken)
-                .ConfigureAwait(false);
+            SongMoveResult result;
+
+            try
+            {
+                result = await mover
+                    .MoveAsync(songIds[index], libraryId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One song's surprise never costs the others their move.
+                result = new SongMoveResult(SongMoveOutcome.Failed, exception.Message);
+            }
 
             switch (result.Outcome)
             {

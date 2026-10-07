@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Wondarr.Core.Sources;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Organizer;
@@ -108,7 +109,11 @@ public sealed class LibraryService : ILibraryService
         if (!PathRules.AreEqual(stored.RootPath, library.RootPath)
             && await _context.Songs
                 .AsNoTracking()
-                .AnyAsync(song => song.LibraryId == library.Id && song.File != null, cancellationToken)
+                .AnyAsync(
+                    // A reference file lives in the user's own folder, not under the root: it does
+                    // not move with it.
+                    song => song.LibraryId == library.Id && song.File != null && song.File.SourceType != SourceTypes.Reference,
+                    cancellationToken)
                 .ConfigureAwait(false))
         {
             // The rows would say the files are where they no longer are: the move is the user's to
@@ -320,8 +325,12 @@ public sealed class LibraryService : ILibraryService
 
     /// <summary>Whether two roots are the same folder, or one holds the other.</summary>
     private static bool RootsOverlap(string first, string second) =>
-        first.StartsWith(second, StringComparison.OrdinalIgnoreCase)
-        || second.StartsWith(first, StringComparison.OrdinalIgnoreCase);
+        first.StartsWith(second, PathComparison)
+        || second.StartsWith(first, PathComparison);
+
+    /// <summary>Paths compare as the platform does: case-insensitive on Windows, exact elsewhere.</summary>
+    private static StringComparison PathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     /// <summary>A full path with a trailing separator, so a prefix comparison cannot bite a sibling.</summary>
     private static string NormalizedRoot(string path) =>
