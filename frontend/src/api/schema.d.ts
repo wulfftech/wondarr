@@ -2472,6 +2472,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfLogResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/log/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LogFileResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/log/file/{filename}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    filename: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/song/bulk": {
         parameters: {
             query?: never;
@@ -3330,6 +3437,24 @@ export interface components {
             plexLibraryPath: null | string;
             isDefault: boolean;
         };
+        LogFileResource: {
+            /** Format: int64 */
+            id: number | string;
+            filename: string;
+            /** Format: date-time */
+            lastWriteTime: string;
+            contentsUrl: string;
+        };
+        LogResource: {
+            /** Format: int64 */
+            id: number | string;
+            /** Format: date-time */
+            time: string;
+            level: string;
+            logger: string;
+            message: string;
+            exception: null | string;
+        };
         MatchBulkRequestResource: {
             ids: null | (number | string)[];
         };
@@ -3459,6 +3584,17 @@ export interface components {
             /** Format: int32 */
             totalRecords: number | string;
             records: components["schemas"]["ImportListItemResource"][];
+        };
+        PagingResourceOfLogResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["LogResource"][];
         };
         PagingResourceOfMatchQueueItemResource: {
             /** Format: int32 */
