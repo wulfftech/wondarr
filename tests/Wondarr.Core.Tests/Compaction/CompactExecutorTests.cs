@@ -686,7 +686,9 @@ public class CompactExecutorTests : IDisposable
 
         while (!run.IsCompleted)
         {
-            if (guard.Elapsed > TimeSpan.FromSeconds(30))
+            // Wall-clock, only to stop a hang: generous, because a loaded machine (a full solution
+            // test run beside a build) can starve this loop for many seconds.
+            if (guard.Elapsed > TimeSpan.FromSeconds(120))
             {
                 throw new TimeoutException("The compaction did not finish while the clock was moved on.");
             }
