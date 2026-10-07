@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Jobs;
 
@@ -21,18 +22,21 @@ public sealed partial class ConvertFilesCommandHandler : ICommandHandler
         PropertyNameCaseInsensitive = true,
     };
 
-    private readonly IFileConverter _converter;
+    private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<ConvertFilesCommandHandler> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="ConvertFilesCommandHandler"/> class.</summary>
-    /// <param name="converter">The converter.</param>
+    /// <param name="scopes">
+    /// Builds one scope per song: a fresh database context for each conversion (a library of
+    /// thousands must not grow one change tracker), as the compact library command does.
+    /// </param>
     /// <param name="logger">The logger.</param>
-    public ConvertFilesCommandHandler(IFileConverter converter, ILogger<ConvertFilesCommandHandler> logger)
+    public ConvertFilesCommandHandler(IServiceScopeFactory scopes, ILogger<ConvertFilesCommandHandler> logger)
     {
-        ArgumentNullException.ThrowIfNull(converter);
+        ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(logger);
 
-        _converter = converter;
+        _scopes = scopes;
         _logger = logger;
     }
 
@@ -45,7 +49,16 @@ public sealed partial class ConvertFilesCommandHandler : ICommandHandler
         ArgumentNullException.ThrowIfNull(context);
 
         var request = ReadRequest(context.Body);
-        var songIds = await _converter.ResolveSongsAsync(request, cancellationToken).ConfigureAwait(false);
+
+        IReadOnlyList<long> songIds;
+        using (var scope = _scopes.CreateScope())
+        {
+            songIds = await scope.ServiceProvider
+                .GetRequiredService<IFileConverter>()
+                .ResolveSongsAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         var counts = new Dictionary<ConvertOutcome, int>();
         string? firstProblem = null;
         var done = 0;
@@ -58,7 +71,11 @@ public sealed partial class ConvertFilesCommandHandler : ICommandHandler
 
             try
             {
-                result = await _converter.ConvertAsync(songId, request.RuleJson, cancellationToken).ConfigureAwait(false);
+                using var scope = _scopes.CreateScope();
+                result = await scope.ServiceProvider
+                    .GetRequiredService<IFileConverter>()
+                    .ConvertAsync(songId, request.RuleJson, cancellationToken)
+                    .ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
