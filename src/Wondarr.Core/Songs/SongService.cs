@@ -1,13 +1,17 @@
 using System.Globalization;
 using System.Linq.Expressions;
+using System.Text.Json;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -124,6 +128,8 @@ public sealed partial class SongService : ISongService
     private readonly IAlbumPolicyEngine _albumPolicy;
     private readonly IMusicBrainzClient _musicBrainz;
     private readonly ICoverArtResolver _coverArt;
+    private readonly ICommandQueue _commands;
+    private readonly IOptionsMonitor<SearchOptions> _searchOptions;
     private readonly ILogger<SongService> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="SongService"/> class.</summary>
@@ -132,6 +138,8 @@ public sealed partial class SongService : ISongService
     /// <param name="albumPolicy">The album policy engine.</param>
     /// <param name="musicBrainz">The MusicBrainz client, for the chosen releases' tracklists.</param>
     /// <param name="coverArt">The cover-art resolver.</param>
+    /// <param name="commands">The command queue, for the search a monitored add starts.</param>
+    /// <param name="searchOptions">The search settings, for <c>search.search_on_add</c>.</param>
     /// <param name="logger">The logger.</param>
     public SongService(
         WondarrDbContext database,
@@ -139,6 +147,8 @@ public sealed partial class SongService : ISongService
         IAlbumPolicyEngine albumPolicy,
         IMusicBrainzClient musicBrainz,
         ICoverArtResolver coverArt,
+        ICommandQueue commands,
+        IOptionsMonitor<SearchOptions> searchOptions,
         ILogger<SongService> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -146,6 +156,8 @@ public sealed partial class SongService : ISongService
         ArgumentNullException.ThrowIfNull(albumPolicy);
         ArgumentNullException.ThrowIfNull(musicBrainz);
         ArgumentNullException.ThrowIfNull(coverArt);
+        ArgumentNullException.ThrowIfNull(commands);
+        ArgumentNullException.ThrowIfNull(searchOptions);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
@@ -153,6 +165,8 @@ public sealed partial class SongService : ISongService
         _albumPolicy = albumPolicy;
         _musicBrainz = musicBrainz;
         _coverArt = coverArt;
+        _commands = commands;
+        _searchOptions = searchOptions;
         _logger = logger;
     }
 
@@ -746,7 +760,72 @@ public sealed partial class SongService : ISongService
                 SongAddOutcome.AlreadyExists,
                 results[first]!.Song);
         }
+
+        // 8. Search on add (ARCHITECTURE §5.5): a monitored song starts looking for its file at once.
+        await EnqueueSearchOnAddAsync(results, options, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Queues a <c>SongSearch</c> for every song this batch added and saved monitored
+    /// (<c>search.search_on_add</c>, ARCHITECTURE §5.5): a new song never has a file yet, so every
+    /// added song qualifies. The enqueue happens after the save, never inside the transaction, and a
+    /// failure to enqueue is logged without failing the add — the regular <c>MissingSearch</c> is
+    /// the fallback.
+    /// </summary>
+    /// <param name="results">The batch's results, one per identity.</param>
+    /// <param name="options">The batch's add options, for the monitored flag.</param>
+    /// <param name="cancellationToken">Cancels the enqueue.</param>
+    private async Task EnqueueSearchOnAddAsync(
+        IReadOnlyList<SongAddResult?> results,
+        SongAddOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (!_searchOptions.CurrentValue.SearchOnAdd)
+        {
+            return;
+        }
+
+        var added = results
+            .Where(result => result is { Outcome: SongAddOutcome.Added } && options.Monitored)
+            .Select(result => result!.Song.Id)
+            .Distinct()
+            .ToList();
+
+        foreach (var songId in added)
+        {
+            try
+            {
+                await _commands
+                    .EnqueueAsync(
+                        SongSearchCommandHandler.CommandName,
+                        JsonSerializer.Serialize(new SearchOnAddBody(SongSearchCommandHandler.CommandName, songId), BodyJson),
+                        CommandTrigger.Unspecified,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                // The song is saved; only the immediate search is lost, and MissingSearch will find it.
+                LogSearchOnAddFailed(_logger, songId, exception);
+            }
+        }
+    }
+
+    /// <summary>The body of the search-on-add command, exactly as <c>SongSearch</c> reads it.</summary>
+    /// <param name="Name">The command name.</param>
+    /// <param name="SongId">The song that was just added.</param>
+    private sealed record SearchOnAddBody(string? Name, long SongId);
+
+    /// <summary>The command bodies are camelCase, like every other JSON this app exchanges.</summary>
+    private static readonly JsonSerializerOptions BodyJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
 
     /// <summary>Replaces the engine's track numbers with the chosen release's own, when MusicBrainz has it.</summary>
     private async Task<AlbumAssignment> WithTrackNumbersAsync(
@@ -1203,6 +1282,9 @@ public sealed partial class SongService : ISongService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-planned {Count} songs of library {LibraryId}")]
     private static partial void LogReplanned(ILogger logger, int count, long libraryId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Queueing the search-on-add for song {SongId} failed; MissingSearch is the fallback")]
+    private static partial void LogSearchOnAddFailed(ILogger logger, long songId, Exception exception);
 
     /// <summary>An album the library holds, as the policy engine reads it, plus the covers to reuse.</summary>
     private sealed record LibraryAlbums(

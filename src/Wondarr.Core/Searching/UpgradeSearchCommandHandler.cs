@@ -11,14 +11,16 @@ using Wondarr.Core.Sources;
 namespace Wondarr.Core.Searching;
 
 /// <summary>
-/// The scheduler's missing-song loop (ARCHITECTURE §5.2 step 4, MATCHING_ENGINE §6.6): it picks the
-/// wanted songs that are due, waits for a download slot, and searches each one in a DI scope of its
-/// own so a long batch never keeps one <c>DbContext</c> alive for an hour.
+/// The scheduler's upgrade loop (ARCHITECTURE §5.2 step 4, MATCHING_ENGINE §6.6): it picks the wanted
+/// songs whose held file is below their profile's cutoff — the Cutoff Unmet list — waits for a
+/// download slot, and searches each one in a DI scope of its own so a long batch never keeps one
+/// <c>DbContext</c> alive for an hour. A strictly better file replaces the held one through the
+/// existing search → grab → import path; nothing here imports anything itself.
 /// </summary>
-public sealed partial class MissingSearchCommandHandler : ICommandHandler
+public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
 {
-    /// <summary>The name the <c>MissingSearch</c> scheduled task queues.</summary>
-    public const string CommandName = "MissingSearch";
+    /// <summary>The name the <c>UpgradeSearch</c> scheduled task queues.</summary>
+    public const string CommandName = "UpgradeSearch";
 
     /// <summary>How long the batch waits between two warnings that every download slot is taken.</summary>
     private static readonly TimeSpan SlotWarningInterval = TimeSpan.FromMinutes(10);
@@ -26,18 +28,18 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<SearchOptions> _options;
     private readonly TimeProvider _timeProvider;
-    private readonly ILogger<MissingSearchCommandHandler> _logger;
+    private readonly ILogger<UpgradeSearchCommandHandler> _logger;
 
-    /// <summary>Initialises a new instance of the <see cref="MissingSearchCommandHandler"/> class.</summary>
+    /// <summary>Initialises a new instance of the <see cref="UpgradeSearchCommandHandler"/> class.</summary>
     /// <param name="scopes">Builds the per-song scope every search runs in.</param>
     /// <param name="options">The batch size, the backoff and the download-slot limit.</param>
     /// <param name="timeProvider">The clock the slot wait is measured against.</param>
     /// <param name="logger">The logger.</param>
-    public MissingSearchCommandHandler(
+    public UpgradeSearchCommandHandler(
         IServiceScopeFactory scopes,
         IOptionsMonitor<SearchOptions> options,
         TimeProvider timeProvider,
-        ILogger<MissingSearchCommandHandler> logger)
+        ILogger<UpgradeSearchCommandHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(options);
@@ -76,7 +78,7 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
             {
                 var search = scope.ServiceProvider.GetRequiredService<ISongSearchService>();
                 var result = await search
-                    .SearchAsync(songId, SearchTrigger.Automatic, grab: true, cancellationToken)
+                    .SearchAsync(songId, SearchTrigger.Upgrade, grab: true, cancellationToken)
                     .ConfigureAwait(false);
 
                 switch (result.Outcome)
@@ -129,13 +131,16 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     }
 
     /// <summary>
-    /// Picks the batch: monitored songs with no file, no grab in flight and their backoff expired,
-    /// the ones that have been waiting longest first (never searched songs first of all).
+    /// Picks the batch: monitored songs that hold a file which is not a reference file, whose profile
+    /// allows upgrades and whose cutoff the file does not meet, with no grab in flight and their
+    /// upgrade backoff expired — the ones that have been waiting longest first, and never-searched
+    /// songs first of all.
     /// </summary>
     private async Task<List<long>> SelectAsync(SearchOptions options, CancellationToken cancellationToken)
     {
-        List<MissingSongRow> candidates;
+        List<UpgradeSongRow> candidates;
         List<SearchRun> runs;
+        Dictionary<long, QualityProfile> profiles;
 
         using (var scope = _scopes.CreateScope())
         {
@@ -143,29 +148,40 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
 
             var wanted = database.Songs
                 .AsNoTracking()
-                .Where(song => song.Monitored && song.File == null)
+                .Where(song => song.Monitored && song.File != null && song.File.SourceType != SourceTypes.Reference)
                 .Where(song => !database.QueueItems.Any(item =>
                     item.SongId == song.Id
                     && (item.State == QueueItemState.Queued
                         || item.State == QueueItemState.RemotelyQueued
-                        || item.State == QueueItemState.Downloading)));
+                        || item.State == QueueItemState.Downloading
+                        || item.State == QueueItemState.Completed
+                        || item.State == QueueItemState.Importing)));
 
             candidates = await wanted
-                .Select(song => new MissingSongRow(song.Id, song.CreatedAt, null))
+                .Select(song => new UpgradeSongRow(
+                    song.Id,
+                    song.QualityProfileId,
+                    song.File!.QualityId,
+                    song.File.ImportedAt,
+                    null))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            // One query for the candidate songs and one for their recent runs: asking per song would
-            // be a query per wanted song on every scheduled run. Only the runs the longest backoff can
-            // reach are needed — anything older leaves the song eligible either way.
-            var horizon = _timeProvider.GetUtcNow().UtcDateTime.AddHours(-options.BackoffHours.DefaultIfEmpty(0).Max());
-
+            // One query for the candidate songs and one for their runs: asking per song would be a
+            // query per wanted song on every scheduled run. Only this loop's own runs speak for its
+            // backoff, and there are few of them, so no horizon is needed — the oldest one is the
+            // ordering, not just the eligibility.
             runs = await database.SearchRuns
                 .AsNoTracking()
-                .Where(run => run.StartedAt >= horizon && wanted.Any(song => song.Id == run.SongId))
+                .Where(run => run.Trigger == SearchTrigger.Upgrade && wanted.Any(song => song.Id == run.SongId))
                 .OrderByDescending(run => run.StartedAt)
                 .ThenByDescending(run => run.Id)
                 .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            profiles = await database.QualityProfiles
+                .AsNoTracking()
+                .ToDictionaryAsync(profile => profile.Id, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -177,19 +193,28 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
             LastRunAt = bySong[candidate.SongId].Select(run => (DateTime?)run.StartedAt).FirstOrDefault(),
         })];
 
-        candidates.Sort(CompareMissingSongs);
+        // The cutoff check needs the profile's items, which the database cannot judge in SQL.
+        candidates.RemoveAll(candidate => !profiles.TryGetValue(candidate.QualityProfileId, out var profile)
+            || !profile.UpgradeAllowed
+            || profile.MeetsCutoff(candidate.FileQualityId));
+
+        candidates.Sort(CompareUpgradeSongs);
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var selected = new List<long>();
 
         foreach (var candidate in candidates)
         {
-            if (selected.Count >= options.MissingBatchSize)
+            if (selected.Count >= options.UpgradeBatchSize)
             {
                 break;
             }
 
-            if (IsEligible([.. bySong[candidate.SongId]], options, now))
+            if (SearchBackoff.IsEligible(
+                    [.. bySong[candidate.SongId]],
+                    options,
+                    now,
+                    run => run.Trigger == SearchTrigger.Upgrade))
             {
                 selected.Add(candidate.SongId);
             }
@@ -198,8 +223,8 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
         return selected;
     }
 
-    /// <summary>Never-searched songs first, then by the oldest last run, then by the oldest row.</summary>
-    private static int CompareMissingSongs(MissingSongRow left, MissingSongRow right)
+    /// <summary>Never-upgraded songs first, then by the oldest last upgrade run, then by the oldest file, then by the oldest row.</summary>
+    private static int CompareUpgradeSongs(UpgradeSongRow left, UpgradeSongRow right)
     {
         var byLastRun = (left.LastRunAt ?? DateTime.MinValue).CompareTo(right.LastRunAt ?? DateTime.MinValue);
 
@@ -208,25 +233,15 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
             return byLastRun;
         }
 
-        var byCreated = left.CreatedAt.CompareTo(right.CreatedAt);
+        var byImported = left.ImportedAt.CompareTo(right.ImportedAt);
 
-        return byCreated != 0 ? byCreated : left.SongId.CompareTo(right.SongId);
+        if (byImported != 0)
+        {
+            return byImported;
+        }
+
+        return left.SongId.CompareTo(right.SongId);
     }
-
-    /// <summary>
-    /// Whether the song's backoff has expired: the nth consecutive fruitless run waits
-    /// <c>BackoffHours[min(n − 1, last)]</c>, and a song that was never searched is always eligible.
-    /// The arithmetic lives in <see cref="SearchBackoff"/>, which the upgrade loop shares.
-    /// </summary>
-    /// <remarks>
-    /// Only the runs the automatic loop itself finished speak for the backoff. A run the user asked
-    /// for (<see cref="SearchTrigger.Manual"/>) says nothing about when this loop should try again, and
-    /// a run that neither found a candidate nor reached a verdict — failed, cancelled, or with no
-    /// source to ask — counts as neither a fruitless attempt (which would lengthen the wait) nor a
-    /// success (which would reset it).
-    /// </remarks>
-    private static bool IsEligible(IReadOnlyList<SearchRun> runs, SearchOptions options, DateTime now) =>
-        SearchBackoff.IsEligible(runs, options, now, run => run.Trigger != SearchTrigger.Manual);
 
     /// <summary>Waits until fewer than <see cref="SearchOptions.MaxActiveDownloads"/> grabs are in flight.</summary>
     private async Task WaitForSlotAsync(SearchOptions options, CancellationToken cancellationToken)
@@ -271,8 +286,13 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
         }
     }
 
-    /// <summary>One candidate song: its id, when it was added, and when it was last searched.</summary>
-    private sealed record MissingSongRow(long SongId, DateTime CreatedAt, DateTime? LastRunAt);
+    /// <summary>One candidate song: its id, its profile, its held file's quality and import time, and when it was last upgrade-searched.</summary>
+    private sealed record UpgradeSongRow(
+        long SongId,
+        long QualityProfileId,
+        long FileQualityId,
+        DateTime ImportedAt,
+        DateTime? LastRunAt);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Searching song {SongId} failed; the batch continues")]
     private static partial void LogSongFailed(ILogger logger, long songId, Exception exception);
