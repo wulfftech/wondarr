@@ -626,13 +626,16 @@ public sealed partial class PasteListService : IPasteListService
         candidate.DurationMs,
         candidate.Score);
 
-    /// <summary>Sort keys are case-insensitive; no key at all is the line order the user pasted.</summary>
+    /// <summary>
+    /// Sort keys are case-insensitive; no key at all is the line order the user pasted. "line" is the
+    /// item's place in its source (a synced list re-orders its items on every sync), then its id.
+    /// </summary>
     private static IQueryable<ImportListItem> ApplySort(IQueryable<ImportListItem> query, PagingSpec paging) =>
         paging.SortKey?.ToLowerInvariant() switch
         {
             "added" => By(query, item => item.CreatedAt, paging.Descending),
-            "line" => By(query, item => item.Id, paging.Descending),
-            _ => By(query, item => item.Id, descending: false),
+            "line" => By(query, item => item.Position, paging.Descending),
+            _ => By(query, item => item.Position, descending: false),
         };
 
     private static IQueryable<ImportListItem> By<TKey>(
