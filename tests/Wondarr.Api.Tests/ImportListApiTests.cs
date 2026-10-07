@@ -34,6 +34,9 @@ public sealed class ImportListApiTests
         var schema = await SongApiTests.ReadJsonAsync(response);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        schema.EnumerateArray().Select(provider => provider.GetProperty("type").GetString()).Should()
+            .Contain(["csv", "deezerPlaylist", "deezerArtistTop", "youtubeMusicPlaylist"]);
+
         var csv = schema.EnumerateArray().Single(provider => provider.GetProperty("type").GetString() == "csv");
         csv.GetProperty("fields").EnumerateArray().Select(field => field.GetProperty("name").GetString())
             .Should().Contain(["titleColumn", "artistColumn", "isrcColumn"]);
