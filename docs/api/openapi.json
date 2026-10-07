@@ -443,6 +443,40 @@
         }
       }
     },
+    "/api/v1/soulseek/test": {
+      "post": {
+        "tags": [
+          "Soulseek"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SoulseekConnectionTestResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SoulseekConnectionTestResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SoulseekConnectionTestResultResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/soulseek/status": {
       "get": {
         "tags": [
@@ -6635,6 +6669,50 @@
           }
         }
       },
+      "SoulseekConnectionTestResource": {
+        "required": [
+          "url",
+          "apiKey"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "apiKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SoulseekConnectionTestResultResource": {
+        "required": [
+          "ok",
+          "version",
+          "loggedIn",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "loggedIn": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "SoulseekSearchBudgetResource": {
         "required": [
           "submittedInWindow",
@@ -6698,7 +6776,13 @@
           "distributedNetwork",
           "downloadsDir",
           "incompleteDir",
-          "readOnlyFields"
+          "readOnlyFields",
+          "mode",
+          "externalUrl",
+          "externalApiKeySet",
+          "externalWebUsername",
+          "externalWebPasswordSet",
+          "externalRescanShares"
         ],
         "type": "object",
         "properties": {
@@ -6758,6 +6842,30 @@
             "items": {
               "type": "string"
             }
+          },
+          "mode": {
+            "type": "string"
+          },
+          "externalUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "externalApiKeySet": {
+            "type": "boolean"
+          },
+          "externalWebUsername": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "externalWebPasswordSet": {
+            "type": "boolean"
+          },
+          "externalRescanShares": {
+            "type": "boolean"
           }
         }
       },
@@ -6835,13 +6943,50 @@
               "null",
               "string"
             ]
+          },
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "externalUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "externalApiKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "externalWebUsername": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "externalWebPassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "externalRescanShares": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
       "SoulseekSettingsUpdateResponseResource": {
         "required": [
           "settings",
-          "restartsSlskd"
+          "restartsSlskd",
+          "restartsWondarr"
         ],
         "type": "object",
         "properties": {
@@ -6849,6 +6994,9 @@
             "$ref": "#/components/schemas/SoulseekSettingsResource"
           },
           "restartsSlskd": {
+            "type": "boolean"
+          },
+          "restartsWondarr": {
             "type": "boolean"
           }
         }

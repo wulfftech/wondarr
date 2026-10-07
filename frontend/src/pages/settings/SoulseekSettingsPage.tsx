@@ -18,6 +18,7 @@ import { notifications } from '@mantine/notifications';
 import { CircleAlert, Lock, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
+import { SoulseekConnectionCard } from './SoulseekConnectionCard';
 import {
   readSoulseekProblems,
   SoulseekUpdateError,
@@ -452,7 +453,7 @@ function SoulseekForm({ settings }: { settings: SoulseekSettingsResource }) {
   );
 }
 
-/** Settings → Soulseek: the bundled slskd's account, sharing and transfer settings, and its state. */
+/** Settings → Soulseek: which slskd (bundled or the user's own), its account, sharing and transfer settings, and its state. */
 export function SoulseekSettingsPage() {
   const settings = useSoulseekSettings();
 
@@ -466,7 +467,11 @@ export function SoulseekSettingsPage() {
 
       {settings.error !== null && <ErrorState message={settings.error.message} />}
 
-      {settings.data !== undefined && <SoulseekForm key={String(settings.data.username)} settings={settings.data} />}
+      {settings.data !== undefined && <SoulseekConnectionCard settings={settings.data} />}
+
+      {settings.data !== undefined && (
+        <SoulseekForm key={`${String(settings.data.username)}-${settings.data.mode}`} settings={settings.data} />
+      )}
     </Stack>
   );
 }
