@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.Extensions.Options;
 
 namespace Wondarr.Sources.Slskd;
 
@@ -44,29 +43,25 @@ public sealed class SlskdClient : ISlskdClient
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _http;
-    private readonly SlskdSecretsStore _secrets;
+    private readonly ISlskdEndpoint _endpoint;
 
     /// <summary>Initialises a new instance of the <see cref="SlskdClient"/> class.</summary>
-    public SlskdClient(HttpClient http, IOptionsMonitor<SoulseekOptions> options, SlskdSecretsStore secrets)
+    public SlskdClient(HttpClient http, ISlskdEndpoint endpoint)
     {
         ArgumentNullException.ThrowIfNull(http);
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(secrets);
+        ArgumentNullException.ThrowIfNull(endpoint);
 
         _http = http;
-        _secrets = secrets;
-
-        // The bundled slskd is always on loopback; the port is the only part that moves.
-        _http.BaseAddress ??= new Uri($"http://127.0.0.1:{options.CurrentValue.WebPort}/", UriKind.Absolute);
+        _endpoint = endpoint;
     }
 
     /// <inheritdoc />
     public async Task<SlskdApplicationState> GetApplicationStateAsync(CancellationToken cancellationToken)
     {
-        var secrets = await _secrets.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
+        var (baseAddress, apiKey) = await _endpoint.ResolveAsync(cancellationToken).ConfigureAwait(false);
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, ApplicationPath);
-        request.Headers.Add(ApiKeyHeader, secrets.ApiKey);
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(baseAddress, ApplicationPath));
+        request.Headers.Add(ApiKeyHeader, apiKey);
 
         using var response = await _http
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
@@ -85,10 +80,10 @@ public sealed class SlskdClient : ISlskdClient
     /// <inheritdoc />
     public async Task<SlskdRescanOutcome> RescanSharesAsync(CancellationToken cancellationToken)
     {
-        var secrets = await _secrets.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
+        var (baseAddress, apiKey) = await _endpoint.ResolveAsync(cancellationToken).ConfigureAwait(false);
 
-        using var request = new HttpRequestMessage(HttpMethod.Put, SharesPath);
-        request.Headers.Add(ApiKeyHeader, secrets.ApiKey);
+        using var request = new HttpRequestMessage(HttpMethod.Put, new Uri(baseAddress, SharesPath));
+        request.Headers.Add(ApiKeyHeader, apiKey);
 
         using var response = await _http
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)

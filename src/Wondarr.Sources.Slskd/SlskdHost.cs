@@ -132,9 +132,8 @@ public sealed partial class SlskdHost : BackgroundService
 
         if (options.Mode == SoulseekMode.External)
         {
-            _status.Set(new SlskdStatusSnapshot(
-                SlskdState.Disabled,
-                LastCheckedAt: Now));
+            // The external monitor owns the status in external mode; nothing here describes a
+            // process of ours.
             return;
         }
 

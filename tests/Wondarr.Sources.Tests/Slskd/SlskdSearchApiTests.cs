@@ -147,16 +147,24 @@ public class SlskdSearchApiTests
         handler.Requests.Should().ContainSingle().Which.Method.Should().Be(HttpMethod.Delete);
     }
 
+    [Fact]
+    public async Task External_mode_posts_to_the_configured_url_with_the_configured_key()
+    {
+        var handler = StubHttpMessageHandler.Ok(SlskdTestData.ReadFixture("live/search-create.json"));
+        var endpoint = new StubSlskdEndpoint(new Uri("http://slskd.example:5030/"), "external-key-0123456789");
+
+        await new SlskdSearchApi(new HttpClient(handler), endpoint)
+            .StartAsync(Request(), CancellationToken.None);
+
+        handler.Requests.Should().ContainSingle();
+        handler.Requests[0].RequestUri!.ToString().Should().Be("http://slskd.example:5030/api/v0/searches");
+        handler.Requests[0].Headers.GetValues(SlskdClient.ApiKeyHeader)
+            .Should().ContainSingle().Which.Should().Be("external-key-0123456789");
+    }
+
     private static SlskdSearchRequest Request() =>
         new(SearchId, "daft punk get lucky", 8000, 100, 2000, 1);
 
-    private static SlskdSearchApi Api(StubHttpMessageHandler handler)
-    {
-        var secrets = new SlskdSecretsStore(
-            SlskdTestData.RepositoryWithRuntimeSecrets(),
-            Substitute.For<ISecretRegistry>(),
-            SlskdTestData.Monitor(new SoulseekOptions()));
-
-        return new SlskdSearchApi(new HttpClient(handler), SlskdTestData.Monitor(new SoulseekOptions()), secrets);
-    }
+    private static SlskdSearchApi Api(StubHttpMessageHandler handler) =>
+        new(new HttpClient(handler), SlskdClientTests.BundledEndpoint());
 }

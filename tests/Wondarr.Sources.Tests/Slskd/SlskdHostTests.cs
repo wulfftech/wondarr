@@ -202,15 +202,11 @@ public class SlskdHostTests
             new SoulseekOptions { Mode = SoulseekMode.External, Username = null, Password = null });
 
         await harness.StartAsync();
-        await SlskdHostHarness.AwaitAsync(
-            () => harness.Status.Current.State == SlskdState.Disabled,
-            "the supervisor to stand down");
 
         harness.Launcher.Count.Should().Be(0);
 
-        var health = await harness.HealthCheck.CheckAsync(CancellationToken.None);
-        health.Type.Should().Be(HealthCheckResult.Ok);
-        health.Message.Should().Be("External slskd mode (checked in Phase 5)");
+        // The monitor owns the status in external mode: the supervisor writes nothing.
+        harness.Status.Current.State.Should().Be(SlskdState.NotConfigured);
     }
 
     [Fact]

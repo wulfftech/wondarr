@@ -47,15 +47,24 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SlskdSecretsStore>();
 
         // No retry policy: the supervisor decides whether an unreachable slskd is restarted, and a
-        // retry loop here would hide that from it.
-        services.AddHttpClient<ISlskdClient, SlskdClient>(client => client.Timeout = TimeSpan.FromSeconds(5));
+        // retry loop here would hide that from it. Redirects are not followed: a redirect to
+        // another host must never carry the API key.
+        services.AddHttpClient<ISlskdClient, SlskdClient>(client => client.Timeout = TimeSpan.FromSeconds(5))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
-        // Each call is small (slskd is on loopback); the runner's wall-clock token bounds a whole search,
-        // this bounds one hung request.
-        services.AddHttpClient<ISlskdSearchApi, SlskdSearchApi>(client => client.Timeout = TimeSpan.FromSeconds(15));
+        // Each call is small (the bundled slskd is on loopback; an external one is the user's own
+        // LAN); the runner's wall-clock token bounds a whole search, this bounds one hung request.
+        services.AddHttpClient<ISlskdSearchApi, SlskdSearchApi>(client => client.Timeout = TimeSpan.FromSeconds(15))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
-        // Enqueues and status reads are small, and slskd is on loopback: a slow one is a hung one.
-        services.AddHttpClient<ISlskdTransferApi, SlskdTransferApi>(client => client.Timeout = TimeSpan.FromSeconds(10));
+        // Enqueues and status reads are small, and a slow one is a hung one. Redirects stay off for
+        // the same reason as above.
+        services.AddHttpClient<ISlskdTransferApi, SlskdTransferApi>(client => client.Timeout = TimeSpan.FromSeconds(10))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+
+        // Where slskd is and how Wondarr authenticates to it: loopback and the generated key, or the
+        // user's URL and key. Read per request, so a settings change applies at once.
+        services.AddSingleton<ISlskdEndpoint, SlskdEndpoint>();
 
         // Downloads outlive any one request, so the service that owns them is a singleton and
         // resolves its typed client per call from a scope of its own.
@@ -88,6 +97,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHealthCheck, SlskdDownloadFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, SoulseekSharingHealthCheck>();
         services.AddHostedService<SlskdHost>();
+
+        // In external mode the supervisor owns nothing, so this monitor owns the status instead.
+        services.AddHostedService<SlskdExternalMonitor>();
 
         // slskd scans its shares only at start: an import asks it for a rescan, so the library is shared
         // as it grows. One instance is both the event handler and the hosted service that runs the scans.
