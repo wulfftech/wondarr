@@ -26,7 +26,9 @@ public sealed partial class SlskdExternalMonitor : BackgroundService
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SlskdExternalMonitor> _logger;
 
-    private CancellationTokenSource? _repoll;
+    // Completed by a settings change; replaced once the loop has seen it. Captured before each poll,
+    // so a change that lands while a poll runs is seen at the next wait, never lost.
+    private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Initialises a new instance of the <see cref="SlskdExternalMonitor"/> class.</summary>
     public SlskdExternalMonitor(
@@ -52,33 +54,49 @@ public sealed partial class SlskdExternalMonitor : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _repoll = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        // Any options change ends the wait, so new settings are polled at once. The listener only
+        // completes a task: it cannot throw, and a throwing OnChange listener would break the chain.
+        using var subscription = _options.OnChange(_ => Volatile.Read(ref _changed).TrySetResult());
 
-        // Any options change cancels the wait, so the new settings are polled immediately.
-        using var subscription = _options.OnChange(_ => _repoll?.Cancel());
+        if (_options.CurrentValue.Mode == SoulseekMode.External)
+        {
+            // Until the first poll answers, say what is happening rather than "not configured".
+            _status.Update(snapshot => snapshot with
+            {
+                State = SlskdState.External,
+                IsReachable = false,
+                LastError = $"checking slskd at {ExternalHost(_options.CurrentValue)}",
+                LastCheckedAt = _timeProvider.GetUtcNow(),
+            });
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var changed = Volatile.Read(ref _changed).Task;
+
             if (_options.CurrentValue.Mode == SoulseekMode.External)
             {
                 await PollAsync(stoppingToken).ConfigureAwait(false);
             }
 
-            _repoll.Dispose();
-            _repoll = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-
-            try
+            using (var wait = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
             {
-                await Task.Delay(PollInterval, _timeProvider, _repoll.Token).ConfigureAwait(false);
+                var delay = Task.Delay(PollInterval, _timeProvider, wait.Token);
+                await Task.WhenAny(delay, changed).ConfigureAwait(false);
+                await wait.CancelAsync().ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
-            {
-                if (stoppingToken.IsCancellationRequested)
-                {
-                    return;
-                }
 
-                // An options change: poll again now.
+            if (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (changed.IsCompleted)
+            {
+                // Seen: the next change completes a fresh task.
+                Interlocked.Exchange(
+                    ref _changed,
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
             }
         }
     }
