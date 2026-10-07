@@ -4152,6 +4152,8 @@ export interface components {
             enabled: null | boolean;
             /** Format: int32 */
             syncIntervalHours: null | number | string;
+            plexPlaylist?: null | boolean;
+            m3uExport?: null | boolean;
         };
         ImportListItemResolveResource: {
             mbRecordingId: null | string;
@@ -4210,6 +4212,11 @@ export interface components {
             settings?: unknown;
             /** @default false */
             hasFile: boolean;
+            /** @default false */
+            plexPlaylist: boolean;
+            /** @default false */
+            m3uExport: boolean;
+            plexPlaylistKey?: null | string;
         };
         ImportListSchemaResource: {
             type: string;

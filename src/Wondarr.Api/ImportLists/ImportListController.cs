@@ -248,7 +248,9 @@ public sealed class ImportListController : ControllerBase
             resource.QualityProfileId,
             resource.LibraryId,
             resource.Enabled ?? true,
-            resource.SyncIntervalHours ?? 24);
+            resource.SyncIntervalHours ?? 24,
+            resource.PlexPlaylist,
+            resource.M3uExport);
     }
 
     private IImportListProvider? ProviderFor(string type) =>
