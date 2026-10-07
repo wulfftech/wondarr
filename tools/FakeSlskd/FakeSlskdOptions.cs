@@ -69,16 +69,18 @@ public sealed record FakeSlskdOptions
         {
             Configuration = configuration,
             Scenario = Scenario.Load(Environment.GetEnvironmentVariable("FAKE_SLSKD_SCENARIO")),
-            AcoustIdPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_ACOUSTID_PORT")),
-            InnertubePort = ReadPort(Environment.GetEnvironmentVariable("FAKE_INNERTUBE_PORT")),
+            AcoustIdPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_ACOUSTID_PORT"), DefaultAcoustIdPort),
+            InnertubePort = ReadPort(Environment.GetEnvironmentVariable("FAKE_INNERTUBE_PORT"), DefaultInnertubePort),
             InnertubeFixtureDir = Environment.GetEnvironmentVariable("FAKE_INNERTUBE_FIXTURES"),
             ShareCachePath = string.IsNullOrWhiteSpace(appDirectory) ? null : Path.Combine(appDirectory, "fake-share-cache.json"),
         };
     }
 
-    private static int ReadPort(string? value) =>
+    // Each port falls back to its own default: one shared fallback put the InnerTube stub on the AcoustID
+    // stub's port whenever FAKE_INNERTUBE_PORT was unset, and the fake died binding it twice.
+    public static int ReadPort(string? value, int fallback) =>
         int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var port)
             && port is > 0 and <= 65535
                 ? port
-                : DefaultAcoustIdPort;
+                : fallback;
 }
