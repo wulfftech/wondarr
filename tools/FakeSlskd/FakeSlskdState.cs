@@ -24,6 +24,9 @@ public sealed class FakeSlskdState : IDisposable
     private readonly Dictionary<Guid, ScheduledSearch> _searches = [];
     private readonly Dictionary<Guid, FakeTransfer> _transfers = [];
     private readonly Dictionary<string, ScenarioIdentity> _identities = new(StringComparer.Ordinal);
+
+    // Identities the fake yt-dlp registered, matched by length when the fingerprint differs (see FindIdentity).
+    private readonly List<ScenarioIdentity> _transcodable = [];
     private readonly List<(string Query, string Params, DateTime AskedAt)> _innertubeSearches = [];
 
     // Files the gate added after the start (POST /fake/scenario/files): "a FLAC appears" for the upgrade gate.
@@ -440,11 +443,47 @@ public sealed class FakeSlskdState : IDisposable
 
     /// <summary>The recording the AcoustID stub knows for <paramref name="fingerprint"/>.</summary>
     /// <param name="fingerprint">The fingerprint to look up.</param>
-    public ScenarioIdentity? FindIdentity(string fingerprint)
+    public ScenarioIdentity? FindIdentity(string fingerprint) => FindIdentity(fingerprint, durationSeconds: null);
+
+    /// <summary>
+    /// The identity for a fingerprint: an exact match first; failing that, a registration from the fake
+    /// yt-dlp whose length is within 2 s of the looked-up file's, when exactly one fits. The app
+    /// transcodes a YouTube download (Opus → AAC) before it verifies it, which changes the Chromaprint
+    /// fingerprint; the real AcoustID matches fingerprints fuzzily, this stub stands in by length.
+    /// </summary>
+    /// <param name="fingerprint">The looked-up fingerprint.</param>
+    /// <param name="durationSeconds">The looked-up file's length, when the request carried one.</param>
+    /// <returns>The identity, or <see langword="null"/>.</returns>
+    public ScenarioIdentity? FindIdentity(string fingerprint, double? durationSeconds)
     {
         lock (_gate)
         {
-            return fingerprint is not null && _identities.TryGetValue(fingerprint, out var identity) ? identity : null;
+            if (fingerprint is not null && _identities.TryGetValue(fingerprint, out var identity))
+            {
+                return identity;
+            }
+
+            if (durationSeconds is not { } seconds)
+            {
+                return null;
+            }
+
+            var close = _transcodable.Where(candidate => Math.Abs(candidate.DurationSeconds - seconds) <= 2).Take(2).ToList();
+
+            return close.Count == 1 ? close[0] : null;
+        }
+    }
+
+    /// <summary>Remembers an identity the fake yt-dlp registered, also matchable by length after a transcode.</summary>
+    /// <param name="fingerprint">The generated Opus file's fingerprint.</param>
+    /// <param name="identity">The recording it should verify as.</param>
+    public void RememberTranscodableIdentity(string fingerprint, ScenarioIdentity identity)
+    {
+        RememberIdentity(fingerprint, identity);
+
+        lock (_gate)
+        {
+            _transcodable.Add(identity);
         }
     }
 
