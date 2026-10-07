@@ -1054,6 +1054,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/song/convert/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConvertRequestResource"];
+                    "application/*+json": components["schemas"]["ConvertRequestResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConvertPlanResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/song/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConvertRequestResource"];
+                    "application/*+json": components["schemas"]["ConvertRequestResource"];
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConvertAcceptedResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/slskd/webhook": {
         parameters: {
             query?: never;
@@ -3923,6 +4021,41 @@ export interface components {
             /** Format: int32 */
             songsConsidered: number | string;
             moves: components["schemas"]["CompactMoveResource"][];
+        };
+        ConvertAcceptedResource: {
+            /** Format: int64 */
+            commandId: number | string;
+        };
+        ConvertPlanResource: {
+            /** Format: int32 */
+            convert: number | string;
+            /** Format: int32 */
+            skip: number | string;
+            /** Format: int32 */
+            refuse: number | string;
+            /** Format: int64 */
+            currentSize: number | string;
+            /** Format: int64 */
+            estimatedSize: number | string;
+            songs: components["schemas"]["ConvertSongResource"][];
+        };
+        ConvertRequestResource: {
+            songIds: null | (number | string)[];
+            /** Format: int64 */
+            libraryId: null | number | string;
+            rule: null | components["schemas"]["JsonNode"];
+        };
+        ConvertSongResource: {
+            /** Format: int64 */
+            songId: number | string;
+            outcome: string;
+            reason: null | string;
+            fromCodec: null | string;
+            toCodec: null | string;
+            /** Format: int64 */
+            currentSize: number | string;
+            /** Format: int64 */
+            estimatedSize: number | string;
         };
         CsvPreviewInputResource: {
             sourceText: null | string;
