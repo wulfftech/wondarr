@@ -44,6 +44,8 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Discord/Payloads/DiscordPayload.cs`, `Embed.cs`, `DiscordField.cs`, `DiscordAuthor.cs`, `DiscordImage.cs` | `src/Wondarr.Core/Notifications/Discord/DiscordPayloads.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Discord/Discord.cs`, `DiscordProxy.cs` | `src/Wondarr.Core/Notifications/Discord/DiscordProvider.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Notifications/Discord/DiscordSettings.cs` | `src/Wondarr.Core/Notifications/Discord/DiscordSettings.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/Backup/BackupController.cs` | `src/Wondarr.Api/SystemInfo/BackupController.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/Lidarr.Api.V1/System/Backup/BackupResource.cs` | `src/Wondarr.Api/SystemInfo/BackupResource.cs` |
 | yt-dlp (https://github.com/yt-dlp/yt-dlp) | Unlicense | the documented download invocation (format selection, sleep flags, `--print after_move:filepath`) | `src/Wondarr.Sources.YouTube/YtDlpRunner.cs` |
 | spotDL (https://github.com/spotDL/spotify-downloader) | MIT | the pacing and retry strategy | `src/Wondarr.Sources.YouTube/YtDlpRunner.cs` |
 | yt-dlp (https://github.com/yt-dlp/yt-dlp) | Unlicense | the YouTube extractor's user-facing error strings | `src/Wondarr.Sources.YouTube/YtDlpErrorTaxonomy.cs` |
