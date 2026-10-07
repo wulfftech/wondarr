@@ -186,6 +186,42 @@ public class DecisionEngineTests
         RejectionReason.DurationOutOfTolerance.ToWireName().Should().Be("durationOutOfTolerance");
         RejectionReason.NotAnUpgrade.ToWireName().Should().Be("notAnUpgrade");
         RejectionReason.BelowMinimumScore.ToWireName().Should().Be("belowMinimumScore");
+        RejectionReason.WorseIdentity.ToWireName().Should().Be("worseIdentity");
+    }
+
+    [Fact]
+    public void Rejects_an_upgrade_whose_identity_score_is_below_the_current_files()
+    {
+        // A held MP3-256 whose candidate matched the song at 390, and a FLAC that matches it less
+        // well: the quality rule alone would take it, the identity rule must not.
+        var context = Context() with { CurrentFileQualityId = 23, CurrentFileIdentityScore = 390 };
+
+        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Get Lucky (Remix)" });
+
+        Judge(context, worse).Accepted.Should().BeFalse();
+        Judge(context, worse).Rejections.Should().ContainSingle()
+            .Which.Reason.Should().Be(RejectionReason.WorseIdentity);
+
+        // A candidate that matches at least as well as the held file's is still an upgrade.
+        Judge(context, NewCandidate(qualityId: 36, sizeBytes: 43_600_000)).Accepted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_identity_rule_never_applies_without_a_known_held_score_or_to_a_manual_grab()
+    {
+        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Get Lucky (Remix)" });
+
+        // No stored candidate behind the held file (adopted, or imported before scores were kept):
+        // the quality rule is all there is.
+        Judge(Context() with { CurrentFileQualityId = 23 }, worse).Accepted.Should().BeTrue();
+
+        // The user asked for this one by hand: their decision, not the engine's.
+        Judge(Context() with
+        {
+            CurrentFileQualityId = 23,
+            CurrentFileIdentityScore = 390,
+            IsManualGrab = true,
+        }, worse).Accepted.Should().BeTrue();
     }
 
     private static CandidateDecision Judge(DecisionContext context, Candidate candidate) =>

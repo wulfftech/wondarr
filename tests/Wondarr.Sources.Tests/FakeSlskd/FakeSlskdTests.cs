@@ -155,6 +155,37 @@ public sealed class FakeSlskdTests
     }
 
     [Fact]
+    public void Each_stub_port_falls_back_to_its_own_default()
+    {
+        // Unset, the InnerTube stub once fell back to the AcoustID port and the fake died binding it twice.
+        FakeSlskdOptions.ReadPort(null, FakeSlskdOptions.DefaultInnertubePort).Should().Be(5032);
+        FakeSlskdOptions.ReadPort("", FakeSlskdOptions.DefaultAcoustIdPort).Should().Be(5031);
+        FakeSlskdOptions.ReadPort("6000", FakeSlskdOptions.DefaultInnertubePort).Should().Be(6000);
+        FakeSlskdOptions.ReadPort("70000", FakeSlskdOptions.DefaultInnertubePort).Should().Be(5032);
+    }
+
+    [Fact]
+    public async Task Files_added_after_the_start_are_found_by_later_searches()
+    {
+        await using var harness = await FakeSlskdHarness.StartAsync(ScenarioJson(searchDelayMs: 60_000));
+        const string flac = @"@@gate\Music\Daft Punk\Get Lucky.flac";
+
+        // The upgrade gate's hook: "a FLAC appears" on the network after the song was imported.
+        var added = await harness.PostAsync<JsonObject>("/fake/scenario/files", new[] { Offer(flac) });
+        added["files"]!.GetValue<int>().Should().Be(2);
+
+        var id = Guid.NewGuid();
+        await harness.PostAsync<SlskdSearch>(
+            "/api/v0/searches",
+            new { id, searchText = "daft punk get lucky", searchTimeout = 8000, responseLimit = 100 });
+        using var stopped = await harness.Slskd.PutAsync($"/api/v0/searches/{id}", content: null);
+
+        var responses = await harness.GetAsync<List<SlskdSearchResponse>>($"/api/v0/searches/{id}/responses");
+        responses.Should().ContainSingle().Which.Files.Select(file => file.Filename)
+            .Should().BeEquivalentTo([TrackPath, flac]);
+    }
+
+    [Fact]
     public async Task Search_responses_stay_empty_until_the_search_completes()
     {
         await using var harness = await FakeSlskdHarness.StartAsync(ScenarioJson(searchDelayMs: 60_000));

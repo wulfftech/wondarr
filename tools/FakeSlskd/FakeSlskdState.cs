@@ -26,6 +26,9 @@ public sealed class FakeSlskdState : IDisposable
     private readonly Dictionary<string, ScenarioIdentity> _identities = new(StringComparer.Ordinal);
     private readonly List<(string Query, string Params, DateTime AskedAt)> _innertubeSearches = [];
 
+    // Files the gate added after the start (POST /fake/scenario/files): "a FLAC appears" for the upgrade gate.
+    private readonly List<ScenarioFile> _addedFiles = [];
+
     private int _inFlight;
     private int _maxInFlight;
     private int _nextToken = 1;
@@ -49,6 +52,21 @@ public sealed class FakeSlskdState : IDisposable
         if (!RestoreShareCache())
         {
             RescanShares();
+        }
+    }
+
+    /// <summary>Adds files to the scenario; later searches and transfers see them like the ones it started with.</summary>
+    /// <param name="files">The files to add.</param>
+    /// <returns>How many files the scenario holds now.</returns>
+    public int AddScenarioFiles(IEnumerable<ScenarioFile> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+
+        lock (_gate)
+        {
+            _addedFiles.AddRange(files);
+
+            return _options.Scenario.Files.Count + _addedFiles.Count;
         }
     }
 
@@ -170,7 +188,7 @@ public sealed class FakeSlskdState : IDisposable
                 Token = _nextToken++,
                 PostedAt = now,
                 CompleteAt = now.AddMilliseconds(_options.Scenario.SearchDelayMs),
-                Matches = _options.Scenario.Files
+                Matches = ScenarioFilesLocked()
                     .Where(file => SearchText.Matches(searchText, file.Path))
                     .ToArray(),
             };
@@ -281,7 +299,7 @@ public sealed class FakeSlskdState : IDisposable
         {
             foreach (var file in body.Files)
             {
-                var scenarioFile = _options.Scenario.Files.FirstOrDefault(candidate =>
+                var scenarioFile = ScenarioFilesLocked().FirstOrDefault(candidate =>
                     string.Equals(candidate.Username, body.Username, StringComparison.Ordinal)
                     && string.Equals(candidate.Path, file.Filename, StringComparison.Ordinal));
 
@@ -702,6 +720,9 @@ public sealed class FakeSlskdState : IDisposable
                 };
             })
             .ToArray();
+
+    /// <summary>The scenario's files and the ones added since; call with <see cref="_gate"/> held.</summary>
+    private IEnumerable<ScenarioFile> ScenarioFilesLocked() => _options.Scenario.Files.Concat(_addedFiles);
 
     private static SlskdFileResource ToResource(ScenarioFile file) => new()
     {

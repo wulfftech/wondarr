@@ -133,8 +133,8 @@ Notifier
 
 | Job | Default interval | Notes |
 |---|---|---|
-| Wanted search (missing) | every 6 h, plus immediately on add | Per-song backoff after repeated failures: 1 h → 6 h → 24 h → 72 h → weekly (capped); "search on add" configurable |
-| Cutoff-unmet upgrade search | every 24 h | Bounded per run (e.g. max 50 songs) to be polite to Soulseek |
+| Wanted search (missing) | every 6 h, plus immediately on add | Per-song backoff after repeated failures: 1 h → 6 h → 24 h → 72 h → weekly (capped); "search on add" (`search.search_on_add`, default on) queues a `SongSearch` per added monitored song |
+| Cutoff-unmet upgrade search | every 24 h (`search.upgrade_interval_hours`) | Bounded per run (`search.upgrade_batch_size`, default 50 songs) to be polite to Soulseek; its own backoff counts only `Upgrade` runs |
 | Queue poll | every 10 s (active) / 60 s (idle) | Progress + completion detection; per-source stall timeouts |
 | Import scan of completed folder | on completion event + every 5 min | Catches downloads finished while the app was down |
 | Import list sync | per list (default 12 h) | Adds new items; policy decides about removals |
@@ -169,7 +169,7 @@ GET    /api/v1/history?songId=&eventType=
 GET    /api/v1/blocklist | DELETE /api/v1/blocklist/{id}
 GET    /api/v1/release?songId=  (interactive search; runs all sources)   POST /api/v1/release (grab a candidate)
 POST   /api/v1/release/push  (autobrr-style push of a candidate)
-POST   /api/v1/command  {name: SongSearch|MissingSearch|CutoffUnmetSearch|ImportListSync|RescanLibrary|RefreshSong…}
+POST   /api/v1/command  {name: SongSearch|MissingSearch|UpgradeSearch|CutoffUnmetSearch|ImportListSync|RescanLibrary|RefreshSong…}
 GET/PUT /api/v1/qualityprofile | /qualitydefinition | /sourceprofile
 GET/POST/PUT/DELETE /api/v1/source | /downloadclient | /importlist | /notification | /library
 POST   /api/v1/library/{id}/preview  {songId}  -> rendered path
