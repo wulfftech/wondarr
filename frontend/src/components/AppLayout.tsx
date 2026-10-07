@@ -8,7 +8,20 @@ import {
   Tooltip,
   useMantineColorScheme,
 } from '@mantine/core';
-import { Activity, GitMerge, HeartPulse, Library, Moon, Plus, Settings, Star, Sun } from 'lucide-react';
+import {
+  Activity,
+  Archive,
+  GitMerge,
+  HeartPulse,
+  Library,
+  Moon,
+  Plus,
+  ScrollText,
+  Settings,
+  Star,
+  Sun,
+  Timer,
+} from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
@@ -22,7 +35,10 @@ const NAV_ITEMS = [
   { to: '/match', match: '/match', label: 'Match', icon: GitMerge },
   { to: '/activity', match: '/activity', label: 'Activity', icon: Activity },
   { to: '/settings', match: '/settings', label: 'Settings', icon: Settings },
-  { to: '/system/status', match: '/system', label: 'System', icon: HeartPulse },
+  { to: '/system/status', match: '/system/status', label: 'System', icon: HeartPulse },
+  { to: '/system/tasks', match: '/system/tasks', label: 'Tasks', icon: Timer },
+  { to: '/system/backup', match: '/system/backup', label: 'Backup', icon: Archive },
+  { to: '/system/logs', match: '/system/logs', label: 'Logs', icon: ScrollText },
 ] as const;
 
 /** The count of health checks that are not `ok`, or `null` while the list is unknown. */
