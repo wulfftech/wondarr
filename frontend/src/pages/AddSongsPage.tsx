@@ -17,7 +17,7 @@ import {
 import { CircleAlert, Disc3, Plus } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useQualityProfiles } from '../api/profiles';
+import { useLibraries, useQualityProfiles } from '../api/profiles';
 import { readEnum } from '../api/profiles';
 import {
   candidateAddInput,
@@ -41,6 +41,49 @@ import { formatDuration } from '../components/SongCells';
 
 /** The longest list the paste box takes, matching the API's own limit. */
 const MAX_LINES = 1000;
+
+/** What the library picker of the add screens is, and the library it sends when the user has not picked. */
+interface LibraryChoice {
+  /** Whether the picker is shown at all: one library needs no choosing. */
+  visible: boolean;
+  options: { value: string; label: string }[];
+  /** The id the add requests carry: the picked library, else the default one. */
+  value: string | null;
+  pick: (id: string | null) => void;
+}
+
+/** The libraries songs can be filed into, with the default one as the picker's starting value. */
+function useLibraryChoice(): LibraryChoice {
+  const libraries = useLibraries();
+  const rows = libraries.data ?? [];
+  const [picked, setPicked] = useState<string | null>(null);
+  const fallback = rows.find((library) => library.isDefault) ?? rows[0];
+
+  return {
+    visible: rows.length > 1,
+    options: rows.map((library) => ({ value: String(library.id), label: library.name })),
+    value: picked ?? (fallback === undefined ? null : String(fallback.id)),
+    pick: setPicked,
+  };
+}
+
+/** The library a song is filed into; hidden while there is only one library to choose. */
+function LibraryPicker({ choice }: { choice: LibraryChoice }) {
+  if (!choice.visible) {
+    return null;
+  }
+
+  return (
+    <Select
+      label="Library"
+      data={choice.options}
+      value={choice.value}
+      allowDeselect={false}
+      w={220}
+      onChange={choice.pick}
+    />
+  );
+}
 
 /** The term the search box suggests, used as its placeholder. */
 const SEARCH_PLACEHOLDER = 'Artist - Title, a MusicBrainz or Deezer link, or an ISRC';
@@ -144,6 +187,7 @@ function LibraryLink({ songId, artistId }: { songId: number; artistId: number | 
 function SearchTab() {
   const lookup = useSongLookup();
   const add = useAddSong();
+  const library = useLibraryChoice();
   const [term, setTerm] = useState('');
   const [added, setAdded] = useState<Map<string, { songId: number; artistId: number | null }>>(new Map());
 
@@ -156,15 +200,22 @@ function SearchTab() {
   };
 
   const onAdd = (candidate: SongLookupResource) => {
-    add.mutate(candidateAddInput(candidate), {
-      onSuccess: (result) =>
-        setAdded((current) =>
-          new Map(current).set(candidate.mbRecordingId ?? `deezer:${String(candidate.deezerId)}`, {
-            songId: result.songId,
-            artistId: result.primaryArtistId,
-          }),
-        ),
-    });
+    add.mutate(
+      {
+        ...candidateAddInput(candidate),
+        // Only named when the user had a choice; one library is the API's own default anyway.
+        libraryId: library.visible && library.value !== null ? Number(library.value) : null,
+      },
+      {
+        onSuccess: (result) =>
+          setAdded((current) =>
+            new Map(current).set(candidate.mbRecordingId ?? `deezer:${String(candidate.deezerId)}`, {
+              songId: result.songId,
+              artistId: result.primaryArtistId,
+            }),
+          ),
+      },
+    );
   };
 
   const rows = lookup.data ?? [];
@@ -180,6 +231,7 @@ function SearchTab() {
             flex={1}
             onChange={(event) => setTerm(event.currentTarget.value)}
           />
+          <LibraryPicker choice={library} />
           <Button type="submit" loading={lookup.isPending}>
             Search
           </Button>
@@ -255,6 +307,7 @@ function PasteTab() {
   const navigate = useNavigate();
   const bulk = useBulkAdd();
   const profiles = useQualityProfiles();
+  const library = useLibraryChoice();
   const [text, setText] = useState('');
   const [profileId, setProfileId] = useState<string | null>(null);
   const [accepted, setAccepted] = useState<BulkAddAcceptedResource | null>(null);
@@ -285,7 +338,12 @@ function PasteTab() {
 
   const submit = () => {
     bulk.mutate(
-      { text, qualityProfileId: selectedProfile === null ? null : Number(selectedProfile) },
+      {
+        text,
+        qualityProfileId: selectedProfile === null ? null : Number(selectedProfile),
+        // Only named when the user had a choice; one library is the API's own default anyway.
+        libraryId: library.visible && library.value !== null ? Number(library.value) : null,
+      },
       { onSuccess: setAccepted },
     );
   };
@@ -319,6 +377,8 @@ function PasteTab() {
         w={260}
         onChange={setProfileId}
       />
+
+      <LibraryPicker choice={library} />
 
       <Group justify="flex-end">
         <Button
