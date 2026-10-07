@@ -35,7 +35,7 @@ public sealed class ImportListApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         schema.EnumerateArray().Select(provider => provider.GetProperty("type").GetString()).Should()
-            .Contain(["csv", "deezerPlaylist", "deezerArtistTop", "youtubeMusicPlaylist"]);
+            .Contain(["csv", "deezerPlaylist", "deezerArtistTop", "youtubeMusicPlaylist", "lastfmLoved", "lastfmTop", "listenbrainzLoved", "listenbrainzPlaylist", "referenceLibrary"]);
 
         var csv = schema.EnumerateArray().Single(provider => provider.GetProperty("type").GetString() == "csv");
         csv.GetProperty("fields").EnumerateArray().Select(field => field.GetProperty("name").GetString())
