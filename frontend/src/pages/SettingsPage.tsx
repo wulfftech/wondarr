@@ -9,14 +9,7 @@ import { SoulseekSettingsPage } from './settings/SoulseekSettingsPage';
 import { YouTubeSettingsPage } from './settings/YouTubeSettingsPage';
 
 /** The Settings sections, and the route segment each one owns. */
-type SettingsSection =
-  | 'profiles'
-  | 'library'
-  | 'references'
-  | 'soulseek'
-  | 'youtube'
-  | 'plex'
-  | 'notifications';
+type SettingsSection = 'profiles' | 'library' | 'references' | 'soulseek' | 'youtube' | 'plex' | 'notifications';
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'profiles', label: 'Quality profiles' },

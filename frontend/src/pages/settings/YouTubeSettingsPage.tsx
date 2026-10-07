@@ -215,18 +215,16 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
       body.searchLimit = toNumber(searchLimit);
     }
 
-    if (!isLocked('ytdlpSleepRequestsSeconds') || !isLocked('ytdlpSleepIntervalSeconds') ||
-        !isLocked('ytdlpMaxSleepIntervalSeconds') || !isLocked('ytdlpRetries')) {
+    if (
+      !isLocked('ytdlpSleepRequestsSeconds') ||
+      !isLocked('ytdlpSleepIntervalSeconds') ||
+      !isLocked('ytdlpMaxSleepIntervalSeconds') ||
+      !isLocked('ytdlpRetries')
+    ) {
       body.ytdlp = {
-        sleepRequestsSeconds: isLocked('ytdlpSleepRequestsSeconds')
-          ? undefined
-          : toNumber(sleepRequests),
-        sleepIntervalSeconds: isLocked('ytdlpSleepIntervalSeconds')
-          ? undefined
-          : toNumber(sleepInterval),
-        maxSleepIntervalSeconds: isLocked('ytdlpMaxSleepIntervalSeconds')
-          ? undefined
-          : toNumber(maxSleepInterval),
+        sleepRequestsSeconds: isLocked('ytdlpSleepRequestsSeconds') ? undefined : toNumber(sleepRequests),
+        sleepIntervalSeconds: isLocked('ytdlpSleepIntervalSeconds') ? undefined : toNumber(sleepInterval),
+        maxSleepIntervalSeconds: isLocked('ytdlpMaxSleepIntervalSeconds') ? undefined : toNumber(maxSleepInterval),
         retries: isLocked('ytdlpRetries') ? undefined : toNumber(retries),
       };
     }
@@ -329,9 +327,9 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
         <Text fw={600}>Output policy (default)</Text>
 
         <Text size="sm" c="dimmed">
-          What a YouTube download becomes before it is verified and placed — the default for libraries
-          without a policy of their own. Whatever the container, the file is ranked as its Opus-160
-          source, so a 320 cutoff keeps it upgradeable.
+          What a YouTube download becomes before it is verified and placed — the default for libraries without a policy
+          of their own. Whatever the container, the file is ranked as its Opus-160 source, so a 320 cutoff keeps it
+          upgradeable.
         </Text>
 
         <Stack gap="xs">
@@ -476,9 +474,9 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
       >
         <Stack gap="md">
           <Text size="sm">
-            YouTube's Terms of Service prohibit automated access. Wondarr does not bundle an account,
-            cookies or a token: you enable this with your own credentials, on your own egress, and
-            the pacing stays well inside YouTube's tolerance.
+            YouTube's Terms of Service prohibit automated access. Wondarr does not bundle an account, cookies or a
+            token: you enable this with your own credentials, on your own egress, and the pacing stays well inside
+            YouTube's tolerance.
           </Text>
 
           <Group justify="flex-end">
