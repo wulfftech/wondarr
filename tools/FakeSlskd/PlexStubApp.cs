@@ -22,7 +22,8 @@ public static class PlexStubApp
 
     private static readonly string[] AudioExtensions = [".mp3", ".flac", ".m4a", ".opus", ".ogg"];
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    /// <summary>Property names exactly as written: Plex answers <c>MediaContainer</c>, <c>Metadata</c>, <c>Part</c>.</summary>
+    private static readonly JsonSerializerOptions Json = new();
 
     /// <summary>Builds the stub. The caller starts it.</summary>
     /// <param name="options">Configuration: the port and the sections.</param>
@@ -193,7 +194,7 @@ public static class PlexStubApp
                     title = playlist.Title,
                     items = playlist.Snapshot().Select(item => new { ratingKey = item.RatingKey, file = plex.PathOf(item.RatingKey) }),
                 }),
-                refreshes = plex.Refreshes.ToArray(),
+                refreshes = plex.Refreshes.Select(refresh => new { section = refresh.Section, path = refresh.Path }),
             },
             Json));
 
