@@ -1,0 +1,4 @@
+{"queue": {"status": "Downloading", "paused": false, "slots": [
+  {"status": "Paused", "index": 0, "password": "", "avg_age": "2d", "script": "None", "direct_unpack": null, "mb": "1024.00", "mbleft": "1024.00", "mbmissing": "0.0", "size": "1.0 GB", "sizeleft": "1.0 GB", "filename": "Some Other Release", "labels": [], "priority": "Normal", "cat": "wondarr", "timeleft": "0:00:00", "percentage": "0", "nzo_id": "SABnzbd_nzo_other", "unpackopts": "3"},
+  {"status": "Downloading", "index": 1, "password": "", "avg_age": "2d", "script": "None", "direct_unpack": null, "mb": "400.00", "mbleft": "100.00", "mbmissing": "0.0", "size": "400 MB", "sizeleft": "100 MB", "filename": "Daft Punk - Discovery (2001) [FLAC]", "labels": [], "priority": "Normal", "cat": "wondarr", "timeleft": "0:01:10", "percentage": "75", "nzo_id": "SABnzbd_nzo_p86tgx", "unpackopts": "3"}
+]}}
