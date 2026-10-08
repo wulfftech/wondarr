@@ -240,6 +240,46 @@ public class DecisionEngineTests
         }, worse).Accepted.Should().BeTrue();
     }
 
+    [Fact]
+    public void A_torrent_scores_its_seeders_freeleech_and_known_file_list()
+    {
+        var torrent = NewCandidate() with
+        {
+            SourceType = SourceTypes.Torznab,
+            Availability = new CandidateAvailability(Seeders: 10, Freeleech: true, FileListKnown: true),
+        };
+
+        Judge(Context(), torrent).Score.Availability.Should().Be(150);
+        Judge(Context(), torrent with { Availability = new CandidateAvailability(Seeders: 1) })
+            .Score.Availability.Should().Be(30);
+    }
+
+    [Fact]
+    public void A_torrent_without_seeders_is_rejected()
+    {
+        var torrent = NewCandidate() with
+        {
+            SourceType = SourceTypes.Torznab,
+            Availability = new CandidateAvailability(Seeders: 0),
+        };
+
+        Judge(Context(), torrent).Rejections.Should().ContainSingle(rejection => rejection.Reason == RejectionReason.NoSeeders);
+    }
+
+    [Fact]
+    public void A_usenet_post_over_the_container_limit_is_rejected_and_a_torrent_is_not()
+    {
+        var release = new ContainerRelease { IndexerId = 1, IndexerName = "nzb", Title = "Album", ReleaseId = "g", Size = 2_000L * 1024 * 1024 };
+        var post = NewCandidate() with { SourceType = SourceTypes.Newznab, Release = release, Availability = new CandidateAvailability(AgeDays: 100) };
+        var torrent = post with { SourceType = SourceTypes.Torznab, Availability = new CandidateAvailability(Seeders: 5) };
+
+        Judge(Context(), post).Rejections.Should().ContainSingle(rejection => rejection.Reason == RejectionReason.ContainerTooLarge);
+        Judge(Context() with { MaxContainerSizeBytes = 3_000L * 1024 * 1024 }, post).Rejections
+            .Should().NotContain(rejection => rejection.Reason == RejectionReason.ContainerTooLarge);
+        Judge(Context(), torrent).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ContainerTooLarge);
+        Judge(Context(), post).Score.Availability.Should().Be(90);
+    }
+
     private static CandidateDecision Judge(DecisionContext context, Candidate candidate) =>
         Engine.Evaluate(context, [candidate]).Single();
 
