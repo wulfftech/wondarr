@@ -1,4 +1,5 @@
 using Wondarr.Core.Domain;
+using Wondarr.Core.Sources;
 
 namespace Wondarr.Api.Queue;
 
@@ -30,7 +31,7 @@ namespace Wondarr.Api.Queue;
 /// <param name="Title">Lidarr's <c>title</c>: the file being downloaded (for Unpackerr and dashboards).</param>
 /// <param name="Status">Lidarr's lowercase <c>status</c>: <c>queued</c>, <c>downloading</c>, <c>completed</c> or <c>failed</c>.</param>
 /// <param name="TrackedDownloadStatus">Lidarr's <c>trackedDownloadStatus</c>: <c>ok</c>, or <c>error</c> once the grab failed.</param>
-/// <param name="Protocol">Lidarr's <c>protocol</c>: the source type. Unpackerr only extracts <c>torrent</c>/<c>usenet</c> downloads.</param>
+/// <param name="Protocol">Lidarr's <c>protocol</c>: <c>torrent</c> or <c>usenet</c> for the indexer sources, else the source type (<c>soulseek</c>, <c>youtube</c>). Unpackerr only extracts <c>torrent</c>/<c>usenet</c> downloads; a staged song file has nothing to extract.</param>
 /// <param name="Size">Lidarr's <c>size</c> in bytes, 0 when unknown.</param>
 /// <param name="Sizeleft">Lidarr's <c>sizeleft</c> in bytes, 0 when unknown or done.</param>
 /// <param name="DownloadId">Lidarr's <c>downloadId</c>: the item id as a string.</param>
@@ -113,7 +114,7 @@ public static class QueueResourceExtensions
             candidate?.DisplayName ?? item.Song?.Title ?? string.Empty,
             LidarrStatus(item.State),
             item.State is QueueItemState.Failed or QueueItemState.Cancelled ? "error" : "ok",
-            item.SourceType,
+            LidarrProtocol(item.SourceType),
             item.SizeBytes ?? 0,
             item.SizeBytes is { } size ? Math.Max(0, size - item.BytesTransferred) : 0,
             item.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -123,6 +124,14 @@ public static class QueueResourceExtensions
     }
 
     /// <summary>The queue state the way Lidarr spells a queue record's <c>status</c>.</summary>
+    /// <summary>Lidarr's protocol names for the indexer sources; Soulseek and YouTube say what they are.</summary>
+    private static string LidarrProtocol(string sourceType) => sourceType switch
+    {
+        SourceTypes.Torznab => "torrent",
+        SourceTypes.Newznab => "usenet",
+        _ => sourceType,
+    };
+
     private static string LidarrStatus(QueueItemState state) => state switch
     {
         QueueItemState.Queued or QueueItemState.RemotelyQueued => "queued",

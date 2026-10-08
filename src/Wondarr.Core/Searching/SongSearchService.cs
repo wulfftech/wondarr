@@ -605,9 +605,20 @@ public sealed partial class SongSearchService : ISongSearchService
     }
 
     /// <inheritdoc />
-    public async Task<long> GrabCandidateAsync(
+    public Task<long> GrabCandidateAsync(
         long candidateRecordId,
         int attempt,
+        CancellationToken cancellationToken) =>
+        GrabCandidateAsync(candidateRecordId, attempt, bundle: true, cancellationToken);
+
+    /// <summary>
+    /// Grabs one candidate; a container grab with <paramref name="bundle"/> set also takes every other
+    /// wanted song the container holds (DECISIONS build session 8 #6).
+    /// </summary>
+    private async Task<long> GrabCandidateAsync(
+        long candidateRecordId,
+        int attempt,
+        bool bundle,
         CancellationToken cancellationToken)
     {
         var record = await _database.Candidates
@@ -632,6 +643,20 @@ public sealed partial class SongSearchService : ISongSearchService
         var provider = _providers.FirstOrDefault(source => source.SourceType == record.SourceType)
             ?? throw new GrabFailedException(
                 string.Concat("No source is registered for the type '", record.SourceType, "'."));
+
+        // The other wanted songs in the same container are found before the grab, so the client
+        // selects their files (and SABnzbd keeps them) from the start.
+        var bundled = bundle
+            ? await ContainerBundler.FindAsync(_database, record.SongId, candidate, cancellationToken).ConfigureAwait(false)
+            : [];
+
+        if (bundled.Count > 0)
+        {
+            candidate = candidate with
+            {
+                Release = candidate.Release! with { AlsoWanted = [.. bundled.Select(song => song.Match.File.Path)] },
+            };
+        }
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -713,7 +738,9 @@ public sealed partial class SongSearchService : ISongSearchService
                     record.DisplayName,
                     record.Score,
                     candidate.Query,
-                    item.Destination),
+                    item.Destination,
+                    candidate.Release?.Title,
+                    bundled.Count),
                 Json),
         });
 
@@ -736,7 +763,64 @@ public sealed partial class SongSearchService : ISongSearchService
             .PublishAsync(new SongGrabbedEvent(item.Id, record.SongId), cancellationToken)
             .ConfigureAwait(false);
 
+        foreach (var song in bundled)
+        {
+            await GrabBundledAsync(record, candidate, song, attempt, cancellationToken).ConfigureAwait(false);
+        }
+
         return item.Id;
+    }
+
+    /// <summary>
+    /// One bundled song's own candidate record, queue item and grab on the container already grabbed.
+    /// A song that started downloading meanwhile, or whose grab fails, is skipped: the first song's
+    /// grab stands either way.
+    /// </summary>
+    private async Task GrabBundledAsync(
+        CandidateRecord grabbed,
+        Candidate container,
+        BundledSong song,
+        int attempt,
+        CancellationToken cancellationToken)
+    {
+        var candidate = ContainerBundler.CandidateFor(container, song);
+        var record = new CandidateRecord
+        {
+            SearchRunId = grabbed.SearchRunId,
+            SongId = song.Song.Id,
+            SourceType = candidate.SourceType,
+            SourceInstanceId = candidate.SourceInstanceId,
+            BlocklistKey = candidate.BlocklistKey,
+            DisplayName = candidate.DisplayName,
+            RemotePath = candidate.RemotePath,
+            Provider = candidate.Provider,
+            QualityId = candidate.QualityId,
+            SizeBytes = candidate.SizeBytes,
+            DurationMs = candidate.DurationMs,
+            Normalised = JsonSerializer.Serialize(candidate, Json),
+            Score = grabbed.Score,
+            ScoreBreakdown = grabbed.ScoreBreakdown,
+            Accepted = true,
+        };
+
+        try
+        {
+            _database.Candidates.Add(record);
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            await GrabCandidateAsync(record.Id, attempt, bundle: false, cancellationToken).ConfigureAwait(false);
+            LogBundled(_logger, song.Song.Id, grabbed.SongId, record.Id);
+        }
+        catch (Exception exception) when (exception is AlreadyDownloadingException or GrabFailedException or DbUpdateException)
+        {
+            // A record that never reached the database must not ride along on a later save.
+            if (_database.Entry(record).State == EntityState.Added)
+            {
+                _database.Entry(record).State = EntityState.Detached;
+            }
+
+            LogBundleFailed(_logger, song.Song.Id, grabbed.SongId, exception.Message);
+        }
     }
 
     /// <summary>Marks a queue item failed without a usable cancellation token, and never throws.</summary>
@@ -989,6 +1073,12 @@ public sealed partial class SongSearchService : ISongSearchService
         return flags;
     }
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Song {SongId} bundled with song {GrabbedSongId}'s grab (candidate {CandidateId})")]
+    private static partial void LogBundled(ILogger logger, long songId, long grabbedSongId, long candidateId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Song {SongId} could not be bundled with song {GrabbedSongId}'s grab: {Reason}")]
+    private static partial void LogBundleFailed(ILogger logger, long songId, long grabbedSongId, string reason);
+
     [LoggerMessage(
         Level = LogLevel.Information,
         Message = "Search {SearchRunId} for song {SongId} ({Trigger}): {Queries} queries, {Candidates} candidates, {Accepted} accepted → {Outcome}")]
@@ -1036,5 +1126,7 @@ public sealed partial class SongSearchService : ISongSearchService
         string DisplayName,
         int Score,
         string? Query,
-        string Destination);
+        string Destination,
+        string? Release = null,
+        int BundledWith = 0);
 }
