@@ -169,6 +169,26 @@ public sealed class PlexApiTests
     }
 
     [Fact]
+    public async Task Connecting_by_machine_identifier_keeps_a_connection_that_answers()
+    {
+        using var factory = Factory(Tv(), ServerClient());
+        using var api = new Session(factory);
+        await SignInAsync(api);
+
+        var (connected, body) = await api.PutAsync($"{Endpoint}/server/connect", new { machineIdentifier = MachineIdentifier });
+
+        connected.Should().Be(HttpStatusCode.OK);
+        var state = (JsonObject)body!;
+        state["serverUrl"]!.GetValue<string>().Should().Be(ServerUrl);
+        state["machineIdentifier"]!.GetValue<string>().Should().Be(MachineIdentifier);
+
+        var (unknown, _) = await api.PutAsync($"{Endpoint}/server/connect", new { machineIdentifier = "ffff" });
+        unknown.Should().Be(HttpStatusCode.BadRequest);
+
+        api.AssertNoSecret(Token, ServerToken);
+    }
+
+    [Fact]
     public async Task Sections_lists_only_the_music_sections()
     {
         using var factory = Factory(Tv(), ServerClient());
@@ -274,6 +294,7 @@ public sealed class PlexApiTests
         (await api.PutAsync($"{Endpoint}/token", new { token = Token })).Status.Should().Be(HttpStatusCode.Unauthorized);
         (await api.GetAsync($"{Endpoint}/servers")).Status.Should().Be(HttpStatusCode.Unauthorized);
         (await api.PutAsync($"{Endpoint}/server", new { serverUrl = ServerUrl })).Status.Should().Be(HttpStatusCode.Unauthorized);
+        (await api.PutAsync($"{Endpoint}/server/connect", new { machineIdentifier = MachineIdentifier })).Status.Should().Be(HttpStatusCode.Unauthorized);
         (await api.PostAsync($"{Endpoint}/test")).Status.Should().Be(HttpStatusCode.Unauthorized);
         (await api.GetAsync($"{Endpoint}/sections")).Status.Should().Be(HttpStatusCode.Unauthorized);
         (await api.DeleteAsync(Endpoint)).Status.Should().Be(HttpStatusCode.Unauthorized);

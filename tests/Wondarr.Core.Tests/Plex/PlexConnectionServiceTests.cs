@@ -370,6 +370,92 @@ public class PlexConnectionServiceTests
         (await service.GetServerContextAsync(CancellationToken.None)).Should().BeNull();
     }
 
+    [Fact]
+    public async Task ConnectServer_keeps_the_first_local_connection_that_answers_as_that_server()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubServers(harness,
+            Connection("https://plex.example.remote:32400", local: false),
+            Connection("https://relay.plex.tv:8443", local: false, relay: true),
+            Connection("https://172-17-0-1.abc.plex.direct:32400", local: true),
+            Connection("https://192-168-1-40.abc.plex.direct:32400", local: true));
+
+        // The Docker bridge address is another host's Plex; the LAN address is the server.
+        harness.Server.GetIdentityAsync(new Uri("https://172-17-0-1.abc.plex.direct:32400"), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new PlexIdentity("ffffffffffffffffffffffffffffffffffffffff", "1.40.0", true)));
+        harness.Server.GetIdentityAsync(new Uri("https://192-168-1-40.abc.plex.direct:32400"), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new PlexIdentity(MachineIdentifier, "1.43.4", true)));
+        harness.Server.GetIdentityAsync(new Uri("https://plex.example.remote:32400"), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new PlexIdentity(MachineIdentifier, "1.43.4", true)));
+        harness.Server.GetIdentityAsync(new Uri("https://relay.plex.tv:8443"), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new PlexIdentity(MachineIdentifier, "1.43.4", true)));
+
+        var identity = await harness.CreateService().ConnectServerAsync(MachineIdentifier, CancellationToken.None);
+
+        identity.MachineIdentifier.Should().Be(MachineIdentifier);
+        var settings = (await harness.ReadSettingsAsync())!;
+        settings.ServerUrl.Should().Be("https://192-168-1-40.abc.plex.direct:32400");
+        settings.ServerName.Should().Be("Test Server 0");
+        settings.ServerToken.Should().Be(ServerToken);
+    }
+
+    [Fact]
+    public async Task ConnectServer_names_each_connection_that_failed_when_none_answers()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubServers(harness,
+            Connection("https://172-17-0-1.abc.plex.direct:32401", local: true),
+            Connection("https://plex.example.remote:32400", local: false));
+        harness.Server.GetIdentityAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<PlexIdentity>(new PlexException("The Plex server could not be reached: Connection refused")));
+
+        var act = () => harness.CreateService().ConnectServerAsync(MachineIdentifier, CancellationToken.None);
+
+        var failure = await act.Should().ThrowAsync<PlexException>();
+        failure.Which.Message.Should()
+            .Contain("None of the 2 connections")
+            .And.Contain("https://172-17-0-1.abc.plex.direct:32401: The Plex server could not be reached")
+            .And.Contain("https://plex.example.remote:32400");
+        (await harness.ReadSettingsAsync())!.ServerUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ConnectServer_refuses_a_server_the_account_does_not_list()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubServers(harness, Connection("https://plex.example:32400", local: true));
+
+        var act = () => harness.CreateService().ConnectServerAsync("1111111111111111111111111111111111111111", CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task ConnectServer_needs_a_sign_in()
+    {
+        using var harness = new PlexConnectionHarness();
+
+        var act = () => harness.CreateService().ConnectServerAsync(MachineIdentifier, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage(PlexConnectionService.NotSignedIn);
+    }
+
+    private static PlexServerConnection Connection(string uri, bool local, bool relay = false)
+    {
+        var parsed = new Uri(uri);
+
+        return new PlexServerConnection(uri, local, relay, parsed.Scheme, parsed.Host, parsed.Port);
+    }
+
+    private static void StubServers(PlexConnectionHarness harness, params PlexServerConnection[] connections) =>
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", connections),
+            ]));
+
     private static Task<PlexPinStatus> SignInAsync(PlexConnectionHarness harness)
     {
         harness.Tv.CheckPinAsync(Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())

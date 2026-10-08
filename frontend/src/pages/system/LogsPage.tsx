@@ -6,6 +6,7 @@ import { firstPage, type Paging } from '../../api/paging';
 import { logFileDownloadUrl, useLogFiles, useLogs, type LogResource } from '../../api/system';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 import { PagedTable, type PagedColumn } from '../../components/PagedTable';
+import { initCaps } from '../../components/text';
 
 /** The levels the filter offers, lowest first; the API shows the chosen one and everything above it. */
 const LEVELS = ['Debug', 'Information', 'Warning', 'Error'];
@@ -37,7 +38,7 @@ function logColumns(): PagedColumn<LogResource>[] {
       width: 110,
       render: (entry) => (
         <Badge variant="light" color={levelColour(entry.level)}>
-          {entry.level}
+          {initCaps(entry.level)}
         </Badge>
       ),
     },
