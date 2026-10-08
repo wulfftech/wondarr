@@ -6,6 +6,7 @@ using Wondarr.Core.Blocklisting;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Decisions;
+using Wondarr.Core.DownloadClients;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.History;
 using Wondarr.Core.Importing;
@@ -15,6 +16,7 @@ using Wondarr.Core.ImportLists.Deezer;
 using Wondarr.Core.ImportLists.LastFm;
 using Wondarr.Core.ImportLists.ListenBrainz;
 using Wondarr.Core.ImportLists.References;
+using Wondarr.Core.Indexers;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
@@ -112,6 +114,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHandle<QueueItemChangedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
         services.AddSingleton<IHandle<HealthCheckCompletedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
         services.AddHostedService(provider => provider.GetRequiredService<NotificationDispatcher>());
+
+        // Indexers and download clients: the CRUD services read and write the scoped DbContext, like
+        // the notification service. The types themselves arrive with the source projects (P7-03,
+        // P7-05, P7-06); until then the container resolves the two enumerations as empty and the
+        // schema endpoints answer an empty list.
+        services.AddScoped<IIndexerService, IndexerService>();
+        services.AddScoped<IDownloadClientService, DownloadClientService>();
 
         // One client for every provider. No redirects (a webhook URL may carry a token, and following
         // one would hand it to whoever the far end names) and no cookie jar (each send is independent).
