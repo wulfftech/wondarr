@@ -180,7 +180,7 @@ public sealed class PlexController : ControllerBase
     }
 
     /// <summary>
-    /// Selects one of the account's servers by name: every connection plex.tv lists for it is tried,
+    /// Selects one of the account's servers by its machine identifier: every connection plex.tv lists for it is tried,
     /// and the best one that answers as that server is kept.
     /// </summary>
     /// <param name="resource">The server to connect to.</param>
