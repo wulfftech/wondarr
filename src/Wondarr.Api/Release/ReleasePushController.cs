@@ -1,41 +1,32 @@
-using System.Text.RegularExpressions;
-using Wondarr.Core.Domain;
-using Wondarr.Core.Identity;
-using Wondarr.Core.Paging;
-using Wondarr.Core.Wanted;
 using Microsoft.AspNetCore.Mvc;
+using Wondarr.Core.Searching;
 
 namespace Wondarr.Api.Release;
 
 /// <summary>
 /// <c>POST /api/v1/release/push</c>: what autobrr's "push to Lidarr" action calls (ARCHITECTURE §5.6,
-/// DECISIONS build session 6 #7). The answer keeps Lidarr's shape — one object with
-/// <c>approved</c>/<c>rejected</c>/<c>temporarilyRejected</c>/<c>rejections</c>, and a 400 with the
-/// validation array when the title is missing — so autobrr understands it. Until a source can take a
-/// pushed torrent or NZB (Phase 7), every push is rejected with the reason; nothing is grabbed or stored,
-/// and nothing about the push but its title, protocol and outcome is logged (download URLs can carry
-/// tracker passkeys).
+/// DECISIONS build session 6 #7, build session 8 #11). The answer keeps Lidarr's shape — one object
+/// with <c>approved</c>/<c>rejected</c>/<c>temporarilyRejected</c>/<c>rejections</c>, and a 400 with
+/// the validation array when the title is missing — so autobrr understands it. A pushed torrent or NZB
+/// is matched against the wanted songs, judged by the engine and grabbed when approved; nothing about
+/// the push but its title, protocol and outcome is logged (download URLs can carry tracker passkeys).
 /// </summary>
 [ApiController]
 [Route("api/v1/release/push")]
-public sealed partial class ReleasePushController : ControllerBase
+public sealed class ReleasePushController : ControllerBase
 {
-    private readonly IWantedService _wanted;
-    private readonly ILogger<ReleasePushController> _logger;
+    private readonly IReleasePushHandler _handler;
 
     /// <summary>Initialises a new instance of the <see cref="ReleasePushController"/> class.</summary>
-    /// <param name="wanted">The wanted list a push is matched against.</param>
-    /// <param name="logger">The logger.</param>
-    public ReleasePushController(IWantedService wanted, ILogger<ReleasePushController> logger)
+    /// <param name="handler">Decides and grabs the pushed release.</param>
+    public ReleasePushController(IReleasePushHandler handler)
     {
-        ArgumentNullException.ThrowIfNull(wanted);
-        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(handler);
 
-        _wanted = wanted;
-        _logger = logger;
+        _handler = handler;
     }
 
-    /// <summary>Decides a pushed release.</summary>
+    /// <summary>Decides a pushed release, and grabs it when approved.</summary>
     /// <param name="release">The release, as autobrr sends it.</param>
     /// <param name="cancellationToken">Cancels the decision.</param>
     [HttpPost]
@@ -57,66 +48,26 @@ public sealed partial class ReleasePushController : ControllerBase
         var protocol = string.IsNullOrWhiteSpace(release.Protocol)
             ? (release.DownloadProtocol ?? "unknown")
             : release.Protocol;
-        var song = await MatchAsync(release.Title, cancellationToken).ConfigureAwait(false);
 
-        var rejections = new List<string>();
-
-        if (song is null)
-        {
-            rejections.Add($"No wanted song matches '{release.Title}'");
-        }
-
-        rejections.Add($"No download client for protocol '{protocol}' (torrent and usenet sources arrive in a later release)");
-
-        LogPushed(_logger, release.Title, protocol, song?.Id);
+        var outcome = await _handler.PushAsync(
+            new PushedRelease(
+                release.Title,
+                protocol,
+                release.DownloadUrl,
+                release.MagnetUrl,
+                release.Size,
+                release.Indexer,
+                release.PublishDate is { } published ? new DateTimeOffset(DateTime.SpecifyKind(published, DateTimeKind.Utc)) : null),
+            cancellationToken).ConfigureAwait(false);
 
         return Ok(new ReleasePushDecisionResource(
-            Approved: false,
-            Rejected: true,
+            Approved: outcome.Approved,
+            Rejected: !outcome.Approved,
             TemporarilyRejected: false,
-            Rejections: rejections,
-            SongId: song?.Id,
-            SongTitle: song?.Title));
+            Rejections: outcome.Rejections,
+            SongId: outcome.SongId,
+            SongTitle: outcome.SongTitle));
     }
-
-    /// <summary>
-    /// The wanted song (missing, or below its cutoff) whose main artist and title the release name
-    /// carries as <c>Artist - Title</c>, compared the way the identity matcher compares them.
-    /// </summary>
-    private async Task<Song?> MatchAsync(string title, CancellationToken cancellationToken)
-    {
-        var dash = title.IndexOf(" - ", StringComparison.Ordinal);
-
-        if (dash <= 0)
-        {
-            return null;
-        }
-
-        var artist = TextMatching.NormalizeArtist(title[..dash]);
-        var name = TextMatching.Normalize(Bracketed().Replace(title[(dash + 3)..], " "));
-
-        if (artist.Length == 0 || name.Length == 0)
-        {
-            return null;
-        }
-
-        var paging = new PagingSpec(1, PagingSpec.MaxPageSize, null, descending: false);
-        var missing = await _wanted.GetMissingAsync(paging, cancellationToken).ConfigureAwait(false);
-        var cutoff = await _wanted.GetCutoffUnmetAsync(paging, cancellationToken).ConfigureAwait(false);
-
-        return missing.Records
-            .Concat(cutoff.Records)
-            .FirstOrDefault(song =>
-                TextMatching.Normalize(song.Title) == name
-                && TextMatching.NormalizeArtist(song.PrimaryArtist?.Name ?? song.ArtistCredit) == artist);
-    }
-
-    /// <summary>Release-name decorations: <c>[FLAC]</c>, <c>(320)</c>, <c>{WEB}</c>.</summary>
-    [GeneratedRegex(@"[\[\(\{][^\]\)\}]*[\]\)\}]")]
-    private static partial Regex Bracketed();
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Release push '{Title}' ({Protocol}) rejected; wanted song {SongId}")]
-    private static partial void LogPushed(ILogger logger, string title, string protocol, long? songId);
 }
 
 /// <summary>A pushed release, as autobrr's Lidarr action sends it (unknown fields are ignored).</summary>

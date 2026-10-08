@@ -124,6 +124,24 @@ public interface ISongSearchService
     /// <exception cref="AlreadyDownloadingException">The song already has a download in flight.</exception>
     /// <exception cref="InvalidOperationException">The candidate does not exist.</exception>
     Task<long> GrabCandidateAsync(long candidateRecordId, int attempt, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Judges candidates that came from outside a search — a pushed release (DECISIONS build session 8
+    /// #11) — exactly as a search's would be: a run is recorded, the engine decides, the candidates are
+    /// stored, and the best accepted one is grabbed when asked.
+    /// </summary>
+    /// <param name="songId">The song the candidates are for.</param>
+    /// <param name="candidates">The candidates.</param>
+    /// <param name="trigger">What brought them (<see cref="SearchTrigger.Push"/>).</param>
+    /// <param name="grab">Whether to grab the best accepted one.</param>
+    /// <param name="cancellationToken">Cancels the run.</param>
+    /// <exception cref="SongNotFoundException">No song has that id.</exception>
+    Task<SongSearchResult> JudgeAsync(
+        long songId,
+        IReadOnlyList<Candidate> candidates,
+        SearchTrigger trigger,
+        bool grab,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -253,6 +271,66 @@ public sealed partial class SongSearchService : ISongSearchService
             await FinishQuietlyAsync(run.Id, SearchOutcome.Failed, sources, queries, exception.Message)
                 .ConfigureAwait(false);
 
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<SongSearchResult> JudgeAsync(
+        long songId,
+        IReadOnlyList<Candidate> candidates,
+        SearchTrigger trigger,
+        bool grab,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+
+        var song = await LoadSongAsync(songId, cancellationToken).ConfigureAwait(false)
+            ?? throw new SongNotFoundException(string.Concat("No song has the id ", songId.ToString(CultureInfo.InvariantCulture), "."));
+
+        if (grab && await _queue.HasActiveForSongAsync(songId, cancellationToken).ConfigureAwait(false))
+        {
+            return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, "Already downloading");
+        }
+
+        var run = await _runs.StartAsync(songId, trigger, cancellationToken).ConfigureAwait(false);
+        var sources = candidates.Select(candidate => candidate.SourceType).Distinct(StringComparer.Ordinal).ToList();
+        var queries = candidates.Select(candidate => candidate.Query).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+
+        try
+        {
+            var providers = _providers.Where(provider => sources.Contains(provider.SourceType)).ToList();
+            var blockedKeys = await LoadBlockedKeysAsync(providers, songId, cancellationToken).ConfigureAwait(false);
+            var ignored = await _users.GetIgnoredAsync(cancellationToken).ConfigureAwait(false);
+            var context = await BuildContextAsync(song, trigger, blockedKeys, ignored, cancellationToken).ConfigureAwait(false);
+            var decisions = _engine.Evaluate(context, candidates);
+
+            await StoreCandidatesAsync(song, run.Id, decisions, cancellationToken).ConfigureAwait(false);
+
+            var accepted = decisions.Count(decision => decision.Accepted);
+            long? queueItemId = grab && accepted > 0
+                ? await GrabBestAsync(run.Id, 1, cancellationToken).ConfigureAwait(false)
+                : null;
+
+            var (outcome, message) = queueItemId is { } id
+                ? (SearchOutcome.Grabbed, string.Concat("Grabbed candidate ", id.ToString(CultureInfo.InvariantCulture), "."))
+                : accepted == 0
+                    ? (SearchOutcome.NoAcceptableCandidate, string.Concat(decisions.Count.ToString(CultureInfo.InvariantCulture), " candidates, none acceptable: ", Explain(decisions)))
+                    : (SearchOutcome.Cancelled, grab ? "Nothing could be grabbed" : "Judged only");
+
+            await _runs.FinishAsync(run.Id, outcome, sources, queries, message, cancellationToken).ConfigureAwait(false);
+            LogRun(_logger, songId, trigger, run.Id, queries.Count, candidates.Count, accepted, outcome);
+
+            return new SongSearchResult(run.Id, outcome, decisions, queueItemId, message);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await FinishQuietlyAsync(run.Id, SearchOutcome.Failed, sources, queries, exception.Message).ConfigureAwait(false);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            await FinishQuietlyAsync(run.Id, SearchOutcome.Cancelled, sources, queries, "The judgement was cancelled.").ConfigureAwait(false);
             throw;
         }
     }
