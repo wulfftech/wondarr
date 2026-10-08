@@ -106,7 +106,7 @@ public sealed class IndexerSourceProviderTests
     public async Task A_release_on_two_indexers_is_read_once()
     {
         var torrent = AlbumTorrent("Daft Punk - Discovery (2001) [FLAC]");
-        var hash = Magnets.InfoHash("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")!;
+        const string hash = "0123456789abcdef0123456789abcdef01234567";
         var indexer = new FakeIndexerClient
         {
             Answer = query => query.Album == "Discovery"
@@ -229,6 +229,28 @@ public sealed class IndexerSourceProviderTests
         var candidate = result.Candidates.Should().ContainSingle().Subject;
         candidate.RemotePath.Should().Be("Daft Punk - Discovery (2001) [FLAC]");
         candidate.Availability.FileListKnown.Should().BeFalse();
+        candidate.Release!.Size.Should().Be(900_040_000, "the whole post downloads, the Par2 volume included");
+    }
+
+    [Fact]
+    public async Task A_file_whose_extension_names_another_codec_takes_the_file_s_quality()
+    {
+        // The release claims FLAC; the matched file is an MP3 at about 320 kbps.
+        var torrent = AlbumTorrent("Daft Punk - Discovery (2001) [FLAC]", extension: "mp3", trackSize: 12_000_000);
+        var indexer = new FakeIndexerClient
+        {
+            Answer = query => query.Album == "Discovery"
+                ? [Release("Daft Punk - Discovery (2001) [FLAC]", "guid-1", seeders: 4, downloadUrl: "https://indexer.example/dl/1")]
+                : [],
+            Download = _ => new IndexerDownload(torrent, null),
+        };
+        var provider = Provider(indexer, out _);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        var candidate = result.Candidates.Should().ContainSingle().Subject;
+        candidate.Extension.Should().Be("mp3");
+        SeedData.Qualities.Single(quality => quality.Id == candidate.QualityId).Lossless.Should().BeFalse();
     }
 
     [Fact]
@@ -271,16 +293,6 @@ public sealed class IndexerSourceProviderTests
 
         available.Should().BeFalse();
     }
-
-    [Theory]
-    [InlineData("magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567", "0123456789abcdef0123456789abcdef01234567")]
-    [InlineData("magnet:?dn=x&xt=urn%3Abtih%3A0123456789abcdef0123456789abcdef01234567", "0123456789abcdef0123456789abcdef01234567")]
-    [InlineData("magnet:?xt=urn:btih:AERUKZ4JVPG66AJDIVTYTK6N54ASGRLH", "0123456789abcdef0123456789abcdef01234567")]
-    [InlineData("magnet:?xt=urn:btmh:1220abcd", null)]
-    [InlineData("https://example/1.torrent", null)]
-    [InlineData(null, null)]
-    public void Reads_the_info_hash_out_of_a_magnet(string? magnet, string? expected) =>
-        Magnets.InfoHash(magnet).Should().Be(expected);
 
     private static SongSearchRequest Request() =>
         new(1, "Digital Love", "Daft Punk", ["Daft Punk"], "Discovery", DurationMs, VersionFlags.None)
@@ -338,11 +350,11 @@ public sealed class IndexerSourceProviderTests
         new(title, guid, downloadUrl, magnetUrl, infoHash, size, DateTimeOffset.UtcNow.AddDays(-30), seeders, null, grabs, [3040], 1, null, protocol, 1, "Indexer 1", null);
 
     /// <summary>A twelve-track FLAC album with its cover: track 3 is the song.</summary>
-    private static byte[] AlbumTorrent(string name, string[]? titles = null)
+    private static byte[] AlbumTorrent(string name, string[]? titles = null, string extension = "flac", long trackSize = FlacTrackSize)
     {
         var tracks = titles ?? DiscoveryTracks;
         var entries = tracks
-            .Select((title, index) => (Path: $"{index + 1:00} - {title}.flac", Size: FlacTrackSize))
+            .Select((title, index) => (Path: $"{index + 1:00} - {title}.{extension}", Size: trackSize))
             .Append((Path: "cover.jpg", Size: 250_000L))
             .ToArray();
 
