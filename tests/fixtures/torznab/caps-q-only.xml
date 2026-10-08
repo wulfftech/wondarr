@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Newznab site that only offers the plain text search: no music search at all. -->
+<caps>
+  <server version="0.1" title="Example Newznab"/>
+  <limits max="100" default="25"/>
+  <searching>
+    <search available="yes" supportedParams="q"/>
+  </searching>
+  <categories>
+    <category id="3000" name="Music" description="Music"/>
+  </categories>
+</caps>

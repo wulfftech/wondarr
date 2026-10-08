@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Torznab feed with three items: a magnet with an infohash, a .torrent enclosure, and a freeleech. -->
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Example Tracker</title>
+    <link>https://indexer.example/</link>
+    <description>Example Torznab feed</description>
+    <item>
+      <title>Daft Punk - Discovery [2001] [FLAC]</title>
+      <guid isPermaLink="false">example-1</guid>
+      <link>https://indexer.example/details/1</link>
+      <comments>https://indexer.example/details/1#comments</comments>
+      <pubDate>Tue, 13 Mar 2001 00:00:00 +0000</pubDate>
+      <enclosure url="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&amp;dn=Daft%20Punk%20-%20Discovery" type="application/x-bittorrent" length="0"/>
+      <torznab:attr name="infohash" value="0123456789ABCDEF0123456789ABCDEF01234567"/>
+      <torznab:attr name="magneturl" value="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&amp;dn=Daft%20Punk%20-%20Discovery"/>
+      <torznab:attr name="seeders" value="42"/>
+      <torznab:attr name="peers" value="50"/>
+      <torznab:attr name="size" value="3412345678"/>
+      <torznab:attr name="category" value="3000"/>
+      <torznab:attr name="category" value="3040"/>
+      <torznab:attr name="downloadvolumefactor" value="1"/>
+      <torznab:attr name="files" value="14"/>
+    </item>
+    <item>
+      <title>Daft Punk - Discovery [2001] [MP3-320]</title>
+      <guid isPermaLink="false">example-2</guid>
+      <link>https://indexer.example/details/2</link>
+      <comments>https://indexer.example/details/2#comments</comments>
+      <pubDate>Wed, 14 Mar 2001 00:00:00 +0000</pubDate>
+      <enclosure url="https://indexer.example/download/2.torrent" type="application/x-bittorrent" length="2834"/>
+      <torznab:attr name="infohash" value="FEDCBA9876543210FEDCBA9876543210FEDCBA98"/>
+      <torznab:attr name="seeders" value="7"/>
+      <torznab:attr name="leechers" value="3"/>
+      <torznab:attr name="size" value="123456789"/>
+      <torznab:attr name="category" value="3010"/>
+      <torznab:attr name="downloadvolumefactor" value="1"/>
+    </item>
+    <item>
+      <title>Daft Punk - Discovery [2001] [24BIT FLAC]</title>
+      <guid isPermaLink="false">example-3</guid>
+      <link>https://indexer.example/details/3</link>
+      <comments>https://indexer.example/details/3#comments</comments>
+      <pubDate>Thu, 15 Mar 2001 00:00:00 +0000</pubDate>
+      <enclosure url="https://indexer.example/download/3.torrent" type="application/x-bittorrent" length="4096"/>
+      <torznab:attr name="seeders" value="11"/>
+      <torznab:attr name="peers" value="12"/>
+      <torznab:attr name="size" value="5678901234"/>
+      <torznab:attr name="category" value="3040"/>
+      <torznab:attr name="downloadvolumefactor" value="0"/>
+      <torznab:attr name="files" value="13"/>
+    </item>
+  </channel>
+</rss>

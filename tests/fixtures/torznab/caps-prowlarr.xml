@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Prowlarr per-indexer caps answer: music search supports q, artist and album. -->
+<caps>
+  <server version="1.0" title="Prowlarr"/>
+  <limits max="500" default="100"/>
+  <searching>
+    <search available="yes" supportedParams="q" searchEngine="raw"/>
+    <music-search available="yes" supportedParams="q,artist,album"/>
+  </searching>
+  <categories>
+    <category id="3000" name="Music" description="Music">
+      <subcat id="3010" name="MP3" description="MP3"/>
+      <subcat id="3040" name="Lossless" description="Lossless"/>
+    </category>
+  </categories>
+</caps>
