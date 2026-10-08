@@ -10,17 +10,21 @@ public sealed class IndexerClientFactory : IIndexerClientFactory
 {
     private readonly TorznabIndexerClient _torznab;
     private readonly NewznabIndexerClient _newznab;
+    private readonly PushedReleaseClient _pushed;
 
     /// <summary>Initialises a new instance of the <see cref="IndexerClientFactory"/> class.</summary>
     /// <param name="torznab">The Torznab client.</param>
     /// <param name="newznab">The Newznab client.</param>
-    public IndexerClientFactory(TorznabIndexerClient torznab, NewznabIndexerClient newznab)
+    /// <param name="pushed">The download-only client of a pushed release's pseudo-indexer.</param>
+    public IndexerClientFactory(TorznabIndexerClient torznab, NewznabIndexerClient newznab, PushedReleaseClient pushed)
     {
         ArgumentNullException.ThrowIfNull(torznab);
         ArgumentNullException.ThrowIfNull(newznab);
+        ArgumentNullException.ThrowIfNull(pushed);
 
         _torznab = torznab;
         _newznab = newznab;
+        _pushed = pushed;
     }
 
     /// <inheritdoc />
@@ -32,6 +36,7 @@ public sealed class IndexerClientFactory : IIndexerClientFactory
         {
             "torznab" => _torznab,
             "newznab" => _newznab,
+            PushedReleaseClient.Type => _pushed,
             _ => throw new IndexerException($"There is no client for the indexer type '{indexer.Type}'."),
         };
     }

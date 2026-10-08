@@ -46,8 +46,11 @@ public sealed partial class IndexerSourceProvider
         await using (scope.ConfigureAwait(false))
         {
             var services = scope.ServiceProvider;
-            var indexer = await services.GetRequiredService<IIndexerService>().GetAsync(release.IndexerId, cancellationToken).ConfigureAwait(false)
-                ?? throw new DownloadClientException($"The indexer that listed '{release.Title}' no longer exists.");
+            // A pushed release has no indexer row: its pseudo-indexer only downloads the pushed link.
+            var indexer = release.IndexerId == PushedReleaseClient.IndexerId
+                ? PushedReleaseClient.Row(release.IndexerName, _protocol)
+                : await services.GetRequiredService<IIndexerService>().GetAsync(release.IndexerId, cancellationToken).ConfigureAwait(false)
+                    ?? throw new DownloadClientException($"The indexer that listed '{release.Title}' no longer exists.");
             var client = await ChooseClientAsync(services, indexer, cancellationToken).ConfigureAwait(false);
 
             var staging = Path.Combine(_import.CurrentValue.ContainerStagingPath, destination.Replace('/', Path.DirectorySeparatorChar));
