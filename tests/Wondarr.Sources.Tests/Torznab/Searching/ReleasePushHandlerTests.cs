@@ -28,6 +28,8 @@ public sealed class ReleasePushHandlerTests
 
     private readonly List<(long SongId, Candidate Candidate)> _judged = [];
     private readonly ISongSearchService _search = Substitute.For<ISongSearchService>();
+    private readonly IQueueService _queue = Substitute.For<IQueueService>();
+    private readonly HashSet<long> _active = [];
     private readonly IDownloadClientService _clients = Substitute.For<IDownloadClientService>();
     private readonly IWantedService _wanted = Substitute.For<IWantedService>();
     private readonly List<Uri> _downloads = [];
@@ -41,15 +43,15 @@ public sealed class ReleasePushHandlerTests
             new DownloadClient { Id = 2, Name = "SABnzbd", Type = "sabnzbd", Protocol = DownloadProtocol.Usenet },
         ]);
 
-        // The first song's grab bundles the rest, as the search service does.
+        // The first song's grab bundles the rest, as the search service does: they become active.
+        _queue.HasActiveForSongAsync(Arg.Any<long>(), Arg.Any<CancellationToken>()).Returns(call => _active.Contains(call.Arg<long>()));
         _search.JudgeAsync(Arg.Any<long>(), Arg.Any<IReadOnlyList<Candidate>>(), SearchTrigger.Push, true, Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 _judged.Add((call.Arg<long>(), call.Arg<IReadOnlyList<Candidate>>().Single()));
+                _active.UnionWith([1, 2, 3]);
 
-                return _judged.Count == 1
-                    ? new SongSearchResult(1, SearchOutcome.Grabbed, [], 10, "Grabbed candidate 10.")
-                    : new SongSearchResult(0, SearchOutcome.Cancelled, [], null, "Already downloading");
+                return new SongSearchResult(1, SearchOutcome.Grabbed, [], 10, "Grabbed candidate 10.");
             });
 
         Wanted(Song(1, "Digital Love", 3), Song(2, "Crescendolls", 4), Song(3, "Get Lucky", 8, album: "Random Access Memories"));
@@ -63,7 +65,7 @@ public sealed class ReleasePushHandlerTests
         outcome.Approved.Should().BeTrue();
         outcome.Rejections.Should().BeEmpty();
         outcome.SongId.Should().Be(1);
-        _judged.Select(judged => judged.SongId).Should().Equal(1, 2);
+        _judged.Select(judged => judged.SongId).Should().Equal([1L], "the first grab bundled the second song");
         var candidate = _judged[0].Candidate;
         candidate.SourceType.Should().Be(SourceTypes.Torznab);
         candidate.RemotePath.Should().Be($"{Album}/03 - Digital Love.flac");
@@ -133,6 +135,18 @@ public sealed class ReleasePushHandlerTests
     }
 
     [Fact]
+    public async Task A_release_whose_songs_are_all_downloading_says_so()
+    {
+        _active.UnionWith([1, 2]);
+
+        var outcome = await Handler().PushAsync(Push("torrent", "https://tracker.example/dl/1"), CancellationToken.None);
+
+        outcome.Approved.Should().BeFalse();
+        outcome.Rejections.Should().Equal("Already downloading");
+        _judged.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task The_engine_s_rejections_are_passed_on()
     {
         _search.JudgeAsync(Arg.Any<long>(), Arg.Any<IReadOnlyList<Candidate>>(), SearchTrigger.Push, true, Arg.Any<CancellationToken>())
@@ -166,7 +180,7 @@ public sealed class ReleasePushHandlerTests
             TorznabTest.NewznabClient(handler),
             new PushedReleaseClient(http, NullLogger<PushedReleaseClient>.Instance));
 
-        return new ReleasePushHandler(_wanted, _search, _clients, factory, TimeProvider.System, NullLogger<ReleasePushHandler>.Instance);
+        return new ReleasePushHandler(_wanted, _search, _queue, _clients, factory, TimeProvider.System, NullLogger<ReleasePushHandler>.Instance);
     }
 
     private static PushedRelease Push(string protocol, string? url, string title = Album, string? magnet = null) =>
