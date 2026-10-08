@@ -49,6 +49,12 @@ public enum RejectionReason
 
     /// <summary>The candidate's identity score is below the current file's (MATCHING_ENGINE §6.6).</summary>
     WorseIdentity,
+
+    /// <summary>A torrent with no seeders: nothing would download.</summary>
+    NoSeeders,
+
+    /// <summary>A usenet post larger than the limit; it cannot be downloaded selectively (DECISIONS build session 8 #7).</summary>
+    ContainerTooLarge,
 }
 
 /// <summary>Maps <see cref="RejectionReason"/> onto the camel-case wire name the API returns.</summary>
@@ -163,6 +169,11 @@ public sealed record DecisionContext
 
     /// <summary>Overrides the profile's duration tolerance when set.</summary>
     public int? DurationToleranceMs { get; init; }
+
+    /// <summary>
+    /// The largest usenet post (bytes) worth downloading whole for one song; <c>search.max_container_size_mb</c>.
+    /// </summary>
+    public long MaxContainerSizeBytes { get; init; } = 1_500L * 1024 * 1024;
 
     /// <summary>Tells whether a blocklist key is blocked. Default: nothing is blocked.</summary>
     public Func<string, bool> IsBlocklisted { get; init; } = AlwaysFalse;
