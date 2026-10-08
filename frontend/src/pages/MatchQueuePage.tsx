@@ -395,7 +395,7 @@ export function MatchQueuePage() {
       label: 'Format',
       sortKey: null,
       width: 80,
-      render: (item) => (item.file.codec === null ? '—' : item.file.codec.toUpperCase()),
+      render: (item) => (item.file.codec === null || item.file.codec === '' ? '—' : item.file.codec.toUpperCase()),
     },
     { label: 'Length', sortKey: null, width: 80, render: (item) => formatDuration(item.file.durationMs) },
     {

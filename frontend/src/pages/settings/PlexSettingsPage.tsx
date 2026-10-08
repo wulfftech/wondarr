@@ -352,7 +352,10 @@ function ServerCard({ state }: { state: PlexStateResource }) {
                 setCustomUrl('');
                 test.reset();
                 notifications.show({
-                  message: `Connected to ${next.serverName ?? 'the Plex server'} through ${next.serverUrl ?? 'it'}`,
+                  message:
+                    next.serverUrl === null
+                      ? `Connected to ${next.serverName ?? 'the Plex server'}`
+                      : `Connected to ${next.serverName ?? 'the Plex server'} through ${next.serverUrl}`,
                   color: 'green',
                 });
               },
