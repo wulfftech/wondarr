@@ -34,7 +34,8 @@ public class ServiceCollectionExtensionsTests
     [Fact]
     public void AddWondarrTorznab_returns_the_same_service_collection()
     {
-        var services = Substitute.For<IServiceCollection>();
+        // A real collection: AddHttpClient inspects what is already registered.
+        var services = new ServiceCollection();
 
         services.AddWondarrTorznab().Should().BeSameAs(services);
     }
