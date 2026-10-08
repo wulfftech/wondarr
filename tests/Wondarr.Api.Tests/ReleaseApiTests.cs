@@ -185,6 +185,11 @@ public sealed class ReleaseApiTests
         source.GrabAsync(Arg.Any<Candidate>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new GrabHandle(SourceTypes.Soulseek, "{\"transferId\": 1}")));
 
+        // The queue tracker polls in the background; on a loaded machine it can poll before the
+        // second grab arrives. The grab stays in flight, so the conflict check always sees it.
+        source.GetStatusAsync(Arg.Any<GrabHandle>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new DownloadStatus(DownloadState.Downloading, 0.1, 1_000)));
+
         return new WondarrAppFactory(configureServices: services =>
         {
             services.RemoveAll<ISourceProvider>();
