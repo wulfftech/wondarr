@@ -41,6 +41,9 @@ public static class ServiceCollectionExtensions
 
         services.AddMemoryCache();
 
+        // Gazelle's rate limit runs on the clock; the host registers one, a bare container gets the system's.
+        services.TryAddSingleton(TimeProvider.System);
+
         // Redirects are followed by hand (IndexerHttp.GetAsync) so a download URL that points at a
         // magnet: URI can be handed back instead of followed, the way Prowlarr's proxy links do.
         services.AddHttpClient(IndexerHttp.ClientName, client =>
@@ -67,9 +70,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TorznabIndexerClient>();
         services.AddSingleton<NewznabIndexerClient>();
         services.AddSingleton<PushedReleaseClient>();
+        services.AddSingleton<ProwlarrSearchClient>();
+        services.AddSingleton<GazelleClient>();
         services.AddSingleton<IIndexerClientFactory, IndexerClientFactory>();
         services.AddSingleton<IIndexerType, TorznabIndexerType>();
         services.AddSingleton<IIndexerType, NewznabIndexerType>();
+        services.AddSingleton<IIndexerType, ProwlarrIndexerType>();
+        services.AddSingleton<IIndexerType, GazelleIndexerType>();
 
         // The proxy talks to whatever host each client row names, so it builds its own URLs and only
         // borrows the factory's handler pool. No retry policy: a wrong password or an unreachable

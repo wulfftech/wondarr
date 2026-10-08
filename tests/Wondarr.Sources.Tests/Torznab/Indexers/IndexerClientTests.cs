@@ -213,17 +213,17 @@ public sealed class IndexerClientTests
     public void The_client_is_chosen_by_the_indexer_type()
     {
         var handler = RecordingHandler.Serving("caps-prowlarr.xml");
-        var factory = new IndexerClientFactory(
-            TorznabTest.TorznabClient(handler),
-            TorznabTest.NewznabClient(handler),
-            new PushedReleaseClient(new StaticHttpClientFactory(handler), Microsoft.Extensions.Logging.Abstractions.NullLogger<PushedReleaseClient>.Instance));
+        var factory = TorznabTest.Factory(handler);
 
         factory.GetClient(TorznabFixtures.Indexer(type: "torznab")).Should().BeOfType<TorznabIndexerClient>();
         factory.GetClient(TorznabFixtures.Indexer(type: "Newznab", protocol: DownloadProtocol.Usenet)).Should().BeOfType<NewznabIndexerClient>();
         factory.GetClient(PushedReleaseClient.Row(null, DownloadProtocol.Torrent)).Should().BeOfType<PushedReleaseClient>();
 
-        var act = () => factory.GetClient(TorznabFixtures.Indexer(type: "gazelle"));
-        act.Should().Throw<IndexerException>().WithMessage("*gazelle*");
+        factory.GetClient(TorznabFixtures.Indexer(type: "prowlarr")).Should().BeOfType<ProwlarrSearchClient>();
+        factory.GetClient(TorznabFixtures.Indexer(type: "gazelle")).Should().BeOfType<GazelleClient>();
+
+        var act = () => factory.GetClient(TorznabFixtures.Indexer(type: "rutracker"));
+        act.Should().Throw<IndexerException>().WithMessage("*rutracker*");
     }
 
     /// <summary>A release with only the fields a download needs.</summary>
@@ -401,7 +401,7 @@ public sealed class TorznabRegistrationTests
         using var provider = services.BuildServiceProvider();
 
         provider.GetServices<Wondarr.Core.Indexers.IIndexerType>().Select(type => type.Type)
-            .Should().Equal("torznab", "newznab");
+            .Should().Equal("torznab", "newznab", "prowlarr", "gazelle");
         provider.GetRequiredService<IIndexerClientFactory>().Should().BeOfType<IndexerClientFactory>();
 
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(IndexerHttp.ClientName);
