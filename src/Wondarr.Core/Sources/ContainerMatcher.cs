@@ -74,8 +74,11 @@ public static partial class ContainerMatcher
         var songTitle = song.BaseTitle;
         var songFlags = (request.VersionFlags | song.Flags) & VersionFlagNames.HardFlags;
         var window = SizeWindow(request.QualityId, request.DurationMs);
+        var claimedCodec = request.QualityId == 1
+            ? null
+            : SeedData.Qualities.FirstOrDefault(quality => quality.Id == request.QualityId)?.Codec;
 
-        var matches = new List<ContainerMatch>();
+        var matches = new List<(ContainerMatch Match, bool CodecAgrees)>();
 
         foreach (var file in files)
         {
@@ -111,7 +114,7 @@ public static partial class ContainerMatcher
 
             var trackAgrees = request.TrackNo is { } wanted && parsed.TrackNo == wanted;
 
-            matches.Add(new ContainerMatch(file, parsed, path.Extension, similarity, trackAgrees));
+            matches.Add((new ContainerMatch(file, parsed, path.Extension, similarity, trackAgrees), CodecAgrees(claimedCodec, path.Extension)));
         }
 
         if (matches.Count == 0)
@@ -119,9 +122,12 @@ public static partial class ContainerMatcher
             return null;
         }
 
+        // The track number first, then the file whose extension is the codec the release claims (a
+        // "[FLAC]" release that also carries MP3 and Ogg copies, as archive.org's do), then the title.
         var ranked = matches
-            .OrderByDescending(match => match.TrackNoAgrees)
-            .ThenByDescending(match => match.TitleSimilarity)
+            .OrderByDescending(entry => entry.Match.TrackNoAgrees)
+            .ThenByDescending(entry => entry.CodecAgrees)
+            .ThenByDescending(entry => entry.Match.TitleSimilarity)
             .ToList();
 
         var best = ranked[0];
@@ -130,14 +136,26 @@ public static partial class ContainerMatcher
         {
             var next = ranked[1];
 
-            if (next.TrackNoAgrees == best.TrackNoAgrees && best.TitleSimilarity - next.TitleSimilarity < TieMargin)
+            if (next.Match.TrackNoAgrees == best.Match.TrackNoAgrees
+                && next.CodecAgrees == best.CodecAgrees
+                && best.Match.TitleSimilarity - next.Match.TitleSimilarity < TieMargin)
             {
                 return null;
             }
         }
 
-        return best;
+        return best.Match;
     }
+
+    /// <summary>Whether a file's extension is the codec the release claims.</summary>
+    private static bool CodecAgrees(string? codec, string? extension) => (codec, extension?.ToLowerInvariant()) switch
+    {
+        (null, _) or (_, null) => false,
+        ("flac", "flac") or ("mp3", "mp3") or ("vorbis", "ogg") or ("opus", "opus") or ("wma", "wma") => true,
+        ("aac", "m4a" or "aac") or ("alac", "m4a") or ("ape", "ape") or ("wavpack", "wv") => true,
+        ("wav", "wav") or ("aiff", "aiff" or "aif") => true,
+        _ => false,
+    };
 
     /// <summary>"07 - ", "07. ", "1-07 " before a title: not part of it.</summary>
     [System.Text.RegularExpressions.GeneratedRegex(@"^\s*(?:\d{1,2}[-.])?\d{1,3}\s*[-._)]?\s+", System.Text.RegularExpressions.RegexOptions.None, 100)]
