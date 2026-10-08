@@ -5,6 +5,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
+using Wondarr.Core.DownloadClients;
+using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
 
 namespace Wondarr.Sources.Torznab;
@@ -15,9 +17,9 @@ namespace Wondarr.Sources.Torznab;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds the Torznab and Newznab indexers: the two indexer types, their clients and the factory
+    /// Adds the Torznab and Newznab indexers (the two indexer types, their clients and the factory
     /// that chooses one, the caps reader with its 24-hour cache, and the named HTTP client every
-    /// request goes through.
+    /// request goes through) and the qBittorrent download client.
     /// </summary>
     public static IServiceCollection AddWondarrTorznab(this IServiceCollection services)
     {
@@ -60,6 +62,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IIndexerClientFactory, IndexerClientFactory>();
         services.AddSingleton<IIndexerType, TorznabIndexerType>();
         services.AddSingleton<IIndexerType, NewznabIndexerType>();
+
+        // The proxy talks to whatever host each client row names, so it builds its own URLs and only
+        // borrows the factory's handler pool. No retry policy: a wrong password or an unreachable
+        // client must surface at once, not after a silent retry loop.
+        services.AddHttpClient(QBittorrentProxy.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+
+        // The proxy owns one session (cookie and version) per client row, so it is a singleton; the
+        // client and the type over it are stateless.
+        services.AddSingleton<QBittorrentProxy>();
+        services.AddSingleton<ITorrentClient, QBittorrentClient>();
+        services.AddSingleton<IDownloadClientType, QBittorrentClientType>();
 
         return services;
     }
