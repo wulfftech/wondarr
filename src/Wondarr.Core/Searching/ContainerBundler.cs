@@ -85,7 +85,7 @@ public static class ContainerBundler
 
             var match = ContainerMatcher.Find(
                 files,
-                new ContainerMatchRequest(song.Title, ParseFlags(song.VersionFlags), null, song.DurationMs, candidate.QualityId));
+                new ContainerMatchRequest(song.Title, VersionFlagNames.FromNames(song.VersionFlags), null, song.DurationMs, candidate.QualityId));
 
             // Two songs never share a file, and the grabbed song's file is its own.
             if (match is not null && taken.Add(match.File.Index))
@@ -132,7 +132,7 @@ public static class ContainerBundler
                 AlsoWanted = null,
                 Song = new ContainerMatchRequest(
                     bundled.Song.Title,
-                    ParseFlags(bundled.Song.VersionFlags),
+                    VersionFlagNames.FromNames(bundled.Song.VersionFlags),
                     null,
                     bundled.Song.DurationMs,
                     grabbed.QualityId),
@@ -157,20 +157,5 @@ public static class ContainerBundler
         }
 
         return !profile.MeetsCutoff(held.QualityId) && profile.IsUpgrade(held.QualityId, containerQualityId);
-    }
-
-    private static VersionFlags ParseFlags(IEnumerable<string> names)
-    {
-        var flags = VersionFlags.None;
-
-        foreach (var name in names)
-        {
-            if (VersionFlagNames.TryParse(name, out var single))
-            {
-                flags |= single;
-            }
-        }
-
-        return flags;
     }
 }

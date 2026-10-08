@@ -98,6 +98,25 @@ public static class VersionFlagNames
         throw new ArgumentOutOfRangeException(nameof(single), single, "Not a single known version flag.");
     }
 
+    /// <summary>A song's stored flag names as one mask; unknown names are ignored.</summary>
+    /// <param name="wires">The wire names, as the song row stores them.</param>
+    public static VersionFlags FromNames(IEnumerable<string> wires)
+    {
+        ArgumentNullException.ThrowIfNull(wires);
+
+        var flags = VersionFlags.None;
+
+        foreach (var wire in wires)
+        {
+            if (TryParse(wire, out var single))
+            {
+                flags |= single;
+            }
+        }
+
+        return flags;
+    }
+
     /// <summary>Parses one wire name (case-insensitive).</summary>
     public static bool TryParse(string wire, out VersionFlags flags)
     {

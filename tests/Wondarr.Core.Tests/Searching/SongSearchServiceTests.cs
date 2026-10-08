@@ -432,6 +432,25 @@ public async Task A_container_grab_takes_the_other_wanted_songs_of_the_same_arti
 }
 
 [Fact]
+public async Task Judging_pushed_candidates_records_a_push_run_and_grabs_the_accepted_one()
+{
+    await using var host = await SearchTestHost.CreateAsync();
+    var songId = await host.SeedSongAsync();
+    var pushed = SearchTestHost.Candidate(@"Music\Aphex Twin\Alpha.flac") with { Query = "Aphex Twin - Alpha [FLAC]" };
+
+    var result = await host.Search.JudgeAsync(songId, [pushed], SearchTrigger.Push, grab: true, Token);
+
+    result.Outcome.Should().Be(SearchOutcome.Grabbed);
+    host.Provider.Grabs.Should().ContainSingle().Which.Candidate.RemotePath.Should().Be(pushed.RemotePath);
+    host.Provider.Requests.Should().BeEmpty("a pushed release is judged, not searched for");
+
+    await using var context = host.Database.CreateContext(host.Time);
+    var run = await context.SearchRuns.AsNoTracking().SingleAsync(Token);
+    run.Trigger.Should().Be(SearchTrigger.Push);
+    run.Queries.Should().Equal("Aphex Twin - Alpha [FLAC]");
+}
+
+[Fact]
 public async Task A_grab_whose_source_fails_leaves_one_failed_item_and_no_orphan()
 {
     await using var host = await SearchTestHost.CreateAsync();
