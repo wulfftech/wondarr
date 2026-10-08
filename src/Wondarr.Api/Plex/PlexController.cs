@@ -180,6 +180,44 @@ public sealed class PlexController : ControllerBase
     }
 
     /// <summary>
+    /// Selects one of the account's servers by its machine identifier: every connection plex.tv lists for it is tried,
+    /// and the best one that answers as that server is kept.
+    /// </summary>
+    /// <param name="resource">The server to connect to.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    [HttpPut("server/connect")]
+    [Consumes("application/json")]
+    [Produces("application/json")]
+    public async Task<ActionResult<PlexStateResource>> ConnectServer(
+        [FromBody] PlexServerConnectResource resource,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _plex.ConnectServerAsync(resource.MachineIdentifier, cancellationToken).ConfigureAwait(false);
+
+            var state = await _plex.GetStateAsync(cancellationToken).ConfigureAwait(false);
+
+            return Ok(PlexStateResource.From(state));
+        }
+        catch (ArgumentException exception)
+        {
+            return Problem(
+                title: "Unknown Plex server",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return NotReady(exception);
+        }
+        catch (PlexException exception)
+        {
+            return PlexFailure(exception);
+        }
+    }
+
+    /// <summary>
     /// Tests the selected server. Always 200: whether the connection works is the answer, not the
     /// status code.
     /// </summary>

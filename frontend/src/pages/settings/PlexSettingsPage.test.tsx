@@ -35,6 +35,7 @@ interface Routes {
   pinStatus?: () => Response;
   token?: () => Response;
   server?: () => Response;
+  connect?: () => Response;
   test?: () => Response;
   signOut?: () => Response;
 }
@@ -69,6 +70,10 @@ function install(routes: Routes = {}): FetchMock {
 
     if (url.includes('/api/v1/plex/servers')) {
       return jsonResponse(PLEX_SERVERS);
+    }
+
+    if (url.includes('/api/v1/plex/server/connect')) {
+      return routes.connect?.() ?? jsonResponse(PLEX_STATE_SIGNED_IN);
     }
 
     if (url.includes('/api/v1/plex/server')) {
@@ -229,8 +234,8 @@ describe('PlexSettingsPage server', () => {
     renderApp();
 
     expect(await screen.findByText('No server selected')).toBeInTheDocument();
-    expect(await screen.findByText('owned')).toBeInTheDocument();
-    expect(screen.getByText('shared')).toBeInTheDocument();
+    expect(await screen.findByText('Owned')).toBeInTheDocument();
+    expect(screen.getByText('Shared')).toBeInTheDocument();
 
     // Mantine's SegmentedControl also renders radios, so only the connection ones are read.
     const radios = (await screen.findAllByRole('radio')).filter(
@@ -243,8 +248,8 @@ describe('PlexSettingsPage server', () => {
     const homeNas = radios.slice(0, 3);
 
     // plex.tv gives the relay first; the page offers that slowest way in last.
-    expect(labelOf(homeNas[2])).toContain('relay');
-    expect(labelOf(homeNas[0])).toContain('local');
+    expect(labelOf(homeNas[2])).toContain('Relay');
+    expect(labelOf(homeNas[0])).toContain('Local');
     expect(labelOf(homeNas[0])).toContain('http://10.0.0.5:32400');
 
     await user.click(screen.getByText('http://10.0.0.5:32400'));
@@ -255,6 +260,62 @@ describe('PlexSettingsPage server', () => {
         await sentBody((request) => request.method === 'PUT' && request.url.includes('/api/v1/plex/server')),
       ).toEqual({ serverUrl: 'http://10.0.0.5:32400' });
     });
+  });
+
+  it('connects to a server by name, letting Wondarr pick a connection that answers', async () => {
+    install({ state: () => jsonResponse(PLEX_STATE_SIGNED_IN_UNSELECTED) });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Connect to Home NAS' }));
+
+    await waitFor(async () => {
+      expect(
+        await sentBody((request) => request.method === 'PUT' && request.url.includes('/api/v1/plex/server/connect')),
+      ).toEqual({ machineIdentifier: 'a1b2c3d4e5f6' });
+    });
+    expect(await screen.findByText(/Connected to Home NAS through http:\/\/10\.0\.0\.5:32400/)).toBeInTheDocument();
+  });
+
+  it('says what failed when no connection of the server answers', async () => {
+    install({
+      state: () => jsonResponse(PLEX_STATE_SIGNED_IN_UNSELECTED),
+      connect: () =>
+        jsonResponse(
+          {
+            title: 'Plex is unreachable',
+            status: 502,
+            detail: 'None of the 3 connections plex.tv lists for Home NAS answered from here.',
+          },
+          502,
+        ),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Connect to Home NAS' }));
+
+    expect(await screen.findByText(/None of the 3 connections plex.tv lists for Home NAS/)).toBeInTheDocument();
+  });
+
+  it('warns when the selected server is no longer on the account', async () => {
+    install({
+      state: () =>
+        jsonResponse({
+          ...PLEX_STATE_SIGNED_IN,
+          serverUrl: 'http://172.17.0.1:32401',
+          serverName: 'plex-throwaway',
+          machineIdentifier: '9602a5378a76',
+        }),
+    });
+
+    renderApp();
+
+    expect(
+      await screen.findByText(/The selected server, plex-throwaway, is not on this Plex account any more/),
+    ).toBeInTheDocument();
   });
 
   it('takes a server URL typed by hand', async () => {

@@ -88,19 +88,25 @@ function formatScore(score: number | string): string {
   return `${Math.round(Number(score) * 100)}%`;
 }
 
-/** What a file's own tags say, as one line: artist – title, album, length, codec and bitrate. */
+/** What a file's own tags say, as one line: artist – title, then the album. */
 function fileFacts(item: MatchQueueItemResource): string {
   const file = item.file;
   const base = item.relativePath.split('/').pop() ?? item.relativePath;
   const name = base.replace(/\.[^.]+$/, '');
   const credited = file.artist === null || file.title === null ? name : `${file.artist} – ${file.title}`;
-  const parts = [
-    file.album,
-    formatDuration(file.durationMs),
-    file.codec === null ? null : file.bitrate === null ? file.codec : `${file.codec} ${file.bitrate} kbps`,
-  ].filter((part): part is string => part !== null && part !== '');
 
-  return [credited, ...parts].join(' · ');
+  return file.album === null || file.album === '' ? credited : `${credited} · ${file.album}`;
+}
+
+/** Any MusicBrainz id or other GUID, with the space before it. */
+const GUID = /\s*\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+/**
+ * Why a candidate ranked where it did, without the ids: older items were stored as
+ * "search <recording id>", which says nothing a person can use.
+ */
+function readableReason(reason: string): string {
+  return reason.replace(GUID, '').replace(/\s+,/g, ',').trim();
 }
 
 /** The search term the drawer starts with: the tags when they are there, else the file's own name. */
@@ -148,7 +154,8 @@ function TopCandidateCell({ item }: { item: MatchQueueItemResource }) {
       </Text>
       <Text size="xs" c="dimmed">
         {formatDuration(candidate.durationMs)}
-        {difference === null ? '' : ` (${difference})`} · {formatScore(candidate.score)} · {candidate.reason}
+        {difference === null ? '' : ` (${difference})`} · {formatScore(candidate.score)} ·{' '}
+        {readableReason(candidate.reason)}
       </Text>
     </Stack>
   );
@@ -213,7 +220,8 @@ function ReviewDrawer({
               </Text>
               <Text size="xs" c="dimmed">
                 {formatDuration(candidate.durationMs)}
-                {difference === null ? '' : ` (${difference})`} · {formatScore(candidate.score)} · {candidate.reason}
+                {difference === null ? '' : ` (${difference})`} · {formatScore(candidate.score)} ·{' '}
+                {readableReason(candidate.reason)}
                 {candidate.albumTitle === null ? '' : ` · ${candidate.albumTitle}`}
               </Text>
             </Stack>
@@ -382,6 +390,19 @@ export function MatchQueuePage() {
           </Text>
         </Stack>
       ),
+    },
+    {
+      label: 'Format',
+      sortKey: null,
+      width: 80,
+      render: (item) => (item.file.codec === null || item.file.codec === '' ? '—' : item.file.codec.toUpperCase()),
+    },
+    { label: 'Length', sortKey: null, width: 80, render: (item) => formatDuration(item.file.durationMs) },
+    {
+      label: 'Bitrate',
+      sortKey: null,
+      width: 100,
+      render: (item) => (item.file.bitrate === null ? '—' : `${String(item.file.bitrate)} kbps`),
     },
     { label: 'State', sortKey: null, width: 130, render: (item) => <StateBadge state={item.state} /> },
     { label: 'Top candidate', sortKey: null, render: (item) => <TopCandidateCell item={item} /> },
