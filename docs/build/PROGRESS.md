@@ -331,3 +331,25 @@ and the Phase 4 gate, for the first time: three songs filled from Art Tracks in 
 2. *Test runs must not overlap:* three test projects in parallel, plus a worker's own run, aborted test hosts, timed out fixed-port FakeSlskd tests and starved the pumped compaction tests. `safe-merge.sh` now runs the projects one at a time (`-m:1`), the compaction tests run in their own non-parallel collection, and no merge runs while a worker tests.
 3. *Workers cannot regenerate the contract:* the runner refuses environment-variable prefixes, so `WONDARR_UPDATE_OPENAPI=1` is impossible for a worker; the orchestrator regenerates `openapi.json` and the frontend types when it merges (scripted).
 4. *T3 workers ran out of turns on M-sized backend tasks four times out of four;* the orchestrator wrote three of the remaining backend tasks itself at no key cost.
+
+## Phase 7 — qBittorrent and SABnzbd sources (in progress; paused 2026-10-08)
+
+Plan: `docs/build/PHASE_7_TASKS.md`; decisions: `docs/DECISIONS.md` build session 8 #1–#11 (ADR-0009 unchanged). Paused because the dev PC's memory ran out: WSL's VM (`vmmemWSL`) held 10–11 GB, leaving ~4 GB, and Claude Code stopped three background runs (two workers, one merge) for low memory. Resume with `docs/build/NEXT_SESSION_PROMPT.md` once memory is freed (`wsl --shutdown` if nothing in WSL is needed).
+
+| Task | State | Tier / model | Cost (USD) | Notes |
+|---|---|---|---|---|
+| P7-00 owner UI feedback + Plex connect | merged `cfde4f9` | orchestrator | 0.05 review | Wanted cover-art toggle; Init Caps badges (`initCaps`); Match format/length/bitrate columns, no ids in reasons; Plex "Connect" by server (`PUT /api/v1/plex/server/connect`) and a warning for a server no longer on the account. Live: the test instance was still pointed at the deleted Phase 3 throwaway Plex; it now uses WulffPlex over its LAN `plex.direct` address (no library is linked to a section yet) |
+| P7-01 indexer and download-client rows | merged `a5486d3` | T3 `z-ai/glm-5.3` | 0.67 | T2 `glm-5.3-flash` returned empty turns twice and wrote nothing; review fixes by the orchestrator (problem-details 409, delete race, protocol typo 400, typed test result) |
+| P7-02 release parsing | merged `04e3823` | T3 | 1.40 | T2 looped 65 turns re-reading Lidarr's `Parser.cs`; the T3 run was given line ranges. 115 tests incl. a 2 000-mutation bencode fuzz |
+| P7-03a Torznab/Newznab | **branch ready, merge interrupted** (`phase7/p7-03a-…`, 3 commits) | T3 | 1.21 | worker hit the 100-turn cap with everything green but uncommitted; orchestrator committed, fixed the review (bad URL / non-numeric caps id are indexer errors, minimum seeders applied, retries with jitter, page size ≥ 1) and the API tests' fake types (they now `RemoveAll` the real ones). The merge's merged-tree test pass was killed for low memory and aborted — re-run it |
+| P7-05 qBittorrent client | **branch committed, not yet reviewed/merged** (`phase7/p7-05-…`) | T3 | 1.25 | hit the turn cap; its report says 73 client tests passed before the sandbox lost process spawning; orchestrator committed the files. Next: merge main (conflict expected in `src/Wondarr.Sources.Torznab/ServiceCollectionExtensions.cs`), build, full Sources + Api tests, T3 review, merge |
+| P7-04 matcher + search | **in progress** (`task/P7-04`, orchestrator) | orchestrator | — | done: `ContainerMatcher` (Core, 9 tests), `Candidate.Release` (`ContainerRelease`), torrent/usenet availability, `NoSeeders`/`ContainerTooLarge` rejections, `search.max_container_size_mb`, the search request's recording/album release/track; the release tests' fake source now reports its grab in flight (the recurring "grab conflict" flake). Left: `IndexerSourceProvider` (two registrations, torznab + newznab) on P7-03a's `IIndexerClientFactory` |
+| P7-03b, P7-06, P7-07, P7-08, P7-09 | specs committed | T3 / orchestrator / T2 | — | not started |
+
+Lessons so far:
+1. The T2 pick (`z-ai/glm-5.3-flash`) wrote nothing on both backend tasks it was given (empty turns; a read loop). Phase 7's backend tasks go to T3 from the start; T3 still hits the 100-turn cap on M tasks (P7-03a, P7-05) — finish them by hand, it is cheaper than a continuation.
+2. A Sources task that registers real types can break API tests that register fakes of the same name — run the Api tests for any branch that adds DI registrations.
+3. `safe-merge.sh` now re-runs only failed tests once (named FLAKY when they pass alone), treats an all-"Passed!" run whose exit code came from vstest's data collector as green, and runs Vitest on two workers.
+4. Memory, not CPU, is the limit on this machine: never run a merge beside a worker's test run, shut the build servers down (`dotnet build-server shutdown`) before a merge.
+
+Spend: USD 4.82 this session (key 21.64 → 26.46 of 30; USD 3.54 left).

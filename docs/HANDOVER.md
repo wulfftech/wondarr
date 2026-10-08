@@ -328,3 +328,21 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 1. **P7-01 Torznab/Newznab source provider** — ported from Lidarr: per-indexer `caps`, `t=music` with a `q=` fallback, categories, Prowlarr's per-indexer URLs; recording → MusicBrainz releases → release searches; release-name quality parsing; candidates carry the release and its expected track.
 2. **P7-02 qBittorrent client with file selection** — add stopped, `stopCondition=MetadataReceived` for magnets, list `files`, `filePrio` 0 for everything but the wanted track(s), `start`; 4.x/5.x state names, categories, remote path mappings; completion when the wanted files are done.
 3. **P7-03 Container-file matching and import by file index** — match the wanted song to a file inside a torrent/NZB by track number, title and size window; import that file through the normal verify/tag/place pipeline; other wanted songs in the same container imported from the same grab (bundling).
+
+### 2026-10-08 — Build session 8: Phase 7 started (paused for memory), and the owner's UI feedback (orchestrator on Opus 5.5, workers on GLM)
+
+**Outcome.** The owner's UI feedback and a Plex fix are merged (P7-00); Phase 7's plan, decisions (DECISIONS build session 8 #1–#11) and every spec are on `main`; P7-01 (indexer and download-client rows, API) and P7-02 (release parsing, the `.torrent` and NZB readers) are merged. P7-03a (Torznab/Newznab) and P7-05 (qBittorrent) are finished on their branches, P7-04 is half done on `task/P7-04`. The session stopped because the dev PC ran out of memory (WSL's VM held 10–11 GB) and Claude Code killed three background runs; the state is in `PROGRESS.md` "Phase 7". Spend USD 4.82 (key 26.46 of 30).
+
+**Branches to pick up (pushed to origin):**
+- `phase7/p7-03a-torznab-and-newznab-indexers-the-types-c` — ready; its merge was killed during the merged-tree tests and aborted. Re-run `scripts/safe-merge.sh` on it first.
+- `phase7/p7-05-qbittorrent-client-with-file-selection` — committed by the orchestrator after the worker hit its turn cap; merge `main` in (conflict in `ServiceCollectionExtensions.cs`: keep both registrations), build, run the Sources and Api tests, T3 review, merge.
+- `task/P7-04` — the matcher, the candidate's container release, the engine's torrent/usenet rules, the search request fields, and the release-test flake fix are committed; write `IndexerSourceProvider` next (spec `docs/build/tasks/P7-04.md`).
+
+**Open items / follow-ups.**
+- Memory: free WSL's memory before merging (`wsl --shutdown` if nothing there is needed) and keep merges and worker test runs apart.
+- The live test instance on `ch01` now uses the owner's Plex server WulffPlex (`https://192-168-10-40….plex.direct:32400`, both music sections visible); no library is linked to a section, so nothing scans until the owner links one.
+- The owner is to provide a usenet provider and an NZB indexer for the live SABnzbd check (CI uses fakes); the torrent live check uses two throwaway qBittorrent containers on `ch01` (≈700 MB free there).
+- Backlog 2026-10-08-13 (the release grab-conflict test) is fixed on `task/P7-04`; mark it done when that merges.
+- The Lidarr reference copies in `docs/build/tasks/ref/lidarr/` are deleted when Phase 7 is done.
+
+**Next:** finish Phase 7 in this order — merge P7-03a → P7-05 → finish and merge P7-04 → P7-03b ∥ P7-06 (T3 workers) → P7-07 (orchestrator) → P7-08 (frontend) → P7-09 gate (fakes in FakeSlskd, then live on `ch01`) → the Phase 7 PROGRESS/handover and the Phase 8 prompt.
