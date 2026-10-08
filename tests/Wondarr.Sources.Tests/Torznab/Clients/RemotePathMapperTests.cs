@@ -21,6 +21,19 @@ public sealed class RemotePathMapperTests
     }
 
     [Fact]
+    public void A_windows_prefix_matches_without_case_and_a_unix_one_with_it()
+    {
+        var mappings = new[]
+        {
+            new RemotePathMapping(@"C:\Downloads", "/mnt/windows"),
+            new RemotePathMapping("/Data", "/mnt/data"),
+        };
+
+        RemotePathMapper.Map(@"c:\downloads\Album", mappings).Should().Be(Path.Combine("/mnt/windows", "Album"));
+        RemotePathMapper.Map("/data/Album", mappings).Should().Be("/data/Album");
+    }
+
+    [Fact]
     public void A_prefix_that_stops_mid_segment_does_not_match()
     {
         var mappings = new[] { new RemotePathMapping("/data", "/mnt/media") };

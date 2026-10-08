@@ -34,7 +34,10 @@ public static class RemotePathMapper
         {
             var remote = mapping.Remote.Replace('\\', '/').TrimEnd('/');
 
-            if (remote.Length == 0 || !normalized.StartsWith(remote, StringComparison.Ordinal))
+            // A Windows client's paths are case-insensitive (C:\Downloads is c:\downloads); a Unix one's are not.
+            var comparison = IsWindowsPath(remote) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+            if (remote.Length == 0 || !normalized.StartsWith(remote, comparison))
             {
                 continue;
             }
@@ -67,4 +70,8 @@ public static class RemotePathMapper
 
         return Path.Combine(best.Local, bestRemainder.Replace('/', Path.DirectorySeparatorChar));
     }
+
+    /// <summary>A drive-letter path (<c>C:/…</c>) or a UNC share (<c>//server/…</c>), separators already normalised.</summary>
+    private static bool IsWindowsPath(string path) =>
+        (path.Length >= 2 && char.IsAsciiLetter(path[0]) && path[1] == ':') || path.StartsWith("//", StringComparison.Ordinal);
 }
