@@ -1,0 +1,1 @@
+Reference copies of Lidarr source (GPL-3.0, https://github.com/Lidarr/Lidarr) at commit da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd, for the Phase 7 ports. Not compiled. Every port records its source in NOTICE.md. Removed when Phase 7 is done.
