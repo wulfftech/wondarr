@@ -116,16 +116,26 @@ export function wireValue(field: NotificationFieldResource, value: unknown, mask
   }
 }
 
+/** What a `keyValueList` field's two columns are called; a header list's are "Name" and "Value". */
+export interface PairLabels {
+  key: string;
+  value: string;
+}
+
+const DEFAULT_PAIR_LABELS: PairLabels = { key: 'Name', value: 'Value' };
+
 /** One `keyValueList` field: a row of key/value inputs per entry, with add and remove. */
 export function KeyValueListField({
   field,
   pairs,
   error,
+  labels = DEFAULT_PAIR_LABELS,
   onChange,
 }: {
   field: NotificationFieldResource;
   pairs: NotificationKeyValue[];
   error?: string;
+  labels?: PairLabels;
   onChange: (pairs: NotificationKeyValue[]) => void;
 }) {
   const replace = (index: number, next: NotificationKeyValue) =>
@@ -146,14 +156,14 @@ export function KeyValueListField({
       {pairs.map((pair, index) => (
         <Group key={index} gap="xs" align="flex-end" wrap="nowrap">
           <TextInput
-            aria-label={`${field.label} name ${String(index + 1)}`}
-            placeholder="Name"
+            aria-label={`${field.label} ${labels.key.toLowerCase()} ${String(index + 1)}`}
+            placeholder={labels.key}
             value={pair.key}
             onChange={(event) => replace(index, { ...pair, key: event.currentTarget.value })}
           />
           <TextInput
-            aria-label={`${field.label} value ${String(index + 1)}`}
-            placeholder="Value"
+            aria-label={`${field.label} ${labels.value.toLowerCase()} ${String(index + 1)}`}
+            placeholder={labels.value}
             value={pair.value}
             onChange={(event) => replace(index, { ...pair, value: event.currentTarget.value })}
           />
@@ -189,12 +199,14 @@ export function SettingsField({
   value,
   masked,
   error,
+  pairLabels,
   onChange,
 }: {
   field: NotificationFieldResource;
   value: unknown;
   masked: boolean;
   error?: string;
+  pairLabels?: PairLabels;
   onChange: (value: unknown) => void;
 }) {
   const label = field.required ? `${field.label} *` : field.label;
@@ -260,7 +272,9 @@ export function SettingsField({
         />
       );
     case 'keyValueList':
-      return <KeyValueListField field={field} pairs={asPairs(value)} error={error} onChange={onChange} />;
+      return (
+        <KeyValueListField field={field} pairs={asPairs(value)} error={error} labels={pairLabels} onChange={onChange} />
+      );
     default:
       return (
         <TextInput
