@@ -118,6 +118,15 @@ public sealed class NewznabCapabilitiesReaderTests
         new(TorznabFixtures.BaseUrl, "/api", TorznabFixtures.ApiKey, [3000], MinimumSeeders: 1);
 
     [Fact]
+    public async Task A_category_whose_id_is_not_a_number_does_not_break_the_caps()
+    {
+        var capabilities = await ReadAsync("caps-bad-category.xml");
+
+        capabilities.SupportsMusicSearch.Should().BeTrue();
+        capabilities.Categories.Should().ContainSingle().Which.Id.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Prowlarrs_caps_parse_limits_searches_and_categories()
     {
         var capabilities = await ReadAsync("caps-prowlarr.xml");

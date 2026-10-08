@@ -84,6 +84,15 @@ public abstract partial class NewznabClientBase : IIndexerClient
 
         var releases = _parser.Parse(content, indexer, Protocol);
 
+        // A torrent nobody seeds (fewer than the row's minimum) would never finish; Lidarr skips them
+        // the same way. An indexer that reports no seeder count is given the benefit of the doubt.
+        if (Protocol == DownloadProtocol.Torrent)
+        {
+            var minimum = endpoint.MinimumSeeders ?? IndexerEndpoint.DefaultMinimumSeeders;
+
+            releases = [.. releases.Where(release => release.Seeders is not { } seeders || seeders >= minimum)];
+        }
+
         LogFound(_logger, releases.Count, indexer.Name);
 
         return releases;

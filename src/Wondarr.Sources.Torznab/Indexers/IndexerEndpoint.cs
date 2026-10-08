@@ -30,9 +30,14 @@ public sealed record IndexerEndpoint(
     public const int DefaultMinimumSeeders = 1;
 
     /// <summary>Gets the API's base address: the URL with the API path appended, without a query.</summary>
+    /// <exception cref="IndexerException">The row's URL is not an absolute http(s) address.</exception>
     public Uri BaseUri =>
-        new(Url.TrimEnd('/') + (ApiPath.Trim('/').Length == 0 ? string.Empty : "/" + ApiPath.Trim('/')),
-            UriKind.Absolute);
+        Uri.TryCreate(
+            Url.Trim().TrimEnd('/') + (ApiPath.Trim('/').Length == 0 ? string.Empty : "/" + ApiPath.Trim('/')),
+            UriKind.Absolute,
+            out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            ? uri
+            : throw new IndexerException("The indexer's URL must be an absolute http or https address.");
 
     /// <summary>Reads the settings out of a settings object, filling in every default.</summary>
     /// <param name="settings">The row's settings, or a draft's.</param>

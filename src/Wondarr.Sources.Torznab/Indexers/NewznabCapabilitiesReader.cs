@@ -210,14 +210,18 @@ public sealed partial class NewznabCapabilitiesReader
     /// <summary>Reads one category with its subcategories.</summary>
     /// <param name="category">The <c>category</c> element.</param>
     private static NewznabCategory ReadCategory(XElement category) => new(
-        int.Parse(category.Attribute("id")?.Value ?? "0", CultureInfo.InvariantCulture),
+        CategoryId(category),
         category.Attribute("name")?.Value ?? string.Empty,
         category.Attribute("description")?.Value ?? string.Empty,
         [.. category.Elements("subcat").Select(subcat => new NewznabCategory(
-            int.Parse(subcat.Attribute("id")?.Value ?? "0", CultureInfo.InvariantCulture),
+            CategoryId(subcat),
             subcat.Attribute("name")?.Value ?? string.Empty,
             subcat.Attribute("description")?.Value ?? string.Empty,
             []))]);
+
+    /// <summary>A category's numeric id; an id that is not a number (a broken caps answer) reads as 0.</summary>
+    private static int CategoryId(XElement element) =>
+        int.TryParse(element.Attribute("id")?.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : 0;
 
     /// <summary>The message for an answer whose status is not a success.</summary>
     /// <param name="response">The answer.</param>
