@@ -261,6 +261,7 @@ public sealed class QbittorrentFake : HttpMessageHandler
     private string _version = "2.11.0";
     private bool _requireAuthentication = true;
     private bool _banned;
+    private bool _newLogin;
     private bool _duplicateAddsFail;
     private bool _loggedIn;
 
@@ -287,6 +288,13 @@ public sealed class QbittorrentFake : HttpMessageHandler
     public QbittorrentFake WithVersion(string version)
     {
         _version = version;
+        return this;
+    }
+
+    /// <summary>Answers the login the way qBittorrent 5.2 does: 204 with no body, or 401 for wrong credentials.</summary>
+    public QbittorrentFake WithQBittorrent52Login()
+    {
+        _newLogin = true;
         return this;
     }
 
@@ -403,12 +411,12 @@ public sealed class QbittorrentFake : HttpMessageHandler
 
         if (form.GetValueOrDefault("username") != Username || form.GetValueOrDefault("password") != Password)
         {
-            return Text(HttpStatusCode.OK, "Fails.");
+            return _newLogin ? Text(HttpStatusCode.Unauthorized, "Unauthorized") : Text(HttpStatusCode.OK, "Fails.");
         }
 
         _loggedIn = true;
 
-        var response = Text(HttpStatusCode.OK, "Ok.");
+        var response = _newLogin ? new HttpResponseMessage(HttpStatusCode.NoContent) : Text(HttpStatusCode.OK, "Ok.");
         response.Headers.Add("Set-Cookie", $"SID={Sid}; path=/");
 
         return response;
