@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+  <head>
+    <meta type="title">Obfuscated Album</meta>
+  </head>
+  <files>
+    <file subject="&quot;0123456789abcdef.flac&quot; yEnc (1/12)" poster="somebody@example.com" date="1700000002">
+      <groups><group>alt.bin.sounds.lossless</group></groups>
+      <segments><segment bytes="1000000" number="1">bw==</segment><segment bytes="500000" number="2">Yg==</segment></segments>
+    </file>
+    <file subject="&quot;fedcba9876543210.flac&quot; yEnc (2/12)" poster="somebody@example.com" date="1700000002">
+      <groups><group>alt.bin.sounds.lossless</group></groups>
+      <segments><segment bytes="1500000" number="1">Yw==</segment></segments>
+    </file>
+    <file subject="&quot;AbCdEfGhIjKlMnOp.flac&quot; yEnc (3/12)" poster="somebody@example.com" date="1700000002">
+      <groups><group>alt.bin.sounds.lossless</group></groups>
+      <segments><segment bytes="1500000" number="1">ZA==</segment></segments>
+    </file>
+    <file subject="&quot;a1b2c3d4e5f6g7h8.flac&quot; yEnc (4/12)" poster="somebody@example.com" date="1700000002">
+      <groups><group>alt.bin.sounds.lossless</group></groups>
+      <segments><segment bytes="1500000" number="1">ZQ==</segment></segments>
+    </file>
+    <file subject="&quot;0123456789abcdef.par2&quot; yEnc (5/12)" poster="somebody@example.com" date="1700000002">
+      <groups><group>alt.bin.sounds.lossless</group></groups>
+      <segments><segment bytes="384000" number="1">Zg==</segment></segments>
+    </file>
+  </files>
+</nzb>
