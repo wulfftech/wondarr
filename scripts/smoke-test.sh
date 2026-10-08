@@ -25,6 +25,10 @@
 #   20 of its songs, a Plex playlist (FakeSlskd's fake Plex) holds them in order and is updated in
 #   place after a re-upload, an album added by search arrives pinned, a song moves to a second library
 #   (and Plex section), a FLAC is imported as an MP3 still ranked FLAC, and an MP3 is converted on demand.
+# Phase 7 (scripts/phase7-gate.py; SMOKE_PHASE7=on (default) | off; SMOKE_ONLY_PHASE7=on skips Phases 2-6), on
+#   a fresh container: FakeSlskd's container stub is a Torznab and a Newznab indexer, qBittorrent and
+#   SABnzbd; two wanted tracks of an album come from ONE torrent grab that downloads only their files,
+#   and a third comes from an NZB post trimmed to it, unpacked, and deleted from SABnzbd after the import.
 # Phase 4 (scripts/phase4-gate.py; SMOKE_PHASE4=on (default) | off), on the same container:
 #   - the YouTube source is enabled (videos allowed) against the fake InnerTube (answering the gate's
 #     songs from the scenario, everything else from the recorded fixtures) and the fake yt-dlp
@@ -261,8 +265,44 @@ run_phase6() {
     echo "PHASE 6 GATE: PASS ($IMAGE: a 200-track Exportify list, a Plex playlist kept in place, album add, a second library, conversion)"
 }
 
+# The Phase 7 stage: indexers and download clients, on a fresh container (DECISIONS build session 8).
+run_phase7() {
+
+    # FakeSlskd stands in for slskd with nothing on it (so the indexers are the only source), answers
+    # AcoustID, and serves the container stub on 127.0.0.1:5034: Torznab at /torznab, Newznab at
+    # /newznab, qBittorrent's Web API at /api/v2, SABnzbd at /sabnzbd. Search on add is off: the gate
+    # runs MissingSearch itself.
+    P7="${NAME}-p7"
+    P7_PORT=$((PORT + 4))
+    P7_BASE="http://localhost:${P7_PORT}${URL_BASE}"
+    mkdir -p "$WORK/p7/config" "$WORK/p7/data/music" && chmod -R 777 "$WORK/p7"
+    $DOCKER run -d --name "$P7"     "${METADATA_ARGS[@]}"     -p "${P7_PORT}:1077"     -e APP__LYRICS__ENABLED=false     -e PUID="$PUID_WANT" -e PGID="$PGID_WANT" -e UMASK=002 -e TZ=Etc/UTC     -e APP__SERVER__URL_BASE="$URL_BASE"     -e APP__SOULSEEK__BINARY_PATH=/opt/fake/slskd -e APP__SOULSEEK__USERNAME=gate-user -e APP__SOULSEEK__PASSWORD=gate-password     -e APP__ACOUSTID__CLIENT_KEY=gate -e APP__ACOUSTID__BASE_URL=http://127.0.0.1:5031/v2/     -e APP__SEARCH__SEARCH_ON_ADD=false     -v "$WORK/p7/config:/config" -v "$WORK/p7/data:/data" -v "$WORK/fake:/opt/fake:ro"     "$IMAGE" > /dev/null
+    for _ in $(seq 1 90); do
+        [ "$($DOCKER inspect -f '{{.State.Health.Status}}' "$P7" 2> /dev/null)" = healthy ] && break
+        sleep 2
+    done
+    P7_KEY="$($DOCKER exec "$P7" sh -c "sed -n 's/^ *api_key: *//p' /config/config.yml" | tr -d '\"'\''\r ')"
+    [ "${#P7_KEY}" -eq 32 ] || fail "could not read the Phase 7 container's API key"
+    P7_CURL="$DOCKER run --rm -i --network container:$P7 curlimages/curl:8.11.1 -fsS"
+    GATE7="$(dirname "$0")/phase7-gate.py"
+    python3 "$GATE7" setup --url "$P7_BASE" --api-key "$P7_KEY" || { $DOCKER logs --tail 60 "$P7" >&2; fail "Phase 7 gate (clients and indexers)"; }
+    python3 "$GATE7" torrent --url "$P7_BASE" --api-key "$P7_KEY" --fake-cmd "$P7_CURL"         || { $DOCKER logs --tail 120 "$P7" >&2; fail "Phase 7 gate (one torrent grab, two songs, only their files)"; }
+    python3 "$GATE7" usenet --url "$P7_BASE" --api-key "$P7_KEY" --fake-cmd "$P7_CURL"         || { $DOCKER logs --tail 120 "$P7" >&2; fail "Phase 7 gate (an NZB post trimmed, unpacked, deleted)"; }
+    if [ "$METADATA" = replay ]; then
+        MISSES="$(curl -fsS "http://localhost:${REPLAY_PORT}/__misses")"
+        [ "$(echo "$MISSES" | jq 'length')" = 0 ] || fail "the Phase 7 gate asked for metadata tests/gate/replay has no recording of (re-record with SMOKE_METADATA=record): $MISSES"
+    fi
+    $DOCKER rm -f "$P7" > /dev/null 2>&1 || true
+    echo "PHASE 7 GATE: PASS ($IMAGE: one torrent grab for two songs of an album, only their files downloaded; an NZB post trimmed, unpacked, deleted)"
+}
+
 if [ "${SMOKE_ONLY_PHASE6:-off}" = on ]; then
     run_phase6
+    exit 0
+fi
+
+if [ "${SMOKE_ONLY_PHASE7:-off}" = on ]; then
+    run_phase7
     exit 0
 fi
 
@@ -456,3 +496,9 @@ if [ "${SMOKE_PHASE6:-on}" = off ]; then
     exit 0
 fi
 run_phase6
+
+if [ "${SMOKE_PHASE7:-on}" = off ]; then
+    echo "Phase 7 gate skipped (SMOKE_PHASE7=off)"
+    exit 0
+fi
+run_phase7
