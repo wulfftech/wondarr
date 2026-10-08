@@ -273,6 +273,18 @@ public sealed class SabnzbdClientTests
             .Should().Contain(["A host is required.", "The port must be between 1 and 65535.", "An API key is required."]);
     }
 
+    [Theory]
+    [InlineData("http://sab.example")]
+    [InlineData("sab.example/sabnzbd")]
+    [InlineData("sab.example?x=1")]
+    public void Validation_refuses_a_host_that_is_more_than_a_host(string host)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new { host, apiKey = "k" }));
+
+        new SabnzbdClientType(Proxy(new FakeSabnzbd())).Validate(document.RootElement)
+            .Should().ContainSingle().Which.Should().StartWith("The host must be a name or an address only");
+    }
+
     [Fact]
     public async Task The_key_is_registered_as_a_secret_and_never_logged()
     {
