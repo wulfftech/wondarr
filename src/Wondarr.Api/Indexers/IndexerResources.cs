@@ -125,12 +125,24 @@ internal static class IndexerResourceMapper
             resource.Id);
     }
 
-    /// <summary>Reads a protocol name; anything the enum does not know is <see langword="null"/>, which the service reports.</summary>
+    /// <summary>
+    /// Reads a protocol name. Absent or empty is <see langword="null"/> (the service asks for one when the
+    /// type needs it); a name the enum does not know is a validation error, not "absent".
+    /// </summary>
     /// <param name="protocol">The protocol name, or <see langword="null"/>.</param>
-    public static DownloadProtocol? ParseProtocol(string? protocol) =>
-        protocol is not null && Enum.TryParse<DownloadProtocol>(protocol, ignoreCase: true, out var parsed)
+    public static DownloadProtocol? ParseProtocol(string? protocol)
+    {
+        if (string.IsNullOrWhiteSpace(protocol))
+        {
+            return null;
+        }
+
+        return Enum.TryParse<DownloadProtocol>(protocol, ignoreCase: true, out var parsed) && Enum.IsDefined(parsed)
             ? parsed
-            : null;
+            : throw new IndexerValidationException(
+                "protocol",
+                string.Concat("Unknown protocol '", protocol, "'; use Torrent or Usenet."));
+    }
 
     /// <summary>Converts the body's settings node into an element the type can read.</summary>
     /// <param name="settings">The node, or <see langword="null"/>.</param>
@@ -139,3 +151,8 @@ internal static class IndexerResourceMapper
             ? NotificationSecrets.Read(null)
             : NotificationSecrets.Read(settings.ToJsonString());
 }
+
+/// <summary>What a connection test of an indexer or a download client answers.</summary>
+/// <param name="Success">Whether the connection worked.</param>
+/// <param name="Error">Why it did not, in words that carry no secret.</param>
+public sealed record ProviderTestResource(bool Success, string? Error);

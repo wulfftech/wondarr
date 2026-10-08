@@ -3134,7 +3134,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["ProviderTestResource"];
                     };
                 };
             };
@@ -3888,7 +3888,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": unknown;
+                        "application/json": components["schemas"]["ProviderTestResource"];
                     };
                 };
             };
@@ -5190,6 +5190,10 @@ export interface components {
             status?: null | number | string;
             detail?: null | string;
             instance?: null | string;
+        };
+        ProviderTestResource: {
+            success: boolean;
+            error: null | string;
         };
         QualityDefinitionResource: {
             /** Format: int64 */

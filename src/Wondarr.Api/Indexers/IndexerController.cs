@@ -140,7 +140,7 @@ public sealed class IndexerController : ControllerBase
     [HttpPost("test")]
     [Consumes("application/json")]
     [Produces("application/json")]
-    public async Task<IActionResult> TestIndexer(
+    public async Task<ActionResult<ProviderTestResource>> TestIndexer(
         [FromBody] IndexerInputResource resource,
         CancellationToken cancellationToken)
     {
@@ -157,7 +157,7 @@ public sealed class IndexerController : ControllerBase
             return Invalid(exception);
         }
 
-        return Ok(new { success = result.Success, error = result.Error });
+        return Ok(new ProviderTestResource(result.Success, result.Error));
     }
 
     /// <summary>The resource for a row, with every secret masked.</summary>
