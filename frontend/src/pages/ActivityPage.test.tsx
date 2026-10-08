@@ -71,7 +71,7 @@ describe('ActivityPage', () => {
     renderApp();
 
     expect(await screen.findByText('Teardrop')).toBeInTheDocument();
-    expect(screen.getByText('imported')).toBeInTheDocument();
+    expect(screen.getByText('Imported')).toBeInTheDocument();
     expect(screen.getByText('FLAC')).toBeInTheDocument();
   });
 

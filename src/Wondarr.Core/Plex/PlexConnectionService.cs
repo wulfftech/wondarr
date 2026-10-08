@@ -89,6 +89,17 @@ public interface IPlexConnectionService
     /// <returns>The server's identity, read from the server itself.</returns>
     Task<PlexIdentity> SelectServerAsync(string serverUrl, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Selects one of the account's servers by trying every connection plex.tv lists for it — local
+    /// ones first, the relay last — and keeping the best one that answers as that server.
+    /// </summary>
+    /// <param name="machineIdentifier">The server to connect to, as plex.tv lists it.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The server's identity, read from the connection that was kept.</returns>
+    /// <exception cref="ArgumentException">The account has no server with that identifier.</exception>
+    /// <exception cref="PlexException">None of the server's connections answered as that server.</exception>
+    Task<PlexIdentity> ConnectServerAsync(string machineIdentifier, CancellationToken cancellationToken);
+
     /// <summary>Tests the selected server. A Plex or network problem is reported, not thrown.</summary>
     /// <param name="cancellationToken">Cancels the request.</param>
     Task<PlexTestResult> TestAsync(CancellationToken cancellationToken);
@@ -126,6 +137,12 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
     public const string NoServerSelected = "No Plex server selected";
 
     private const string MusicSectionType = "artist";
+
+    /// <summary>How many failed connections a "none answered" message names.</summary>
+    private const int MaximumReportedConnections = 4;
+
+    /// <summary>How long each connection gets to answer when a server is connected by name.</summary>
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(5);
 
     private readonly ISettingsRepository _settings;
     private readonly IPlexClientIdentifier _identifier;
@@ -304,6 +321,100 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
     }
 
     /// <inheritdoc />
+    public async Task<PlexIdentity> ConnectServerAsync(string machineIdentifier, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(machineIdentifier);
+
+        var settings = await LoadAsync(cancellationToken).ConfigureAwait(false);
+        var token = settings.Token;
+
+        if (string.IsNullOrEmpty(token))
+        {
+            throw new InvalidOperationException(NotSignedIn);
+        }
+
+        var servers = await _tv
+            .GetServersAsync(token, settings.ClientIdentifier, cancellationToken)
+            .ConfigureAwait(false);
+
+        var server = servers.FirstOrDefault(candidate =>
+            string.Equals(candidate.MachineIdentifier, machineIdentifier, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException("This Plex account has no server with that identifier.", nameof(machineIdentifier));
+
+        var serverToken = server.AccessToken ?? token;
+        _secrets.Register(serverToken);
+
+        // Local first, the relay last: the order a Plex app prefers. Every connection is probed at
+        // once, so a list of dead Docker-bridge addresses costs one short wait rather than one each.
+        var ordered = server.Connections
+            .Where(connection => Uri.TryCreate(connection.Uri, UriKind.Absolute, out _))
+            .OrderBy(connection => connection.Relay)
+            .ThenByDescending(connection => connection.Local)
+            .ToList();
+
+        if (ordered.Count == 0)
+        {
+            throw new PlexException($"plex.tv lists no connection for {server.Name}; enter its URL by hand.");
+        }
+
+        var probes = ordered
+            .Select(connection => ProbeAsync(new Uri(connection.Uri), serverToken, server.MachineIdentifier, cancellationToken))
+            .ToList();
+
+        var outcomes = await Task.WhenAll(probes).ConfigureAwait(false);
+
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            if (outcomes[index].Answered)
+            {
+                LogConnectionChosen(_logger, server.Name, ordered[index].Uri, ordered.Count);
+
+                return await SelectServerAsync(ordered[index].Uri, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        var reasons = ordered
+            .Zip(outcomes, (connection, outcome) => $"{connection.Uri}: {outcome.Error}")
+            .Take(MaximumReportedConnections);
+
+        throw new PlexException(
+            $"None of the {ordered.Count} connections plex.tv lists for {server.Name} answered from here. "
+            + "Enter a URL this server answers on by hand. "
+            + string.Join("; ", reasons));
+    }
+
+    /// <summary>
+    /// Asks one connection for the server's identity, within <see cref="ProbeTimeout"/>. A connection
+    /// that answers as a different server (a Docker bridge address can be another host's) does not count.
+    /// </summary>
+    private async Task<(bool Answered, string? Error)> ProbeAsync(
+        Uri connection,
+        string token,
+        string machineIdentifier,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ProbeTimeout);
+
+        try
+        {
+            var identity = await _server.GetIdentityAsync(connection, token, timeout.Token).ConfigureAwait(false);
+
+            return string.Equals(identity.MachineIdentifier, machineIdentifier, StringComparison.OrdinalIgnoreCase)
+                ? (true, null)
+                : (false, "a different Plex server answered");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return (false, $"no answer within {ProbeTimeout.TotalSeconds:0} seconds");
+        }
+        catch (PlexException exception)
+        {
+            return (false, exception.Message);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<PlexTestResult> TestAsync(CancellationToken cancellationToken)
     {
         try
@@ -377,6 +488,11 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Selected the Plex server {ServerName}")]
     private static partial void LogServerSelected(ILogger logger, string serverName);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Connecting to the Plex server {ServerName} through {Connection}, the first of its {Count} connections that answered")]
+    private static partial void LogConnectionChosen(ILogger logger, string serverName, string connection, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Signed out of Plex; the selected server is kept")]
     private static partial void LogSignedOut(ILogger logger);

@@ -32,6 +32,7 @@ import { SongSearchButtons } from '../components/InteractiveSearchModal';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
 import { ConvertSongModal, MoveSongModal } from './SongActionModals';
+import { initCaps } from '../components/text';
 
 /** Library: the songs Wondarr manages, with their album assignment and monitored flag. */
 
@@ -86,7 +87,7 @@ function TitleCell({ song }: { song: SongResource }) {
       <Text size="sm">{song.title}</Text>
       {song.versionFlags.map((flag) => (
         <Badge key={flag} variant="light" size="xs" color="grape">
-          {flag}
+          {initCaps(flag)}
         </Badge>
       ))}
     </Group>
@@ -265,12 +266,12 @@ function ChangeAlbumModal({
                     <Text size="sm">{option.title}</Text>
                     {option.primaryType !== null && (
                       <Badge size="xs" variant="light">
-                        {option.primaryType}
+                        {initCaps(option.primaryType)}
                       </Badge>
                     )}
                     {option.secondaryTypes.map((type) => (
                       <Badge key={type} size="xs" variant="light">
-                        {type}
+                        {initCaps(type)}
                       </Badge>
                     ))}
                     {option.date !== null && (

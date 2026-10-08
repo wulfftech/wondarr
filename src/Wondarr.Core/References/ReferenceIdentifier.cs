@@ -563,7 +563,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                 candidates.Add(new RankedCandidate(
                     MatchIdentity.From(unconfirmed),
                     UnconfirmedConfidence,
-                    string.Concat("search ", unconfirmed.MbRecordingId ?? query, ", length unknown or differs")));
+                    "text search, length unknown or differs"));
             }
             else if (resolved.Status == ResolveStatus.Resolved
                 && resolved.Identity is { } searchIdentity)
@@ -585,7 +585,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                 candidates.Add(new RankedCandidate(
                     MatchIdentity.From(searchIdentity),
                     SearchConfidence,
-                    string.Concat("search ", searchIdentity.MbRecordingId ?? query)));
+                    "text search"));
             }
 
             foreach (var candidate in resolved.Candidates.Take(CandidateLimit))

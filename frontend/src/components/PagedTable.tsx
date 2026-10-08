@@ -28,6 +28,8 @@ interface PagedTableProps<T> {
   error: Error | null;
   emptyMessage: string;
   rowKey: (row: T) => string | number;
+  /** Tighter rows, for a table with nothing tall in it. */
+  compact?: boolean;
 }
 
 function SortIcon({ direction }: { direction: 'ascending' | 'descending' }) {
@@ -48,6 +50,7 @@ export function PagedTable<T>({
   error,
   emptyMessage,
   rowKey,
+  compact = false,
 }: PagedTableProps<T>) {
   if (isLoading) {
     return <LoadingState />;
@@ -65,7 +68,7 @@ export function PagedTable<T>({
 
   return (
     <Card withBorder padding="md">
-      <Table>
+      <Table verticalSpacing={compact ? 4 : 'xs'}>
         <Table.Thead>
           <Table.Tr>
             {columns.map((column) => {
