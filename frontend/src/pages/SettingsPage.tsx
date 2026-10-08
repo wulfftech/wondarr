@@ -1,6 +1,8 @@
 import { SegmentedControl, Stack, Title } from '@mantine/core';
 import { useNavigate, useParams } from 'react-router';
+import { DownloadClientsSettingsPage } from './settings/DownloadClientsSettingsPage';
 import { ImportListsSettingsPage } from './settings/ImportListsSettingsPage';
+import { IndexersSettingsPage } from './settings/IndexersSettingsPage';
 import { LibrarySettingsPage } from './settings/LibrarySettingsPage';
 import { NotificationsSettingsPage } from './settings/NotificationsSettingsPage';
 import { PlexSettingsPage } from './settings/PlexSettingsPage';
@@ -11,7 +13,16 @@ import { YouTubeSettingsPage } from './settings/YouTubeSettingsPage';
 
 /** The Settings sections, and the route segment each one owns. */
 type SettingsSection =
-  'profiles' | 'library' | 'references' | 'soulseek' | 'youtube' | 'plex' | 'importlists' | 'notifications';
+  | 'profiles'
+  | 'library'
+  | 'references'
+  | 'soulseek'
+  | 'youtube'
+  | 'indexers'
+  | 'downloadclients'
+  | 'plex'
+  | 'importlists'
+  | 'notifications';
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'profiles', label: 'Quality profiles' },
@@ -19,6 +30,8 @@ const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'references', label: 'Reference libraries' },
   { value: 'soulseek', label: 'Soulseek' },
   { value: 'youtube', label: 'YouTube' },
+  { value: 'indexers', label: 'Indexers' },
+  { value: 'downloadclients', label: 'Download clients' },
   { value: 'plex', label: 'Plex' },
   { value: 'importlists', label: 'Import lists' },
   { value: 'notifications', label: 'Notifications' },
@@ -49,6 +62,8 @@ export function SettingsPage() {
       {active === 'references' && <ReferenceLibrariesPage />}
       {active === 'soulseek' && <SoulseekSettingsPage />}
       {active === 'youtube' && <YouTubeSettingsPage />}
+      {active === 'indexers' && <IndexersSettingsPage />}
+      {active === 'downloadclients' && <DownloadClientsSettingsPage />}
       {active === 'plex' && <PlexSettingsPage />}
       {active === 'importlists' && <ImportListsSettingsPage />}
       {active === 'notifications' && <NotificationsSettingsPage />}
