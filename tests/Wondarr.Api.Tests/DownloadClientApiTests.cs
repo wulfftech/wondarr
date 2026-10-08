@@ -184,7 +184,8 @@ public sealed class DownloadClientApiTests
         using var refused = await client.DeleteAsync(new Uri($"{Endpoint}/{clientId}", UriKind.Relative));
 
         refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await refused.Content.ReadAsStringAsync()).Should().Contain("Jackett");
+        var problem = await refused.Content.ReadAsStringAsync();
+        problem.Should().Contain("Jackett").And.Contain("\"title\":\"Download client in use\"");
 
         using var indexerDeleted = await client.DeleteAsync(
             new Uri($"{IndexerEndpoint}/{indexerId}", UriKind.Relative));
