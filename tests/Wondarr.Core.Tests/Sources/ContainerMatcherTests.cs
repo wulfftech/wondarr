@@ -1,3 +1,4 @@
+using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Sources;
 using FluentAssertions;
@@ -146,5 +147,24 @@ public class ContainerMatcherTests
 
         ContainerMatcher.Find(files, new ContainerMatchRequest("Voyager", VersionFlags.None, 1, 240_000, Flac))
             .Should().BeNull();
+    }
+
+    [Fact]
+    public void A_release_that_claims_flac_takes_the_flac_copy_when_other_formats_ride_along()
+    {
+        // archive.org's torrents carry every derivative of an item: the original FLAC beside a VBR MP3
+        // that also fits the lossless size window.
+        ContainerFile[] files =
+        [
+            new(0, "nine_inch_nails_the_slip/03_letting_you.flac", 30_841_400),
+            new(1, "nine_inch_nails_the_slip/03_letting_you_vbr.mp3", 6_929_633),
+            new(2, "nine_inch_nails_the_slip/03_letting_you.ogg", 2_884_016),
+        ];
+        var flac = SeedData.Qualities.Single(quality => quality.Name == "FLAC").Id;
+
+        var match = ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, 3, 253_000, flac));
+
+        match.Should().NotBeNull();
+        match!.File.Index.Should().Be(0);
     }
 }
