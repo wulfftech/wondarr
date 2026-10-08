@@ -31,6 +31,7 @@ import { useLibraries, useQualityProfiles, readEnum } from '../api/profiles';
 import { useCommand, type CommandStatusName } from '../api/songs';
 import { EmptyState, LoadingState } from '../components/DataState';
 import { formatDuration } from '../components/SongCells';
+import { initCaps } from '../components/text';
 
 /**
  * The Add songs page's Album tab: search an album, pick the release and the tracks, and add the ones
@@ -136,7 +137,7 @@ function ResultRow({ result, onChoose }: { result: AlbumSearchResultResource; on
             )}
             {result.type !== null && (
               <Badge size="xs" variant="light">
-                {result.type}
+                {initCaps(result.type)}
               </Badge>
             )}
             {result.trackCount !== null && (
