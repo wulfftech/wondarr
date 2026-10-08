@@ -15,6 +15,9 @@ public sealed record FakeSlskdOptions
     /// <summary>The loopback port of the fake Plex Media Server (and plex.tv) when <c>FAKE_PLEX_PORT</c> is not set.</summary>
     public const int DefaultPlexPort = 5033;
 
+    /// <summary>The Phase 7 stub's port: the indexers, qBittorrent and SABnzbd (<see cref="ContainerStubApp"/>).</summary>
+    public const int DefaultContainersPort = 5034;
+
     /// <summary>The app's rendered slskd configuration.</summary>
     public required SlskdConfiguration Configuration { get; init; }
 
@@ -29,6 +32,12 @@ public sealed record FakeSlskdOptions
 
     /// <summary>Gets the loopback port the fake Plex listens on.</summary>
     public int PlexPort { get; init; } = DefaultPlexPort;
+
+    /// <summary>The port the Phase 7 stub listens on, loopback only.</summary>
+    public int ContainersPort { get; init; } = DefaultContainersPort;
+
+    /// <summary>Where the Phase 7 stub's qBittorrent and SABnzbd keep their downloads.</summary>
+    public string ContainersRoot { get; init; } = ContainerStubApp.DefaultRoot;
 
     /// <summary>The directory of recorded InnerTube responses the stub answers from.</summary>
     public string? InnertubeFixtureDir { get; init; }
@@ -81,6 +90,8 @@ public sealed record FakeSlskdOptions
             AcoustIdPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_ACOUSTID_PORT"), DefaultAcoustIdPort),
             InnertubePort = ReadPort(Environment.GetEnvironmentVariable("FAKE_INNERTUBE_PORT"), DefaultInnertubePort),
             PlexPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_PLEX_PORT"), DefaultPlexPort),
+            ContainersPort = ReadPort(Environment.GetEnvironmentVariable("FAKE_CONTAINERS_PORT"), DefaultContainersPort),
+            ContainersRoot = Environment.GetEnvironmentVariable("FAKE_CONTAINERS_ROOT") is { Length: > 0 } root ? root : ContainerStubApp.DefaultRoot,
             InnertubeFixtureDir = Environment.GetEnvironmentVariable("FAKE_INNERTUBE_FIXTURES"),
             YouTubeScenarioPath = Environment.GetEnvironmentVariable("FAKE_YT_SCENARIO"),
             ShareCachePath = string.IsNullOrWhiteSpace(appDirectory) ? null : Path.Combine(appDirectory, "fake-share-cache.json"),

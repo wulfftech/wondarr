@@ -85,3 +85,21 @@ need `ffmpeg`. The real `FfmpegAudioGenerator` is exercised only when `ffmpeg` a
 `PATH`; that test reports itself as skipped otherwise.
 
 `tests/gate/phase2-scenario.schema.md` describes the scenario document.
+
+## Container stub (Phase 7)
+
+On `127.0.0.1:$FAKE_CONTAINERS_PORT` (default 5034) the fake serves what the Phase 7 gate needs instead
+of real indexers and download clients (`ContainerStubApp.cs`); folders live under `$FAKE_CONTAINERS_ROOT`
+(default `/data/downloads`):
+
+| Path | Stands in for |
+|---|---|
+| `/torznab/api`, `/newznab/api` (`t=caps`, `t=search`/`t=music`), `/torznab/download/{id}`, `/newznab/download/{id}` | a Torznab and a Newznab indexer offering the registered releases whose title holds every token of the query |
+| `/api/v2/…` | qBittorrent's Web API (2.11.4, no login needed): add (a registered `.torrent`, stopped when asked), info, files, filePrio, start/stop, delete, categories, preferences. A running torrent "downloads" — renders real audio for — only its files at priority above 0, into `<root>/torrents/<title>/` |
+| `/sabnzbd/api` | SABnzbd: version, get_config (complete folder `<root>/usenet/complete`, category `wondarr` → `music`), addfile (a registered NZB, paused at priority -2), get_files, `queue` delete_nzf/resume/delete, `history` delete. A resumed job "unpacks" the audio files nobody deleted (every track for an obfuscated post) and moves to the history |
+| `POST /fake/containers` | registers a release: `{ "protocol": "torrent"\|"usenet", "title", "obfuscated", "files": [scenario entries] }`; answers its id and info-hash |
+| `GET /fake/containers` | what happened: each torrent's files with priority and whether they were downloaded; each job's kept, deleted and unpacked files and whether it was removed (with its files) |
+
+Every rendered file's fingerprint is taught to the AcoustID stub with the entry's `identity`, so the
+app's import verifies it like a Soulseek download.
+
