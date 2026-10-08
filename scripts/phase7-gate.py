@@ -310,11 +310,15 @@ def usenet(args: argparse.Namespace) -> None:
     api = Api(args.url, args.api_key)
     _, songs = album_songs(api, args.album, args.timeout_s)
 
+    disabled = 0
     for row in api.call("GET", "/api/v1/indexer"):
-        if row["protocol"] == "torrent" and row["enabled"]:
+        if str(row["protocol"]).lower() == "torrent" and row["enabled"]:
             row["enabled"] = False
             api.call("PUT", f"/api/v1/indexer/{row['id']}", row)
-    ok("the torrent indexers are disabled: usenet is the only source")
+            disabled += 1
+    if not any(str(row["protocol"]).lower() == "torrent" and not row["enabled"] for row in api.call("GET", "/api/v1/indexer")):
+        fail("no torrent indexer could be disabled")
+    ok(f"the torrent indexers are disabled ({disabled}): usenet is the only source")
 
     target = by_title(songs, USENET_TRACK)
     number = songs.index(target) + 1
