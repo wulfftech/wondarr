@@ -16,6 +16,9 @@ public enum SearchTrigger
 
     /// <summary>An import list sync triggered the search.</summary>
     List,
+
+    /// <summary>A release pushed to <c>/api/v1/release/push</c> (autobrr) was judged for the song.</summary>
+    Push,
 }
 
 /// <summary>How a search run ended.</summary>

@@ -189,7 +189,12 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
 
             foreach (var container in containers)
             {
-                var candidate = ToCandidate(request, target, container, text);
+                var candidate = ContainerCandidates.Build(
+                    _protocol,
+                    container,
+                    new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, 1),
+                    text,
+                    _time.GetUtcNow());
 
                 if (candidate is null)
                 {
@@ -402,148 +407,6 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             postSize);
     }
 
-    /// <summary>The wanted song's candidate from one container, or null when its file is not in it.</summary>
-    private Candidate? ToCandidate(SongSearchRequest request, ReleaseTarget target, ContainerListing listing, string query)
-    {
-        var release = listing.Release;
-        var claimed = ReleaseQualityParser.Parse(release.Title);
-        var parsedRelease = ReleaseTitleParser.Parse(release.Title);
-        var releaseFlags = VersionFlagParser.Parse(release.Title).Flags;
-        var song = new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, claimed);
-
-        if (listing.Files is not { } files)
-        {
-            // No file list before the grab: the release itself is the candidate, matched once the
-            // client has the metadata or the job is unpacked (P7-07). Its path is the release title.
-            return new Candidate
-            {
-                SourceType = SourceType,
-                SourceInstanceId = release.IndexerId,
-                BlocklistKey = BlocklistKey(release, listing.InfoHash, release.Title),
-                DisplayName = release.Title,
-                RemotePath = release.Title,
-                Provider = release.IndexerName,
-                Parsed = ParsedName.Empty with
-                {
-                    Artist = parsedRelease?.Artist,
-                    Album = parsedRelease?.Album,
-                    PathVersionFlags = releaseFlags,
-                },
-                QualityId = claimed,
-                Container = CandidateContainer.AlbumContainer,
-                Availability = Availability(release, fileListKnown: false),
-                Query = query,
-                Release = Release(release, listing, null, song),
-            };
-        }
-
-        var match = ContainerMatcher.Find(files, song);
-
-        if (match is null)
-        {
-            return null;
-        }
-
-        var path = match.File.Path;
-
-        return new Candidate
-        {
-            SourceType = SourceType,
-            SourceInstanceId = release.IndexerId,
-            BlocklistKey = BlocklistKey(release, listing.InfoHash, path),
-            DisplayName = Path.GetFileName(path),
-            RemotePath = path,
-            Provider = release.IndexerName,
-            Parsed = match.Parsed with
-            {
-                // A file named "07 - Title.flac" in "Discovery [FLAC]" names no artist; the release does.
-                Artist = string.IsNullOrWhiteSpace(match.Parsed.Artist) ? parsedRelease?.Artist ?? release.Title : match.Parsed.Artist,
-                Album = string.IsNullOrWhiteSpace(match.Parsed.Album) ? parsedRelease?.Album : match.Parsed.Album,
-            },
-            Extension = match.Extension,
-            SizeBytes = match.File.Size,
-            QualityId = FileQuality(claimed, match, request.DurationMs),
-            Container = CandidateContainer.AlbumContainer,
-            Availability = Availability(release, fileListKnown: true),
-            Query = query,
-            Release = Release(release, listing, match.File.Index, song),
-        };
-    }
-
-    /// <summary>
-    /// The release name's quality, unless the file's own extension says another codec: a "FLAC" release
-    /// whose matched file is an <c>.mp3</c> is an MP3, never lossless.
-    /// </summary>
-    private static long FileQuality(long claimed, ContainerMatch match, int? durationMs)
-    {
-        var inferred = SoulseekQuality.Infer(
-            match.Extension,
-            bitRateKbps: null,
-            isVariableBitRate: null,
-            sampleRate: null,
-            bitDepth: null,
-            lengthSeconds: durationMs / 1000,
-            sizeBytes: match.File.Size);
-
-        if (claimed == 1)
-        {
-            return inferred;
-        }
-
-        if (inferred == 1)
-        {
-            return claimed;
-        }
-
-        var claimedCodec = SeedData.Qualities.FirstOrDefault(quality => quality.Id == claimed)?.Codec;
-        var inferredCodec = SeedData.Qualities.FirstOrDefault(quality => quality.Id == inferred)?.Codec;
-
-        return string.Equals(claimedCodec, inferredCodec, StringComparison.Ordinal) ? claimed : inferred;
-    }
-
-    private CandidateAvailability Availability(IndexerRelease release, bool fileListKnown)
-    {
-        int? ageDays = release.PublishDate is { } published
-            ? Math.Max(0, (int)(_time.GetUtcNow() - published).TotalDays)
-            : null;
-
-        return new CandidateAvailability(
-            Seeders: release.Seeders,
-            Grabs: release.Grabs,
-            AgeDays: ageDays,
-            Freeleech: release.DownloadVolumeFactor is 0,
-            FileListKnown: fileListKnown);
-    }
-
-    private static ContainerRelease Release(
-        IndexerRelease release,
-        ContainerListing listing,
-        int? fileIndex,
-        ContainerMatchRequest song) => new()
-        {
-            IndexerId = release.IndexerId,
-            IndexerName = release.IndexerName,
-            Title = release.Title,
-            ReleaseId = release.ReleaseId,
-            DownloadUrl = release.DownloadUrl,
-            MagnetUrl = release.MagnetUrl,
-            InfoHash = listing.InfoHash,
-            Size = release.Size ?? listing.TotalSize,
-            PublishDate = release.PublishDate,
-            FileIndex = fileIndex,
-            Files = listing.Files,
-            Song = song,
-        };
-
-    /// <summary>
-    /// <c>{infohash}␟{path}</c> for a torrent (the guid stands in while the hash is unknown),
-    /// <c>{guid}␟{name}</c> for a usenet post.
-    /// </summary>
-    private string BlocklistKey(IndexerRelease release, string? infoHash, string path) =>
-        _protocol == DownloadProtocol.Torrent
-            ? BlocklistKeys.Torrent(string.IsNullOrEmpty(infoHash) ? release.ReleaseId : infoHash, path)
-            : BlocklistKeys.Usenet(release.ReleaseId, path);
-
     /// <summary>One release seen on two indexers (or for two queries) is read once.</summary>
     private static string ReleaseKey(IndexerRelease release) =>
         !string.IsNullOrEmpty(release.InfoHash)
@@ -589,16 +452,6 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     /// <summary>The magnet's info-hash, or null when it has none Wondarr can use.</summary>
     private static string? InfoHashOf(string? magnet) =>
         magnet is not null && MagnetLink.TryGetInfoHash(magnet, out var hex) ? hex : null;
-
-    /// <summary>
-    /// A release and its files (null while unknown), with the info-hash the metainfo gave and the
-    /// container's whole size when the listing showed it.
-    /// </summary>
-    private sealed record ContainerListing(
-        IndexerRelease Release,
-        IReadOnlyList<ContainerFile>? Files,
-        string? InfoHash,
-        long? TotalSize);
 
     /// <summary>What one search collected besides candidates. Shared by the parallel indexer calls.</summary>
     private sealed class SearchState

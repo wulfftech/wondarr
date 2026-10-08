@@ -40,6 +40,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
     private readonly FakeTorrents _torrents = new();
     private readonly FakeUsenet _usenet = new();
     private readonly FakeIndexer _indexer = new();
+    private readonly IIndexerService _indexerService = Substitute.For<IIndexerService>();
     private readonly ServiceProvider _services;
     private long _seeded = 900;
 
@@ -47,7 +48,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
     {
         _torrents.SavePath = SavePath;
         var services = new ServiceCollection();
-        var indexerService = Substitute.For<IIndexerService>();
+        var indexerService = _indexerService;
         indexerService.GetAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(call => new Indexer { Id = call.Arg<long>(), Name = "Indexer", Type = "torznab", Protocol = DownloadProtocol.Torrent });
         var clientService = Substitute.For<IDownloadClientService>();
@@ -119,6 +120,22 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         _indexer.Downloads.Should().Be(1, "the torrent was in the client already for the later grabs");
         added.Files.Where(file => file.Priority > 0).Select(file => file.Index).Should().Equal(0, 2, 4);
+    }
+
+    [Fact]
+    public async Task A_pushed_release_is_grabbed_without_an_indexer_row()
+    {
+        _indexer.Download = new IndexerDownload(AlbumTorrent(), null);
+        var provider = Provider(DownloadProtocol.Torrent);
+        var pushed = TorrentCandidate(fileIndex: 2) is var candidate
+            ? candidate with { Release = candidate.Release! with { IndexerId = PushedReleaseClient.IndexerId, IndexerName = "autobrr" } }
+            : null!;
+
+        await provider.GrabAsync(pushed, "wondarr/push", CancellationToken.None);
+
+        _torrents.Single().Started.Should().BeTrue();
+        _indexer.Downloads.Should().Be(1);
+        await _indexerService.DidNotReceive().GetAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.DownloadClients;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
@@ -65,6 +66,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<NewznabCapabilitiesReader>();
         services.AddSingleton<TorznabIndexerClient>();
         services.AddSingleton<NewznabIndexerClient>();
+        services.AddSingleton<PushedReleaseClient>();
         services.AddSingleton<IIndexerClientFactory, IndexerClientFactory>();
         services.AddSingleton<IIndexerType, TorznabIndexerType>();
         services.AddSingleton<IIndexerType, NewznabIndexerType>();
@@ -91,6 +93,9 @@ public static class ServiceCollectionExtensions
         // Torznab indexers, usenet through the Newznab ones.
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Torrent));
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Usenet));
+
+        // release/push for torrents and NZBs runs in the request's scope, beside the search service.
+        services.AddScoped<IReleasePushHandler, ReleasePushHandler>();
 
         return services;
     }
