@@ -33,7 +33,7 @@ public sealed partial class IndexerSourceProvider
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentException.ThrowIfNullOrWhiteSpace(destination);
 
-        if (destination.Split('/', '\\').Any(segment => segment is ".." or "."))
+        if (Path.IsPathRooted(destination) || destination.Split('/', '\\').Any(segment => segment is ".." or "."))
         {
             throw new ArgumentException("The destination must be a relative folder without traversal.", nameof(destination));
         }
@@ -67,7 +67,11 @@ public sealed partial class IndexerSourceProvider
     {
         ArgumentNullException.ThrowIfNull(handle);
 
-        var grab = ContainerGrab.Deserialize(handle.Value);
+        if (ContainerGrab.TryDeserialize(handle.Value) is not { } grab)
+        {
+            return Failed("The grab's handle could not be read.");
+        }
+
         var scope = _scopes.CreateAsyncScope();
 
         await using (scope.ConfigureAwait(false))
@@ -137,13 +141,18 @@ public sealed partial class IndexerSourceProvider
     {
         var clients = await services.GetRequiredService<IDownloadClientService>().ListAsync(cancellationToken).ConfigureAwait(false);
 
-        var client = indexer.DownloadClientId is { } id
-            ? clients.FirstOrDefault(row => row.Id == id && row.Enabled)
-            : clients
-                .Where(row => row.Enabled && row.Protocol == _protocol)
-                .OrderBy(row => row.Priority)
-                .ThenBy(row => row.Id)
-                .FirstOrDefault();
+        if (indexer.DownloadClientId is { } id)
+        {
+            return clients.FirstOrDefault(row => row.Id == id && row.Enabled && row.Protocol == _protocol)
+                ?? throw new DownloadClientException(
+                    $"The download client the indexer '{indexer.Name}' names is disabled, deleted or of the other protocol.");
+        }
+
+        var client = clients
+            .Where(row => row.Enabled && row.Protocol == _protocol)
+            .OrderBy(row => row.Priority)
+            .ThenBy(row => row.Id)
+            .FirstOrDefault();
 
         return client ?? throw new DownloadClientException(
             _protocol == DownloadProtocol.Torrent ? "No torrent download client is enabled." : "No usenet download client is enabled.");

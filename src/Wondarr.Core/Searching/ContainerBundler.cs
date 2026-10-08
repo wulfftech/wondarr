@@ -55,6 +55,7 @@ public static class ContainerBundler
             .AsNoTracking()
             .Include(song => song.File)
             .Where(song => song.PrimaryArtistId == artistId && song.Id != songId && song.Monitored)
+            .OrderBy(song => song.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
