@@ -808,3 +808,133 @@ export const COMPACT_PLAN_EMPTY = {
   albumsAfter: 2,
   moves: [],
 };
+
+/** One field of a provider's settings form, in the server's schema shape. */
+function schemaField(
+  name: string,
+  label: string,
+  type: string,
+  extra: Partial<{
+    required: boolean;
+    helpText: string | null;
+    options: string[] | null;
+    secret: boolean;
+    advanced: boolean;
+  }> = {},
+) {
+  return {
+    name,
+    label,
+    type,
+    required: extra.required ?? false,
+    helpText: extra.helpText ?? null,
+    options: extra.options ?? null,
+    secret: extra.secret ?? false,
+    advanced: extra.advanced ?? false,
+  };
+}
+
+/** `GET /api/v1/indexer/schema`: Torznab and Newznab fix their protocol, Prowlarr lets the row choose. */
+export const INDEXER_SCHEMA = [
+  {
+    type: 'torznab',
+    protocol: 'torrent',
+    protocolChoosable: false,
+    fields: [
+      schemaField('url', 'URL', 'url', { required: true }),
+      schemaField('apiKey', 'API key', 'password', { secret: true }),
+      schemaField('categories', 'Categories', 'text'),
+    ],
+  },
+  {
+    type: 'newznab',
+    protocol: 'usenet',
+    protocolChoosable: false,
+    fields: [
+      schemaField('url', 'URL', 'url', { required: true }),
+      schemaField('apiKey', 'API key', 'password', { secret: true }),
+    ],
+  },
+  {
+    type: 'prowlarr',
+    protocol: null,
+    protocolChoosable: true,
+    fields: [
+      schemaField('url', 'URL', 'url', { required: true }),
+      schemaField('apiKey', 'API key', 'password', { secret: true }),
+    ],
+  },
+];
+
+/** `GET /api/v1/indexer`: a Torznab feed on the default client and a Newznab feed with its own. */
+export const INDEXERS = [
+  {
+    id: 1,
+    name: 'Prowlarr torrents',
+    type: 'torznab',
+    protocol: 'torrent',
+    enabled: true,
+    priority: 25,
+    downloadClientId: null,
+    settings: { url: 'http://prowlarr:9696/1/', apiKey: '********', categories: '3000' },
+  },
+  {
+    id: 2,
+    name: 'Usenet indexer',
+    type: 'newznab',
+    protocol: 'usenet',
+    enabled: false,
+    priority: 10,
+    downloadClientId: 4,
+    settings: { url: 'https://indexer.example', apiKey: '********' },
+  },
+];
+
+/** `GET /api/v1/downloadclient/schema`. */
+export const DOWNLOAD_CLIENT_SCHEMA = [
+  {
+    type: 'qbittorrent',
+    protocol: 'torrent',
+    fields: [
+      schemaField('host', 'Host', 'text', { required: true }),
+      schemaField('port', 'Port', 'number'),
+      schemaField('password', 'Password', 'password', { secret: true }),
+      schemaField('remotePathMappings', 'Remote path mappings', 'keyValueList'),
+    ],
+  },
+  {
+    type: 'sabnzbd',
+    protocol: 'usenet',
+    fields: [
+      schemaField('host', 'Host', 'text', { required: true }),
+      schemaField('apiKey', 'API key', 'password', { required: true, secret: true }),
+    ],
+  },
+];
+
+/** `GET /api/v1/downloadclient`. */
+export const DOWNLOAD_CLIENTS = [
+  {
+    id: 3,
+    name: 'qBittorrent',
+    type: 'qbittorrent',
+    protocol: 'torrent',
+    enabled: true,
+    priority: 1,
+    settings: {
+      host: 'qbittorrent',
+      port: 8080,
+      password: '********',
+      remotePathMappings: [{ key: '/downloads', value: '/data/torrents' }],
+    },
+  },
+  {
+    id: 4,
+    name: 'SABnzbd',
+    type: 'sabnzbd',
+    protocol: 'usenet',
+    enabled: true,
+    priority: 1,
+    settings: { host: 'sabnzbd', apiKey: '********' },
+  },
+];
