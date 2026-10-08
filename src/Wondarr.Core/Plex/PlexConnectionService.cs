@@ -412,6 +412,12 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
         {
             return (false, exception.Message);
         }
+        catch (Exception exception) when (exception is HttpRequestException or IOException)
+        {
+            // A body cut off mid-read surfaces past the client's own wrapping; it is still just a
+            // connection that did not answer.
+            return (false, exception.Message);
+        }
     }
 
     /// <inheritdoc />
