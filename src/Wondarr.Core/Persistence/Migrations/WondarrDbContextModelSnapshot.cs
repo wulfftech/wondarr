@@ -403,6 +403,61 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.ToTable("compact_move", (string)null);
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.DownloadClient", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("Enabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true)
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1)
+                        .HasColumnName("priority");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("protocol");
+
+                    b.Property<string>("Settings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("settings");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("type");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_download_client");
+
+                    b.ToTable("download_client", (string)null);
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.HistoryItem", b =>
                 {
                     b.Property<long>("Id")
@@ -626,6 +681,68 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasDatabaseName("ix_import_list_item_state");
 
                     b.ToTable("import_list_item", (string)null);
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.Indexer", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("DownloadClientId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("download_client_id");
+
+                    b.Property<bool>("Enabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true)
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Priority")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(25)
+                        .HasColumnName("priority");
+
+                    b.Property<string>("Protocol")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("protocol");
+
+                    b.Property<string>("Settings")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("settings");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("type");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_indexer");
+
+                    b.HasIndex("DownloadClientId")
+                        .HasDatabaseName("ix_indexer_download_client_id");
+
+                    b.ToTable("indexer", (string)null);
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.Library", b =>
@@ -2469,6 +2586,15 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Navigation("ImportList");
 
                     b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.Indexer", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.DownloadClient", null)
+                        .WithMany()
+                        .HasForeignKey("DownloadClientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_indexer_download_clients_download_client_id");
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.MatchCandidate", b =>
