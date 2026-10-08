@@ -215,10 +215,12 @@ public sealed class IndexerClientTests
         var handler = RecordingHandler.Serving("caps-prowlarr.xml");
         var factory = new IndexerClientFactory(
             TorznabTest.TorznabClient(handler),
-            TorznabTest.NewznabClient(handler));
+            TorznabTest.NewznabClient(handler),
+            new PushedReleaseClient(new StaticHttpClientFactory(handler), Microsoft.Extensions.Logging.Abstractions.NullLogger<PushedReleaseClient>.Instance));
 
         factory.GetClient(TorznabFixtures.Indexer(type: "torznab")).Should().BeOfType<TorznabIndexerClient>();
         factory.GetClient(TorznabFixtures.Indexer(type: "Newznab", protocol: DownloadProtocol.Usenet)).Should().BeOfType<NewznabIndexerClient>();
+        factory.GetClient(PushedReleaseClient.Row(null, DownloadProtocol.Torrent)).Should().BeOfType<PushedReleaseClient>();
 
         var act = () => factory.GetClient(TorznabFixtures.Indexer(type: "gazelle"));
         act.Should().Throw<IndexerException>().WithMessage("*gazelle*");

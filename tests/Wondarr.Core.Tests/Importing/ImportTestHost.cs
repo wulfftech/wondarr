@@ -837,6 +837,14 @@ internal sealed class FakeSongSearchService : ISongSearchService
     /// <inheritdoc />
     public Task<long> GrabCandidateAsync(long candidateRecordId, int attempt, CancellationToken cancellationToken) =>
         throw new NotSupportedException("The import grabs through the next attempt only.");
+
+    public Task<SongSearchResult> JudgeAsync(
+        long songId,
+        IReadOnlyList<Candidate> candidates,
+        SearchTrigger trigger,
+        bool grab,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Pushed releases are not part of this test.");
 }
 
 /// <summary>An event aggregator that records everything published through it.</summary>
