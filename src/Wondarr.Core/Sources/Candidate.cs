@@ -213,6 +213,19 @@ public sealed record ContainerRelease
 
     /// <summary>The container's files, when they were read before the grab (bundling looks here).</summary>
     public IReadOnlyList<ContainerFile>? Files { get; init; }
+
+    /// <summary>
+    /// The paths of the other wanted songs' files the same grab fetches (bundling, DECISIONS build
+    /// session 8 #6): set by the search service on the first song's grab only, so the client selects
+    /// them — and SABnzbd keeps them — from the start.
+    /// </summary>
+    public IReadOnlyList<string>? AlsoWanted { get; init; }
+
+    /// <summary>
+    /// The song this candidate is for, as the container matcher reads it: how the file is found once
+    /// a magnet's metadata or an obfuscated post's unpacked files are there.
+    /// </summary>
+    public ContainerMatchRequest? Song { get; init; }
 }
 
 /// <summary>Builds blocklist keys. One place, so the blocklist and the candidate always agree.</summary>

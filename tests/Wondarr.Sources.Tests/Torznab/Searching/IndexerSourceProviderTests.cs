@@ -3,14 +3,18 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using NSubstitute;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.DownloadClients;
 using Wondarr.Core.Indexers;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.MusicBrainz;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Tests.Torznab.Parsing;
+using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
 using Wondarr.Sources.Torznab.Searching;
 using Xunit;
@@ -332,6 +336,10 @@ public sealed class IndexerSourceProviderTests
             protocol,
             provider.GetRequiredService<IServiceScopeFactory>(),
             new SingleClientFactory(client),
+            Substitute.For<ITorrentClient>(),
+            Substitute.For<IUsenetClient>(),
+            Substitute.For<IDiskOperations>(),
+            Substitute.For<IOptionsMonitor<ImportOptions>>(),
             TimeProvider.System,
             NullLogger<IndexerSourceProvider>.Instance,
             budget);

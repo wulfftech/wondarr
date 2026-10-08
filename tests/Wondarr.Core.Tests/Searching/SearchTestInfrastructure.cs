@@ -136,13 +136,20 @@ internal sealed class SearchTestHost : IAsyncDisposable
         string title = "Alpha",
         int? durationMs = 200_000,
         IReadOnlyList<string>? versionFlags = null,
-        bool monitored = true)
+        bool monitored = true,
+        long? artistId = null)
     {
         await using var context = _database.CreateContext(Time);
 
-        var artist = new Artist { Name = "Aphex Twin", SortName = "Aphex Twin" };
-        context.Artists.Add(artist);
-        await context.SaveChangesAsync();
+        var artist = artistId is { } id
+            ? await context.Artists.SingleAsync(row => row.Id == id)
+            : new Artist { Name = "Aphex Twin", SortName = "Aphex Twin" };
+
+        if (artistId is null)
+        {
+            context.Artists.Add(artist);
+            await context.SaveChangesAsync();
+        }
 
         var song = new Song
         {
