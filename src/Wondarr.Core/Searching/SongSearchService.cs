@@ -798,8 +798,9 @@ public sealed partial class SongSearchService : ISongSearchService
             SizeBytes = candidate.SizeBytes,
             DurationMs = candidate.DurationMs,
             Normalised = JsonSerializer.Serialize(candidate, Json),
+            // The container's score, for the queue's ordering; the breakdown described the first
+            // song's match, not this one's, so it is not copied.
             Score = grabbed.Score,
-            ScoreBreakdown = grabbed.ScoreBreakdown,
             Accepted = true,
         };
 

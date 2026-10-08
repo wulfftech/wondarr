@@ -35,7 +35,7 @@ public sealed class ImportOptions
     /// Where a song's file from a torrent or a usenet post is staged before the import: a torrent's
     /// file is hard-linked here (copied when the link fails — another filesystem), a usenet file is
     /// moved here. Keep it on the same filesystem as the torrent client's downloads so the links
-    /// work (DECISIONS build session 8 #5).
+    /// work (DECISIONS build session 8 #5, build session 9 #1).
     /// </summary>
     public string ContainerStagingPath { get; set; } = "/data/downloads/containers";
 

@@ -123,7 +123,6 @@ public static class QueueResourceExtensions
             []);
     }
 
-    /// <summary>The queue state the way Lidarr spells a queue record's <c>status</c>.</summary>
     /// <summary>Lidarr's protocol names for the indexer sources; Soulseek and YouTube say what they are.</summary>
     private static string LidarrProtocol(string sourceType) => sourceType switch
     {
@@ -132,6 +131,7 @@ public static class QueueResourceExtensions
         _ => sourceType,
     };
 
+    /// <summary>The queue state the way Lidarr spells a queue record's <c>status</c>.</summary>
     private static string LidarrStatus(QueueItemState state) => state switch
     {
         QueueItemState.Queued or QueueItemState.RemotelyQueued => "queued",
