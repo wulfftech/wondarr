@@ -54,6 +54,7 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 | spotDL (https://github.com/spotDL/spotify-downloader) | MIT | the retry-vs-skip split for those failures | `src/Wondarr.Sources.YouTube/YtDlpErrorTaxonomy.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Parser/QualityParser.cs` | `src/Wondarr.Sources.Torznab/Parsing/ReleaseQualityParser.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Parser/Parser.cs` | `src/Wondarr.Sources.Torznab/Parsing/ReleaseTitleParser.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Download/Clients/QBittorrent/QBittorrentProxyV2.cs` | `src/Wondarr.Sources.Torznab/Clients/QBittorrentProxy.cs` |
 | spotDL (https://github.com/spotDL/spotify-downloader) | MIT | the ISRC-first query strategy and its verified-result early return | `src/Wondarr.Sources.YouTube/YouTubeSourceProvider.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/Newznab/NewznabCapabilities.cs` | `src/Wondarr.Sources.Torznab/Indexers/NewznabCapabilities.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/Newznab/NewznabCapabilitiesProvider.cs` | `src/Wondarr.Sources.Torznab/Indexers/NewznabCapabilitiesReader.cs` |
