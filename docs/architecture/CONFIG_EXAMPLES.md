@@ -84,6 +84,9 @@ search:                                     # the scheduled search loops (§5.5)
   upgrade_interval_hours: 24                # the Cutoff Unmet loop
   upgrade_batch_size: 50                    # songs per run, to be polite to the network
   search_on_add: true                       # queue a SongSearch the moment a song is added
+  max_container_size_mb: 1500               # a usenet post larger than this is rejected; a torrent downloads only its selected files
+import:
+  container_staging_path: /data/downloads/containers  # a finished torrent file is hard-linked here (keep it on the client's filesystem), a usenet file moved here
 libraries:
   - name: Plexamp
     root: /data/music
