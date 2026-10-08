@@ -50,7 +50,7 @@ public static class NewznabQuery
         }
 
         url.Append("&offset=0")
-            .Append("&limit=").Append(Math.Min(MaxLimit, capabilities.MaxPageSize).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            .Append("&limit=").Append(Math.Clamp(capabilities.MaxPageSize, 1, MaxLimit).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         return new Uri(url.ToString(), UriKind.Absolute);
     }

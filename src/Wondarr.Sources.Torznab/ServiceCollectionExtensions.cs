@@ -3,6 +3,8 @@ using Wondarr.Core.Indexers;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http.Resilience;
+using Polly;
 using Wondarr.Sources.Torznab.Indexers;
 
 namespace Wondarr.Sources.Torznab;
@@ -40,7 +42,17 @@ public static class ServiceCollectionExtensions
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
             {
                 AllowAutoRedirect = false,
-            });
+            })
+            .AddResilienceHandler("indexer", builder => builder.AddRetry(new HttpRetryStrategyOptions
+            {
+                // Indexers, Prowlarr included, answer 502/503 when an upstream tracker hiccups; two
+                // retries with jitter, and a Retry-After is obeyed.
+                MaxRetryAttempts = 2,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = TimeSpan.FromSeconds(2),
+                ShouldRetryAfterHeader = true,
+            }));
 
         services.AddSingleton<NewznabCapabilitiesReader>();
         services.AddSingleton<TorznabIndexerClient>();
