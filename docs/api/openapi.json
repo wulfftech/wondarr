@@ -2202,6 +2202,40 @@
         }
       }
     },
+    "/api/v1/plex/server/connect": {
+      "put": {
+        "tags": [
+          "Plex"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexServerConnectResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/PlexServerConnectResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlexStateResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/plex/test": {
       "post": {
         "tags": [
@@ -6371,6 +6405,17 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "PlexServerConnectResource": {
+        "required": [
+          "machineIdentifier"
+        ],
+        "type": "object",
+        "properties": {
+          "machineIdentifier": {
+            "type": "string"
           }
         }
       },

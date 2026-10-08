@@ -22,6 +22,7 @@ import {
   usePlexPinStatus,
   usePlexServers,
   usePlexState,
+  useConnectPlexServer,
   useSelectPlexServer,
   useSetPlexToken,
   useSignOutPlex,
@@ -47,11 +48,11 @@ function ConnectionLabel({ connection }: { connection: PlexConnectionResource })
         {connection.uri}
       </Text>
       <Badge size="xs" variant="light" color={connection.local ? 'green' : 'gray'}>
-        {connection.local ? 'local' : 'remote'}
+        {connection.local ? 'Local' : 'Remote'}
       </Badge>
       {connection.relay && (
         <Badge size="xs" variant="light" color="orange">
-          relay
+          Relay
         </Badge>
       )}
     </Group>
@@ -200,8 +201,25 @@ function SignInCard() {
   );
 }
 
-/** The list of servers the account can reach, each with every connection it offers. */
-function ServerPicker({ selected, onSelect }: { selected: string | null; onSelect: (uri: string) => void }) {
+/**
+ * The list of servers the account can reach, each with every connection it offers. "Connect" lets
+ * Wondarr find a connection that works; a radio picks one by hand.
+ */
+function ServerPicker({
+  selected,
+  onSelect,
+  current,
+  onConnect,
+  connecting,
+}: {
+  selected: string | null;
+  onSelect: (uri: string) => void;
+  /** The selected server's machine identifier and name, when one is selected. */
+  current: { machineIdentifier: string; name: string | null } | null;
+  onConnect: (machineIdentifier: string) => void;
+  /** The server a connect is running for. */
+  connecting: string | null;
+}) {
   const servers = usePlexServers(true);
 
   if (servers.isPending) {
@@ -218,8 +236,18 @@ function ServerPicker({ selected, onSelect }: { selected: string | null; onSelec
     return <EmptyState message="The signed-in Plex account can see no servers." />;
   }
 
+  // A server selected earlier that the account no longer lists — a throwaway test server, say — is
+  // why every request fails; say so rather than leave only the connection error.
+  const missing = current !== null && !rows.some((server) => server.machineIdentifier === current.machineIdentifier);
+
   return (
     <Stack gap="md">
+      {missing && (
+        <Alert color="yellow" icon={<CircleAlert size={16} />}>
+          The selected server{current.name === null ? '' : `, ${current.name},`} is not on this Plex account any more.
+          Connect to one of the servers below.
+        </Alert>
+      )}
       {rows.map((server: PlexServerResource) => (
         <Stack key={server.machineIdentifier} gap="xs">
           <Group gap="xs">
@@ -227,13 +255,23 @@ function ServerPicker({ selected, onSelect }: { selected: string | null; onSelec
               {server.name}
             </Text>
             <Badge size="xs" variant="light">
-              {server.owned ? 'owned' : 'shared'}
+              {server.owned ? 'Owned' : 'Shared'}
             </Badge>
             {server.productVersion !== null && (
               <Text size="xs" c="dimmed">
                 {server.productVersion}
               </Text>
             )}
+            <Button
+              size="compact-xs"
+              variant="light"
+              loading={connecting === server.machineIdentifier}
+              disabled={connecting !== null && connecting !== server.machineIdentifier}
+              aria-label={`Connect to ${server.name}`}
+              onClick={() => onConnect(server.machineIdentifier)}
+            >
+              Connect
+            </Button>
           </Group>
 
           <Radio.Group value={selected} onChange={onSelect}>
@@ -256,6 +294,7 @@ function ServerPicker({ selected, onSelect }: { selected: string | null; onSelec
 /** The signed-in view: the chosen server, how to change it, a test, and signing out. */
 function ServerCard({ state }: { state: PlexStateResource }) {
   const select = useSelectPlexServer();
+  const connect = useConnectPlexServer();
   const test = useTestPlex();
   const signOut = useSignOutPlex();
   const [selected, setSelected] = useState<string | null>(state.serverUrl);
@@ -300,7 +339,32 @@ function ServerCard({ state }: { state: PlexStateResource }) {
             setSelected(uri);
             setCustomUrl('');
           }}
+          current={
+            state.machineIdentifier === null
+              ? null
+              : { machineIdentifier: state.machineIdentifier, name: state.serverName }
+          }
+          connecting={connect.isPending ? (connect.variables ?? null) : null}
+          onConnect={(machineIdentifier) =>
+            connect.mutate(machineIdentifier, {
+              onSuccess: (next) => {
+                setSelected(next.serverUrl);
+                setCustomUrl('');
+                test.reset();
+                notifications.show({
+                  message: `Connected to ${next.serverName ?? 'the Plex server'} through ${next.serverUrl ?? 'it'}`,
+                  color: 'green',
+                });
+              },
+            })
+          }
         />
+
+        {connect.error !== null && (
+          <Alert color="red" icon={<CircleAlert size={16} />}>
+            {connect.error.message}
+          </Alert>
+        )}
 
         <TextInput
           label="Server URL"

@@ -24,6 +24,7 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  localStorage.clear();
 });
 
 /** The route table the page needs: the shell, both wanted lists and the profile names. */
@@ -66,6 +67,32 @@ describe('WantedPage', () => {
       // 369000 ms reads as 6:09, not 6.15 or 369.
       expect(screen.getAllByText(text).length).toBeGreaterThan(0);
     }
+  });
+
+  it('shows the cover column until the toggle turns it off, and remembers that', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Teardrop');
+    expect(screen.getByRole('columnheader', { name: 'Cover' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: 'Show cover art' }));
+
+    expect(screen.queryByRole('columnheader', { name: 'Cover' })).not.toBeInTheDocument();
+    expect(localStorage.getItem('wondarr.wanted.showCovers')).toBe('0');
+  });
+
+  it('starts without the cover column when it was turned off before', async () => {
+    localStorage.setItem('wondarr.wanted.showCovers', '0');
+    install();
+
+    renderApp();
+
+    await screen.findByText('Teardrop');
+    expect(screen.getByRole('switch', { name: 'Show cover art' })).not.toBeChecked();
+    expect(screen.queryByRole('columnheader', { name: 'Cover' })).not.toBeInTheDocument();
   });
 
   it('asks for the cutoff list when the Cutoff Unmet tab is picked', async () => {

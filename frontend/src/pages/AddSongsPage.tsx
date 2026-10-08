@@ -34,6 +34,7 @@ import {
 import { EmptyState, LoadingState } from '../components/DataState';
 import { PreviewButton } from '../components/PreviewButton';
 import { formatDuration } from '../components/SongCells';
+import { initCaps } from '../components/text';
 
 /**
  * Add songs: search for one with disambiguation, cover and an audition before adding it, or paste a
@@ -161,12 +162,12 @@ export function CandidateRow({ candidate, action }: { candidate: SongLookupResou
           <Group gap={4}>
             {candidate.releaseTypes.map((type) => (
               <Badge key={type} size="xs" variant="light">
-                {type}
+                {initCaps(type)}
               </Badge>
             ))}
             {candidate.versionFlags.map((flag) => (
               <Badge key={flag} size="xs" variant="light" color="grape">
-                {flag}
+                {initCaps(flag)}
               </Badge>
             ))}
             <Badge size="xs" variant="outline">

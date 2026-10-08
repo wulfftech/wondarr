@@ -18,6 +18,7 @@ import {
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { formatDate } from '../components/SongCells';
 import { QueuePage } from './QueuePage';
+import { initCaps } from '../components/text';
 
 /** The three tabs of the Activity page: what is downloading, what happened and what is blocked. */
 type ActivityTab = 'queue' | 'history' | 'blocklist';
@@ -40,7 +41,7 @@ function EventBadge({ eventType }: { eventType: unknown }) {
 
   return (
     <Badge color={EVENT_COLOURS[name] ?? 'gray'} variant="light">
-      {name}
+      {initCaps(name)}
     </Badge>
   );
 }

@@ -501,7 +501,7 @@ export const MATCH_QUEUE_ITEMS = [
       {
         rank: 1,
         score: 0.87,
-        reason: 'search 87, length differs by 3 s',
+        reason: 'search 9d3f5a1e-1111-4222-8333-444455556666, length differs by 3 s',
         source: 'musicbrainz',
         mbRecordingId: 'a1b2c3d4-0000-0000-0000-000000000002',
         deezerId: null,

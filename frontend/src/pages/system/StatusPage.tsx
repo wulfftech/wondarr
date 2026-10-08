@@ -2,6 +2,7 @@ import { Badge, Card, Group, Stack, Table, Text, Title } from '@mantine/core';
 import { useHealth, useSystemStatus, type SystemStatus } from '../../api/hooks';
 import { ErrorState, LoadingState } from '../../components/DataState';
 import { isProblem, type HealthCheckOutcome } from '../../api/types';
+import { initCaps } from '../../components/text';
 
 const OUTCOME_COLOR: Record<HealthCheckOutcome, string> = {
   ok: 'green',
@@ -108,7 +109,7 @@ export function StatusPage() {
                   <Table.Td>{entry.source}</Table.Td>
                   <Table.Td>
                     <Badge color={OUTCOME_COLOR[entry.type]} variant="light">
-                      {isProblem(entry) ? entry.type : 'ok'}
+                      {isProblem(entry) ? initCaps(entry.type) : 'OK'}
                     </Badge>
                   </Table.Td>
                   <Table.Td>{entry.message}</Table.Td>
