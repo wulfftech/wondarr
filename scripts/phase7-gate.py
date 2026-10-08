@@ -155,6 +155,18 @@ def song(api: Api, song_id: int) -> dict:
     return api.call("GET", f"/api/v1/song/{song_id}")
 
 
+def history(api: Api, song_id: int) -> list[dict]:
+    events = api.all_pages(f"/api/v1/history?songId={song_id}&sortKey=date&sortDirection=ascending")
+    for event in events:
+        if isinstance(event.get("data"), str):
+            try:
+                event["data"] = json.loads(event["data"])
+            except json.JSONDecodeError:
+                event["data"] = {}
+        event["data"] = event.get("data") or {}
+    return events
+
+
 def has_file(record: dict) -> bool:
     return isinstance(record.get("file"), dict)
 
@@ -254,12 +266,11 @@ def torrent(args: argparse.Namespace) -> None:
     ok(f"the fake indexer offers one torrent of all {len(files)} tracks ({registered['infoHash']})")
 
     run_command(api, "MissingSearch", args.timeout_s)
-    items = wait_for_queue(api, args.timeout_s)
+    wait_for_queue(api, args.timeout_s)
 
     for record in wanted:
-        after = song(api, record["id"])
-        if not has_file(after):
-            fail(f"{record['title']} was not imported: {[item for item in items if item['songId'] == record['id']]}")
+        if not has_file(song(api, record["id"])):
+            fail(f"{record['title']} was not imported: {history(api, record['id'])}")
     ok(f"both wanted songs imported: {', '.join(TORRENT_TRACKS)}")
 
     state = fake_get(args.fake_cmd, args.containers)
@@ -275,10 +286,18 @@ def torrent(args: argparse.Namespace) -> None:
         fail(f"files at priority > 0: {selected}, expected only {expected}")
     ok(f"one torrent grab, {len(downloaded)} of {len(files)} files downloaded: {downloaded}")
 
-    grabs = [item for item in items if item["songId"] in {record["id"] for record in wanted}]
-    if len(grabs) != len(wanted) or len({item.get("protocol") for item in grabs}) != 1 or grabs[0].get("protocol") != "torrent":
-        fail(f"expected {len(wanted)} torrent queue items, got {[(item['songId'], item.get('protocol')) for item in grabs]}")
-    ok("each song has its own queue item on the one torrent (protocol torrent)")
+    # Each song has its own grab on the one release; the first one says it brought the other along.
+    grabs = []
+    for record in wanted:
+        grabbed = [event for event in history(api, record["id"]) if str(event.get("eventType", "")).lower() == "grabbed"]
+        if len(grabbed) != 1:
+            fail(f"{record['title']} has {len(grabbed)} grabs, expected one")
+        grabs.append(grabbed[0]["data"])
+    if {grab.get("release") for grab in grabs} != {title} or {grab.get("sourceType") for grab in grabs} != {"torznab"}:
+        fail(f"the grabs were not both of {title!r} from the torrent source: {grabs}")
+    if sorted(grab.get("bundledWith", 0) for grab in grabs) != [0, 1]:
+        fail(f"expected one grab bundling the other song, got {[grab.get('bundledWith') for grab in grabs]}")
+    ok("each song has its own grab of the one torrent; the first brought the second along (bundling)")
 
 
 # ------------------------------------------------------------------------------------------ usenet
