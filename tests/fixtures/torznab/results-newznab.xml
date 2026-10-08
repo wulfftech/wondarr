@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Newznab feed with two NZB items. -->
+<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
+  <channel>
+    <title>Example Newznab</title>
+    <link>https://indexer.example/</link>
+    <description>Example Newznab feed</description>
+    <item>
+      <title>Daft Punk - Discovery [2001] [FLAC]</title>
+      <guid isPermaLink="false">example-nzb-1</guid>
+      <link>https://indexer.example/details/nzb-1</link>
+      <comments>https://indexer.example/details/nzb-1#comments</comments>
+      <pubDate>Tue, 13 Mar 2001 00:00:00 +0000</pubDate>
+      <enclosure url="https://indexer.example/nzb/1.nzb" type="application/x-nzb" length="3412345678"/>
+      <newznab:attr name="size" value="3412345678"/>
+      <newznab:attr name="grabs" value="133"/>
+      <newznab:attr name="category" value="3040"/>
+      <newznab:attr name="usenetdate" value="Mon, 12 Mar 2001 00:00:00 +0000"/>
+    </item>
+    <item>
+      <title>Daft Punk - Discovery [2001] [MP3-320]</title>
+      <guid isPermaLink="false">example-nzb-2</guid>
+      <link>https://indexer.example/details/nzb-2</link>
+      <comments>https://indexer.example/details/nzb-2#comments</comments>
+      <pubDate>Wed, 14 Mar 2001 00:00:00 +0000</pubDate>
+      <enclosure url="https://indexer.example/nzb/2.nzb" type="application/x-nzb" length="123456789"/>
+      <newznab:attr name="grabs" value="12"/>
+      <newznab:attr name="category" value="3010"/>
+      <newznab:attr name="usenetdate" value="Tue, 13 Mar 2001 00:00:00 +0000"/>
+    </item>
+  </channel>
+</rss>

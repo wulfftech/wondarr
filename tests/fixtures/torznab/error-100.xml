@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A Newznab error answer in the 100-199 range: an API key problem. -->
+<error code="100" description="Incorrect user credentials"/>

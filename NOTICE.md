@@ -55,6 +55,12 @@ Ported from Lidarr at commit `da7b4dfb1a9e7e1d6625c2dbc3fff96971ab26bd` unless n
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Parser/QualityParser.cs` | `src/Wondarr.Sources.Torznab/Parsing/ReleaseQualityParser.cs` |
 | Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Parser/Parser.cs` | `src/Wondarr.Sources.Torznab/Parsing/ReleaseTitleParser.cs` |
 | spotDL (https://github.com/spotDL/spotify-downloader) | MIT | the ISRC-first query strategy and its verified-result early return | `src/Wondarr.Sources.YouTube/YouTubeSourceProvider.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/Newznab/NewznabCapabilities.cs` | `src/Wondarr.Sources.Torznab/Indexers/NewznabCapabilities.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/Newznab/NewznabCapabilitiesProvider.cs` | `src/Wondarr.Sources.Torznab/Indexers/NewznabCapabilitiesReader.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/Newznab/NewznabRequestGenerator.cs` | `src/Wondarr.Sources.Torznab/Indexers/NewznabQuery.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/RssParser.cs` | `src/Wondarr.Sources.Torznab/Indexers/RssParser.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/Torznab/TorznabRssParser.cs` | `src/Wondarr.Sources.Torznab/Indexers/TorznabRssParser.cs` |
+| Lidarr (https://github.com/Lidarr/Lidarr) | GPL-3.0 | `src/NzbDrone.Core/Indexers/Newznab/NewznabRssParser.cs` | `src/Wondarr.Sources.Torznab/Indexers/NewznabRssParser.cs` |
 
 Planned sources (see ADR-0002): Lidarr, Prowlarr, Sonarr (GPL-3.0); SoulSync, spotDL (MIT). Sockseek and slskd are AGPL-3.0 and are **not** copied.
 
