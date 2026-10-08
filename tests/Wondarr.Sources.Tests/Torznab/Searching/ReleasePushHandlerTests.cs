@@ -174,11 +174,7 @@ public sealed class ReleasePushHandlerTests
 
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(_container) };
         });
-        var http = new StaticHttpClientFactory(handler);
-        var factory = new IndexerClientFactory(
-            TorznabTest.TorznabClient(handler),
-            TorznabTest.NewznabClient(handler),
-            new PushedReleaseClient(http, NullLogger<PushedReleaseClient>.Instance));
+        var factory = TorznabTest.Factory(handler);
 
         return new ReleasePushHandler(_wanted, _search, _queue, _clients, factory, TimeProvider.System, NullLogger<ReleasePushHandler>.Instance);
     }
