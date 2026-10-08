@@ -785,6 +785,7 @@ internal sealed class FakeQueueSearchService : ISongSearchService
     public Task<long> GrabCandidateAsync(long candidateRecordId, int attempt, CancellationToken cancellationToken) =>
         throw new NotSupportedException("The queue poll grabs through the next attempt only.");
 
+    /// <inheritdoc />
     public Task<SongSearchResult> JudgeAsync(
         long songId,
         IReadOnlyList<Candidate> candidates,

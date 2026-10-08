@@ -27,6 +27,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
 {
     private readonly IWantedService _wanted;
     private readonly ISongSearchService _search;
+    private readonly IQueueService _queue;
     private readonly IDownloadClientService _clients;
     private readonly IIndexerClientFactory _indexers;
     private readonly TimeProvider _time;
@@ -35,6 +36,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     /// <summary>Initialises a new instance of the <see cref="ReleasePushHandler"/> class.</summary>
     /// <param name="wanted">The wanted lists a push is matched against.</param>
     /// <param name="search">Judges and grabs each matching song's candidate.</param>
+    /// <param name="queue">Tells which matching songs are downloading already (bundled by an earlier grab).</param>
     /// <param name="clients">Whether a download client of the protocol is enabled.</param>
     /// <param name="indexers">Reaches the pushed link through the push pseudo-indexer.</param>
     /// <param name="time">The clock a post's age is measured with.</param>
@@ -42,6 +44,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     public ReleasePushHandler(
         IWantedService wanted,
         ISongSearchService search,
+        IQueueService queue,
         IDownloadClientService clients,
         IIndexerClientFactory indexers,
         TimeProvider time,
@@ -49,6 +52,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     {
         ArgumentNullException.ThrowIfNull(wanted);
         ArgumentNullException.ThrowIfNull(search);
+        ArgumentNullException.ThrowIfNull(queue);
         ArgumentNullException.ThrowIfNull(clients);
         ArgumentNullException.ThrowIfNull(indexers);
         ArgumentNullException.ThrowIfNull(time);
@@ -56,6 +60,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
 
         _wanted = wanted;
         _search = search;
+        _queue = queue;
         _clients = clients;
         _indexers = indexers;
         _time = time;
@@ -74,13 +79,13 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
             _ => (DownloadProtocol?)null,
         };
 
-        var songs = await MatchAsync(release.Title, cancellationToken).ConfigureAwait(false);
-        var first = songs.Count > 0 ? songs[0].Song : null;
-
         if (protocol is not { } known)
         {
-            return Rejected(first, $"No download client for protocol '{release.Protocol}'");
+            return Rejected(null, $"No download client for protocol '{release.Protocol}'");
         }
+
+        var songs = await MatchAsync(release.Title, cancellationToken).ConfigureAwait(false);
+        var first = songs.Count > 0 ? songs[0].Song : null;
 
         if (songs.Count == 0)
         {
@@ -107,9 +112,18 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
 
         var rejections = new List<string>();
         var grabbed = 0;
+        var downloading = 0;
 
         foreach (var (song, trackNo) in songs)
         {
+            // Bundled with an earlier song's grab of this release, or downloading already: asked of
+            // the queue itself, not read from a message.
+            if (await _queue.HasActiveForSongAsync(song.Id, cancellationToken).ConfigureAwait(false))
+            {
+                downloading++;
+                continue;
+            }
+
             var wanted = new ContainerMatchRequest(song.Title, VersionFlagNames.FromNames(song.VersionFlags), trackNo, song.DurationMs, 1);
             var candidate = ContainerCandidates.Build(known, listing, wanted, release.Title, _time.GetUtcNow());
 
@@ -125,11 +139,6 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
             {
                 grabbed++;
             }
-            else if (result.Outcome == SearchOutcome.Cancelled && result.Message == "Already downloading")
-            {
-                // Bundled with an earlier song's grab of this release, or downloading already.
-                continue;
-            }
             else
             {
                 var reasons = result.Decisions.SelectMany(decision => decision.Rejections).Select(rejection => rejection.Message).ToList();
@@ -139,9 +148,17 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
 
         LogPushed(_logger, release.Title, known, songs.Count, grabbed);
 
-        return grabbed > 0
-            ? new ReleasePushOutcome(true, [], first!.Id, first.Title)
-            : Rejected(first, [.. rejections.Distinct(StringComparer.Ordinal)]);
+        if (grabbed > 0 && first is not null)
+        {
+            return new ReleasePushOutcome(true, [], first.Id, first.Title);
+        }
+
+        if (rejections.Count == 0 && downloading > 0)
+        {
+            rejections.Add("Already downloading");
+        }
+
+        return Rejected(first, [.. rejections.Distinct(StringComparer.Ordinal)]);
     }
 
     /// <summary>
