@@ -197,6 +197,22 @@ internal static class TorznabTest
         secrets ?? new SecretRegistry(),
         logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<NewznabIndexerClient>.Instance);
 
+    /// <summary>The factory with every indexer client over one handler.</summary>
+    /// <param name="handler">The handler every client's requests go to.</param>
+    /// <param name="time">The clock Gazelle's rate limit runs on.</param>
+    public static IndexerClientFactory Factory(HttpMessageHandler handler, TimeProvider? time = null)
+    {
+        var http = new StaticHttpClientFactory(handler);
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+
+        return new IndexerClientFactory(
+            TorznabClient(handler),
+            NewznabClient(handler),
+            new PushedReleaseClient(http, logger.CreateLogger<PushedReleaseClient>()),
+            new ProwlarrSearchClient(http, new SecretRegistry(), logger.CreateLogger<ProwlarrSearchClient>()),
+            new GazelleClient(http, new SecretRegistry(), time ?? TimeProvider.System, logger.CreateLogger<GazelleClient>()));
+    }
+
     /// <summary>Parses a request URL's query into its parameters, unescaped.</summary>
     /// <param name="url">The URL the client built.</param>
     public static IReadOnlyDictionary<string, string> Query(Uri url)
