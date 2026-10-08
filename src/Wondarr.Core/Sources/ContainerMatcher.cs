@@ -42,7 +42,7 @@ public sealed record ContainerMatch(
 /// and whose size fits the song's length at the release's quality; the track number breaks ties.
 /// Two files that match equally well are no match — guessing would import the wrong song.
 /// </summary>
-public static class ContainerMatcher
+public static partial class ContainerMatcher
 {
     /// <summary>The title similarity a file needs (the normaliser's 0–1 scale).</summary>
     public const double TitleThreshold = 0.85;
@@ -100,7 +100,7 @@ public static class ContainerMatcher
             }
 
             var title = string.IsNullOrWhiteSpace(parsed.Title)
-                ? System.IO.Path.GetFileNameWithoutExtension(file.Path)
+                ? LeadingTrackNumber().Replace(System.IO.Path.GetFileNameWithoutExtension(file.Path), string.Empty)
                 : parsed.Title;
             var similarity = TextMatching.Similarity(songTitle, title);
 
@@ -138,6 +138,10 @@ public static class ContainerMatcher
 
         return best;
     }
+
+    /// <summary>"07 - ", "07. ", "1-07 " before a title: not part of it.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\s*(?:\d{1,2}[-.])?\d{1,3}\s*[-._)]?\s+", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    private static partial System.Text.RegularExpressions.Regex LeadingTrackNumber();
 
     /// <summary>
     /// The sizes a file of the song's length can have at the claimed quality, as loose as the engine's

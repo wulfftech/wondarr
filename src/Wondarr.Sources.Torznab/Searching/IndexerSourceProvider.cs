@@ -8,6 +8,7 @@ using Wondarr.Core.Indexers;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Sources;
+using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
 using Wondarr.Sources.Torznab.Parsing;
 
@@ -338,15 +339,19 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     {
         if (release.FileList is { Count: > 0 } given)
         {
-            return new ContainerListing(release, [.. given.Select(file => new ContainerFile(file.Index, file.Path, file.Size))], release.InfoHash);
+            return new ContainerListing(
+                release,
+                [.. given.Select(file => new ContainerFile(file.Index, file.Path, file.Size))],
+                release.InfoHash,
+                given.Sum(file => file.Size));
         }
 
-        var hash = release.InfoHash ?? Magnets.InfoHash(release.MagnetUrl);
+        var hash = release.InfoHash ?? InfoHashOf(release.MagnetUrl);
 
         if (_protocol == DownloadProtocol.Torrent
             && (release.DownloadUrl is null || release.DownloadUrl.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)))
         {
-            return new ContainerListing(release, null, hash);
+            return new ContainerListing(release, null, hash, null);
         }
 
         var download = await _clients.GetClient(indexer).DownloadAsync(indexer, release, token).ConfigureAwait(false);
@@ -354,7 +359,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         if (download.Content is not { } content)
         {
             var magnet = release with { MagnetUrl = download.MagnetUrl ?? release.MagnetUrl };
-            return new ContainerListing(magnet, null, hash ?? Magnets.InfoHash(download.MagnetUrl));
+            return new ContainerListing(magnet, null, hash ?? InfoHashOf(download.MagnetUrl), null);
         }
 
         if (_protocol == DownloadProtocol.Torrent)
@@ -363,22 +368,28 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             return new ContainerListing(
                 release,
                 [.. metainfo.Files.Select(file => new ContainerFile(file.Index, file.Path, file.Size))],
-                metainfo.InfoHash);
+                metainfo.InfoHash,
+                metainfo.TotalSize);
         }
 
         using var stream = new MemoryStream(content, writable: false);
         var files = NzbFileList.Parse(stream);
 
+        // The whole post downloads, archives and Par2 volumes included: that is the size the
+        // container-size limit is about, not the audio files' alone.
+        var postSize = files.Sum(file => file.Size);
+
         if (!NzbFileList.IsClean(files))
         {
-            return new ContainerListing(release, null, null);
+            return new ContainerListing(release, null, null, postSize);
         }
 
         return new ContainerListing(
             release,
             [.. files.Where(file => file.IsAudio && file.FileName is not null)
                 .Select(file => new ContainerFile(file.Index, file.FileName!, file.Size))],
-            null);
+            null,
+            postSize);
     }
 
     /// <summary>The wanted song's candidate from one container, or null when its file is not in it.</summary>
@@ -411,7 +422,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                 Container = CandidateContainer.AlbumContainer,
                 Availability = Availability(release, fileListKnown: false),
                 Query = query,
-                Release = Release(release, listing.InfoHash, null, null),
+                Release = Release(release, listing, null),
             };
         }
 
@@ -446,7 +457,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             Container = CandidateContainer.AlbumContainer,
             Availability = Availability(release, fileListKnown: true),
             Query = query,
-            Release = Release(release, listing.InfoHash, match.File.Index, files),
+            Release = Release(release, listing, match.File.Index),
         };
     }
 
@@ -495,11 +506,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             FileListKnown: fileListKnown);
     }
 
-    private static ContainerRelease Release(
-        IndexerRelease release,
-        string? infoHash,
-        int? fileIndex,
-        IReadOnlyList<ContainerFile>? files) => new()
+    private static ContainerRelease Release(IndexerRelease release, ContainerListing listing, int? fileIndex) => new()
         {
             IndexerId = release.IndexerId,
             IndexerName = release.IndexerName,
@@ -507,11 +514,11 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             ReleaseId = release.ReleaseId,
             DownloadUrl = release.DownloadUrl,
             MagnetUrl = release.MagnetUrl,
-            InfoHash = infoHash,
-            Size = release.Size ?? files?.Sum(file => file.Size),
+            InfoHash = listing.InfoHash,
+            Size = release.Size ?? listing.TotalSize,
             PublishDate = release.PublishDate,
             FileIndex = fileIndex,
-            Files = files,
+            Files = listing.Files,
         };
 
     /// <summary>
@@ -565,8 +572,19 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     [LoggerMessage(Level = LogLevel.Warning, Message = "MusicBrainz could not list the song's releases")]
     private static partial void LogMusicBrainzFailed(ILogger logger, Exception exception);
 
-    /// <summary>A release and its files (null while unknown), with the info-hash the metainfo gave.</summary>
-    private sealed record ContainerListing(IndexerRelease Release, IReadOnlyList<ContainerFile>? Files, string? InfoHash);
+    /// <summary>The magnet's info-hash, or null when it has none Wondarr can use.</summary>
+    private static string? InfoHashOf(string? magnet) =>
+        magnet is not null && MagnetLink.TryGetInfoHash(magnet, out var hex) ? hex : null;
+
+    /// <summary>
+    /// A release and its files (null while unknown), with the info-hash the metainfo gave and the
+    /// container's whole size when the listing showed it.
+    /// </summary>
+    private sealed record ContainerListing(
+        IndexerRelease Release,
+        IReadOnlyList<ContainerFile>? Files,
+        string? InfoHash,
+        long? TotalSize);
 
     /// <summary>What one search collected besides candidates. Shared by the parallel indexer calls.</summary>
     private sealed class SearchState
