@@ -2771,7 +2771,11 @@
           "200": {
             "description": "OK",
             "content": {
-              "application/json": {}
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderTestResource"
+                }
+              }
             }
           }
         }
@@ -3475,7 +3479,11 @@
           "200": {
             "description": "OK",
             "content": {
-              "application/json": {}
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderTestResource"
+                }
+              }
             }
           }
         }
@@ -7393,6 +7401,24 @@
             ]
           },
           "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ProviderTestResource": {
+        "required": [
+          "success",
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "error": {
             "type": [
               "null",
               "string"

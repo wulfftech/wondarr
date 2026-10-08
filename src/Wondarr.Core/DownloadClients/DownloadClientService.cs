@@ -238,7 +238,25 @@ public sealed partial class DownloadClientService : IDownloadClientService
         }
 
         _database.DownloadClients.Remove(client);
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            // An indexer naming this client was saved between the check above and the delete; the
+            // foreign key refused it. Same answer as the check gives.
+            _database.ChangeTracker.Clear();
+
+            var latecomers = await _database.Indexers
+                .Where(indexer => indexer.DownloadClientId == id)
+                .Select(indexer => indexer.Name)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            throw new DownloadClientInUseException(latecomers);
+        }
 
         LogDeleted(_logger, id);
 

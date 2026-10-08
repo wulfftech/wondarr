@@ -193,6 +193,22 @@ public sealed class IndexerApiTests
     }
 
     [Fact]
+    public async Task A_misspelt_protocol_is_a_validation_problem_not_a_missing_one()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using var response = await client.PostAsync(
+            new Uri(Endpoint, UriKind.Relative),
+            Body(new { name = "Prowlarr", type = "carrier pigeon", protocol = "torrnt", settings = new { } }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var problem = await ReadJsonAsync(response);
+        problem.GetProperty("errors").GetProperty("protocol")[0].GetString().Should().Contain("Unknown protocol 'torrnt'");
+    }
+
+    [Fact]
     public async Task An_indexer_naming_a_client_of_the_other_protocol_is_a_validation_problem()
     {
         using var factory = Factory();
