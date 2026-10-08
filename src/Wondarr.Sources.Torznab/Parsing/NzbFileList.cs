@@ -138,6 +138,20 @@ public static class NzbFileList
         return true;
     }
 
+    /// <summary>
+    /// Classifies a file known by its name alone — as SABnzbd's <c>get_files</c> lists them — with
+    /// the same rules as a parsed NZB entry, so <see cref="IsClean"/> applies to it.
+    /// </summary>
+    /// <param name="index">The file's position.</param>
+    /// <param name="fileName">The file's name.</param>
+    /// <param name="size">The file's size in bytes.</param>
+    public static NzbFile FromFileName(int index, string fileName, long size)
+    {
+        ArgumentNullException.ThrowIfNull(fileName);
+
+        return CreateEntry(index, string.Concat("\"", fileName, "\""), size);
+    }
+
     private static NzbFile CreateEntry(int index, string? subject, long size)
     {
         var fileName = ExtractFileName(subject);

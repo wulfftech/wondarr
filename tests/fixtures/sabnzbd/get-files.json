@@ -1,0 +1,7 @@
+{"files": [
+  {"status": "active", "mbleft": "33.0", "mb": "33.0", "age": "2d", "bytes": "34603008.00", "filename": "01 - One More Time.flac", "nzf_id": "SABnzbd_nzf_a1"},
+  {"status": "active", "mbleft": "31.0", "mb": "31.0", "age": "2d", "bytes": "32505856.00", "filename": "02 - Aerodynamic.flac", "nzf_id": "SABnzbd_nzf_a2"},
+  {"status": "active", "mbleft": "33.0", "mb": "33.0", "age": "2d", "bytes": "34603008.00", "filename": "03 - Digital Love.flac", "nzf_id": "SABnzbd_nzf_a3"},
+  {"status": "active", "mbleft": "0.1", "mb": "0.1", "age": "2d", "bytes": "40000.00", "filename": "Discovery.par2", "nzf_id": "SABnzbd_nzf_p1"},
+  {"status": "active", "mbleft": "0.0", "mb": "0.0", "age": "2d", "bytes": "2000.00", "filename": "Discovery.nfo", "nzf_id": "SABnzbd_nzf_n1"}
+]}

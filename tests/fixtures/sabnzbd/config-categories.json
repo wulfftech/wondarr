@@ -1,0 +1,4 @@
+{"config": {"categories": [
+  {"name": "*", "order": 0, "pp": "3", "script": "None", "dir": "", "newzbin": "", "priority": 0},
+  {"name": "wondarr", "order": 1, "pp": "", "script": "Default", "dir": "music", "newzbin": "", "priority": -100}
+]}}
