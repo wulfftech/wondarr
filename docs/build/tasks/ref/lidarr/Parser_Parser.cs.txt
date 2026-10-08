@@ -1,0 +1,868 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using NLog;
+using NzbDrone.Common.Extensions;
+using NzbDrone.Common.Instrumentation;
+using NzbDrone.Core.Music;
+using NzbDrone.Core.Parser.Model;
+
+namespace NzbDrone.Core.Parser
+{
+    public static class Parser
+    {
+        private static readonly Logger Logger = NzbDroneLogger.GetLogger(typeof(Parser));
+
+        private static readonly Regex[] ReportMusicTitleRegex = new[]
+        {
+            // Track with artist (01 - artist - trackName)
+            new Regex(@"(?<trackNumber>\d*){0,1}([-| ]{0,1})(?<artist>[a-zA-Z0-9, ().&_]*)[-| ]{0,1}(?<trackName>[a-zA-Z0-9, ().&_]+)",
+                        RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Track without artist (01 - trackName)
+            new Regex(@"(?<trackNumber>\d*)[-| .]{0,1}(?<trackName>[a-zA-Z0-9, ().&_]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Track without trackNumber or artist(trackName)
+            new Regex(@"(?<trackNumber>\d*)[-| .]{0,1}(?<trackName>[a-zA-Z0-9, ().&_]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Track without trackNumber and  with artist(artist - trackName)
+            new Regex(@"(?<trackNumber>\d*)[-| .]{0,1}(?<trackName>[a-zA-Z0-9, ().&_]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Track with artist and starting title (01 - artist - trackName)
+            new Regex(@"(?<trackNumber>\d*){0,1}[-| ]{0,1}(?<artist>[a-zA-Z0-9, ().&_]*)[-| ]{0,1}(?<trackName>[a-zA-Z0-9, ().&_]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        };
+
+        private static readonly Regex[] ReportAlbumTitleRegex = new[]
+        {
+            // ruTracker - (Genre) [Source]? Artist - Discography
+            new Regex(@"^(?:\(.+?\))(?:\W*(?:\[(?<source>.+?)\]))?\W*(?<artist>.+?)(?: - )(?<discography>Discography|Discografia).+?(?<startyear>\d{4}).+?(?<endyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Discography with two years
+            new Regex(@"^(?<artist>.+?)(?: - )(?:.+?)?(?<discography>Discography|Discografia).+?(?<startyear>\d{4}).+?(?<endyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Discography with end year
+            new Regex(@"^(?<artist>.+?)(?: - )(?:.+?)?(?<discography>Discography|Discografia).+?(?<endyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist Discography with two years
+            new Regex(@"^(?<artist>.+?)\W*(?<discography>Discography|Discografia).+?(?<startyear>\d{4}).+?(?<endyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist Discography with end year
+            new Regex(@"^(?<artist>.+?)\W*(?<discography>Discography|Discografia).+?(?<endyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist Discography
+            new Regex(@"^(?<artist>.+?)\W*(?<discography>Discography|Discografia)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // ruTracker - (Genre) [Source]? Artist - Album - Year
+            new Regex(@"^(?:\(.+?\))(?:\W*(?:\[(?<source>.+?)\]))?\W*(?<artist>.+?)(?: - )(?<album>.+?)(?: - )(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist-Album-Version-Source-Year
+            // ex. Imagine Dragons-Smoke And Mirrors-Deluxe Edition-2CD-FLAC-2015-JLM
+            new Regex(@"^(?<artist>.+?)[-](?<album>.+?)[-](?:[\(|\[]?)(?<version>.+?(?:Edition)?)(?:[\)|\]]?)[-](?<source>\d?CD|WEB).+?(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist-Album-Source-Year
+            // ex. Dani_Sbert-Togheter-WEB-2017-FURY
+            new Regex(@"^(?<artist>.+?)[-](?<album>.+?)[-](?<source>\d?CD|WEB).+?(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Album (Year) Strict
+            new Regex(@"^(?:(?<artist>.+?)(?: - )+)(?<album>.+?)\W*\([^\[\]]*?(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Album (Year)
+            new Regex(@"^(?:(?<artist>.+?)(?: - )+)(?<album>.+?)\W*\((?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Album - Year [something]
+            new Regex(@"^(?:(?<artist>.+?)(?: - )+)(?<album>.+?)\W*(?: - )(?<releaseyear>\d{4})\W*(?:\(|\[)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Album [something] or Artist - Album (something)
+            new Regex(@"^(?:(?<artist>.+?)(?: - )+)(?<album>.+?)\W*(?:\(|\[)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Album Year
+            new Regex(@"^(?:(?<artist>.+?)(?: - )+)(?<album>.+?)\W*(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist-Album (Year) Strict
+            // Hyphen no space between artist and album
+            new Regex(@"^(?:(?<artist>.+?)(?:-)+)(?<album>.+?)\W*\([^\[\]]*?(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist-Album (Year)
+            // Hyphen no space between artist and album
+            new Regex(@"^(?:(?<artist>.+?)(?:-)+)(?<album>.+?)\W*\((?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist-Album [something] or Artist-Album (something)
+            // Hyphen no space between artist and album
+            new Regex(@"^(?:(?<artist>.+?)(?:-)+)(?<album>.+?)\W*(?:\(|\[)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist-Album-something-Year
+            new Regex(@"^(?:(?<artist>.+?)(?:-)+)(?<album>.+?)(?:-.+?)(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist-Album Year
+            // Hyphen no space between artist and album
+            new Regex(@"^(?:(?<artist>.+?)(?:-)+)(?:(?<album>.+?)(?:-)+)(?<releaseyear>\d{4})",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Artist - Year - Album
+            // Hyphen with no or more spaces between artist/album/year
+            new Regex(@"^(?:(?<artist>.+?)(?:-))(?<releaseyear>\d{4})(?:-)(?<album>[^-]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+            // Hyphen with spaces between artist - year - album
+            new Regex(@"^(?:(?<artist>.+?)(?:\s?-\s?))(?<releaseyear>\d{4})(?:\s?-\s?)(?<album>[^-]+)",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        };
+
+        private static readonly Regex[] RejectHashedReleasesRegex = new Regex[]
+            {
+                // Generic match for md5 and mixed-case hashes.
+                new Regex(@"^[0-9a-zA-Z]{32}", RegexOptions.Compiled),
+
+                // Generic match for shorter lower-case hashes.
+                new Regex(@"^[a-z0-9]{24}$", RegexOptions.Compiled),
+
+                // Format seen on some NZBGeek releases
+                // Be very strict with these coz they are very close to the valid 101 ep numbering.
+                new Regex(@"^[A-Z]{11}\d{3}$", RegexOptions.Compiled),
+                new Regex(@"^[a-z]{12}\d{3}$", RegexOptions.Compiled),
+
+                // Backup filename (Unknown origins)
+                new Regex(@"^Backup_\d{5,}S\d{2}-\d{2}$", RegexOptions.Compiled),
+
+                // 123 - Started appearing December 2014
+                new Regex(@"^123$", RegexOptions.Compiled),
+
+                // abc - Started appearing January 2015
+                new Regex(@"^abc$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+
+                // b00bs - Started appearing January 2015
+                new Regex(@"^b00bs$", RegexOptions.Compiled | RegexOptions.IgnoreCase)
+            };
+
+        private static readonly RegexReplace NormalizeRegex = new RegexReplace(@"((?:\b|_)(?<!^)([aà](?!$)|an|the|and|or|of)(?!$)(?:\b|_))|\W|_",
+                                                                string.Empty,
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex PercentRegex = new Regex(@"(?<=\b\d+)%", RegexOptions.Compiled);
+
+        private static readonly Regex FileExtensionRegex = new Regex(@"\.[a-z0-9]{2,4}$",
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // TODO Rework this Regex for Music
+        private static readonly RegexReplace SimpleTitleRegex = new RegexReplace(@"(?:(480|720|1080|2160|320)[ip]|[xh][\W_]?26[45]|DD\W?5\W1|[<>*|]|848x480|1280x720|1920x1080|3840x2160|4096x2160|(8|10)b(it)?)\s*",
+                                                                string.Empty,
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Valid TLDs http://data.iana.org/TLD/tlds-alpha-by-domain.txt
+
+        private static readonly RegexReplace WebsitePrefixRegex = new RegexReplace(@"^(?:\[\s*)?(?:www\.)?[-a-z0-9-]{1,256}\.(?:[a-z]{2,6}\.[a-z]{2,6}|xn--[a-z0-9-]{4,}|[a-z]{2,})\b(?:\s*\]|[ -]{2,})[ -]*",
+                                                                string.Empty,
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly RegexReplace WebsitePostfixRegex = new RegexReplace(@"(?:\[\s*)?(?:www\.)?[-a-z0-9-]{1,256}\.(?:xn--[a-z0-9-]{4,}|[a-z]{2,6})\b(?:\s*\])$",
+                                                                string.Empty,
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly RegexReplace ReleaseTokenPrefixRegex = new RegexReplace(@"^(\[(TR24|OF)\])*\s*",
+                                                                string.Empty,
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex AirDateRegex = new Regex(@"^(.*?)(?<!\d)((?<airyear>\d{4})[_.-](?<airmonth>[0-1][0-9])[_.-](?<airday>[0-3][0-9])|(?<airmonth>[0-1][0-9])[_.-](?<airday>[0-3][0-9])[_.-](?<airyear>\d{4}))(?!\d)",
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex SixDigitAirDateRegex = new Regex(@"(?<=[_.-])(?<airdate>(?<!\d)(?<airyear>[1-9]\d{1})(?<airmonth>[0-1][0-9])(?<airday>[0-3][0-9]))(?=[_.-])",
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly RegexReplace CleanReleaseGroupRegex = new RegexReplace(@"^(.*?[-._ ])|(-(RP|1|NZBGeek|Obfuscated|Scrambled|sample|Pre|postbot|xpost|Rakuv[a-z0-9]*|WhiteRev|BUYMORE|AsRequested|AlternativeToRequested|GEROV|Z0iDS3N|Chamele0n|4P|4Planet|AlteZachen|RePACKPOST))+$",
+                                                                string.Empty,
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly RegexReplace CleanTorrentSuffixRegex = new RegexReplace(@"\[(?:ettv|rartv|rarbg|cttv)\]$",
+                                                                string.Empty,
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex ReleaseGroupRegex = new Regex(@"-(?<releasegroup>[a-z0-9]+(?!.+?(?:MP3|ALAC|FLAC|WEB)))(?<!.*?MP3|ALAC|FLAC|WEB)(?:\b|[-._ ]|$)|[-._ ]\[(?<releasegroup>[a-z0-9]+)\]$",
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex AnimeReleaseGroupRegex = new Regex(@"^(?:\[(?<subgroup>(?!\s).+?(?<!\s))\](?:_|-|\s|\.)?)",
+                                                                RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Handle Exception Release Groups that don't follow -RlsGrp; Manual List
+        // name only...be very careful with this last; high chance of false positives
+        private static readonly Regex ExceptionReleaseGroupRegexExact = new Regex(@"(?<releasegroup>(?:D\-Z0N3|Fight-BB|VARYG|E\.N\.D)\b)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // groups whose releases end with RlsGroup) or RlsGroup]
+        private static readonly Regex ExceptionReleaseGroupRegex = new Regex(@"(?<=[._ \[])(?<releasegroup>(Silence|afm72|Panda|Ghost|MONOLITH|Tigole|Joy|ImE|UTR|t3nzin|Anime Time|Project Angel|Hakata Ramen|HONE|Vyndros|SEV|Garshasp|Kappa|Natty|RCVR|SAMPA|YOGI|r00t|EDGE2020|RZeroX)(?=\]|\)))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex WordDelimiterRegex = new Regex(@"(\s|\.|,|_|-|=|\|)+", RegexOptions.Compiled);
+        private static readonly Regex PunctuationRegex = new Regex(@"[^\w\s]", RegexOptions.Compiled);
+        private static readonly Regex CommonWordRegex = new Regex(@"\b(a|an|the|and|or|of)\b\s?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex SpecialEpisodeWordRegex = new Regex(@"\b(part|special|edition|christmas)\b\s?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex DuplicateSpacesRegex = new Regex(@"\s{2,}", RegexOptions.Compiled);
+
+        private static readonly Regex RequestInfoRegex = new Regex(@"\[.+?\]", RegexOptions.Compiled);
+
+        private static readonly string[] Numbers = new[] { "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine" };
+
+        private static readonly Regex[] CommonTagRegex = new Regex[]
+        {
+            new Regex(@"(\[|\()*\b((featuring|feat.|feat|ft|ft.|produced by)\s{1}){1}\s*.*(\]|\))*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            new Regex(@"(?:\(|\[)(?:[^\(\[]*)(?:version|limited|deluxe|single|clean|album|special|bonus|promo|remaster(ed)?)(?:[^\)\]]*)(?:\)|\])", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+        };
+
+        private static readonly Regex[] BracketRegex = new Regex[]
+        {
+            new Regex(@"\(.*\)", RegexOptions.Compiled),
+            new Regex(@"\[.*\]", RegexOptions.Compiled)
+        };
+
+        private static readonly Regex AfterDashRegex = new Regex(@"[-:].*", RegexOptions.Compiled);
+
+        public static ParsedTrackInfo ParseMusicPath(string path)
+        {
+            var fileInfo = new FileInfo(path);
+
+            ParsedTrackInfo result = null;
+
+            Logger.Debug("Attempting to parse track info using directory and file names. {0}", fileInfo.Directory.Name);
+            result = ParseMusicTitle(fileInfo.Directory.Name + " " + fileInfo.Name);
+
+            if (result == null)
+            {
+                Logger.Debug("Attempting to parse track info using directory name. {0}", fileInfo.Directory.Name);
+                result = ParseMusicTitle(fileInfo.Directory.Name + fileInfo.Extension);
+            }
+
+            return result;
+        }
+
+        public static ParsedTrackInfo ParseMusicTitle(string title)
+        {
+            try
+            {
+                if (!ValidateBeforeParsing(title))
+                {
+                    return null;
+                }
+
+                Logger.Debug("Parsing string '{0}'", title);
+
+                var releaseTitle = RemoveFileExtension(title);
+
+                releaseTitle = releaseTitle.Replace("【", "[").Replace("】", "]");
+
+                var simpleTitle = SimpleTitleRegex.Replace(releaseTitle);
+
+                // TODO: Quick fix stripping [url] - prefixes.
+                simpleTitle = WebsitePrefixRegex.Replace(simpleTitle);
+                simpleTitle = WebsitePostfixRegex.Replace(simpleTitle);
+
+                simpleTitle = CleanTorrentSuffixRegex.Replace(simpleTitle);
+
+                var airDateMatch = AirDateRegex.Match(simpleTitle);
+                if (airDateMatch.Success)
+                {
+                    simpleTitle = airDateMatch.Groups[1].Value + airDateMatch.Groups["airyear"].Value + "." + airDateMatch.Groups["airmonth"].Value + "." + airDateMatch.Groups["airday"].Value;
+                }
+
+                var sixDigitAirDateMatch = SixDigitAirDateRegex.Match(simpleTitle);
+                if (sixDigitAirDateMatch.Success)
+                {
+                    var airYear = sixDigitAirDateMatch.Groups["airyear"].Value;
+                    var airMonth = sixDigitAirDateMatch.Groups["airmonth"].Value;
+                    var airDay = sixDigitAirDateMatch.Groups["airday"].Value;
+
+                    if (airMonth != "00" || airDay != "00")
+                    {
+                        var fixedDate = string.Format("20{0}.{1}.{2}", airYear, airMonth, airDay);
+
+                        simpleTitle = simpleTitle.Replace(sixDigitAirDateMatch.Groups["airdate"].Value, fixedDate);
+                    }
+                }
+
+                foreach (var regex in ReportMusicTitleRegex)
+                {
+                    var match = regex.Matches(simpleTitle);
+
+                    if (match.Count != 0)
+                    {
+                        Logger.Trace(regex);
+                        try
+                        {
+                            var result = ParseMatchMusicCollection(match);
+
+                            if (result != null)
+                            {
+                                result.Quality = QualityParser.ParseQuality(title, null, 0);
+                                Logger.Debug("Quality parsed: {0}", result.Quality);
+
+                                return result;
+                            }
+                        }
+                        catch (InvalidDateException ex)
+                        {
+                            Logger.Debug(ex, ex.Message);
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                if (!title.ToLower().Contains("password") && !title.ToLower().Contains("yenc"))
+                {
+                    Logger.Error(e, "An error has occurred while trying to parse {0}", title);
+                }
+            }
+
+            Logger.Debug("Unable to parse {0}", title);
+            return null;
+        }
+
+        public static ParsedAlbumInfo ParseAlbumTitleWithSearchCriteria(string title, Artist artist, List<Album> album)
+        {
+            try
+            {
+                if (!ValidateBeforeParsing(title))
+                {
+                    return null;
+                }
+
+                var artistName = artist.Name == "Various Artists" ? "VA" : artist.Name.RemoveAccent();
+
+                Logger.Debug("Parsing string '{0}' using search criteria artist: '{1}' album: '{2}'",
+                             title,
+                             artistName.RemoveAccent(),
+                             string.Join(", ", album.Select(a => a.Title.RemoveAccent())));
+
+                var releaseTitle = RemoveFileExtension(title);
+
+                var simpleTitle = SimpleTitleRegex.Replace(releaseTitle);
+
+                simpleTitle = WebsitePrefixRegex.Replace(simpleTitle);
+                simpleTitle = WebsitePostfixRegex.Replace(simpleTitle);
+
+                simpleTitle = CleanTorrentSuffixRegex.Replace(simpleTitle);
+
+                var escapedArtist = Regex.Escape(artistName.RemoveAccent()).Replace(@"\ ", @"[\W_]");
+                var escapedAlbums = string.Join("|", album.Select(s => Regex.Escape(s.Title.RemoveAccent())).ToList()).Replace(@"\ ", @"[\W_]");
+
+                var releaseRegex = new Regex(@"^(\W*|\b)(?<artist>" + escapedArtist + @")(\W*|\b).*(\W*|\b)(?<album>" + escapedAlbums + @")(\W*|\b)", RegexOptions.IgnoreCase);
+
+                var match = releaseRegex.Matches(simpleTitle);
+
+                if (match.Count != 0)
+                {
+                    try
+                    {
+                        var result = ParseAlbumMatchCollection(match, releaseTitle);
+
+                        if (result != null)
+                        {
+                            result.Quality = QualityParser.ParseQuality(title, null, 0);
+                            Logger.Debug("Quality parsed: {0}", result.Quality);
+
+                            result.ReleaseGroup = ParseReleaseGroup(releaseTitle);
+
+                            var subGroup = GetSubGroup(match);
+                            if (!subGroup.IsNullOrWhiteSpace())
+                            {
+                                result.ReleaseGroup = subGroup;
+                            }
+
+                            Logger.Debug("Release Group parsed: {0}", result.ReleaseGroup);
+
+                            result.ReleaseHash = GetReleaseHash(match);
+                            if (!result.ReleaseHash.IsNullOrWhiteSpace())
+                            {
+                                Logger.Debug("Release Hash parsed: {0}", result.ReleaseHash);
+                            }
+
+                            return result;
+                        }
+                    }
+                    catch (InvalidDateException ex)
+                    {
+                        Logger.Debug(ex, ex.Message);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                if (!title.ToLower().Contains("password") && !title.ToLower().Contains("yenc"))
+                {
+                    Logger.Error(e, "An error has occurred while trying to parse {0}", title);
+                }
+            }
+
+            Logger.Debug("Unable to parse {0}", title);
+            return null;
+        }
+
+        public static ParsedAlbumInfo ParseAlbumTitle(string title)
+        {
+            try
+            {
+                if (!ValidateBeforeParsing(title))
+                {
+                    return null;
+                }
+
+                Logger.Debug("Parsing string '{0}'", title);
+
+                var releaseTitle = RemoveFileExtension(title);
+
+                var simpleTitle = SimpleTitleRegex.Replace(releaseTitle);
+
+                // TODO: Quick fix stripping [url] - prefixes.
+                simpleTitle = WebsitePrefixRegex.Replace(simpleTitle);
+                simpleTitle = WebsitePostfixRegex.Replace(simpleTitle);
+
+                simpleTitle = CleanTorrentSuffixRegex.Replace(simpleTitle);
+
+                var airDateMatch = AirDateRegex.Match(simpleTitle);
+                if (airDateMatch.Success)
+                {
+                    simpleTitle = airDateMatch.Groups[1].Value + airDateMatch.Groups["airyear"].Value + "." + airDateMatch.Groups["airmonth"].Value + "." + airDateMatch.Groups["airday"].Value;
+                }
+
+                var sixDigitAirDateMatch = SixDigitAirDateRegex.Match(simpleTitle);
+                if (sixDigitAirDateMatch.Success)
+                {
+                    var airYear = sixDigitAirDateMatch.Groups["airyear"].Value;
+                    var airMonth = sixDigitAirDateMatch.Groups["airmonth"].Value;
+                    var airDay = sixDigitAirDateMatch.Groups["airday"].Value;
+
+                    if (airMonth != "00" || airDay != "00")
+                    {
+                        var fixedDate = string.Format("20{0}.{1}.{2}", airYear, airMonth, airDay);
+
+                        simpleTitle = simpleTitle.Replace(sixDigitAirDateMatch.Groups["airdate"].Value, fixedDate);
+                    }
+                }
+
+                foreach (var regex in ReportAlbumTitleRegex)
+                {
+                    var match = regex.Matches(simpleTitle);
+
+                    if (match.Count != 0)
+                    {
+                        Logger.Trace(regex);
+                        try
+                        {
+                            var result = ParseAlbumMatchCollection(match, releaseTitle);
+
+                            if (result != null)
+                            {
+                                result.Quality = QualityParser.ParseQuality(title, null, 0);
+                                Logger.Debug("Quality parsed: {0}", result.Quality);
+
+                                result.ReleaseGroup = ParseReleaseGroup(releaseTitle);
+
+                                var subGroup = GetSubGroup(match);
+                                if (!subGroup.IsNullOrWhiteSpace())
+                                {
+                                    result.ReleaseGroup = subGroup;
+                                }
+
+                                Logger.Debug("Release Group parsed: {0}", result.ReleaseGroup);
+
+                                result.ReleaseHash = GetReleaseHash(match);
+                                if (!result.ReleaseHash.IsNullOrWhiteSpace())
+                                {
+                                    Logger.Debug("Release Hash parsed: {0}", result.ReleaseHash);
+                                }
+
+                                return result;
+                            }
+                        }
+                        catch (InvalidDateException ex)
+                        {
+                            Logger.Debug(ex, ex.Message);
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                if (!title.ToLower().Contains("password") && !title.ToLower().Contains("yenc"))
+                {
+                    Logger.Error(e, "An error has occurred while trying to parse {0}", title);
+                }
+            }
+
+            Logger.Debug("Unable to parse {0}", title);
+            return null;
+        }
+
+        public static string CleanArtistName(this string name)
+        {
+            // If Title only contains numbers return it as is.
+            if (long.TryParse(name, out _))
+            {
+                return name;
+            }
+
+            name = PercentRegex.Replace(name, "percent");
+
+            return NormalizeRegex.Replace(name).ToLowerInvariant().RemoveAccent();
+        }
+
+        public static string NormalizeTrackTitle(this string title)
+        {
+            title = SpecialEpisodeWordRegex.Replace(title, string.Empty);
+            title = PunctuationRegex.Replace(title, " ");
+            title = DuplicateSpacesRegex.Replace(title, " ");
+
+            return title.Trim().ToLower();
+        }
+
+        public static string NormalizeTitle(string title)
+        {
+            title = WordDelimiterRegex.Replace(title, " ");
+            title = PunctuationRegex.Replace(title, string.Empty);
+            title = CommonWordRegex.Replace(title, string.Empty);
+            title = DuplicateSpacesRegex.Replace(title, " ");
+
+            return title.Trim().ToLower();
+        }
+
+        public static string ParseReleaseGroup(string title)
+        {
+            title = title.Trim();
+            title = RemoveFileExtension(title);
+            title = WebsitePrefixRegex.Replace(title);
+            title = ReleaseTokenPrefixRegex.Replace(title);
+
+            var animeMatch = AnimeReleaseGroupRegex.Match(title);
+
+            if (animeMatch.Success)
+            {
+                return animeMatch.Groups["subgroup"].Value;
+            }
+
+            title = CleanReleaseGroupRegex.Replace(title);
+
+            var exceptionReleaseGroupRegex = ExceptionReleaseGroupRegex.Matches(title);
+
+            if (exceptionReleaseGroupRegex.Count != 0)
+            {
+                return exceptionReleaseGroupRegex.OfType<Match>().Last().Groups["releasegroup"].Value;
+            }
+
+            var exceptionExactMatch = ExceptionReleaseGroupRegexExact.Matches(title);
+
+            if (exceptionExactMatch.Count != 0)
+            {
+                return exceptionExactMatch.OfType<Match>().Last().Groups["releasegroup"].Value;
+            }
+
+            var matches = ReleaseGroupRegex.Matches(title);
+
+            if (matches.Count != 0)
+            {
+                var group = matches.OfType<Match>().Last().Groups["releasegroup"].Value;
+
+                if (int.TryParse(group, out _))
+                {
+                    return null;
+                }
+
+                return group;
+            }
+
+            return null;
+        }
+
+        public static string RemoveFileExtension(string title)
+        {
+            title = FileExtensionRegex.Replace(title, m =>
+            {
+                var extension = m.Value.ToLower();
+                if (MediaFiles.MediaFileExtensions.Extensions.Contains(extension) || new[] { ".par2", ".nzb" }.Contains(extension))
+                {
+                    return string.Empty;
+                }
+
+                return m.Value;
+            });
+
+            return title;
+        }
+
+        public static string CleanAlbumTitle(this string album)
+        {
+            return CommonTagRegex[1].Replace(album, string.Empty).Trim();
+        }
+
+        public static string RemoveBracketsAndContents(this string album)
+        {
+            var intermediate = album;
+            foreach (var regex in BracketRegex)
+            {
+                intermediate = regex.Replace(intermediate, string.Empty).Trim();
+            }
+
+            return intermediate;
+        }
+
+        public static string RemoveAfterDash(this string text)
+        {
+            return AfterDashRegex.Replace(text, string.Empty).Trim();
+        }
+
+        public static string CleanTrackTitle(this string title)
+        {
+            var intermediateTitle = title;
+            foreach (var regex in CommonTagRegex)
+            {
+                intermediateTitle = regex.Replace(intermediateTitle, string.Empty).Trim();
+            }
+
+            return intermediateTitle;
+        }
+
+        private static ParsedTrackInfo ParseMatchMusicCollection(MatchCollection matchCollection)
+        {
+            var artistName = matchCollection[0].Groups["artist"].Value./*Removed for cases like Will.I.Am Replace('.', ' ').*/Replace('_', ' ');
+            artistName = RequestInfoRegex.Replace(artistName, "").Trim(' ');
+
+            // Copied from Radarr (https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/Parser/Parser.cs)
+            // TODO: Split into separate method and write unit tests for.
+            var parts = artistName.Split('.');
+            artistName = "";
+            var n = 0;
+            var previousAcronym = false;
+            var nextPart = "";
+            foreach (var part in parts)
+            {
+                if (parts.Length >= n + 2)
+                {
+                    nextPart = parts[n + 1];
+                }
+
+                if (part.Length == 1 && part.ToLower() != "a" && !int.TryParse(part, out n))
+                {
+                    artistName += part + ".";
+                    previousAcronym = true;
+                }
+                else if (part.ToLower() == "a" && (previousAcronym == true || nextPart.Length == 1))
+                {
+                    artistName += part + ".";
+                    previousAcronym = true;
+                }
+                else
+                {
+                    if (previousAcronym)
+                    {
+                        artistName += " ";
+                        previousAcronym = false;
+                    }
+
+                    artistName += part + " ";
+                }
+
+                n++;
+            }
+
+            artistName = artistName.Trim(' ');
+
+            var result = new ParsedTrackInfo();
+
+            result.ArtistTitle = artistName;
+            result.ArtistTitleInfo = GetArtistTitleInfo(result.ArtistTitle);
+
+            Logger.Debug("Track Parsed. {0}", result);
+            return result;
+        }
+
+        private static ArtistTitleInfo GetArtistTitleInfo(string title)
+        {
+            var artistTitleInfo = new ArtistTitleInfo();
+            artistTitleInfo.Title = title;
+
+            return artistTitleInfo;
+        }
+
+        public static string ParseArtistName(string title)
+        {
+            Logger.Debug("Parsing string '{0}'", title);
+
+            var parseResult = ParseAlbumTitle(title);
+
+            if (parseResult == null)
+            {
+                return CleanArtistName(title);
+            }
+
+            return parseResult.ArtistName;
+        }
+
+        private static ParsedAlbumInfo ParseAlbumMatchCollection(MatchCollection matchCollection, string releaseTitle)
+        {
+            var artistName = matchCollection[0].Groups["artist"].Value.Replace('.', ' ').Replace('_', ' ');
+            var albumTitle = matchCollection[0].Groups["album"].Value.Replace('.', ' ').Replace('_', ' ');
+            var releaseVersion = matchCollection[0].Groups["version"].Value.Replace('.', ' ').Replace('_', ' ');
+            artistName = RequestInfoRegex.Replace(artistName, "").Trim(' ');
+            albumTitle = RequestInfoRegex.Replace(albumTitle, "").Trim(' ');
+            releaseVersion = RequestInfoRegex.Replace(releaseVersion, "").Trim(' ');
+
+            var (releaseYear, yearConfidence) = ExtractYear(matchCollection[0].Groups["releaseyear"]);
+
+            var result = new ParsedAlbumInfo
+            {
+                ReleaseTitle = releaseTitle,
+                ArtistName = artistName,
+                AlbumTitle = albumTitle,
+                ArtistTitleInfo = GetArtistTitleInfo(artistName),
+                ReleaseDate = releaseYear?.ToString() ?? string.Empty,
+                ReleaseYear = releaseYear,
+                YearConfidence = yearConfidence,
+                ReleaseVersion = releaseVersion
+            };
+
+            if (matchCollection[0].Groups["discography"].Success)
+            {
+                int.TryParse(matchCollection[0].Groups["startyear"].Value, out var discStart);
+                int.TryParse(matchCollection[0].Groups["endyear"].Value, out var discEnd);
+                result.Discography = true;
+
+                if (discStart > 0 && discEnd > 0)
+                {
+                    result.DiscographyStart = discStart;
+                    result.DiscographyEnd = discEnd;
+                }
+                else if (discEnd > 0)
+                {
+                    result.DiscographyEnd = discEnd;
+                }
+
+                result.AlbumTitle = "Discography";
+            }
+
+            Logger.Debug("Album Parsed. {0}", result);
+
+            return result;
+        }
+
+        private static (int? Year, YearMatchConfidence Confidence) ExtractYear(Group yearGroup)
+        {
+            if (!yearGroup.Success)
+            {
+                return (null, YearMatchConfidence.None);
+            }
+
+            if (!int.TryParse(yearGroup.Value, out var year))
+            {
+                return (null, YearMatchConfidence.None);
+            }
+
+            var currentYear = DateTime.UtcNow.Year;
+
+            if (year < 1900 || year > currentYear + 1)
+            {
+                return (null, YearMatchConfidence.Low);
+            }
+
+            // High confidence for recent years in standard patterns
+            if (year >= 1950 && year <= currentYear)
+            {
+                return (year, YearMatchConfidence.High);
+            }
+
+            return (year, YearMatchConfidence.Medium);
+        }
+
+        private static bool ValidateBeforeParsing(string title)
+        {
+            if (title.ToLower().Contains("password") && title.ToLower().Contains("yenc"))
+            {
+                Logger.Debug("");
+                return false;
+            }
+
+            if (!title.Any(char.IsLetterOrDigit))
+            {
+                return false;
+            }
+
+            var titleWithoutExtension = RemoveFileExtension(title);
+
+            if (RejectHashedReleasesRegex.Any(v => v.IsMatch(titleWithoutExtension)))
+            {
+                Logger.Debug("Rejected Hashed Release Title: " + title);
+                return false;
+            }
+
+            return true;
+        }
+
+        private static string GetSubGroup(MatchCollection matchCollection)
+        {
+            var subGroup = matchCollection[0].Groups["subgroup"];
+
+            if (subGroup.Success)
+            {
+                return subGroup.Value;
+            }
+
+            return string.Empty;
+        }
+
+        private static string GetReleaseHash(MatchCollection matchCollection)
+        {
+            var hash = matchCollection[0].Groups["hash"];
+
+            if (hash.Success)
+            {
+                var hashValue = hash.Value.Trim('[', ']');
+
+                if (hashValue.Equals("1280x720"))
+                {
+                    return string.Empty;
+                }
+
+                return hashValue;
+            }
+
+            return string.Empty;
+        }
+
+        private static int ParseNumber(string value)
+        {
+            if (int.TryParse(value, out var number))
+            {
+                return number;
+            }
+
+            number = Array.IndexOf(Numbers, value.ToLower());
+
+            if (number != -1)
+            {
+                return number;
+            }
+
+            throw new FormatException(string.Format("{0} isn't a number", value));
+        }
+    }
+}
