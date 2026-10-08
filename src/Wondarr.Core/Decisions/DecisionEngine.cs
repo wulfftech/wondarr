@@ -237,6 +237,27 @@ public sealed class DecisionEngine
         AddArtistRejection(context, candidate, rejections);
         AddSizeRejection(context, candidate, quality, rejections);
 
+        if (candidate.SourceType == SourceTypes.Torznab && candidate.Availability.Seeders is 0)
+        {
+            rejections.Add(new Rejection(
+                RejectionReason.NoSeeders,
+                "No seeders: the indexer lists nobody sharing this torrent."));
+        }
+
+        if (candidate.SourceType == SourceTypes.Newznab
+            && candidate.Release?.Size is { } postSize
+            && postSize > context.MaxContainerSizeBytes)
+        {
+            rejections.Add(new Rejection(
+                RejectionReason.ContainerTooLarge,
+                string.Concat(
+                    "Too large: the post is ",
+                    (postSize / (1024 * 1024)).ToString(CultureInfo.InvariantCulture),
+                    " MB and downloads whole; the limit is ",
+                    (context.MaxContainerSizeBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture),
+                    " MB.")));
+        }
+
         if (candidate.IsLocked)
         {
             rejections.Add(new Rejection(
@@ -538,10 +559,32 @@ public sealed class DecisionEngine
         return Math.Max(0, 300 - (60 * allowedGroupsBelow));
     }
 
-    /// <summary>Free slot +80, queue up to +40, upload speed up to +30.</summary>
+    /// <summary>
+    /// Soulseek: free slot +80, queue up to +40, upload speed up to +30. Torrents: seeders log-scaled to
+    /// +100, freeleech +20, a file list read before the grab +30. Usenet: age under 1 000 days up to
+    /// +100, grabs +20 (MATCHING_ENGINE §3).
+    /// </summary>
     private static int AvailabilityScore(Candidate candidate)
     {
         var availability = candidate.Availability;
+
+        if (candidate.SourceType == SourceTypes.Torznab)
+        {
+            var seeders = Math.Max(0, availability.Seeders ?? 0);
+
+            // 1 seeder ≈ 30, 10 ≈ 100 (log10 scaled, capped).
+            var seederScore = seeders == 0 ? 0 : (int)Math.Min(100, Math.Round(30 + (70 * Math.Log10(seeders))));
+
+            return seederScore + (availability.Freeleech ? 20 : 0) + (availability.FileListKnown ? 30 : 0);
+        }
+
+        if (candidate.SourceType == SourceTypes.Newznab)
+        {
+            var age = availability.AgeDays is { } days ? Math.Max(0, 100 - (days / 10)) : 50;
+
+            return age + (availability.Grabs is > 0 ? 20 : 0) + (availability.FileListKnown ? 30 : 0);
+        }
+
         var score = availability.FreeUploadSlot == true ? 80 : 0;
 
         if (availability.QueueLength is { } queue)

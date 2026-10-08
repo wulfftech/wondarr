@@ -851,6 +851,7 @@ public sealed partial class SongSearchService : ISongSearchService
             SourceTier = 1,
             IsBlocklisted = key => blockedKeys.Contains(key),
             IgnoredUsers = ignored,
+            MaxContainerSizeBytes = _options.CurrentValue.MaxContainerSizeMb * 1024L * 1024L,
         };
     }
 
