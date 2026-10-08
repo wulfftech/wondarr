@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wondarr.Core.DownloadClients;
 using Wondarr.Core.Indexers;
 using Wondarr.Core.Notifications;
@@ -257,6 +258,9 @@ public sealed class DownloadClientApiTests
     private static WondarrAppFactory Factory(FakeQbittorrentType? qbittorrent = null) =>
         new(configureServices: services =>
         {
+            // The real types (Wondarr.Sources.Torznab) share these names; the fakes replace them.
+            services.RemoveAll<IIndexerType>();
+            services.RemoveAll<IDownloadClientType>();
             services.AddSingleton<IDownloadClientType>(qbittorrent ?? new FakeQbittorrentType());
             services.AddSingleton<IDownloadClientType>(new FakeSabnzbdType());
             services.AddSingleton<IIndexerType>(new FakeTorznabType());
