@@ -51,6 +51,11 @@ public sealed class SabnzbdClientType : IDownloadClientType
         {
             messages.Add("A host is required.");
         }
+        else if (parsed.Host.IndexOfAny(['/', '?', '#', '@', ' ']) >= 0)
+        {
+            // The key goes in the query: a host that carries a path, a query or credentials would move it.
+            messages.Add("The host must be a name or an address only, without a scheme, path or port.");
+        }
 
         if (parsed.Port is < 1 or > 65535)
         {

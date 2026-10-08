@@ -94,8 +94,15 @@ public sealed class SabnzbdClient : IUsenetClient
 
         if (await _proxy.FindInQueueAsync(settings, jobId, cancellationToken).ConfigureAwait(false) is not null)
         {
-            await _proxy.RemoveFromQueueAsync(settings, jobId, deleteFiles, cancellationToken).ConfigureAwait(false);
-            return;
+            try
+            {
+                await _proxy.RemoveFromQueueAsync(settings, jobId, deleteFiles, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (DownloadClientException)
+            {
+                // The job finished between the two calls: it is in the history now.
+            }
         }
 
         await _proxy.RemoveFromHistoryAsync(settings, jobId, deleteFiles, cancellationToken).ConfigureAwait(false);
