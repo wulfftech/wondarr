@@ -11,6 +11,10 @@ on:
         description: Run only Phase 1 and the Phase 6 stage (SMOKE_ONLY_PHASE6=on)
         type: boolean
         default: true
+      only-phase7:
+        description: Run only Phase 1 and the Phase 7 stage (SMOKE_ONLY_PHASE7=on; wins over only-phase6)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,7 +41,9 @@ jobs:
         env:
           SMOKE_METADATA: record
           SMOKE_PHASE6: "on"
-          SMOKE_ONLY_PHASE6: ${{ inputs.only-phase6 && 'on' || 'off' }}
+          SMOKE_PHASE7: "on"
+          SMOKE_ONLY_PHASE6: ${{ inputs.only-phase6 && !inputs.only-phase7 && 'on' || 'off' }}
+          SMOKE_ONLY_PHASE7: ${{ inputs.only-phase7 && 'on' || 'off' }}
         run: scripts/smoke-test.sh wondarr:record
       - name: Collect the new recordings
         if: always()

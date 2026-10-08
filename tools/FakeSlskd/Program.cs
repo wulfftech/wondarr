@@ -26,6 +26,7 @@ public static class Program
         var acoustId = AcoustIdStubApp.Build(options, state);
         var innertube = InnertubeStubApp.Build(options, state);
         var plex = PlexStubApp.Build(options, state);
+        var containers = ContainerStubApp.Build(options, state);
 
         try
         {
@@ -33,11 +34,13 @@ public static class Program
             await acoustId.StartAsync().ConfigureAwait(false);
             await innertube.StartAsync().ConfigureAwait(false);
             await plex.StartAsync().ConfigureAwait(false);
+            await containers.StartAsync().ConfigureAwait(false);
 
             FakeSlskdLog.Info($"Listening on {options.Configuration.WebIpAddress}:{options.Configuration.WebPort}");
             FakeSlskdLog.Info($"AcoustID stub listening on 127.0.0.1:{options.AcoustIdPort}");
             FakeSlskdLog.Info($"InnerTube stub listening on 127.0.0.1:{options.InnertubePort}");
             FakeSlskdLog.Info($"Plex stub listening on 127.0.0.1:{options.PlexPort}");
+            FakeSlskdLog.Info($"Indexer, qBittorrent and SABnzbd stub listening on 127.0.0.1:{options.ContainersPort}");
 
             if (options.Configuration.SoulseekUsername is { } username)
             {
@@ -53,7 +56,8 @@ public static class Program
                 app.WaitForShutdownAsync(),
                 acoustId.WaitForShutdownAsync(),
                 innertube.WaitForShutdownAsync(),
-                plex.WaitForShutdownAsync()).ConfigureAwait(false);
+                plex.WaitForShutdownAsync(),
+                containers.WaitForShutdownAsync()).ConfigureAwait(false);
 
             return 0;
         }
@@ -63,6 +67,7 @@ public static class Program
             await acoustId.DisposeAsync().ConfigureAwait(false);
             await innertube.DisposeAsync().ConfigureAwait(false);
             await plex.DisposeAsync().ConfigureAwait(false);
+            await containers.DisposeAsync().ConfigureAwait(false);
         }
     }
 }
