@@ -7,10 +7,10 @@ Gate (`PHASES.md` Phase 7): a song only available inside an album torrent is imp
 | ID | Title | Depends on | Size | Tier |
 |---|---|---|---|---|
 | P7-00 | The owner's UI feedback (Wanted cover toggle, Init Caps badges, Match columns, no ids in reasons) and Plex "Connect" by server; this plan and the decisions | — | S | orchestrator |
-| P7-01 | Indexers and download clients as rows (#1, #8): the two tables, CRUD + schema + test endpoints with masked secrets, in the notifications style; no searching yet | — | M | T2 worker |
-| P7-02 | Release parsing: the release-name quality parser (Lidarr's `QualityParser` music part, ported) and artist/album from a release title; the bencode `.torrent` reader (#4); the NZB file-list reader | — | M | T2 worker |
-| P7-03a | Torznab/Newznab (#2): the two types, `caps` (cached per indexer), the query generator (`t=music` vs `q=` fallback, categories), the RSS parsers (ported), the release record and the indexer client interface | P7-01, P7-02 | M | T2 worker |
-| P7-03b | Prowlarr `/api/v1/search` and Gazelle-direct (`browse`, then `fileList` per torrent, 5 requests / 10 s) | P7-03a | M | T2 worker |
+| P7-01 | Indexers and download clients as rows (#1, #8): the two tables, CRUD + schema + test endpoints with masked secrets, in the notifications style; no searching yet | — | M | T3 worker (T2 returned empty turns twice) |
+| P7-02 | Release parsing: the release-name quality parser (Lidarr's `QualityParser` music part, ported) and artist/album from a release title; the bencode `.torrent` reader (#4); the NZB file-list reader | — | M | T3 worker (T2 looped 65 turns re-reading Lidarr's parser) |
+| P7-03a | Torznab/Newznab (#2): the two types, `caps` (cached per indexer), the query generator (`t=music` vs `q=` fallback, categories), the RSS parsers (ported), the release record and the indexer client interface | P7-01, P7-02 | M | T3 worker |
+| P7-03b | Prowlarr `/api/v1/search` and Gazelle-direct (`browse`, then `fileList` per torrent, 5 requests / 10 s) | P7-03a | M | T3 worker |
 | P7-04 | Container matcher (#3): locate a wanted song in a file list by track number, title and size window; the indexer `SourceProvider.SearchAsync` (recording → releases → queries → containers → per-song candidates, tier 3, #7) | P7-03a, P7-03b | M | T3 (orchestrator) |
 | P7-05 | qBittorrent client (#9): the proxy (login with `Referer`, re-login on 403, version detection), add stopped / `stopCondition`, `files`, `filePrio`, `start`/`resume`, `info`, remove; states for 4.x and 5.x; remote path mapping | P7-01 | M | T3 worker |
 | P7-06 | SABnzbd client (#10): `addurl`/`addfile` paused, `get_files` + `delete_nzf` trimming, `queue`/`history` status, `storage` path, delete with files; remote path mapping | P7-01, P7-05 | M | T3 worker |
