@@ -190,9 +190,14 @@ def album_songs(api: Api, album: str, timeout_s: int) -> tuple[str, list[dict]]:
     return release["id"], [song(api, track["songId"]) for track in tracks if track.get("songId")]
 
 
+def plain(title: str) -> str:
+    """A title as typed: MusicBrainz writes typographic apostrophes (You’re), the gate straight ones."""
+    return title.replace("’", "'").replace("‘", "'").lower()
+
+
 def by_title(songs: list[dict], title: str) -> dict:
     for record in songs:
-        if record["title"].lower() == title.lower():
+        if plain(record["title"]) == plain(title):
             return record
     fail(f"the album has no track called {title!r}: {[record['title'] for record in songs]}")
     return {}
