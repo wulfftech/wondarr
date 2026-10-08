@@ -38,6 +38,33 @@ public sealed class IndexerClientTests
     }
 
     [Fact]
+    public async Task Releases_under_the_minimum_seeders_are_skipped()
+    {
+        var handler = RecordingHandler.ServingCapsAndResults("caps-prowlarr.xml", "results-torznab.xml");
+        var client = TorznabTest.TorznabClient(handler);
+        var indexer = TorznabFixtures.Indexer();
+        indexer.Settings = indexer.Settings.Replace("\"apiPath\"", "\"minimumSeeders\": 10, \"apiPath\"", StringComparison.Ordinal);
+
+        var releases = await client.SearchAsync(indexer, Discovery, CancellationToken.None);
+
+        // The fixture's three releases have 42, 7 and 11 seeders.
+        releases.Select(release => release.Seeders).Should().BeEquivalentTo(new int?[] { 42, 11 });
+    }
+
+    [Fact]
+    public async Task A_connection_test_of_a_row_with_a_relative_url_fails_instead_of_throwing()
+    {
+        var type = new TorznabIndexerType(TorznabTest.CapsReader(RecordingHandler.Serving("caps-prowlarr.xml")));
+
+        var settings = JsonSerializer.SerializeToElement(new { url = "indexer.example", apiKey = TorznabFixtures.ApiKey });
+
+        var result = await type.TestAsync(settings, CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("absolute http or https");
+    }
+
+    [Fact]
     public async Task A_second_search_makes_no_caps_request()
     {
         var handler = RecordingHandler.ServingCapsAndResults("caps-prowlarr.xml", "results-torznab.xml");
