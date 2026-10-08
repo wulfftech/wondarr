@@ -92,6 +92,12 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the configured notifications.</summary>
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    /// <summary>Gets the configured indexers.</summary>
+    public DbSet<Indexer> Indexers => Set<Indexer>();
+
+    /// <summary>Gets the configured download clients.</summary>
+    public DbSet<DownloadClient> DownloadClients => Set<DownloadClient>();
+
     /// <summary>Gets the file moves a Compact library run is making.</summary>
     public DbSet<CompactMoveRecord> CompactMoves => Set<CompactMoveRecord>();
 
@@ -115,6 +121,8 @@ public sealed class WondarrDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(new MetadataCacheEntryConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationConfiguration());
+        modelBuilder.ApplyConfiguration(new IndexerConfiguration());
+        modelBuilder.ApplyConfiguration(new DownloadClientConfiguration());
         modelBuilder.ApplyConfiguration(new CompactMoveConfiguration());
 
         modelBuilder.Entity<Setting>(entity =>
