@@ -103,7 +103,7 @@ describe('LibraryPage', () => {
     expect(screen.getByText('Random Access Memories')).toBeInTheDocument();
     // The second song is filed under its artist's Singles pseudo-album.
     expect(screen.getByText('Singles')).toBeInTheDocument();
-    expect(screen.getByText('radio_edit')).toBeInTheDocument();
+    expect(screen.getByText('Radio edit')).toBeInTheDocument();
     // 369000 ms reads as 6:09.
     expect(screen.getByText('6:09')).toBeInTheDocument();
   });

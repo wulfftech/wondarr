@@ -203,6 +203,34 @@ export function useSelectPlexServer(): UseMutationResult<PlexStateResource, Erro
 }
 
 /**
+ * `PUT /api/v1/plex/server/connect`: selects one of the account's servers by its machine
+ * identifier. The server tries every connection plex.tv lists and keeps the best one that answers,
+ * which is what the user means by "connect to this server".
+ */
+export function useConnectPlexServer(): UseMutationResult<PlexStateResource, Error, string> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (machineIdentifier: string): Promise<PlexStateResource> => {
+      const { data, error, response } = await client.PUT('/api/v1/plex/server/connect', {
+        body: { machineIdentifier },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw plexProblem(response.status, error, 'Wondarr could not connect to the Plex server.');
+      }
+
+      return data;
+    },
+    onSuccess: (state) => {
+      queryClient.setQueryData(PLEX_STATE_QUERY_KEY, state);
+      void queryClient.invalidateQueries({ queryKey: PLEX_SECTIONS_QUERY_KEY });
+    },
+  });
+}
+
+/**
  * Tests the selected server. Whether the connection works is the answer rather than a status code,
  * so a refusal arrives here as `ok: false` with an error in words that carry no token.
  */

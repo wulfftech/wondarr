@@ -115,14 +115,19 @@ describe('MatchQueuePage', () => {
     renderApp();
 
     expect(await screen.findByText(AMBIGUOUS.relativePath)).toBeInTheDocument();
-    // The tags, the probed length and the codec are on the file's own line.
-    expect(
-      screen.getByText('Daft Punk – Harder Better Faster Stronger · Discovery · 3:44 · flac 900 kbps'),
-    ).toBeInTheDocument();
+    // The tags are on the file's own line; the format, the probed length and the bitrate have columns.
+    expect(screen.getByText('Daft Punk – Harder Better Faster Stronger · Discovery')).toBeInTheDocument();
+    const row = screen.getByText(AMBIGUOUS.relativePath).closest('tr');
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText('FLAC')).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText('3:44')).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText('900 kbps')).toBeInTheDocument();
     expect(screen.getByText('Needs review')).toBeInTheDocument();
     expect(screen.getByText('No match')).toBeInTheDocument();
     // The top candidate runs 3 s longer than the file and scored 87 %.
-    expect(screen.getByText(/3:47 \(\+3 s\) · 87% · search 87, length differs by 3 s/)).toBeInTheDocument();
+    // The recording id the reason was stored with is not shown.
+    expect(screen.getByText(/3:47 \(\+3 s\) · 87% · search, length differs by 3 s/)).toBeInTheDocument();
+    expect(screen.queryByText(/9d3f5a1e/)).not.toBeInTheDocument();
   });
 
   it('accepts the top candidate by its rank', async () => {

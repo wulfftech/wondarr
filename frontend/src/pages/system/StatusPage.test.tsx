@@ -47,7 +47,7 @@ describe('StatusPage', () => {
 
     expect(within(list).getByText('Database')).toBeInTheDocument();
     expect(within(list).getByText('Database is up.')).toBeInTheDocument();
-    expect(within(list).getByText('warning')).toBeInTheDocument();
+    expect(within(list).getByText('Warning')).toBeInTheDocument();
   });
 
   it('shows an error state when the status request fails', async () => {
