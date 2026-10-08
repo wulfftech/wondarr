@@ -126,8 +126,8 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
     private readonly ISecretRegistry _secrets;
     private readonly TimeProvider _time;
     private readonly ILogger<GazelleClient> _logger;
-    private readonly Dictionary<long, Queue<DateTimeOffset>> _sent = [];
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Lock _rowsGate = new();
+    private readonly Dictionary<long, RowLimit> _rows = [];
 
     /// <summary>Initialises a new instance of the <see cref="GazelleClient"/> class.</summary>
     /// <param name="clients">Creates the indexer HTTP client.</param>
@@ -148,7 +148,18 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose() => _gate.Dispose();
+    public void Dispose()
+    {
+        lock (_rowsGate)
+        {
+            foreach (var row in _rows.Values)
+            {
+                row.Turn.Dispose();
+            }
+
+            _rows.Clear();
+        }
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<IndexerRelease>> SearchAsync(Indexer indexer, ReleaseQuery query, CancellationToken cancellationToken)
@@ -207,7 +218,16 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
             throw new IndexerException($"The tracker answered {(int)response.StatusCode} to the download.");
         }
 
-        return new IndexerDownload(await IndexerHttp.ReadCappedAsync(response, cancellationToken).ConfigureAwait(false), null);
+        var content = await IndexerHttp.ReadCappedAsync(response, cancellationToken).ConfigureAwait(false);
+
+        // Gazelle reports a refused download (no token left, a bad id) as a 200 with a JSON failure.
+        if (content.Length > 0 && content[0] == (byte)'{')
+        {
+            using var failure = JsonDocument.Parse(content);
+            throw new IndexerException("The tracker said: " + (Text(failure.RootElement, "error") ?? "the download failed"));
+        }
+
+        return new IndexerDownload(content, null);
     }
 
     /// <summary>The connection test: <c>ajax.php?action=index</c> answers success.</summary>
@@ -244,8 +264,8 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
                 continue;
             }
 
-            var artist = WebUtility.HtmlDecode(Text(group, "artist") ?? string.Empty);
-            var album = WebUtility.HtmlDecode(Text(group, "groupName") ?? string.Empty);
+            var artist = Text(group, "artist") ?? string.Empty;
+            var album = Text(group, "groupName") ?? string.Empty;
             var year = Text(group, "groupYear");
             var groupId = Text(group, "groupId");
 
@@ -381,19 +401,29 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
 
     /// <summary>
     /// At most <see cref="RequestsPerWindow"/> requests per row in any <see cref="Window"/>: a request
-    /// that would be one too many waits until the oldest one leaves the window.
+    /// that would be one too many waits until the oldest one leaves the window. Each row waits on its
+    /// own turn, so one tracker's wait never holds up another's.
     /// </summary>
     private async Task WaitForTurnAsync(long rowId, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        RowLimit row;
+
+        lock (_rowsGate)
+        {
+            if (!_rows.TryGetValue(rowId, out var found))
+            {
+                found = new RowLimit();
+                _rows[rowId] = found;
+            }
+
+            row = found;
+        }
+
+        await row.Turn.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
-            if (!_sent.TryGetValue(rowId, out var sent))
-            {
-                sent = new Queue<DateTimeOffset>();
-                _sent[rowId] = sent;
-            }
+            var sent = row.Sent;
 
             while (true)
             {
@@ -415,8 +445,16 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         }
         finally
         {
-            _gate.Release();
+            row.Turn.Release();
         }
+    }
+
+    /// <summary>One row's recent requests, and the turn its next request waits for.</summary>
+    private sealed class RowLimit
+    {
+        public SemaphoreSlim Turn { get; } = new(1, 1);
+
+        public Queue<DateTimeOffset> Sent { get; } = new();
     }
 
     private static string? Text(JsonElement element, string name) =>

@@ -152,6 +152,37 @@ public sealed class ProwlarrAndGazelleTests
     }
 
     [Fact]
+    public async Task One_gazelle_row_s_wait_does_not_hold_up_another_row()
+    {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var handler = GazelleServer();
+        var client = Gazelle(handler, time);
+
+        var first = client.SearchAsync(GazelleRow(), new ReleaseQuery("Daft Punk", "Discovery", null), CancellationToken.None);
+        await WaitUntilAsync(() => handler.Requests.Count == 5);
+
+        var other = GazelleRow() is var row ? new Indexer { Id = 6, Name = "Orpheus", Type = row.Type, Protocol = row.Protocol, Settings = row.Settings } : null!;
+        var index = client.IndexAsync(other.Id, GazelleSettings.Read(System.Text.Json.JsonDocument.Parse(other.Settings).RootElement), CancellationToken.None);
+
+        await index.WaitAsync(TimeSpan.FromSeconds(5));
+        first.IsCompleted.Should().BeFalse("the first row still waits for its window");
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        await first;
+    }
+
+    [Fact]
+    public async Task A_refused_gazelle_download_is_an_error_not_a_torrent()
+    {
+        var client = Gazelle(new HeaderHandler(_ => Fixture("gazelle-failure.json")));
+        var release = new IndexerRelease("t", "gazelle-701", "https://redacted.example/ajax.php?action=download&id=701", null, null, null, null, null, null, null, [], null, null, DownloadProtocol.Torrent, 5, "Redacted", null);
+
+        var act = () => client.DownloadAsync(GazelleRow(), release, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<IndexerException>()).Which.Message.Should().Be("The tracker said: bad credentials");
+    }
+
+    [Fact]
     public async Task Gazelle_s_test_reports_the_tracker_s_error_and_never_the_key()
     {
         var failing = new HeaderHandler(_ => Fixture("gazelle-failure.json"));

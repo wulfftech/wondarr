@@ -98,13 +98,13 @@ public sealed class ProwlarrIndexerType : IIndexerType
     /// <inheritdoc />
     public async Task<ProviderTestResult> TestAsync(JsonElement settings, CancellationToken cancellationToken)
     {
-        var parsed = ProwlarrSettings.Read(settings);
-        _secrets.Register(parsed.ApiKey);
-
         if (Validate(settings) is { Count: > 0 } problems)
         {
             return new ProviderTestResult(false, problems[0]);
         }
+
+        var parsed = ProwlarrSettings.Read(settings);
+        _secrets.Register(parsed.ApiKey);
 
         try
         {
