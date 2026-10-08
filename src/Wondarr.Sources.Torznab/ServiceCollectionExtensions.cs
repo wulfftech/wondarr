@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.DownloadClients;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Torznab.Clients;
@@ -98,6 +100,10 @@ public static class ServiceCollectionExtensions
             protocol,
             provider.GetRequiredService<IServiceScopeFactory>(),
             provider.GetRequiredService<IIndexerClientFactory>(),
+            provider.GetRequiredService<ITorrentClient>(),
+            provider.GetRequiredService<IUsenetClient>(),
+            provider.GetRequiredService<IDiskOperations>(),
+            provider.GetRequiredService<IOptionsMonitor<ImportOptions>>(),
             provider.GetService<TimeProvider>() ?? TimeProvider.System,
             provider.GetRequiredService<ILogger<IndexerSourceProvider>>());
 }

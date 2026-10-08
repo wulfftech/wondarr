@@ -2,11 +2,13 @@ using System.Globalization;
 using System.Xml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.DownloadClients;
 using Wondarr.Core.Indexers;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.MusicBrainz;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
@@ -18,8 +20,8 @@ namespace Wondarr.Sources.Torznab.Searching;
 /// The torrent or the usenet source behind <see cref="ISourceProvider"/> (one registration per
 /// protocol, tier 3): a song is searched for as the releases it appears on, every enabled indexer of
 /// the protocol is asked for each, the containers' file lists are read, and the wanted song's file in
-/// each becomes one candidate (DECISIONS build session 8 #2, #3, #7; MATCHING_ENGINE §6.4).
-/// Grabbing arrives with P7-07.
+/// each becomes one candidate (DECISIONS build session 8 #2, #3, #7; MATCHING_ENGINE §6.4). The grab
+/// half lives in <c>IndexerSourceProvider.Grab.cs</c>.
 /// </summary>
 public sealed partial class IndexerSourceProvider : ISourceProvider
 {
@@ -41,6 +43,10 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     private readonly DownloadProtocol _protocol;
     private readonly IServiceScopeFactory _scopes;
     private readonly IIndexerClientFactory _clients;
+    private readonly ITorrentClient _torrents;
+    private readonly IUsenetClient _usenet;
+    private readonly IDiskOperations _disk;
+    private readonly IOptionsMonitor<ImportOptions> _import;
     private readonly TimeProvider _time;
     private readonly ILogger<IndexerSourceProvider> _logger;
     private readonly TimeSpan _budget;
@@ -52,6 +58,10 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     /// HTTP client, which a singleton must not hold on to).
     /// </param>
     /// <param name="clients">Chooses the client for an indexer row.</param>
+    /// <param name="torrents">The torrent download client (qBittorrent).</param>
+    /// <param name="usenet">The usenet download client (SABnzbd).</param>
+    /// <param name="disk">Stages finished files: hard links, copies, moves.</param>
+    /// <param name="import">Where finished files are staged (<c>import.container_staging_path</c>).</param>
     /// <param name="time">The clock a post's age is measured with.</param>
     /// <param name="logger">One Warning per indexer or download that failed.</param>
     /// <param name="budget">How long a search may take; <see cref="DefaultBudget"/> when null.</param>
@@ -59,18 +69,30 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         DownloadProtocol protocol,
         IServiceScopeFactory scopes,
         IIndexerClientFactory clients,
+        ITorrentClient torrents,
+        IUsenetClient usenet,
+        IDiskOperations disk,
+        IOptionsMonitor<ImportOptions> import,
         TimeProvider time,
         ILogger<IndexerSourceProvider> logger,
         TimeSpan? budget = null)
     {
         ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(clients);
+        ArgumentNullException.ThrowIfNull(torrents);
+        ArgumentNullException.ThrowIfNull(usenet);
+        ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(import);
         ArgumentNullException.ThrowIfNull(time);
         ArgumentNullException.ThrowIfNull(logger);
 
         _protocol = protocol;
         _scopes = scopes;
         _clients = clients;
+        _torrents = torrents;
+        _usenet = usenet;
+        _disk = disk;
+        _import = import;
         _time = time;
         _logger = logger;
         _budget = budget ?? DefaultBudget;
@@ -106,18 +128,6 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             return await SearchAsync(scope.ServiceProvider, request, cancellationToken).ConfigureAwait(false);
         }
     }
-
-    /// <inheritdoc />
-    public Task<GrabHandle> GrabAsync(Candidate candidate, string destination, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("Grabbing from an indexer arrives with P7-07.");
-
-    /// <inheritdoc />
-    public Task<DownloadStatus> GetStatusAsync(GrabHandle handle, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("Grabbing from an indexer arrives with P7-07.");
-
-    /// <inheritdoc />
-    public Task CancelAsync(GrabHandle handle, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("Grabbing from an indexer arrives with P7-07.");
 
     private async Task<SourceSearchResult> SearchAsync(
         IServiceProvider services,
@@ -399,6 +409,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         var claimed = ReleaseQualityParser.Parse(release.Title);
         var parsedRelease = ReleaseTitleParser.Parse(release.Title);
         var releaseFlags = VersionFlagParser.Parse(release.Title).Flags;
+        var song = new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, claimed);
 
         if (listing.Files is not { } files)
         {
@@ -422,13 +433,11 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                 Container = CandidateContainer.AlbumContainer,
                 Availability = Availability(release, fileListKnown: false),
                 Query = query,
-                Release = Release(release, listing, null),
+                Release = Release(release, listing, null, song),
             };
         }
 
-        var match = ContainerMatcher.Find(
-            files,
-            new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, claimed));
+        var match = ContainerMatcher.Find(files, song);
 
         if (match is null)
         {
@@ -457,7 +466,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             Container = CandidateContainer.AlbumContainer,
             Availability = Availability(release, fileListKnown: true),
             Query = query,
-            Release = Release(release, listing, match.File.Index),
+            Release = Release(release, listing, match.File.Index, song),
         };
     }
 
@@ -506,7 +515,11 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             FileListKnown: fileListKnown);
     }
 
-    private static ContainerRelease Release(IndexerRelease release, ContainerListing listing, int? fileIndex) => new()
+    private static ContainerRelease Release(
+        IndexerRelease release,
+        ContainerListing listing,
+        int? fileIndex,
+        ContainerMatchRequest song) => new()
         {
             IndexerId = release.IndexerId,
             IndexerName = release.IndexerName,
@@ -519,6 +532,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             PublishDate = release.PublishDate,
             FileIndex = fileIndex,
             Files = listing.Files,
+            Song = song,
         };
 
     /// <summary>
