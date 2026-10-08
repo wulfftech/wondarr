@@ -4,6 +4,8 @@ Each task is sized for one cheap-worker run (≤ ~10 files, ≤ ~400 lines of di
 
 Gate (`PHASES.md` Phase 7): a song only available inside an album torrent is imported by downloading just that file; an NZB album downloads, unpacks, and only the wanted track(s) are imported; two wanted songs from the same album are satisfied by one grab.
 
+**Status (2026-10-09): done.** Every task merged; the gate passed in CI and live on `ch01` (see `PROGRESS.md` "Phase 7"). P7-03b moved after P7-07 and, with P7-06, P7-07 and P7-08, was written by the orchestrator (DECISIONS build session 9 #5). The Lidarr reference copies were deleted at the end of the phase.
+
 | ID | Title | Depends on | Size | Tier |
 |---|---|---|---|---|
 | P7-00 | The owner's UI feedback (Wanted cover toggle, Init Caps badges, Match columns, no ids in reasons) and Plex "Connect" by server; this plan and the decisions | — | S | orchestrator |

@@ -346,3 +346,32 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 - The Lidarr reference copies in `docs/build/tasks/ref/lidarr/` are deleted when Phase 7 is done.
 
 **Next:** finish Phase 7 in this order — merge P7-03a → P7-05 → finish and merge P7-04 → P7-03b ∥ P7-06 (T3 workers) → P7-07 (orchestrator) → P7-08 (frontend) → P7-09 gate (fakes in FakeSlskd, then live on `ch01`) → the Phase 7 PROGRESS/handover and the Phase 8 prompt.
+
+### 2026-10-09 — Build session 9: Phase 7 finished (orchestrator on Opus 5.5; T3 reviews on GLM)
+
+**Outcome.** Every Phase 7 task is merged and the gate is demonstrated. CI (record run 37808648841, then every `main` push through the new `SMOKE_PHASE7` stage): two wanted tracks of an album come from ONE torrent grab that downloads only their files, and a third from an NZB post trimmed to it, unpacked and deleted after the import. Live on `ch01`: a real qBittorrent 5.2.4 took a Creative Commons torrent through `release/push`, downloaded 1 of its 117 files, imported it, and kept seeding an untouched copy. The session spent USD 0.70 (key 27.16 of 30; USD 2.84 left).
+
+**What exists now.**
+- *Indexers:* Torznab and Newznab feeds (cached `caps`, `t=music` or `q=`), a Prowlarr row over `/api/v1/search`, Gazelle trackers with the API key in `Authorization` and their file lists read before any download (5 requests / 10 s per row). Rows, schema, test and masked secrets as notifications have them; Settings → Indexers.
+- *Search:* one source per protocol (`torznab`, `newznab`), tier 3. MusicBrainz lists the releases a recording is on (album context first, at most 3); every enabled indexer is asked within 60 s; the best 8 containers per query have their file lists read (`.torrent` metainfo, a clean NZB, Gazelle's list); `ContainerMatcher` finds the song's file by title, version flags, size window, track number and the claimed codec. A magnet or an obfuscated NZB is a "file list unknown" candidate. The engine scores seeders/age/grabs and rejects dead torrents and oversized posts.
+- *Clients:* qBittorrent (4.x and 5.x verbs from Web API 2.11, 5.2's login, file priorities, states, remote path mappings) and SABnzbd (add paused, `get_files` + `delete_nzf` trimming of clean posts, queue/history, complete folder through the mappings); Settings → Download clients.
+- *Grab and import:* a `.torrent` is added stopped with only the wanted files on; a magnet is selected once its metadata is there; a finished torrent file is hard-linked (else copied) into `import.container_staging_path`/`wondarr/<guid>` and the torrent keeps seeding; a usenet file is moved there and the job deleted after its last item. **Bundling:** the other wanted songs of the same main artist in the container ride along on the first grab, each with its own queue item. **`release/push`** grabs pushed torrents and NZBs (judged through `ISongSearchService.JudgeAsync`, trigger `push`).
+- *Gate and tooling:* `tools/FakeSlskd/ContainerStubApp.cs` (port 5034), `scripts/phase7-gate.py`, `SMOKE_PHASE7` / `SMOKE_ONLY_PHASE7`, the record workflow's `only-phase7` input.
+
+**What this session taught.**
+1. *The T2 pick is not a backend worker.* It failed four of four tasks (empty turns, 20–40 turns of reading without writing); stop one that has not written by turn 20. With `z-ai/glm-5.3` 2.8× dearer this week, the orchestrator wrote P7-03b, P7-06, P7-07 and P7-08 and the key paid only for T3 reviews (≈ USD 0.1 each), which found a real defect in every second task.
+2. *Run a new gate stage on its branch before merging:* the record workflow with `only-phase7` ran the gate end to end in ~20 min; four runs found four gaps in the gate script, none in the product.
+3. *A live check against the newest release of a client pays:* qBittorrent 5.2 answers a login with 204 and no body; every fixture and the fake still said "Ok.".
+4. *Read the archive before the torrent:* archive.org torrents carry every derivative of an item, which tied a FLAC and a VBR MP3 in the matcher until the claimed codec became a ranking key.
+
+**Open items / follow-ups.**
+- **Live SABnzbd check:** needs a usenet provider and an NZB indexer from the owner (CI covers SABnzbd with the fake).
+- **Queue/history display of a container** (release title, file, "with N other songs") is in the history data but not shown in the UI yet.
+- **Live instance (`ch01`, `wondarr-test`):** on the `develop` image of `7dca8c2`; holds the album *The Slip* with "Letting You" imported from the live check; no download client or indexer row is configured. Watchtower updates it daily at 01:10; `sudo docker exec watchtower /watchtower --run-once wondarr-test` updates it now.
+- P5-07 remainder (writing slskd's settings in external mode), backlog 2026-10-07-08/-09/-12 still open.
+- **Budget:** USD 2.84 left on the key — about 25 T3 reviews at this week's price; raise it before any T3 worker run.
+
+**Next: Phase 8 — Polish and release (`docs/build/PHASES.md`).** Write `docs/build/PHASE_8_TASKS.md` first. The first three tasks:
+1. **P8-01 Spectral fake-lossless check** (SoulSync's approach): a FLAC whose spectrum cuts off like a lossy encode is rejected at import (or flagged and ranked as the lossy quality), so "never produce lossless from lossy" also holds for what peers and trackers deliver.
+2. **P8-02 Release engineering:** multi-arch images (linux/amd64 + arm64) in the release workflow, a migration test that upgrades a Phase 0 database to the current schema, and version tags.
+3. **P8-03 Library mass editor:** select songs and set monitored, quality profile, library and tags at once; filters and saved views on the Library page.
