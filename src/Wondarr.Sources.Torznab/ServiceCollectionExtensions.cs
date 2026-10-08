@@ -5,9 +5,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
+using Microsoft.Extensions.Logging;
 using Wondarr.Core.DownloadClients;
+using Wondarr.Core.Sources;
 using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
+using Wondarr.Sources.Torznab.Searching;
 
 namespace Wondarr.Sources.Torznab;
 
@@ -19,7 +22,8 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Adds the Torznab and Newznab indexers (the two indexer types, their clients and the factory
     /// that chooses one, the caps reader with its 24-hour cache, and the named HTTP client every
-    /// request goes through) and the qBittorrent download client.
+    /// request goes through), the qBittorrent download client, and the torrent and usenet sources
+    /// that search the indexers.
     /// </summary>
     public static IServiceCollection AddWondarrTorznab(this IServiceCollection services)
     {
@@ -74,6 +78,19 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITorrentClient, QBittorrentClient>();
         services.AddSingleton<IDownloadClientType, QBittorrentClientType>();
 
+        // One source per protocol, tier 3 (DECISIONS build session 8 #7): torrents through the
+        // Torznab indexers, usenet through the Newznab ones.
+        services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Torrent));
+        services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Usenet));
+
         return services;
     }
+
+    private static IndexerSourceProvider CreateSource(IServiceProvider provider, DownloadProtocol protocol) =>
+        new(
+            protocol,
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            provider.GetRequiredService<IIndexerClientFactory>(),
+            provider.GetService<TimeProvider>() ?? TimeProvider.System,
+            provider.GetRequiredService<ILogger<IndexerSourceProvider>>());
 }

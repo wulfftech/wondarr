@@ -80,10 +80,20 @@ public sealed record ParsedName(
 /// <param name="FreeUploadSlot">Soulseek: the peer has a free upload slot.</param>
 /// <param name="QueueLength">Soulseek: the peer's upload queue length.</param>
 /// <param name="UploadSpeedBytesPerSecond">Soulseek: the peer's advertised upload speed in bytes per second.</param>
+/// <param name="Seeders">Torrents: the indexer's seeder count.</param>
+/// <param name="Grabs">Usenet: how often the post was grabbed, when the indexer says.</param>
+/// <param name="AgeDays">Usenet: the post's age in days.</param>
+/// <param name="Freeleech">Torrents: the download does not count against the user's ratio.</param>
+/// <param name="FileListKnown">Torrents and usenet: the container's file list was read before the grab.</param>
 public sealed record CandidateAvailability(
     bool? FreeUploadSlot = null,
     int? QueueLength = null,
-    long? UploadSpeedBytesPerSecond = null)
+    long? UploadSpeedBytesPerSecond = null,
+    int? Seeders = null,
+    int? Grabs = null,
+    int? AgeDays = null,
+    bool Freeleech = false,
+    bool FileListKnown = false)
 {
     /// <summary>Nothing known.</summary>
     public static CandidateAvailability Unknown { get; } = new();
@@ -157,6 +167,52 @@ public sealed record Candidate
 
     /// <summary>The search text that found this candidate (for the record and the UI).</summary>
     public string? Query { get; init; }
+
+    /// <summary>
+    /// Torrents and usenet: the release the file is inside, and how to fetch it. <see cref="RemotePath"/>
+    /// is the file's path inside the container (the release title while the file list is unknown).
+    /// </summary>
+    public ContainerRelease? Release { get; init; }
+}
+
+/// <summary>
+/// The release (torrent or NZB) a container candidate comes from: what the indexer said about it, and
+/// the wanted file's place inside it (DECISIONS build session 8 #3).
+/// </summary>
+public sealed record ContainerRelease
+{
+    /// <summary>The indexer row that listed the release.</summary>
+    public required long IndexerId { get; init; }
+
+    /// <summary>The indexer's name, for the UI and history.</summary>
+    public required string IndexerName { get; init; }
+
+    /// <summary>The release name as the indexer lists it.</summary>
+    public required string Title { get; init; }
+
+    /// <summary>The indexer's id for the release, its <c>guid</c> (a usenet blocklist key).</summary>
+    public required string ReleaseId { get; init; }
+
+    /// <summary>The <c>.torrent</c> or NZB link, when there is one.</summary>
+    public string? DownloadUrl { get; init; }
+
+    /// <summary>The magnet link, when there is one.</summary>
+    public string? MagnetUrl { get; init; }
+
+    /// <summary>Torrents: the info-hash, lower-case hex, when known.</summary>
+    public string? InfoHash { get; init; }
+
+    /// <summary>The whole release's size in bytes.</summary>
+    public long? Size { get; init; }
+
+    /// <summary>The release's publish date.</summary>
+    public DateTimeOffset? PublishDate { get; init; }
+
+    /// <summary>The wanted file's index in <see cref="Files"/>; null while the file list is unknown.</summary>
+    public int? FileIndex { get; init; }
+
+    /// <summary>The container's files, when they were read before the grab (bundling looks here).</summary>
+    public IReadOnlyList<ContainerFile>? Files { get; init; }
 }
 
 /// <summary>Builds blocklist keys. One place, so the blocklist and the candidate always agree.</summary>
@@ -171,5 +227,27 @@ public static class BlocklistKeys
         ArgumentException.ThrowIfNullOrEmpty(username);
         ArgumentException.ThrowIfNullOrEmpty(remotePath);
         return string.Concat(username, Separator.ToString(), remotePath);
+    }
+
+    /// <summary>A file inside a torrent: the info-hash and the file's path in it.</summary>
+    /// <param name="infoHash">The torrent's info-hash (lower-cased here).</param>
+    /// <param name="path">The file's path inside the torrent, or the release title while unknown.</param>
+    public static string Torrent(string infoHash, string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(infoHash);
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        return string.Concat(infoHash.ToLowerInvariant(), Separator.ToString(), path);
+    }
+
+    /// <summary>A file inside an NZB: the indexer's guid for the post and the file's name.</summary>
+    /// <param name="releaseId">The indexer's guid for the post.</param>
+    /// <param name="path">The file's name, or the release title while unknown.</param>
+    public static string Usenet(string releaseId, string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(releaseId);
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        return string.Concat(releaseId, Separator.ToString(), path);
     }
 }
