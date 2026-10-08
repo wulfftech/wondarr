@@ -46,6 +46,28 @@ public sealed class QBittorrentProxyTests
     }
 
     [Fact]
+    public async Task Logs_in_to_qbittorrent_5_2_which_answers_204_without_a_body()
+    {
+        var harness = new QBittorrentHarness(new QbittorrentFake().WithQBittorrent52Login());
+
+        var version = await harness.Proxy.GetApiVersionAsync(harness.Session, QBittorrentHarness.Settings, CancellationToken.None);
+
+        version.ToString().Should().Be("2.11.0");
+    }
+
+    [Fact]
+    public async Task A_401_from_qbittorrent_5_2_is_a_wrong_password()
+    {
+        var harness = new QBittorrentHarness(new QbittorrentFake().WithQBittorrent52Login());
+        var settings = QBittorrentHarness.Settings with { Password = "another-fixture-password" };
+
+        var act = () => harness.Proxy.GetApiVersionAsync(harness.Session, settings, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DownloadClientException>())
+            .Which.Message.Should().Be("Wrong qBittorrent username or password.");
+    }
+
+    [Fact]
     public async Task A_banned_address_is_reported_as_such()
     {
         var harness = new QBittorrentHarness(new QbittorrentFake().WithBannedAddress());

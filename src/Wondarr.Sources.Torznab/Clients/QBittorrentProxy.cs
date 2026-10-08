@@ -480,7 +480,15 @@ public sealed partial class QBittorrentProxy
             throw new DownloadClientException("qBittorrent refused the login and has banned this IP address; wait for the ban to lift or connect from another address.");
         }
 
-        var body = await ReadSuccessAsync(response, "the login", cancellationToken).ConfigureAwait(false);
+        // qBittorrent 5.2 (Web API 2.15) answers a wrong password with 401 rather than 200 "Fails.".
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            LogLoginRefused(_logger, settings.BaseUrl);
+
+            throw new DownloadClientException("Wrong qBittorrent username or password.");
+        }
+
+        var body = (await ReadSuccessAsync(response, "the login", cancellationToken).ConfigureAwait(false)).Trim();
 
         if (body == "Fails.")
         {
@@ -489,7 +497,8 @@ public sealed partial class QBittorrentProxy
             throw new DownloadClientException("Wrong qBittorrent username or password.");
         }
 
-        if (body != "Ok.")
+        // "Ok." before 5.2; an empty 204 from 5.2 on. Either way the SID cookie below decides.
+        if (body.Length > 0 && body != "Ok.")
         {
             LogLoginRefused(_logger, settings.BaseUrl);
 
