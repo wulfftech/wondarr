@@ -11,20 +11,33 @@ public sealed class IndexerClientFactory : IIndexerClientFactory
     private readonly TorznabIndexerClient _torznab;
     private readonly NewznabIndexerClient _newznab;
     private readonly PushedReleaseClient _pushed;
+    private readonly ProwlarrSearchClient _prowlarr;
+    private readonly GazelleClient _gazelle;
 
     /// <summary>Initialises a new instance of the <see cref="IndexerClientFactory"/> class.</summary>
     /// <param name="torznab">The Torznab client.</param>
     /// <param name="newznab">The Newznab client.</param>
     /// <param name="pushed">The download-only client of a pushed release's pseudo-indexer.</param>
-    public IndexerClientFactory(TorznabIndexerClient torznab, NewznabIndexerClient newznab, PushedReleaseClient pushed)
+    /// <param name="prowlarr">The client of a Prowlarr row (its <c>/api/v1/search</c>).</param>
+    /// <param name="gazelle">The client of a Gazelle tracker.</param>
+    public IndexerClientFactory(
+        TorznabIndexerClient torznab,
+        NewznabIndexerClient newznab,
+        PushedReleaseClient pushed,
+        ProwlarrSearchClient prowlarr,
+        GazelleClient gazelle)
     {
         ArgumentNullException.ThrowIfNull(torznab);
         ArgumentNullException.ThrowIfNull(newznab);
         ArgumentNullException.ThrowIfNull(pushed);
+        ArgumentNullException.ThrowIfNull(prowlarr);
+        ArgumentNullException.ThrowIfNull(gazelle);
 
         _torznab = torznab;
         _newznab = newznab;
         _pushed = pushed;
+        _prowlarr = prowlarr;
+        _gazelle = gazelle;
     }
 
     /// <inheritdoc />
@@ -37,6 +50,8 @@ public sealed class IndexerClientFactory : IIndexerClientFactory
             "torznab" => _torznab,
             "newznab" => _newznab,
             PushedReleaseClient.Type => _pushed,
+            "prowlarr" => _prowlarr,
+            "gazelle" => _gazelle,
             _ => throw new IndexerException($"There is no client for the indexer type '{indexer.Type}'."),
         };
     }
