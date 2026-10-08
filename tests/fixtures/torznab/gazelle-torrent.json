@@ -1,0 +1,11 @@
+{
+  "status": "success",
+  "response": {
+    "group": { "id": 72, "name": "Discovery" },
+    "torrent": {
+      "id": 701,
+      "filePath": "Daft Punk - Discovery (2001) [FLAC]",
+      "fileList": "01 - One More Time.flac{{{33000000}}}|||02 - Aerodynamic.flac{{{31000000}}}|||03 - Digital Love.flac{{{34000000}}}|||04 - Harder, Better, Faster &amp; Stronger.flac{{{35000000}}}|||cover.jpg{{{250000}}}"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "status": "success",
+  "response": {
+    "currentPage": 1,
+    "pages": 1,
+    "results": [
+      {
+        "groupId": 72,
+        "groupName": "Discovery",
+        "artist": "Daft Punk",
+        "groupYear": 2001,
+        "torrents": [
+          { "torrentId": 701, "media": "CD", "format": "FLAC", "encoding": "Lossless", "hasCue": true, "size": 412345678, "seeders": 40, "leechers": 2, "snatches": 300, "time": "2026-01-02 10:00:00", "isFreeleech": false, "canUseToken": true },
+          { "torrentId": 702, "media": "WEB", "format": "MP3", "encoding": "320", "hasCue": false, "size": 123456789, "seeders": 12, "leechers": 0, "snatches": 120, "time": "2026-01-03 10:00:00", "isFreeleech": true, "canUseToken": true },
+          { "torrentId": 703, "media": "Vinyl", "format": "FLAC", "encoding": "24bit Lossless", "hasCue": false, "size": 1412345678, "seeders": 5, "leechers": 1, "snatches": 30, "time": "2026-01-04 10:00:00", "isFreeleech": false, "canUseToken": true }
+        ]
+      },
+      {
+        "groupId": 73,
+        "groupName": "Discovery &amp; Other Things",
+        "artist": "Daft Punk",
+        "groupYear": 2001,
+        "torrents": [
+          { "torrentId": 704, "media": "CD", "format": "MP3", "encoding": "V0 (VBR)", "hasCue": false, "size": 90000000, "seeders": 3, "leechers": 0, "snatches": 4, "time": "2026-01-05 10:00:00", "isFreeleech": false, "canUseToken": false },
+          { "torrentId": 705, "media": "CD", "format": "FLAC", "encoding": "Lossless", "hasCue": false, "size": 400000000, "seeders": 2, "leechers": 0, "snatches": 2, "time": "2026-01-06 10:00:00", "isFreeleech": false, "canUseToken": true },
+          { "torrentId": 706, "media": "CD", "format": "MP3", "encoding": "320", "hasCue": false, "size": 110000000, "seeders": 1, "leechers": 0, "snatches": 1, "time": "2026-01-07 10:00:00", "isFreeleech": false, "canUseToken": true }
+        ]
+      }
+    ]
+  }
+}
