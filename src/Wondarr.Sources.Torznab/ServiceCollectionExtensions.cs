@@ -22,7 +22,7 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Adds the Torznab and Newznab indexers (the two indexer types, their clients and the factory
     /// that chooses one, the caps reader with its 24-hour cache, and the named HTTP client every
-    /// request goes through), the qBittorrent download client, and the torrent and usenet sources
+    /// request goes through), the qBittorrent and SABnzbd download clients, and the torrent and usenet sources
     /// that search the indexers.
     /// </summary>
     public static IServiceCollection AddWondarrTorznab(this IServiceCollection services)
@@ -77,6 +77,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<QBittorrentProxy>();
         services.AddSingleton<ITorrentClient, QBittorrentClient>();
         services.AddSingleton<IDownloadClientType, QBittorrentClientType>();
+
+        // SABnzbd: the key travels in the query, so the client's own logging redacts the query and
+        // the proxy logs the mode only. No retry policy, for the same reason as qBittorrent's.
+        services.AddHttpClient(SabnzbdProxy.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton<SabnzbdProxy>();
+        services.AddSingleton<IUsenetClient, SabnzbdClient>();
+        services.AddSingleton<IDownloadClientType, SabnzbdClientType>();
 
         // One source per protocol, tier 3 (DECISIONS build session 8 #7): torrents through the
         // Torznab indexers, usenet through the Newznab ones.
