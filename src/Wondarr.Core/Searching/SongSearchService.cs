@@ -333,6 +333,9 @@ public sealed partial class SongSearchService : ISongSearchService
                     // The interactive search runs every query so the user sees the whole pool; an
                     // automatic run stops early once a candidate is good enough (MATCHING_ENGINE §6.4).
                     IsPoolGoodEnough = trigger == SearchTrigger.Manual ? null : PoolIsGoodEnough(context),
+                    MbRecordingId = song.MbRecordingId,
+                    AlbumMbReleaseId = song.AlbumContext?.MbReleaseId,
+                    AlbumTrackNo = song.AlbumContext?.TrackNo,
                 };
 
                 var result = await provider.SearchAsync(request, cancellationToken).ConfigureAwait(false);
@@ -851,6 +854,7 @@ public sealed partial class SongSearchService : ISongSearchService
             SourceTier = 1,
             IsBlocklisted = key => blockedKeys.Contains(key),
             IgnoredUsers = ignored,
+            MaxContainerSizeBytes = _options.CurrentValue.MaxContainerSizeMb * 1024L * 1024L,
         };
     }
 

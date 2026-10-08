@@ -25,6 +25,15 @@ public sealed record SongSearchRequest(
     /// Null means "run every query".
     /// </summary>
     public Func<IReadOnlyList<Candidate>, bool>? IsPoolGoodEnough { get; init; }
+
+    /// <summary>The song's MusicBrainz recording, when known (indexers search for the releases it is on).</summary>
+    public string? MbRecordingId { get; init; }
+
+    /// <summary>The MusicBrainz release of the song's album context, when it has one.</summary>
+    public string? AlbumMbReleaseId { get; init; }
+
+    /// <summary>The song's track number on that release.</summary>
+    public int? AlbumTrackNo { get; init; }
 }
 
 /// <summary>The outcome of one <see cref="ISourceProvider.SearchAsync"/> call.</summary>
