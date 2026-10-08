@@ -32,6 +32,14 @@ public sealed class ImportOptions
     public List<RemotePathMapping> RemotePathMappings { get; set; } = [];
 
     /// <summary>
+    /// Where a song's file from a torrent or a usenet post is staged before the import: a torrent's
+    /// file is hard-linked here (copied when the link fails — another filesystem), a usenet file is
+    /// moved here. Keep it on the same filesystem as the torrent client's downloads so the links
+    /// work (DECISIONS build session 8 #5).
+    /// </summary>
+    public string ContainerStagingPath { get; set; } = "/data/downloads/containers";
+
+    /// <summary>
     /// The recycle bin directory actually used: the configured one, or <c>recycle</c> inside the
     /// configuration directory. Always absolute.
     /// </summary>
@@ -115,6 +123,12 @@ public sealed partial class ImportOptionsValidator : IValidateOptions<ImportOpti
         {
             failures.Add(
                 $"import.recycle_bin_path: must not be the data or configuration directory (was '{options.RecycleBinPath}')");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ContainerStagingPath) || IsFilesystemRoot(options.ContainerStagingPath))
+        {
+            failures.Add(
+                $"import.container_staging_path: must be a folder, not empty or a filesystem root (was '{options.ContainerStagingPath}')");
         }
 
         for (var index = 0; index < options.RemotePathMappings.Count; index++)
