@@ -139,6 +139,7 @@ public sealed partial class FileConverter : IFileConverter
     private readonly ITranscoder _transcoder;
     private readonly IMediaProbe _probe;
     private readonly ILibraryOrganizer _organizer;
+    private readonly IReplayGainAnalyzer _replayGain;
     private readonly ISongFileLock _songFileLock;
     private readonly IPlexLibraryUpdater _updater;
     private readonly ILogger<FileConverter> _logger;
@@ -148,6 +149,7 @@ public sealed partial class FileConverter : IFileConverter
     /// <param name="transcoder">Writes the converted file.</param>
     /// <param name="probe">Measures the current and the converted file.</param>
     /// <param name="organizer">Tags and places the converted file, recycling the original.</param>
+    /// <param name="replayGain">Measures the converted file again when the library has ReplayGain on.</param>
     /// <param name="songFileLock">The per-song lock imports and compaction take.</param>
     /// <param name="updater">Asks Plex to scan the folder.</param>
     /// <param name="logger">The logger.</param>
@@ -156,6 +158,7 @@ public sealed partial class FileConverter : IFileConverter
         ITranscoder transcoder,
         IMediaProbe probe,
         ILibraryOrganizer organizer,
+        IReplayGainAnalyzer replayGain,
         ISongFileLock songFileLock,
         IPlexLibraryUpdater updater,
         ILogger<FileConverter> logger)
@@ -164,6 +167,7 @@ public sealed partial class FileConverter : IFileConverter
         ArgumentNullException.ThrowIfNull(transcoder);
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(organizer);
+        ArgumentNullException.ThrowIfNull(replayGain);
         ArgumentNullException.ThrowIfNull(songFileLock);
         ArgumentNullException.ThrowIfNull(updater);
         ArgumentNullException.ThrowIfNull(logger);
@@ -172,6 +176,7 @@ public sealed partial class FileConverter : IFileConverter
         _transcoder = transcoder;
         _probe = probe;
         _organizer = organizer;
+        _replayGain = replayGain;
         _songFileLock = songFileLock;
         _updater = updater;
         _logger = logger;
@@ -388,6 +393,12 @@ public sealed partial class FileConverter : IFileConverter
                 .Select(credit => (credit.Artist, credit.Role))
                 .ToList();
 
+            // Encoding changes the peak (and a little of the loudness), so the converted file is
+            // measured again; a failed measurement leaves it without the tags, never fails the conversion.
+            var replayGain = library.ReplayGain
+                ? await _replayGain.MeasureAsync(tempPath, cancellationToken).ConfigureAwait(false)
+                : null;
+
             OrganizeResult placement;
 
             try
@@ -413,7 +424,9 @@ public sealed partial class FileConverter : IFileConverter
                             // The organizer's placer recycles the original before it places the new
                             // file, and puts it back if the placing fails: the upgrade path.
                             ReplacesPath: currentPath,
-                            LookUpLyrics: false),
+                            LookUpLyrics: false,
+                            ReplayGainDb: replayGain?.GainDb,
+                            ReplayGainPeak: replayGain?.Peak),
                         cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -453,6 +466,8 @@ public sealed partial class FileConverter : IFileConverter
             file.Channels = media.Channels;
             file.DurationMs = media.DurationMs;
             file.TagsWritten = JsonSerializer.Serialize(placement.TagsWritten, Json);
+            file.ReplayGainDb = replayGain?.GainDb;
+            file.ReplayGainPeak = replayGain?.Peak;
 
             _database.History.Add(new HistoryItem
             {

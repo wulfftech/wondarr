@@ -11,6 +11,7 @@ import {
   Popover,
   Select,
   Stack,
+  Switch,
   Tabs,
   Text,
   TextInput,
@@ -20,7 +21,9 @@ import { notifications } from '@mantine/notifications';
 import { CircleAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useRunCommand } from '../../api/hooks';
 import { usePlexSections, usePlexState } from '../../api/plex';
+import type { CommandRequest } from '../../api/types';
 import {
   ALBUM_POLICIES,
   LIBRARY_LAYOUTS,
@@ -336,6 +339,7 @@ function LibraryForm({ library }: { library: LibraryResource }) {
   const [plexSectionId, setPlexSectionId] = useState<string | null>(library.plexSectionId ?? null);
   const [plexLibraryPath, setPlexLibraryPath] = useState(library.plexLibraryPath ?? '');
   const [outputPolicy, setOutputPolicy] = useState<OutputPolicy>(() => readOutputPolicy(library.outputPolicy));
+  const [replayGain, setReplayGain] = useState(library.replayGain ?? false);
 
   const fields = save.error instanceof ValidationError ? save.error.fields : {};
   const general = Object.entries(fields).filter(([field]) => !KNOWN_FIELDS.has(field));
@@ -356,6 +360,7 @@ function LibraryForm({ library }: { library: LibraryResource }) {
       plexLibraryPath: plexLibraryPath.trim() === '' ? null : plexLibraryPath,
       // The rules as the API reads them: version 2, one rule per source class, every key spelled out.
       outputPolicy: writeOutputPolicy(outputPolicy),
+      replayGain,
     } as unknown as LibraryResource;
 
     save.mutate(body, {
@@ -438,6 +443,13 @@ function LibraryForm({ library }: { library: LibraryResource }) {
       />
 
       <OutputRulesEditor policy={outputPolicy} onChange={setOutputPolicy} />
+
+      <Switch
+        label="Write ReplayGain tags"
+        description="Measure each file's loudness (EBU R128, −18 LUFS reference) and write REPLAYGAIN_TRACK_GAIN and REPLAYGAIN_TRACK_PEAK, so players play songs from different sources at one volume. Tags only: the audio is not changed. Files already in the library are measured with “Measure existing files”."
+        checked={replayGain}
+        onChange={(event) => setReplayGain(event.currentTarget.checked)}
+      />
 
       {general.map(([field, message]) => (
         <Alert key={field} color="red" icon={<CircleAlert size={16} />} title={field}>
@@ -620,6 +632,18 @@ export function LibrarySettingsPage() {
   const [adding, setAdding] = useState(false);
   const [compacting, setCompacting] = useState<LibraryResource | null>(null);
   const [converting, setConverting] = useState<LibraryResource | null>(null);
+  const runCommand = useRunCommand();
+
+  // ApplyReplayGain measures and tags the files of a library that has the switch on (LIBRARY_OUTPUT §7.8).
+  const measure = (library: LibraryResource) => {
+    const command: CommandRequest & { libraryId: number } = { name: 'ApplyReplayGain', libraryId: Number(library.id) };
+
+    runCommand.mutate(command, {
+      onSuccess: () =>
+        notifications.show({ message: `Measuring the files of ${library.name}: see System → Tasks.`, color: 'green' }),
+      onError: (error) => notifications.show({ message: error.message, color: 'red' }),
+    });
+  };
   const [deleting, setDeleting] = useState<LibraryResource | null>(null);
   const [active, setActive] = useState<string | null>(null);
 
@@ -673,6 +697,11 @@ export function LibrarySettingsPage() {
                   </Group>
 
                   <Group gap="xs">
+                    {library.replayGain === true && (
+                      <Button variant="light" loading={runCommand.isPending} onClick={() => measure(library)}>
+                        Measure existing files
+                      </Button>
+                    )}
                     <Button variant="light" onClick={() => setConverting(library)}>
                       Convert existing files…
                     </Button>

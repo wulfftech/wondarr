@@ -92,4 +92,13 @@ public sealed record TagSet
 
     /// <summary>Gets the comment; optional and off by default.</summary>
     public string? Comment { get; init; }
+
+    /// <summary>
+    /// Gets the ReplayGain 2.0 track gain in dB (written as <c>-8.52 dB</c>), or <see langword="null"/>
+    /// for none. Tags only: the audio is never changed.
+    /// </summary>
+    public double? ReplayGainTrackGainDb { get; init; }
+
+    /// <summary>Gets the true peak as a linear value (written as <c>1.047129</c>), or <see langword="null"/> for none.</summary>
+    public double? ReplayGainTrackPeak { get; init; }
 }

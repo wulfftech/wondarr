@@ -838,6 +838,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("plex_section_id");
 
+                    b.Property<bool>("ReplayGain")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("replay_gain");
+
                     b.Property<string>("RootPath")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -874,6 +878,7 @@ namespace Wondarr.Core.Persistence.Migrations
                             MinTracksPerRealAlbum = 2,
                             Name = "Music",
                             NamingTemplate = "{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}",
+                            ReplayGain = false,
                             RootPath = "/data/music",
                             SidecarOptions = "{}",
                             UpdatedAt = new DateTime(2026, 9, 28, 0, 0, 0, 0, DateTimeKind.Utc)
@@ -2220,6 +2225,14 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<long>("QualityId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("quality_id");
+
+                    b.Property<double?>("ReplayGainDb")
+                        .HasColumnType("REAL")
+                        .HasColumnName("replay_gain_db");
+
+                    b.Property<double?>("ReplayGainPeak")
+                        .HasColumnType("REAL")
+                        .HasColumnName("replay_gain_peak");
 
                     b.Property<int?>("SampleRate")
                         .HasColumnType("INTEGER")

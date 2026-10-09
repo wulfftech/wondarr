@@ -49,6 +49,11 @@ public enum OrganizeFailure
 /// no sidecar is written. The Compact task passes <see langword="false"/> — the file already carries
 /// whatever lyrics the original import gave it, and it carries its sidecar with it.
 /// </param>
+/// <param name="ReplayGainDb">
+/// The file's measured ReplayGain track gain, or <see langword="null"/>. It is written only when the
+/// target library has ReplayGain on, so a move into a library without it drops the tags.
+/// </param>
+/// <param name="ReplayGainPeak">The file's measured true peak (linear), written together with the gain.</param>
 public sealed record OrganizeRequest(
     Song Song,
     AlbumContext Album,
@@ -62,7 +67,9 @@ public sealed record OrganizeRequest(
     string? AcoustId,
     bool KeepSource,
     string? ReplacesPath,
-    bool LookUpLyrics = true);
+    bool LookUpLyrics = true,
+    double? ReplayGainDb = null,
+    double? ReplayGainPeak = null);
 
 /// <summary>How organising one file ended.</summary>
 /// <param name="Failure">The step that stopped the file, or <see cref="OrganizeFailure.None"/>.</param>
@@ -233,7 +240,14 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
                     .ConfigureAwait(false);
             }
 
-            var tags = TagSetBuilder.Build(request.Song, request.Album, request.Credits, request.AcoustId, cover);
+            var tags = TagSetBuilder.Build(
+                request.Song,
+                request.Album,
+                request.Credits,
+                request.AcoustId,
+                cover,
+                request.Library.ReplayGain ? request.ReplayGainDb : null,
+                request.Library.ReplayGain ? request.ReplayGainPeak : null);
 
             if (lyrics.Status == LyricsLookupStatus.Found && !string.IsNullOrWhiteSpace(lyrics.PlainLyrics))
             {

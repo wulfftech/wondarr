@@ -25,13 +25,17 @@ public static class TagSetBuilder
     /// <param name="artists">Every credited artist, main first.</param>
     /// <param name="acoustId">The AcoustID the file was identified by, or <see langword="null"/>.</param>
     /// <param name="cover">The front cover to embed, or <see langword="null"/> for none.</param>
+    /// <param name="replayGainDb">The ReplayGain track gain to write, or <see langword="null"/> for none.</param>
+    /// <param name="replayGainPeak">The ReplayGain true peak to write; only used together with the gain.</param>
     /// <returns>The complete tag set; the writer replaces the file's tags with it.</returns>
     public static TagSet Build(
         Song song,
         AlbumContext album,
         IReadOnlyList<(Artist Artist, ArtistRole Role)> artists,
         string? acoustId,
-        byte[]? cover)
+        byte[]? cover,
+        double? replayGainDb = null,
+        double? replayGainPeak = null)
     {
         ArgumentNullException.ThrowIfNull(song);
         ArgumentNullException.ThrowIfNull(album);
@@ -72,6 +76,8 @@ public static class TagSetBuilder
             AcoustId = acoustId,
             Compilation = album.IsVariousArtists,
             FrontCover = cover,
+            ReplayGainTrackGainDb = replayGainDb is not null && replayGainPeak is not null ? replayGainDb : null,
+            ReplayGainTrackPeak = replayGainDb is not null && replayGainPeak is not null ? replayGainPeak : null,
         };
     }
 

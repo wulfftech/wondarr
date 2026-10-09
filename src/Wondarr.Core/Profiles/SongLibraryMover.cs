@@ -236,7 +236,9 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
                         // The file carries whatever lyrics the import gave it, and its sidecar is
                         // coming with it: asking LRCLIB again could only overwrite the user's own.
-                        LookUpLyrics: false),
+                        LookUpLyrics: false,
+                        ReplayGainDb: file.ReplayGainDb,
+                        ReplayGainPeak: file.ReplayGainPeak),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -290,6 +292,14 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
         {
             file.Path = finalPath;
             file.Size = _disk.GetFileSize(finalPath);
+
+            // The writer replaces every tag, so a target without ReplayGain holds none: the row must
+            // not keep values the file no longer carries (a later ApplyReplayGain would skip it).
+            if (!target.ReplayGain)
+            {
+                file.ReplayGainDb = null;
+                file.ReplayGainPeak = null;
+            }
 
             WriteHistory(song.Id, fromLibrary?.Id, targetLibraryId, fromPath, finalPath);
 
