@@ -29,6 +29,30 @@ public sealed class ImportServiceReplayGainTests
         file.ReplayGainPeak.Should().Be(1.047129);
     }
 
+    [Theory]
+    [InlineData(true, -8.52)]
+    [InlineData(false, null)]
+    public async Task An_upgrade_replaces_the_old_values(bool on, double? expected)
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        await host.SetLibraryReplayGainAsync(on);
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+            options.CurrentFileQualityId = 29;
+        });
+        await host.Context.SongFiles.ExecuteUpdateAsync(update => update
+            .SetProperty(file => file.ReplayGainDb, -1.0)
+            .SetProperty(file => file.ReplayGainPeak, 0.25));
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Upgraded);
+        var file = await host.Context.SongFiles.AsNoTracking().SingleAsync();
+        file.ReplayGainDb.Should().Be(expected);
+        file.ReplayGainPeak.Should().Be(on ? 1.047129 : null);
+    }
+
     [Fact]
     public async Task A_library_with_replaygain_off_never_measures()
     {

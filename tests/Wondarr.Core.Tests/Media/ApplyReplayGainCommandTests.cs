@@ -114,6 +114,51 @@ public sealed class ApplyReplayGainCommandTests : IDisposable
         _analyzer.Measured.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("off")]
+    [InlineData("moved")]
+    public async Task A_song_whose_library_changed_after_listing_is_skipped(string change)
+    {
+        await using var host = await StartAsync(replayGain: true);
+        var file = await SeedAsync();
+
+        await using (var context = _database.CreateContext(_time))
+        {
+            if (change == "off")
+            {
+                await context.Libraries.ExecuteUpdateAsync(update => update.SetProperty(library => library.ReplayGain, false));
+            }
+            else
+            {
+                context.Libraries.Add(new Library { Name = "Other", RootPath = Path.Combine(_root, "other"), ReplayGain = true });
+                await context.SaveChangesAsync();
+                var other = await context.Libraries.MaxAsync(library => library.Id);
+                await context.Songs.ExecuteUpdateAsync(update => update.SetProperty(song => song.LibraryId, other));
+            }
+        }
+
+        using var scope = _services!.CreateScope();
+        var result = await scope.ServiceProvider.GetRequiredService<IReplayGainApplier>()
+            .ApplyAsync(file.FileId, SeedData.DefaultLibraryId, CancellationToken.None);
+
+        result.Outcome.Should().Be(ReplayGainOutcome.Skipped);
+        _analyzer.Measured.Should().BeEmpty();
+        _tagWriter.ReplayGainWrites.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_successful_write_refreshes_the_size_from_disk()
+    {
+        await using var host = await StartAsync(replayGain: true);
+        var file = await SeedAsync();
+        File.AppendAllText(file.Path, "more bytes from the tag write");
+
+        (await RunAsync()).Should().Contain("1 done");
+
+        await using var context = _database.CreateContext(_time);
+        (await context.SongFiles.AsNoTracking().SingleAsync()).Size.Should().Be(new FileInfo(file.Path).Length);
+    }
+
     [Fact]
     public async Task A_library_with_replaygain_off_refuses_the_command()
     {

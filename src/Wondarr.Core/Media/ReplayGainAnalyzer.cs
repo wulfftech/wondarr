@@ -84,7 +84,7 @@ public sealed partial class ReplayGainAnalyzer : IReplayGainAnalyzer
                         "-nostats",
                         "-i", path,
                         "-map", "0:a:0",
-                        "-af", "ebur128=peak=true",
+                        "-af", "ebur128=peak=true:framelog=quiet",
                         "-f", "null",
                         "-",
                     ],

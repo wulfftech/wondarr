@@ -121,6 +121,8 @@ A library can opt in (`library.replay_gain`, `replayGain` in the library API; of
 | FLAC, Opus, Ogg (Vorbis comments) | `REPLAYGAIN_TRACK_GAIN` | `REPLAYGAIN_TRACK_PEAK` |
 | M4A (MP4 freeform) | `----:com.apple.iTunes:REPLAYGAIN_TRACK_GAIN` | `----:com.apple.iTunes:REPLAYGAIN_TRACK_PEAK` |
 
+Opus files get these `REPLAYGAIN_*` Vorbis comments (widely read by players) rather than the Opus-specific `R128_TRACK_GAIN`. With the switch off, a library's files carry no ReplayGain tags at all: an uploader's are stripped, as every other source tag is.
+
 **When.** The values live on `song_file` (`replay_gain_db`, `replay_gain_peak`) so a later re-tag writes the same numbers without measuring again:
 
 - **Import**: when the library has ReplayGain on, the file that will be placed (after any conversion) is measured, the values are stored and go into the tag set.

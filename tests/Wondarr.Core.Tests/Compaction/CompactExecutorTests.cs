@@ -622,6 +622,29 @@ public class CompactExecutorTests : IDisposable
         Directory.Exists(Path.Combine(_root, ".wondarr-compact")).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ReplayGain_values_on_the_row_follow_the_librarys_switch(bool on)
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        await context.Libraries.ExecuteUpdateAsync(update => update.SetProperty(library => library.ReplayGain, on));
+        await context.SongFiles.ExecuteUpdateAsync(update => update
+            .SetProperty(file => file.ReplayGainDb, -8.52)
+            .SetProperty(file => file.ReplayGainPeak, 1.047129));
+        Plan(context, [song]);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Moved.Should().Be(1);
+        await using var fresh = _database.CreateContext(_timeProvider);
+        var file = await fresh.SongFiles.AsNoTracking().SingleAsync();
+        file.ReplayGainDb.Should().Be(on ? -8.52 : null);
+        file.ReplayGainPeak.Should().Be(on ? 1.047129 : null);
+        _organizer.Requests.Single().ReplayGainDb.Should().Be(-8.52);
+    }
+
     [Fact]
     public async Task A_move_whose_song_is_being_imported_fails_and_moves_nothing()
     {

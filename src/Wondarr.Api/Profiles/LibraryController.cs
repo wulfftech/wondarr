@@ -155,14 +155,24 @@ public sealed class LibraryController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        if (await _libraries.GetAsync(id, cancellationToken).ConfigureAwait(false) is null)
+        var existing = await _libraries.GetAsync(id, cancellationToken).ConfigureAwait(false);
+
+        if (existing is null)
         {
             return NotFound();
         }
 
         try
         {
-            var updated = await _libraries.UpdateAsync(resource.ToLibrary(id), cancellationToken).ConfigureAwait(false);
+            var replacement = resource.ToLibrary(id);
+
+            // An omitted replayGain keeps the stored switch: clients that predate it must not turn it off.
+            if (resource.ReplayGain is null)
+            {
+                replacement.ReplayGain = existing.ReplayGain;
+            }
+
+            var updated = await _libraries.UpdateAsync(replacement, cancellationToken).ConfigureAwait(false);
 
             return Ok(updated.ToResource());
         }

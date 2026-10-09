@@ -155,6 +155,32 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
                 throw new InvalidOperationException("The file is not readable audio.");
             }
 
+            // Picard writes the keys in lower case, and ATL matches keys case-insensitively but keeps
+            // the casing it read: setting the upper-case key would rewrite the lower-case field. So an
+            // old pair in another casing is deleted first (ATL deletes a field whose value is emptied)
+            // and the file reloaded, and the new pair is then written under the exact keys.
+            var stale = track.AdditionalFields.Keys
+                .Where(key => (string.Equals(key, keys.ReplayGainTrackGain, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(key, keys.ReplayGainTrackGain, StringComparison.Ordinal))
+                    || (string.Equals(key, keys.ReplayGainTrackPeak, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(key, keys.ReplayGainTrackPeak, StringComparison.Ordinal)))
+                .ToList();
+
+            if (stale.Count > 0)
+            {
+                foreach (var key in stale)
+                {
+                    track.AdditionalFields[key] = string.Empty;
+                }
+
+                if (!track.Save())
+                {
+                    throw new InvalidOperationException("ATL refused to save the tag.");
+                }
+
+                track = new Track(tempPath);
+            }
+
             // Save() rewrites the tag it loaded, so everything else the file carries stays as it is.
             track.AdditionalFields[keys.ReplayGainTrackGain] = gain;
             track.AdditionalFields[keys.ReplayGainTrackPeak] = peakText;
@@ -171,8 +197,10 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
                 ["ReplayGainTrackPeak"] = peakText,
             };
 
-            if (GetAdditional(reread, keys.ReplayGainTrackGain) != gain
-                || GetAdditional(reread, keys.ReplayGainTrackPeak) != peakText)
+            // Case-insensitive: ID3 cannot delete a stale lower-case TXXX frame through ATL, so its
+            // description keeps the casing it had (ReplayGain field names are case-insensitive).
+            if (GetAdditionalIgnoreCase(reread, keys.ReplayGainTrackGain) != gain
+                || GetAdditionalIgnoreCase(reread, keys.ReplayGainTrackPeak) != peakText)
             {
                 throw new InvalidOperationException("Tag read-back verification failed for: ReplayGain.");
             }
@@ -618,6 +646,12 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
             track.AdditionalFields[key] = value;
         }
     }
+
+    private static string? GetAdditionalIgnoreCase(Track track, string key) =>
+        track.AdditionalFields
+            .Where(pair => string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Value)
+            .FirstOrDefault();
 
     internal static string? GetAdditional(Track track, string key) =>
         track.AdditionalFields.TryGetValue(key, out var value) ? value : null;

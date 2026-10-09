@@ -97,7 +97,7 @@ public sealed class ReplayGainAnalyzerTests
         var call = runner.Calls.Should().ContainSingle().Subject;
         call.FileName.Should().Be("ffmpeg");
         call.Arguments.Should().Equal(
-            "-nostdin", "-hide_banner", "-nostats", "-i", "/m/song.flac", "-map", "0:a:0", "-af", "ebur128=peak=true", "-f", "null", "-");
+            "-nostdin", "-hide_banner", "-nostats", "-i", "/m/song.flac", "-map", "0:a:0", "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-");
     }
 
     [Fact]

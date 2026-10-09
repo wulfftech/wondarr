@@ -116,7 +116,7 @@ public sealed partial class ApplyReplayGainCommandHandler : ICommandHandler
                 using var scope = _scopes.CreateScope();
                 result = await scope.ServiceProvider
                     .GetRequiredService<IReplayGainApplier>()
-                    .ApplyAsync(fileId, cancellationToken)
+                    .ApplyAsync(fileId, libraryId, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)

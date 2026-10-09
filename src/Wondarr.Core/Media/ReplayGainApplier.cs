@@ -29,9 +29,13 @@ public interface IReplayGainApplier
 {
     /// <summary>Measures, stores and tags one song file under the song's lock.</summary>
     /// <param name="songFileId">The <c>song_file</c> row.</param>
+    /// <param name="libraryId">The library the run is for; the file is skipped if its song has moved elsewhere. <see langword="null"/> for any.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <returns>The outcome and, for a failure or a skip, why.</returns>
-    Task<(ReplayGainOutcome Outcome, string? Reason)> ApplyAsync(long songFileId, CancellationToken cancellationToken);
+    Task<(ReplayGainOutcome Outcome, string? Reason)> ApplyAsync(
+        long songFileId,
+        long? libraryId,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>The one implementation of <see cref="IReplayGainApplier"/>.</summary>
@@ -74,6 +78,7 @@ public sealed partial class ReplayGainApplier : IReplayGainApplier
     /// <inheritdoc />
     public async Task<(ReplayGainOutcome Outcome, string? Reason)> ApplyAsync(
         long songFileId,
+        long? libraryId,
         CancellationToken cancellationToken)
     {
         var songId = await _database.SongFiles
@@ -99,6 +104,23 @@ public sealed partial class ReplayGainApplier : IReplayGainApplier
         if (file is null)
         {
             return (ReplayGainOutcome.Skipped, "The file no longer exists.");
+        }
+
+        // The library may have been switched off, or the song moved, since the run listed its files.
+        var current = await _database.Songs
+            .AsNoTracking()
+            .Where(candidate => candidate.Id == file.SongId)
+            .Join(
+                _database.Libraries,
+                candidate => candidate.LibraryId,
+                library => library.Id,
+                (candidate, library) => new { candidate.LibraryId, library.ReplayGain })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (current is null || !current.ReplayGain || (libraryId is { } expected && current.LibraryId != expected))
+        {
+            return (ReplayGainOutcome.Skipped, "The song's library no longer has ReplayGain on, or the song moved.");
         }
 
         if (string.Equals(file.SourceType, SourceTypes.Reference, StringComparison.Ordinal))
@@ -147,6 +169,7 @@ public sealed partial class ReplayGainApplier : IReplayGainApplier
 
         file.ReplayGainDb = values.GainDb;
         file.ReplayGainPeak = values.Peak;
+        file.Size = new FileInfo(file.Path).Length;
         file.TagsWritten = MergeWritten(file.TagsWritten, written.Written);
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
