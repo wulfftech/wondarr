@@ -33,3 +33,12 @@ Each rule has an **Action**: **Keep as downloaded**, **AAC (.m4a)**, **MP3** or 
 - **One song**: **Convert…** in the song's actions menu on the Library page. Choose a one-off rule, or use the library's rules.
 
 Files are converted one at a time. The new file is checked (it decodes, and its length is within 1 second of the original), tagged and filed under the naming template with its new extension. **The original goes to the recycle bin**, so you can get it back. A file that fails to convert stays where it was. A file in a [reference library](/wondarr/library/reference-libraries/) is never converted. The History records a "Converted" event, and Plex is asked to scan the folder.
+
+## ReplayGain
+
+A library can write **ReplayGain** tags, so players (Plexamp, foobar2000, mpd, Navidrome and others) play songs from different sources at one loudness. Turn on **Write ReplayGain tags** on the library's settings tab and press **Save**; it is off by default.
+
+- Each file is measured with ffmpeg (EBU R128 loudness and true peak) and tagged `REPLAYGAIN_TRACK_GAIN` and `REPLAYGAIN_TRACK_PEAK` against ReplayGain 2.0's −18 LUFS reference, in MP3, FLAC, M4A and Opus files alike. Only the tags change; the audio is never touched. No album gain is written.
+- New imports are measured as they are filed, and a converted file is measured again.
+- **Measure existing files** (shown on the library's tab once the switch is on and saved) measures and tags the files already in the library, one song at a time. Files in a [reference library](/wondarr/library/reference-libraries/) are never re-tagged.
+- With the switch off, the library's files carry no ReplayGain tags: tags a file arrived with are replaced like every other tag.

@@ -15,6 +15,7 @@ description: The scheduled tasks, making and restoring backups, reading the logs
 | Upgrade Search | 24 h (`search.upgrade_interval_hours`) | Searches for better files for songs below their cutoff. See [Quality and upgrades](/wondarr/library/quality-and-upgrades/). |
 | Reference Library Scan | 24 h | Scans [reference libraries](/wondarr/library/reference-libraries/). |
 | Import List Sync | 1 h | Syncs the [import lists](/wondarr/library/import-lists/) that are due. |
+| Housekeeping | 24 h | Keeps the database small: deletes finished commands older than 7 days (the newest run of each task is kept, for the Last run column), search results older than 30 days that no download or file still refers to, and expired blocklist entries; empties the recycle bin of files older than `import.recycle_bin_cleanup_days`; then compacts the database when a quarter of it is free space. The history is never pruned. |
 | Backup | 7 days (`backup.interval_days`) | Makes a scheduled backup. |
 
 The intervals in brackets can be changed in `config.yml`; see [Configuration](/wondarr/reference/configuration/). Longer jobs you start yourself, such as compacting or converting a library, also appear under Recent commands.
@@ -43,4 +44,4 @@ Wondarr does not back up your music, only its own database and settings. Make a 
 
 When Wondarr replaces a file, whether by an upgrade or by converting it, the old file goes to the recycle bin instead of being deleted. By default that is `/config/recycle` (`import.recycle_bin_path`).
 
-`import.recycle_bin_cleanup_days` (default `7`, from 0 to 365; `0` keeps files forever) sets how long a recycled file is meant to be kept. In this version no scheduled task runs that clean-up yet, so check the folder now and then and empty it yourself if it grows.
+`import.recycle_bin_cleanup_days` (default `7`, from 0 to 365; `0` keeps files forever) sets how long a recycled file is kept; the daily **Housekeeping** task removes older ones.
