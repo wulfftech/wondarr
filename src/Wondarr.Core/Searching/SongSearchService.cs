@@ -152,6 +152,9 @@ public interface ISongSearchService
 /// </summary>
 public sealed partial class SongSearchService : ISongSearchService
 {
+    /// <summary>Why a song a reference file identifies is not searched for.</summary>
+    internal const string ReferenceOwnedMessage = "Owned through a reference library; it is never searched for";
+
     /// <summary>The JSON shape of every body and column this class writes: camelCase, enums as strings.</summary>
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -238,6 +241,13 @@ public sealed partial class SongSearchService : ISongSearchService
         if (grab && await _queue.HasActiveForSongAsync(songId, cancellationToken).ConfigureAwait(false))
         {
             return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, "Already downloading");
+        }
+
+        // A reference file the user owns is never searched for, upgraded or replaced: whatever asked
+        // (a search on add, the missing loop, a search now) ends here without opening a run.
+        if (grab && await IsOwnedThroughReferenceAsync(songId, cancellationToken).ConfigureAwait(false))
+        {
+            return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, ReferenceOwnedMessage);
         }
 
         var run = await _runs.StartAsync(songId, trigger, cancellationToken).ConfigureAwait(false);
@@ -939,6 +949,15 @@ public sealed partial class SongSearchService : ISongSearchService
 
         return false;
     }
+
+    /// <summary>Whether a reference file currently identifies the song, so the user already owns it.</summary>
+    private async Task<bool> IsOwnedThroughReferenceAsync(long songId, CancellationToken cancellationToken) =>
+        await _database.ReferenceFiles
+            .AsNoTracking()
+            .AnyAsync(
+                file => file.SongId == songId && file.State == ReferenceFileState.Identified,
+                cancellationToken)
+            .ConfigureAwait(false);
 
     /// <summary>Loads the song with everything the decision context needs.</summary>
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>

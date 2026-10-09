@@ -117,6 +117,36 @@ public sealed class MissingSearchCommandHandlerTests
     }
 
     [Fact]
+    public async Task Missing_search_never_picks_a_song_a_reference_file_identifies()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var owned = await host.SeedSongAsync("Owned");
+        await host.SeedSongAsync("Wanted");
+        await host.SeedReferenceFileAsync(owned, ReferenceFileState.Identified);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+        message.Should().StartWith("1 songs");
+        host.Provider.Requests.Should().ContainSingle().Which.Title.Should().Be("Wanted");
+    }
+
+    [Fact]
+    public async Task Missing_search_picks_a_song_again_when_its_reference_file_went_missing()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var song = await host.SeedSongAsync("Lost");
+        await host.SeedReferenceFileAsync(song, ReferenceFileState.Missing);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Should().ContainSingle().Which.Title.Should().Be("Lost");
+    }
+
+    [Fact]
     public async Task Missing_search_leaves_unmonitored_songs_and_songs_already_downloading_alone()
     {
         await using var host = await SearchTestHost.CreateAsync();
