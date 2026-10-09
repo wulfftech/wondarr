@@ -203,6 +203,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tag": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TagResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/backup": {
         parameters: {
             query?: never;
@@ -803,6 +838,13 @@ export interface paths {
                 query?: {
                     artistId?: number | string;
                     monitored?: boolean;
+                    term?: string;
+                    hasFile?: boolean;
+                    libraryId?: number | string;
+                    qualityProfileId?: number | string;
+                    qualityId?: number | string;
+                    tag?: string;
+                    cutoffMet?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -1147,6 +1189,115 @@ export interface paths {
             };
         };
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/song/editor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SongEditorResource"];
+                    "application/*+json": components["schemas"]["SongEditorResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SongEditorResultResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SongEditorDeleteResource"];
+                    "application/*+json": components["schemas"]["SongEditorDeleteResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SongEditorDeletedResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -3899,6 +4050,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/customfilter": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    type?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CustomFilterResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CustomFilterInputResource"];
+                    "application/*+json": components["schemas"]["CustomFilterInputResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CustomFilterResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customfilter/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CustomFilterResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CustomFilterInputResource"];
+                    "application/*+json": components["schemas"]["CustomFilterInputResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CustomFilterResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/command": {
         parameters: {
             query?: never;
@@ -4663,6 +4957,18 @@ export interface components {
             rowCount: number | string;
             sample: components["schemas"]["ImportListEntryResource"][];
             problems: string[];
+        };
+        CustomFilterInputResource: {
+            type: null | string;
+            label: null | string;
+            filters: components["schemas"]["JsonElement"];
+        };
+        CustomFilterResource: {
+            /** Format: int64 */
+            id: number | string;
+            type: string;
+            label: string;
+            filters: components["schemas"]["JsonElement"];
         };
         DownloadClientFieldResource: {
             name: string;
@@ -5477,6 +5783,27 @@ export interface components {
         SongAlbumContextUpdateResource: {
             albumKey: null | string;
         };
+        SongEditorDeleteResource: {
+            songIds: null | (number | string)[];
+        };
+        SongEditorDeletedResource: {
+            /** Format: int32 */
+            deleted: number | string;
+        };
+        SongEditorResource: {
+            songIds: null | (number | string)[];
+            monitored: null | boolean;
+            /** Format: int64 */
+            qualityProfileId: null | number | string;
+            /** Format: int64 */
+            libraryId: null | number | string;
+            tags: null | string[];
+            applyTags: null | string;
+        };
+        SongEditorResultResource: {
+            songs: components["schemas"]["SongResource"][];
+            moveCommandIds: (number | string)[];
+        };
         SongFileResource: {
             path: string;
             codec: string;
@@ -5549,6 +5876,7 @@ export interface components {
             qualityId: null | number | string;
             albumContext: null | components["schemas"]["SongAlbumContextResource"];
             file?: null | components["schemas"]["SongFileResource"];
+            tags?: null | string[];
         };
         SongUpdateResource: {
             monitored: null | boolean;
@@ -5691,6 +6019,11 @@ export interface components {
             packageVersion: string;
             packageAuthor: string;
             packageUpdateMechanism: string;
+        };
+        TagResource: {
+            label: string;
+            /** Format: int32 */
+            songCount: number | string;
         };
         TaskResource: {
             /** Format: int64 */

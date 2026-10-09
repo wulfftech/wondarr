@@ -403,6 +403,48 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.ToTable("compact_move", (string)null);
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.CustomFilter", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Filters")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("filters");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("type");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_custom_filter");
+
+                    b.HasIndex("Type", "Label")
+                        .IsUnique()
+                        .HasDatabaseName("ix_custom_filter_type_label");
+
+                    b.ToTable("custom_filter", (string)null);
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.DownloadClient", b =>
                 {
                     b.Property<long>("Id")
