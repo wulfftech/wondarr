@@ -339,6 +339,8 @@ public sealed partial class SongService : ISongService
 
         if (!string.IsNullOrWhiteSpace(filter.Tag))
         {
+            // An exact match in SQL: every writer stores tags through SongTags.Normalize (lower-case,
+            // trimmed), so the filter value is normalised the same way rather than the column.
             var tag = filter.Tag.Trim().ToLowerInvariant();
             query = query.Where(song => song.Tags.Contains(tag));
         }

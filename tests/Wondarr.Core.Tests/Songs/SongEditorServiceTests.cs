@@ -163,6 +163,28 @@ public sealed class SongEditorServiceTests : IDisposable
         (await context.Songs.CountAsync()).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Deleting_a_song_still_downloading_is_refused_and_nothing_is_deleted()
+    {
+        await using var context = await ContextAsync();
+        var busy = await SongSeed.AddAsync(context, "Busy");
+        var done = await SongSeed.AddAsync(context, "Done");
+        await AddQueueItemAsync(context, busy.Id, QueueItemState.Downloading);
+        await AddQueueItemAsync(context, done.Id, QueueItemState.Imported);
+        var editor = SongSeed.Editor(context, Substitute.For<ICommandQueue>());
+
+        var act = () => editor.DeleteAsync([busy.Id, done.Id], CancellationToken.None);
+
+        (await act.Should().ThrowAsync<SongsBusyException>()).Which.BusyIds.Should().Equal(busy.Id);
+        context.ChangeTracker.Clear();
+        (await context.Songs.CountAsync()).Should().Be(2);
+
+        // A finished queue item does not hold a song back; it goes with the song.
+        (await editor.DeleteAsync([done.Id], CancellationToken.None)).Should().Be(1);
+        context.ChangeTracker.Clear();
+        (await context.QueueItems.CountAsync(item => item.SongId == done.Id)).Should().Be(0);
+    }
+
     public void Dispose()
     {
         _database.Dispose();
@@ -181,6 +203,38 @@ public sealed class SongEditorServiceTests : IDisposable
         await using var fresh = _database.CreateContext(_time);
 
         return (await fresh.Songs.AsNoTracking().SingleAsync(song => song.Id == id)).Tags;
+    }
+
+    private async Task AddQueueItemAsync(WondarrDbContext context, long songId, QueueItemState state)
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+        var run = new SearchRun { SongId = songId, StartedAt = now };
+        var candidate = new CandidateRecord
+        {
+            SearchRun = run,
+            SongId = songId,
+            SourceType = "soulseek",
+            BlocklistKey = "user/path/" + songId,
+            DisplayName = "file.flac",
+            RemotePath = "path/file.flac",
+        };
+
+        context.Candidates.Add(candidate);
+        await context.SaveChangesAsync();
+
+        context.QueueItems.Add(new QueueItem
+        {
+            SongId = songId,
+            CandidateId = candidate.Id,
+            SearchRunId = run.Id,
+            SourceType = "soulseek",
+            Destination = "wondarr/" + songId,
+            State = state,
+            StateChangedAt = now,
+            LastProgressAt = now,
+        });
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
     }
 
     private async Task<WondarrDbContext> ContextAsync()

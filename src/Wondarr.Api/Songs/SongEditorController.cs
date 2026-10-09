@@ -72,13 +72,17 @@ public sealed class SongEditorController : ControllerBase
     /// <summary>Deletes many songs at once. Files stay on disk, exactly as a single delete leaves them.</summary>
     /// <param name="resource">The songs to delete.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>200 and how many were deleted; 404 (nothing deleted) when a song is unknown.</returns>
+    /// <returns>
+    /// 200 and how many were deleted; 404 (nothing deleted) when a song is unknown; 409 (nothing
+    /// deleted) when a song is still downloading or importing.
+    /// </returns>
     [HttpDelete]
     [Consumes("application/json")]
     [Produces("application/json")]
     [ProducesResponseType(typeof(SongEditorDeletedResource), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SongEditorDeletedResource>> Delete(
         [FromBody] SongEditorDeleteResource resource,
         CancellationToken cancellationToken)
@@ -94,6 +98,20 @@ public sealed class SongEditorController : ControllerBase
         catch (SongsNotFoundException exception)
         {
             return NotFoundProblem(exception);
+        }
+        catch (SongsBusyException exception)
+        {
+            var problem = Problem(
+                title: "Songs in the queue",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status409Conflict);
+
+            if (problem.Value is ProblemDetails details)
+            {
+                details.Extensions["songIds"] = exception.BusyIds.Take(MaxListedIds).ToList();
+            }
+
+            return problem;
         }
         catch (ArgumentException exception)
         {

@@ -48,6 +48,22 @@ public sealed class SongsNotFoundException : Exception
     public IReadOnlyList<long> MissingIds { get; }
 }
 
+/// <summary>Some of the songs a mass delete names are downloading or importing right now.</summary>
+public sealed class SongsBusyException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="SongsBusyException"/> class.</summary>
+    /// <param name="busyIds">The songs with a queue item still in flight.</param>
+    public SongsBusyException(IReadOnlyList<long> busyIds)
+        : base("These songs are downloading or importing; remove them from the queue first: "
+            + string.Join(", ", busyIds.Take(10)) + (busyIds.Count > 10 ? ", ..." : string.Empty))
+    {
+        BusyIds = busyIds;
+    }
+
+    /// <summary>Gets every song with a queue item in flight.</summary>
+    public IReadOnlyList<long> BusyIds { get; }
+}
+
 /// <summary>The rules of the Library page's mass editor and its tag list.</summary>
 public interface ISongEditorService
 {
@@ -221,25 +237,35 @@ public sealed class SongEditorService : ISongEditorService
     {
         var ids = RequireIds(songIds);
 
-        var existing = await _database.Songs
-            .AsNoTracking()
+        var songs = await _database.Songs
             .Where(song => ids.Contains(song.Id))
-            .Select(song => song.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        RequireAll(ids, existing);
+        RequireAll(ids, songs.Select(song => song.Id));
 
-        var deleted = 0;
-        foreach (var id in ids)
+        // A song's queue items go with it (the foreign key cascades), so deleting one whose download
+        // or import is still running would orphan the transfer and pull the row from under the
+        // tracker. Those are refused, and nothing is deleted.
+        var busy = await _database.QueueItems
+            .AsNoTracking()
+            .Where(item => ids.Contains(item.SongId) && ActiveStates.Contains(item.State))
+            .Select(item => item.SongId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (busy.Count > 0)
         {
-            if (await _songs.DeleteAsync(id, cancellationToken).ConfigureAwait(false))
-            {
-                deleted++;
-            }
+            throw new SongsBusyException([.. busy.Order()]);
         }
 
-        return deleted;
+        // One SaveChanges is one transaction: every song goes, or none does. As with a single
+        // delete, the credits, album context and file row cascade; the file stays on disk.
+        _database.Songs.RemoveRange(songs);
+        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return songs.Count;
     }
 
     /// <inheritdoc />
@@ -262,6 +288,16 @@ public sealed class SongEditorService : ISongEditorService
                 .OrderBy(tag => tag.Label, StringComparer.Ordinal),
         ];
     }
+
+    /// <summary>Queue states in which a download or an import is still in flight.</summary>
+    private static readonly QueueItemState[] ActiveStates =
+    [
+        QueueItemState.Queued,
+        QueueItemState.RemotelyQueued,
+        QueueItemState.Downloading,
+        QueueItemState.Completed,
+        QueueItemState.Importing,
+    ];
 
     private static List<long> RequireIds(IReadOnlyList<long>? songIds)
     {
