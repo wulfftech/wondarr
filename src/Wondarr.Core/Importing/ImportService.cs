@@ -464,11 +464,12 @@ public sealed partial class ImportService : IImportService
 
                         LogFakeLossless(_logger, item.Id, cutoff);
 
+                        // The verifier was never asked: the history's verification slot stays empty.
                         return await RejectAsync(
                                 item,
                                 song,
                                 reason,
-                                reason,
+                                null,
                                 MeasuredQuality.FromMediaInfo(info),
                                 cancellationToken)
                             .ConfigureAwait(false);

@@ -6,7 +6,7 @@ public enum SpectralOutcome
     /// <summary>No lossy brick-wall low-pass: the file may be what it claims.</summary>
     Genuine,
 
-    /// <summary>A brick-wall low-pass below 20 kHz: the audio went through a lossy encoder.</summary>
+    /// <summary>A brick-wall low-pass below 19.5 kHz: the audio went through a lossy encoder.</summary>
     Lossy,
 
     /// <summary>Too little signal to tell.</summary>
@@ -21,9 +21,10 @@ public sealed record SpectralVerdict(SpectralOutcome Outcome, double? CutoffHz, 
 
 /// <summary>
 /// Looks for the brick-wall low-pass every lossy encoder leaves in a spectrum: a Welch power
-/// spectrum over mono samples, grouped into 250 Hz bands, searched from the top for a drop of at
-/// least 25 dB. Pure arithmetic, no I/O; the constants are the ones the measurement on real FLACs and
-/// their MP3 re-encodes settled on, so tests name them rather than repeat them.
+/// spectrum over mono samples, grouped into 250 Hz bands, searched from the top for the highest band
+/// that — with the two bands under it — stands at least 35 dB above everything from 500 Hz higher
+/// up. Pure arithmetic, no I/O; the constants are the ones the measurement on real FLACs and their
+/// MP3 re-encodes settled on, so tests name them rather than repeat them.
 /// </summary>
 public static class SpectrumAnalysis
 {
@@ -45,14 +46,26 @@ public static class SpectrumAnalysis
     /// <summary>The scan stops at the first band whose centre is below this, in Hz.</summary>
     internal const double ScanFloorHz = 10_000.0;
 
-    /// <summary>How many bands under the candidate are averaged.</summary>
-    internal const int BandsBelow = 4;
+    /// <summary>
+    /// How many bands make the edge: the candidate and the ones under it must all clear the drop, so
+    /// a single loud band (a tone, a spike) is not an edge.
+    /// </summary>
+    internal const int EdgeBands = 3;
 
-    /// <summary>The drop, in dB, that makes a cliff.</summary>
-    internal const double CliffDb = 25.0;
+    /// <summary>
+    /// How many bands above the candidate the encoder's filter may take to fall: a real low-pass
+    /// rolls off over a few hundred Hz (an MP3-128 drops ≈ 70 dB across 750 Hz), not in one band.
+    /// </summary>
+    internal const int TransitionBands = 2;
 
-    /// <summary>A cliff below this frequency is a lossy encoder's low-pass, in Hz.</summary>
-    internal const double LossyBelowHz = 20_000.0;
+    /// <summary>The drop, in dB, from the edge to the loudest band above the transition, that makes a cliff.</summary>
+    internal const double CliffDb = 35.0;
+
+    /// <summary>
+    /// A cliff below this frequency is a lossy encoder's low-pass, in Hz. Measured edges: MP3-128
+    /// 16.4–16.9 kHz, MP3-192 18.6–18.9 kHz, MP3-320 19.9–20.4 kHz; genuine files none.
+    /// </summary>
+    internal const double LossyBelowHz = 19_500.0;
 
     /// <summary>Added to a band's power so silence does not take a logarithm of zero.</summary>
     internal const double PowerFloor = 1e-30;
@@ -108,8 +121,11 @@ public static class SpectrumAnalysis
             running = Math.Max(running, levels[band]);
         }
 
-        // The top band has nothing above it to compare with, so the scan starts one below.
-        for (var band = bandCount - 2; band >= BandsBelow; band--)
+        // The highest edge first: the scan starts where at least one band is left above the
+        // transition. Every band of the edge — the candidate and the two under it — must stand the
+        // full drop above the loudest band past the transition: an edge that is only loud on
+        // average (one band of signal, the rest already silent) would put the cutoff above the wall.
+        for (var band = bandCount - 2 - TransitionBands; band >= EdgeBands - 1; band--)
         {
             var centre = (band + 0.5) * BandWidthHz;
             if (centre < ScanFloorHz)
@@ -117,15 +133,14 @@ public static class SpectrumAnalysis
                 break;
             }
 
-            var below = 0.0;
-            for (var offset = 1; offset <= BandsBelow; offset++)
+            var above = aboveMax[band + TransitionBands];
+            var edge = double.PositiveInfinity;
+            for (var offset = 0; offset < EdgeBands; offset++)
             {
-                below += levels[band - offset];
+                edge = Math.Min(edge, levels[band - offset]);
             }
 
-            below /= BandsBelow;
-
-            if (below - aboveMax[band] >= CliffDb)
+            if (edge - above >= CliffDb)
             {
                 return new SpectralVerdict(
                     centre < LossyBelowHz ? SpectralOutcome.Lossy : SpectralOutcome.Genuine,
@@ -172,7 +187,10 @@ public static class SpectrumAnalysis
                 energy += (double)sample * sample;
             }
 
-            if (Math.Sqrt(energy / FrameLength) < SilenceRms)
+            // A non-finite sample (a corrupt decode) would turn the whole sum into NaN and every
+            // comparison false — a pass. Such a frame is skipped like a silent one.
+            var rms = Math.Sqrt(energy / FrameLength);
+            if (!(rms >= SilenceRms) || !double.IsFinite(rms))
             {
                 continue;
             }

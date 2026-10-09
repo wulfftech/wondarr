@@ -93,9 +93,49 @@ public sealed class SpectralAnalyzerTests
     }
 
     [Fact]
+    public async Task The_window_is_read_into_the_analysis_and_a_partial_sample_dropped()
+    {
+        string? output = null;
+        var runner = new FakeProcessRunner().Enqueue(string.Empty);
+        runner.OnCall = call =>
+        {
+            output = call.Arguments[^1];
+            WriteOutput(call, SpectrumAnalysisTests.LowPassedNoise(cutoffHz: 16_000));
+
+            // Three stray bytes after the last whole sample, as a cut-off write would leave.
+            using var stream = new FileStream(output, FileMode.Append);
+            stream.Write([1, 2, 3]);
+        };
+
+        var verdict = await Analyzer(runner).AnalyzeAsync(Source, 45_000, CancellationToken.None);
+
+        verdict.Outcome.Should().Be(SpectralOutcome.Lossy);
+        verdict.CutoffHz.Should().BeInRange(15_750, 16_250);
+        File.Exists(output).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_timeout_is_inconclusive()
     {
+        string? output = null;
         var runner = new FakeProcessRunner().Enqueue(new ProcessResult(-1, string.Empty, string.Empty, TimedOut: true));
+        runner.OnCall = call =>
+        {
+            output = call.Arguments[^1];
+            WriteOutput(call, new float[SpectrumAnalysis.FrameLength]);
+        };
+
+        var verdict = await Analyzer(runner).AnalyzeAsync(Source, 45_000, CancellationToken.None);
+
+        verdict.Outcome.Should().Be(SpectralOutcome.Inconclusive);
+        File.Exists(output).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Any_other_failure_is_inconclusive_not_an_exception()
+    {
+        var runner = new FakeProcessRunner().Enqueue(string.Empty);
+        runner.OnCall = _ => throw new InvalidOperationException("the process would not start");
 
         var verdict = await Analyzer(runner).AnalyzeAsync(Source, 45_000, CancellationToken.None);
 
@@ -122,11 +162,14 @@ public sealed class SpectralAnalyzerTests
     [Fact]
     public async Task No_output_file_is_inconclusive()
     {
+        string? output = null;
         var runner = new FakeProcessRunner().Enqueue(string.Empty);
+        runner.OnCall = call => output = call.Arguments[^1];
 
         var verdict = await Analyzer(runner).AnalyzeAsync(Source, 45_000, CancellationToken.None);
 
         verdict.Outcome.Should().Be(SpectralOutcome.Inconclusive);
+        File.Exists(output).Should().BeFalse();
     }
 
     [Fact]

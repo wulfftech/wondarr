@@ -33,9 +33,9 @@ public sealed class SpectrumAnalysisTests
     [Fact]
     public void Noise_low_passed_at_16_kHz_is_lossy_with_the_cutoff_found()
     {
-        // 30 dB of residue above the cut-off: the drop is a cliff (25 dB or more) but the band
-        // right above it is the first to qualify, so the cutoff is read within half a band.
-        var verdict = SpectrumAnalysis.Analyse(LowPassedNoise(cutoffHz: 16_000, floorDb: -30), SampleRate);
+        // 50 dB of residue above the cut-off, as a decoded MP3's noise floor leaves: still a cliff
+        // (35 dB or more), read within half a band of the true edge.
+        var verdict = SpectrumAnalysis.Analyse(LowPassedNoise(cutoffHz: 16_000, floorDb: -50), SampleRate);
 
         _output.WriteLine(verdict.ToString());
         verdict.Outcome.Should().Be(SpectralOutcome.Lossy);
@@ -43,16 +43,47 @@ public sealed class SpectrumAnalysisTests
     }
 
     [Fact]
-    public void A_perfect_brick_wall_at_16_kHz_is_lossy()
+    public void A_perfect_brick_wall_at_16_kHz_is_lossy_with_the_cutoff_at_the_wall()
     {
-        // Nothing at all above the cut-off. The scan runs from the top and the logarithm of an
-        // empty band is very deep, so the cliff is first met up to four bands above the true edge:
-        // the verdict is the same, the reported cutoff reads high.
+        // Nothing at all above the cut-off. Every band of the edge must clear the drop, so a band
+        // that is loud only on average (one band of signal under it, the rest silent) is not taken
+        // for the edge: the cutoff is the wall itself, not up to a kHz above it.
         var verdict = SpectrumAnalysis.Analyse(LowPassedNoise(cutoffHz: 16_000), SampleRate);
 
         _output.WriteLine(verdict.ToString());
         verdict.Outcome.Should().Be(SpectralOutcome.Lossy);
-        verdict.CutoffHz.Should().BeInRange(16_000, 17_250);
+        verdict.CutoffHz.Should().BeInRange(15_750, 16_250);
+    }
+
+    [Fact]
+    public void A_perfect_brick_wall_at_19_kHz_is_lossy()
+    {
+        var verdict = SpectrumAnalysis.Analyse(LowPassedNoise(cutoffHz: 19_000), SampleRate);
+
+        _output.WriteLine(verdict.ToString());
+        verdict.Outcome.Should().Be(SpectralOutcome.Lossy);
+        verdict.CutoffHz.Should().BeInRange(18_750, 19_250);
+    }
+
+    [Fact]
+    public void A_wall_just_above_the_threshold_is_genuine()
+    {
+        // 19.75 kHz: where a 320 kbps MP3 or a master low-passed near 20 kHz sits — not judged lossy.
+        var verdict = SpectrumAnalysis.Analyse(LowPassedNoise(cutoffHz: 19_750, floorDb: -60), SampleRate);
+
+        _output.WriteLine(verdict.ToString());
+        verdict.Outcome.Should().Be(SpectralOutcome.Genuine);
+        verdict.CutoffHz.Should().BeGreaterThanOrEqualTo(SpectrumAnalysis.LossyBelowHz);
+    }
+
+    [Fact]
+    public void A_shallow_shelf_is_not_a_cliff()
+    {
+        // Everything above 16 kHz only 30 dB down: less than the drop a lossy encoder leaves.
+        var verdict = SpectrumAnalysis.Analyse(LowPassedNoise(cutoffHz: 16_000, floorDb: -30), SampleRate);
+
+        _output.WriteLine(verdict.ToString());
+        verdict.Outcome.Should().Be(SpectralOutcome.Genuine);
     }
 
     [Fact]
@@ -62,6 +93,7 @@ public sealed class SpectrumAnalysisTests
 
         _output.WriteLine(verdict.ToString());
         verdict.Outcome.Should().Be(SpectralOutcome.Lossy);
+        verdict.CutoffHz.Should().BeInRange(18_750, 19_250);
     }
 
     [Fact]
@@ -139,8 +171,10 @@ public sealed class SpectrumAnalysisTests
             return;
         }
 
+        var classified = 0;
         foreach (var file in Directory.EnumerateFiles(folder, "*.f32").Order(StringComparer.Ordinal))
         {
+            classified++;
             var bytes = File.ReadAllBytes(file);
             var samples = new float[bytes.Length / sizeof(float)];
             Buffer.BlockCopy(bytes, 0, samples, 0, samples.Length * sizeof(float));
@@ -160,6 +194,8 @@ public sealed class SpectrumAnalysisTests
                 verdict.Outcome.Should().NotBe(SpectralOutcome.Lossy, name);
             }
         }
+
+        classified.Should().BePositive("the named folder holds the samples to classify");
     }
 
     /// <summary>
@@ -167,7 +203,7 @@ public sealed class SpectrumAnalysisTests
     /// 8192-point grid up to <paramref name="cutoffHz"/>, tiled. With <paramref name="floorDb"/> set,
     /// every bin above the cut-off carries a cosine that many dB below the passband's.
     /// </summary>
-    private static float[] LowPassedNoise(double cutoffHz, double? floorDb = null)
+    internal static float[] LowPassedNoise(double cutoffHz, double? floorDb = null)
     {
         var random = new Random(20261009);
         var bins = Math.Min(Period / 2 - 1, (int)(cutoffHz * Period / SampleRate));
