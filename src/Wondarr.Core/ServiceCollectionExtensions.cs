@@ -21,6 +21,7 @@ using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.CustomFilters;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Notifications.Apprise;
 using Wondarr.Core.Notifications.Discord;
@@ -223,6 +224,8 @@ public static class ServiceCollectionExtensions
 
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();
+        services.AddScoped<ISongEditorService, SongEditorService>();
+        services.AddScoped<ICustomFilterService, CustomFilterService>();
 
         // The album add: search, releases, tracklist, and the tracks as one pinned batch of songs.
         services.AddScoped<IAlbumService, AlbumService>();

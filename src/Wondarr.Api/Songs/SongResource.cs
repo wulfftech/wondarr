@@ -26,6 +26,7 @@ namespace Wondarr.Api.Songs;
 /// <param name="QualityId">The file's quality, or <see langword="null"/> when there is no file.</param>
 /// <param name="AlbumContext">The album the song is filed under, or <see langword="null"/> until assigned.</param>
 /// <param name="File">The file the song holds, or <see langword="null"/> while it has none.</param>
+/// <param name="Tags">The song's tags (trimmed, lower-case); empty when it has none.</param>
 public sealed record SongResource(
     long Id,
     string Title,
@@ -45,7 +46,12 @@ public sealed record SongResource(
     bool HasFile,
     long? QualityId,
     SongAlbumContextResource? AlbumContext,
-    SongFileResource? File = null);
+    SongFileResource? File = null,
+    IReadOnlyList<string>? Tags = null)
+{
+    /// <summary>Gets the song's tags; never <see langword="null"/>.</summary>
+    public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];
+}
 
 /// <summary>The file a song holds: where it is and what is on disk (its quality is the song's <c>qualityId</c>).</summary>
 /// <param name="Path">The file's path in the library.</param>
@@ -132,7 +138,8 @@ public static class SongResourceExtensions
             song.AlbumContext?.ToResource(),
             song.File is { } file
                 ? new SongFileResource(file.Path, file.Codec, file.Container, file.BitrateKbps, file.Size, file.SourceType)
-                : null);
+                : null,
+            song.Tags);
     }
 
     /// <summary>Maps an album context.</summary>

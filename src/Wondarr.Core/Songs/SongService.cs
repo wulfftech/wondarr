@@ -61,6 +61,13 @@ public interface ISongService
         bool? monitored,
         CancellationToken cancellationToken);
 
+    /// <summary>Lists songs under any combination of filters, paged.</summary>
+    /// <param name="paging">The page, size, sort key and direction.</param>
+    /// <param name="filter">The filters; all given ones must match.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>One page of songs and the total the filters matched.</returns>
+    Task<PagedResult<Song>> GetPageAsync(PagingSpec paging, SongListFilter filter, CancellationToken cancellationToken);
+
     /// <summary>Changes a song's monitored flag and quality profile.</summary>
     /// <param name="id">The song id.</param>
     /// <param name="monitored">The new flag, or <see langword="null"/> to leave it.</param>
@@ -271,25 +278,94 @@ public sealed partial class SongService : ISongService
             .ConfigureAwait(false);
 
     /// <inheritdoc />
-    public async Task<PagedResult<Song>> GetPageAsync(
+    public Task<PagedResult<Song>> GetPageAsync(
         PagingSpec paging,
         long? artistId,
         bool? monitored,
+        CancellationToken cancellationToken) =>
+        GetPageAsync(paging, new SongListFilter { ArtistId = artistId, Monitored = monitored }, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<PagedResult<Song>> GetPageAsync(
+        PagingSpec paging,
+        SongListFilter filter,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(paging);
+        ArgumentNullException.ThrowIfNull(filter);
 
         var query = Songs();
 
-        if (artistId is { } id)
+        if (filter.ArtistId is { } id)
         {
             // Any credited artist, not just the primary one: a featured guest still owns the song.
             query = query.Where(song => song.Artists.Any(credit => credit.ArtistId == id));
         }
 
-        if (monitored is { } wanted)
+        if (filter.Monitored is { } wanted)
         {
             query = query.Where(song => song.Monitored == wanted);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Term))
+        {
+            var pattern = "%" + EscapeLike(filter.Term.Trim()) + "%";
+            query = query.Where(song =>
+                EF.Functions.Like(song.Title, pattern, LikeEscape)
+                || EF.Functions.Like(song.ArtistCredit, pattern, LikeEscape));
+        }
+
+        if (filter.HasFile is { } hasFile)
+        {
+            query = hasFile
+                ? query.Where(song => song.File != null)
+                : query.Where(song => song.File == null);
+        }
+
+        if (filter.LibraryId is { } libraryId)
+        {
+            query = query.Where(song => song.LibraryId == libraryId);
+        }
+
+        if (filter.QualityProfileId is { } profileId)
+        {
+            query = query.Where(song => song.QualityProfileId == profileId);
+        }
+
+        if (filter.QualityId is { } qualityId)
+        {
+            query = query.Where(song => song.File != null && song.File.QualityId == qualityId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Tag))
+        {
+            var tag = filter.Tag.Trim().ToLowerInvariant();
+            query = query.Where(song => song.Tags.Contains(tag));
+        }
+
+        if (filter.CutoffMet is { } cutoffMet)
+        {
+            // The cutoff lives in the profile's item list (JSON), so it cannot be a SQL predicate:
+            // decide on the narrowed set in memory, then let SQL sort and page the surviving ids.
+            // A song without a file meets no cutoff and misses none, so it is in neither answer.
+            var candidates = await query
+                .Where(song => song.File != null)
+                .Select(song => new { song.Id, song.QualityProfileId, song.File!.QualityId })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var profiles = await _database.QualityProfiles
+                .AsNoTracking()
+                .ToDictionaryAsync(profile => profile.Id, cancellationToken)
+                .ConfigureAwait(false);
+
+            var matching = candidates
+                .Where(candidate => (profiles.TryGetValue(candidate.QualityProfileId, out var profile)
+                    && profile.MeetsCutoff(candidate.QualityId)) == cutoffMet)
+                .Select(candidate => candidate.Id)
+                .ToList();
+
+            query = query.Where(song => matching.Contains(song.Id));
         }
 
         var totalRecords = await query.CountAsync(cancellationToken).ConfigureAwait(false);
@@ -621,8 +697,20 @@ public sealed partial class SongService : ISongService
             "artist" => By(query, song => song.ArtistCredit, paging.Descending),
             "album" => By(query, song => song.AlbumContext!.AlbumTitle, paging.Descending),
             "added" => By(query, song => song.CreatedAt, paging.Descending),
+            "quality" => By(query, song => song.File!.QualityId, paging.Descending),
+            "monitored" => By(query, song => song.Monitored, paging.Descending),
+            "library" => By(query, song => song.LibraryId, paging.Descending),
             _ => By(query, song => song.CreatedAt, descending: true),
         };
+
+    /// <summary>The escape character of the <c>LIKE</c> patterns the term filter builds.</summary>
+    private const string LikeEscape = "\\";
+
+    /// <summary>Makes <c>%</c>, <c>_</c> and the escape character itself match literally in a <c>LIKE</c> pattern.</summary>
+    private static string EscapeLike(string term) =>
+        term.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
 
     private static IQueryable<Song> By<TKey>(IQueryable<Song> query, Expression<Func<Song, TKey>> key, bool descending)
     {

@@ -92,6 +92,9 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the configured notifications.</summary>
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    /// <summary>Gets the saved list views.</summary>
+    public DbSet<CustomFilter> CustomFilters => Set<CustomFilter>();
+
     /// <summary>Gets the configured indexers.</summary>
     public DbSet<Indexer> Indexers => Set<Indexer>();
 
@@ -121,6 +124,7 @@ public sealed class WondarrDbContext : DbContext
 
         modelBuilder.ApplyConfiguration(new MetadataCacheEntryConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationConfiguration());
+        modelBuilder.ApplyConfiguration(new CustomFilterConfiguration());
         modelBuilder.ApplyConfiguration(new IndexerConfiguration());
         modelBuilder.ApplyConfiguration(new DownloadClientConfiguration());
         modelBuilder.ApplyConfiguration(new CompactMoveConfiguration());
