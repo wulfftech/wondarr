@@ -238,8 +238,9 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
                 return body;
             }
 
-            var onlyTheName = root.EnumerateObject().All(property =>
-                property.NameEquals("name")
+            // Handlers read their bodies case-insensitively and treat null as absent, so so does this.
+            var onlyTheName = Members(root).All(property =>
+                string.Equals(property.Name, "name", StringComparison.OrdinalIgnoreCase)
                 && property.Value.ValueKind == JsonValueKind.String
                 && string.Equals(property.Value.GetString(), name, StringComparison.Ordinal));
 
@@ -250,6 +251,10 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             return body;
         }
     }
+
+    /// <summary>The members of a JSON object whose value is not null: a null member is the same as an absent one.</summary>
+    private static IEnumerable<JsonProperty> Members(JsonElement element) =>
+        element.EnumerateObject().Where(member => member.Value.ValueKind != JsonValueKind.Null);
 
     /// <summary>Structural equality of two JSON values: object members by name, array items in order.</summary>
     private static bool JsonEquals(JsonElement left, JsonElement right)
@@ -262,11 +267,17 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
         switch (left.ValueKind)
         {
             case JsonValueKind.Object:
-                var leftMembers = left.EnumerateObject().ToList();
+                var leftMembers = Members(left).ToList();
+                var rightMembers = new Dictionary<string, JsonProperty>(StringComparer.OrdinalIgnoreCase);
 
-                return leftMembers.Count == right.EnumerateObject().Count()
+                foreach (var member in Members(right))
+                {
+                    rightMembers[member.Name] = member;
+                }
+
+                return leftMembers.Count == rightMembers.Count
                     && leftMembers.TrueForAll(member =>
-                        right.TryGetProperty(member.Name, out var other) && JsonEquals(member.Value, other));
+                        rightMembers.TryGetValue(member.Name, out var other) && JsonEquals(member.Value, other.Value));
 
             case JsonValueKind.Array:
                 var leftItems = left.EnumerateArray().ToList();

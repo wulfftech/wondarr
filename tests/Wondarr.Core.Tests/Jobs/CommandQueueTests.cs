@@ -95,6 +95,34 @@ public class CommandQueueTests
     }
 
     [Fact]
+    public async Task Property_names_are_compared_without_regard_to_case()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var first = await host.Queue.EnqueueAsync(
+            "Heartbeat", "{\"name\":\"Heartbeat\",\"referenceLibraryId\":1}", CommandTrigger.Manual, CancellationToken.None);
+        var second = await host.Queue.EnqueueAsync(
+            "Heartbeat", "{\"Name\":\"Heartbeat\",\"ReferenceLibraryId\":1}", CommandTrigger.Manual, CancellationToken.None);
+
+        second.Id.Should().Be(first.Id);
+    }
+
+    [Fact]
+    public async Task A_null_property_is_the_same_as_an_absent_one()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var all = await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Scheduled, CancellationToken.None);
+        var nulled = await host.Queue.EnqueueAsync(
+            "Heartbeat", "{\"name\":\"Heartbeat\",\"referenceLibraryId\":null}", CommandTrigger.Manual, CancellationToken.None);
+        var other = await host.Queue.EnqueueAsync(
+            "Heartbeat", "{\"name\":\"Heartbeat\",\"referenceLibraryId\":3}", CommandTrigger.Manual, CancellationToken.None);
+
+        nulled.Id.Should().Be(all.Id);
+        other.Id.Should().NotBe(all.Id);
+    }
+
+    [Fact]
     public async Task A_started_command_with_a_different_body_does_not_swallow_a_new_one()
     {
         await using var host = await JobTestHost.CreateAsync();
