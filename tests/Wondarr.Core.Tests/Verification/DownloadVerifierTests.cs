@@ -482,6 +482,9 @@ public sealed class DownloadVerifierTests
                 ? _lookups.Dequeue()
                 : new AcoustIdLookupResult(AcoustIdStatus.NotConfigured, [], null));
         }
+
+        public Task<AcoustIdLookupResult> CheckKeyAsync(string clientKey, CancellationToken cancellationToken) =>
+            Task.FromResult(new AcoustIdLookupResult(AcoustIdStatus.NotConfigured, [], null));
     }
 
     /// <summary>An <see cref="IOptionsMonitor{T}"/> over one instance.</summary>

@@ -3,6 +3,7 @@ using Wondarr.Core.Identity;
 using Wondarr.Core.Lyrics;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Core.Metadata.LastFm;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -42,6 +43,38 @@ public sealed record SongDeezerDetails(
     string? ReleaseDate,
     string? AlbumCoverUrl);
 
+/// <summary>What Last.fm knows about the song's artist.</summary>
+/// <param name="Name">The artist's name as Last.fm spells it.</param>
+/// <param name="Url">The artist's Last.fm page.</param>
+/// <param name="BioSummary">The biography summary as plain text, or <see langword="null"/>.</param>
+/// <param name="Listeners">How many people listen to the artist.</param>
+public sealed record SongLastFmArtist(string Name, string? Url, string? BioSummary, long? Listeners);
+
+/// <summary>A track Last.fm lists as similar.</summary>
+/// <param name="Artist">The artist.</param>
+/// <param name="Title">The title.</param>
+/// <param name="Url">The track's Last.fm page.</param>
+/// <param name="Match">How similar, from 0 to 1.</param>
+/// <param name="SongId">The Wondarr song id when that recording is already in the library, otherwise <see langword="null"/>.</param>
+public sealed record SongLastFmSimilar(string Artist, string Title, string? Url, double? Match, long? SongId);
+
+/// <summary>What Last.fm knows about the song; <see langword="null"/> without an API key or when Last.fm failed.</summary>
+/// <param name="Url">The track's Last.fm page, kept for attribution.</param>
+/// <param name="Listeners">How many people have listened to it.</param>
+/// <param name="Playcount">How often it has been played.</param>
+/// <param name="Tags">The top five tag names.</param>
+/// <param name="Wiki">The wiki summary as plain text, or <see langword="null"/>.</param>
+/// <param name="Artist">The artist, or <see langword="null"/> when Last.fm could not describe them.</param>
+/// <param name="Similar">Up to ten similar tracks.</param>
+public sealed record SongLastFmDetails(
+    string? Url,
+    long? Listeners,
+    long? Playcount,
+    IReadOnlyList<string> Tags,
+    string? Wiki,
+    SongLastFmArtist? Artist,
+    IReadOnlyList<SongLastFmSimilar> Similar);
+
 /// <summary>The reference-library row a song is owned through.</summary>
 /// <param name="LibraryId">The reference library.</param>
 /// <param name="LibraryName">The library's name.</param>
@@ -73,13 +106,15 @@ public sealed record SongLyricsAvailability(string Source, bool Synced, bool Pla
 /// <param name="ReferenceFile">The reference-library row, or <see langword="null"/>.</param>
 /// <param name="Lyrics">The lyrics sidecars next to the file.</param>
 /// <param name="CurrentAlbumKey">The album key the song is filed under, or <see langword="null"/>.</param>
+/// <param name="LastFm">What Last.fm knows, or <see langword="null"/> without an API key or when Last.fm failed.</param>
 public sealed record SongDetails(
     IReadOnlyList<ReleaseOption> Releases,
     SongMusicBrainzDetails? MusicBrainz,
     SongDeezerDetails? Deezer,
     SongReferenceFileDetails? ReferenceFile,
     SongLyricsAvailability Lyrics,
-    string? CurrentAlbumKey);
+    string? CurrentAlbumKey,
+    SongLastFmDetails? LastFm = null);
 
 /// <summary>Assembles the data behind a song's own page.</summary>
 public interface ISongDetailsService
@@ -118,12 +153,16 @@ public sealed partial class SongDetailsService : ISongDetailsService
     /// </summary>
     public static readonly TimeSpan IdentityTimeout = TimeSpan.FromSeconds(12);
 
+    /// <summary>The most library rows read to find the song a similar track is, per similar track.</summary>
+    internal const int CandidateRowsPerTitle = 200;
+
     /// <summary>How long a failed Deezer call is remembered, so a throttled Deezer is not retried on every page view.</summary>
     public static readonly TimeSpan UnavailableTtl = TimeSpan.FromMinutes(1);
 
     private readonly WondarrDbContext _database;
     private readonly IIdentityResolver _resolver;
     private readonly IDeezerClient _deezer;
+    private readonly ILastFmClient _lastFm;
     private readonly IMemoryCache _cache;
     private readonly ILogger<SongDetailsService> _logger;
 
@@ -131,24 +170,28 @@ public sealed partial class SongDetailsService : ISongDetailsService
     /// <param name="database">The Wondarr database.</param>
     /// <param name="resolver">The identity resolver, for the recording and the release options.</param>
     /// <param name="deezer">The Deezer client.</param>
+    /// <param name="lastFm">The Last.fm client; it caches its own answers for a day.</param>
     /// <param name="cache">The in-memory cache the Deezer answers live in.</param>
     /// <param name="logger">The logger.</param>
     public SongDetailsService(
         WondarrDbContext database,
         IIdentityResolver resolver,
         IDeezerClient deezer,
+        ILastFmClient lastFm,
         IMemoryCache cache,
         ILogger<SongDetailsService> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(deezer);
+        ArgumentNullException.ThrowIfNull(lastFm);
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
         _resolver = resolver;
         _deezer = deezer;
+        _lastFm = lastFm;
         _cache = cache;
         _logger = logger;
     }
@@ -160,6 +203,7 @@ public sealed partial class SongDetailsService : ISongDetailsService
             .AsNoTracking()
             .Include(candidate => candidate.AlbumContext)
             .Include(candidate => candidate.File)
+            .Include(candidate => candidate.PrimaryArtist)
             .FirstOrDefaultAsync(candidate => candidate.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -171,6 +215,7 @@ public sealed partial class SongDetailsService : ISongDetailsService
         var identity = await IdentityAsync(song, cancellationToken).ConfigureAwait(false);
         var deezer = await DeezerAsync(song, cancellationToken).ConfigureAwait(false);
         var reference = await ReferenceAsync(song, cancellationToken).ConfigureAwait(false);
+        var lastFm = await LastFmAsync(song, cancellationToken).ConfigureAwait(false);
 
         return new SongDetails(
             identity?.ReleaseOptions ?? [],
@@ -178,7 +223,8 @@ public sealed partial class SongDetailsService : ISongDetailsService
             deezer,
             reference,
             LyricsOf(song),
-            song.AlbumContext?.AlbumKey);
+            song.AlbumContext?.AlbumKey,
+            lastFm);
     }
 
     /// <inheritdoc />
@@ -279,6 +325,209 @@ public sealed partial class SongDetailsService : ISongDetailsService
             string.IsNullOrWhiteSpace(track.ReleaseDate) ? null : track.ReleaseDate,
             string.IsNullOrWhiteSpace(track.Album.CoverXl) ? null : track.Album.CoverXl);
 
+    /// <summary>
+    /// What Last.fm knows about the song. With no API key nothing is asked. The three calls run
+    /// together, each cached by the client for a day; a track Last.fm does not return leaves the whole
+    /// section out, a missing artist or similar list only its own part.
+    /// </summary>
+    private async Task<SongLastFmDetails?> LastFmAsync(Song song, CancellationToken cancellationToken)
+    {
+        if (!_lastFm.IsConfigured)
+        {
+            return null;
+        }
+
+        var artist = string.IsNullOrWhiteSpace(song.PrimaryArtist?.Name) ? song.ArtistCredit : song.PrimaryArtist!.Name;
+
+        if (string.IsNullOrWhiteSpace(artist) || string.IsNullOrWhiteSpace(song.Title))
+        {
+            return null;
+        }
+
+        var fetched = await BoundedAsync(
+            "lastfm",
+            async token =>
+            {
+                var trackTask = _lastFm.GetTrackAsync(song.MbRecordingId, artist, song.Title, token);
+                var artistTask = _lastFm.GetArtistAsync(artist, token);
+                var similarTask = _lastFm.GetSimilarAsync(song.MbRecordingId, artist, song.Title, token);
+
+                await Task.WhenAll(trackTask, artistTask, similarTask).ConfigureAwait(false);
+
+                return new Fetched<LastFmBundle>(new LastFmBundle(trackTask.Result, artistTask.Result, similarTask.Result));
+            },
+            SourceTimeout,
+            cancellationToken).ConfigureAwait(false);
+
+        if (fetched?.Value is not { Track: { Ok: true, Value: { } track } } bundle)
+        {
+            return null;
+        }
+
+        IReadOnlyList<LastFmSimilarTrack> similar = bundle.Similar is { Ok: true, Value: { } tracks } ? tracks : [];
+        var matched = await MatchLibraryAsync(similar, cancellationToken).ConfigureAwait(false);
+
+        return new SongLastFmDetails(
+            track.Url,
+            track.Listeners,
+            track.Playcount,
+            track.Tags,
+            track.WikiSummary,
+            bundle.Artist is { Ok: true, Value: { } info }
+                ? new SongLastFmArtist(info.Name, info.Url, info.BioSummary, info.Listeners)
+                : null,
+            matched);
+    }
+
+    /// <summary>
+    /// Pairs each similar track with the library song it is, by recording MBID first and then by
+    /// normalised artist and title (the song's credit or its primary artist).
+    /// </summary>
+    private async Task<IReadOnlyList<SongLastFmSimilar>> MatchLibraryAsync(
+        IReadOnlyList<LastFmSimilarTrack> tracks,
+        CancellationToken cancellationToken)
+    {
+        if (tracks.Count == 0)
+        {
+            return [];
+        }
+
+        var mbids = tracks
+            .Select(track => track.Mbid?.ToLowerInvariant())
+            .Where(mbid => !string.IsNullOrWhiteSpace(mbid))
+            .Select(mbid => mbid!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var byMbid = new Dictionary<string, long>(StringComparer.Ordinal);
+
+        if (mbids.Count > 0)
+        {
+            var rows = await _database.Songs
+                .AsNoTracking()
+                .Where(song => song.MbRecordingId != null && mbids.Contains(song.MbRecordingId))
+                .Select(song => new { song.Id, song.MbRecordingId })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var row in rows)
+            {
+                byMbid.TryAdd(row.MbRecordingId!.ToLowerInvariant(), row.Id);
+            }
+        }
+
+        var byText = new Dictionary<string, long>(StringComparer.Ordinal);
+
+        // Only the tracks the recording id did not settle are looked for by name.
+        var needles = tracks
+            .Where(track => track.Mbid is null || !byMbid.ContainsKey(track.Mbid.ToLowerInvariant()))
+            .SelectMany(track => TitleNeedles(track.Title))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // One small query per needle, each a case-insensitive LIKE on the title and capped: the
+        // library is never read whole. The exact comparison happens below, on these rows only.
+        foreach (var needle in needles)
+        {
+            var pattern = "%" + needle.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("%", "\\%", StringComparison.Ordinal)
+                .Replace("_", "\\_", StringComparison.Ordinal) + "%";
+
+            var rows = await _database.Songs
+                .AsNoTracking()
+                .Where(song => EF.Functions.Like(song.Title, pattern, "\\"))
+                .OrderBy(song => song.Title.Length)
+                .ThenBy(song => song.Id)
+                .Take(CandidateRowsPerTitle)
+                .Select(song => new { song.Id, song.Title, song.ArtistCredit, ArtistName = song.PrimaryArtist.Name })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var row in rows)
+            {
+                var title = TextMatching.Normalize(row.Title);
+
+                byText.TryAdd(TextKey(row.ArtistCredit, title), row.Id);
+                byText.TryAdd(TextKey(row.ArtistName, title), row.Id);
+            }
+        }
+
+        return
+        [
+            .. tracks.Select(track =>
+            {
+                long? id = null;
+
+                if (track.Mbid is { Length: > 0 } mbid && byMbid.TryGetValue(mbid.ToLowerInvariant(), out var byId))
+                {
+                    id = byId;
+                }
+                else if (byText.TryGetValue(TextKey(track.Artist, TextMatching.Normalize(track.Title)), out var byName))
+                {
+                    id = byName;
+                }
+
+                return new SongLastFmSimilar(track.Artist, track.Title, track.Url, track.Match, id);
+            }),
+        ];
+    }
+
+    /// <summary>
+    /// The texts a library title may contain to be a candidate for <paramref name="title"/>: its two
+    /// longest runs of ASCII letters and digits among the words without an apostrophe (so "Don't"
+    /// spelled "Dont" or "Don’t" does not hide the match), else among any words, or the whole title
+    /// when it has none (for example a title in another script). A candidate holds any one of them.
+    /// </summary>
+    internal static IReadOnlyList<string> TitleNeedles(string title)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+
+        var words = title.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var plain = words.Where(word => !word.Contains('\'') && !word.Contains('’')).ToList();
+        var runs = Runs(plain);
+
+        if (runs.Count == 0)
+        {
+            runs = Runs(words);
+        }
+
+        return runs.Count > 0 ? runs : [title.Trim()];
+    }
+
+    private static List<string> Runs(IEnumerable<string> words)
+    {
+        var runs = new List<string>();
+
+        foreach (var word in words)
+        {
+            var start = -1;
+
+            for (var index = 0; index <= word.Length; index++)
+            {
+                var isWordCharacter = index < word.Length && char.IsAsciiLetterOrDigit(word[index]);
+
+                if (isWordCharacter && start < 0)
+                {
+                    start = index;
+                }
+                else if (!isWordCharacter && start >= 0)
+                {
+                    if (index - start >= 3)
+                    {
+                        runs.Add(word[start..index]);
+                    }
+
+                    start = -1;
+                }
+            }
+        }
+
+        return [.. runs.Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(run => run.Length).Take(2)];
+    }
+
+    private static string TextKey(string artist, string normalisedTitle) =>
+        TextMatching.NormalizeArtist(artist) + "|" + normalisedTitle;
+
     /// <summary>The reference-library row of a song that is owned through one, read only.</summary>
     private async Task<SongReferenceFileDetails?> ReferenceAsync(Song song, CancellationToken cancellationToken)
     {
@@ -339,6 +588,12 @@ public sealed partial class SongDetailsService : ISongDetailsService
             return null;
         }
     }
+
+    /// <summary>The three Last.fm answers one song page asks for.</summary>
+    private sealed record LastFmBundle(
+        LastFmResult<LastFmTrackInfo> Track,
+        LastFmResult<LastFmArtistInfo> Artist,
+        LastFmResult<IReadOnlyList<LastFmSimilarTrack>> Similar);
 
     /// <summary>Tells "Deezer answered, and it does not know the track" from "Deezer could not be asked".</summary>
     private sealed record Fetched<T>(T? Value)

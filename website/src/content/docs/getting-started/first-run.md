@@ -27,6 +27,15 @@ You can also set or change the login any time under **Settings → General → S
 
 The same card shows the **API key** that tools such as Prowlarr, autobrr, Homepage and Unpackerr need: **Show** reveals it and the copy button copies it. (The login can also be set through the API: `PUT /api/v1/auth/user` with `{"username": …, "password": …}` and the API key.)
 
+## Optional keys: AcoustID and Last.fm
+
+Under **Settings → General → Metadata services** you can add two optional keys. Each field shows "Stored — type to replace" once a key is saved (the key itself is never shown again), has a **Test** button that makes one call to the service with the key you typed, and a link to where the key is made.
+
+- **AcoustID client key** (`acoustid.org/new-application`): fingerprint verification of downloads, and identifying the files of a reference library. Without it, downloads are verified by probe and length only.
+- **Last.fm API key** (`last.fm/api/account/create`): what Last.fm knows about a song on its page, and the default key for Last.fm import lists.
+
+The keys are saved to `acoustid.client_key` and `lastfm.api_key` in `/config/config.yml` and take effect at once. A key set by `APP__ACOUSTID__CLIENT_KEY` or `APP__LASTFM__API_KEY` shows as read-only. See [Configuration](/wondarr/reference/configuration/).
+
 ## Your first library
 
 A library called **Music** exists from the start: root path `/data/music`, layout **Plexamp**. Change it under **Settings → Library**. The fields are:

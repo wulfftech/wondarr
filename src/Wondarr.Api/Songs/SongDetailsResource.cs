@@ -14,12 +14,46 @@ namespace Wondarr.Api.Songs;
 /// <param name="Deezer">The Deezer track, or <see langword="null"/> for a song without a Deezer id or when Deezer failed.</param>
 /// <param name="ReferenceFile">The reference-library row, when the song is owned through a reference library.</param>
 /// <param name="Lyrics">Which lyrics sidecars sit next to the file; the text itself is <c>GET /song/{id}/lyrics</c>.</param>
+/// <param name="LastFm">What Last.fm knows, or <see langword="null"/> when no Last.fm key is set or Last.fm failed.</param>
 public sealed record SongDetailsResource(
     IReadOnlyList<SongReleaseResource> Releases,
     SongMusicBrainzResource? MusicBrainz,
     SongDeezerResource? Deezer,
     SongReferenceFileResource? ReferenceFile,
-    SongLyricsAvailabilityResource Lyrics);
+    SongLyricsAvailabilityResource Lyrics,
+    SongLastFmResource? LastFm);
+
+/// <summary>What Last.fm knows about the song.</summary>
+/// <param name="Url">The track's Last.fm page; show it as the attribution for the text.</param>
+/// <param name="Listeners">How many people have listened to it.</param>
+/// <param name="Playcount">How often it has been played.</param>
+/// <param name="Tags">The top five tag names.</param>
+/// <param name="Wiki">The wiki summary as plain text (Last.fm's HTML and its "Read more" link are removed), or <see langword="null"/>.</param>
+/// <param name="Artist">The artist, or <see langword="null"/> when Last.fm could not describe them.</param>
+/// <param name="Similar">Up to ten similar tracks.</param>
+public sealed record SongLastFmResource(
+    string? Url,
+    long? Listeners,
+    long? Playcount,
+    IReadOnlyList<string> Tags,
+    string? Wiki,
+    SongLastFmArtistResource? Artist,
+    IReadOnlyList<SongLastFmSimilarResource> Similar);
+
+/// <summary>What Last.fm knows about the artist.</summary>
+/// <param name="Name">The artist's name as Last.fm spells it.</param>
+/// <param name="Url">The artist's Last.fm page.</param>
+/// <param name="BioSummary">The biography summary as plain text, or <see langword="null"/>.</param>
+/// <param name="Listeners">How many people listen to the artist.</param>
+public sealed record SongLastFmArtistResource(string Name, string? Url, string? BioSummary, long? Listeners);
+
+/// <summary>A track Last.fm lists as similar.</summary>
+/// <param name="Artist">The artist.</param>
+/// <param name="Title">The title.</param>
+/// <param name="Url">The track's Last.fm page.</param>
+/// <param name="Match">How similar, from 0 to 1.</param>
+/// <param name="SongId">The Wondarr song id when that recording is already in the library, otherwise <see langword="null"/>.</param>
+public sealed record SongLastFmSimilarResource(string Artist, string Title, string? Url, double? Match, long? SongId);
 
 /// <summary>One release the song appears on.</summary>
 /// <param name="Key">The album key a re-assignment names: a release MBID or a synthetic key.</param>
@@ -158,7 +192,26 @@ public static class SongDetailsResourceExtensions
                     reference.Confidence,
                     reference.State)
                 : null,
-            new SongLyricsAvailabilityResource(details.Lyrics.Source, details.Lyrics.Synced, details.Lyrics.Plain));
+            new SongLyricsAvailabilityResource(details.Lyrics.Source, details.Lyrics.Synced, details.Lyrics.Plain),
+            details.LastFm is { } lastFm
+                ? new SongLastFmResource(
+                    lastFm.Url,
+                    lastFm.Listeners,
+                    lastFm.Playcount,
+                    lastFm.Tags,
+                    lastFm.Wiki,
+                    lastFm.Artist is { } artist
+                        ? new SongLastFmArtistResource(artist.Name, artist.Url, artist.BioSummary, artist.Listeners)
+                        : null,
+                    lastFm.Similar
+                        .Select(similar => new SongLastFmSimilarResource(
+                            similar.Artist,
+                            similar.Title,
+                            similar.Url,
+                            similar.Match,
+                            similar.SongId))
+                        .ToList())
+                : null);
     }
 
     /// <summary>Maps lyrics.</summary>

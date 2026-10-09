@@ -154,3 +154,148 @@ describe('GeneralSettingsPage', () => {
     await waitFor(() => expect(screen.getByText(/Change these in/)).toBeInTheDocument());
   });
 });
+
+describe('GeneralSettingsPage metadata services card', () => {
+  const LASTFM_KEY = 'typed-lastfm-key-0123456789';
+
+  type Flags = { acoustIdKeySet: boolean; acoustIdLocked: boolean; lastFmKeySet: boolean; lastFmLocked: boolean };
+
+  function installMetadata(
+    flags: Flags,
+    test: () => Response = () => jsonResponse({ ok: true, message: 'Last.fm accepted the key.' }),
+  ): FetchMock {
+    return installFetch((url, init) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse(SYSTEM_STATUS);
+      }
+
+      if (url.includes('/api/v1/health')) {
+        return jsonResponse(HEALTH_ENTRIES);
+      }
+
+      if (url.includes('/api/v1/auth/user')) {
+        return jsonResponse({ configured: false, username: null });
+      }
+
+      if (url.includes('/api/v1/metadata/settings/test')) {
+        return test();
+      }
+
+      if (url.includes('/api/v1/metadata/settings')) {
+        return init?.method === 'PUT' ? jsonResponse({ ...flags, lastFmKeySet: true }) : jsonResponse(flags);
+      }
+
+      return new Response('not found', { status: 404 });
+    });
+  }
+
+  const NOTHING: Flags = { acoustIdKeySet: false, acoustIdLocked: false, lastFmKeySet: false, lastFmLocked: false };
+
+  it('shows "Stored — type to replace" for a key that is set, and never the key', async () => {
+    installMetadata({ ...NOTHING, lastFmKeySet: true });
+
+    renderApp();
+
+    const lastFm = await screen.findByLabelText('Last.fm API key');
+    expect(lastFm).toHaveAttribute('placeholder', 'Stored — type to replace');
+    expect(lastFm).toHaveValue('');
+    expect(screen.getByLabelText('AcoustID client key')).toHaveAttribute('placeholder', 'Not set');
+  });
+
+  it('links to where each key is made and says what it is for', async () => {
+    installMetadata(NOTHING);
+
+    renderApp();
+
+    await screen.findByLabelText('Last.fm API key');
+
+    const links = screen.getAllByRole('link', { name: 'Get a key' });
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      'https://acoustid.org/new-application',
+      'https://www.last.fm/api/account/create',
+    ]);
+    expect(screen.getByText(/Fingerprint verification of downloads/)).toBeInTheDocument();
+    expect(screen.getByText(/Facts about a song on its page/)).toBeInTheDocument();
+  });
+
+  it('tests the stored key through the test endpoint and shows the answer', async () => {
+    const user = userEvent.setup();
+    installMetadata({ ...NOTHING, lastFmKeySet: true });
+
+    renderApp();
+
+    await screen.findByLabelText('Last.fm API key');
+    await user.click(screen.getByRole('button', { name: 'Test Last.fm API key' }));
+
+    expect(await screen.findByText('Last.fm accepted the key.')).toBeInTheDocument();
+
+    const call = sent().find((entry) => entry.url.includes('/api/v1/metadata/settings/test'));
+    expect(call?.method).toBe('POST');
+    expect(JSON.parse(await (call?.body ?? Promise.resolve('{}')))).toEqual({ service: 'lastfm', key: null });
+  });
+
+  it('tests a typed key before it is saved, and shows a rejection', async () => {
+    const user = userEvent.setup();
+    installMetadata(NOTHING, () => jsonResponse({ ok: false, message: 'Last.fm rejected the key.' }));
+
+    renderApp();
+
+    await user.type(await screen.findByLabelText('Last.fm API key'), LASTFM_KEY);
+    await user.click(screen.getByRole('button', { name: 'Test Last.fm API key' }));
+
+    expect(await screen.findByText('Last.fm rejected the key.')).toBeInTheDocument();
+
+    const call = sent().find((entry) => entry.url.includes('/api/v1/metadata/settings/test'));
+    expect(JSON.parse(await (call?.body ?? Promise.resolve('{}')))).toEqual({ service: 'lastfm', key: LASTFM_KEY });
+  });
+
+  it('saves only the key that was typed, then clears the field', async () => {
+    const user = userEvent.setup();
+    installMetadata(NOTHING);
+
+    renderApp();
+
+    const field = await screen.findByLabelText('Last.fm API key');
+    expect(screen.getByRole('button', { name: 'Save keys' })).toBeDisabled();
+
+    await user.type(field, LASTFM_KEY);
+    await user.click(screen.getByRole('button', { name: 'Save keys' }));
+
+    expect(await screen.findByText('Keys saved.')).toBeInTheDocument();
+
+    const put = sent().find((entry) => entry.method === 'PUT' && entry.url.includes('/api/v1/metadata/settings'));
+    expect(JSON.parse(await (put?.body ?? Promise.resolve('{}')))).toEqual({ lastFmApiKey: LASTFM_KEY });
+    expect(screen.getByLabelText('Last.fm API key')).toHaveValue('');
+    expect(screen.getByLabelText('Last.fm API key')).toHaveAttribute('placeholder', 'Stored — type to replace');
+  });
+
+  it('removes a stored key by sending an empty string', async () => {
+    const user = userEvent.setup();
+    installMetadata({ ...NOTHING, lastFmKeySet: true });
+
+    renderApp();
+
+    await screen.findByLabelText('Last.fm API key');
+    await user.click(screen.getByRole('button', { name: 'Remove Last.fm API key' }));
+
+    await waitFor(() =>
+      expect(sent().some((entry) => entry.method === 'PUT' && entry.url.includes('/api/v1/metadata/settings'))).toBe(
+        true,
+      ),
+    );
+
+    const put = sent().find((entry) => entry.method === 'PUT' && entry.url.includes('/api/v1/metadata/settings'));
+    expect(JSON.parse(await (put?.body ?? Promise.resolve('{}')))).toEqual({ lastFmApiKey: '' });
+  });
+
+  it('shows a key the environment sets as read-only', async () => {
+    installMetadata({ ...NOTHING, lastFmKeySet: true, lastFmLocked: true });
+
+    renderApp();
+
+    const field = await screen.findByLabelText('Last.fm API key');
+    expect(field).toBeDisabled();
+    expect(field).toHaveAttribute('placeholder', 'Set by the environment');
+    expect(screen.queryByRole('button', { name: 'Remove Last.fm API key' })).not.toBeInTheDocument();
+  });
+});

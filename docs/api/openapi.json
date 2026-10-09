@@ -2784,6 +2784,91 @@
         }
       }
     },
+    "/api/v1/metadata/settings": {
+      "get": {
+        "tags": [
+          "MetadataSettings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "MetadataSettings"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataSettingsUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataSettingsUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metadata/settings/test": {
+      "post": {
+        "tags": [
+          "MetadataSettings"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataKeyTestRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataKeyTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataKeyTestResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/log": {
       "get": {
         "tags": [
@@ -7155,6 +7240,78 @@
           }
         }
       },
+      "MetadataKeyTestRequest": {
+        "required": [
+          "service"
+        ],
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MetadataKeyTestResource": {
+        "required": [
+          "ok",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "MetadataSettingsResource": {
+        "required": [
+          "acoustIdKeySet",
+          "acoustIdLocked",
+          "lastFmKeySet",
+          "lastFmLocked"
+        ],
+        "type": "object",
+        "properties": {
+          "acoustIdKeySet": {
+            "type": "boolean"
+          },
+          "acoustIdLocked": {
+            "type": "boolean"
+          },
+          "lastFmKeySet": {
+            "type": "boolean"
+          },
+          "lastFmLocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MetadataSettingsUpdateResource": {
+        "type": "object",
+        "properties": {
+          "acoustIdClientKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastFmApiKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "NotificationFieldResource": {
         "required": [
           "name",
@@ -9367,7 +9524,8 @@
           "musicBrainz",
           "deezer",
           "referenceFile",
-          "lyrics"
+          "lyrics",
+          "lastFm"
         ],
         "type": "object",
         "properties": {
@@ -9409,6 +9567,16 @@
           },
           "lyrics": {
             "$ref": "#/components/schemas/SongLyricsAvailabilityResource"
+          },
+          "lastFm": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SongLastFmResource"
+              }
+            ]
           }
         }
       },
@@ -9739,6 +9907,149 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "SongLastFmArtistResource": {
+        "required": [
+          "name",
+          "url",
+          "bioSummary",
+          "listeners"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bioSummary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "listeners": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "SongLastFmResource": {
+        "required": [
+          "url",
+          "listeners",
+          "playcount",
+          "tags",
+          "wiki",
+          "artist",
+          "similar"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "listeners": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "playcount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "wiki": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "artist": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SongLastFmArtistResource"
+              }
+            ]
+          },
+          "similar": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SongLastFmSimilarResource"
+            }
+          }
+        }
+      },
+      "SongLastFmSimilarResource": {
+        "required": [
+          "artist",
+          "title",
+          "url",
+          "match",
+          "songId"
+        ],
+        "type": "object",
+        "properties": {
+          "artist": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "match": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -11372,6 +11683,9 @@
     },
     {
       "name": "Notification"
+    },
+    {
+      "name": "MetadataSettings"
     },
     {
       "name": "Log"
