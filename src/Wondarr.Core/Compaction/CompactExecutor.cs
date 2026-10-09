@@ -935,6 +935,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
             file.Size = _disk.GetFileSize(finalPath);
             file.TagsWritten = JsonSerializer.Serialize(placement.TagsWritten, Json);
 
+            // A library without ReplayGain holds no such tags after the writer's replace; the row
+            // must not keep values the file no longer carries.
+            if (!library.ReplayGain)
+            {
+                file.ReplayGainDb = null;
+                file.ReplayGainPeak = null;
+            }
+
             // Renamed is the event type for a file that moved: the song is the same song, and what the
             // user is told is where it went and where it came from.
             _database.History.Add(new HistoryItem

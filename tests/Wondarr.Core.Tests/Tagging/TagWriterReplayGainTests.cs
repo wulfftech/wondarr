@@ -94,6 +94,36 @@ public sealed class TagWriterReplayGainTests
         media.TempFilesLeftBehind().Should().BeEmpty();
     }
 
+    [Theory]
+    [MemberData(nameof(TestMedia.Formats), MemberType = typeof(TestMedia))]
+    public async Task Updating_in_place_replaces_a_lower_case_pair_and_keeps_the_duration(string fixture)
+    {
+        using var media = new TestMedia();
+        var path = media.Copy(fixture);
+        (await Writer.WriteAsync(path, Basic, CancellationToken.None)).Success.Should().BeTrue();
+
+        // Picard writes the keys in lower case.
+        var picard = new Track(path);
+        picard.AdditionalFields["replaygain_track_gain"] = "+0.50 dB";
+        picard.AdditionalFields["replaygain_track_peak"] = "0.900000";
+        picard.Save().Should().BeTrue();
+        var durationBefore = new Track(path).DurationMs;
+
+        var result = await Writer.WriteReplayGainAsync(path, -8.52, 1.047129, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        var read = new Track(path);
+        read.DurationMs.Should().Be(durationBefore);
+        read.AdditionalFields.Keys
+            .Count(key => string.Equals(key, "REPLAYGAIN_TRACK_GAIN", StringComparison.OrdinalIgnoreCase))
+            .Should().Be(1, "no duplicate stays beside the new field");
+        read.AdditionalFields.Keys
+            .Count(key => string.Equals(key, "REPLAYGAIN_TRACK_PEAK", StringComparison.OrdinalIgnoreCase))
+            .Should().Be(1);
+        AssertKeys(path, fixture, "-8.52 dB", "1.047129");
+        Encoding.Latin1.GetString(TestMedia.Bytes(path)).Should().NotContain("+0.50 dB");
+    }
+
     [Fact]
     public async Task Updating_a_file_that_is_not_audio_fails_and_leaves_it_alone()
     {
@@ -108,12 +138,20 @@ public sealed class TagWriterReplayGainTests
         media.TempFilesLeftBehind().Should().BeEmpty();
     }
 
+    private static string? Field(Track track, string key) =>
+        track.AdditionalFields
+            .Where(pair => string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Value)
+            .FirstOrDefault();
+
     private static void AssertKeys(string path, string fixture, string gain, string peak)
     {
         var read = new Track(path);
 
-        read.AdditionalFields.Should().Contain("REPLAYGAIN_TRACK_GAIN", gain);
-        read.AdditionalFields.Should().Contain("REPLAYGAIN_TRACK_PEAK", peak);
+        // Keys are matched ignoring case: ReplayGain field names are case-insensitive, and ID3 keeps
+        // the description casing of a frame that was already there.
+        Field(read, "REPLAYGAIN_TRACK_GAIN").Should().Be(gain);
+        Field(read, "REPLAYGAIN_TRACK_PEAK").Should().Be(peak);
 
         var raw = Encoding.Latin1.GetString(TestMedia.Bytes(path));
 
@@ -121,8 +159,8 @@ public sealed class TagWriterReplayGainTests
         {
             // ID3v2: a TXXX frame whose description is the key.
             var frames = TestMedia.Id3Frames(path);
-            frames.Should().Contain(frame => frame.Id == "TXXX" && frame.Text.Contains("REPLAYGAIN_TRACK_GAIN", StringComparison.Ordinal) && frame.Text.Contains(gain, StringComparison.Ordinal));
-            frames.Should().Contain(frame => frame.Id == "TXXX" && frame.Text.Contains("REPLAYGAIN_TRACK_PEAK", StringComparison.Ordinal) && frame.Text.Contains(peak, StringComparison.Ordinal));
+            frames.Should().Contain(frame => frame.Id == "TXXX" && frame.Text.Contains("REPLAYGAIN_TRACK_GAIN", StringComparison.OrdinalIgnoreCase) && frame.Text.Contains(gain, StringComparison.Ordinal));
+            frames.Should().Contain(frame => frame.Id == "TXXX" && frame.Text.Contains("REPLAYGAIN_TRACK_PEAK", StringComparison.OrdinalIgnoreCase) && frame.Text.Contains(peak, StringComparison.Ordinal));
         }
         else if (fixture.EndsWith(".m4a", StringComparison.Ordinal))
         {
