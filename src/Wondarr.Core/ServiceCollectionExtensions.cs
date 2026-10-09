@@ -9,6 +9,7 @@ using Wondarr.Core.Decisions;
 using Wondarr.Core.DownloadClients;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.History;
+using Wondarr.Core.Housekeeping;
 using Wondarr.Core.Importing;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.ImportLists.Csv;
@@ -176,6 +177,12 @@ public static class ServiceCollectionExtensions
         // The weekly Backup task: one scheduled backup, then the retention pass.
         services.AddScoped<IBackupService, BackupService>();
         services.AddScoped<ICommandHandler, BackupCommandHandler>();
+
+        // The daily Housekeeping task: command, search-run, blocklist and recycle-bin retention, then a vacuum.
+        services.AddScoped<ICommandHandler, HousekeepingCommandHandler>();
+
+        // Lets the executor tell a handler DI cannot build from the ones it can.
+        services.TryAddSingleton(new CommandHandlerRegistrations(services));
 
         // The stop a staged restore asks for, behind an interface so a test host can stub it out.
         services.AddSingleton<IApplicationShutdown, HostApplicationShutdown>();
