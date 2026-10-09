@@ -8,6 +8,10 @@ Wondarr ships as one image with everything bundled: the API and web UI, slskd (t
 - Image: `ghcr.io/wulfftech/wondarr:latest` for releases, `ghcr.io/wulfftech/wondarr:develop` for the main branch.
 - Architectures: `linux/amd64` and `linux/arm64`.
 
+:::note
+Until 0.1.0 is final, the newest release is the candidate `ghcr.io/wulfftech/wondarr:0.1.0-rc.1`: use that tag wherever these pages say `:latest`.
+:::
+
 ## Docker Compose
 
 ```yaml
