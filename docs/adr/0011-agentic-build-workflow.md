@@ -15,6 +15,7 @@ The interactive session (Opus 5.5) orchestrates: specs, delegation, review, veri
 ## Amendments
 - **2026-10-05 (owner), workers:** workers no longer run as headless `claude -p` processes. `scripts/worker.py run` drives a sandboxed tool-calling loop (`scripts/worker_agent.py`) directly against the OpenRouter API; the Haiku/Sonnet worker and reviewer subagent definitions (`.claude/agents/worker.md`, `reviewer.md`) are replaced by `worker.py run|review`. Every delegated call is routed by effort tier from `docs/build/MODEL_VALUE_MATRIX.md` (value per dollar from live OpenRouter prices; refresh with `scripts/openrouter_value.py`). Cheap isolated workers, review gates and caps are unchanged.
 - **2026-10-06 (owner), orchestrator:** an interim change of 2026-10-05 (orchestrator on any OpenRouter model in another harness) is reversed. The orchestrator is Claude Code on Claude Opus 5.5 (`/model claude-opus-5-5`), as originally decided above. The matrix's "Orchestrator" row stays as information only.
+- **2026-10-09 (owner), delegation:** OpenRouter is paused. Workers and reviewers are Claude Code subagents started with the Agent tool — Sonnet for implementation (in a worktree) and review, Haiku for mechanical work and searches (`docs/DECISIONS.md` build session 10 #1). `scripts/worker.py` stays in the repo, unused while the pause lasts.
 
 ## References
 `docs/build/AGENT_WORKFLOW.md` · `scripts/worker.py` · `.claude/agents/`
