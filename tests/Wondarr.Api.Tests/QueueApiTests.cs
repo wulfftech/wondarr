@@ -22,6 +22,51 @@ public sealed class QueueApiTests
     private const string QueueEndpoint = "/api/v1/queue";
 
     [Fact]
+    public async Task A_torrent_item_names_its_release_and_the_file_inside_it_and_a_soulseek_item_does_not()
+    {
+        var source = ScriptedSource();
+        using var factory = Factory(source, out _);
+        using var client = Authenticated(factory);
+
+        var songId = await SeedSongAsync(factory, "Bohemian Rhapsody");
+        var peerCandidateId = await SeedCandidateAsync(factory, songId, "Bohemian Rhapsody.flac");
+        var torrentSongId = await SeedSongAsync(factory, "Love of My Life");
+        var torrentCandidateId = await SeedCandidateAsync(factory, torrentSongId, "Queen - A Night at the Opera (1975) [FLAC]");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            var record = await context.Candidates.SingleAsync(candidate => candidate.Id == torrentCandidateId);
+            record.SourceType = SourceTypes.Torznab;
+            record.RemotePath = "05 - Bohemian Rhapsody.flac";
+            record.Normalised = """{"release":{"title":"Queen - A Night at the Opera (1975) [FLAC]"}}""";
+            await context.SaveChangesAsync();
+        }
+
+        await SeedQueueItemAsync(factory, songId, peerCandidateId, QueueItemState.Downloading);
+        await SeedQueueItemAsync(factory, torrentSongId, torrentCandidateId, QueueItemState.Queued);
+
+        using var response = await client.GetAsync(new Uri(QueueEndpoint, UriKind.Relative));
+        var records = (await ReadJsonAsync(response)).GetProperty("records");
+
+        records.GetArrayLength().Should().Be(2);
+
+        foreach (var record in records.EnumerateArray())
+        {
+            if (record.GetProperty("state").GetString() == "queued")
+            {
+                record.GetProperty("releaseTitle").GetString().Should().Be("Queen - A Night at the Opera (1975) [FLAC]");
+                record.GetProperty("containerFile").GetString().Should().Be("05 - Bohemian Rhapsody.flac");
+            }
+            else
+            {
+                record.GetProperty("releaseTitle").ValueKind.Should().Be(JsonValueKind.Null);
+                record.GetProperty("containerFile").ValueKind.Should().Be(JsonValueKind.Null);
+            }
+        }
+    }
+
+    [Fact]
     public async Task Listing_the_queue_shows_only_the_active_grabs_by_default()
     {
         var source = ScriptedSource();
