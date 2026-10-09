@@ -135,6 +135,11 @@ function ProgressCell({ item }: { item: QueueResource }) {
 }
 
 /** The body of one removal: what the user asked for, as the endpoint reads it. */
+/** The last segment of a path inside a container, whichever slash it was written with. */
+function fileNameOf(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
 function removeInput(item: QueueResource, action: ConfirmableAction): RemoveQueueItemInput {
   return {
     id: Number(item.id),
@@ -184,7 +189,15 @@ function queueColumns(
       sortKey: null,
       render: (item) => (
         <Tooltip label={item.remotePath} multiline w={420}>
-          <Text size="sm">{item.displayName}</Text>
+          <Stack gap={0}>
+            <Text size="sm">{item.displayName}</Text>
+            {item.releaseTitle ? (
+              <Text size="xs" c="dimmed">
+                {item.releaseTitle}
+                {item.containerFile ? ` · ${fileNameOf(item.containerFile)}` : ''}
+              </Text>
+            ) : null}
+          </Stack>
         </Tooltip>
       ),
     },

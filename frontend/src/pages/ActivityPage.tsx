@@ -46,6 +46,28 @@ function EventBadge({ eventType }: { eventType: unknown }) {
   );
 }
 
+/** What a grabbed event from a torrent or NZB adds: the release it came out of and the songs that rode along. */
+function GrabDetail({ item }: { item: HistoryResource }) {
+  if (String(item.eventType) !== 'grabbed') {
+    return null;
+  }
+
+  const data = item.data as { release?: unknown; bundledWith?: unknown } | null;
+  const release = typeof data?.release === 'string' && data.release !== '' ? data.release : null;
+  const bundled = typeof data?.bundledWith === 'number' ? data.bundledWith : 0;
+
+  if (release === null) {
+    return null;
+  }
+
+  return (
+    <Text size="xs" c="dimmed">
+      {release}
+      {bundled > 0 ? ` · with ${bundled} other ${bundled === 1 ? 'song' : 'songs'}` : ''}
+    </Text>
+  );
+}
+
 function historyColumns(qualityNames: Map<string, string>): PagedColumn<HistoryResource>[] {
   return [
     { label: 'Date', sortKey: 'date', width: 130, render: (item) => formatDate(item.date) },
@@ -58,6 +80,7 @@ function historyColumns(qualityNames: Map<string, string>): PagedColumn<HistoryR
           <Text size="xs" c="dimmed">
             {item.song.artistCredit}
           </Text>
+          <GrabDetail item={item} />
         </Stack>
       ),
     },

@@ -75,6 +75,46 @@ describe('ActivityPage', () => {
     expect(screen.getByText('FLAC')).toBeInTheDocument();
   });
 
+  it('shows the release and the songs that rode along on a container grab', async () => {
+    resetLocation('/activity/history');
+    installFetch((url) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse(SYSTEM_STATUS);
+      }
+
+      if (url.includes('/api/v1/health')) {
+        return jsonResponse(HEALTH_ENTRIES);
+      }
+
+      if (url.includes('/api/v1/qualitydefinition')) {
+        return jsonResponse(QUALITY_DEFINITIONS);
+      }
+
+      if (url.includes('/api/v1/history')) {
+        return jsonResponse(
+          paged([
+            {
+              ...HISTORY_ITEMS[0],
+              eventType: 'grabbed',
+              data: { release: 'Queen - A Night at the Opera (1975) [FLAC]', bundledWith: 2 },
+            },
+            { ...HISTORY_ITEMS[0], id: 2, eventType: 'grabbed', data: { release: null, bundledWith: 0 } },
+          ]),
+        );
+      }
+
+      return new Response('not found', { status: 404 });
+    });
+
+    renderApp();
+
+    expect(
+      await screen.findByText('Queen - A Night at the Opera (1975) [FLAC] · with 2 other songs'),
+    ).toBeInTheDocument();
+    // The second grab has no release, so it adds no line.
+    expect(screen.getAllByText(/Queen - A Night/)).toHaveLength(1);
+  });
+
   it('removes a blocklist entry after the confirmation modal', async () => {
     resetLocation('/activity/blocklist');
     const mock = install();
