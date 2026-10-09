@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Sources;
 
@@ -38,6 +39,8 @@ namespace Wondarr.Api.Queue;
 /// <param name="OutputPath">Lidarr's <c>outputPath</c>: the finished download, when known.</param>
 /// <param name="ArtistId">Lidarr's <c>artistId</c>: the song's primary artist.</param>
 /// <param name="StatusMessages">Lidarr's <c>statusMessages</c>; always empty.</param>
+/// <param name="ReleaseTitle">The torrent or NZB release the file is inside, or <see langword="null"/> for a single-file source.</param>
+/// <param name="ContainerFile">The file's path inside that release, or <see langword="null"/> for a single-file source.</param>
 public sealed record QueueResource(
     long Id,
     long SongId,
@@ -68,7 +71,9 @@ public sealed record QueueResource(
     string DownloadId,
     string? OutputPath,
     long? ArtistId,
-    IReadOnlyList<string> StatusMessages);
+    IReadOnlyList<string> StatusMessages,
+    string? ReleaseTitle,
+    string? ContainerFile);
 
 /// <summary>Maps a stored queue item onto the wire.</summary>
 public static class QueueResourceExtensions
@@ -89,6 +94,7 @@ public static class QueueResourceExtensions
 
         var candidate = item.Candidate;
         var qualityId = candidate?.QualityId ?? UnknownQualityId;
+        var releaseTitle = ReleaseTitleOf(candidate);
 
         return new QueueResource(
             item.Id,
@@ -120,7 +126,40 @@ public static class QueueResourceExtensions
             item.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
             item.DownloadPath,
             item.Song?.PrimaryArtistId,
-            []);
+            [],
+            releaseTitle,
+            releaseTitle is null ? null : candidate!.RemotePath);
+    }
+
+    /// <summary>
+    /// The container release's title, read from the candidate's stored snapshot (already loaded with
+    /// the item, so no further query). <see langword="null"/> when the candidate is not from a container.
+    /// </summary>
+    private static string? ReleaseTitleOf(CandidateRecord? candidate)
+    {
+        if (candidate is null
+            || candidate.SourceType is not (SourceTypes.Torznab or SourceTypes.Newznab)
+            || string.IsNullOrWhiteSpace(candidate.Normalised))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(candidate.Normalised);
+
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("release", out var release)
+                && release.ValueKind == JsonValueKind.Object
+                && release.TryGetProperty("title", out var title)
+                && title.ValueKind == JsonValueKind.String
+                    ? title.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Lidarr's protocol names for the indexer sources; Soulseek and YouTube say what they are.</summary>
