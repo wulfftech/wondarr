@@ -215,10 +215,13 @@ public sealed class SongApiTests
         list[0].GetProperty("primaryType").GetString().Should().Be("Album");
         list[0].GetProperty("totalTracks").GetInt32().Should().Be(13);
         list[0].GetProperty("isCurrent").GetBoolean().Should().BeTrue();
+        list[0].GetProperty("coverUrl").GetString().Should().Be($"https://coverartarchive.org/release/{ReleaseId}/front-250");
+        list[0].GetProperty("isVariousArtists").GetBoolean().Should().BeFalse();
 
         list[1].GetProperty("key").GetString().Should().Be("singles");
         list[1].GetProperty("title").GetString().Should().Be("Singles");
         list[1].GetProperty("albumArtist").GetString().Should().Be("Daft Punk");
+        list[1].GetProperty("coverUrl").ValueKind.Should().Be(JsonValueKind.Null);
         list[1].GetProperty("isCurrent").GetBoolean().Should().BeFalse();
 
         using var moved = await client.PutAsync(
