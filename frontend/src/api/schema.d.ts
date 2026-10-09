@@ -4758,6 +4758,11 @@ export interface components {
             /** Format: int32 */
             totalTracks: null | number | string;
             isCurrent: boolean;
+            coverUrl: null | string;
+            isVariousArtists: boolean;
+            originalDate: null | string;
+            /** Format: int32 */
+            discNo: null | number | string;
         };
         AlbumPolicy: number;
         AlbumRefResource: {

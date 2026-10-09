@@ -360,7 +360,11 @@ public sealed class SongController : ControllerBase
             null,
             null,
             null,
-            song.AlbumContext?.Kind == AlbumContextKind.PseudoSingles);
+            song.AlbumContext?.Kind == AlbumContextKind.PseudoSingles,
+            null,
+            false,
+            null,
+            null);
 
     /// <summary>A 409 naming the song the library already holds, so the UI can link straight to it.</summary>
     private ObjectResult ConflictProblem(long songId)
