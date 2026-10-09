@@ -21,16 +21,9 @@ Authentication is set in the `server` section of `/config/config.yml`:
 
 Both can be set from the environment: `APP__SERVER__AUTH` and `APP__SERVER__AUTH_REQUIRED`.
 
-There is no page in the web UI for creating the login yet. Set the username and password through the API, using the API key from `config.yml` (the password must be at least 8 characters, the username at most 64):
+Set the login under **Settings → General → Security → Login**: a **Username** (at most 64 characters) and a **Password** of at least 8 characters, typed twice. Do it from your local network before you reach Wondarr from anywhere else; until a login exists, the login page says no credentials are configured.
 
-```bash
-curl -X PUT http://192.168.1.10:1077/api/v1/auth/user \
-  -H "X-Api-Key: your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{"username": "wondarr", "password": "a-long-password"}'
-```
-
-Until you do, the login page says no credentials are configured. See [Install](/wondarr/getting-started/install/) for where the API key is.
+The same card shows the **API key** that tools such as Prowlarr, autobrr, Homepage and Unpackerr need: **Show** reveals it and the copy button copies it. (The login can also be set through the API: `PUT /api/v1/auth/user` with `{"username": …, "password": …}` and the API key.)
 
 ## Your first library
 

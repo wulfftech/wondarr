@@ -102,7 +102,7 @@ It must be empty or a path starting with `/` (for example `/wondarr`). Restart t
 
 ## The API key
 
-On first start Wondarr writes `/config/config.yml` with a generated API key under `server.api_key` (32 lowercase hexadecimal characters). The web UI does not display it, so read it from the file:
+On first start Wondarr writes `/config/config.yml` with a generated API key under `server.api_key` (32 lowercase hexadecimal characters). **Settings → General** shows it (**Show**, and a copy button); you can also read it from the file:
 
 ```bash
 grep api_key /srv/wondarr/config/config.yml
