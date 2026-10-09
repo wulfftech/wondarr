@@ -34,6 +34,88 @@ public class CommandQueueTests
     }
 
     [Fact]
+    public async Task The_same_command_with_another_body_is_queued_next_to_the_running_one()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var first = await host.Queue.EnqueueAsync(
+            "Heartbeat",
+            "{\"name\":\"Heartbeat\",\"referenceLibraryId\":1}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+        var second = await host.Queue.EnqueueAsync(
+            "Heartbeat",
+            "{\"name\":\"Heartbeat\",\"referenceLibraryId\":2}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+
+        second.Id.Should().NotBe(first.Id);
+        (await host.Queue.ListAsync(50, CancellationToken.None)).Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task The_same_body_twice_is_one_command_whatever_its_whitespace_and_key_order()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var first = await host.Queue.EnqueueAsync(
+            "Heartbeat",
+            "{\"name\":\"Heartbeat\",\"referenceLibraryId\":1,\"ids\":[1,2]}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+        var second = await host.Queue.EnqueueAsync(
+            "Heartbeat",
+            "{ \"ids\": [1, 2], \"referenceLibraryId\": 1.0, \"name\": \"Heartbeat\" }",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+        var reordered = await host.Queue.EnqueueAsync(
+            "Heartbeat",
+            "{\"name\":\"Heartbeat\",\"referenceLibraryId\":1,\"ids\":[2,1]}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+
+        second.Id.Should().Be(first.Id);
+        reordered.Id.Should().NotBe(first.Id, "the order of an array is part of its value");
+    }
+
+    [Fact]
+    public async Task Empty_bodies_and_a_body_that_only_repeats_the_name_are_the_same_command()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var scheduled = await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Scheduled, CancellationToken.None);
+        var again = await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Scheduled, CancellationToken.None);
+        var blank = await host.Queue.EnqueueAsync("Heartbeat", " ", CommandTrigger.Manual, CancellationToken.None);
+        var named = await host.Queue.EnqueueAsync("Heartbeat", "{\"name\":\"Heartbeat\"}", CommandTrigger.Manual, CancellationToken.None);
+
+        again.Id.Should().Be(scheduled.Id);
+        blank.Id.Should().Be(scheduled.Id);
+        named.Id.Should().Be(scheduled.Id);
+        (await host.Queue.ListAsync(50, CancellationToken.None)).Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_started_command_with_a_different_body_does_not_swallow_a_new_one()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var running = await host.InsertCommandAsync("Heartbeat", CommandStatus.Started, "{\"name\":\"Heartbeat\",\"referenceLibraryId\":1}");
+        var other = await host.Queue.EnqueueAsync(
+            "Heartbeat",
+            "{\"name\":\"Heartbeat\",\"referenceLibraryId\":2}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+        var same = await host.Queue.EnqueueAsync(
+            "Heartbeat",
+            "{\"referenceLibraryId\":1,\"name\":\"Heartbeat\"}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+
+        other.Id.Should().NotBe(running);
+        same.Id.Should().Be(running);
+    }
+
+    [Fact]
     public async Task Listing_returns_the_newest_command_first()
     {
         await using var host = await JobTestHost.CreateAsync();

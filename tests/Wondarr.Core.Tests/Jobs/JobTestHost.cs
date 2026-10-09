@@ -80,7 +80,7 @@ internal sealed class JobTestHost : IAsyncDisposable
         NullLogger<CommandExecutor>.Instance);
 
     /// <summary>Writes a command row directly, as a process that died mid-command would leave it.</summary>
-    public async Task<long> InsertCommandAsync(string name, CommandStatus status)
+    public async Task<long> InsertCommandAsync(string name, CommandStatus status, string? body = null)
     {
         await using var scope = _provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
@@ -88,6 +88,7 @@ internal sealed class JobTestHost : IAsyncDisposable
         var record = new CommandRecord
         {
             Name = name,
+            Body = body,
             Status = status,
             Result = CommandResult.Unknown,
             QueuedAt = TimeProvider.GetUtcNow().UtcDateTime,

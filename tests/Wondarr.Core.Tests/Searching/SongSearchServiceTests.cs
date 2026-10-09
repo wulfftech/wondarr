@@ -80,6 +80,39 @@ public sealed class SongSearchServiceTests
     }
 
     [Fact]
+    public async Task A_song_a_reference_file_identifies_is_never_grabbed()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Identified);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        result.Outcome.Should().Be(SearchOutcome.Cancelled);
+        result.QueueItemId.Should().BeNull();
+        result.Message.Should().Contain("reference library");
+        host.Provider.Requests.Should().BeEmpty();
+        host.Provider.Grabs.Should().BeEmpty();
+        (await host.Context.QueueItems.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_song_whose_reference_file_went_missing_is_searched_for_again()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Missing);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        result.Outcome.Should().Be(SearchOutcome.Grabbed);
+    }
+
+    [Fact]
     public async Task A_successful_grab_announces_itself_once()
     {
         await using var host = await SearchTestHost.CreateAsync();

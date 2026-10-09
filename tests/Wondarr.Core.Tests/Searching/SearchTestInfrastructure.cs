@@ -218,6 +218,32 @@ internal sealed class SearchTestHost : IAsyncDisposable
         await context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Records that a reference file in the given state identifies the song, without any
+    /// <c>song_file</c> row: the state a song is in before (or without) its reference file being linked.
+    /// </summary>
+    public async Task SeedReferenceFileAsync(long songId, ReferenceFileState state)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var library = new ReferenceLibrary { Name = "Music", RootPath = "/reference/music" };
+        context.ReferenceLibraries.Add(library);
+        await context.SaveChangesAsync();
+
+        context.ReferenceFiles.Add(new ReferenceFile
+        {
+            ReferenceLibraryId = library.Id,
+            RelativePath = $"{songId}.flac",
+            Size = 25_000_000,
+            ModifiedAt = Time.GetUtcNow().UtcDateTime,
+            LastSeenAt = Time.GetUtcNow().UtcDateTime,
+            SongId = songId,
+            State = state,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
     /// <summary>Inserts one finished run and one stored candidate, and returns the candidate's id.</summary>
     public async Task<long> SeedCandidateAsync(long songId, string scoreBreakdown)
     {

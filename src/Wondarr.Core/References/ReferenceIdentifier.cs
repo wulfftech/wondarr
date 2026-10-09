@@ -208,100 +208,112 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                 planned.Add(outcome);
             }
 
-            // One add per chunk: the album policy plans the batch as a whole.
-            var accepted = planned.Where(row => row.State == RowState.Identified).ToList();
-            var results = accepted.Count == 0
-                ? []
-                : await _songs
-                    .AddIdentitiesAsync(
-                        [.. accepted.Select(row => row.Identity!)],
-                        addOptions,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-            for (var index = 0; index < accepted.Count; index++)
+            // The add leaves its transaction open (ReferenceOwnership.AddOptions): the songs, their
+            // reference files and the rows that own them are committed together below, so nothing else
+            // ever sees a song of this chunk without its file.
+            try
             {
-                var row = accepted[index];
-                var song = results[index].Song;
+                // One add per chunk: the album policy plans the batch as a whole.
+                var accepted = planned.Where(row => row.State == RowState.Identified).ToList();
+                var results = accepted.Count == 0
+                    ? []
+                    : await _songs
+                        .AddIdentitiesAsync(
+                            [.. accepted.Select(row => row.Identity!)],
+                            addOptions,
+                            cancellationToken)
+                        .ConfigureAwait(false);
 
-                await ReleaseAsync(row, song.Id).ConfigureAwait(false);
-
-                var link = await ReferenceOwnership
-                    .LinkAsync(
-                        _database,
-                        song.Id,
-                        ReferenceOwnership.AbsolutePath(library.RootPath, row.Row.RelativePath),
-                        row.Row,
-                        row.Probe!,
-                        row.AcoustId,
-                        row.IdentifiedBy!,
-                        now)
-                    .ConfigureAwait(false);
-
-                row.Row.SongId = song.Id;
-                row.Row.State = ReferenceFileState.Identified;
-                row.Row.Confidence = row.Confidence;
-                row.Row.IdentifiedBy = row.IdentifiedBy;
-                row.Row.AcoustId = row.AcoustId;
-                row.Row.Fingerprint = row.Fingerprint;
-                row.Row.Message = link.Message;
-
-                await ReplaceCandidatesAsync(row, [], cancellationToken).ConfigureAwait(false);
-
-                identified++;
-            }
-
-            foreach (var row in planned.Where(row => row.State != RowState.Identified))
-            {
-                // "We could not ask" says nothing about the file: a deferred row keeps the song it was
-                // linked to, so that song is not wanted (and searched) again before the retry.
-                if (row.State != RowState.Deferred)
+                for (var index = 0; index < accepted.Count; index++)
                 {
-                    await ReleaseAsync(row, null).ConfigureAwait(false);
+                    var row = accepted[index];
+                    var song = results[index].Song;
 
-                    row.Row.SongId = null;
+                    await ReleaseAsync(row, song.Id).ConfigureAwait(false);
+
+                    var link = await ReferenceOwnership
+                        .LinkAsync(
+                            _database,
+                            song.Id,
+                            ReferenceOwnership.AbsolutePath(library.RootPath, row.Row.RelativePath),
+                            row.Row,
+                            row.Probe!,
+                            row.AcoustId,
+                            row.IdentifiedBy!,
+                            now)
+                        .ConfigureAwait(false);
+
+                    row.Row.SongId = song.Id;
+                    row.Row.State = ReferenceFileState.Identified;
+                    row.Row.Confidence = row.Confidence;
+                    row.Row.IdentifiedBy = row.IdentifiedBy;
+                    row.Row.AcoustId = row.AcoustId;
+                    row.Row.Fingerprint = row.Fingerprint;
+                    row.Row.Message = link.Message;
+
+                    await ReplaceCandidatesAsync(row, [], cancellationToken).ConfigureAwait(false);
+
+                    identified++;
                 }
 
-                row.Row.AcoustId = row.AcoustId;
-                row.Row.Fingerprint = row.Fingerprint;
-
-                switch (row.State)
+                foreach (var row in planned.Where(row => row.State != RowState.Identified))
                 {
-                    case RowState.Ambiguous:
-                        row.Row.State = ReferenceFileState.Ambiguous;
-                        row.Row.Confidence = row.Confidence;
-                        row.Row.IdentifiedBy = null;
-                        row.Row.Message = null;
+                    // "We could not ask" says nothing about the file: a deferred row keeps the song it was
+                    // linked to, so that song is not wanted (and searched) again before the retry.
+                    if (row.State != RowState.Deferred)
+                    {
+                        await ReleaseAsync(row, null).ConfigureAwait(false);
 
-                        await ReplaceCandidatesAsync(row, row.Candidates, cancellationToken).ConfigureAwait(false);
+                        row.Row.SongId = null;
+                    }
 
-                        ambiguous++;
-                        break;
+                    row.Row.AcoustId = row.AcoustId;
+                    row.Row.Fingerprint = row.Fingerprint;
 
-                    case RowState.Unmatched:
-                        row.Row.State = ReferenceFileState.Unmatched;
-                        row.Row.Confidence = 0;
-                        row.Row.IdentifiedBy = null;
-                        row.Row.Message = null;
+                    switch (row.State)
+                    {
+                        case RowState.Ambiguous:
+                            row.Row.State = ReferenceFileState.Ambiguous;
+                            row.Row.Confidence = row.Confidence;
+                            row.Row.IdentifiedBy = null;
+                            row.Row.Message = null;
 
-                        await ReplaceCandidatesAsync(row, [], cancellationToken).ConfigureAwait(false);
+                            await ReplaceCandidatesAsync(row, row.Candidates, cancellationToken).ConfigureAwait(false);
 
-                        unmatched++;
-                        break;
+                            ambiguous++;
+                            break;
 
-                    default:
-                        // Deferred: the row stays pending, carrying why, so the next scan retries it.
-                        row.Row.State = ReferenceFileState.Pending;
-                        row.Row.Confidence = 0;
-                        row.Row.IdentifiedBy = null;
-                        row.Row.Message = row.Message;
+                        case RowState.Unmatched:
+                            row.Row.State = ReferenceFileState.Unmatched;
+                            row.Row.Confidence = 0;
+                            row.Row.IdentifiedBy = null;
+                            row.Row.Message = null;
 
-                        deferred++;
-                        break;
+                            await ReplaceCandidatesAsync(row, [], cancellationToken).ConfigureAwait(false);
+
+                            unmatched++;
+                            break;
+
+                        default:
+                            // Deferred: the row stays pending, carrying why, so the next scan retries it.
+                            row.Row.State = ReferenceFileState.Pending;
+                            row.Row.Confidence = 0;
+                            row.Row.IdentifiedBy = null;
+                            row.Row.Message = row.Message;
+
+                            deferred++;
+                            break;
+                    }
                 }
-            }
 
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+
+                throw;
+            }
 
             // The scan never touches a row twice, so the chunk leaves the change tracker at once.
             foreach (var row in chunk)

@@ -130,8 +130,9 @@ public sealed class ReferenceLibraryController : ControllerBase
     /// walk found.
     /// </summary>
     /// <remarks>
-    /// The queue deduplicates by command name, so a scan requested while another reference scan is
-    /// queued or running returns that command instead of queueing a second one.
+    /// The queue deduplicates by command name and body, so a scan of this library requested while a
+    /// scan of the same library is queued or running returns that command instead of queueing a second
+    /// one; a scan of another library is queued next to it.
     /// </remarks>
     /// <param name="id">The library id.</param>
     /// <param name="cancellationToken">Cancels the request.</param>

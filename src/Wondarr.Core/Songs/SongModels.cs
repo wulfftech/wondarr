@@ -24,6 +24,24 @@ public sealed record SongAddOptions
 
     /// <summary>Gets what added the songs: <c>ui</c>, <c>api</c> or <c>list:{id}</c>.</summary>
     public string AddedBy { get; init; } = "ui";
+
+    /// <summary>
+    /// Gets a value indicating whether a monitored new song is searched for at once
+    /// (<c>search.search_on_add</c>). A song that arrives together with its file, such as one identified
+    /// from a reference library, sets this to <see langword="false"/>: it is owned already and must never
+    /// be searched for. When <see langword="false"/> nothing is enqueued, whatever the global setting says.
+    /// </summary>
+    public bool SearchOnAdd { get; init; } = true;
+
+    /// <summary>
+    /// Gets a value indicating whether the add leaves its database transaction open. The songs are saved
+    /// inside a transaction that the caller commits (or rolls back) once it has saved what belongs with
+    /// them, so no other connection sees the new songs without it, for example a song without its file.
+    /// Only a call that adds at least one song opens one. A caller that sets this must also set
+    /// <see cref="SearchOnAdd"/> to <see langword="false"/>: nothing is enqueued while the transaction
+    /// is open, because the queue writes through a connection of its own.
+    /// </summary>
+    public bool KeepTransactionOpen { get; init; }
 }
 
 /// <summary>What happened to one identity handed to the add pipeline.</summary>

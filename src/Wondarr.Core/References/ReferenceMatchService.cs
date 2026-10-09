@@ -203,17 +203,29 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             ?? throw new SongNotFoundException(
                 string.Concat("No recording with the id ", mbRecordingId ?? deezerId!.Value.ToString(CultureInfo.InvariantCulture), "."));
 
-        var song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
-        var link = await LinkAsync(row, library, song, cancellationToken).ConfigureAwait(false);
+        // The add leaves its transaction open: the song, its file and the row are committed together.
+        Song song;
 
-        row.SongId = song.Id;
-        row.State = ReferenceFileState.Identified;
-        row.Confidence = ManualConfidence;
-        row.IdentifiedBy = ManualTier;
-        row.Message = link.Message;
+        try
+        {
+            song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
+            var link = await LinkAsync(row, library, song, cancellationToken).ConfigureAwait(false);
 
-        await ClearCandidatesAsync(row, cancellationToken).ConfigureAwait(false);
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            row.SongId = song.Id;
+            row.State = ReferenceFileState.Identified;
+            row.Confidence = ManualConfidence;
+            row.IdentifiedBy = ManualTier;
+            row.Message = link.Message;
+
+            await ClearCandidatesAsync(row, cancellationToken).ConfigureAwait(false);
+            await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+
+            throw;
+        }
 
         LogResolved(_logger, row.Id, song.Id, ManualTier);
 
@@ -310,24 +322,38 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         foreach (var group in accepted.GroupBy(entry => entry.Library.LibraryId))
         {
             var batch = group.ToList();
-            var added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
-                .ConfigureAwait(false);
 
-            for (var index = 0; index < batch.Count; index++)
+            // Each group commits on its own: the add leaves its transaction open, and the songs reach
+            // other connections only together with the files and rows that own them.
+            try
             {
-                var entry = batch[index];
-                var link = await LinkAsync(entry.Row, entry.Library, added[index], cancellationToken)
+                var added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
                     .ConfigureAwait(false);
 
-                entry.Row.SongId = added[index].Id;
-                entry.Row.State = ReferenceFileState.Identified;
-                entry.Row.Confidence = ManualConfidence;
-                entry.Row.IdentifiedBy = ManualTier;
-                entry.Row.Message = link.Message;
+                for (var index = 0; index < batch.Count; index++)
+                {
+                    var entry = batch[index];
+                    var link = await LinkAsync(entry.Row, entry.Library, added[index], cancellationToken)
+                        .ConfigureAwait(false);
 
-                await ClearCandidatesAsync(entry.Row, cancellationToken).ConfigureAwait(false);
+                    entry.Row.SongId = added[index].Id;
+                    entry.Row.State = ReferenceFileState.Identified;
+                    entry.Row.Confidence = ManualConfidence;
+                    entry.Row.IdentifiedBy = ManualTier;
+                    entry.Row.Message = link.Message;
 
-                resolved++;
+                    await ClearCandidatesAsync(entry.Row, cancellationToken).ConfigureAwait(false);
+
+                    resolved++;
+                }
+
+                await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+
+                throw;
             }
         }
 

@@ -129,7 +129,7 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     }
 
     /// <summary>
-    /// Picks the batch: monitored songs with no file, no grab in flight and their backoff expired,
+    /// Picks the batch: monitored songs with no file and no identified reference file, no grab in flight and their backoff expired,
     /// the ones that have been waiting longest first (never searched songs first of all).
     /// </summary>
     private async Task<List<long>> SelectAsync(SearchOptions options, CancellationToken cancellationToken)
@@ -144,6 +144,10 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
             var wanted = database.Songs
                 .AsNoTracking()
                 .Where(song => song.Monitored && song.File == null)
+
+                // A reference file identifies this song: the user owns it there, so it is not missing.
+                .Where(song => !database.ReferenceFiles.Any(file =>
+                    file.SongId == song.Id && file.State == ReferenceFileState.Identified))
                 .Where(song => !database.QueueItems.Any(item =>
                     item.SongId == song.Id
                     && (item.State == QueueItemState.Queued

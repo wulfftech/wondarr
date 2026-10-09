@@ -901,7 +901,28 @@ public sealed partial class SongService : ISongService
             results[index] = new SongAddResult(identity, SongAddOutcome.Added, song);
         }
 
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        // The network work is over: a transaction the caller asked to keep starts here, so it does not
+        // hold the database's write lock while MusicBrainz and the cover archive are asked.
+        var openedTransaction = options.KeepTransactionOpen && _database.Database.CurrentTransaction is null;
+
+        if (openedTransaction)
+        {
+            await _database.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (openedTransaction && _database.Database.CurrentTransaction is { } failed)
+            {
+                await failed.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            throw;
+        }
 
         // A repeated identity inside one batch shares the song the first occurrence created.
         foreach (var (duplicate, first) in duplicateOf)
@@ -931,7 +952,9 @@ public sealed partial class SongService : ISongService
         SongAddOptions options,
         CancellationToken cancellationToken)
     {
-        if (!_searchOptions.CurrentValue.SearchOnAdd)
+        // A caller that keeps the transaction open enqueues nothing: the queue would wait for the write
+        // lock that transaction holds. Such a caller owns the songs' files already (see SongAddOptions).
+        if (!options.SearchOnAdd || options.KeepTransactionOpen || !_searchOptions.CurrentValue.SearchOnAdd)
         {
             return;
         }

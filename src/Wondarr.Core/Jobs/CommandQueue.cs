@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using System.Threading.Channels;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
@@ -9,7 +10,7 @@ namespace Wondarr.Core.Jobs;
 
 /// <summary>
 /// Persists commands and wakes the executor. A singleton: the in-memory semaphore is what makes
-/// "no two rows with the same name are queued or running" hold across concurrent callers, and a
+/// "no two rows with the same name and body are queued or running" hold across concurrent callers, and a
 /// second instance would break that.
 /// </summary>
 // The name is fixed by the task spec (it is the *arr vocabulary) and is not a System.Collections.Queue.
@@ -61,14 +62,17 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
                 throw new UnknownCommandException(name);
             }
 
-            // Lidarr behaviour: a command already queued or running under this name is returned as
-            // is, so the executor can never run the same command twice at once.
-            var existing = await context.Commands
-                .FirstOrDefaultAsync(
-                    command => command.Name == name
-                        && (command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started),
-                    cancellationToken)
+            // Lidarr behaviour: a command already queued or running with this name and body is returned
+            // as is, so the executor can never run the same command twice at once. The body counts: a
+            // scan of reference library 2 is not the scan of library 1 that happens to be running.
+            var active = await context.Commands
+                .Where(command => command.Name == name
+                    && (command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started))
+                .OrderBy(command => command.Id)
+                .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            var existing = active.Find(command => SameBody(name, command.Body, body));
 
             if (existing is not null)
             {
@@ -180,6 +184,109 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             .ConfigureAwait(false);
 
         return true;
+    }
+
+    /// <summary>
+    /// Whether two command bodies ask for the same thing: equal as JSON values, so whitespace and key
+    /// order do not matter, and an empty body equals a body that only repeats the command's own name
+    /// (<c>{"name":"MissingSearch"}</c> is what the API sends for what a scheduled task enqueues with
+    /// none). A body that is not JSON is compared as text.
+    /// </summary>
+    private static bool SameBody(string name, string? left, string? right)
+    {
+        var first = Normalise(name, left);
+        var second = Normalise(name, right);
+
+        if (first is null || second is null)
+        {
+            return first is null && second is null;
+        }
+
+        try
+        {
+            using var firstDocument = JsonDocument.Parse(first);
+            using var secondDocument = JsonDocument.Parse(second);
+
+            return JsonEquals(firstDocument.RootElement, secondDocument.RootElement);
+        }
+        catch (JsonException)
+        {
+            return string.Equals(first, second, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>The body, or <see langword="null"/> when it says nothing the command's name does not.</summary>
+    private static string? Normalise(string name, string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Null)
+            {
+                return null;
+            }
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return body;
+            }
+
+            var onlyTheName = root.EnumerateObject().All(property =>
+                property.NameEquals("name")
+                && property.Value.ValueKind == JsonValueKind.String
+                && string.Equals(property.Value.GetString(), name, StringComparison.Ordinal));
+
+            return onlyTheName ? null : body;
+        }
+        catch (JsonException)
+        {
+            return body;
+        }
+    }
+
+    /// <summary>Structural equality of two JSON values: object members by name, array items in order.</summary>
+    private static bool JsonEquals(JsonElement left, JsonElement right)
+    {
+        if (left.ValueKind != right.ValueKind)
+        {
+            return false;
+        }
+
+        switch (left.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var leftMembers = left.EnumerateObject().ToList();
+
+                return leftMembers.Count == right.EnumerateObject().Count()
+                    && leftMembers.TrueForAll(member =>
+                        right.TryGetProperty(member.Name, out var other) && JsonEquals(member.Value, other));
+
+            case JsonValueKind.Array:
+                var leftItems = left.EnumerateArray().ToList();
+                var rightItems = right.EnumerateArray().ToList();
+
+                return leftItems.Count == rightItems.Count
+                    && leftItems.Zip(rightItems).All(pair => JsonEquals(pair.First, pair.Second));
+
+            case JsonValueKind.String:
+                return string.Equals(left.GetString(), right.GetString(), StringComparison.Ordinal);
+
+            case JsonValueKind.Number:
+                return left.TryGetDecimal(out var leftNumber) && right.TryGetDecimal(out var rightNumber)
+                    ? leftNumber == rightNumber
+                    : string.Equals(left.GetRawText(), right.GetRawText(), StringComparison.Ordinal);
+
+            default:
+                // true, false and null carry no payload beyond their kind.
+                return true;
+        }
     }
 
     private static bool HasHandler(IServiceProvider services, string name)
