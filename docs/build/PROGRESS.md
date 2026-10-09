@@ -380,3 +380,4 @@ Pre-flight (2026-10-09): .NET SDK 10.0.401, Node 24.19.0, Python 3.14.3, `gh` si
 | Task | State | Delegate | Continuations | Review | Notes |
 |---|---|---|---|---|---|
 | P8-00 pre-flight, research, plan, decisions | done | orchestrator | — | — | |
+| P8-02a Phase 0 database upgrade test | merged `b209223` | sonnet subagent | 0 | orchestrator read (test-only) | The real Phase 0 database (fixture) adopted as `compilarr.db` → `wondarr.db`, every migration applied in order, Phase 0's rows intact, seed data present, a song added; the API host started on it lists the old jobs once. No upgrade defect found. Mutation-checked by the subagent |
