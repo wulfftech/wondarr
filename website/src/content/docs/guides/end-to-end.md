@@ -23,7 +23,7 @@ Open **Settings → Soulseek**, enter the **Username** and **Password** of a ded
 
 1. **Settings → Plex**: **Sign in with Plex**, approve the code on plex.tv, press **Connect** next to your server, then **Test**.
 2. **Settings → Library**: choose the **Music** library, pick the **Plex music section**, and fill in **Library folder as Plex sees it** if Plex mounts the music folder at a different path. **Save**.
-3. In Plex, turn on **Prefer local metadata** for that music section before the first scan.
+3. In Plex, turn on **Prefer local metadata** for that music section, then run **Scan Library Files** on it once — Plex ignores Wondarr's partial scans for a section that has never been scanned.
 
 See [Plex](/wondarr/sources/plex/).
 

@@ -27,6 +27,8 @@ Press **Save**. Without the right path, a scan request names a folder Plex does 
 
 After a song is placed, Wondarr asks Plex for a partial scan of that song's folder. The scans are batched: Wondarr waits for 10 seconds of quiet (and at most 60 seconds from the first request), asks once per folder, and scans the library root instead when more than 25 folders are waiting. A failed scan is retried, and a persistent failure becomes a health warning.
 
+**Scan a new section once yourself.** Plex ignores partial scans for a music section that has never been scanned: after creating the section (and turning on Prefer local metadata, below), run **Scan Library Files** on it once in Plex, even while the folder is empty. From then on Wondarr's partial scans add each song as it arrives.
+
 ## Prefer local metadata
 
 Plex groups and names albums by their tags only when **Prefer local metadata** is on. Turn it on (and **Use local assets**) in the Plex library's advanced settings before the first scan, or Plex may rename or split albums. Wondarr files songs from different real releases into pseudo-albums such as "Singles", and Plex would otherwise replace those with its own idea of the album. Settings → Library shows a dismissable reminder about this. A Flat or Artist layout depends on the setting completely.
