@@ -92,6 +92,7 @@ public static class ServiceCollectionExtensions
         // with the other media tools.
         services.AddSingleton<ITranscoder, Transcoder>();
         services.AddSingleton<ISpectralAnalyzer, SpectralAnalyzer>();
+        services.AddSingleton<IReplayGainAnalyzer, ReplayGainAnalyzer>();
 
         // Bounds the cover the organizer embeds; it holds no state of its own beyond the temp files
         // of one conversion, so it is a singleton next to the other media tools.
@@ -164,6 +165,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, BulkAddSongsCommandHandler>();
         services.AddScoped<ICommandHandler, ConvertFilesCommandHandler>();
         services.AddScoped<IFileConverter, FileConverter>();
+        services.AddScoped<ICommandHandler, ApplyReplayGainCommandHandler>();
+        services.AddScoped<IReplayGainApplier, ReplayGainApplier>();
         services.AddScoped<ICommandHandler, ImportListSyncCommandHandler>();
         services.AddScoped<ICommandHandler, MissingSearchCommandHandler>();
         services.AddScoped<ICommandHandler, UpgradeSearchCommandHandler>();

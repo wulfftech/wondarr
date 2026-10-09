@@ -100,6 +100,25 @@ public sealed class LibraryApiTests
     }
 
     [Fact]
+    public async Task Replaygain_is_off_by_default_and_the_switch_persists()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var library = await GetLibraryAsync(client, 1);
+        library["replayGain"]!.GetValue<bool>().Should().BeFalse();
+
+        library["replayGain"] = true;
+        using var response = await client.PutAsync(
+            new Uri($"{LibrariesEndpoint}/1", UriKind.Relative),
+            JsonContent(library));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        ((JsonObject)(await ReadJsonAsync(response))!)["replayGain"]!.GetValue<bool>().Should().BeTrue();
+        (await GetLibraryAsync(client, 1))["replayGain"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Updating_a_library_with_an_empty_naming_template_is_a_bad_request()
     {
         using var factory = new WondarrAppFactory();

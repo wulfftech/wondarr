@@ -10,6 +10,7 @@ using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Tests.Importing;
 using Wondarr.Core.Tests.Persistence;
 using Xunit;
 
@@ -33,6 +34,7 @@ public sealed class FileConverterTests : IDisposable
     private readonly FakeTranscoder _transcoder = new();
     private readonly FakeProbe _probe = new();
     private readonly FakeOrganizer _organizer;
+    private readonly FakeReplayGainAnalyzer _replay = new();
     private readonly IPlexLibraryUpdater _updater = Substitute.For<IPlexLibraryUpdater>();
     private readonly string _root;
     private readonly string _bin;
@@ -69,6 +71,42 @@ public sealed class FileConverterTests : IDisposable
         _organizer.Requests.Single().ReplacesPath.Should().Be(path);
         (await context.History.AsNoTracking().SingleAsync()).EventType.Should().Be(HistoryEventType.Converted);
         _updater.Received().RequestFolder(SeedData.DefaultLibraryId, Path.GetDirectoryName(file.Path)!);
+    }
+
+    [Fact]
+    public async Task A_converted_file_is_measured_again_when_the_library_has_replaygain_on()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        (await context.Libraries.SingleAsync()).ReplayGain = true;
+        await context.SaveChangesAsync();
+        var (songId, _) = await SeedAsync(context, "flac", FlacQualityId);
+        await context.SongFiles.ExecuteUpdateAsync(update => update
+            .SetProperty(file => file.ReplayGainDb, -3.0)
+            .SetProperty(file => file.ReplayGainPeak, 0.5));
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+        _replay.Measured.Should().ContainSingle().Which.Should().Contain(FileConverter.WorkFolderName, "the converted temporary is what is measured");
+        var request = _organizer.Requests.Single();
+        request.ReplayGainDb.Should().Be(-8.52);
+        request.ReplayGainPeak.Should().Be(1.047129);
+        var file = await context.SongFiles.AsNoTracking().SingleAsync();
+        file.ReplayGainDb.Should().Be(-8.52, "the encoded file's own measurement replaces the old one");
+        file.ReplayGainPeak.Should().Be(1.047129);
+    }
+
+    [Fact]
+    public async Task A_converted_file_is_not_measured_when_the_library_has_replaygain_off()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, _) = await SeedAsync(context, "flac", FlacQualityId);
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+        _replay.Measured.Should().BeEmpty();
+        _organizer.Requests.Single().ReplayGainDb.Should().BeNull();
     }
 
     [Fact]
@@ -191,6 +229,7 @@ public sealed class FileConverterTests : IDisposable
             _transcoder,
             _probe,
             _organizer,
+            _replay,
             new SongFileLock(),
             _updater,
             NullLogger<FileConverter>.Instance);

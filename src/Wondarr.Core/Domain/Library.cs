@@ -46,6 +46,12 @@ public sealed class Library : EntityBase
     /// </summary>
     public string? PlexLibraryPath { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether every file placed in this library carries ReplayGain
+    /// track gain and peak tags. Off by default; the audio is never changed.
+    /// </summary>
+    public bool ReplayGain { get; set; }
+
     /// <summary>Gets or sets a value indicating whether this is the library new songs go to by default.</summary>
     public bool IsDefault { get; set; }
 }

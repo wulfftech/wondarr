@@ -19,6 +19,22 @@ public interface ITagWriter
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The outcome; a failure never throws and never modifies <paramref name="path"/>.</returns>
     Task<TagWriteResult> WriteAsync(string path, TagSet tags, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets only the ReplayGain track gain and peak of the file at <paramref name="path"/>, leaving
+    /// every other tag, the cover and the lyrics as they are. Written through the same temporary copy
+    /// and verified read-back as <see cref="WriteAsync"/>.
+    /// </summary>
+    /// <param name="path">Absolute path of the audio file to tag.</param>
+    /// <param name="gainDb">The track gain in dB.</param>
+    /// <param name="peak">The true peak as a linear value.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The outcome; a failure never throws and never modifies <paramref name="path"/>.</returns>
+    Task<TagWriteResult> WriteReplayGainAsync(
+        string path,
+        double gainDb,
+        double peak,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -77,6 +93,89 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
             ReplaceTags(new Track(tempPath), tags);
 
             var written = ReadBack(tempPath, tags);
+
+            File.Move(tempPath, path, overwrite: true);
+
+            LogTagged(written.Count);
+            return new TagWriteResult(true, null, written);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogFailed(ex);
+            return Failure($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            DeleteTemp(tempPath);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<TagWriteResult> WriteReplayGainAsync(
+        string path,
+        double gainDb,
+        double peak,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var gain = FormatGain(gainDb);
+        var peakText = FormatPeak(peak);
+
+        if (gain is null || peakText is null)
+        {
+            return Failure("the ReplayGain values are not finite numbers");
+        }
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (string.IsNullOrEmpty(directory))
+        {
+            return Failure("the file has no parent directory to hold the temporary copy");
+        }
+
+        var tempPath = Path.Combine(
+            directory,
+            TempPrefix + Guid.NewGuid().ToString("N") + Path.GetExtension(path));
+
+        try
+        {
+            File.Copy(path, tempPath, overwrite: false);
+
+            var keys = KeysFor(tempPath);
+            var track = new Track(tempPath);
+
+            if (track.DurationMs <= 0)
+            {
+                throw new InvalidOperationException("The file is not readable audio.");
+            }
+
+            // Save() rewrites the tag it loaded, so everything else the file carries stays as it is.
+            track.AdditionalFields[keys.ReplayGainTrackGain] = gain;
+            track.AdditionalFields[keys.ReplayGainTrackPeak] = peakText;
+
+            if (!track.Save())
+            {
+                throw new InvalidOperationException("ATL refused to save the tag.");
+            }
+
+            var reread = new Track(tempPath);
+            var written = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ReplayGainTrackGain"] = gain,
+                ["ReplayGainTrackPeak"] = peakText,
+            };
+
+            if (GetAdditional(reread, keys.ReplayGainTrackGain) != gain
+                || GetAdditional(reread, keys.ReplayGainTrackPeak) != peakText)
+            {
+                throw new InvalidOperationException("Tag read-back verification failed for: ReplayGain.");
+            }
 
             File.Move(tempPath, path, overwrite: true);
 
@@ -272,6 +371,9 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
             track.AdditionalFields[keys.Compilation] = keys.CompilationValue;
         }
 
+        WriteAdditional(track, keys.ReplayGainTrackGain, FormatGain(tags.ReplayGainTrackGainDb));
+        WriteAdditional(track, keys.ReplayGainTrackPeak, FormatPeak(tags.ReplayGainTrackPeak));
+
         if (tags.FrontCover is { Length: > 0 } cover)
         {
             track.EmbeddedPictures.Clear();
@@ -344,6 +446,8 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         AddString(values, "ReleaseStatus", GetAdditional(track, keys.ReleaseStatus));
         AddString(values, "AcoustId", GetAdditional(track, keys.AcoustId));
         AddString(values, "Compilation", GetAdditional(track, keys.Compilation));
+        AddString(values, "ReplayGainTrackGain", GetAdditional(track, keys.ReplayGainTrackGain));
+        AddString(values, "ReplayGainTrackPeak", GetAdditional(track, keys.ReplayGainTrackPeak));
 
         // MP4's covr atom carries no picture type, so ATL reports it as Generic; the embed is verified by
         // the byte count of the single picture the writer left behind rather than by its type.
@@ -398,6 +502,9 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
             expected["Compilation"] = "1";
         }
 
+        AddString(expected, "ReplayGainTrackGain", FormatGain(tags.ReplayGainTrackGainDb));
+        AddString(expected, "ReplayGainTrackPeak", FormatPeak(tags.ReplayGainTrackPeak));
+
         if (tags.FrontCover is { Length: > 0 } cover)
         {
             AddNumber(expected, "FrontCover", cover.Length);
@@ -431,7 +538,9 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         string? OriginalDate,
         bool OriginalDateViaProperty,
         MetaDataIOFactory.TagType CoverTagType,
-        string? CoverNativeCode);
+        string? CoverNativeCode,
+        string ReplayGainTrackGain = "REPLAYGAIN_TRACK_GAIN",
+        string ReplayGainTrackPeak = "REPLAYGAIN_TRACK_PEAK");
 
     internal static readonly FormatKeys Id3Keys = new(
         Artists: "ARTISTS",
@@ -489,6 +598,18 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
             ".flac" or ".opus" or ".ogg" or ".oga" => VorbisKeys,
             _ => throw new NotSupportedException("The file's format is not one of MP3, FLAC, Opus or M4A."),
         };
+
+    /// <summary>A track gain as ReplayGain readers expect it: invariant culture, signed, two decimals, <c>-8.52 dB</c>.</summary>
+    internal static string? FormatGain(double? gainDb) =>
+        gainDb is { } gain && double.IsFinite(gain)
+            ? gain.ToString("+0.00;-0.00;+0.00", CultureInfo.InvariantCulture) + " dB"
+            : null;
+
+    /// <summary>A true peak as a linear value with six decimals, <c>1.047129</c>.</summary>
+    internal static string? FormatPeak(double? peak) =>
+        peak is { } value && double.IsFinite(value) && value >= 0
+            ? value.ToString("0.000000", CultureInfo.InvariantCulture)
+            : null;
 
     private static void WriteAdditional(Track track, string? key, string? value)
     {
