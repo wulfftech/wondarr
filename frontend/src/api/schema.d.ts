@@ -5240,6 +5240,7 @@ export interface components {
             plexSectionId: null | string;
             plexLibraryPath: null | string;
             isDefault: boolean;
+            replayGain?: null | boolean;
         };
         LogFileResource: {
             /** Format: int64 */

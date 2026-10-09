@@ -6636,6 +6636,12 @@
           },
           "isDefault": {
             "type": "boolean"
+          },
+          "replayGain": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
