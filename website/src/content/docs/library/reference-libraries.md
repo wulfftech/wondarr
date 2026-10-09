@@ -24,7 +24,7 @@ In both modes your files are only ever read. Deleting a reference library does n
 
 ## The scan
 
-The scheduled **Reference Library Scan** task runs every 24 hours, and **Scan now** in a library's menu runs it at once. It reads these file types: `.mp3`, `.flac`, `.m4a`, `.mp4`, `.aac`, `.ogg`, `.oga`, `.opus`, `.wav`, `.aif`, `.aiff`, `.wma`, `.ape` and `.wv`. A file whose size and modification time have not changed is not read again, so later scans are quick. A scan refuses to run (and changes nothing) if the folder is gone or looks like an unmounted share.
+The scheduled **Reference Library Scan** task runs every 24 hours, and **Scan now** in a library's menu runs it at once. It reads these file types: `.mp3`, `.flac`, `.m4a`, `.mp4`, `.aac`, `.ogg`, `.oga`, `.opus`, `.wav`, `.aif`, `.aiff`, `.wma`, `.ape` and `.wv`. A file whose size and modification time have not changed is not read again, so later scans are quick. Songs found in a reference library are added without being searched for, so scanning never starts a download. Scanning two libraries queues two scans; asking for the same library again while its scan is queued or running reuses that scan. A scan refuses to run (and changes nothing) if the folder is gone or looks like an unmounted share.
 
 ## How files are identified
 
