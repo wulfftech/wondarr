@@ -401,3 +401,5 @@ Pre-flight (2026-10-09): .NET SDK 10.0.401, Node 24.19.0, Python 3.14.3, `gh` si
 - *Not shown live:* SABnzbd (no usenet provider; CI covers it with the fake), ReplayGain on real files (unit- and fixture-tested; the switch is off by default).
 
 | P8-09 release gate | done (tag pending the owner) | orchestrator | — | — | Above. The tag itself waits for the owner's go-ahead |
+
+**Release (2026-10-09, the owner's choice: a pre-release first):** GitHub Pages turned on (the docs deploy succeeded; https://wulfftech.github.io/wondarr/ serves); **`v0.1.0-rc.1`** tagged at `64705f9` — image built (linux/amd64, linux/arm64), smoke passed natively on both, GitHub pre-release published with the 0.1.0 notes; `0.1.0-rc.1` on `ch01` reports its version. The final `v0.1.0` (which moves `:latest`) and the Unraid submission wait for the owner.

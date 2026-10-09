@@ -4,14 +4,14 @@
 
 Conceptually it is Sonarr/Radarr/Lidarr for **one song at a time** — which Lidarr cannot do, by design (its unit is the album).
 
-> **Status (2026-10-09):** every phase of the plan is built — Soulseek, YouTube Music, torrents and usenet, verified imports, upgrades, import lists, reference libraries, Plex, the mass editor. The first public release is being prepared. **User documentation: https://wulfftech.github.io/wondarr/** (sources in [`website/`](website/)).
+> **Status (2026-10-09):** every phase of the plan is built — Soulseek, YouTube Music, torrents and usenet, verified imports, upgrades, import lists, reference libraries, Plex, the mass editor. The release candidate **0.1.0-rc.1** is out (`ghcr.io/wulfftech/wondarr:0.1.0-rc.1`, [release notes](https://github.com/wulfftech/wondarr/releases/tag/v0.1.0-rc.1)); `:latest` follows once 0.1.0 is final. **User documentation: https://wulfftech.github.io/wondarr/** (sources in [`website/`](website/)).
 
 ## Quick start (Docker)
 
 ```yaml
 services:
   wondarr:
-    image: ghcr.io/wulfftech/wondarr:latest   # :develop follows the main branch
+    image: ghcr.io/wulfftech/wondarr:0.1.0-rc.1   # :latest once 0.1.0 is final; :develop follows main
     container_name: wondarr
     environment:
       - PUID=1000
