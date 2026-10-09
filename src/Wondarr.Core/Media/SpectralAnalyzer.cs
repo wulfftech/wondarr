@@ -31,6 +31,12 @@ public sealed partial class SpectralAnalyzer : ISpectralAnalyzer
     private const int WindowSeconds = 60;
     private const double StartFraction = 0.3;
 
+    /// <summary>The name every window file starts with, so leftovers can be found and removed.</summary>
+    internal const string TempPrefix = "wondarr-spectral-";
+
+    /// <summary>A window file older than this is a leftover (a crash, a file locked at delete time).</summary>
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromHours(1);
+
     private readonly IProcessRunner _runner;
     private readonly IOptionsMonitor<MediaToolsOptions> _tools;
     private readonly ILogger<SpectralAnalyzer> _logger;
@@ -53,10 +59,15 @@ public sealed partial class SpectralAnalyzer : ISpectralAnalyzer
     /// <inheritdoc />
     public async Task<SpectralVerdict> AnalyzeAsync(string path, int durationMs, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return Inconclusive();
+        }
 
         var options = _tools.CurrentValue;
-        var temp = Path.Combine(Path.GetTempPath(), "wondarr-spectral-" + Guid.NewGuid().ToString("N") + ".f32");
+        var temp = Path.Combine(Path.GetTempPath(), TempPrefix + Guid.NewGuid().ToString("N") + ".f32");
+
+        RemoveStaleWindows();
 
         try
         {
@@ -68,9 +79,16 @@ public sealed partial class SpectralAnalyzer : ISpectralAnalyzer
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            if (run.TimedOut || run.ExitCode != 0)
+            if (run.TimedOut)
             {
-                LogDecodeFailed(_logger, path, run.TimedOut ? -1 : run.ExitCode, LastLine(run.StandardError));
+                LogDecodeFailed(_logger, path, run.ExitCode, "ffmpeg timed out");
+
+                return Inconclusive();
+            }
+
+            if (run.ExitCode != 0)
+            {
+                LogDecodeFailed(_logger, path, run.ExitCode, LastLine(run.StandardError));
 
                 return Inconclusive();
             }
@@ -96,8 +114,10 @@ public sealed partial class SpectralAnalyzer : ISpectralAnalyzer
         {
             throw;
         }
-        catch (Exception exception) when (exception is MediaToolMissingException or IOException or UnauthorizedAccessException)
+        catch (Exception exception)
         {
+            // The check must never turn into a failed import: whatever went wrong (no ffmpeg, a
+            // read-only temp folder, a process that would not start), the file is not judged.
             LogDecodeFailed(_logger, path, -1, exception.Message);
 
             return Inconclusive();
@@ -159,6 +179,30 @@ public sealed partial class SpectralAnalyzer : ISpectralAnalyzer
         var lines = standardError.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         return lines.Length == 0 ? "no error output" : lines[^1];
+    }
+
+    /// <summary>Removes window files an earlier check could not delete (best effort, never throws).</summary>
+    private static void RemoveStaleWindows()
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow - StaleAfter;
+            foreach (var file in Directory.EnumerateFiles(Path.GetTempPath(), TempPrefix + "*.f32"))
+            {
+                if (File.GetLastWriteTimeUtc(file) < cutoff)
+                {
+                    TryDelete(file);
+                }
+            }
+        }
+        catch (IOException)
+        {
+            // The temp folder could not be listed: nothing to clean up now.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // As above.
+        }
     }
 
     private static void TryDelete(string path)

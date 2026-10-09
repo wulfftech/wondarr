@@ -12,7 +12,7 @@ namespace Wondarr.Core.Tests.Importing;
 
 /// <summary>
 /// The fake-lossless check of the import (P8-01): a lossless download whose spectrum stops below
-/// 20 kHz is refused and blocklisted for the song, so the next candidate is tried.
+/// 19.5 kHz is refused and blocklisted for the song, so the next candidate is tried.
 /// </summary>
 public sealed class ImportServiceFakeLosslessTests
 {
