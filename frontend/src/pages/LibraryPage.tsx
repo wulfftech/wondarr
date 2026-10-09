@@ -2,13 +2,9 @@ import {
   Alert,
   Badge,
   Button,
-  Center,
   Checkbox,
   Group,
-  Image,
   Menu,
-  Modal,
-  Radio,
   SegmentedControl,
   Select,
   Stack,
@@ -17,29 +13,23 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
-import { CircleAlert, Disc3, EllipsisVertical, Plus, Search, X } from 'lucide-react';
+import { CircleAlert, EllipsisVertical, Plus, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useSongAlbum, type AlbumRefResource } from '../api/albums';
 import { filterEntries, useCustomFilters, type CustomFilterResource } from '../api/customFilters';
 import { firstPage, type Paging } from '../api/paging';
 import { readEnum, useLibraries, useQualityProfiles } from '../api/profiles';
-import {
-  useAlbumOptions,
-  useArtists,
-  useDeleteSong,
-  useSetAlbum,
-  useSongs,
-  useUpdateSong,
-  type AlbumOptionResource,
-  type SongResource,
-} from '../api/songs';
+import { useArtists, useSongs, useUpdateSong, type SongResource } from '../api/songs';
 import { useTags } from '../api/tags';
 import { SongSearchButtons } from '../components/InteractiveSearchModal';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
-import { ConvertSongModal, MoveSongModal } from './SongActionModals';
+import { ChangeAlbumModal } from '../components/song/ChangeAlbumModal';
+import { ConvertSongModal } from '../components/song/ConvertSongModal';
+import { DeleteSongModal } from '../components/song/DeleteSongModal';
+import { MoveSongModal } from '../components/song/MoveSongModal';
+import { SongLink } from '../components/song/SongLink';
 import { initCaps } from '../components/text';
 import {
   fromViewEntries,
@@ -105,7 +95,7 @@ function AlbumCell({ song }: { song: SongResource }) {
 function TitleCell({ song }: { song: SongResource }) {
   return (
     <Group gap={6} wrap="nowrap">
-      <Text size="sm">{song.title}</Text>
+      <SongLink songId={song.id}>{song.title}</SongLink>
       {song.versionFlags.map((flag) => (
         <Badge key={flag} variant="light" size="xs" color="grape">
           {initCaps(flag)}
@@ -301,216 +291,6 @@ function SongMenu({
   );
 }
 
-/** The song's track position on an album option, as the dialog words it. */
-function trackText(option: AlbumOptionResource): string | null {
-  const parts: string[] = [];
-
-  if (option.trackNo != null && option.totalTracks != null) {
-    parts.push(`Track ${option.trackNo} of ${option.totalTracks}`);
-  } else if (option.totalTracks != null) {
-    parts.push(`${option.totalTracks} tracks`);
-  }
-
-  if (option.discNo != null && Number(option.discNo) > 1) {
-    parts.push(`disc ${option.discNo}`);
-  }
-
-  return parts.length > 0 ? parts.join(' · ') : null;
-}
-
-/** The release year, with the first-release year when it differs: `2004 · first released 1999`. */
-function dateText(option: AlbumOptionResource): string | null {
-  if (option.date == null) {
-    return null;
-  }
-
-  const released = option.date.slice(0, 4);
-  const original = option.originalDate?.slice(0, 4);
-
-  return original != null && original !== '' && original !== released
-    ? `${released} · first released ${original}`
-    : released;
-}
-
-/** A 64 px album cover, lazy-loaded, with a neutral placeholder when there is none or it fails. */
-function AlbumCover({ url }: { url: string | null | undefined }) {
-  const [failed, setFailed] = useState(false);
-
-  if (url == null || url === '' || failed) {
-    return (
-      <Center w={64} h={64} bg="var(--mantine-color-default-hover)" style={{ borderRadius: 4, flexShrink: 0 }}>
-        <Disc3 size={32} aria-hidden />
-      </Center>
-    );
-  }
-
-  return (
-    <Image
-      src={url}
-      alt=""
-      w={64}
-      h={64}
-      radius="sm"
-      fit="cover"
-      loading="lazy"
-      style={{ flexShrink: 0 }}
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-/** One row of the album picker: cover, title, album artist, badges and the song's place on it. */
-function AlbumOptionLabel({ option }: { option: AlbumOptionResource }) {
-  const isCompilation = option.isVariousArtists === true || option.secondaryTypes.includes('Compilation');
-  const track = trackText(option);
-  const date = dateText(option);
-  const details = [track, date].filter((part) => part !== null).join(' · ');
-
-  return (
-    <Group component="span" gap="sm" wrap="nowrap" align="flex-start">
-      <AlbumCover url={option.coverUrl} />
-      <Stack component="span" gap={2}>
-        <Text component="span" size="sm" fw={700}>
-          {option.title}
-        </Text>
-        <Text component="span" size="xs" c="dimmed">
-          by {option.albumArtist}
-        </Text>
-        <Group component="span" gap={6}>
-          {isCompilation && (
-            <Badge size="xs" variant="light" color="grape">
-              Compilation
-            </Badge>
-          )}
-          {option.primaryType !== null && (
-            <Badge size="xs" variant="light">
-              {initCaps(option.primaryType)}
-            </Badge>
-          )}
-          {option.secondaryTypes
-            .filter((type) => type !== 'Compilation')
-            .map((type) => (
-              <Badge key={type} size="xs" variant="light">
-                {initCaps(type)}
-              </Badge>
-            ))}
-          {option.status !== null && option.status !== 'Official' && (
-            <Badge size="xs" variant="light" color="yellow">
-              {option.status}
-            </Badge>
-          )}
-        </Group>
-        {details !== '' && (
-          <Text component="span" size="xs" c="dimmed">
-            {details}
-          </Text>
-        )}
-      </Stack>
-    </Group>
-  );
-}
-
-/** The album picker: the releases a song could be filed under, and its artist's Singles album. */
-function ChangeAlbumModal({
-  song,
-  opened,
-  onClose,
-}: {
-  song: SongResource | null;
-  opened: boolean;
-  onClose: () => void;
-}) {
-  const options = useAlbumOptions(opened && song !== null ? Number(song.id) : null);
-  const setAlbum = useSetAlbum();
-  const isPhone = useMediaQuery('(max-width: 48em)');
-
-  const current = (options.data ?? []).find((option) => option.isCurrent)?.key ?? null;
-
-  const choose = (key: string | null) => {
-    if (key === null || song === null || key === current) {
-      return;
-    }
-
-    setAlbum.mutate({ id: Number(song.id), albumKey: key }, { onSuccess: onClose });
-  };
-
-  return (
-    <Modal opened={opened} onClose={onClose} title="Change album" size="min(900px, 100%)" fullScreen={isPhone}>
-      <Stack gap="md">
-        {options.isPending && (
-          <Text size="sm" c="dimmed">
-            Loading the album options…
-          </Text>
-        )}
-
-        {options.error !== null && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            {options.error.message}
-          </Alert>
-        )}
-
-        {setAlbum.error !== null && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            {setAlbum.error.message}
-          </Alert>
-        )}
-
-        <Radio.Group value={current} onChange={choose}>
-          <Stack gap="md">
-            {(options.data ?? []).map((option) => (
-              <Radio key={option.key} value={option.key} label={<AlbumOptionLabel option={option} />} />
-            ))}
-          </Stack>
-        </Radio.Group>
-      </Stack>
-    </Modal>
-  );
-}
-
-/** The confirmation before a song leaves the library. */
-function DeleteSongModal({
-  song,
-  opened,
-  onClose,
-}: {
-  song: SongResource | null;
-  opened: boolean;
-  onClose: () => void;
-}) {
-  const remove = useDeleteSong();
-
-  return (
-    <Modal opened={opened} onClose={onClose} title="Delete song">
-      <Stack gap="md">
-        <Text size="sm">Delete “{song?.title ?? ''}” from the library? Any downloaded file is left where it is.</Text>
-
-        {remove.error !== null && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            {remove.error.message}
-          </Alert>
-        )}
-
-        <Group justify="flex-end">
-          <Button variant="default" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            color="red"
-            loading={remove.isPending}
-            onClick={() => {
-              if (song !== null) {
-                remove.mutate(Number(song.id), { onSuccess: onClose });
-              }
-            }}
-          >
-            Delete
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  );
-}
-
 const FILE_OPTIONS: { value: FileFilter; label: string }[] = [
   { value: 'any', label: 'Any file state' },
   { value: 'has', label: 'Has a file' },
@@ -525,9 +305,12 @@ const CUTOFF_OPTIONS: { value: CutoffFilter; label: string }[] = [
 
 export function LibraryPage() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const [filters, setFilters] = useState<LibraryFilters>(() => ({ ...NO_FILTERS, artistId: params.get('artistId') }));
-  const [termInput, setTermInput] = useState('');
+  const [params, setParams] = useSearchParams();
+  // The filters live in the URL, so coming back from a song's page (or reloading) finds them again.
+  const [filters, setFilters] = useState<LibraryFilters>(() =>
+    fromViewEntries([...params.entries()].map(([key, value]) => ({ key, value }))),
+  );
+  const [termInput, setTermInput] = useState(filters.term);
   const [activeViewId, setActiveViewId] = useState<number | null>(null);
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
@@ -535,6 +318,20 @@ export function LibraryPage() {
   const [dialog, setDialog] = useState<{ song: SongResource; kind: 'album' | 'delete' | 'move' | 'convert' } | null>(
     null,
   );
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+
+    for (const { key, value } of toViewEntries(filters)) {
+      next.set(key, value);
+    }
+
+    if (next.toString() !== params.toString()) {
+      setParams(next, { replace: true });
+    }
+    // Only a change of filters writes the URL; the URL itself is read once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   const artists = useArtists();
   const libraries = useLibraries();

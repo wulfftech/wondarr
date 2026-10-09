@@ -61,6 +61,7 @@ describe('WantedPage', () => {
     renderApp();
 
     expect(await screen.findByText('Teardrop')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Teardrop' })).toHaveAttribute('href', '/song/1');
     // Mantine's test environment renders without portals and transitions, so the same row text can
     // appear more than once in the document; what matters is that it is shown.
     for (const text of ['Massive Attack', 'Mezzanine', '6:09', 'Standard 320']) {

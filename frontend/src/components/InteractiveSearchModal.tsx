@@ -265,16 +265,28 @@ export function SongSearchButtons({ songId, title, artistCredit, durationMs = nu
   );
 }
 
-/** The interactive search's result table, its row actions and its confirmation. */
-export function InteractiveSearchModal({
+export interface InteractiveSearchPanelProps {
+  /** The song to search for. */
+  songId: number | null;
+  /** Whether the search runs; each time this turns on, a fresh search starts. */
+  active: boolean;
+  /** The song's own length in milliseconds, for the length highlight. */
+  songDurationMs?: number | null;
+  /** Called after a candidate was grabbed. */
+  onGrabbed: () => void;
+}
+
+/**
+ * The interactive search's result table, its row actions and its confirmation, without a frame: the
+ * dialog wraps it for the song tables, and the song page shows it inline under the header.
+ */
+export function InteractiveSearchPanel({
   songId,
-  songTitle,
-  artistCredit,
-  opened,
-  onClose,
+  active,
   songDurationMs = null,
-}: InteractiveSearchModalProps) {
-  const query = useInteractiveSearch(songId, opened);
+  onGrabbed,
+}: InteractiveSearchPanelProps) {
+  const query = useInteractiveSearch(songId, active);
   const grab = useGrabRelease();
   const [expanded, setExpanded] = useState<number | null>(null);
   const [confirming, setConfirming] = useState<ReleaseResource | null>(null);
@@ -284,7 +296,7 @@ export function InteractiveSearchModal({
       onSuccess: () => {
         notifications.show({ message: `Grabbed ${release.displayName}`, color: 'green' });
         setConfirming(null);
-        onClose();
+        onGrabbed();
       },
       onError: (error: Error) => {
         notifications.show({
@@ -310,102 +322,100 @@ export function InteractiveSearchModal({
 
   return (
     <>
-      <Modal opened={opened} onClose={onClose} size="xl" title={`Interactive search — ${songTitle} · ${artistCredit}`}>
-        <Stack gap="md">
-          {query.isPending && (
-            <LoadingState label="Searching Soulseek… this can take up to a minute when the search budget is busy" />
-          )}
+      <Stack gap="md">
+        {query.isPending && (
+          <LoadingState label="Searching Soulseek… this can take up to a minute when the search budget is busy" />
+        )}
 
-          {query.error !== null && <ErrorState message={query.error.message} />}
+        {query.error !== null && <ErrorState message={query.error.message} />}
 
-          {query.data !== undefined && (
-            <Text size="sm" c="dimmed">
-              {summaryLine(query.data)}
-            </Text>
-          )}
+        {query.data !== undefined && (
+          <Text size="sm" c="dimmed">
+            {summaryLine(query.data)}
+          </Text>
+        )}
 
-          {query.data !== undefined && releases.length === 0 && (
-            <EmptyState message="No candidate came back for this song." />
-          )}
+        {query.data !== undefined && releases.length === 0 && (
+          <EmptyState message="No candidate came back for this song." />
+        )}
 
-          {releases.length > 0 && (
-            <Table.ScrollContainer minWidth={900}>
-              <Table highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th w={80}>Score</Table.Th>
-                    <Table.Th>File</Table.Th>
-                    <Table.Th w={150}>Peer</Table.Th>
-                    <Table.Th w={110}>Quality</Table.Th>
-                    <Table.Th w={100}>Size</Table.Th>
-                    <Table.Th w={80}>Length</Table.Th>
-                    <Table.Th>Rejections</Table.Th>
-                    <Table.Th w={90} />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {releases.map((release) => {
-                    const id = Number(release.candidateId);
-                    const open = expanded === id;
+        {releases.length > 0 && (
+          <Table.ScrollContainer minWidth={900}>
+            <Table highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th w={80}>Score</Table.Th>
+                  <Table.Th>File</Table.Th>
+                  <Table.Th w={150}>Peer</Table.Th>
+                  <Table.Th w={110}>Quality</Table.Th>
+                  <Table.Th w={100}>Size</Table.Th>
+                  <Table.Th w={80}>Length</Table.Th>
+                  <Table.Th>Rejections</Table.Th>
+                  <Table.Th w={90} />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {releases.map((release) => {
+                  const id = Number(release.candidateId);
+                  const open = expanded === id;
 
-                    return (
-                      <Fragment key={id}>
-                        <Table.Tr
-                          onClick={() => setExpanded(open ? null : id)}
-                          aria-expanded={open}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <Table.Td>
-                            <ScoreBadge release={release} />
-                          </Table.Td>
-                          <Table.Td>
-                            <Tooltip label={release.remotePath} multiline w={420}>
-                              <Text size="sm">{release.displayName}</Text>
-                            </Tooltip>
-                          </Table.Td>
-                          <Table.Td>
-                            <PeerCell release={release} />
-                          </Table.Td>
-                          <Table.Td>{release.qualityName ?? `#${release.qualityId}`}</Table.Td>
-                          <Table.Td>{formatMegabytes(release.sizeBytes)}</Table.Td>
-                          <Table.Td>
-                            <LengthCell release={release} songDurationMs={songDurationMs} />
-                          </Table.Td>
-                          <Table.Td>
-                            <RejectionCell release={release} />
-                          </Table.Td>
-                          <Table.Td>
-                            <Button
-                              size="compact-sm"
-                              variant={release.accepted ? 'filled' : 'light'}
-                              loading={grab.isPending && grab.variables === id}
-                              aria-label={`Grab ${release.displayName}`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onGrabClick(release);
-                              }}
-                            >
-                              Grab
-                            </Button>
+                  return (
+                    <Fragment key={id}>
+                      <Table.Tr
+                        onClick={() => setExpanded(open ? null : id)}
+                        aria-expanded={open}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <Table.Td>
+                          <ScoreBadge release={release} />
+                        </Table.Td>
+                        <Table.Td>
+                          <Tooltip label={release.remotePath} multiline w={420}>
+                            <Text size="sm">{release.displayName}</Text>
+                          </Tooltip>
+                        </Table.Td>
+                        <Table.Td>
+                          <PeerCell release={release} />
+                        </Table.Td>
+                        <Table.Td>{release.qualityName ?? `#${release.qualityId}`}</Table.Td>
+                        <Table.Td>{formatMegabytes(release.sizeBytes)}</Table.Td>
+                        <Table.Td>
+                          <LengthCell release={release} songDurationMs={songDurationMs} />
+                        </Table.Td>
+                        <Table.Td>
+                          <RejectionCell release={release} />
+                        </Table.Td>
+                        <Table.Td>
+                          <Button
+                            size="compact-sm"
+                            variant={release.accepted ? 'filled' : 'light'}
+                            loading={grab.isPending && grab.variables === id}
+                            aria-label={`Grab ${release.displayName}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onGrabClick(release);
+                            }}
+                          >
+                            Grab
+                          </Button>
+                        </Table.Td>
+                      </Table.Tr>
+
+                      {open && (
+                        <Table.Tr>
+                          <Table.Td colSpan={8}>
+                            <Breakdown breakdown={release.scoreBreakdown} />
                           </Table.Td>
                         </Table.Tr>
-
-                        {open && (
-                          <Table.Tr>
-                            <Table.Td colSpan={8}>
-                              <Breakdown breakdown={release.scoreBreakdown} />
-                            </Table.Td>
-                          </Table.Tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          )}
-        </Stack>
-      </Modal>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        )}
+      </Stack>
 
       <Modal opened={confirming !== null} onClose={() => setConfirming(null)} title="Grab a rejected candidate">
         <Stack gap="md">
@@ -435,5 +445,21 @@ export function InteractiveSearchModal({
         </Stack>
       </Modal>
     </>
+  );
+}
+
+/** The interactive search in a dialog, as the song tables open it. */
+export function InteractiveSearchModal({
+  songId,
+  songTitle,
+  artistCredit,
+  opened,
+  onClose,
+  songDurationMs = null,
+}: InteractiveSearchModalProps) {
+  return (
+    <Modal opened={opened} onClose={onClose} size="xl" title={`Interactive search — ${songTitle} · ${artistCredit}`}>
+      <InteractiveSearchPanel songId={songId} active={opened} songDurationMs={songDurationMs} onGrabbed={onClose} />
+    </Modal>
   );
 }
