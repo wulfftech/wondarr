@@ -5,9 +5,14 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 ## [Unreleased]
 
 ### Added
+- **A wider Change album dialog.** Each album shows its cover, its own artist (a compilation reads "by Various Artists" with a Compilation badge), the track number, and the release and first-release years.
+- **The data behind a song page** in the API: the file in full (sample rate, bit depth, ReplayGain, AcoustID, where it came from), `GET /song/{id}/details` (the releases it appears on, MusicBrainz and Deezer facts including BPM), `GET /song/{id}/lyrics`, and `songId` filters on the queue and blocklist.
 - **Create your login on the login page.** With `auth: forms` and no login yet, the login page asks for one (username, password twice) instead of a sign-in form that can never succeed; from the local network only, and it signs you in.
 
 ### Fixed
+- **The Match queue writes songs as `Artist - Title`**, like everywhere else, and shows the top candidate's length difference in its own **Δ Length** column.
+- **Pressing Add on one search result no longer spins every Add button**, and an error shows on the row that failed.
+- **The Tasks page's Task column is only as wide as its longest name.**
 - **A reference library scan no longer downloads songs you already own.** Songs found in a reference library were being searched for (and grabbed again) the moment they were added, because the search ran before their file was recorded. They are now added without a search, and a song a reference file identifies is skipped by the missing-song search and left out of Wanted. A song whose file goes missing is wanted again, as before.
 - **Scanning a second reference library is no longer swallowed by the first scan.** Starting a scan while another library's scan was queued or running returned the other scan and never scanned the library you asked for. A queued command is now reused only when it is the same command with the same settings, so two libraries queue two scans.
 
