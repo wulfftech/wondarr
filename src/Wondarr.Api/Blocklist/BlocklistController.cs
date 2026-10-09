@@ -27,13 +27,16 @@ public sealed class BlocklistController : ControllerBase
     }
 
     /// <summary>Lists blocked candidates, newest first by default.</summary>
+    /// <param name="songId">Only the entries recorded for this song; omitted means every entry.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     [HttpGet]
     [Produces("application/json")]
-    public async Task<ActionResult<PagingResource<BlocklistResource>>> GetBlocklist(CancellationToken cancellationToken)
+    public async Task<ActionResult<PagingResource<BlocklistResource>>> GetBlocklist(
+        long? songId,
+        CancellationToken cancellationToken)
     {
         var paging = Request.ToPagingSpec();
-        var page = await _blocklist.GetPageAsync(paging, cancellationToken).ConfigureAwait(false);
+        var page = await _blocklist.GetPageAsync(paging, songId, cancellationToken).ConfigureAwait(false);
 
         return Ok(page.ToPagingResource(paging, DefaultSortKey, item => item.ToResource()));
     }

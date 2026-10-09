@@ -52,15 +52,21 @@ function queueQuery(values: Record<string, string | number | boolean>): never {
   return values as never;
 }
 
-/** The grabs Wondarr is tracking, newest first. */
-export function useQueue(paging: Paging, includeFinished: boolean): UseQueryResult<QueuePage, Error> {
+/** The grabs Wondarr is tracking, newest first; `songId` limits them to one song's. */
+export function useQueue(paging: Paging, includeFinished: boolean, songId?: number): UseQueryResult<QueuePage, Error> {
   const client = useApiClient();
 
   return useQuery({
-    queryKey: [...QUEUE_QUERY_KEY, 'list', paging, includeFinished],
+    queryKey: [...QUEUE_QUERY_KEY, 'list', paging, includeFinished, songId ?? null],
     queryFn: async (): Promise<QueuePage> => {
       const { data, response } = await client.GET('/api/v1/queue', {
-        params: { query: queueQuery({ ...pagingValues(paging), includeFinished }) },
+        params: {
+          query: queueQuery({
+            ...pagingValues(paging),
+            includeFinished,
+            ...(songId === undefined ? {} : { songId }),
+          }),
+        },
       });
 
       if (!response.ok || data === undefined) {
