@@ -58,15 +58,17 @@ public sealed class QueueController : ControllerBase
     /// Whether imported, failed and cancelled items are on the page too; the default shows only what
     /// is still in flight, which is what the UI's Activity page wants.
     /// </param>
+    /// <param name="songId">Only the grabs made for this song; omitted means every song.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     [HttpGet]
     [Produces("application/json")]
     public async Task<ActionResult<PagingResource<QueueResource>>> GetQueue(
         bool includeFinished = false,
+        long? songId = null,
         CancellationToken cancellationToken = default)
     {
         var paging = Request.ToPagingSpec();
-        var page = await _queue.GetPageAsync(paging, includeFinished, cancellationToken).ConfigureAwait(false);
+        var page = await _queue.GetPageAsync(paging, includeFinished, songId, cancellationToken).ConfigureAwait(false);
         var qualityNames = await QualityNamesAsync(cancellationToken).ConfigureAwait(false);
 
         return Ok(page.ToPagingResource(paging, DefaultSortKey, item => item.ToResource(qualityNames)));
