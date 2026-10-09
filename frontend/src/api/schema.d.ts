@@ -5587,6 +5587,8 @@ export interface components {
             /** Format: int64 */
             artistId: null | number | string;
             statusMessages: string[];
+            releaseTitle: null | string;
+            containerFile: null | string;
         };
         QueueStatusResource: {
             /** Format: int32 */

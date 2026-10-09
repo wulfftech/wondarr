@@ -15,11 +15,7 @@ import type { components } from './schema';
  * and — for one song — every candidate a search saw, with the score and the reasons behind it.
  */
 
-export type QueueResource = components['schemas']['QueueResource'] & {
-  // generated at merge: the container grab's release and the file inside it (null for a single-file source)
-  releaseTitle?: string | null;
-  containerFile?: string | null;
-};
+export type QueueResource = components['schemas']['QueueResource'];
 export type QueuePage = components['schemas']['PagingResourceOfQueueResource'];
 export type QueueStatusResource = components['schemas']['QueueStatusResource'];
 export type InteractiveSearchResource = components['schemas']['InteractiveSearchResource'];
