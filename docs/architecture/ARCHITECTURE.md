@@ -142,7 +142,7 @@ Notifier
 | Reference library scan | daily + on demand | Detects new/changed files; identification pipeline; feeds the Match queue |
 | Compact library | on demand | Re-plans album assignments under the `fewest_albums` policy and applies moves with the Plex scan/empty-trash sequence |
 | Metadata refresh | weekly | Re-pull cover/ISRC/durations for songs missing them |
-| Housekeeping | daily | Vacuum, expire blocklist entries, prune old candidates/search runs |
+| Housekeeping | daily | Deletes finished commands older than 7 days; search runs older than 30 days with their candidates (never a run or candidate a queue item or a held file's `source_ref` references); expired blocklist rows; runs the recycle bin cleanup (`import.recycle_bin_cleanup_days`); checkpoints the WAL and `VACUUM`s only when over a quarter of the file (and over 1 000 pages) is free. History is never pruned |
 | Health checks | every 15 min | slskd reachable & logged in; clients reachable; root folders writable; yt-dlp up to date |
 | Backup | weekly (`backup.interval_days`, default 7) | The `Backup` command: a zip of `wondarr.db` (SQLite's online backup API, never a copy of the live WAL file) and `config.yml` under `/config/backups/{scheduled,manual}`; scheduled backups older than `backup.retention_days` (default 28) are deleted, manual ones never |
 

@@ -182,7 +182,12 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
         return true;
     }
 
-    private static bool HasHandler(IServiceProvider services, string name) =>
-        services.GetServices<ICommandHandler>()
-            .Any(handler => string.Equals(handler.Name, name, StringComparison.OrdinalIgnoreCase));
+    private static bool HasHandler(IServiceProvider services, string name)
+    {
+        var lookup = CommandHandlerResolver.Find(services, name);
+
+        // A handler that cannot be built has an unknown name, so it might be this one: queue the
+        // command and let the executor fail it with the reason, rather than refusing every command.
+        return lookup.Handler is not null || lookup.Failures.Count > 0;
+    }
 }
