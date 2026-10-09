@@ -11,7 +11,9 @@ internal static class LoginPage
     private const string FormActionToken = "__FORM_ACTION__";
     private const string IconToken = "__ICON__";
     private const string ErrorToken = "__ERROR__";
-    private const string HintToken = "__HINT__";
+    private const string HeadingToken = "__HEADING__";
+    private const string BodyToken = "__BODY__";
+    private const string UsernameToken = "__USERNAME__";
 
     private const string Template = """
         <!DOCTYPE html>
@@ -39,8 +41,15 @@ internal static class LoginPage
         </head>
         <body>
         <main>
-        <h1>Wondarr</h1>
+        <h1>__HEADING__</h1>
         __ERROR__
+        __BODY__
+        </main>
+        </body>
+        </html>
+        """;
+
+    private const string SignInForm = """
         <form method="post" action="__FORM_ACTION__">
         <label for="username">Username</label>
         <input id="username" name="username" type="text" autocomplete="username" autofocus>
@@ -49,35 +58,109 @@ internal static class LoginPage
         <label class="remember"><input type="checkbox" name="rememberMe"> Remember me</label>
         <button type="submit">Log in</button>
         </form>
-        __HINT__
-        </main>
-        </body>
-        </html>
         """;
 
+    private const string CreateForm = """
+        <form method="post" action="__FORM_ACTION__">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" value="__USERNAME__" autofocus>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password">
+        <label for="passwordAgain">Password again</label>
+        <input id="passwordAgain" name="passwordAgain" type="password" autocomplete="new-password">
+        <label class="remember"><input type="checkbox" name="rememberMe"> Remember me</label>
+        <button type="submit">Create login</button>
+        </form>
+        <p class="hint">No login exists yet. Choose the username and password you will sign in with.</p>
+        """;
+
+    private const string RemoteHint =
+        """<p class="hint">No login exists yet. Create it from a device on the same network as Wondarr, or under Settings → General.</p>""";
+
+    /// <summary>What <c>GET /login</c> shows, depending on whether a login exists and who is asking.</summary>
+    public enum Variant
+    {
+        /// <summary>The normal sign-in form.</summary>
+        SignIn,
+
+        /// <summary>No login exists and the caller is local: the create form.</summary>
+        Create,
+
+        /// <summary>No login exists and the caller is not local: an explanation and no form.</summary>
+        CreateFromLocalNetwork,
+    }
+
     /// <summary>Renders the page for the given URL base and state.</summary>
-    public static string Render(string urlBase, bool loginFailed, bool configured, string? returnUrl = null)
+    /// <param name="urlBase">The URL base the app is served under.</param>
+    /// <param name="loginFailed">Whether to show the "incorrect username or password" error.</param>
+    /// <param name="variant">Which of the three pages to render.</param>
+    /// <param name="returnUrl">An already validated local URL to land on after signing in.</param>
+    /// <param name="error">An error to show in place of the login-failed one.</param>
+    /// <param name="username">The username to keep filled in on the create form. A password is never echoed.</param>
+    /// <param name="notice">A plain notice to show above the sign-in form.</param>
+    public static string Render(
+        string urlBase,
+        bool loginFailed,
+        Variant variant,
+        string? returnUrl = null,
+        string? error = null,
+        string? username = null,
+        string? notice = null)
     {
         // Carry returnUrl through the form so a retry still lands on the page first asked for;
-        // POST /login re-validates it as a local URL before redirecting.
+        // POST /login and POST /login/setup re-validate it as a local URL before redirecting.
         var query = string.IsNullOrEmpty(returnUrl) ? string.Empty : $"?returnUrl={Uri.EscapeDataString(returnUrl)}";
-        var action = HtmlEncoder.Default.Encode($"{urlBase}/login{query}");
+        var encoder = HtmlEncoder.Default;
 
         // Named explicitly: a browser's own guess, /favicon.ico at the host root, misses under a URL base.
-        var icon = HtmlEncoder.Default.Encode($"{urlBase}/favicon.ico");
+        var icon = encoder.Encode($"{urlBase}/favicon.ico");
 
-        var error = loginFailed
-            ? """<p class="error">Incorrect username or password.</p>"""
-            : string.Empty;
+        var heading = "Wondarr";
+        string body;
 
-        var hint = configured
-            ? string.Empty
-            : """<p class="hint">No credentials are configured yet: set a username and password through the API, or in the app's settings.</p>""";
+        switch (variant)
+        {
+            case Variant.Create:
+                heading = "Create your login";
+                body = CreateForm
+                    .Replace(UsernameToken, encoder.Encode(username ?? string.Empty), StringComparison.Ordinal)
+                    .Replace(FormActionToken, encoder.Encode($"{urlBase}/login/setup{query}"), StringComparison.Ordinal);
+                break;
+            case Variant.CreateFromLocalNetwork:
+                heading = "Create your login";
+                body = RemoteHint;
+                break;
+            default:
+                body = SignInForm.Replace(FormActionToken, encoder.Encode($"{urlBase}/login{query}"), StringComparison.Ordinal);
 
+                if (!string.IsNullOrEmpty(notice))
+                {
+                    body = $"""<p class="hint">{encoder.Encode(notice)}</p>""" + body;
+                }
+
+                break;
+        }
+
+        string errorHtml;
+
+        if (!string.IsNullOrEmpty(error))
+        {
+            errorHtml = $"""<p class="error">{encoder.Encode(error)}</p>""";
+        }
+        else if (loginFailed)
+        {
+            errorHtml = """<p class="error">Incorrect username or password.</p>""";
+        }
+        else
+        {
+            errorHtml = string.Empty;
+        }
+
+        // The body goes in last so nothing a user typed is ever scanned for a token.
         return Template
-            .Replace(FormActionToken, action, StringComparison.Ordinal)
             .Replace(IconToken, icon, StringComparison.Ordinal)
-            .Replace(ErrorToken, error, StringComparison.Ordinal)
-            .Replace(HintToken, hint, StringComparison.Ordinal);
+            .Replace(HeadingToken, heading, StringComparison.Ordinal)
+            .Replace(ErrorToken, errorHtml, StringComparison.Ordinal)
+            .Replace(BodyToken, body, StringComparison.Ordinal);
     }
 }

@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **Create your login on the login page.** With `auth: forms` and no login yet, the login page asks for one (username, password twice) instead of a sign-in form that can never succeed; from the local network only, and it signs you in.
+
 ### Fixed
 - **A reference library scan no longer downloads songs you already own.** Songs found in a reference library were being searched for (and grabbed again) the moment they were added, because the search ran before their file was recorded. They are now added without a search, and a song a reference file identifies is skipped by the missing-song search and left out of Wanted. A song whose file goes missing is wanted again, as before.
 - **Scanning a second reference library is no longer swallowed by the first scan.** Starting a scan while another library's scan was queued or running returned the other scan and never scanned the library you asked for. A queued command is now reused only when it is the same command with the same settings, so two libraries queue two scans.

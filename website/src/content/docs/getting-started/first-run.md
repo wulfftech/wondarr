@@ -21,7 +21,9 @@ Authentication is set in the `server` section of `/config/config.yml`:
 
 Both can be set from the environment: `APP__SERVER__AUTH` and `APP__SERVER__AUTH_REQUIRED`.
 
-Set the login under **Settings → General → Security → Login**: a **Username** (at most 64 characters) and a **Password** of at least 8 characters, typed twice. Do it from your local network before you reach Wondarr from anywhere else; until a login exists, the login page says no credentials are configured.
+The first time you open the login page and no login exists yet, it asks you to **Create your login**: a username (at most 64 characters) and a password of at least 8 characters, typed twice. That form only appears on your local network (the same addresses as above, and never behind a reverse proxy); from anywhere else the page tells you to create the login from a device on the same network as Wondarr. Once a login exists the page is the normal sign-in form. A reverse proxy that does not add `X-Forwarded-For` makes every visitor look local, so create the login before you publish Wondarr through one.
+
+You can also set or change the login any time under **Settings → General → Security → Login**: a **Username** and a **Password**, typed twice. Do one or the other from your local network before you reach Wondarr from anywhere else.
 
 The same card shows the **API key** that tools such as Prowlarr, autobrr, Homepage and Unpackerr need: **Show** reveals it and the copy button copies it. (The login can also be set through the API: `PUT /api/v1/auth/user` with `{"username": …, "password": …}` and the API key.)
 
