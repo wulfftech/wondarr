@@ -1,0 +1,24 @@
+---
+title: Wondarr
+description: The *arr for single songs. Soulseek first, YouTube Music second, torrents and usenet last.
+---
+
+import { LinkCard } from '@astrojs/starlight/components';
+
+Wondarr is a self-hosted \*arr whose unit is one song, not an album. You tell it which recordings you want: one at a time, a pasted list, a playlist or your existing music folder. It looks for the best copy on Soulseek first (through a bundled slskd), then YouTube Music, then torrents and usenet. It checks that the file really is that recording (duration and an AcoustID fingerprint), tags it, files it into your library, and keeps looking for a better copy until your quality cutoff is met. The library layouts are Plexamp-friendly: a Plexamp preset keeps albums tidy so Plex does not split or rename them.
+
+<LinkCard
+  title="Get started"
+  description="Install Wondarr with Docker and sign in."
+  href="/wondarr/getting-started/install/"
+/>
+
+<LinkCard
+  title="End to end"
+  description="One walkthrough: a song from each source into a Plex library."
+  href="/wondarr/guides/end-to-end/"
+/>
+
+## Licence
+
+Wondarr is licensed under the GPL-3.0. The bundled slskd is redistributed unmodified under its own AGPL-3.0 licence. The source is at [github.com/wulfftech/wondarr](https://github.com/wulfftech/wondarr).
