@@ -40,6 +40,12 @@ public sealed class ImportOptions
     public string ContainerStagingPath { get; set; } = "/data/downloads/containers";
 
     /// <summary>
+    /// Whether a lossless download is checked for a lossy encoder's low-pass and refused when it has
+    /// one (<c>import.fake_lossless_check</c>: <c>reject</c> or <c>off</c>).
+    /// </summary>
+    public FakeLosslessCheck FakeLosslessCheck { get; set; } = FakeLosslessCheck.Reject;
+
+    /// <summary>
     /// The recycle bin directory actually used: the configured one, or <c>recycle</c> inside the
     /// configuration directory. Always absolute.
     /// </summary>
@@ -58,6 +64,16 @@ public sealed class ImportOptions
 
     /// <summary>Parses an octal mode string such as <c>0664</c> into a <see cref="UnixFileMode"/>.</summary>
     public static UnixFileMode ParseMode(string value) => (UnixFileMode)Convert.ToInt32(value, 8);
+}
+
+/// <summary>What the import does about a lossless file that was made from a lossy one.</summary>
+public enum FakeLosslessCheck
+{
+    /// <summary>Refuse the file and blocklist it for the song.</summary>
+    Reject,
+
+    /// <summary>Do not look.</summary>
+    Off,
 }
 
 /// <summary>

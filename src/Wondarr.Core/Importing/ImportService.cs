@@ -105,6 +105,8 @@ public sealed partial class ImportService : IImportService
     private readonly IDownloadVerifier _verifier;
     private readonly ITranscoder _transcoder;
     private readonly IMediaProbe _probe;
+    private readonly ISpectralAnalyzer _spectral;
+    private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly ILibraryOrganizer _organizer;
     private readonly ISongSearchService _search;
     private readonly IEventAggregator _events;
@@ -118,6 +120,8 @@ public sealed partial class ImportService : IImportService
     /// <param name="verifier">Decides whether the file is the wanted recording.</param>
     /// <param name="transcoder">Turns a download into the library's output policy target.</param>
     /// <param name="probe">Measures what a downloaded file really is, so the right rule is applied.</param>
+    /// <param name="spectral">Looks for a lossy encoder's low-pass in a lossless download.</param>
+    /// <param name="importOptions">Whether the fake-lossless check runs.</param>
     /// <param name="organizer">Tags, names and places the file, recycling what it replaces.</param>
     /// <param name="search">Grabs the next candidate when a file is refused.</param>
     /// <param name="events">Publishes the queue and import events.</param>
@@ -130,6 +134,8 @@ public sealed partial class ImportService : IImportService
         IDownloadVerifier verifier,
         ITranscoder transcoder,
         IMediaProbe probe,
+        ISpectralAnalyzer spectral,
+        IOptionsMonitor<ImportOptions> importOptions,
         ILibraryOrganizer organizer,
         ISongSearchService search,
         IEventAggregator events,
@@ -142,6 +148,8 @@ public sealed partial class ImportService : IImportService
         ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(transcoder);
         ArgumentNullException.ThrowIfNull(probe);
+        ArgumentNullException.ThrowIfNull(spectral);
+        ArgumentNullException.ThrowIfNull(importOptions);
         ArgumentNullException.ThrowIfNull(organizer);
         ArgumentNullException.ThrowIfNull(search);
         ArgumentNullException.ThrowIfNull(events);
@@ -154,6 +162,8 @@ public sealed partial class ImportService : IImportService
         _verifier = verifier;
         _transcoder = transcoder;
         _probe = probe;
+        _spectral = spectral;
+        _importOptions = importOptions;
         _organizer = organizer;
         _search = search;
         _events = events;
@@ -438,6 +448,35 @@ public sealed partial class ImportService : IImportService
 
             if (probed.Decodable && probed.Info is { } info)
             {
+                // A lossless container from a lossy source is refused before anything converts it
+                // (ADR-0006; DECISIONS build session 10 #2). Inconclusive and Genuine carry on.
+                if (info.IsLossless && _importOptions.CurrentValue.FakeLosslessCheck == FakeLosslessCheck.Reject)
+                {
+                    var verdict = await _spectral
+                        .AnalyzeAsync(downloadPath, info.DurationMs, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (verdict is { Outcome: SpectralOutcome.Lossy, CutoffHz: { } cutoff })
+                    {
+                        var reason = string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Fake lossless: the spectrum stops at {cutoff / 1000:0.0} kHz (a lossy source)");
+
+                        LogFakeLossless(_logger, item.Id, cutoff);
+
+                        return await RejectAsync(
+                                item,
+                                song,
+                                reason,
+                                reason,
+                                MeasuredQuality.FromMediaInfo(info),
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    LogSpectralVerdict(_logger, item.Id, verdict.Outcome, verdict.CutoffHz);
+                }
+
                 var rule = policy.RuleFor(item.SourceType, info.IsLossless);
 
                 // A file the rule keeps sets no source quality: the verifier measures it, and what
@@ -1511,6 +1550,12 @@ public sealed partial class ImportService : IImportService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the download {Path}: {Reason}")]
     private static partial void LogDeleteFailed(ILogger logger, string path, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Queue item {QueueItemId} is fake lossless: the spectrum stops at {CutoffHz} Hz")]
+    private static partial void LogFakeLossless(ILogger logger, long queueItemId, double cutoffHz);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Spectral check of queue item {QueueItemId}: {Outcome} (cutoff {CutoffHz} Hz)")]
+    private static partial void LogSpectralVerdict(ILogger logger, long queueItemId, SpectralOutcome outcome, double? cutoffHz);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The import of queue item {QueueItemId} failed")]
     private static partial void LogImportFailed(ILogger logger, long queueItemId, Exception exception);

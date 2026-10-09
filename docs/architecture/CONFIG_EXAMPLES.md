@@ -86,6 +86,7 @@ search:                                     # the scheduled search loops (§5.5)
   search_on_add: true                       # queue a SongSearch the moment a song is added
   max_container_size_mb: 1500               # a usenet post larger than this is rejected; a torrent downloads only its selected files
 import:
+  fake_lossless_check: reject               # reject | off: refuse a lossless file whose spectrum shows a lossy encoder's low-pass (an MP3 in a FLAC)
   container_staging_path: /data/downloads/containers  # a finished torrent file is hard-linked here (keep it on the client's filesystem), a usenet file moved here
 libraries:
   - name: Plexamp
