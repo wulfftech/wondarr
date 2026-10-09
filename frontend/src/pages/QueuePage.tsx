@@ -14,6 +14,7 @@ import {
   type RemoveQueueItemInput,
 } from '../api/queue';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
+import { SongLink } from '../components/song/SongLink';
 
 /** The queue: every grab in flight, how far it has got and why one failed (ARCHITECTURE §5.6). */
 
@@ -160,7 +161,7 @@ function queueColumns(
       sortKey: null,
       render: (item) => (
         <Stack gap={0}>
-          <Text size="sm">{item.songTitle}</Text>
+          <SongLink songId={item.songId}>{item.songTitle}</SongLink>
           <Text size="xs" c="dimmed">
             {item.artistCredit}
           </Text>
@@ -293,12 +294,12 @@ function ConfirmRemovalModal({
   );
 }
 
-/** The queue's table, its "show finished" toggle and its row-confirmation dialog. */
-export function QueuePage() {
+/** The queue's table (one song's with a `songId`), its "show finished" toggle and its row-confirmation dialog. */
+export function QueuePage({ songId }: { songId?: number } = {}) {
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [includeFinished, setIncludeFinished] = useState(false);
   const [pending, setPending] = useState<{ item: QueueResource; action: ConfirmableAction } | null>(null);
-  const query: UseQueryResult<QueuePageResource, Error> = useQueue(paging, includeFinished);
+  const query: UseQueryResult<QueuePageResource, Error> = useQueue(paging, includeFinished, songId);
   const remove = useRemoveQueueItem();
 
   const removeNow = (item: QueueResource) => remove.mutate({ id: Number(item.id), blocklist: false });
@@ -325,7 +326,9 @@ export function QueuePage() {
       </Group>
 
       <PagedTable
-        columns={queueColumns(removeNow, (item, action) => setPending({ item, action }))}
+        columns={queueColumns(removeNow, (item, action) => setPending({ item, action })).filter(
+          (column) => songId === undefined || column.label !== 'Song',
+        )}
         rows={query.data?.records ?? []}
         totalRecords={Number(query.data?.totalRecords ?? 0)}
         paging={paging}

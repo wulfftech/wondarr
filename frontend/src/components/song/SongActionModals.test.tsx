@@ -4,12 +4,13 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiProvider } from '../api/ApiProvider';
-import type { SongResource } from '../api/songs';
-import { HEALTH_ENTRIES, LIBRARIES, LIBRARY_SONGS, SYSTEM_STATUS } from '../test/fixtures';
-import { createTestConfig, installFetch, jsonResponse, type FetchMock } from '../test/helpers';
-import { theme } from '../theme/theme';
-import { ConvertSongModal, MoveSongModal } from './SongActionModals';
+import { ApiProvider } from '../../api/ApiProvider';
+import type { SongResource } from '../../api/songs';
+import { HEALTH_ENTRIES, LIBRARIES, LIBRARY_SONGS, SYSTEM_STATUS } from '../../test/fixtures';
+import { createTestConfig, installFetch, jsonResponse, type FetchMock } from '../../test/helpers';
+import { theme } from '../../theme/theme';
+import { ConvertSongModal } from './ConvertSongModal';
+import { MoveSongModal } from './MoveSongModal';
 
 /**
  * The two per-song modals the Library page's row menu opens, rendered on their own against a mocked

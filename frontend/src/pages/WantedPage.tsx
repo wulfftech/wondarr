@@ -8,6 +8,7 @@ import { useWantedCutoff, useWantedMissing, type SongPage, type SongResource } f
 import { SongSearchButtons } from '../components/InteractiveSearchModal';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
+import { SongLink } from '../components/song/SongLink';
 
 /** The two tabs of the Wanted page, and the route segment each one owns. */
 type WantedTab = 'missing' | 'cutoff';
@@ -55,7 +56,7 @@ function wantedColumns(profileNames: Map<string, string>, showCovers: boolean): 
 
   return [
     ...(showCovers ? [cover] : []),
-    { label: 'Title', sortKey: 'title', render: (song) => song.title },
+    { label: 'Title', sortKey: 'title', render: (song) => <SongLink songId={song.id}>{song.title}</SongLink> },
     { label: 'Artist', sortKey: 'artist', render: (song) => song.artistCredit },
     { label: 'Album', sortKey: null, render: (song) => song.albumContext?.albumTitle ?? '—' },
     { label: 'Duration', sortKey: null, width: 100, render: (song) => formatDuration(song.durationMs) },

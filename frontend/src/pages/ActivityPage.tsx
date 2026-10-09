@@ -17,6 +17,7 @@ import {
 } from '../api/wanted';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { formatDate } from '../components/SongCells';
+import { SongLink } from '../components/song/SongLink';
 import { QueuePage } from './QueuePage';
 import { initCaps } from '../components/text';
 
@@ -76,7 +77,7 @@ function historyColumns(qualityNames: Map<string, string>): PagedColumn<HistoryR
       sortKey: null,
       render: (item) => (
         <Stack gap={0}>
-          <Text size="sm">{item.song.title}</Text>
+          <SongLink songId={item.songId}>{item.song.title}</SongLink>
           <Text size="xs" c="dimmed">
             {item.song.artistCredit}
           </Text>
@@ -127,15 +128,16 @@ function blocklistColumns(onRemove: (item: BlocklistResource) => void): PagedCol
   ];
 }
 
-function HistoryTab() {
+/** The history log; with a `songId` it is that one song's, and the Song column drops out. */
+export function HistoryTab({ songId }: { songId?: number } = {}) {
   const [paging, setPaging] = useState<Paging>(() => firstPage());
-  const query: UseQueryResult<HistoryPage, Error> = useHistory(paging);
+  const query: UseQueryResult<HistoryPage, Error> = useHistory(paging, songId === undefined ? {} : { songId });
   const qualities = useQualityDefinitions();
   const qualityNames = new Map((qualities.data ?? []).map((quality) => [String(quality.id), quality.name]));
 
   return (
     <PagedTable
-      columns={historyColumns(qualityNames)}
+      columns={historyColumns(qualityNames).filter((column) => songId === undefined || column.label !== 'Song')}
       rows={query.data?.records ?? []}
       totalRecords={Number(query.data?.totalRecords ?? 0)}
       paging={paging}
@@ -148,10 +150,11 @@ function HistoryTab() {
   );
 }
 
-function BlocklistTab() {
+/** The blocklist; with a `songId` it is that one song's, and the Song column drops out. */
+export function BlocklistTab({ songId }: { songId?: number } = {}) {
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [pending, setPending] = useState<BlocklistResource | null>(null);
-  const query: UseQueryResult<BlocklistPage, Error> = useBlocklist(paging);
+  const query: UseQueryResult<BlocklistPage, Error> = useBlocklist(paging, songId);
   const remove = useDeleteBlocklistItem();
 
   const confirm = () => {
@@ -165,7 +168,7 @@ function BlocklistTab() {
   return (
     <>
       <PagedTable
-        columns={blocklistColumns(setPending)}
+        columns={blocklistColumns(setPending).filter((column) => songId === undefined || column.label !== 'Song')}
         rows={query.data?.records ?? []}
         totalRecords={Number(query.data?.totalRecords ?? 0)}
         paging={paging}

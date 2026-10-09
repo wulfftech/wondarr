@@ -12,6 +12,7 @@ import { LibraryPage } from '../pages/LibraryPage';
 import { MatchQueuePage } from '../pages/MatchQueuePage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { SettingsPage } from '../pages/SettingsPage';
+import { SongPage } from '../pages/SongPage';
 import { BackupPage } from '../pages/system/BackupPage';
 import { LogsPage } from '../pages/system/LogsPage';
 import { StatusPage } from '../pages/system/StatusPage';
@@ -28,6 +29,7 @@ const ROUTES: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/library" replace /> },
       { path: 'library', element: <LibraryPage /> },
+      { path: 'song/:id', element: <SongPage /> },
       { path: 'add', element: <AddSongsPage /> },
       { path: 'add/unresolved', element: <UnresolvedPage /> },
       { path: 'match', element: <MatchQueuePage /> },

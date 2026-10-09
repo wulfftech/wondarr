@@ -123,6 +123,7 @@ describe('QueuePage', () => {
     renderApp();
 
     expect(await screen.findByText('Teardrop')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Teardrop' })).toHaveAttribute('href', '/song/1');
     expect(screen.getByText('Downloading')).toBeInTheDocument();
     // The peer's own queue position is part of the badge.
     expect(screen.getByText('Queued by peer (#3)')).toBeInTheDocument();
