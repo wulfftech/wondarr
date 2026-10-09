@@ -44,7 +44,12 @@ public sealed class WantedService : IWantedService
     {
         ArgumentNullException.ThrowIfNull(paging);
 
-        var query = Songs().Where(song => song.Monitored && song.File == null);
+        // A song a reference file identifies is owned there, whether or not its song_file row exists
+        // yet; only a file that went missing makes it wanted again.
+        var query = Songs().Where(song => song.Monitored
+            && song.File == null
+            && !_database.ReferenceFiles.Any(file =>
+                file.SongId == song.Id && file.State == ReferenceFileState.Identified));
 
         var totalRecords = await query.CountAsync(cancellationToken).ConfigureAwait(false);
         var records = await ApplySort(query, paging)

@@ -58,7 +58,56 @@ internal static class ReferenceOwnership
             AddedBy = string.Concat(
                 "reference:",
                 library.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+
+            // The user owns the song in this very file: it is never searched for, and the song becomes
+            // visible together with its file (CommitAsync), so a search cannot find it without one.
+            SearchOnAdd = false,
+            KeepTransactionOpen = true,
         };
+    }
+
+    /// <summary>
+    /// Saves what the caller changed and commits the transaction the add left open, so the new songs and
+    /// the reference files that own them reach every other connection in one step.
+    /// </summary>
+    /// <param name="database">The Wondarr database.</param>
+    /// <param name="cancellationToken">Cancels the save.</param>
+    /// <returns>A task that completes when the changes are committed.</returns>
+    public static async Task CommitAsync(WondarrDbContext database, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+
+        try
+        {
+            await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            if (database.Database.CurrentTransaction is { } transaction)
+            {
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            if (database.Database.CurrentTransaction is { } open)
+            {
+                await open.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>Rolls back the transaction an add left open, when something after the add failed.</summary>
+    /// <param name="database">The Wondarr database.</param>
+    /// <returns>A task that completes when the transaction is rolled back.</returns>
+    public static async Task RollbackAsync(WondarrDbContext database)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+
+        if (database.Database.CurrentTransaction is { } open)
+        {
+            await open.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

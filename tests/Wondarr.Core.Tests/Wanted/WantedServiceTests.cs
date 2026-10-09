@@ -35,6 +35,62 @@ public sealed class WantedServiceTests
     }
 
     [Fact]
+    public async Task Missing_leaves_out_a_song_a_reference_file_identifies_and_lists_it_again_once_the_file_is_gone()
+    {
+        using var database = new SqliteTestDatabase();
+        var time = new FakeTimeProvider(Now);
+        await database.MigrateAsync(time);
+
+        long referenceFileId;
+
+        await using (var context = database.CreateContext(time))
+        {
+            var artist = new Artist { Name = "Aphex Twin", SortName = "Aphex Twin" };
+            context.Artists.Add(artist);
+            await context.SaveChangesAsync();
+
+            var song = NewSong(artist, "Referenced", monitored: true);
+            context.Songs.Add(song);
+
+            var library = new ReferenceLibrary { Name = "Music", RootPath = "/reference/music" };
+            context.ReferenceLibraries.Add(library);
+            await context.SaveChangesAsync();
+
+            // Identified, and no song_file row (yet): the song is owned there, so it is not missing.
+            var row = new ReferenceFile
+            {
+                ReferenceLibraryId = library.Id,
+                RelativePath = "Referenced.flac",
+                Size = 1024,
+                ModifiedAt = Now,
+                LastSeenAt = Now,
+                SongId = song.Id,
+                State = ReferenceFileState.Identified,
+            };
+
+            context.ReferenceFiles.Add(row);
+            await context.SaveChangesAsync();
+
+            referenceFileId = row.Id;
+        }
+
+        var paging = new PagingSpec(1, 20, null, true);
+
+        (await Service(database, time).GetMissingAsync(paging, CancellationToken.None)).TotalRecords.Should().Be(0);
+
+        await using (var context = database.CreateContext(time))
+        {
+            var row = await context.ReferenceFiles.FindAsync(referenceFileId);
+            row!.State = ReferenceFileState.Missing;
+            await context.SaveChangesAsync();
+        }
+
+        var page = await Service(database, time).GetMissingAsync(paging, CancellationToken.None);
+
+        page.Records.Should().ContainSingle().Which.Title.Should().Be("Referenced");
+    }
+
+    [Fact]
     public async Task Cutoff_lists_only_the_monitored_song_below_the_profile_cutoff()
     {
         using var database = new SqliteTestDatabase();
