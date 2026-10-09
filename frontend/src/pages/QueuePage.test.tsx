@@ -133,6 +133,29 @@ describe('QueuePage', () => {
     expect(screen.getByText('The duration did not match the song.')).toBeInTheDocument();
   });
 
+  it('shows the release and the file inside it under a container grab, and nothing under a single file', async () => {
+    install(
+      paged([
+        {
+          ...QUEUE_ITEMS[0],
+          sourceType: 'torznab',
+          releaseTitle: 'Queen - A Night at the Opera (1975) [FLAC]',
+          containerFile: 'CD1/05 - Bohemian Rhapsody.flac',
+        },
+        QUEUE_ITEMS[1],
+      ]),
+    );
+
+    renderApp();
+
+    expect(
+      await screen.findByText('Queen - A Night at the Opera (1975) [FLAC] · 05 - Bohemian Rhapsody.flac'),
+    ).toBeInTheDocument();
+    // The Soulseek row (Xtal) adds no second line.
+    expect(await screen.findByText('Xtal')).toBeInTheDocument();
+    expect(screen.queryByText(/Aphex Twin - Xtal\.mp3 ·/)).not.toBeInTheDocument();
+  });
+
   it('removes an item straight away when Remove is picked', async () => {
     const mock = install();
     const user = userEvent.setup();
