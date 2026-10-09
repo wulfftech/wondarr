@@ -98,6 +98,10 @@ function install(
       return jsonResponse(COMPACT_PLAN);
     }
 
+    if (url.includes('/api/v1/command')) {
+      return jsonResponse({ id: 9, name: 'ApplyReplayGain', status: 'queued' }, 201);
+    }
+
     if (url.includes('/api/v1/library')) {
       if (init?.method === 'POST') {
         return options.create?.() ?? jsonResponse({ ...LIBRARIES[0], id: 2, name: 'Singles' }, 201);
@@ -163,6 +167,45 @@ describe('LibrarySettingsPage', () => {
     const dialog = screen.getByRole('dialog');
 
     expect(await within(dialog).findByText('4 albums → 2 albums, 2 songs move')).toBeInTheDocument();
+  });
+
+  it('saves the ReplayGain switch with the library', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+    expect(screen.queryByRole('button', { name: 'Measure existing files' })).toBeNull();
+
+    await user.click(screen.getByRole('switch', { name: /Write ReplayGain tags/ }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const put = sent().find((request) => request.method === 'PUT');
+      const body: unknown = put === undefined ? null : JSON.parse(await put.body);
+
+      expect(body).toMatchObject({ replayGain: true });
+    });
+  });
+
+  it('measures the existing files of a library with ReplayGain on', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], replayGain: true } });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+    expect(screen.getByRole('switch', { name: /Write ReplayGain tags/ })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Measure existing files' }));
+
+    await waitFor(async () => {
+      const post = sent().find((request) => request.method === 'POST' && request.url.includes('/api/v1/command'));
+      const body: unknown = post === undefined ? null : JSON.parse(await post.body);
+
+      expect(body).toEqual({ name: 'ApplyReplayGain', libraryId: 1 });
+    });
   });
 
   it('hides the minimum album size for every other policy', async () => {
