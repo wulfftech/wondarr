@@ -370,3 +370,13 @@ Lessons:
 8. ASP.NET minimal APIs bind `(HttpContext) => Task<IResult>` as a `RequestDelegate` and drop the result; a fake's route needs a second parameter.
 
 Spend in build session 8: USD 4.82 (key 21.64 → 26.46 of 30).
+
+## Phase 8 — polish and release
+
+Plan: `docs/build/PHASE_8_TASKS.md`; decisions: `docs/DECISIONS.md` build session 10 (#1 delegation through Claude Code subagents while OpenRouter is paused; #2 the spectral check; #3 tags, editor, saved views; #4 the docs site). No OpenRouter spend in this phase.
+
+Pre-flight (2026-10-09): .NET SDK 10.0.401, Node 24.19.0, Python 3.14.3, `gh` signed in; CI green on `main` (Phases 0–7); `wondarr-test` on `ch01` up and healthy (`develop`); a Haiku subagent answered a read-only check; 16.7 of 63.6 GB free with WSL's Ubuntu running. Research by two Sonnet researcher subagents (SoulSync, release engineering, Unraid, docs site), then the spectral check prototyped by the orchestrator on 25 PCM windows from `ch01` (five FLACs and their MP3-128/192/320 and AAC-256 re-encodes). The Phase 0 image's database is the migration fixture (`tests/fixtures/migrations/phase0-compilarr.db`, from `compilarr:sha-6103320` run on `ch01`; throwaway removed).
+
+| Task | State | Delegate | Continuations | Review | Notes |
+|---|---|---|---|---|---|
+| P8-00 pre-flight, research, plan, decisions | done | orchestrator | — | — | |
