@@ -30,6 +30,32 @@ public class CommandExecutorTests
     }
 
     [Fact]
+    public async Task A_command_whose_handler_cannot_be_built_fails_once_and_the_next_command_still_runs()
+    {
+        await using var host = await JobTestHost.CreateAsync(
+            services => services.AddScoped<ICommandHandler, UnbuildableCommandHandler>());
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        var broken = await host.Queue.EnqueueAsync("Unbuildable", null, CommandTrigger.Manual, CancellationToken.None);
+        var healthy = await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Manual, CancellationToken.None);
+
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, broken.Id) == CommandStatus.Failed))
+            .Should().BeTrue("a handler DI cannot build fails its command instead of leaving it queued");
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, healthy.Id) == CommandStatus.Completed))
+            .Should().BeTrue("one broken registration must not take the healthy commands down");
+
+        var failed = await host.Queue.GetAsync(broken.Id, CancellationToken.None);
+        failed!.Result.Should().Be(CommandResult.Unsuccessful);
+        failed.Exception.Should().Contain("Unbuildable").And.Contain(nameof(IUnregisteredService));
+        failed.Message.Should().Be(failed.Exception);
+        failed.EndedAt.Should().NotBeNull();
+
+        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
+        await executor.StopAsync(stopBudget.Token);
+    }
+
+    [Fact]
     public async Task A_running_command_is_never_started_a_second_time_and_a_repeat_enqueue_returns_it()
     {
         var handler = new BlockingCommandHandler("Long");

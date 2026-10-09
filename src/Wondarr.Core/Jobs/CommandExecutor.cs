@@ -114,10 +114,18 @@ public sealed partial class CommandExecutor : BackgroundService
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var handler = scope.ServiceProvider.GetServices<ICommandHandler>()
-                .FirstOrDefault(candidate => string.Equals(candidate.Name, started.Name, StringComparison.OrdinalIgnoreCase));
+            var lookup = CommandHandlerResolver.Find(scope.ServiceProvider, started.Name);
+            var handler = lookup.Handler;
 
-            if (handler is null)
+            if (handler is null && lookup.Failures.Count > 0)
+            {
+                // A handler DI cannot build fails this command once, with the reason; it must not
+                // leave the row queued or take the other commands down with it.
+                error = $"Command '{started.Name}' could not run: a handler could not be built ({string.Join("; ", lookup.Failures)}).";
+                message = error;
+                LogHandlerNotBuilt(started.Id, started.Name, error);
+            }
+            else if (handler is null)
             {
                 error = $"No handler is registered for command '{started.Name}'.";
             }
@@ -296,6 +304,9 @@ public sealed partial class CommandExecutor : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Marked {Count} command(s) left over by a previous run as orphaned")]
     private partial void LogOrphaned(int count);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Command {CommandId} ({CommandName}) failed: {Reason}")]
+    private partial void LogHandlerNotBuilt(long commandId, string commandName, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Command {CommandId} ({CommandName}) failed")]
     private partial void LogCommandFailed(long commandId, string commandName, Exception exception);
