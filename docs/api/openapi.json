@@ -8058,7 +8058,9 @@
           "downloadId",
           "outputPath",
           "artistId",
-          "statusMessages"
+          "statusMessages",
+          "releaseTitle",
+          "containerFile"
         ],
         "type": "object",
         "properties": {
@@ -8230,6 +8232,18 @@
             "items": {
               "type": "string"
             }
+          },
+          "releaseTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "containerFile": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
