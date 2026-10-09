@@ -124,10 +124,61 @@ describe('MatchQueuePage', () => {
     expect(within(row as HTMLElement).getByText('900 kbps')).toBeInTheDocument();
     expect(screen.getByText('Needs review')).toBeInTheDocument();
     expect(screen.getByText('No match')).toBeInTheDocument();
-    // The top candidate runs 3 s longer than the file and scored 87 %.
+    // The top candidate is written Artist - Title, ran 3:47 and scored 87 %; the 3 s has its own column.
+    expect(within(row as HTMLElement).getByText('Daft Punk - Harder, Better, Faster, Stronger')).toBeInTheDocument();
     // The recording id the reason was stored with is not shown.
-    expect(screen.getByText(/3:47 \(\+3 s\) · 87% · search, length differs by 3 s/)).toBeInTheDocument();
+    expect(screen.getByText(/3:47 · 87% · search, length differs by 3 s/)).toBeInTheDocument();
     expect(screen.queryByText(/9d3f5a1e/)).not.toBeInTheDocument();
+  });
+
+  it('puts the top candidate’s length difference in its own column, signed', async () => {
+    const longer = MATCH_QUEUE_ITEMS[0];
+    const shorter = {
+      ...longer,
+      id: 73,
+      relativePath: 'Daft Punk/Discovery/05 - Shorter.flac',
+      candidates: [{ ...longer.candidates[0], durationMs: 212000 }],
+    };
+    const same = {
+      ...longer,
+      id: 74,
+      relativePath: 'Daft Punk/Discovery/06 - Same.flac',
+      candidates: [{ ...longer.candidates[0], durationMs: 224000 }],
+    };
+    const unknown = {
+      ...longer,
+      id: 75,
+      relativePath: 'Daft Punk/Discovery/07 - Unknown.flac',
+      file: { ...longer.file, durationMs: null },
+    };
+    install(paged([longer, shorter, same, unknown]));
+
+    renderApp();
+
+    expect(await screen.findByRole('columnheader', { name: 'Δ Length' })).toBeInTheDocument();
+
+    const cellFor = (path: string) => {
+      const row = screen.getByText(path).closest('tr') as HTMLElement;
+      const cells = within(row).getAllByRole('cell');
+      // Δ Length sits right after Top candidate, before Actions.
+      return cells[cells.length - 2];
+    };
+
+    expect(cellFor(longer.relativePath)).toHaveTextContent('+3 s');
+    expect(cellFor(shorter.relativePath)).toHaveTextContent('−12 s');
+    expect(cellFor(same.relativePath)).toHaveTextContent('0 s');
+    expect(cellFor(unknown.relativePath)).toHaveTextContent('—');
+  });
+
+  it('writes the review drawer’s candidates as Artist - Title', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText(`Review ${AMBIGUOUS.relativePath}`));
+
+    expect(await screen.findByText('Daft Punk - Harder, Better, Faster, Stronger (Live)')).toBeInTheDocument();
   });
 
   it('accepts the top candidate by its rank', async () => {

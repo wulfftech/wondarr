@@ -67,17 +67,28 @@ function formatDuration(ms: number | string | null | undefined): string {
 }
 
 /**
- * How much longer a candidate runs than the file, e.g. `+3 s`. `null` when either side's length is
- * unknown: a difference from nothing is not a fact.
+ * How much longer a candidate runs than the file, in whole seconds (negative when shorter). `null`
+ * when either side's length is unknown: a difference from nothing is not a fact.
  */
-function durationDifference(candidateMs: number | string | null, fileMs: number | string | null): string | null {
+function durationDifference(candidateMs: number | string | null, fileMs: number | string | null): number | null {
   if (candidateMs === null || fileMs === null) {
     return null;
   }
 
-  const difference = Math.round((Number(candidateMs) - Number(fileMs)) / 1000);
+  return Math.round((Number(candidateMs) - Number(fileMs)) / 1000);
+}
 
-  return `${difference >= 0 ? '+' : ''}${difference} s`;
+/** A signed difference as it reads on screen: `+3 s`, `−12 s` (a real minus sign), `0 s`, or `—`. */
+function formatDifference(difference: number | null): string {
+  if (difference === null) {
+    return '—';
+  }
+
+  if (difference === 0) {
+    return '0 s';
+  }
+
+  return `${difference > 0 ? '+' : '−'}${Math.abs(difference)} s`;
 }
 
 /**
@@ -133,7 +144,7 @@ function StateBadge({ state }: { state: string }) {
   );
 }
 
-/** The best candidate, with why it won and how far its length is from the file's. */
+/** The best candidate, with its length and why it won. */
 function TopCandidateCell({ item }: { item: MatchQueueItemResource }) {
   const candidate = item.candidates[0];
 
@@ -145,17 +156,13 @@ function TopCandidateCell({ item }: { item: MatchQueueItemResource }) {
     );
   }
 
-  const difference = durationDifference(candidate.durationMs, item.file.durationMs);
-
   return (
     <Stack gap={0}>
       <Text size="sm">
-        {candidate.title} · {candidate.artistCredit}
+        {candidate.artistCredit} - {candidate.title}
       </Text>
       <Text size="xs" c="dimmed">
-        {formatDuration(candidate.durationMs)}
-        {difference === null ? '' : ` (${difference})`} · {formatScore(candidate.score)} ·{' '}
-        {readableReason(candidate.reason)}
+        {formatDuration(candidate.durationMs)} · {formatScore(candidate.score)} · {readableReason(candidate.reason)}
       </Text>
     </Stack>
   );
@@ -216,11 +223,11 @@ function ReviewDrawer({
           <Group key={candidate.rank} justify="space-between" wrap="nowrap" align="flex-start">
             <Stack gap={0}>
               <Text size="sm">
-                {candidate.title} · {candidate.artistCredit}
+                {candidate.artistCredit} - {candidate.title}
               </Text>
               <Text size="xs" c="dimmed">
                 {formatDuration(candidate.durationMs)}
-                {difference === null ? '' : ` (${difference})`} · {formatScore(candidate.score)} ·{' '}
+                {difference === null ? '' : ` (${formatDifference(difference)})`} · {formatScore(candidate.score)} ·{' '}
                 {readableReason(candidate.reason)}
                 {candidate.albumTitle === null ? '' : ` · ${candidate.albumTitle}`}
               </Text>
@@ -406,6 +413,22 @@ export function MatchQueuePage() {
     },
     { label: 'State', sortKey: null, width: 130, render: (item) => <StateBadge state={item.state} /> },
     { label: 'Top candidate', sortKey: null, render: (item) => <TopCandidateCell item={item} /> },
+    {
+      label: 'Δ Length',
+      sortKey: null,
+      width: 90,
+      render: (item) => {
+        const candidate = item.candidates[0];
+
+        return (
+          <Text size="sm" ta="right">
+            {formatDifference(
+              candidate === undefined ? null : durationDifference(candidate.durationMs, item.file.durationMs),
+            )}
+          </Text>
+        );
+      },
+    },
     {
       label: 'Actions',
       sortKey: null,
