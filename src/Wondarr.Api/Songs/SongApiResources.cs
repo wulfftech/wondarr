@@ -175,29 +175,10 @@ public static class SongApiResourceExtensions
             option.TrackNo,
             option.TotalTracks,
             isCurrent,
-            CoverUrlOf(option),
+            SongDetailsResourceExtensions.CoverUrlFor(option),
             option.IsVariousArtists,
             option.ReleaseGroupFirstDate,
             option.DiscNo);
-    }
-
-    /// <summary>
-    /// The Cover Art Archive thumbnail for the release, else for its release group, else the cover a Deezer
-    /// option carries. Built from ids so no network call is made.
-    /// </summary>
-    internal static string? CoverUrlOf(ReleaseOption option)
-    {
-        if (!string.IsNullOrWhiteSpace(option.MbReleaseId))
-        {
-            return $"https://coverartarchive.org/release/{option.MbReleaseId}/front-250";
-        }
-
-        if (!string.IsNullOrWhiteSpace(option.MbReleaseGroupId))
-        {
-            return $"https://coverartarchive.org/release-group/{option.MbReleaseGroupId}/front-250";
-        }
-
-        return string.IsNullOrWhiteSpace(option.CoverUrl) ? null : option.CoverUrl;
     }
 
     /// <summary>Maps an artist and its song count.</summary>
