@@ -10,10 +10,10 @@ using Wondarr.Core.Configuration;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 
 namespace Wondarr.Api.Authentication;
 
@@ -22,6 +22,19 @@ namespace Wondarr.Api.Authentication;
 [ApiController]
 public sealed partial class AuthenticationController : Controller
 {
+    // Any of these means a proxy is in the path, so the socket address is the proxy's, not the visitor's.
+    // X-Original-For is what the ForwardedHeaders middleware leaves behind when it rewrites the address.
+    private static readonly string[] ProxyHeaders =
+    [
+        "X-Forwarded-For",
+        "Forwarded",
+        "X-Real-IP",
+        "X-Forwarded-Host",
+        "X-Forwarded-Proto",
+        "Via",
+        "X-Original-For",
+    ];
+
     private readonly ICredentialStore _credentials;
     private readonly IOptionsMonitor<ServerOptions> _serverOptions;
     private readonly ILogger<AuthenticationController> _logger;
@@ -94,8 +107,20 @@ public sealed partial class AuthenticationController : Controller
             return NotFound();
         }
 
+        // A form on another site must not be able to create the login for a visitor on the local network.
+        if (!IsSameOrigin())
+        {
+            return StatusCode(StatusCodes.Status403Forbidden);
+        }
+
         var safeReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         var remoteAddress = HttpContext.GetRemoteIp();
+
+        // First, so a remote POST on a configured instance gets the ordinary "a login exists" answer.
+        if (await _credentials.IsConfiguredAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return LoginExistsRedirect(options.UrlBase, safeReturnUrl);
+        }
 
         if (!IsLocalRequest())
         {
@@ -120,9 +145,7 @@ public sealed partial class AuthenticationController : Controller
 
         if (!await _credentials.TrySetInitialAsync(username!, password!, cancellationToken).ConfigureAwait(false))
         {
-            var query = string.IsNullOrEmpty(safeReturnUrl) ? string.Empty : $"returnUrl={Uri.EscapeDataString(safeReturnUrl)}&";
-
-            return Redirect($"{options.UrlBase}/login?{query}exists=true");
+            return LoginExistsRedirect(options.UrlBase, safeReturnUrl);
         }
 
         LogSetupCompleted(_logger, remoteAddress);
@@ -172,9 +195,33 @@ public sealed partial class AuthenticationController : Controller
     /// carries <c>X-Forwarded-For</c> is never local.
     /// </summary>
     private bool IsLocalRequest() =>
-        !Request.Headers.ContainsKey(ForwardedHeadersDefaults.XForwardedForHeaderName) &&
+        !ProxyHeaders.Any(Request.Headers.ContainsKey) &&
         HttpContext.GetRemoteIp() is { } remoteIp &&
         remoteIp.IsLocalAddress();
+
+    /// <summary>
+    /// Whether the <c>Origin</c> header, when there is one, names this host. A missing header (curl,
+    /// an older browser on a same-site post) is allowed.
+    /// </summary>
+    private bool IsSameOrigin()
+    {
+        if (!Request.Headers.TryGetValue(HeaderNames.Origin, out var origin) || origin.Count == 0)
+        {
+            return true;
+        }
+
+        // Uri drops a scheme's default port, so "http://nas:80" and "http://nas" compare equal.
+        return Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var originUri) &&
+            Uri.TryCreate($"{Request.Scheme}://{Request.Host}", UriKind.Absolute, out var hostUri) &&
+            string.Equals(originUri.Authority, hostUri.Authority, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private RedirectResult LoginExistsRedirect(string urlBase, string? safeReturnUrl)
+    {
+        var query = string.IsNullOrEmpty(safeReturnUrl) ? string.Empty : $"returnUrl={Uri.EscapeDataString(safeReturnUrl)}&";
+
+        return Redirect($"{urlBase}/login?{query}exists=true");
+    }
 
     private LoginPage.Variant VariantFor(bool configured)
     {

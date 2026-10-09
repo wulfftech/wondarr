@@ -36,6 +36,21 @@ public sealed class CredentialStore : ICredentialStore
         ArgumentException.ThrowIfNullOrWhiteSpace(username);
         ArgumentNullException.ThrowIfNull(password);
 
+        // The same gate as TrySetInitialAsync, so a replace cannot land between its check and its write.
+        await InitialGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await WriteAsync(username, password, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            InitialGate.Release();
+        }
+    }
+
+    private async Task WriteAsync(string username, string password, CancellationToken cancellationToken)
+    {
         var existing = await GetStoredAsync(cancellationToken).ConfigureAwait(false);
         var salt = RandomNumberGenerator.GetBytes(SaltSize);
 
@@ -66,7 +81,7 @@ public sealed class CredentialStore : ICredentialStore
                 return false;
             }
 
-            await SetAsync(username, password, cancellationToken).ConfigureAwait(false);
+            await WriteAsync(username, password, cancellationToken).ConfigureAwait(false);
 
             return true;
         }
