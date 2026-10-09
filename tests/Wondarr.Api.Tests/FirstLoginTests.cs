@@ -137,6 +137,107 @@ public sealed class FirstLoginTests : IDisposable
     }
 
     [Theory]
+    [InlineData("X-Real-IP", "8.8.8.8")]
+    [InlineData("Forwarded", "for=8.8.8.8")]
+    [InlineData("X-Forwarded-Host", "wondarr.example.com")]
+    [InlineData("X-Forwarded-Proto", "https")]
+    [InlineData("Via", "1.1 proxy")]
+    [InlineData("X-Original-For", "8.8.8.8")]
+    public async Task Setup_with_any_proxy_header_is_forbidden_and_stores_nothing(string header, string value)
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/login/setup", UriKind.Relative))
+        {
+            Content = SetupForm(Username, Password, Password),
+        };
+        request.Headers.TryAddWithoutValidation(header, value);
+        using var response = await browser.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await StoredUsernameAsync(factory)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_login_page_does_not_offer_the_create_form_with_an_x_real_ip_header()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        browser.DefaultRequestHeaders.Add("X-Real-IP", RemoteAddress);
+        var page = await browser.GetStringAsync(new Uri("/login", UriKind.Relative));
+
+        page.Should().NotContain("<form");
+    }
+
+    [Fact]
+    public async Task Setup_from_another_site_is_forbidden_and_stores_nothing()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/login/setup", UriKind.Relative))
+        {
+            Content = SetupForm(Username, Password, Password),
+        };
+        request.Headers.TryAddWithoutValidation("Origin", "http://evil.example");
+        using var response = await browser.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+        (await StoredUsernameAsync(factory)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Setup_with_the_same_origin_succeeds()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/login/setup", UriKind.Relative))
+        {
+            Content = SetupForm(Username, Password, Password),
+        };
+        request.Headers.TryAddWithoutValidation("Origin", "http://localhost");
+        using var response = await browser.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Found);
+        (await StoredUsernameAsync(factory)).Should().Be(Username);
+    }
+
+    [Fact]
+    public async Task Setup_from_a_public_address_on_a_configured_instance_redirects_to_the_login_page()
+    {
+        using var factory = Create();
+        await ConfigureCredentialsAsync(factory);
+
+        using var browser = factory.CreateClient(RemoteAddress);
+        using var response = await browser.PostAsync(
+            new Uri("/login/setup", UriKind.Relative),
+            SetupForm("intruder", "another password", "another password"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Found);
+        response.Headers.Location!.ToString().Should().StartWith("/login");
+        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+        (await StoredUsernameAsync(factory)).Should().Be(Username);
+    }
+
+    [Fact]
+    public async Task Setup_html_encodes_the_username_when_it_shows_the_form_again()
+    {
+        using var factory = Create();
+        const string username = "\"><script>alert(1)</script>";
+
+        using var browser = factory.CreateClient(LocalAddress);
+        using var response = await browser.PostAsync(new Uri("/login/setup", UriKind.Relative), SetupForm(username, "tiny", "tiny"));
+        var page = await response.Content.ReadAsStringAsync();
+
+        page.Should().NotContain("<script>alert(1)");
+        page.Should().Contain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    }
+
+    [Theory]
     [InlineData("admin", "correct horse battery", "something else entirely", "The two passwords do not match.")]
     [InlineData("admin", "tiny", "tiny", "The password must be at least 8 characters.")]
     [InlineData("", "correct horse battery", "correct horse battery", "The username must be between 1 and 64 characters.")]
