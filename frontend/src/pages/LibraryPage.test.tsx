@@ -8,6 +8,7 @@ import {
   LIBRARIES,
   LIBRARY_SONGS,
   paged,
+  QUALITY_PROFILES,
   SYSTEM_STATUS,
 } from '../test/fixtures';
 import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../test/helpers';
@@ -50,9 +51,55 @@ async function lastBody(method: string): Promise<{ url: string; body: unknown } 
   return { url: found.url, body: text === '' ? null : JSON.parse(text) };
 }
 
+/** The routes every Library test needs besides the songs: the profiles, the tags and the saved views. */
+function sharedRoutes(url: string): Response | null {
+  if (url.includes('/api/v1/qualityprofile')) {
+    return jsonResponse(QUALITY_PROFILES);
+  }
+
+  if (url.includes('/api/v1/tag')) {
+    return jsonResponse([{ label: 'rock', songCount: 2 }]);
+  }
+
+  if (url.includes('/api/v1/customfilter')) {
+    return jsonResponse([]);
+  }
+
+  return null;
+}
+
+/** `count` songs with ids from 12 up, each carrying `tags`. */
+function makeSongs(count: number, tags: string[] = []): (typeof LIBRARY_SONGS)[number][] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...LIBRARY_SONGS[0],
+    id: 12 + index,
+    title: `Song ${String.fromCharCode(65 + index)}`,
+    tags,
+  }));
+}
+
+interface InstallOptions {
+  songs?: unknown[];
+  totalRecords?: number;
+  /** Answers first: a test's own routes (the editor, the saved views) go here. */
+  extra?: (url: string, method: string) => Response | null;
+}
+
 /** The route table the page needs: the shell, the artists and the paged songs. */
-function install(write: () => Response = () => jsonResponse(LIBRARY_SONGS[0])): FetchMock {
-  return installFetch((url) => {
+function install(options: InstallOptions = {}): FetchMock {
+  return installFetch((url, init) => {
+    const own = options.extra?.(url, init?.method ?? 'GET') ?? null;
+
+    if (own !== null) {
+      return own;
+    }
+
+    const shared = sharedRoutes(url);
+
+    if (shared !== null) {
+      return shared;
+    }
+
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
     }
@@ -75,11 +122,13 @@ function install(write: () => Response = () => jsonResponse(LIBRARY_SONGS[0])): 
 
     // The item endpoint takes the writes: the PUT that saves and the DELETE that removes.
     if (/\/api\/v1\/song\/\d+$/.test(url)) {
-      return write();
+      return jsonResponse(LIBRARY_SONGS[0]);
     }
 
     if (url.includes('/api/v1/song')) {
-      return jsonResponse(paged(LIBRARY_SONGS));
+      const songs = options.songs ?? LIBRARY_SONGS;
+
+      return jsonResponse({ ...paged(songs), totalRecords: options.totalRecords ?? songs.length });
     }
 
     return new Response('not found', { status: 404 });
@@ -169,6 +218,12 @@ describe('LibraryPage', () => {
 
   it('starts the automatic search for a song when its search button is used', async () => {
     installFetch((url, init) => {
+      const shared = sharedRoutes(url);
+
+      if (shared !== null) {
+        return shared;
+      }
+
       if (url.includes('/api/v1/system/status')) {
         return jsonResponse(SYSTEM_STATUS);
       }
@@ -209,6 +264,12 @@ describe('LibraryPage', () => {
 
   it('opens the interactive search for a song when its button is used', async () => {
     installFetch((url) => {
+      const shared = sharedRoutes(url);
+
+      if (shared !== null) {
+        return shared;
+      }
+
       if (url.includes('/api/v1/system/status')) {
         return jsonResponse(SYSTEM_STATUS);
       }
@@ -248,6 +309,12 @@ describe('LibraryPage', () => {
 
   it('offers the rest of the album and opens it on the Add page', async () => {
     installFetch((url) => {
+      const shared = sharedRoutes(url);
+
+      if (shared !== null) {
+        return shared;
+      }
+
       if (url.includes('/api/v1/system/status')) {
         return jsonResponse(SYSTEM_STATUS);
       }
@@ -298,6 +365,12 @@ describe('LibraryPage', () => {
 
   it('shows the empty state when the filters match nothing', async () => {
     installFetch((url) => {
+      const shared = sharedRoutes(url);
+
+      if (shared !== null) {
+        return shared;
+      }
+
       if (url.includes('/api/v1/system/status')) {
         return jsonResponse(SYSTEM_STATUS);
       }
@@ -320,5 +393,324 @@ describe('LibraryPage', () => {
     renderApp();
 
     expect(await screen.findByText('Nothing in the library matches these filters.')).toBeInTheDocument();
+  });
+});
+
+const EDITOR_URL = '/api/v1/song/editor';
+const FILTERS_URL = '/api/v1/customfilter';
+
+/** The `GET /api/v1/song` requests the page has made, newest last, as parsed query strings. */
+function songQueries(): URLSearchParams[] {
+  return sent()
+    .filter((request) => request.method === 'GET' && /\/api\/v1\/song\?/.test(request.url))
+    .map((request) => new URL(request.url).searchParams);
+}
+
+/** Picks an option of a Mantine select by its label. */
+async function choose(user: ReturnType<typeof userEvent.setup>, label: string, option: string): Promise<void> {
+  await user.click(inputLabelled(screen.getAllByLabelText(label)));
+  await user.click(await screen.findByRole('option', { name: option }));
+}
+
+/** A Mantine select's label also names its option list; the field itself is the input. */
+function inputLabelled(elements: HTMLElement[]): HTMLElement {
+  const input = elements.find((element) => element.tagName === 'INPUT');
+
+  if (input === undefined) {
+    throw new Error('No input carries that label.');
+  }
+
+  return input;
+}
+
+function problem(status: number, detail: string): Response {
+  return jsonResponse({ title: 'Problem', status, detail }, status);
+}
+
+const EDITOR_OK = { songs: [], moveCommandIds: [] };
+
+describe('LibraryPage mass editor', () => {
+  it('sends the filters as a query string and goes back to page 1 when one changes', async () => {
+    install({ songs: makeSongs(2), totalRecords: 120 });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Song A');
+    await user.click(screen.getByRole('button', { name: '2' }));
+
+    await waitFor(() => expect(songQueries().at(-1)?.get('page')).toBe('2'));
+
+    await choose(user, 'File', 'Has a file');
+
+    await waitFor(() => {
+      const query = songQueries().at(-1);
+
+      expect(query?.get('hasFile')).toBe('true');
+      expect(query?.get('page')).toBe('1');
+    });
+  });
+
+  it('asks the server for the search term once typing pauses', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Get Lucky');
+    await user.type(screen.getByRole('textbox', { name: 'Search' }), 'luck');
+
+    await waitFor(() => expect(songQueries().at(-1)?.get('term')).toBe('luck'));
+    // Typing did not ask once per keystroke.
+    expect(songQueries().filter((query) => query.has('term')).length).toBe(1);
+  });
+
+  it('unmonitors the selected songs through the editor endpoint', async () => {
+    install({
+      songs: makeSongs(3),
+      extra: (url, method) => (url.endsWith(EDITOR_URL) && method === 'PUT' ? jsonResponse(EDITOR_OK) : null),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Select Song A'));
+    await user.click(screen.getByLabelText('Select Song B'));
+
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Unmonitor' }));
+
+    await waitFor(async () => {
+      const put = await lastBody('PUT');
+
+      expect(put?.url).toContain(EDITOR_URL);
+      expect(put?.body).toMatchObject({ songIds: [12, 13], monitored: false });
+    });
+  });
+
+  it('selects every song on the page from the header checkbox', async () => {
+    install({ songs: makeSongs(3) });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Song A');
+    await user.click(screen.getByLabelText('Select all on this page'));
+
+    expect(screen.getByText('3 selected')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+
+    expect(screen.queryByText('3 selected')).not.toBeInTheDocument();
+  });
+
+  it('selects a range of rows with shift-click', async () => {
+    install({ songs: makeSongs(4) });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Select Song A'));
+    await user.keyboard('{Shift>}');
+    await user.click(screen.getByLabelText('Select Song C'));
+    await user.keyboard('{/Shift}');
+
+    expect(screen.getByText('3 selected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Select Song B')).toBeChecked();
+    expect(screen.getByLabelText('Select Song D')).not.toBeChecked();
+  });
+
+  it('sends the tags and how to apply them from the tags dialog', async () => {
+    install({
+      songs: makeSongs(3),
+      extra: (url, method) => (url.endsWith(EDITOR_URL) && method === 'PUT' ? jsonResponse(EDITOR_OK) : null),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Select Song A'));
+    await user.click(screen.getByLabelText('Select Song B'));
+    await user.click(screen.getByRole('button', { name: 'Tags…' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(inputLabelled(within(dialog).getAllByLabelText('Tags')), 'jazz{Enter}');
+    await user.click(within(dialog).getByRole('radio', { name: 'Replace the songs’ tags' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+
+    await waitFor(async () => {
+      const put = await lastBody('PUT');
+
+      expect(put?.url).toContain(EDITOR_URL);
+      expect(put?.body).toMatchObject({ songIds: [12, 13], tags: ['jazz'], applyTags: 'replace' });
+    });
+  });
+
+  it('deletes the selected songs once the confirmation is accepted', async () => {
+    install({
+      songs: makeSongs(3),
+      extra: (url, method) => (url.endsWith(EDITOR_URL) && method === 'DELETE' ? jsonResponse({ deleted: 2 }) : null),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Select Song A'));
+    await user.click(screen.getByLabelText('Select Song B'));
+    await user.click(screen.getByRole('button', { name: 'Delete…' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).getByText('Delete 2 songs from Wondarr? Their files stay on disk.')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(async () => {
+      const removed = await lastBody('DELETE');
+
+      expect(removed?.url).toContain(EDITOR_URL);
+      expect(removed?.body).toEqual({ songIds: [12, 13] });
+    });
+  });
+
+  it('shows why the delete was refused when a song is still in the queue', async () => {
+    install({
+      songs: makeSongs(3),
+      extra: (url, method) =>
+        url.endsWith(EDITOR_URL) && method === 'DELETE' ? problem(409, 'Song A is still downloading.') : null,
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Select Song A'));
+    await user.click(screen.getByRole('button', { name: 'Delete…' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(await within(dialog).findByText('Song A is still downloading.')).toBeInTheDocument();
+  });
+
+  it('saves the current filters as a named view', async () => {
+    install({
+      extra: (url, method) =>
+        url.endsWith(FILTERS_URL) && method === 'POST'
+          ? jsonResponse({ id: 5, type: 'library', label: 'Needs files', filters: [] }, 201)
+          : null,
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Get Lucky');
+    await choose(user, 'File', 'Missing its file');
+    await user.click(screen.getByRole('button', { name: 'Views' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Save view…' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Needs files');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const post = await lastBody('POST');
+
+      expect(post?.url).toContain(FILTERS_URL);
+      expect(post?.body).toEqual({
+        type: 'library',
+        label: 'Needs files',
+        filters: [{ key: 'hasFile', value: 'false', type: 'equal' }],
+      });
+    });
+  });
+
+  it('shows the detail when a view with that name already exists', async () => {
+    install({
+      extra: (url, method) =>
+        url.endsWith(FILTERS_URL) && method === 'POST'
+          ? problem(409, 'A view named “Needs files” already exists.')
+          : null,
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Get Lucky');
+    await choose(user, 'File', 'Missing its file');
+    await user.click(screen.getByRole('button', { name: 'Views' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Save view…' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Needs files');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(await within(dialog).findByText('A view named “Needs files” already exists.')).toBeInTheDocument();
+  });
+
+  it('applies a saved view’s filters when it is chosen', async () => {
+    install({
+      extra: (url, method) =>
+        url.endsWith(`${FILTERS_URL}?type=library`) && method === 'GET'
+          ? jsonResponse([
+              {
+                id: 5,
+                type: 'library',
+                label: 'Quiet rock',
+                filters: [
+                  { key: 'monitored', value: 'false', type: 'equal' },
+                  { key: 'tag', value: 'rock', type: 'equal' },
+                ],
+              },
+            ])
+          : null,
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Get Lucky');
+    await user.click(screen.getByRole('button', { name: 'Views' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Quiet rock' }));
+
+    await waitFor(() => {
+      const query = songQueries().at(-1);
+
+      expect(query?.get('monitored')).toBe('false');
+      expect(query?.get('tag')).toBe('rock');
+      expect(query?.get('page')).toBe('1');
+    });
+
+    // The active view's label is on the menu button.
+    expect(screen.getByRole('button', { name: 'Quiet rock' })).toBeInTheDocument();
+  });
+
+  it('hides the tags column when no song on the page has tags', async () => {
+    install({ songs: makeSongs(2) });
+
+    renderApp();
+
+    await screen.findByText('Song A');
+
+    expect(screen.queryByRole('columnheader', { name: 'Tags' })).not.toBeInTheDocument();
+  });
+
+  it('shows the tags column and filters by a tag when its badge is clicked', async () => {
+    install({ songs: makeSongs(2, ['rock']) });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Song A');
+
+    expect(screen.getByRole('columnheader', { name: 'Tags' })).toBeInTheDocument();
+
+    await user.click(screen.getAllByLabelText('Filter by tag rock')[0] ?? document.body);
+
+    await waitFor(() => expect(songQueries().at(-1)?.get('tag')).toBe('rock'));
   });
 });

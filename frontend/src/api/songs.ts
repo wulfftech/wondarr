@@ -12,6 +12,7 @@ import { ApiError } from './errors';
 import { pagingValues, type Paging } from './paging';
 import { readEnum, ValidationError, validationFields } from './profiles';
 import type { components } from './schema';
+import { TAGS_QUERY_KEY } from './tags';
 import { WANTED_QUERY_KEY } from './wanted';
 
 /** The library, the add dialog and the pasted-list review screen. */
@@ -30,6 +31,7 @@ export type ImportListItemPage = components['schemas']['PagingResourceOfImportLi
 export type BulkAddAcceptedResource = components['schemas']['BulkAddAcceptedResource'];
 export type CommandResource = components['schemas']['CommandResource'];
 export type SongMoveAcceptedResource = components['schemas']['SongMoveAcceptedResource'];
+export type SongEditorResultResource = components['schemas']['SongEditorResultResource'];
 
 /** The query keys the library, add and review screens invalidate. */
 export const SONGS_QUERY_KEY = ['songs'] as const;
@@ -56,6 +58,20 @@ export interface SongFilters {
   artistId?: number;
   /** Only songs with this monitored flag. */
   monitored?: boolean;
+  /** A case-insensitive substring of the title or the artist credit. */
+  term?: string;
+  /** Only songs that do (`true`) or do not (`false`) hold a file. */
+  hasFile?: boolean;
+  /** Only songs whose file meets (`true`) or misses (`false`) the profile's cutoff. */
+  cutoffMet?: boolean;
+  /** Only songs filed in this library. */
+  libraryId?: number;
+  /** Only songs on this quality profile. */
+  qualityProfileId?: number;
+  /** Only songs whose file has this quality. */
+  qualityId?: number;
+  /** Only songs carrying this tag. */
+  tag?: string;
 }
 
 /** What `GET /api/v1/importlistitem` filters on. */
@@ -92,6 +108,7 @@ export function problemError(status: number, body: unknown, fallback: string): V
 /** Refreshes everything an add, a delete or a resolve changes. */
 export function invalidateLibrary(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: SONGS_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: TAGS_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: WANTED_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: IMPORT_LISTS_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: IMPORT_LIST_ITEMS_QUERY_KEY });
@@ -112,6 +129,34 @@ export function useSongs(paging: Paging, filters: SongFilters = {}): UseQueryRes
 
       if (filters.monitored !== undefined) {
         query.monitored = String(filters.monitored);
+      }
+
+      if (filters.term !== undefined && filters.term !== '') {
+        query.term = filters.term;
+      }
+
+      if (filters.hasFile !== undefined) {
+        query.hasFile = String(filters.hasFile);
+      }
+
+      if (filters.cutoffMet !== undefined) {
+        query.cutoffMet = String(filters.cutoffMet);
+      }
+
+      if (filters.libraryId !== undefined) {
+        query.libraryId = filters.libraryId;
+      }
+
+      if (filters.qualityProfileId !== undefined) {
+        query.qualityProfileId = filters.qualityProfileId;
+      }
+
+      if (filters.qualityId !== undefined) {
+        query.qualityId = filters.qualityId;
+      }
+
+      if (filters.tag !== undefined && filters.tag !== '') {
+        query.tag = filters.tag;
       }
 
       const { data, response } = await client.GET('/api/v1/song', {
@@ -176,6 +221,74 @@ export function useDeleteSong(): UseMutationResult<void, Error, number> {
       if (!response.ok) {
         throw new ApiError(response.status, 'The song could not be deleted.');
       }
+    },
+    onSuccess: () => invalidateLibrary(queryClient),
+  });
+}
+
+/** How the mass editor's tags combine with the ones a song already has. */
+export type ApplyTags = 'add' | 'remove' | 'replace';
+
+/** What the mass editor changes on every song it names; an omitted member is left alone. */
+export interface EditSongsInput {
+  songIds: number[];
+  monitored?: boolean;
+  qualityProfileId?: number;
+  /** Moves the songs, and their files, to this library. */
+  libraryId?: number;
+  tags?: string[];
+  applyTags?: ApplyTags;
+}
+
+/** Changes many songs at once (`PUT /api/v1/song/editor`). A library change answers with the move commands to follow. */
+export function useEditSongs(): UseMutationResult<SongEditorResultResource, Error, EditSongsInput> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (edit: EditSongsInput): Promise<SongEditorResultResource> => {
+      // The document marks every member required; the API reads a null as "leave it alone".
+      const { data, error, response } = await client.PUT('/api/v1/song/editor', {
+        body: {
+          songIds: edit.songIds,
+          monitored: edit.monitored ?? null,
+          qualityProfileId: edit.qualityProfileId ?? null,
+          libraryId: edit.libraryId ?? null,
+          tags: edit.tags ?? null,
+          applyTags: edit.applyTags ?? null,
+        },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The songs could not be saved.');
+      }
+
+      return data;
+    },
+    onSuccess: (result) => {
+      invalidateLibrary(queryClient);
+
+      if (result.moveCommandIds.length > 0) {
+        void queryClient.invalidateQueries({ queryKey: COMMANDS_QUERY_KEY });
+      }
+    },
+  });
+}
+
+/** Deletes many songs at once; the API answers 409 (nothing deleted) while one is downloading or importing. */
+export function useDeleteSongs(): UseMutationResult<number, Error, number[]> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (songIds: number[]): Promise<number> => {
+      const { data, error, response } = await client.DELETE('/api/v1/song/editor', { body: { songIds } });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The songs could not be deleted.');
+      }
+
+      return Number(data.deleted);
     },
     onSuccess: () => invalidateLibrary(queryClient),
   });
