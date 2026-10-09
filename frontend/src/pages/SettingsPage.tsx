@@ -1,6 +1,7 @@
 import { SegmentedControl, Stack, Title } from '@mantine/core';
 import { useNavigate, useParams } from 'react-router';
 import { DownloadClientsSettingsPage } from './settings/DownloadClientsSettingsPage';
+import { GeneralSettingsPage } from './settings/GeneralSettingsPage';
 import { ImportListsSettingsPage } from './settings/ImportListsSettingsPage';
 import { IndexersSettingsPage } from './settings/IndexersSettingsPage';
 import { LibrarySettingsPage } from './settings/LibrarySettingsPage';
@@ -13,6 +14,7 @@ import { YouTubeSettingsPage } from './settings/YouTubeSettingsPage';
 
 /** The Settings sections, and the route segment each one owns. */
 type SettingsSection =
+  | 'general'
   | 'profiles'
   | 'library'
   | 'references'
@@ -25,6 +27,7 @@ type SettingsSection =
   | 'notifications';
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
+  { value: 'general', label: 'General' },
   { value: 'profiles', label: 'Quality profiles' },
   { value: 'library', label: 'Library' },
   { value: 'references', label: 'Reference libraries' },
@@ -43,7 +46,7 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const active: SettingsSection = SECTIONS.some((candidate) => candidate.value === section)
     ? (section as SettingsSection)
-    : 'profiles';
+    : 'general';
 
   return (
     <Stack gap="lg">
@@ -57,6 +60,7 @@ export function SettingsPage() {
         data={SECTIONS}
       />
 
+      {active === 'general' && <GeneralSettingsPage />}
       {active === 'profiles' && <QualityProfilesPage />}
       {active === 'library' && <LibrarySettingsPage />}
       {active === 'references' && <ReferenceLibrariesPage />}
