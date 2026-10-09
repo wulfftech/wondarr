@@ -91,6 +91,12 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The scripted probe, which answers with a decodable FLAC unless a test says otherwise.</summary>
     public FakeMediaProbe Probe { get; private init; } = null!;
 
+    /// <summary>The scripted spectral analyzer, which finds a genuine file unless a test says otherwise.</summary>
+    public FakeSpectralAnalyzer Spectral { get; private init; } = null!;
+
+    /// <summary>The import options the host runs on, so a test can switch the fake-lossless check.</summary>
+    public ImportOptions ImportOptions { get; private init; } = null!;
+
     /// <summary>The scripted tag writer.</summary>
     public FakeTagWriter TagWriter { get; private init; } = null!;
 
@@ -131,6 +137,8 @@ internal sealed class ImportTestHost : IAsyncDisposable
         var verifier = new FakeDownloadVerifier();
         var transcoder = new FakeTranscoder();
         var probe = new FakeMediaProbe();
+        var spectral = new FakeSpectralAnalyzer();
+        var importOptions = new ImportOptions();
         var tagWriter = new FakeTagWriter();
         var placer = new FakeFilePlacer();
         var covers = new FakeCoverFetcher();
@@ -145,13 +153,14 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddLogging();
         services.AddSingleton<TimeProvider>(time);
         services.AddSingleton<IOptionsMonitor<SearchOptions>>(new TestOptionsMonitor<SearchOptions>(options));
-        services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(new ImportOptions()));
+        services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(importOptions));
         services.AddSingleton<IOptionsMonitor<LyricsOptions>>(new TestOptionsMonitor<LyricsOptions>(new LyricsOptions()));
         services.AddSingleton<ILrclibClient>(lrclib);
         services.AddSingleton<ICoverImageProcessor>(coverProcessor);
         services.AddSingleton<IDownloadVerifier>(verifier);
         services.AddSingleton<ITranscoder>(transcoder);
         services.AddSingleton<IMediaProbe>(probe);
+        services.AddSingleton<ISpectralAnalyzer>(spectral);
         services.AddSingleton<ITagWriter>(tagWriter);
         services.AddSingleton<IFilePlacer>(placer);
         services.AddSingleton<ICoverFetcher>(covers);
@@ -177,6 +186,8 @@ internal sealed class ImportTestHost : IAsyncDisposable
             Verifier = verifier,
             Transcoder = transcoder,
             Probe = probe,
+            Spectral = spectral,
+            ImportOptions = importOptions,
             TagWriter = tagWriter,
             Placer = placer,
             Covers = covers,
@@ -664,6 +675,24 @@ internal sealed class FakeMediaProbe : IMediaProbe
         Requests.Add(path);
 
         return Task.FromResult(Result);
+    }
+}
+
+/// <summary>A spectral analyzer that records what it was asked and answers with one scripted verdict.</summary>
+internal sealed class FakeSpectralAnalyzer : ISpectralAnalyzer
+{
+    /// <summary>The answer every call returns; genuine unless a test says otherwise.</summary>
+    public SpectralVerdict Verdict { get; set; } = new(SpectralOutcome.Genuine, null, 100);
+
+    /// <summary>Every file the analyzer was asked about, with the duration it was given.</summary>
+    public List<(string Path, int DurationMs)> Requests { get; } = [];
+
+    /// <inheritdoc />
+    public Task<SpectralVerdict> AnalyzeAsync(string path, int durationMs, CancellationToken cancellationToken)
+    {
+        Requests.Add((path, durationMs));
+
+        return Task.FromResult(Verdict);
     }
 }
 
