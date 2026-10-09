@@ -4,22 +4,36 @@
 
 Conceptually it is Sonarr/Radarr/Lidarr for **one song at a time** — which Lidarr cannot do, by design (its unit is the album).
 
-> **Status (2026-09-28):** Phase 0 (skeleton, auth, jobs, UI shell, bundled slskd, image, CI) and Phase 1 (song identity: MusicBrainz/Deezer resolution, album policy, add-by-search with previews, pasted lists, Wanted/History/Blocklist, quality profiles) are done; the project was renamed from *Compilarr* to *Wondarr* (Phase 1a). Phase 2 (the Soulseek source and the import pipeline) is next. See `docs/HANDOVER.md` if you are picking this up, and `AGENTS.md` if you are an AI coding session.
+> **Status (2026-10-09):** every phase of the plan is built — Soulseek, YouTube Music, torrents and usenet, verified imports, upgrades, import lists, reference libraries, Plex, the mass editor. The first public release is being prepared. **User documentation: https://wulfftech.github.io/wondarr/** (sources in [`website/`](website/)).
 
 ## Quick start (Docker)
 
-Build and run everything (API, UI and the bundled slskd) with the Compose file in `docker/`:
-
-```bash
-docker compose -f docker/docker-compose.yml up --build
+```yaml
+services:
+  wondarr:
+    image: ghcr.io/wulfftech/wondarr:latest   # :develop follows the main branch
+    container_name: wondarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      - TZ=Etc/UTC
+    volumes:
+      - ./config:/config
+      - /srv/data:/data          # your music and every download, on one mount
+    ports:
+      - "1077:1077"              # web UI and API
+      - "50300:50300"            # Soulseek (bundled slskd); forward it on your router
+    restart: unless-stopped
 ```
 
-Then open **http://localhost:1077**. Persistent state lives in `/config`, the library in `/data`; `PUID`, `PGID`, `UMASK` and `TZ` control file ownership and time zone, and Soulseek needs port **50300** reachable for incoming connections. The first build downloads the pinned slskd, ffmpeg, `fpcalc` and Deno releases, so it needs network access and takes a few minutes.
+`docker compose up -d`, then open **http://<host>:1077**, set a login under **Settings → General**, and sign in to Soulseek under **Settings → Soulseek**. The image (linux/amd64, linux/arm64) bundles slskd, ffmpeg, `fpcalc`, Deno and yt-dlp. Step-by-step guides for Plex, qBittorrent, SABnzbd, indexers and Unraid are on the [docs site](https://wulfftech.github.io/wondarr/); `docker/docker-compose.yml` builds the image from source.
 
 ## Documentation map
 
 | Read this | For |
 |---|---|
+| [The docs site](https://wulfftech.github.io/wondarr/) ([`website/`](website/)) | Installing and using Wondarr: Docker, Unraid, Soulseek, Plex, qBittorrent, SABnzbd, indexers, the library, operations, configuration, troubleshooting |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Prerequisites, build/test commands, repository map and contribution rules |
 | [`NOTICE.md`](NOTICE.md) | Ported-code attributions and the third-party programs bundled in the image |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
@@ -31,12 +45,12 @@ Then open **http://localhost:1077**. Persistent state lives in `/config`, the li
 | [`docs/architecture/MATCHING_ENGINE.md`](docs/architecture/MATCHING_ENGINE.md) | Candidate normalisation, rejections, scoring, per-source search strategy, verification |
 | [`docs/architecture/LIBRARY_OUTPUT.md`](docs/architecture/LIBRARY_OUTPUT.md) | Layouts, the album policy ("fewest albums"), tag spec, Plex/Plexamp rules, reference libraries |
 | [`docs/architecture/STACK.md`](docs/architecture/STACK.md) · [`DEPLOYMENT.md`](docs/architecture/DEPLOYMENT.md) · [`QUALITY_DEFINITIONS.md`](docs/architecture/QUALITY_DEFINITIONS.md) · [`CONFIG_EXAMPLES.md`](docs/architecture/CONFIG_EXAMPLES.md) | Stack and code to port, Docker/bundled slskd, quality seed, reference config |
-| [`docs/build/PHASES.md`](docs/build/PHASES.md) · [`PHASE_0_TASKS.md`](docs/build/PHASE_0_TASKS.md) · [`AGENT_WORKFLOW.md`](docs/build/AGENT_WORKFLOW.md) · [`CODING_STANDARDS.md`](docs/build/CODING_STANDARDS.md) · [`REPO_LAYOUT.md`](docs/build/REPO_LAYOUT.md) | How the build is sequenced, the first task list, how AI workers are used, conventions |
-| [`docs/build/NEXT_SESSION_PROMPT.md`](docs/build/NEXT_SESSION_PROMPT.md) | The prompt that starts the next build session (currently Phase 1) |
+| [`docs/build/PHASES.md`](docs/build/PHASES.md) · [`PROGRESS.md`](docs/build/PROGRESS.md) · [`AGENT_WORKFLOW.md`](docs/build/AGENT_WORKFLOW.md) · [`CODING_STANDARDS.md`](docs/build/CODING_STANDARDS.md) · [`REPO_LAYOUT.md`](docs/build/REPO_LAYOUT.md) | How the build is sequenced, what each task delivered, how AI subagents are used, conventions |
+| [`docs/build/NEXT_SESSION_PROMPT.md`](docs/build/NEXT_SESSION_PROMPT.md) | The prompt that starts the next build session |
 | [`docs/research/FINDINGS.md`](docs/research/FINDINGS.md) + six full reports | The URL-cited research behind every decision |
 | [`docs/PLAN.md`](docs/PLAN.md) | The complete planning document (revision 3), frozen as the record of the research phase |
 
-## Planned stack
+## Stack
 
 C# / .NET 10 (ASP.NET Core, EF Core + SQLite) with a React 19 + Vite front end, aligned with the other \*arrs so their GPL-3.0 subsystems can be ported; one Docker image with slskd bundled; HTTP on port **1077**, Soulseek on 50300.
 
