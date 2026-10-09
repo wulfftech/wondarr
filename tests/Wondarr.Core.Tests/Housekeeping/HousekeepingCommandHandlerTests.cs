@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,21 +29,38 @@ public class HousekeepingCommandHandlerTests
         await host.SeedAsync(context =>
         {
             context.Commands.AddRange(
-                Command("OldCompleted", CommandStatus.Completed, endedAt: now.AddDays(-8)),
-                Command("OldFailed", CommandStatus.Failed, endedAt: now.AddDays(-30)),
-                Command("OldCancelled", CommandStatus.Cancelled, endedAt: null, queuedAt: now.AddDays(-9)),
-                Command("OldOrphaned", CommandStatus.Orphaned, endedAt: now.AddDays(-10)),
-                Command("OldAborted", CommandStatus.Aborted, endedAt: now.AddDays(-10)),
-                Command("RecentCompleted", CommandStatus.Completed, endedAt: now.AddDays(-6)),
-                Command("OldQueued", CommandStatus.Queued, endedAt: null, queuedAt: now.AddDays(-40)),
-                Command("OldStarted", CommandStatus.Started, endedAt: null, queuedAt: now.AddDays(-40)));
+                Command("Alpha", CommandStatus.Failed, endedAt: now.AddDays(-30)),
+                Command("Alpha", CommandStatus.Orphaned, endedAt: now.AddDays(-10)),
+                Command("Alpha", CommandStatus.Completed, endedAt: now.AddDays(-8)),
+                Command("Beta", CommandStatus.Aborted, endedAt: now.AddDays(-10)),
+                Command("Beta", CommandStatus.Cancelled, endedAt: null, queuedAt: now.AddDays(-9)),
+                Command("Beta", CommandStatus.Completed, endedAt: now.AddDays(-6)),
+                Command("Gamma", CommandStatus.Queued, endedAt: null, queuedAt: now.AddDays(-40)),
+                Command("Delta", CommandStatus.Started, endedAt: null, queuedAt: now.AddDays(-40)));
         });
 
         var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
 
-        message.Should().StartWith("commands 5,");
-        (await host.ReadAsync(context => context.Commands.Select(command => command.Name).ToListAsync()))
-            .Should().BeEquivalentTo("RecentCompleted", "OldQueued", "OldStarted");
+        message.Should().StartWith("commands 4,");
+        (await host.ReadAsync(context => context.Commands.Select(command => command.Name + ":" + command.Status).ToListAsync()))
+            .Should().BeEquivalentTo("Alpha:Completed", "Beta:Completed", "Gamma:Queued", "Delta:Started");
+    }
+
+    [Fact]
+    public async Task The_newest_finished_command_of_each_name_is_kept_however_old_so_the_last_run_still_shows()
+    {
+        await using var host = await HousekeepingHost.CreateAsync();
+        var now = host.Now;
+
+        await host.SeedAsync(context =>
+            context.Commands.AddRange(
+                TimedCommand("Backup", now.AddDays(-300)),
+                TimedCommand("Backup", now.AddDays(-200))));
+
+        await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        var left = await host.ReadAsync(context => context.Commands.ToListAsync());
+        left.Should().ContainSingle().Which.EndedAt.Should().Be(now.AddDays(-200));
     }
 
     [Fact]
@@ -48,35 +68,13 @@ public class HousekeepingCommandHandlerTests
     {
         await using var host = await HousekeepingHost.CreateAsync();
         var old = host.Now.AddDays(-31);
-        var songs = new List<long>();
-
-        await host.SeedAsync(context =>
-        {
-            for (var index = 0; index < 5; index++)
-            {
-                var artist = new Artist { Name = $"Artist {index}", SortName = $"Artist {index}" };
-                var song = new Song
-                {
-                    Title = $"Song {index}",
-                    ArtistCredit = artist.Name,
-                    PrimaryArtist = artist,
-                    QualityProfileId = SeedData.StandardProfileId,
-                    LibraryId = SeedData.DefaultLibraryId,
-                    AddedBy = "test",
-                };
-                context.Songs.Add(song);
-            }
-        });
-        songs.AddRange(await host.ReadAsync(context => context.Songs.OrderBy(song => song.Id).Select(song => song.Id).ToListAsync()));
+        var songs = await host.AddSongsAsync(5);
 
         // 0: plain old run, with two candidates -> deleted
         // 1: old run with a queue item of its own -> kept
-        // 2: old run whose candidate a queue item (of another run) points at -> kept
+        // 2: old run whose candidate a queue item (of another, recent run) points at -> kept
         // 3: old run whose candidate a song file's source_ref names -> kept
         // 4: a recent run -> kept
-        var runs = new List<long>();
-        var candidates = new Dictionary<int, long>();
-
         await host.SeedAsync(context =>
         {
             for (var index = 0; index < 5; index++)
@@ -93,32 +91,20 @@ public class HousekeepingCommandHandlerTests
                 context.Candidates.Add(Candidate(run, songs[index], $"b{index}"));
             }
         });
-        runs.AddRange(await host.ReadAsync(context => context.SearchRuns.OrderBy(run => run.Id).Select(run => run.Id).ToListAsync()));
+        var runs = await host.ReadAsync(context => context.SearchRuns.OrderBy(run => run.Id).Select(run => run.Id).ToListAsync());
+        var candidates = new Dictionary<int, long>();
         foreach (var candidate in await host.ReadAsync(context => context.Candidates.ToListAsync()))
         {
             candidates[(int)(candidate.SearchRunId - runs[0])] = candidate.Id;
         }
 
-        // Run 5 is the "other" run the queue item of case 2 belongs to; make it recent so it is kept anyway.
         await host.SeedAsync(context =>
         {
             context.QueueItems.Add(QueueItem(songs[1], candidates[1], runs[1]));
-
-            // Case 2: the queue item's run is run 4 (recent), its candidate belongs to old run 2.
             context.QueueItems.Add(QueueItem(songs[2], candidates[2], runs[4]));
 
-            var file = new SongFile
-            {
-                SongId = songs[3],
-                Path = "/music/x.flac",
-                Codec = "flac",
-                Container = "flac",
-                QualityId = 36,
-                SourceType = "soulseek",
-                SourceRef = $"{{\"provider\":null,\"remotePath\":\"x\",\"candidateId\":{candidates[3]},\"queueItemId\":99,\"searchRunId\":{runs[3] + 1000}}}",
-                ImportedAt = host.Now,
-            };
-            context.SongFiles.Add(file);
+            // The run id in this source_ref names nothing real, so only the candidate protects run 3.
+            context.SongFiles.Add(SongFile(songs[3], ImportSourceRef(candidates[3], runs[3] + 1000)));
         });
 
         var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
@@ -128,6 +114,69 @@ public class HousekeepingCommandHandlerTests
             .Should().BeEquivalentTo(new[] { runs[1], runs[2], runs[3], runs[4] });
         (await host.ReadAsync(context => context.Candidates.CountAsync())).Should().Be(8);
         (await host.ReadAsync(context => context.QueueItems.CountAsync())).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_run_named_only_by_a_source_ref_search_run_id_is_kept()
+    {
+        await using var host = await HousekeepingHost.CreateAsync();
+        var songs = await host.AddSongsAsync(2);
+
+        await host.SeedAsync(context => context.SearchRuns.Add(
+            new SearchRun { SongId = songs[0], Trigger = SearchTrigger.Automatic, StartedAt = host.Now.AddDays(-40) }));
+        var runId = (await host.ReadAsync(context => context.SearchRuns.SingleAsync())).Id;
+        await host.SeedAsync(context => context.SongFiles.Add(SongFile(songs[1], ImportSourceRef(candidateId: 123_456, searchRunId: runId))));
+
+        await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        (await host.ReadAsync(context => context.SearchRuns.CountAsync())).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task More_old_runs_than_one_batch_are_all_deleted_across_batches()
+    {
+        await using var host = await HousekeepingHost.CreateAsync();
+        var songs = await host.AddSongsAsync(1);
+
+        await host.SeedAsync(context =>
+        {
+            for (var index = 0; index < 600; index++)
+            {
+                var run = new SearchRun
+                {
+                    SongId = songs[0],
+                    Trigger = SearchTrigger.Automatic,
+                    StartedAt = host.Now.AddDays(-40),
+                    Outcome = SearchOutcome.NoResults,
+                };
+                context.SearchRuns.Add(run);
+                context.Candidates.Add(Candidate(run, songs[0], $"k{index}"));
+            }
+        });
+
+        var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        message.Should().Contain("search runs 600 (candidates 600)");
+        (await host.ReadAsync(context => context.SearchRuns.CountAsync())).Should().Be(0);
+        (await host.ReadAsync(context => context.Candidates.CountAsync())).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_malformed_source_ref_protects_nothing()
+    {
+        await using var host = await HousekeepingHost.CreateAsync();
+        var songs = await host.AddSongsAsync(2);
+
+        await host.SeedAsync(context =>
+        {
+            context.SearchRuns.Add(
+                new SearchRun { SongId = songs[0], Trigger = SearchTrigger.Automatic, StartedAt = host.Now.AddDays(-40) });
+            context.SongFiles.Add(SongFile(songs[1], "{not json"));
+        });
+
+        await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        (await host.ReadAsync(context => context.SearchRuns.CountAsync())).Should().Be(0);
     }
 
     [Fact]
@@ -177,6 +226,48 @@ public class HousekeepingCommandHandlerTests
         (await host.ReadAsync(context => context.Blocklist.CountAsync())).Should().Be(0, "the steps after the failure still ran");
     }
 
+    [Fact]
+    public async Task The_vacuum_runs_when_the_policy_asks_for_it_and_the_file_shrinks()
+    {
+        await using var host = await HousekeepingHost.CreateAsync(shouldVacuum: (pages, free) => free > 20 && free * 4 > pages);
+        var now = host.Now;
+
+        await host.SeedAsync(context =>
+        {
+            for (var index = 0; index < 150; index++)
+            {
+                var command = TimedCommand("Bulk" + index, now.AddDays(-20));
+                command.Message = new string('x', 8_000);
+                context.Commands.Add(command);
+                context.Commands.Add(TimedCommand("Bulk" + index, now.AddDays(-1)));
+            }
+        });
+        var before = await host.LogicalSizeAsync();
+
+        var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        message.Should().EndWith("vacuumed");
+        (await host.ReadAsync(context => context.Commands.CountAsync())).Should().Be(150);
+        host.FileLength().Should().BeLessThan(before);
+    }
+
+    [Fact]
+    public async Task The_vacuum_waits_while_another_command_is_running()
+    {
+        await using var host = await HousekeepingHost.CreateAsync(shouldVacuum: (_, _) => true);
+        await host.SeedAsync(context => context.Commands.Add(new CommandRecord
+        {
+            Name = "Other",
+            Status = CommandStatus.Started,
+            QueuedAt = host.Now,
+            StartedAt = host.Now,
+        }));
+
+        var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        message.Should().EndWith("checkpointed, vacuum skipped (commands running)");
+    }
+
     [Theory]
     [InlineData(10_000, 999, false)]
     [InlineData(10_000, 1_000, false)]
@@ -196,6 +287,48 @@ public class HousekeepingCommandHandlerTests
             QueuedAt = queuedAt ?? endedAt!.Value.AddMinutes(-1),
             EndedAt = endedAt,
         };
+
+    private static CommandRecord TimedCommand(string name, DateTime endedAt) =>
+        new()
+        {
+            Name = name,
+            Status = CommandStatus.Completed,
+            QueuedAt = endedAt.AddMinutes(-2),
+            StartedAt = endedAt.AddMinutes(-1),
+            EndedAt = endedAt,
+        };
+
+    private static SongFile SongFile(long songId, string sourceRef) =>
+        new()
+        {
+            SongId = songId,
+            Path = $"/music/{songId}.flac",
+            Codec = "flac",
+            Container = "flac",
+            QualityId = 36,
+            SourceType = "soulseek",
+            SourceRef = sourceRef,
+            ImportedAt = DateTime.UnixEpoch,
+        };
+
+    /// <summary>Mirrors ImportService's private SourceReference record, which is what song_file.source_ref holds.</summary>
+    private sealed record ImportedSourceReference(
+        string? Provider,
+        string RemotePath,
+        long CandidateId,
+        long QueueItemId,
+        long SearchRunId);
+
+    // The same options ImportService serialises with: web defaults (camelCase), nulls left out.
+    private static readonly JsonSerializerOptions ImportJson = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    private static string ImportSourceRef(long candidateId, long searchRunId) =>
+        JsonSerializer.Serialize(
+            new ImportedSourceReference(null, "remote/path.flac", candidateId, 99, searchRunId),
+            ImportJson);
 
     private static CandidateRecord Candidate(SearchRun run, long songId, string key) =>
         new()
@@ -227,7 +360,12 @@ public class HousekeepingCommandHandlerTests
         private readonly ServiceProvider _provider;
         private readonly string _directory;
 
-        private HousekeepingHost(ServiceProvider provider, string directory, FakeTimeProvider time, IRecycleBin bin)
+        private HousekeepingHost(
+            ServiceProvider provider,
+            string directory,
+            FakeTimeProvider time,
+            IRecycleBin bin,
+            Func<long, long, bool>? shouldVacuum)
         {
             _provider = provider;
             _directory = directory;
@@ -235,7 +373,8 @@ public class HousekeepingCommandHandlerTests
             Handler = new HousekeepingCommandHandler(
                 provider.GetRequiredService<IServiceScopeFactory>(),
                 time,
-                NullLogger<HousekeepingCommandHandler>.Instance);
+                NullLogger<HousekeepingCommandHandler>.Instance,
+                shouldVacuum ?? HousekeepingCommandHandler.ShouldVacuum);
             Now = time.GetUtcNow().UtcDateTime;
         }
 
@@ -245,7 +384,7 @@ public class HousekeepingCommandHandlerTests
 
         public DateTime Now { get; }
 
-        public static async Task<HousekeepingHost> CreateAsync()
+        public static async Task<HousekeepingHost> CreateAsync(Func<long, long, bool>? shouldVacuum = null)
         {
             var directory = Path.Combine(Path.GetTempPath(), "wondarr-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
@@ -265,7 +404,43 @@ public class HousekeepingCommandHandlerTests
                 await scope.ServiceProvider.GetRequiredService<DatabaseMigrator>().MigrateAsync(CancellationToken.None);
             }
 
-            return new HousekeepingHost(provider, directory, time, bin);
+            return new HousekeepingHost(provider, directory, time, bin, shouldVacuum);
+        }
+
+        public async Task<List<long>> AddSongsAsync(int count)
+        {
+            await SeedAsync(context =>
+            {
+                for (var index = 0; index < count; index++)
+                {
+                    var artist = new Artist { Name = $"Artist {index}", SortName = $"Artist {index}" };
+                    context.Songs.Add(new Song
+                    {
+                        Title = $"Song {index}",
+                        ArtistCredit = artist.Name,
+                        PrimaryArtist = artist,
+                        QualityProfileId = SeedData.StandardProfileId,
+                        LibraryId = SeedData.DefaultLibraryId,
+                        AddedBy = "test",
+                    });
+                }
+            });
+
+            return await ReadAsync(context => context.Songs.OrderBy(song => song.Id).Select(song => song.Id).ToListAsync());
+        }
+
+        public long FileLength() => new FileInfo(Path.Combine(_directory, "wondarr.db")).Length;
+
+        /// <summary>What the database weighs logically (pages times page size), the WAL's pages included.</summary>
+        public async Task<long> LogicalSizeAsync()
+        {
+            await using var scope = _provider.CreateAsyncScope();
+            var connection = scope.ServiceProvider.GetRequiredService<WondarrDbContext>().Database.GetDbConnection();
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT (SELECT page_count FROM pragma_page_count) * (SELECT page_size FROM pragma_page_size);";
+
+            return Convert.ToInt64(await command.ExecuteScalarAsync(), CultureInfo.InvariantCulture);
         }
 
         public async Task SeedAsync(Action<WondarrDbContext> seed)

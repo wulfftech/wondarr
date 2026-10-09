@@ -18,6 +18,9 @@ public sealed partial class CommandExecutor : BackgroundService
     /// <summary>How many commands may run at the same time.</summary>
     public const int MaxConcurrency = 3;
 
+    /// <summary>How long a worker waits after a command's bookkeeping threw, before it takes the next one.</summary>
+    internal static readonly TimeSpan WorkerFaultPause = TimeSpan.FromSeconds(1);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IEventAggregator _eventAggregator;
     private readonly ChannelReader<long> _queue;
@@ -85,7 +88,17 @@ public sealed partial class CommandExecutor : BackgroundService
         {
             await foreach (var id in _queue.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
-                await RunAsync(id, stoppingToken).ConfigureAwait(false);
+                try
+                {
+                    await RunAsync(id, stoppingToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
+                {
+                    // A failed status write (SQLITE_BUSY, say) must not fault the worker and stop the
+                    // host. The pause keeps a persistent fault from turning into a tight loop.
+                    LogWorkerFault(id, exception);
+                    await Task.Delay(WorkerFaultPause, _timeProvider, stoppingToken).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -110,11 +123,12 @@ public sealed partial class CommandExecutor : BackgroundService
         string? message = null;
         string? error = null;
         var aborted = false;
+        CommandHandlerLookup? lookup = null;
 
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var lookup = CommandHandlerResolver.Find(scope.ServiceProvider, started.Name);
+            lookup = CommandHandlerResolver.Find(scope.ServiceProvider, started.Name);
             var handler = lookup.Handler;
 
             if (handler is null && lookup.Failures.Count > 0)
@@ -148,6 +162,14 @@ public sealed partial class CommandExecutor : BackgroundService
         {
             error = exception.Message;
             LogCommandFailed(started.Id, started.Name, exception);
+        }
+        finally
+        {
+            // Only a handler built outside the scope's own tracking needs this.
+            if (lookup is not null)
+            {
+                await lookup.ReleaseAsync().ConfigureAwait(false);
+            }
         }
 
         var finished = await MarkFinishedAsync(id, aborted, message, error).ConfigureAwait(false);
@@ -304,6 +326,9 @@ public sealed partial class CommandExecutor : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Marked {Count} command(s) left over by a previous run as orphaned")]
     private partial void LogOrphaned(int count);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The executor could not record the outcome of command {CommandId}")]
+    private partial void LogWorkerFault(long commandId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Command {CommandId} ({CommandName}) failed: {Reason}")]
     private partial void LogHandlerNotBuilt(long commandId, string commandName, string reason);

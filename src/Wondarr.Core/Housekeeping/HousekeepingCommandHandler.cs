@@ -53,6 +53,7 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
     private readonly IServiceScopeFactory _scopes;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<HousekeepingCommandHandler> _logger;
+    private readonly Func<long, long, bool> _shouldVacuum;
 
     /// <summary>Initialises a new instance of the <see cref="HousekeepingCommandHandler"/> class.</summary>
     /// <param name="scopes">
@@ -65,14 +66,30 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
         IServiceScopeFactory scopes,
         TimeProvider timeProvider,
         ILogger<HousekeepingCommandHandler> logger)
+        : this(scopes, timeProvider, logger, ShouldVacuum)
+    {
+    }
+
+    /// <summary>Initialises a new instance with its own vacuum threshold, so a test can use a small file.</summary>
+    /// <param name="scopes">The scope factory.</param>
+    /// <param name="timeProvider">The clock.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="shouldVacuum">Decides from the page count and the free page count whether to vacuum.</param>
+    internal HousekeepingCommandHandler(
+        IServiceScopeFactory scopes,
+        TimeProvider timeProvider,
+        ILogger<HousekeepingCommandHandler> logger,
+        Func<long, long, bool> shouldVacuum)
     {
         ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(shouldVacuum);
 
         _scopes = scopes;
         _timeProvider = timeProvider;
         _logger = logger;
+        _shouldVacuum = shouldVacuum;
     }
 
     /// <inheritdoc />
@@ -158,11 +175,23 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
         using var scope = _scopes.CreateScope();
         var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
+        // The Tasks page reads each task's last run from the newest finished row of that name, and
+        // Backup can run once a year, so the newest finished row per name is never pruned.
         while (true)
         {
             var ids = await database.Commands
                 .Where(command => FinishedStatuses.Contains(command.Status)
-                    && (command.EndedAt ?? command.QueuedAt) < cutoff)
+                    && (command.EndedAt ?? command.QueuedAt) < cutoff
+                    && database.Commands.Any(newer => newer.Name == command.Name
+                        && newer.Id > command.Id
+                        && FinishedStatuses.Contains(newer.Status))
+                    && (command.StartedAt == null
+                        || command.EndedAt == null
+                        || database.Commands.Any(newer => newer.Name == command.Name
+                            && newer.Id > command.Id
+                            && newer.StartedAt != null
+                            && newer.EndedAt != null
+                            && FinishedStatuses.Contains(newer.Status))))
                 .OrderBy(command => command.Id)
                 .Select(command => command.Id)
                 .Take(CommandBatchSize)
@@ -190,96 +219,68 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
         using var scope = _scopes.CreateScope();
         var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
-        // A held file's source_ref names the candidate (and run) that produced it; the identity rule
-        // reads that candidate back. There is one file per song, so this set is as small as the library.
-        var heldRuns = new HashSet<long>();
-        var heldCandidates = new HashSet<long>();
-        var references = await database.SongFiles
-            .AsNoTracking()
-            .Where(file => file.SourceRef != null)
-            .Select(file => file.SourceRef!)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        foreach (var reference in references)
-        {
-            ReadSourceRef(reference, heldRuns, heldCandidates);
-        }
-
-        var heldCandidateRuns = heldCandidates.Count == 0
-            ? []
-            : await database.Candidates
-                .AsNoTracking()
-                .Where(candidate => heldCandidates.Contains(candidate.Id))
-                .Select(candidate => candidate.SearchRunId)
-                .Distinct()
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-        heldRuns.UnionWith(heldCandidateRuns);
-
         while (true)
         {
-            // queue_item.search_run_id cascades and queue_item.candidate_id restricts, so a run with
-            // a queue item of its own, or one of whose candidates a queue item points at, stays.
-            var ids = await database.SearchRuns
-                .Where(run => run.StartedAt < cutoff
-                    && !database.QueueItems.Any(item => item.SearchRunId == run.Id || item.Candidate.SearchRunId == run.Id)
-                    && !heldRuns.Contains(run.Id))
-                .OrderBy(run => run.Id)
-                .Select(run => run.Id)
-                .Take(SearchRunBatchSize)
-                .ToListAsync(cancellationToken)
+            // The candidate count is for the message only; the delete below re-checks every guard in
+            // its own statement, so a queue item or an import that lands in between is still honoured.
+            var batchCandidates = await database.Database
+                .SqlQueryRaw<int>(
+                    CountCandidatesSql,
+                    cutoff)
+                .SingleAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            if (ids.Count == 0)
+            // One statement: the guards and the delete cannot be split by another writer. The
+            // candidates go with their run through the foreign key's cascade.
+            var deleted = await database.Database
+                .ExecuteSqlRawAsync(
+                    DeleteRunsSql,
+                    [cutoff],
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (deleted == 0)
             {
                 return (runs, candidates);
             }
 
-            candidates += await database.Candidates
-                .CountAsync(candidate => ids.Contains(candidate.SearchRunId), cancellationToken)
-                .ConfigureAwait(false);
-
-            // The candidates go with their run through the foreign key's cascade.
-            runs += await database.SearchRuns
-                .Where(run => ids.Contains(run.Id))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            runs += deleted;
+            candidates += batchCandidates;
         }
     }
 
-    private static void ReadSourceRef(string sourceRef, HashSet<long> runs, HashSet<long> candidates)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(sourceRef);
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                return;
-            }
+    private static string CountCandidatesSql =>
+        "SELECT count(*) AS \"Value\" FROM candidate WHERE search_run_id IN (" + EligibleRunsSql + ")";
 
-            foreach (var property in document.RootElement.EnumerateObject())
-            {
-                if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt64(out var id))
-                {
-                    continue;
-                }
+    private static string DeleteRunsSql => "DELETE FROM search_run WHERE id IN (" + EligibleRunsSql + ")";
 
-                if (string.Equals(property.Name, "candidateId", StringComparison.OrdinalIgnoreCase))
-                {
-                    candidates.Add(id);
-                }
-                else if (string.Equals(property.Name, "searchRunId", StringComparison.OrdinalIgnoreCase))
-                {
-                    runs.Add(id);
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // A source_ref that is not ours names nothing to protect.
-        }
-    }
+    /// <summary>
+    /// The ids of at most <see cref="SearchRunBatchSize"/> runs that may go. queue_item.search_run_id
+    /// cascades and queue_item.candidate_id restricts, so a run with a queue item of its own, or one of
+    /// whose candidates a queue item points at, stays. So does a run a held file's <c>source_ref</c>
+    /// names (<c>searchRunId</c>), or one of whose candidates it names (<c>candidateId</c>): the
+    /// identity rule reads that candidate back. Those are the property names ImportService writes. A
+    /// <c>source_ref</c> that is not valid JSON protects nothing, on purpose — the identity rule
+    /// ignores it too.
+    /// </summary>
+    private static readonly string EligibleRunsSql = $$"""
+        SELECT r.id FROM search_run r
+        WHERE r.started_at < {0}
+          AND NOT EXISTS (SELECT 1 FROM queue_item q WHERE q.search_run_id = r.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM queue_item q JOIN candidate c ON c.id = q.candidate_id
+              WHERE c.search_run_id = r.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM song_file f
+              WHERE f.source_ref IS NOT NULL
+                AND (CASE WHEN json_valid(f.source_ref) THEN json_extract(f.source_ref, '$.searchRunId') END) = r.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM song_file f JOIN candidate c ON c.search_run_id = r.id
+              WHERE f.source_ref IS NOT NULL
+                AND (CASE WHEN json_valid(f.source_ref) THEN json_extract(f.source_ref, '$.candidateId') END) = c.id)
+        ORDER BY r.id
+        LIMIT {{SearchRunBatchSize}}
+        """;
 
     private async Task<int> PruneBlocklistAsync(DateTime now, CancellationToken cancellationToken)
     {
@@ -306,25 +307,53 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
 
         try
         {
-            await ExecuteAsync(connection, "PRAGMA wal_checkpoint(TRUNCATE);", cancellationToken).ConfigureAwait(false);
+            // PRAGMA wal_checkpoint answers with one row: busy, log frames, checkpointed frames.
+            bool busy;
+            await using (var checkpoint = connection.CreateCommand())
+            {
+                checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                await using var reader = await checkpoint.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                busy = await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                    && Convert.ToInt64(reader.GetValue(0), CultureInfo.InvariantCulture) == 1;
+            }
+
+            var state = busy ? "checkpoint busy" : "checkpointed";
 
             var pages = await ScalarAsync(connection, "PRAGMA page_count;", cancellationToken).ConfigureAwait(false);
             var free = await ScalarAsync(connection, "PRAGMA freelist_count;", cancellationToken).ConfigureAwait(false);
 
-            if (!ShouldVacuum(pages, free))
+            if (!_shouldVacuum(pages, free))
             {
-                return "checkpointed";
+                return state;
+            }
+
+            // VACUUM rewrites the file under an exclusive lock: not while another command may be
+            // writing to it.
+            var othersRunning = await database.Commands
+                .AnyAsync(
+                    command => command.Status == CommandStatus.Started && command.Name != CommandName,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (othersRunning)
+            {
+                LogVacuumSkipped("other commands are running");
+
+                return $"{state}, vacuum skipped (commands running)";
             }
 
             try
             {
                 await ExecuteAsync(connection, "VACUUM;", cancellationToken).ConfigureAwait(false);
+
+                // In WAL mode the rewritten file lands in the WAL; fold it back so the file shrinks now.
+                await ExecuteAsync(connection, "PRAGMA wal_checkpoint(TRUNCATE);", cancellationToken).ConfigureAwait(false);
             }
             catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
             {
                 LogVacuumSkipped(exception.Message);
 
-                return "checkpointed, vacuum skipped (database busy)";
+                return $"{state}, vacuum skipped (database busy)";
             }
 
             return "vacuumed";

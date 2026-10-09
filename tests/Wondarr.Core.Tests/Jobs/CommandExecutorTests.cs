@@ -56,6 +56,54 @@ public class CommandExecutorTests
     }
 
     [Fact]
+    public async Task A_handler_built_by_the_fallback_is_disposed_after_it_ran()
+    {
+        DisposableCommandHandler.Disposed = 0;
+        await using var host = await JobTestHost.CreateAsync(services =>
+        {
+            services.AddScoped<ICommandHandler, UnbuildableCommandHandler>();
+            services.AddScoped<ICommandHandler, DisposableCommandHandler>();
+        });
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        var queued = await host.Queue.EnqueueAsync("Disposable", null, CommandTrigger.Manual, CancellationToken.None);
+
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Completed)).Should().BeTrue();
+        (await TestWait.UntilAsync(() => Task.FromResult(DisposableCommandHandler.Disposed >= 1))).Should().BeTrue();
+
+        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
+        await executor.StopAsync(stopBudget.Token);
+    }
+
+    [Fact]
+    public async Task A_failed_status_write_does_not_stop_the_worker_or_the_host()
+    {
+        await using var host = await JobTestHost.CreateAsync(
+            services => services.AddSingleton<ICommandHandler>(new ThrowingCommandHandler("Explode")));
+        var aggregator = new ThrowOnceAggregator(host.EventAggregator);
+        var executor = host.CreateExecutor(aggregator);
+        await executor.StartAsync(CancellationToken.None);
+
+        // The first publish from the executor throws, as a busy database would on a status write.
+        await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Manual, CancellationToken.None);
+        (await TestWait.UntilAsync(() => Task.FromResult(aggregator.Threw))).Should().BeTrue();
+
+        var next = await host.Queue.EnqueueAsync("Explode", null, CommandTrigger.Manual, CancellationToken.None);
+        (await TestWait.UntilAsync(async () =>
+        {
+            host.TimeProvider.Advance(CommandExecutor.WorkerFaultPause);
+
+            return await StatusAsync(host, next.Id) == CommandStatus.Failed;
+        })).Should().BeTrue("the other commands still run");
+
+        executor.ExecuteTask!.IsFaulted.Should().BeFalse("a bookkeeping fault must not end the executor");
+
+        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
+        await executor.StopAsync(stopBudget.Token);
+    }
+
+    [Fact]
     public async Task A_running_command_is_never_started_a_second_time_and_a_repeat_enqueue_returns_it()
     {
         var handler = new BlockingCommandHandler("Long");
@@ -200,4 +248,22 @@ public class CommandExecutorTests
 
     private static async Task<CommandStatus?> StatusAsync(JobTestHost host, long id) =>
         (await host.Queue.GetAsync(id, CancellationToken.None))?.Status;
+
+    private sealed class ThrowOnceAggregator(IEventAggregator inner) : IEventAggregator
+    {
+        private int _thrown;
+
+        public bool Threw => Volatile.Read(ref _thrown) > 0;
+
+        public Task PublishAsync<TEvent>(TEvent message, CancellationToken cancellationToken = default)
+            where TEvent : IEvent
+        {
+            if (Interlocked.Exchange(ref _thrown, 1) == 0)
+            {
+                throw new InvalidOperationException("database is locked");
+            }
+
+            return inner.PublishAsync(message, cancellationToken);
+        }
+    }
 }
