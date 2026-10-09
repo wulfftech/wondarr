@@ -11,6 +11,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 - **Optional Last.fm and AcoustID keys in Settings, and Last.fm facts on the song page's data.** Settings → General has a **Metadata services** card: the AcoustID client key and a new Last.fm API key (`lastfm.api_key`, `APP__LASTFM__API_KEY`), each stored without ever being shown again, each with a **Test** button and a link to where the key is made; a key set by an environment variable shows as read-only. With a Last.fm key, `GET /api/v1/song/{id}/details` gains `lastFm` (listeners, plays, top tags, a plain-text wiki, the artist's bio and up to ten similar tracks, with the Wondarr song when you already own it). Last.fm calls stay under four a second, are cached for 24 hours and back off when Last.fm rate limits; a Last.fm import list with no key of its own reads with the global one.
 - **Create your login on the login page.** With `auth: forms` and no login yet, the login page asks for one (username, password twice) instead of a sign-in form that can never succeed; from the local network only, and it signs you in.
 
+### Changed
+- **Song page and Change album polish.** A cover that fails to load shows the placeholder instead of an empty square, editions of one album are grouped into a single expandable row ("N editions") in Change album and Appears on, and Library stays highlighted in the sidebar on a song page.
+
 ### Fixed
 - **The Match queue writes songs as `Artist - Title`**, like everywhere else, and shows the top candidate's length difference in its own **Δ Length** column.
 - **Pressing Add on one search result no longer spins every Add button**, and an error shows on the row that failed.
