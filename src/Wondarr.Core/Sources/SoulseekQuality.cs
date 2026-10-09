@@ -76,7 +76,17 @@ public static class SoulseekQuality
 
             case "m4a":
             case "alac":
-                return bitDepth is not null ? (bitDepth >= 24 ? 41 : 37) : InferAac(EffectiveBitrate(bitRateKbps, lengthSeconds, sizeBytes));
+                if (bitDepth is not null)
+                {
+                    return bitDepth >= 24 ? 41 : 37;
+                }
+
+                // No bit depth: an .m4a holds AAC or ALAC. No AAC encoder runs anywhere near 500 kbps, so a
+                // file that dense is ALAC (archive.org's "Apple Lossless" items list just name and size).
+                // The probe after the download measures the real codec either way.
+                var m4aBitrate = EffectiveBitrate(bitRateKbps, lengthSeconds, sizeBytes);
+
+                return m4aBitrate >= AlacMinimumKbps ? 37 : InferAac(m4aBitrate);
 
             case "aac":
                 return InferAac(EffectiveBitrate(bitRateKbps, lengthSeconds, sizeBytes));
@@ -168,6 +178,9 @@ public static class SoulseekQuality
 
         return best;
     }
+
+    /// <summary>The bitrate from which an .m4a without a bit depth is read as ALAC rather than AAC.</summary>
+    private const int AlacMinimumKbps = 500;
 
     /// <summary>The AAC tiers. m4a and alac only get here when the file carries no bit depth.</summary>
     private static long InferAac(int? bitrateKbps) => bitrateKbps switch

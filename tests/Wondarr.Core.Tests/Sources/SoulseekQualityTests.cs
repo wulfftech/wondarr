@@ -49,6 +49,16 @@ public class SoulseekQualityTests
         SoulseekQuality.Infer(".aiff", null, null, 44100, 16, 300, 52920000).Should().Be(43);
     }
 
+    [Fact]
+    public void Reads_a_dense_m4a_without_a_bit_depth_as_ALAC_and_a_lean_one_as_AAC()
+    {
+        // archive.org's "05_Echoplex.m4a": 28,883,545 bytes for 285 s ≈ 810 kbps — Apple Lossless.
+        SoulseekQuality.Infer("m4a", null, null, null, null, 285, 28_883_545).Should().Be(37);
+
+        // The same length at 256 kbps is AAC-256.
+        SoulseekQuality.Infer("m4a", null, null, null, null, 285, 9_120_000).Should().Be(25);
+    }
+
     private sealed record QualityFixture(IReadOnlyList<QualityCase> Cases);
 
     private sealed record QualityCase(
