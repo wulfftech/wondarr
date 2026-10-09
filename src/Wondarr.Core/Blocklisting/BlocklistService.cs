@@ -19,6 +19,12 @@ public interface IBlocklistService
     /// <param name="cancellationToken">Cancels the query.</param>
     Task<PagedResult<BlocklistItem>> GetPageAsync(PagingSpec paging, CancellationToken cancellationToken);
 
+    /// <summary>Gets a page of entries recorded for one song, newest first by default.</summary>
+    /// <param name="paging">The page, size and sort the caller asked for.</param>
+    /// <param name="songId">Only entries recorded for this song, or <see langword="null"/> for every entry.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    Task<PagedResult<BlocklistItem>> GetPageAsync(PagingSpec paging, long? songId, CancellationToken cancellationToken);
+
     /// <summary>Removes one entry, so the candidate may be grabbed again.</summary>
     /// <param name="id">The entry's id.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -76,11 +82,23 @@ public sealed class BlocklistService : IBlocklistService
     }
 
     /// <inheritdoc />
-    public async Task<PagedResult<BlocklistItem>> GetPageAsync(PagingSpec paging, CancellationToken cancellationToken)
+    public Task<PagedResult<BlocklistItem>> GetPageAsync(PagingSpec paging, CancellationToken cancellationToken) =>
+        GetPageAsync(paging, songId: null, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<PagedResult<BlocklistItem>> GetPageAsync(
+        PagingSpec paging,
+        long? songId,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(paging);
 
         var query = _database.Blocklist.AsNoTracking().Include(item => item.Song).AsQueryable();
+
+        if (songId is { } id)
+        {
+            query = query.Where(item => item.SongId == id);
+        }
 
         var totalRecords = await query.CountAsync(cancellationToken).ConfigureAwait(false);
         var records = await ApplySort(query, paging)

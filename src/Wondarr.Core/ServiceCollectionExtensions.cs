@@ -236,6 +236,12 @@ public static class ServiceCollectionExtensions
         // The write side of the song lifecycle: resolved identities become songs and album contexts.
         services.AddScoped<ISongService, SongService>();
         services.AddScoped<ISongEditorService, SongEditorService>();
+
+        // The song page's data: the stored identity, Deezer and the reference-library row (read only),
+        // and the lyrics. The in-memory cache holds the Deezer (1 h) and LRCLIB (1 day) answers.
+        services.AddMemoryCache();
+        services.AddScoped<ISongDetailsService, SongDetailsService>();
+        services.AddScoped<ISongLyricsService, SongLyricsService>();
         services.AddScoped<ICustomFilterService, CustomFilterService>();
 
         // The album add: search, releases, tracklist, and the tracks as one pinned batch of songs.
