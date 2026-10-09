@@ -6,6 +6,8 @@ using System.Text.Json.Nodes;
 using FluentAssertions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.ImportLists.LastFm;
+using Wondarr.Core.Metadata.LastFm;
+using Wondarr.Core.Tests.Metadata;
 using Wondarr.Core.Tests.Lyrics;
 using Xunit;
 
@@ -206,6 +208,70 @@ public sealed class LastFmProvidersTests
     }
 
     [Fact]
+    public async Task A_list_without_a_key_of_its_own_reads_with_the_global_one()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ => Json(LovedPage(Track("Get Lucky", "Daft Punk"), 1)));
+        var provider = new LastFmLovedProvider(
+            new ListHttpClientFactory(handler, BaseAddress),
+            TimeProvider.System,
+            Global("global-key-0001"));
+
+        var result = await provider.FetchAsync(
+            new ImportList { Type = LastFmLovedProvider.LastFmLovedType, Settings = $$"""{"user":"{{User}}"}""" },
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        handler.Requests.Should().ContainSingle().Which.Query.Should().Contain("api_key=global-key-0001");
+    }
+
+    [Fact]
+    public async Task A_lists_own_key_wins_over_the_global_one()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ => Json(TopPage(Track("Get Lucky", "Daft Punk"), 1)));
+        var provider = new LastFmTopProvider(
+            new ListHttpClientFactory(handler, BaseAddress),
+            TimeProvider.System,
+            Global("global-key-0001"));
+
+        await provider.FetchAsync(List(LastFmTopProvider.LastFmTopType), CancellationToken.None);
+
+        var query = handler.Requests.Should().ContainSingle().Subject.Query;
+        query.Should().Contain($"api_key={ApiKey}").And.NotContain("global-key-0001");
+    }
+
+    [Fact]
+    public async Task A_list_with_no_key_anywhere_still_reports_that_it_needs_one()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ => Json("{}"));
+        var provider = new LastFmLovedProvider(
+            new ListHttpClientFactory(handler, BaseAddress),
+            TimeProvider.System,
+            Global(null));
+
+        var result = await provider.FetchAsync(
+            new ImportList { Type = LastFmLovedProvider.LastFmLovedType, Settings = $$"""{"user":"{{User}}"}""" },
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("API key");
+        handler.Requests.Should().BeEmpty();
+
+        provider.Validate(Settings($$"""{"user":"{{User}}"}"""), null).Should().ContainSingle().Which.Should().Contain("API key");
+    }
+
+    [Fact]
+    public void With_a_global_key_the_form_no_longer_asks_for_one_per_list()
+    {
+        var provider = new LastFmLovedProvider(
+            new ListHttpClientFactory(Empty(), BaseAddress),
+            TimeProvider.System,
+            Global("global-key-0001"));
+
+        provider.Validate(Settings($$"""{"user":"{{User}}"}"""), null).Should().BeEmpty();
+        provider.Fields.Single(field => field.Name == "apiKey").HelpText.Should().Contain("Settings");
+    }
+
+    [Fact]
     public void Top_rejects_an_unknown_period_and_an_out_of_range_count()
     {
         var provider = new LastFmTopProvider(new ListHttpClientFactory(Empty(), BaseAddress), TimeProvider.System);
@@ -227,6 +293,9 @@ public sealed class LastFmProvidersTests
         new LastFmTopProvider(new ListHttpClientFactory(Empty(), BaseAddress), TimeProvider.System).Fields
             .Single(field => field.Name == "apiKey").Secret.Should().BeTrue();
     }
+
+    private static StaticOptionsMonitor<LastFmOptions> Global(string? apiKey) =>
+        new(new LastFmOptions { ApiKey = apiKey });
 
     private static ImportList List(string type, string? settings = null)
     {

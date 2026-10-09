@@ -17,8 +17,8 @@ For each item Wondarr tries, in order: a MusicBrainz recording id, then an ISRC 
 | Deezer playlist | A public Deezer playlist | A playlist link or id |
 | Artist top tracks (Deezer) | An artist's top tracks | An artist name, link or id; how many (1 to 100, default 10) |
 | YouTube Music playlist | A public or unlisted playlist | A YouTube Music or YouTube playlist link, or its id |
-| Last.fm loved tracks | A user's loved tracks | User name; your own API key |
-| Last.fm top tracks | A user's most played tracks | User name; API key; period; how many (1 to 500, default 50) |
+| Last.fm loved tracks | A user's loved tracks | User name; API key (optional when Settings → General has one) |
+| Last.fm top tracks | A user's most played tracks | User name; API key (optional when Settings → General has one); period; how many (1 to 500, default 50) |
 | ListenBrainz loved tracks | A user's loved recordings | User name |
 | ListenBrainz playlist | A public playlist | A listenbrainz.org playlist link, or its MBID |
 | Reference library | The identified files of a [reference library](/wondarr/library/reference-libraries/), in folder order | The reference library |
@@ -34,7 +34,7 @@ Choosing a new file on an existing list replaces the stored one.
 
 ### Last.fm
 
-You need your own Last.fm API key, from `last.fm/api/account/create`. The top-tracks **Period** is one of `overall`, `7day`, `1month`, `3month`, `6month` or `12month` (default `12month`).
+You need a Last.fm API key, from `last.fm/api/account/create`. Put it in **Settings → General → Metadata services** (`lastfm.api_key`) and every Last.fm list uses it; a list with a key of its own uses that one instead. With neither, the list reports that it needs an API key. The top-tracks **Period** is one of `overall`, `7day`, `1month`, `3month`, `6month` or `12month` (default `12month`).
 
 ## Sync interval
 

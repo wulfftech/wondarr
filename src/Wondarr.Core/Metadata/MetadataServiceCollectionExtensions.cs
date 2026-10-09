@@ -1,13 +1,16 @@
 using System.Net;
 using System.Reflection;
+using Wondarr.Core.Configuration;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Logging;
 using Wondarr.Core.Lyrics;
 using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.ITunes;
+using Wondarr.Core.Metadata.LastFm;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Plex;
@@ -15,6 +18,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 
@@ -38,7 +42,10 @@ public static class ServiceCollectionExtensions
     /// <summary>The key the AcoustID request-spacing gate is registered under.</summary>
     public const string AcoustIdGateKey = "acoustid";
 
-    /// <summary>The name of the <see cref="HttpClient"/> the Last.fm import-list providers read through.</summary>
+    /// <summary>The key the Last.fm request-spacing gate is registered under.</summary>
+    public const string LastFmGateKey = "lastfm";
+
+    /// <summary>The name of the <see cref="HttpClient"/> the Last.fm import-list providers and the song page read through.</summary>
     public const string LastFmClientName = "lastfm";
 
     /// <summary>The name of the <see cref="HttpClient"/> the ListenBrainz import-list providers read through.</summary>
@@ -58,6 +65,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>How long one Deezer request is spaced from the next: 50 requests per 5 seconds.</summary>
     private static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(120);
+
+    /// <summary>How long one Last.fm request is spaced from the next: four a second, under the five Last.fm allows.</summary>
+    private static readonly TimeSpan LastFmInterval = TimeSpan.FromMilliseconds(250);
 
     /// <summary>How long one Cover Art Archive request is spaced from the next. Undocumented, so polite.</summary>
     private static readonly TimeSpan CoverArtArchiveInterval = TimeSpan.FromMilliseconds(200);
@@ -103,6 +113,12 @@ public static class ServiceCollectionExtensions
 
         // The post-configure also hands the client key to the secret registry, so the redactor knows it.
         services.AddSingleton<IPostConfigureOptions<AcoustIdOptions>, AcoustIdOptionsPostConfigure>();
+
+        // The Last.fm key is optional: with none the song page shows nothing from Last.fm.
+        services.AddOptions<LastFmOptions>()
+            .Bind(configuration.GetSection("LastFm"));
+
+        services.AddSingleton<IPostConfigureOptions<LastFmOptions>, LastFmOptionsPostConfigure>();
 
         services.AddSingleton<IMetadataCache, MetadataCache>();
 
@@ -274,6 +290,11 @@ public static class ServiceCollectionExtensions
         // than typed ones: a provider's one operation is "read the next page of this list", which a
         // typed interface would only restate. They carry the same identifying User-Agent as the
         // metadata providers, because they fetch from the same kind of host.
+        // One gate for every Last.fm request in the process, the import lists' and the song page's alike.
+        services.AddKeyedSingleton(LastFmGateKey, (serviceProvider, _) => new RequestSpacingGate(
+            LastFmInterval,
+            serviceProvider.GetRequiredService<TimeProvider>()));
+
         var lastFm = services.AddHttpClient(LastFmClientName, (serviceProvider, client) =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
@@ -294,8 +315,35 @@ public static class ServiceCollectionExtensions
                 UseJitter = true,
                 Delay = options.RetryBaseDelay,
                 ShouldRetryAfterHeader = true,
+
+                // A 429 is the quota being spent. LastFmClient reads its Retry-After itself and holds
+                // every call back for that long; retrying here would only spend more of the budget
+                // (and wait out the five seconds a song page allows).
+                ShouldHandle = args => ValueTask.FromResult(
+                    args.Outcome.Exception is not null
+                    || (args.Outcome.Result is { } response
+                        && response.StatusCode != HttpStatusCode.TooManyRequests
+                        && IsRetryable(response.StatusCode))),
             });
         });
+
+        // Inside the retry pipeline, so every attempt waits for its own slot.
+        lastFm.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(LastFmGateKey)));
+
+        services.AddSingleton<ILastFmClient, LastFmClient>();
+
+        // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a
+        // service, and is read once per scope like the other settings services do.
+        services.AddScoped<IMetadataSettingsService>(serviceProvider => new MetadataSettingsService(
+            serviceProvider.GetRequiredService<IOptionsMonitor<AcoustIdOptions>>(),
+            serviceProvider.GetRequiredService<IOptionsMonitor<LastFmOptions>>(),
+            serviceProvider.GetRequiredService<IConfigFileWriter>(),
+            serviceProvider.GetRequiredService<IAcoustIdClient>(),
+            serviceProvider.GetRequiredService<ILastFmClient>(),
+            serviceProvider.GetRequiredService<ISecretRegistry>(),
+            Environment.GetEnvironmentVariables(),
+            serviceProvider.GetRequiredService<ILogger<MetadataSettingsService>>()));
 
         var listenBrainz = services.AddHttpClient(ListenBrainzClientName, (serviceProvider, client) =>
         {

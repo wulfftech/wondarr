@@ -113,11 +113,19 @@ See [YouTube Music](/wondarr/sources/youtube/) for every key, including `enabled
 
 | Key | Default | Meaning |
 |---|---|---|
-| `client_key` | none | Your AcoustID client key. Without it, downloads are verified by probe and length only. |
+| `client_key` | none | Your AcoustID client key (get one at `acoustid.org/new-application`). Without it, downloads are verified by probe and length only. Also set under **Settings → General → Metadata services**, where it is never shown again. |
 | `accept_score` | `0.7` | Fingerprint score that counts as a match. |
 | `review_score` | `0.5` | Score at which a match is imported with a low-confidence badge. |
 | `strict` | `false` | Fail a download that scores below `accept_score` instead of reviewing it. |
 | `requests_per_second` | `3` | AcoustID allows three. |
+
+## lastfm
+
+| Key | Default | Meaning |
+|---|---|---|
+| `api_key` | none | Your Last.fm API key (get one at `last.fm/api/account/create`). Optional. With a key, a song's page shows what Last.fm knows about it (listeners, tags, a short wiki text, the artist and similar tracks), and a Last.fm import list with no key of its own reads with this one. Also set under **Settings → General → Metadata services**, where it is never shown again. Environment: `APP__LASTFM__API_KEY`. |
+
+Wondarr asks Last.fm for at most four requests a second, keeps each answer in memory for 24 hours, and backs off for as long as Last.fm asks when it is rate limiting. A key set by an environment variable shows as read-only in the web UI.
 
 ## media
 
