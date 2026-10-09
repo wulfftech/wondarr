@@ -404,3 +404,14 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 - The live instance `wondarr-test` on `ch01` runs `develop` (`2e7409c`) with its data as before.
 
 **Next:** cut v0.1.0 with the owner; then maintenance — the backlog above and the "Later" list in `PHASES.md` (Transmission/Deluge/NZBGet, Jellyfin/Navidrome hooks, delay profiles), as the owner prioritises.
+
+### 2026-10-09 — Build session 11: the production install, two fixes it found (orchestrator on Opus 5.5; Sonnet subagents)
+
+**Outcome.** Wondarr runs in production for the owner: VM 177 `wondarr` on px1 (192.168.10.77, Debian 13, Docker), `/srv/wondarr`, image pinned to a `sha-…` build of `main` (no watchtower). Two libraries feed Plex's two music sections through `Music/Wondarr/{Shannon's Music,Kids Music}`, each added as a second folder of its Plex section; the owner's existing folders are reference libraries (1,111 songs owned). Soulseek account `foathness1` (the test instance keeps `foathness`; port 50300 forwarded to the VM), YouTube on, torrents through MediaServer's qBittorrent and Prowlarr (its finished folder is NFS-exported read-only to the VM). The homelab side (VM, mounts, NFS, router, Plex, DNS, NetBox, alerts) is recorded in the homelab repository's `inventory.toml`.
+
+- **M-01** (merged `f3d0d26`): the first reference scan re-downloaded 127 owned songs; songs found by a scan are now never searched for, and commands dedupe by name and body. Cleaned up on production (above, `PROGRESS.md`).
+- **M-02** (merged `4512a41`): the first login is created on the login page, from the local network only.
+- Test runs: `ReleaseApiTests.Grabbing_a_second_candidate_for_the_same_song_is_a_conflict` and one other Api test failed once each under load and passed on rerun — flaky, logged to the backlog.
+- **Never test against production.** Live checks stay on `ch01`.
+
+**Next:** when 0.1.0 is final, move production to `ghcr.io/wulfftech/wondarr:0.1` (`/srv/wondarr/docker-compose.yml` on VM 177). Then the backlog as before.
