@@ -43,3 +43,6 @@ Thumbs.db
 # python
 __pycache__/
 *.pyc
+
+# Browser-automation artefacts from local UI checks
+.playwright-mcp/
