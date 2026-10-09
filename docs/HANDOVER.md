@@ -2,7 +2,7 @@
 
 > **Name:** the project was renamed from *Compilarr* to **Wondarr** on 2026-09-28 (Phase 1a, `docs/DECISIONS.md` build session 2 #10). Session log entries before Phase 1a use the old name and paths.
 
-**Updated:** 2026-10-07, end of build session 7 (Phase 6) · **For:** the next build session, run locally from `D:\Code\wondarr` in Claude Code on Opus 5.5 (`/model claude-opus-5-5`; DECISIONS 2026-10-06), workers on OpenRouter per `docs/build/MODEL_VALUE_MATRIX.md`.
+**Updated:** 2026-10-09, end of build session 10 (Phase 8) · **For:** the next session, run locally from `D:\Code\wondarr` in Claude Code on Opus 5.5 (`/model claude-opus-5-5`), delegating to Claude Code subagents (DECISIONS build session 10 #1; OpenRouter paused).
 
 ## 1. Where things stand
 
@@ -14,7 +14,9 @@
 - **Phase 4 is done (2026-10-06)** — the YouTube source: the keyless InnerTube search client, the yt-dlp runner with its retry-later-vs-blocklist error taxonomy, the per-library output policy (AAC/MP3/keep-Opus, quality recorded as OPUS-160 so files stay upgradeable), the source-tier ordering (Soulseek first, YouTube when Soulseek yields nothing acceptable), the bot-check backoff (one grab per run, never a loop), the settings page with the one-time ToS disclaimer, and the gate tooling (FakeYT, the fake InnerTube, `scripts/phase4-gate.py`, the `SMOKE_PHASE4` smoke stage). The CI gate run and the live ch01 check are the follow-up session's first items. See the build-session-5 entry.
 - **Phase 5 is done (2026-10-07)** — the upgrade loop (identity rule, fingerprint-confirmed upgrades, search on add), the per-song guard between imports and compaction, backups with a staged restore, the Tasks/Backup/Logs pages and APIs, external-slskd mode with its settings, `release/push`, Lidarr queue fields and `/docs`. The Phase 4 **and** Phase 5 gates pass in CI (Phases 0–5 green in one run) and live on `ch01` (backup → fresh container, three YouTube fills, real upgrades). See the build-session-6 entry.
 - **Phase 6 is done (2026-10-07)** — synced import lists (CSV/Exportify in any language, Deezer, YouTube Music, Last.fm, ListenBrainz, reference libraries) with sync policies and Plex playlists kept in place, plus the owner's additions: album add, several libraries with their own Plex sections, and conversion for every source and on demand. The gate passes in CI (Phases 0–6) and was checked live on `ch01`. See the build-session-7 entry.
-- The next unit of work is **Phase 7 — qBittorrent and SABnzbd sources** (`docs/build/PHASES.md`; start with the three tasks at the end of the Session log).
+- **Phase 7 is done (2026-10-09)** — torrents and usenet (Torznab, Newznab, Prowlarr, Gazelle; qBittorrent with file selection, SABnzbd with trimming; bundling; `release/push`). See the build-session-9 entry.
+- **Phase 8 is done (2026-10-09)** — the spectral fake-lossless check, the library mass editor with tags, filters and saved views, ReplayGain, housekeeping, the queue's container display, Settings → General, the docs site (`website/`) and the Unraid template, release engineering (native amd64/arm64 smoke, GitHub Release from a tag), the Phase 0 upgrade test; the release gate passed live on `ch01`. **The first release (v0.1.0) is ready to tag and waits for the owner's go-ahead** — see the build-session-10 entry.
+- The next unit of work is **cutting v0.1.0 with the owner, then maintenance and the backlog** (the Later list in `docs/build/PHASES.md`, the open items below).
 
 ## 2. The product in one paragraph
 
@@ -375,3 +377,29 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 1. **P8-01 Spectral fake-lossless check** (SoulSync's approach): a FLAC whose spectrum cuts off like a lossy encode is rejected at import (or flagged and ranked as the lossy quality), so "never produce lossless from lossy" also holds for what peers and trackers deliver.
 2. **P8-02 Release engineering:** multi-arch images (linux/amd64 + arm64) in the release workflow, a migration test that upgrades a Phase 0 database to the current schema, and version tags.
 3. **P8-03 Library mass editor:** select songs and set monitored, quality profile, library and tags at once; filters and saved views on the Library page.
+
+### 2026-10-09 — Build session 10: Phase 8, polish and release (orchestrator on Opus 5.5; Sonnet and Haiku subagents)
+
+**Outcome.** Every Phase 8 task is merged and the release gate passed live on `ch01`; the first public release, **v0.1.0**, is ready to tag (CHANGELOG section written, notes extracted by the release workflow) and waits only for the owner's go-ahead. No OpenRouter spend: the owner paused OpenRouter, and every task went to Claude Code subagents — 11 Sonnet implementation runs (P8-01, 02a, 03, 04, 05, 06, 07, 08a, 08b, 10), 5 Sonnet reviews, 3 research/check subagents (DECISIONS build session 10 #1).
+
+**What exists now.**
+- *Fake-lossless check:* a lossless download whose spectrum shows a lossy encoder's brick-wall low-pass below 19.5 kHz is rejected and blocklisted for the song (`import.fake_lossless_check: reject|off`). Rule derived from 25 real PCM windows (five FLACs and their re-encodes) — every MP3 ≤ 192 caught, every genuine/AAC/320 passed (#2).
+- *Library:* server-side filters, saved views (`custom_filter`), free-form tags, and a mass editor (`PUT/DELETE /api/v1/song/editor`; a delete refuses songs still in the queue) on the Library page (#3).
+- *ReplayGain:* optional per library, `ebur128` against −18 LUFS, `REPLAYGAIN_TRACK_*` tags only, stored per file, `ApplyReplayGain` for existing files, the switch in Settings → Library (#5).
+- *Operations:* a daily Housekeeping task (commands, search runs, blocklist, recycle bin, VACUUM; never history) and a command executor that fails a command whose handler cannot be built instead of spinning (#6); Settings → General (API key, login); the queue and history show a container grab's release and file.
+- *Release engineering:* `release.yml` smokes the pushed image natively on amd64 and **arm64** (first time the arm64 image ever ran) and turns a `v*` tag into a GitHub Release from its CHANGELOG section; the `1` tag from 1.0. A real Phase 0 database is a test fixture (`tests/fixtures/migrations/`) and upgrades through the startup path.
+- *Docs:* a Starlight site in `website/` (24 pages: install, Unraid, first run, every source, the library, operations, configuration, troubleshooting, an end-to-end guide), built by `docs.yml`, deployed to GitHub Pages only once the owner turns Pages on and sets the repository variable `PAGES_ENABLED=true` (#4). `unraid/wondarr.xml` + `ca_profile.xml` for Community Applications.
+
+**What this session taught.**
+1. *The live gate is where the product's assumptions meet users' setups.* Following the docs on a clean host found two real bugs no test had: `release/push` could never match a single filed under "Singles" (the Plexamp policy's default for every single — #7), and an ALAC `.m4a` without a bit depth was ranked AAC and refused. Also two docs gaps (a new Plex section ignores partial scans until its first full scan; qBittorrent 5's temporary password).
+2. *Subagents need the spec pushed:* the Agent tool's worktrees start from `origin/main`, not local `HEAD` — push the spec before launching (P8-08a read its spec from the main checkout).
+3. *Sonnet reviews earned their keep:* a major finding in 4 of 5 reviews (bulk delete orphaning downloads, pruning that would blank "last run" and could cascade a fresh queue item, ReplayGain values going stale across libraries). Each was verified before fixing; one finding was rejected with its reason.
+4. *safe-merge caught semantic conflicts again:* an API test pinning the task list (the subagent ran Core tests only). Tell subagents to run every test project their change can touch.
+5. *Prototype the algorithm on real data before specifying it:* band-energy measurements could not separate MP3-128 from FLAC (1–6 dB); the cliff detector separated them cleanly, and the implementing subagent's synthetic tests still found the first rule's off-by-a-kHz flaw.
+
+**Open items / follow-ups.**
+- **For the owner:** (1) the go-ahead to tag **v0.1.0** (`git tag -a v0.1.0 -m "Wondarr 0.1.0" && git push origin v0.1.0` — the workflow builds the multi-arch image `0.1.0`/`0.1`/`latest`, smokes it on amd64 and arm64, and publishes the GitHub Release); (2) turn on GitHub Pages ("GitHub Actions" as the source) and set the repository variable `PAGES_ENABLED=true` to publish the docs at `https://wulfftech.github.io/wondarr/`; (3) submit the Unraid template at `https://ca.unraid.net/submit` after the release (it points at `:latest`).
+- Backlog: 2026-10-09-05 (the single song delete still removes a song mid-download), -08 (a "[FLAC]" release of 24-bit files fails the size window), -09 (fyi: archive.org's ALAC torrent stalled at boundary pieces); still open from earlier: -07-08 (OpenAPI enums typed as integers), the P5-07 remainder, the live SABnzbd check (needs a usenet provider), the 500-file reference check.
+- The live instance `wondarr-test` on `ch01` runs `develop` (`2e7409c`) with its data as before.
+
+**Next:** cut v0.1.0 with the owner; then maintenance — the backlog above and the "Later" list in `PHASES.md` (Transmission/Deluge/NZBGet, Jellyfin/Navidrome hooks, delay profiles), as the owner prioritises.

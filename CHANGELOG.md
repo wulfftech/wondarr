@@ -4,16 +4,29 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
-### Changed
-- **Renamed from Compilarr to Wondarr** — the \*arr for one-hit wonders (2026-09-28). The image is now `ghcr.io/wulfftech/wondarr`; an existing `/config/compilarr.db` is renamed to `wondarr.db` on first start; `COMPILARR_CONFIG_DIR` is still honoured; users sign in again once (the auth cookie is now `WondarrAuth`).
+## [0.1.0] — 2026-10-09
 
-### Added (Phase 1 — song identity and the Wanted list)
-- Song identity from `Artist - Title`, free text, MusicBrainz/Deezer links or ISRCs: Deezer reference → ISRC bridge → MusicBrainz, Deezer-only fallback, unresolved review.
-- Album policies (`fewest_albums`, `singles_only`, `original_album`, `single_release`, `compilation`), sticky assignments, per-song override; cover art from Cover Art Archive, Deezer or iTunes.
-- Add songs by search (disambiguation, length, release types, cover, 30-second Deezer preview) or by pasting up to 1000 lines; Library, Wanted (Missing / Cutoff Unmet), History, Blocklist, quality profiles and library settings.
+The first public release: every phase of the plan (0–8) is in. Install: `docker pull ghcr.io/wulfftech/wondarr:0.1.0` (linux/amd64, linux/arm64); documentation at https://wulfftech.github.io/wondarr/.
 
 ### Added
-- Planning documentation set, ADRs, research reports, agentic build workflow and worker runner (2026-09-28).
+- **Songs, not albums.** One MusicBrainz recording per song; add by search (with length, release types, cover and a Deezer preview), by album (all or some of its tracks, pinned to the release), or by pasting up to 1000 `Artist - Title` lines; unresolved lines wait in a review screen.
+- **Soulseek first, through a bundled slskd** (or your own slskd): searches within Soulseek's limits (≤ 30 per 4 minutes, ≤ 2 at once), candidates scored on identity, quality and availability, a wrong file caught after download and the next candidate tried; Settings → Soulseek writes slskd's own configuration, including "Share my library".
+- **YouTube Music second** (off by default): Art Tracks first, yt-dlp with Deno, bot-check backoff, transcoded to AAC 256 by default and ranked as its OPUS-160 source so a better copy still replaces it.
+- **Torrents and usenet last**: Torznab, Newznab, Prowlarr and Gazelle indexers; qBittorrent (4.5+ and 5.x) downloads only the wanted files of an album torrent and keeps seeding; SABnzbd posts trimmed where possible; other wanted songs in the same release ride along on one grab; `release/push` for autobrr.
+- **Verified imports**: ffprobe, duration and AcoustID fingerprint checks; Picard-compatible tags; a **spectral fake-lossless check** that refuses a FLAC made from a lossy file (its spectrum stops below 19.5 kHz).
+- **Libraries**: flat, artist, artist/album and a **Plexamp** preset whose album policy files each song under the fewest albums per artist (sticky, with a Compact task); several libraries, each with its own Plex section; covers, `cover.jpg`, LRCLIB lyrics; conversion rules per source (keep, AAC, MP3, Opus, FLAC/ALAC from lossless only) and on demand; optional **ReplayGain** track tags.
+- **Quality profiles and upgrades**: Lidarr-style profiles (defaults "Standard 320" and "Lossless"), cutoff, fingerprint-confirmed automatic upgrades, the old file to the recycle bin.
+- **Inputs**: synced import lists — CSV/Exportify (any language), Deezer playlists and artist top tracks, YouTube Music playlists, Last.fm, ListenBrainz, and your existing music folder as a reference library (identified by tags, ISRC, AcoustID or text, with a Match queue for the rest; your files are never changed); playlists kept in Plex and as `.m3u8`.
+- **Plex**: sign in with plex.tv, partial scans after imports, playlists updated in place.
+- **The Library page**: filters, saved views, tags, and a mass editor (monitor, quality profile, library, tags, delete) over many songs at once.
+- **Operations**: Activity (queue with live progress, history, blocklist), Wanted (missing, cutoff unmet), System → Tasks / Backup (scheduled and on demand, staged restore) / Logs, a daily Housekeeping task, notifications (Webhook, Discord, Apprise), Settings → General (API key, login account).
+- **\*arr conventions**: `/api/v1` with `X-Api-Key`, Lidarr's queue/history/system shapes for Homepage, Unpackerr and autobrr, the API reference at `/docs`; Docker with `/config`, `/data`, `PUID/PGID/UMASK/TZ`; an Unraid template.
+
+### Upgrading from a development build
+- A database from any earlier build, including the 0.0.1-alpha.1 image under its old name (`compilarr.db`), is migrated on the first start; take a backup first (System → Backup → Back up now).
+
+### Changed
+- **Renamed from Compilarr to Wondarr** (2026-09-28): the image is `ghcr.io/wulfftech/wondarr`; an existing `/config/compilarr.db` is renamed to `wondarr.db` on first start; `COMPILARR_CONFIG_DIR` is still honoured.
 
 ## [0.0.1-alpha.1] — 2026-09-28
 

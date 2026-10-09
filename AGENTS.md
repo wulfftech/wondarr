@@ -34,6 +34,7 @@ Wondarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) →
 ```
 dotnet build -warnaserror && dotnet test          # backend
 cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build
+cd website && npm ci && npm run build                       # the docs site (Starlight; the links validator fails a broken link)
 docker compose -f docker/docker-compose.yml up --build
 scripts/safe-merge.sh <branch>                               # merge a task branch only if the tree is green before and after
 scripts/smoke-test.sh <image> ["sudo docker"]                # Phase 0 + Phase 1 gates against a built image (SMOKE_METADATA=replay|record|live|off)
