@@ -46,7 +46,7 @@ interface RouteTable {
   /** The lookup's answer: the candidates, or the 400 the user has to read. */
   lookup?: () => Response;
   /** The add's answer: the stored song, or the 409 that says it is already there. */
-  add?: () => Response;
+  add?: () => Response | Promise<Response>;
   /** How many times the command has been asked about, so it can finish on the second poll. */
   commands?: () => Response;
   importList?: () => Response;
@@ -187,6 +187,43 @@ describe('AddSongsPage', () => {
         libraryId: 2,
       });
     });
+  });
+
+  it('spins only the pressed row’s Add while its add is pending', async () => {
+    install({ add: () => new Promise<Response>(() => undefined) });
+    const user = userEvent.setup();
+
+    renderApp();
+    await search(user, 'Daft Punk - Get Lucky');
+    await screen.findByText('album version');
+
+    const [first, second] = screen.getAllByRole('button', { name: 'Add' });
+
+    await user.click(first);
+
+    await waitFor(() => expect(first).toHaveAttribute('data-loading', 'true'));
+    expect(second).not.toHaveAttribute('data-loading');
+    expect(second).toBeEnabled();
+  });
+
+  it('shows an add’s error on the row that failed only', async () => {
+    install({ add: () => jsonResponse({ title: 'Server error', detail: 'The add blew up.' }, 500) });
+    const user = userEvent.setup();
+
+    renderApp();
+    await search(user, 'Daft Punk - Get Lucky');
+    await screen.findByText('album version');
+
+    await user.click(screen.getAllByRole('button', { name: 'Add' })[0]);
+
+    const alerts = await screen.findAllByRole('alert');
+
+    expect(alerts).toHaveLength(1);
+    // The alert sits in the same block as the first row, not the second.
+    const [first, second] = screen.getAllByRole('button', { name: 'Add' });
+
+    expect(alerts[0].parentElement).toContainElement(first);
+    expect(alerts[0].parentElement).not.toContainElement(second);
   });
 
   it('flips the row to in library when the API answers 409', async () => {

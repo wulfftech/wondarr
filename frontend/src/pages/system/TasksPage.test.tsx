@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HEALTH_ENTRIES, SYSTEM_STATUS, TASKS } from '../../test/fixtures';
@@ -82,6 +82,18 @@ describe('TasksPage', () => {
     expect(screen.getByText('00:00:01')).toBeInTheDocument();
     expect(screen.getAllByText('00:02:05').length).toBeGreaterThan(0);
     expect(screen.getAllByText('successful').length).toBeGreaterThan(0);
+  });
+
+  it('keeps the Task column as narrow as its longest name', async () => {
+    install();
+
+    renderApp();
+
+    const tasks = within(await screen.findByTestId('task-list'));
+
+    expect(tasks.getByText('Missing Search')).toHaveStyle({ whiteSpace: 'nowrap' });
+    expect(screen.getByRole('columnheader', { name: 'Task' })).toHaveStyle({ whiteSpace: 'nowrap' });
+    expect(screen.getByRole('columnheader', { name: 'Command' })).toHaveStyle({ whiteSpace: 'nowrap' });
   });
 
   it('runs a task by its command name, not its display name', async () => {
