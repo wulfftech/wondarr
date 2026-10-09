@@ -93,6 +93,35 @@ public sealed class LibraryOrganizerTests : IDisposable
         result.FinalPath.Should().Be(FakeFilePlacer.TargetOf(placement));
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task ReplayGain_values_reach_the_tag_set_only_when_the_library_has_it_on(bool libraryOn, bool expected)
+    {
+        var request = Request(WriteSource(), keepSource: false);
+        request = request with
+        {
+            Library = new Library
+            {
+                Id = request.Library.Id,
+                Name = request.Library.Name,
+                RootPath = request.Library.RootPath,
+                Layout = request.Library.Layout,
+                SidecarOptions = request.Library.SidecarOptions,
+                ReplayGain = libraryOn,
+            },
+            ReplayGainDb = -8.52,
+            ReplayGainPeak = 1.047129,
+        };
+
+        var result = await Organizer().OrganizeAsync(request, CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        var tags = _tagWriter.Writes.Should().ContainSingle().Subject.Tags;
+        tags.ReplayGainTrackGainDb.Should().Be(expected ? -8.52 : null);
+        tags.ReplayGainTrackPeak.Should().Be(expected ? 1.047129 : null);
+    }
+
     [Fact]
     public async Task A_kept_source_is_copied_tagged_and_placed_but_never_touched()
     {

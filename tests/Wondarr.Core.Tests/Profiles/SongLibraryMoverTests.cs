@@ -123,6 +123,34 @@ public class SongLibraryMoverTests : IDisposable
         _updater.Received().RequestFolder(2, newFolder);
     }
 
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, false)]
+    public async Task ReplayGain_values_on_the_row_follow_the_target_librarys_switch(bool fromOn, bool toOn, bool kept)
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        await context.Libraries.Where(library => library.Id == 1).ExecuteUpdateAsync(update => update.SetProperty(library => library.ReplayGain, fromOn));
+        await context.Libraries.Where(library => library.Id == 2).ExecuteUpdateAsync(update => update.SetProperty(library => library.ReplayGain, toOn));
+
+        // A file in a library without the switch carries no values.
+        if (fromOn)
+        {
+            await context.SongFiles.ExecuteUpdateAsync(update => update
+                .SetProperty(file => file.ReplayGainDb, -8.52)
+                .SetProperty(file => file.ReplayGainPeak, 1.047129));
+        }
+
+        (await _mover.MoveAsync(songId, 2, CancellationToken.None)).Should().Be(SongMoveResult.Moved);
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        var file = await fresh.SongFiles.AsNoTracking().SingleAsync();
+        file.ReplayGainDb.Should().Be(kept ? -8.52 : null);
+        file.ReplayGainPeak.Should().Be(kept ? 1.047129 : null);
+        _organizer.Requests.Single().ReplayGainDb.Should().Be(fromOn ? -8.52 : null);
+    }
+
     [Fact]
     public async Task A_song_with_a_reference_file_only_changes_library()
     {

@@ -876,7 +876,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
                         // The file carries whatever lyrics the import gave it, and its sidecar is coming
                         // with it: asking LRCLIB again could only overwrite the user's own.
-                        LookUpLyrics: false),
+                        LookUpLyrics: false,
+                        ReplayGainDb: file.ReplayGainDb,
+                        ReplayGainPeak: file.ReplayGainPeak),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -932,6 +934,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
             file.Path = finalPath;
             file.Size = _disk.GetFileSize(finalPath);
             file.TagsWritten = JsonSerializer.Serialize(placement.TagsWritten, Json);
+
+            // A library without ReplayGain holds no such tags after the writer's replace; the row
+            // must not keep values the file no longer carries.
+            if (!library.ReplayGain)
+            {
+                file.ReplayGainDb = null;
+                file.ReplayGainPeak = null;
+            }
 
             // Renamed is the event type for a file that moved: the song is the same song, and what the
             // user is told is where it went and where it came from.
