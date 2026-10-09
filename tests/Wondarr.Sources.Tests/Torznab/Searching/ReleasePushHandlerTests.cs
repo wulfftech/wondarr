@@ -124,6 +124,45 @@ public sealed class ReleasePushHandlerTests
     }
 
     [Fact]
+    public async Task A_single_filed_under_the_artist_s_Singles_is_matched_through_the_file_list()
+    {
+        // Under the Plexamp policy a wanted single sits in "Singles", never under the album it is on.
+        Wanted(Song(4, "Digital Love", 1, album: "Singles"));
+
+        var outcome = await Handler().PushAsync(Push("torrent", "https://tracker.example/dl/1"), CancellationToken.None);
+
+        outcome.Approved.Should().BeTrue();
+        outcome.SongId.Should().Be(4);
+        _judged.Should().ContainSingle().Which.Candidate.RemotePath.Should().Be($"{Album}/03 - Digital Love.flac");
+    }
+
+    [Fact]
+    public async Task A_single_is_not_matched_by_artist_alone_when_the_file_list_is_unknown()
+    {
+        Wanted(Song(4, "Digital Love", 1, album: "Singles"));
+
+        var outcome = await Handler().PushAsync(
+            Push("torrent", null, magnet: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"),
+            CancellationToken.None);
+
+        outcome.Approved.Should().BeFalse();
+        outcome.Rejections.Should().Equal($"No wanted song matches '{Album}' (its file list is not known before the grab)");
+        _judged.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_artist_s_singles_that_are_not_in_the_release_are_not_grabbed()
+    {
+        Wanted(Song(5, "Get Lucky", 1, album: "Singles"));
+
+        var outcome = await Handler().PushAsync(Push("torrent", "https://tracker.example/dl/1"), CancellationToken.None);
+
+        outcome.Approved.Should().BeFalse();
+        outcome.Rejections.Should().Equal($"No wanted song by this artist is in '{Album}'");
+        _judged.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_matching_album_without_the_song_s_file_says_so()
     {
         _container = AlbumTorrent(["One More Time", "Aerodynamic"]);

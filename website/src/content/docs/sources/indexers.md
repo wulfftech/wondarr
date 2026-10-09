@@ -77,4 +77,4 @@ Content-Type: application/json
 }
 ```
 
-`title` is required; without it Wondarr answers `400`. A `magnetUrl` can be sent instead of `downloadUrl`. Wondarr matches the release against your wanted songs by its artist and album, reads its file list, and grabs it if a wanted song is in it. The answer has Lidarr's shape (`approved`, `rejected`, `rejections`), so autobrr shows why a release was turned down. A pushed release needs a download client for its protocol.
+`title` is required; without it Wondarr answers `400`. A `magnetUrl` can be sent instead of `downloadUrl`. Wondarr matches the release against your wanted songs by its artist and album (or `Artist - Title` for a single), reads its file list, and grabs it if a wanted song is in it. A wanted song filed under the artist's Singles still matches an album release when its file is in the release's file list; a magnet has no file list until it is grabbed, so it must match by album or title. The answer has Lidarr's shape (`approved`, `rejected`, `rejections`), so autobrr shows why a release was turned down. A pushed release needs a download client for its protocol.
