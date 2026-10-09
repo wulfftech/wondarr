@@ -71,6 +71,8 @@ describe('ActivityPage', () => {
     renderApp();
 
     expect(await screen.findByText('Teardrop')).toBeInTheDocument();
+    // The title opens the song's own page.
+    expect(screen.getByRole('link', { name: 'Teardrop' })).toHaveAttribute('href', '/song/1');
     expect(screen.getByText('Imported')).toBeInTheDocument();
     expect(screen.getByText('FLAC')).toBeInTheDocument();
   });

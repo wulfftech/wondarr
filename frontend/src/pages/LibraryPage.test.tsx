@@ -141,6 +141,40 @@ async function openRowMenu(user: ReturnType<typeof userEvent.setup>, title: stri
 }
 
 describe('LibraryPage', () => {
+  it('links each title to the song page, so it can be opened in a new tab', async () => {
+    install();
+
+    renderApp();
+
+    expect(await screen.findByRole('link', { name: 'Get Lucky' })).toHaveAttribute('href', '/song/12');
+  });
+
+  it('keeps its filters in the URL, so they are still there after a visit to a song page', async () => {
+    resetLocation('/library?tag=rock&hasFile=true');
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('link', { name: 'Get Lucky' }));
+    expect(window.location.pathname).toBe('/song/12');
+
+    window.history.back();
+
+    await waitFor(() => expect(window.location.pathname).toBe('/library'));
+    expect(window.location.search).toContain('tag=rock');
+    expect(window.location.search).toContain('hasFile=true');
+
+    await screen.findByRole('link', { name: 'Get Lucky' });
+
+    const lastSongsCall = sent()
+      .filter((request) => request.url.includes('/api/v1/song') && !/song\/\d+/.test(request.url))
+      .at(-1);
+
+    expect(lastSongsCall?.url).toContain('tag=rock');
+    expect(lastSongsCall?.url).toContain('hasFile=true');
+  });
+
   it('lists the songs with their album assignment and version flags', async () => {
     install();
 
