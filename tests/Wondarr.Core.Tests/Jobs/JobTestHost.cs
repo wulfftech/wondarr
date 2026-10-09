@@ -67,10 +67,14 @@ internal sealed class JobTestHost : IAsyncDisposable
         return new JobTestHost(provider, directory, databasePath, timeProvider);
     }
 
+    /// <summary>The real event aggregator, for a test that wraps it.</summary>
+    public IEventAggregator EventAggregator => _provider.GetRequiredService<IEventAggregator>();
+
     /// <summary>Builds the executor over this container's services.</summary>
-    public CommandExecutor CreateExecutor() => new(
+    /// <param name="aggregator">Replaces the container's event aggregator, to inject a fault.</param>
+    public CommandExecutor CreateExecutor(IEventAggregator? aggregator = null) => new(
         _provider.GetRequiredService<IServiceScopeFactory>(),
-        _provider.GetRequiredService<IEventAggregator>(),
+        aggregator ?? _provider.GetRequiredService<IEventAggregator>(),
         _provider.GetRequiredService<Channel<long>>(),
         TimeProvider,
         NullLogger<CommandExecutor>.Instance);

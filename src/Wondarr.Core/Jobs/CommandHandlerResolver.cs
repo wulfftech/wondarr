@@ -14,7 +14,22 @@ internal sealed record CommandHandlerRegistrations(IServiceCollection Services);
 /// <summary>What <see cref="CommandHandlerResolver"/> found for one command name.</summary>
 /// <param name="Handler">The handler that answers to the name, when one was built.</param>
 /// <param name="Failures">The handlers that could not be built, as <c>"Type: reason"</c>.</param>
-internal sealed record CommandHandlerLookup(ICommandHandler? Handler, IReadOnlyList<string> Failures);
+/// <param name="OwnedByCaller">
+/// Whether the caller has to dispose <paramref name="Handler"/>: it was built outside the scope's
+/// own tracking, so the scope will not dispose it.
+/// </param>
+internal sealed record CommandHandlerLookup(ICommandHandler? Handler, IReadOnlyList<string> Failures, bool OwnedByCaller = false)
+{
+    /// <summary>Disposes the handler when the caller owns it.</summary>
+    /// <returns>A task that completes when the handler is disposed.</returns>
+    public async ValueTask ReleaseAsync()
+    {
+        if (OwnedByCaller)
+        {
+            await CommandHandlerResolver.DisposeAsync(Handler).ConfigureAwait(false);
+        }
+    }
+}
 
 /// <summary>
 /// Finds the handler for a command name without letting one broken registration hide the others.
@@ -55,10 +70,16 @@ internal static class CommandHandlerResolver
         {
             try
             {
-                var handler = Build(services, descriptor);
+                var (handler, owned) = Build(services, descriptor);
                 if (Matches(handler, name))
                 {
-                    return new CommandHandlerLookup(handler, failures);
+                    return new CommandHandlerLookup(handler, failures, owned);
+                }
+
+                // Built only to read its name: nothing else will dispose it.
+                if (owned)
+                {
+                    DisposeSync(handler);
                 }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -71,19 +92,49 @@ internal static class CommandHandlerResolver
         return new CommandHandlerLookup(null, failures);
     }
 
-    private static ICommandHandler Build(IServiceProvider services, ServiceDescriptor descriptor)
+    // Whether the caller owns the result: a registered instance belongs to the container, anything
+    // built here belongs to us because no scope tracks it.
+    private static (ICommandHandler Handler, bool Owned) Build(IServiceProvider services, ServiceDescriptor descriptor)
     {
         if (descriptor.ImplementationInstance is ICommandHandler instance)
         {
-            return instance;
+            return (instance, false);
         }
 
         if (descriptor.ImplementationFactory is { } factory)
         {
-            return (ICommandHandler)factory(services);
+            return ((ICommandHandler)factory(services), true);
         }
 
-        return (ICommandHandler)ActivatorUtilities.CreateInstance(services, descriptor.ImplementationType!);
+        return ((ICommandHandler)ActivatorUtilities.CreateInstance(services, descriptor.ImplementationType!), true);
+    }
+
+    /// <summary>Disposes <paramref name="handler"/> if it is disposable.</summary>
+    /// <param name="handler">The handler, or <see langword="null"/>.</param>
+    /// <returns>A task that completes when it is disposed.</returns>
+    internal static async ValueTask DisposeAsync(ICommandHandler? handler)
+    {
+        switch (handler)
+        {
+            case IAsyncDisposable asyncDisposable:
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                break;
+            case IDisposable disposable:
+                disposable.Dispose();
+                break;
+        }
+    }
+
+    private static void DisposeSync(ICommandHandler handler)
+    {
+        if (handler is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+        else if (handler is IAsyncDisposable asyncDisposable)
+        {
+            asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
     }
 
     private static bool Matches(ICommandHandler handler, string name) =>

@@ -20,3 +20,16 @@ internal sealed class UnbuildableCommandHandler : ICommandHandler
     public Task<string?> ExecuteAsync(CommandContext context, CancellationToken cancellationToken) =>
         Task.FromResult<string?>("never runs");
 }
+
+/// <summary>A buildable handler that records that it was disposed.</summary>
+internal sealed class DisposableCommandHandler : ICommandHandler, IDisposable
+{
+    public static int Disposed;
+
+    public string Name => "Disposable";
+
+    public void Dispose() => Interlocked.Increment(ref Disposed);
+
+    public Task<string?> ExecuteAsync(CommandContext context, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>("ran");
+}
