@@ -23,6 +23,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\tests\fixtures\migrations\phase0-compilarr.db" Link="fixtures\migrations\phase0-compilarr.db" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Wondarr.Api\Wondarr.Api.csproj" />
   </ItemGroup>
 
