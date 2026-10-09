@@ -1,19 +1,29 @@
-# Agentic build workflow: Opus 5.5 orchestrator + cheap workers
+# Agentic build workflow: Opus 5.5 orchestrator + subagents
+
+> **Since 2026-10-09 (owner; `docs/DECISIONS.md` build session 10 #1, ADR-0011 amended): OpenRouter is paused.** Workers and reviewers are Claude Code subagents started with the Agent tool (§2.0). `scripts/worker.py` (`run`, `api`, `review`) and `/openrouter-value` are not used while the pause lasts; §2.1–2.2 and §6 describe them for when it ends.
 
 ## 1. Roles
 
 | Role | Runs where | Model | Does | Never does |
 |---|---|---|---|---|
 | **Orchestrator** | The interactive Claude Code session in this repo | **Claude Opus 5.5** (`/model claude-opus-5-5`) | Reads the docs, picks tasks, writes task specs, launches workers, reviews every diff, runs verification, resolves conflicts, updates `PROGRESS.md`/docs, commits and pushes | Hand-types large volumes of routine code; skips review |
-| **Worker** | A separate process (`scripts/worker.py run`) in its own git worktree | A **cheap OpenRouter model**, chosen per task by effort tier from `MODEL_VALUE_MATRIX.md` (`--model`; `WONDARR_WORKER_MODEL` is the default) | Implements exactly one task file: code + tests, runs build/tests, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, commits to `main` |
-| **Reviewer** (optional) | `scripts/worker.py review <branch>` | The T3 pick from `MODEL_VALUE_MATRIX.md` (`--model`; `WONDARR_REVIEWER_MODEL` is the default) | Independent review of a worker diff against the task's acceptance criteria and `CODING_STANDARDS.md` | Edits code |
+| **Worker** | A Claude Code subagent (Agent tool) in its own git worktree (`isolation: worktree`), in the background | `sonnet` for implementation; `haiku` for mechanical work (porting one file, boilerplate tests, doc drafts, fixtures); `Explore` on `haiku` for read-only searches | Implements exactly one task file: code + tests, runs build/tests, commits on its branch, writes a done-report | Makes design decisions, edits docs/decisions, touches files outside the task's allowed paths, merges, pushes or opens a PR |
+| **Reviewer** | A `general-purpose` subagent, no worktree | `sonnet` | Adversarial review of `git diff main...<branch>` against the spec and `CODING_STANDARDS.md`; findings ranked by severity with file and line. Required for anything touching processes, files, time, the database, auth or external limits | Edits code |
 | **Researcher** (optional) | `.claude/agents/researcher.md` | Sonnet/Haiku with web tools | Verifies an external API/library fact before a spec is written | Writes code |
 
 Why separate processes: Claude Code subagents inherit the session's API endpoint and cannot be routed to a different provider per agent ([sub-agents docs](https://code.claude.com/docs/en/sub-agents.md), [env vars](https://code.claude.com/docs/en/env-vars.md)). So the orchestrator stays on Anthropic (Claude Code), and each worker is a separate process, `scripts/worker.py run`, that calls OpenRouter's chat-completions API directly with six sandboxed tools (`read_file`, `write_file`, `edit_file`, `list_files`, `grep`, `run`), with its own model, budget and sandbox. The worker, reviewer and single-shot modes need only `OPENROUTER_API_KEY`; the orchestrator needs only your Claude login. Model choice for every *delegated* call is by effort tier from `MODEL_VALUE_MATRIX.md` (refresh it with the `/openrouter-value` command); the matrix's "Orchestrator" row is informational (what a cheaper orchestrator would cost), not a setting.
 
 ## 2. Mechanics
 
-### 2.1 Tool-calling worker on OpenRouter (default)
+### 2.0 Claude Code subagents (current)
+
+1. Write the spec `docs/build/tasks/<id>.md` from `WORKER_TASK_TEMPLATE.md` and **commit it on `main`** (the worktree is created from `HEAD`).
+2. Start the subagent with the Agent tool: `subagent_type: general-purpose`, `model: sonnet`, `isolation: worktree`, `run_in_background: true` (a `haiku` model for mechanical work). It starts cold, so its prompt is the spec plus: the branch to create (`phase<n>/<id>-<slug>`), the allowed paths, "commit your work on that branch with Conventional Commits, no model names, no AI trailer; do not touch `AGENTS.md`, `CLAUDE.md`, `docs/DECISIONS.md`, `docs/adr/`, `.claude/`, `.github/workflows/`, `.env*`; do not merge, push or open a PR", the exact commands that must pass (`dotnet build -warnaserror`, the relevant `dotnet test` projects; for frontend work `npm run lint && npm run typecheck && npm run format && npm test && npm run build`), and "finish with a done-report: what you changed, what you ran and its result, what you did not finish".
+3. When it reports, run the builds and tests yourself in its worktree; for risky areas start a review subagent (`sonnet`, no worktree) on `git diff main...<branch>`; verify every finding before acting on it and record the rejected ones with the reason in `PROGRESS.md`.
+4. Fix the findings yourself when that is cheaper than a continuation (`SendMessage` to the same subagent; at most two), then merge only through `scripts/safe-merge.sh <branch>`, regenerate `docs/api/openapi.json` (`WONDARR_UPDATE_OPENAPI=1` on the snapshot test) and the frontend types (`npm run gen:api`) after merging the base into the branch — subagents do not.
+5. One task per subagent; at most three at once; never a merge while a subagent runs its tests (memory is the limit on the dev PC).
+
+### 2.1 Tool-calling worker on OpenRouter (paused since 2026-10-09)
 
 `scripts/worker.py [--model <id>] run docs/build/tasks/<id>.md` does, for one task file:
 
@@ -30,7 +40,7 @@ The model must support tool calling (the tier picks in `MODEL_VALUE_MATRIX.md` a
 
 The orchestrator then reviews with `git -C .worktrees/<id> diff <base>...HEAD`, runs the verification commands itself, asks the worker to fix (`worker.py run … --continue "fix: …"`) or merges (`git merge --no-ff phase<n>/<id>-…`), and removes the worktree.
 
-### 2.2 Single-shot API worker (cheapest)
+### 2.2 Single-shot API worker (paused since 2026-10-09)
 
 `scripts/worker.py api docs/build/tasks/<id>.md --files a.cs b.cs` sends the task plus the named files to OpenRouter's chat-completions API with no tools and writes the answer to `.worker/<id>/response.md`. Use for pure text transforms: port this class, write tests for this file, draft this doc section. The orchestrator applies the result.
 

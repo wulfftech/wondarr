@@ -14,9 +14,9 @@ Wondarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) →
 ## How we build (summary of `docs/build/AGENT_WORKFLOW.md`)
 
 - **This session is the orchestrator** (Claude Code on Claude Opus 5.5, `/model claude-opus-5-5`). It owns design, task specs, code review, verification and commits. It does *not* hand-type large volumes of routine code.
-- **Implementation is delegated to cheap workers**: `python scripts/worker.py run docs/build/tasks/<id>.md` runs a sandboxed tool-calling agent loop (`scripts/worker_agent.py`) directly against the **OpenRouter** API (`OPENROUTER_API_KEY` in `.env`; model per task from `docs/build/MODEL_VALUE_MATRIX.md`) inside a git worktree. No CLI or Anthropic account is involved. Workers get a self-contained task file (`docs/build/WORKER_TASK_TEMPLATE.md`), never design authority.
-- **Loop**: spec → worker → build/tests → orchestrator reviews the diff → fix or merge → update `PROGRESS.md` → commit. Risky areas also get `python scripts/worker.py review <branch>`.
-- Never merge red. Never let a worker touch `docs/DECISIONS.md`, `docs/adr/`, `AGENTS.md`, or `CLAUDE.md`.
+- **Implementation is delegated to Claude Code subagents** (Agent tool; DECISIONS 2026-10-09 build session 10 #1 — OpenRouter and `scripts/worker.py` are paused): an ordinary feature, test or frontend task goes to a `general-purpose` subagent on `sonnet` in its own worktree (`isolation: worktree`, in the background); mechanical work (porting one file, boilerplate tests, doc drafts, fixtures, searches) to a `haiku` subagent (`Explore` for read-only searches). Hard backend work (concurrency, the import pipeline, migrations, release engineering) the orchestrator may write itself. Subagents get a self-contained task file (`docs/build/WORKER_TASK_TEMPLATE.md`) plus the branch, allowed paths and commands, never design authority. At most three at once.
+- **Loop**: spec (committed) → subagent → the orchestrator runs build/tests in its worktree → review → fix or merge through `scripts/safe-merge.sh` → update `PROGRESS.md` → commit. Anything touching processes, files, time, the database, auth or external limits also gets a review subagent (`sonnet`, no worktree, `git diff main...<branch>` against `CODING_STANDARDS.md` and the spec); the orchestrator verifies every finding before acting on it.
+- Never merge red. Never let a subagent touch `docs/DECISIONS.md`, `docs/adr/`, `AGENTS.md`, `CLAUDE.md`, `.claude/`, `.github/workflows/` or `.env*`.
 
 ## Non-negotiables
 
@@ -35,9 +35,7 @@ Wondarr is a self-hosted *arr for **single songs**: Soulseek (bundled slskd) →
 dotnet build -warnaserror && dotnet test          # backend
 cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build
 docker compose -f docker/docker-compose.yml up --build
-python scripts/worker.py run docs/build/tasks/P0-01.md      # delegate a task to a cheap worker
-python scripts/worker.py --dry-run run docs/build/tasks/P0-01.md
-python scripts/worker.py watch                               # follow running workers' live logs
+scripts/safe-merge.sh <branch>                               # merge a task branch only if the tree is green before and after
 scripts/smoke-test.sh <image> ["sudo docker"]                # Phase 0 + Phase 1 gates against a built image (SMOKE_METADATA=replay|record|live|off)
 python scripts/phase1-gate.py --url <base> --api-key <key>   # the Phase 1 gate against any running instance
 python scripts/phase5-gate.py upgrade|backup-take|backup-verify --url <base> --api-key <key> …   # Phase 5 gate pieces (SMOKE_PHASE5 runs them in the smoke test)
@@ -49,4 +47,4 @@ python scripts/check-notice.py [--fix]                       # ported-code attri
 
 ## Conventions
 
-Conventional Commits; branches `phase<n>/<task-id>-<slug>`; worker worktrees under `.worktrees/`; task files under `docs/build/tasks/`; progress in `docs/build/PROGRESS.md`; coding rules in `docs/build/CODING_STANDARDS.md`; layout in `docs/build/REPO_LAYOUT.md`.
+Conventional Commits; branches `phase<n>/<task-id>-<slug>`; subagent worktrees under `.claude/worktrees/` (the Agent tool's) or `.worktrees/`; task files under `docs/build/tasks/`; progress in `docs/build/PROGRESS.md`; coding rules in `docs/build/CODING_STANDARDS.md`; layout in `docs/build/REPO_LAYOUT.md`.
