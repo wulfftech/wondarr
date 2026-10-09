@@ -87,4 +87,44 @@ public class CredentialStoreTests
         (await store.VerifyAsync("someone", Password, CancellationToken.None)).Should().BeFalse();
         (await store.VerifyAsync("ADMIN", Password, CancellationToken.None)).Should().BeTrue();
     }
+
+    [Fact]
+    public async Task TrySetInitialAsync_creates_the_credentials_once_and_then_refuses()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var store = new CredentialStore(new SettingsRepository(context));
+
+        (await store.TrySetInitialAsync("admin", Password, CancellationToken.None)).Should().BeTrue();
+        (await store.TrySetInitialAsync("someone-else", "a different password", CancellationToken.None)).Should().BeFalse();
+
+        (await store.GetUsernameAsync(CancellationToken.None)).Should().Be("admin");
+        (await store.VerifyAsync("admin", Password, CancellationToken.None)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Two_concurrent_TrySetInitialAsync_calls_let_exactly_one_win()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        // Separate contexts, as two simultaneous requests would have.
+        await using var first = database.CreateContext(timeProvider);
+        await using var second = database.CreateContext(timeProvider);
+        var firstStore = new CredentialStore(new SettingsRepository(first));
+        var secondStore = new CredentialStore(new SettingsRepository(second));
+
+        var results = await Task.WhenAll(
+            Task.Run(() => firstStore.TrySetInitialAsync("first", Password, CancellationToken.None)),
+            Task.Run(() => secondStore.TrySetInitialAsync("second", Password, CancellationToken.None)));
+
+        results.Count(won => won).Should().Be(1);
+
+        await using var check = database.CreateContext(timeProvider);
+        (await check.Settings.CountAsync()).Should().Be(1);
+    }
 }
