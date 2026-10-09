@@ -950,12 +950,18 @@ public sealed partial class SongSearchService : ISongSearchService
         return false;
     }
 
-    /// <summary>Whether a reference file currently identifies the song, so the user already owns it.</summary>
+    /// <summary>Whether a reference file currently identifies the song and no managed file replaced it, so the user owns it.</summary>
     private async Task<bool> IsOwnedThroughReferenceAsync(long songId, CancellationToken cancellationToken) =>
         await _database.ReferenceFiles
             .AsNoTracking()
             .AnyAsync(
-                file => file.SongId == songId && file.State == ReferenceFileState.Identified,
+                file => file.SongId == songId
+                    && file.State == ReferenceFileState.Identified
+
+                    // A managed file the song got later (a hand-made grab, a download that came first) is
+                    // Wondarr's to upgrade, whatever the reference row still says.
+                    && !_database.SongFiles.Any(held =>
+                        held.SongId == songId && held.SourceType != SourceTypes.Reference),
                 cancellationToken)
             .ConfigureAwait(false);
 

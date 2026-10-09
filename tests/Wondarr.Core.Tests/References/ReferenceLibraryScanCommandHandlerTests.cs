@@ -103,6 +103,39 @@ public sealed class ReferenceLibraryScanCommandHandlerTests : IDisposable
         ScannedIds().Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Two_overlapping_scans_of_one_library_run_one_after_the_other_and_both_complete()
+    {
+        var (first, _, _) = await AddLibrariesAsync(enabled: [true, false, false]);
+        var running = 0;
+        var overlapped = false;
+
+        _scanner
+            .ScanAsync(Arg.Any<long>(), Arg.Any<Func<string, Task>?>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                if (Interlocked.Increment(ref running) > 1)
+                {
+                    overlapped = true;
+                }
+
+                await Task.Delay(150);
+                Interlocked.Decrement(ref running);
+
+                return new ReferenceScanResult(Seen: 1, Added: 1, Changed: 0, Unchanged: 0, Missing: 0, Unreadable: 0);
+            });
+
+        // A scheduled scan of every library and a manual scan of this one, started together.
+        var all = Handler.ExecuteAsync(Context(null), CancellationToken.None);
+        var one = Handler.ExecuteAsync(Context($"{{\"referenceLibraryId\": {first}}}"), CancellationToken.None);
+
+        var summaries = await Task.WhenAll(all, one);
+
+        overlapped.Should().BeFalse("two scans of one library never run at once");
+        ScannedIds().Should().Equal(first, first);
+        summaries.Should().OnlyContain(summary => !summary.Contains("unavailable", StringComparison.Ordinal));
+    }
+
     /// <inheritdoc />
     public void Dispose() => _provider.Dispose();
 

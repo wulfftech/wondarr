@@ -99,6 +99,22 @@ public sealed class SongSearchServiceTests
     }
 
     [Fact]
+    public async Task A_song_that_got_a_managed_file_after_its_reference_row_was_identified_is_still_upgraded()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Identified);
+        await host.SeedFileAsync(songId, qualityId: 23);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Upgrade, grab: true, Token);
+
+        result.SearchRunId.Should().BeGreaterThan(0, "the managed file is Wondarr's to upgrade");
+        host.Provider.Requests.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public async Task A_song_whose_reference_file_went_missing_is_searched_for_again()
     {
         await using var host = await SearchTestHost.CreateAsync();

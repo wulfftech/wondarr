@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,9 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
 {
     /// <summary>The name the <c>ReferenceLibraryScan</c> scheduled task queues.</summary>
     public const string CommandName = "ReferenceLibraryScan";
+
+    /// <summary>One gate per reference library, shared by every run of this command in the process.</summary>
+    private static readonly ConcurrentDictionary<long, SemaphoreSlim> Gates = new();
 
     /// <summary>The command bodies are camelCase, like every other JSON this app exchanges.</summary>
     private static readonly JsonSerializerOptions BodyJson = new()
@@ -55,85 +59,98 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
         {
             var libraryId = library.Id;
 
-            // A library that cannot be scanned must not stop the batch, and a scope of its own keeps its
-            // half-written rows out of the next library's context.
-            using var scope = scopes.CreateScope();
+            // Two scans of one library never overlap (a scheduled scan of every library and a manual
+            // scan of this one, say): the second waits here until the first has finished with it.
+            var gate = Gates.GetOrAdd(libraryId, _ => new SemaphoreSlim(1, 1));
+
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
-                var scanner = scope.ServiceProvider.GetRequiredService<IReferenceScanner>();
-                var result = await scanner
-                    .ScanAsync(libraryId, context.ReportProgressAsync, cancellationToken)
-                    .ConfigureAwait(false);
+                // A library that cannot be scanned must not stop the batch, and a scope of its own keeps its
+                // half-written rows out of the next library's context.
+                using var scope = scopes.CreateScope();
 
-                totals = totals with
-                {
-                    Seen = totals.Seen + result.Seen,
-                    Added = totals.Added + result.Added,
-                    Changed = totals.Changed + result.Changed,
-                    Unchanged = totals.Unchanged + result.Unchanged,
-                    Missing = totals.Missing + result.Missing,
-                    Unreadable = totals.Unreadable + result.Unreadable,
-                };
-
-                // Identification follows the scan in the same scope: the rows the walk just wrote are
-                // the ones it identifies, and what it adds is committed before the next library starts.
-                // The scan itself already counted; an identification failure only costs this library
-                // its identifications.
                 try
                 {
-                    var identifier = scope.ServiceProvider.GetRequiredService<IReferenceIdentifier>();
-                    var outcome = await identifier
-                        .IdentifyPendingAsync(libraryId, context.ReportProgressAsync, cancellationToken)
+                    var scanner = scope.ServiceProvider.GetRequiredService<IReferenceScanner>();
+                    var result = await scanner
+                        .ScanAsync(libraryId, context.ReportProgressAsync, cancellationToken)
                         .ConfigureAwait(false);
 
-                    identified = new ReferenceIdentifyResult(
-                        identified.Identified + outcome.Identified,
-                        identified.Ambiguous + outcome.Ambiguous,
-                        identified.Unmatched + outcome.Unmatched,
-                        identified.Deferred + outcome.Deferred);
-                }
-                catch (Exception exception) when (exception is not OperationCanceledException)
-                {
-                    LogIdentifyFailed(logger, libraryId, exception);
-                }
+                    totals = totals with
+                    {
+                        Seen = totals.Seen + result.Seen,
+                        Added = totals.Added + result.Added,
+                        Changed = totals.Changed + result.Changed,
+                        Unchanged = totals.Unchanged + result.Unchanged,
+                        Missing = totals.Missing + result.Missing,
+                        Unreadable = totals.Unreadable + result.Unreadable,
+                    };
 
-                // Adoption follows identification in the same scope, for a library the user asked to
-                // adopt from: the rows just identified are the ones it hands over. An adoption that
-                // fails only costs this library its adoptions.
-                if (library.Mode == ReferenceLibraryMode.Adopt)
-                {
+                    // Identification follows the scan in the same scope: the rows the walk just wrote are
+                    // the ones it identifies, and what it adds is committed before the next library starts.
+                    // The scan itself already counted; an identification failure only costs this library
+                    // its identifications.
                     try
                     {
-                        var adopter = scope.ServiceProvider.GetRequiredService<IReferenceAdopter>();
-                        var outcome = await adopter
-                            .AdoptAsync(libraryId, context.ReportProgressAsync, cancellationToken)
+                        var identifier = scope.ServiceProvider.GetRequiredService<IReferenceIdentifier>();
+                        var outcome = await identifier
+                            .IdentifyPendingAsync(libraryId, context.ReportProgressAsync, cancellationToken)
                             .ConfigureAwait(false);
 
-                        adopted = adopted with
-                        {
-                            Adopted = adopted.Adopted + outcome.Adopted,
-                            Skipped = adopted.Skipped + outcome.Skipped,
-                            Failed = adopted.Failed + outcome.Failed,
-                        };
+                        identified = new ReferenceIdentifyResult(
+                            identified.Identified + outcome.Identified,
+                            identified.Ambiguous + outcome.Ambiguous,
+                            identified.Unmatched + outcome.Unmatched,
+                            identified.Deferred + outcome.Deferred);
                     }
                     catch (Exception exception) when (exception is not OperationCanceledException)
                     {
-                        LogAdoptFailed(logger, libraryId, exception);
+                        LogIdentifyFailed(logger, libraryId, exception);
+                    }
+
+                    // Adoption follows identification in the same scope, for a library the user asked to
+                    // adopt from: the rows just identified are the ones it hands over. An adoption that
+                    // fails only costs this library its adoptions.
+                    if (library.Mode == ReferenceLibraryMode.Adopt)
+                    {
+                        try
+                        {
+                            var adopter = scope.ServiceProvider.GetRequiredService<IReferenceAdopter>();
+                            var outcome = await adopter
+                                .AdoptAsync(libraryId, context.ReportProgressAsync, cancellationToken)
+                                .ConfigureAwait(false);
+
+                            adopted = adopted with
+                            {
+                                Adopted = adopted.Adopted + outcome.Adopted,
+                                Skipped = adopted.Skipped + outcome.Skipped,
+                                Failed = adopted.Failed + outcome.Failed,
+                            };
+                        }
+                        catch (Exception exception) when (exception is not OperationCanceledException)
+                        {
+                            LogAdoptFailed(logger, libraryId, exception);
+                        }
                     }
                 }
+                catch (ReferenceLibraryUnavailableException exception)
+                {
+                    unavailable++;
+                    LogUnavailable(logger, libraryId, exception.Message);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // One library's failure (a database error, an unexpected IO fault) never costs the
+                    // others their scan.
+                    unavailable++;
+                    LogScanFailed(logger, libraryId, exception);
+                }
             }
-            catch (ReferenceLibraryUnavailableException exception)
+            finally
             {
-                unavailable++;
-                LogUnavailable(logger, libraryId, exception.Message);
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                // One library's failure (a database error, an unexpected IO fault) never costs the
-                // others their scan.
-                unavailable++;
-                LogScanFailed(logger, libraryId, exception);
+                gate.Release();
             }
         }
 

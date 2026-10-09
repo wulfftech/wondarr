@@ -325,6 +325,8 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
             // Each group commits on its own: the add leaves its transaction open, and the songs reach
             // other connections only together with the files and rows that own them.
+            var groupResolved = 0;
+
             try
             {
                 var added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
@@ -344,16 +346,30 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
                     await ClearCandidatesAsync(entry.Row, cancellationToken).ConfigureAwait(false);
 
-                    resolved++;
+                    groupResolved++;
                 }
 
                 await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
+
+                resolved += groupResolved;
             }
-            catch
+            catch (Exception exception)
             {
                 await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
 
-                throw;
+                if (exception is OperationCanceledException)
+                {
+                    throw;
+                }
+
+                // One group failing costs its own files a line each; the groups behind it go on.
+                DiscardPendingChanges();
+                LogGroupFailed(_logger, batch.Count, exception);
+
+                foreach (var entry in batch)
+                {
+                    errors.Add(string.Concat(entry.Row.RelativePath, ": could not be accepted (", exception.Message, ")"));
+                }
             }
         }
 
@@ -362,6 +378,30 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         LogBulkAccepted(_logger, resolved, errors.Count);
 
         return new ReferenceBulkResult(resolved, errors.Count, errors);
+    }
+
+    /// <summary>
+    /// Forgets what a failed group changed, so the next group's save does not write it: added rows are
+    /// detached, changed and deleted rows go back to what the database holds.
+    /// </summary>
+    private void DiscardPendingChanges()
+    {
+        foreach (var entry in _database.ChangeTracker.Entries().ToList())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    entry.State = EntityState.Detached;
+                    break;
+                case EntityState.Modified:
+                case EntityState.Deleted:
+                    entry.CurrentValues.SetValues(entry.OriginalValues);
+                    entry.State = EntityState.Unchanged;
+                    break;
+                default:
+                    break;
+            }
+        }
     }
 
     /// <summary>
@@ -585,6 +625,9 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Reference file {ReferenceFileId} was skipped; the file is left alone")]
     private static partial void LogSkipped(ILogger logger, long referenceFileId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Accepting the best candidate of {Files} reference files failed; the rest of the batch goes on")]
+    private static partial void LogGroupFailed(ILogger logger, int files, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Accepted the best candidate of {Resolved} reference files; {Failed} could not be accepted")]
     private static partial void LogBulkAccepted(ILogger logger, int resolved, int failed);

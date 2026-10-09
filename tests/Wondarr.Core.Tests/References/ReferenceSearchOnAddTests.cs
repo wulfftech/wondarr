@@ -177,6 +177,68 @@ public sealed class ReferenceSearchOnAddTests : IDisposable
         _commands.ReceivedCalls().Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Bulk_accept_goes_on_after_a_failing_library_group_and_counts_only_what_committed()
+    {
+        await using var context = await ContextAsync();
+        var second = new Library { Name = "Second", RootPath = "/data/second" };
+
+        context.Libraries.Add(second);
+        await context.SaveChangesAsync();
+
+        var libraryA = await ReferenceLibraryAsync(context);
+        var libraryB = new ReferenceLibrary { Name = "Other", RootPath = "/reference/other", LibraryId = second.Id };
+
+        context.ReferenceLibraries.Add(libraryB);
+        await context.SaveChangesAsync();
+
+        var ids = new List<long>();
+
+        foreach (var (library, index) in new[] { (libraryA, 0), (libraryB, 1) })
+        {
+            var mbid = "m-" + index;
+            var file = await AddStoredFileAsync(context, library.Id, $"a/{index}.flac", ReferenceFileState.Ambiguous);
+
+            context.MatchCandidates.Add(new MatchCandidate
+            {
+                ReferenceFileId = file.Id,
+                Rank = 1,
+                Identity = new MatchIdentity("musicbrainz", mbid, null, "Song " + index, "Daft Punk", 248_000, "Random Access Memories").ToJson(),
+                Score = 0.8,
+                Reason = "search 80",
+            });
+            _resolver.GetIdentityAsync(mbid, null, Arg.Any<CancellationToken>()).Returns(Identity(mbid, "Song " + index));
+            ids.Add(file.Id);
+        }
+
+        await context.SaveChangesAsync();
+
+        // The first library's group is added for real; the second one's add blows up.
+        var real = NewSongService(context);
+        var calls = 0;
+        var spy = Substitute.For<ISongService>();
+
+        spy.AddIdentitiesAsync(Arg.Any<IReadOnlyList<SongIdentity>>(), Arg.Any<SongAddOptions>(), Arg.Any<CancellationToken>())
+            .Returns(call => ++calls == 1
+                ? real.AddIdentitiesAsync(call.Arg<IReadOnlyList<SongIdentity>>(), call.Arg<SongAddOptions>(), call.Arg<CancellationToken>())
+                : throw new InvalidOperationException("boom"));
+
+        var service = new ReferenceMatchService(context, _resolver, spy, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
+
+        var result = await service.AcceptTopCandidatesAsync(ids, CancellationToken.None);
+
+        result.Resolved.Should().Be(1);
+        result.Failed.Should().Be(1);
+        result.Errors.Should().ContainSingle().Which.Should().StartWith("a/1.flac:");
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        var rows = await context.ReferenceFiles.AsNoTracking().OrderBy(row => row.Id).ToListAsync();
+        rows[0].State.Should().Be(ReferenceFileState.Identified);
+        rows[1].State.Should().Be(ReferenceFileState.Ambiguous);
+        (await context.Songs.CountAsync()).Should().Be(1);
+        (await context.SongFiles.CountAsync()).Should().Be(1);
+    }
+
     // --- The song and its file arrive together --------------------------------------------------
 
     [Fact]
