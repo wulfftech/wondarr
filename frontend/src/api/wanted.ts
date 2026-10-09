@@ -111,15 +111,15 @@ export function useHistory(paging: Paging, filters: HistoryFilters = {}): UseQue
   });
 }
 
-/** The blocked candidates, newest first. */
-export function useBlocklist(paging: Paging): UseQueryResult<BlocklistPage, Error> {
+/** The blocked candidates, newest first; `songId` limits them to one song's. */
+export function useBlocklist(paging: Paging, songId?: number): UseQueryResult<BlocklistPage, Error> {
   const client = useApiClient();
 
   return useQuery({
-    queryKey: [...BLOCKLIST_QUERY_KEY, paging],
+    queryKey: [...BLOCKLIST_QUERY_KEY, paging, songId ?? null],
     queryFn: async (): Promise<BlocklistPage> => {
       const { data, response } = await client.GET('/api/v1/blocklist', {
-        params: { query: pagingQuery(pagingValues(paging)) },
+        params: { query: pagingQuery({ ...pagingValues(paging), ...(songId === undefined ? {} : { songId }) }) },
       });
 
       if (!response.ok || data === undefined) {

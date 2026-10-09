@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Songs;
 
 namespace Wondarr.Api.Songs;
 
@@ -53,20 +55,70 @@ public sealed record SongResource(
     public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];
 }
 
-/// <summary>The file a song holds: where it is and what is on disk (its quality is the song's <c>qualityId</c>).</summary>
+/// <summary>The file a song holds: where it is, what is on disk and where it came from.</summary>
 /// <param name="Path">The file's path in the library.</param>
 /// <param name="Codec">The codec on disk (<c>mp3</c>, <c>flac</c>, <c>aac</c>, <c>opus</c>, …).</param>
 /// <param name="Container">The container on disk.</param>
 /// <param name="BitrateKbps">The measured bitrate, when known.</param>
 /// <param name="Size">The size in bytes.</param>
 /// <param name="SourceType">Where it came from: <c>soulseek</c>, <c>youtube</c>, <c>reference</c>, ….</param>
+/// <param name="SampleRate">The sample rate in Hz, or <see langword="null"/> when unknown.</param>
+/// <param name="BitDepth">The bit depth, or <see langword="null"/> for lossy or unknown audio.</param>
+/// <param name="Channels">The channel count, or <see langword="null"/> when unknown.</param>
+/// <param name="DurationMs">The measured duration in milliseconds, or <see langword="null"/>.</param>
+/// <param name="QualityId">The quality the file on disk was matched to (the song's <c>qualityId</c>).</param>
+/// <param name="AcoustId">The AcoustID the fingerprint resolved to, or <see langword="null"/>.</param>
+/// <param name="FingerprintVerified">Whether the fingerprint confirmed the file's identity.</param>
+/// <param name="ImportedAt">The UTC instant the file was imported.</param>
+/// <param name="TagsWritten">The tags written at import (field to value), or <see langword="null"/> when none were.</param>
+/// <param name="ReplayGainDb">The measured ReplayGain track gain in dB, or <see langword="null"/>.</param>
+/// <param name="ReplayGainPeak">The measured true peak as a linear value, or <see langword="null"/>.</param>
+/// <param name="Source">The safe fields of the file's source reference.</param>
 public sealed record SongFileResource(
     string Path,
     string Codec,
     string Container,
     int? BitrateKbps,
     long Size,
-    string SourceType);
+    string SourceType,
+    int? SampleRate,
+    int? BitDepth,
+    int? Channels,
+    int? DurationMs,
+    long QualityId,
+    string? AcoustId,
+    bool FingerprintVerified,
+    DateTime ImportedAt,
+    IReadOnlyDictionary<string, string>? TagsWritten,
+    double? ReplayGainDb,
+    double? ReplayGainPeak,
+    SongFileSourceResource Source);
+
+/// <summary>
+/// Where a song's file came from. Only safe fields are exposed: never the stored JSON, a peer's
+/// folder layout or a credential.
+/// </summary>
+/// <param name="Kind">
+/// <c>reference</c> (the user's own file), <c>adopted</c> (a copy filed into a managed library),
+/// <c>download</c> (a grab Wondarr made) or <c>unknown</c>.
+/// </param>
+/// <param name="Provider">The download provider (<c>soulseek</c>, <c>youtube</c>, …), or <see langword="null"/>.</param>
+/// <param name="Name">The downloaded file's name as the source called it, or <see langword="null"/>.</param>
+/// <param name="QueueItemId">The queue item the grab was, or <see langword="null"/>.</param>
+/// <param name="ReferenceLibraryId">The reference library, for a reference or adopted file.</param>
+/// <param name="ReferenceLibraryName">
+/// The reference library's name. Filled by <c>GET /song/{id}</c> and <c>/details</c> only: list
+/// endpoints leave it <see langword="null"/> rather than query once per row.
+/// </param>
+/// <param name="RelativePath">The reference file's path inside its library; filled like <paramref name="ReferenceLibraryName"/>.</param>
+public sealed record SongFileSourceResource(
+    string Kind,
+    string? Provider,
+    string? Name,
+    long? QueueItemId,
+    long? ReferenceLibraryId,
+    string? ReferenceLibraryName,
+    string? RelativePath);
 
 /// <summary>
 /// The song's album context: what the folder layout and Plex's grouping key on. A song always has one
@@ -113,7 +165,11 @@ public static class SongResourceExtensions
     /// by the query — that is what "has a file" and <c>qualityId</c> are read from.
     /// </summary>
     /// <param name="song">The song to map.</param>
-    public static SongResource ToResource(this Song song)
+    /// <param name="reference">
+    /// The reference-library row the song is owned through, when the caller looked it up; it names the
+    /// library and the relative path in the file's source. Without it only the library id is known.
+    /// </param>
+    public static SongResource ToResource(this Song song, SongReferenceFileDetails? reference = null)
     {
         ArgumentNullException.ThrowIfNull(song);
 
@@ -136,10 +192,63 @@ public static class SongResourceExtensions
             song.File is not null,
             song.File?.QualityId,
             song.AlbumContext?.ToResource(),
-            song.File is { } file
-                ? new SongFileResource(file.Path, file.Codec, file.Container, file.BitrateKbps, file.Size, file.SourceType)
-                : null,
+            song.File?.ToResource(reference),
             song.Tags);
+    }
+
+    /// <summary>Maps a song file, reading only the safe fields of its source reference.</summary>
+    /// <param name="file">The file to map.</param>
+    /// <param name="reference">The reference-library row the file is owned through, when looked up.</param>
+    public static SongFileResource ToResource(this SongFile file, SongReferenceFileDetails? reference = null)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        var source = SongFileSource.Parse(file.SourceType, file.SourceRef);
+
+        return new SongFileResource(
+            file.Path,
+            file.Codec,
+            file.Container,
+            file.BitrateKbps,
+            file.Size,
+            file.SourceType,
+            file.SampleRate,
+            file.BitDepth,
+            file.Channels,
+            file.DurationMs,
+            file.QualityId,
+            file.AcoustId,
+            file.FingerprintVerified,
+            file.ImportedAt,
+            ParseTags(file.TagsWritten),
+            file.ReplayGainDb,
+            file.ReplayGainPeak,
+            new SongFileSourceResource(
+                source.Kind,
+                source.Provider,
+                source.Name,
+                source.QueueItemId,
+                source.ReferenceLibraryId ?? reference?.LibraryId,
+                reference?.LibraryName,
+                reference?.RelativePath));
+    }
+
+    /// <summary>Reads the tag snapshot, or <see langword="null"/> when there is none or it is not a flat string map.</summary>
+    private static Dictionary<string, string>? ParseTags(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Maps an album context.</summary>

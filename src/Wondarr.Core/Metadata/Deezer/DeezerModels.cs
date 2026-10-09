@@ -73,6 +73,18 @@ public sealed record DeezerTrack
 
     /// <summary>Gets the release date, as Deezer writes it (<c>yyyy-MM-dd</c>).</summary>
     public string? ReleaseDate { get; init; }
+
+    /// <summary>
+    /// Gets the tempo in beats per minute. Only the single-track call carries it; Deezer sends
+    /// <c>0</c> for a track it has not analysed.
+    /// </summary>
+    public double? Bpm { get; init; }
+
+    /// <summary>
+    /// Gets Deezer's loudness gain for the track in dB. Only the single-track call carries it;
+    /// <c>0</c> can mean "not analysed".
+    /// </summary>
+    public double? Gain { get; init; }
 }
 
 /// <summary>A Deezer album.</summary>
