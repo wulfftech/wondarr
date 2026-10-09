@@ -53,11 +53,7 @@ function queueQuery(values: Record<string, string | number | boolean>): never {
 }
 
 /** The grabs Wondarr is tracking, newest first; `songId` limits them to one song's. */
-export function useQueue(
-  paging: Paging,
-  includeFinished: boolean,
-  songId?: number,
-): UseQueryResult<QueuePage, Error> {
+export function useQueue(paging: Paging, includeFinished: boolean, songId?: number): UseQueryResult<QueuePage, Error> {
   const client = useApiClient();
 
   return useQuery({
