@@ -3048,6 +3048,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metadata/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MetadataSettingsResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MetadataSettingsUpdateResource"];
+                    "application/*+json": components["schemas"]["MetadataSettingsUpdateResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MetadataSettingsResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metadata/settings/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MetadataKeyTestRequest"];
+                    "application/*+json": components["schemas"]["MetadataKeyTestRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MetadataKeyTestResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/log": {
         parameters: {
             query?: never;
@@ -5407,6 +5506,24 @@ export interface components {
             songId: null | number | string;
             message: null | string;
         };
+        MetadataKeyTestRequest: {
+            service: string;
+            key?: null | string;
+        };
+        MetadataKeyTestResource: {
+            ok: boolean;
+            message: string;
+        };
+        MetadataSettingsResource: {
+            acoustIdKeySet: boolean;
+            acoustIdLocked: boolean;
+            lastFmKeySet: boolean;
+            lastFmLocked: boolean;
+        };
+        MetadataSettingsUpdateResource: {
+            acoustIdClientKey?: null | string;
+            lastFmApiKey?: null | string;
+        };
         NotificationFieldResource: {
             name: string;
             label: string;
@@ -5889,6 +6006,7 @@ export interface components {
             deezer: null | components["schemas"]["SongDeezerResource"];
             referenceFile: null | components["schemas"]["SongReferenceFileResource"];
             lyrics: components["schemas"]["SongLyricsAvailabilityResource"];
+            lastFm: null | components["schemas"]["SongLastFmResource"];
         };
         SongEditorDeleteResource: {
             songIds: null | (number | string)[];
@@ -5953,6 +6071,33 @@ export interface components {
             referenceLibraryId: null | number | string;
             referenceLibraryName: null | string;
             relativePath: null | string;
+        };
+        SongLastFmArtistResource: {
+            name: string;
+            url: null | string;
+            bioSummary: null | string;
+            /** Format: int64 */
+            listeners: null | number | string;
+        };
+        SongLastFmResource: {
+            url: null | string;
+            /** Format: int64 */
+            listeners: null | number | string;
+            /** Format: int64 */
+            playcount: null | number | string;
+            tags: string[];
+            wiki: null | string;
+            artist: null | components["schemas"]["SongLastFmArtistResource"];
+            similar: components["schemas"]["SongLastFmSimilarResource"][];
+        };
+        SongLastFmSimilarResource: {
+            artist: string;
+            title: string;
+            url: null | string;
+            /** Format: double */
+            match: null | number | string;
+            /** Format: int64 */
+            songId: null | number | string;
         };
         SongLookupRequest: {
             term: null | string;

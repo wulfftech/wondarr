@@ -1,5 +1,6 @@
 import {
   Alert,
+  Anchor,
   Button,
   Card,
   Code,
@@ -16,6 +17,14 @@ import { useState, type SyntheticEvent } from 'react';
 import { AuthUserUpdateError, useAuthUser, useSetAuthUser } from '../../api/auth';
 import { useAppConfig } from '../../api/context';
 import { useSystemStatus } from '../../api/hooks';
+import {
+  MetadataUpdateError,
+  useMetadataSettings,
+  useTestMetadataKey,
+  useUpdateMetadataSettings,
+  type MetadataKeyService,
+  type MetadataSettingsResource,
+} from '../../api/metadata';
 import { ErrorState, LoadingState } from '../../components/DataState';
 
 const MASK = '••••••••';
@@ -186,6 +195,200 @@ function LoginBlock() {
   );
 }
 
+interface KeyFieldProps {
+  service: MetadataKeyService;
+  label: string;
+  usedFor: string;
+  getKeyUrl: string;
+  isSet: boolean;
+  locked: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onRemove: () => void;
+  removing: boolean;
+}
+
+/** One optional key: a password field that never shows the stored key, a Test button, and where to get one. */
+function KeyField({
+  service,
+  label,
+  usedFor,
+  getKeyUrl,
+  isSet,
+  locked,
+  value,
+  onChange,
+  onRemove,
+  removing,
+}: KeyFieldProps) {
+  const test = useTestMetadataKey();
+  const typed = value.trim();
+
+  return (
+    <Stack gap="xs">
+      <PasswordInput
+        label={label}
+        placeholder={locked ? 'Set by the environment' : isSet ? 'Stored — type to replace' : 'Not set'}
+        value={value}
+        disabled={locked}
+        autoComplete="off"
+        onChange={(event) => {
+          onChange(event.currentTarget.value);
+        }}
+      />
+      <Text size="sm" c="dimmed">
+        {usedFor}{' '}
+        <Anchor href={getKeyUrl} target="_blank" rel="noreferrer">
+          Get a key
+        </Anchor>
+      </Text>
+      <Group gap="xs">
+        <Button
+          variant="default"
+          size="xs"
+          aria-label={`Test ${label}`}
+          loading={test.isPending}
+          disabled={typed === '' && !isSet}
+          onClick={() => {
+            test.mutate({ service, key: typed === '' ? undefined : typed });
+          }}
+        >
+          Test
+        </Button>
+        {isSet && !locked && (
+          <Button
+            variant="subtle"
+            color="red"
+            size="xs"
+            aria-label={`Remove ${label}`}
+            loading={removing}
+            onClick={onRemove}
+          >
+            Remove
+          </Button>
+        )}
+      </Group>
+      {test.data !== undefined && (
+        <Alert color={test.data.ok ? 'green' : 'red'} role="status" data-testid={`${service}-test-result`}>
+          {test.data.message}
+        </Alert>
+      )}
+      {test.error !== null && (
+        <Alert color="red" icon={<CircleAlert size={16} />}>
+          {test.error.message}
+        </Alert>
+      )}
+    </Stack>
+  );
+}
+
+function MetadataKeys({ settings }: { settings: MetadataSettingsResource }) {
+  const update = useUpdateMetadataSettings();
+  const [acoustId, setAcoustId] = useState('');
+  const [lastFm, setLastFm] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const messages =
+    update.error instanceof MetadataUpdateError && update.error.messages.length > 0
+      ? update.error.messages
+      : update.error !== null
+        ? [update.error.message]
+        : [];
+  const changed = acoustId.trim() !== '' || lastFm.trim() !== '';
+
+  function save(): void {
+    setSaved(false);
+
+    update.mutate(
+      {
+        // An empty field is left out, not sent: the stored key is only replaced by typing a new one.
+        acoustIdClientKey: acoustId.trim() === '' ? undefined : acoustId.trim(),
+        lastFmApiKey: lastFm.trim() === '' ? undefined : lastFm.trim(),
+      },
+      {
+        onSuccess: () => {
+          setAcoustId('');
+          setLastFm('');
+          setSaved(true);
+        },
+      },
+    );
+  }
+
+  return (
+    <Stack gap="md">
+      <KeyField
+        service="acoustid"
+        label="AcoustID client key"
+        usedFor="Fingerprint verification of downloads, and identifying the files of a reference library."
+        getKeyUrl="https://acoustid.org/new-application"
+        isSet={settings.acoustIdKeySet}
+        locked={settings.acoustIdLocked}
+        value={acoustId}
+        onChange={setAcoustId}
+        removing={update.isPending && update.variables.acoustIdClientKey === ''}
+        onRemove={() => {
+          setSaved(false);
+          update.mutate({ acoustIdClientKey: '' });
+        }}
+      />
+      <KeyField
+        service="lastfm"
+        label="Last.fm API key"
+        usedFor="Facts about a song on its page, and the default key for Last.fm import lists."
+        getKeyUrl="https://www.last.fm/api/account/create"
+        isSet={settings.lastFmKeySet}
+        locked={settings.lastFmLocked}
+        value={lastFm}
+        onChange={setLastFm}
+        removing={update.isPending && update.variables.lastFmApiKey === ''}
+        onRemove={() => {
+          setSaved(false);
+          update.mutate({ lastFmApiKey: '' });
+        }}
+      />
+      {messages.length > 0 && (
+        <Alert color="red" icon={<CircleAlert size={16} />} title="The keys could not be saved">
+          {messages.join(' ')}
+        </Alert>
+      )}
+      {saved && (
+        <Alert color="green" role="status">
+          Keys saved.
+        </Alert>
+      )}
+      <Group>
+        <Button loading={update.isPending && changed} disabled={!changed} onClick={save}>
+          Save keys
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
+
+function MetadataServicesCard() {
+  const settings = useMetadataSettings();
+
+  return (
+    <Card withBorder padding="md">
+      <Stack gap="md">
+        <Title order={4}>Metadata services</Title>
+        <Text size="sm" c="dimmed">
+          Both keys are optional. They are stored in <Code>/config/config.yml</Code> and never shown again; a key set by{' '}
+          <Code>APP__ACOUSTID__CLIENT_KEY</Code> or <Code>APP__LASTFM__API_KEY</Code> is read-only here.
+        </Text>
+        {settings.isPending ? (
+          <LoadingState label="Loading the metadata keys…" />
+        ) : settings.isError ? (
+          <ErrorState title="The metadata keys could not be loaded" message={settings.error.message} />
+        ) : (
+          <MetadataKeys settings={settings.data} />
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
 function InstanceCard() {
   const config = useAppConfig();
   const status = useSystemStatus();
@@ -205,7 +408,7 @@ function InstanceCard() {
   );
 }
 
-/** Settings → General: the API key, the login account, and how this instance is reached. */
+/** Settings → General: the API key, the login account, the optional metadata keys, and how this instance is reached. */
 export function GeneralSettingsPage() {
   return (
     <Stack gap="md">
@@ -216,6 +419,7 @@ export function GeneralSettingsPage() {
           <LoginBlock />
         </Stack>
       </Card>
+      <MetadataServicesCard />
       <InstanceCard />
     </Stack>
   );

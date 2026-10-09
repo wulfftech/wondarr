@@ -390,6 +390,32 @@ public sealed class ConfigFileWriterTests
         nested["retries"].ToString().Should().Be("2");
     }
 
+    [Fact]
+    public async Task Several_sections_are_written_in_one_pass_and_reloaded_once()
+    {
+        using var directory = new TemporaryConfigDirectory();
+        directory.WriteConfig("soulseek:\n  username: \"me\"\n");
+
+        var writer = Writer(directory, out var configuration);
+        var reloads = 0;
+        using var registration = configuration.GetReloadToken().RegisterChangeCallback(_ => reloads++, null);
+
+        await writer.UpdateSectionsAsync(
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>
+            {
+                ["acoustid"] = new Dictionary<string, object?> { ["client_key"] = "acoustid-key-123" },
+                ["lastfm"] = new Dictionary<string, object?> { ["api_key"] = "lastfm-key-123" },
+            },
+            CancellationToken.None);
+
+        var root = Parse(directory.ReadConfig());
+
+        Section(root, "acoustid")["client_key"].ToString().Should().Be("acoustid-key-123");
+        Section(root, "lastfm")["api_key"].ToString().Should().Be("lastfm-key-123");
+        Section(root, "soulseek")["username"].ToString().Should().Be("me");
+        reloads.Should().Be(1);
+    }
+
     private static ConfigFileWriter Writer(TemporaryConfigDirectory directory, out IConfiguration configuration)
     {
         var builder = new ConfigurationBuilder();

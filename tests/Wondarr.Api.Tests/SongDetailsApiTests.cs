@@ -519,6 +519,172 @@ public sealed class SongDetailsApiTests
         Album = new DeezerAlbumRef { Id = 1, Title = "Random Access Memories", CoverXl = "https://cdn.example/ram-xl.jpg" },
     };
 
+    [Fact]
+    public async Task Details_carry_what_last_fm_knows_when_a_key_is_set()
+    {
+        var last = new MetadataSettingsApiTests.StubHandler(uri =>
+        {
+            var query = uri.Query;
+
+            return Json(query.Contains("method=track.getInfo", StringComparison.Ordinal) ? LastFmTrackAnswer
+                : query.Contains("method=artist.getInfo", StringComparison.Ordinal) ? LastFmArtistAnswer
+                : LastFmSimilarAnswer);
+        });
+
+        using var factory = SongApiTests.FakeProviders(configure: services =>
+            services.AddHttpClient("lastfm").ConfigurePrimaryHttpMessageHandler(() => last));
+        using var client = SongApiTests.Authenticated(factory);
+        var songId = await SeedSongAsync(factory, deezerId: null);
+
+        // Another library song that Last.fm lists by recording id, one it lists by name only.
+        var byMbid = await SeedLibrarySongAsync(factory, songId, "Good Times (Remastered)", "Nile Rodgers", SimilarMbid);
+        var byName = await SeedLibrarySongAsync(factory, songId, "Lose Yourself To Dance", "Daft Punk", null);
+
+        using var put = await client.PutAsync(
+            new Uri("/api/v1/metadata/settings", UriKind.Relative),
+            SongApiTests.Json("""{"lastFmApiKey":"details-key-0123456789"}"""));
+
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var response = await client.GetAsync(new Uri($"/api/v1/song/{songId}/details", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain("details-key-0123456789");
+
+        var lastFm = JsonSerializer.Deserialize<JsonElement>(raw).GetProperty("lastFm");
+        lastFm.GetProperty("url").GetString().Should().Be("https://www.last.fm/music/Daft+Punk/_/Get+Lucky");
+        lastFm.GetProperty("listeners").GetInt64().Should().Be(1_234_567);
+        lastFm.GetProperty("playcount").GetInt64().Should().Be(9_876_543);
+        lastFm.GetProperty("tags").EnumerateArray().Select(tag => tag.GetString())
+            .Should().Equal("electronic", "disco", "funk", "dance", "pop");
+
+        // The markup and the trailing "Read more" link are gone.
+        lastFm.GetProperty("wiki").GetString().Should().Be("Get Lucky is a song by Daft Punk & Pharrell.");
+
+        var artist = lastFm.GetProperty("artist");
+        artist.GetProperty("name").GetString().Should().Be("Daft Punk");
+        artist.GetProperty("url").GetString().Should().Be("https://www.last.fm/music/Daft+Punk");
+        artist.GetProperty("listeners").GetInt64().Should().Be(3_000_000);
+        artist.GetProperty("bioSummary").GetString().Should().Be("Daft Punk are a French duo.");
+
+        var similar = lastFm.GetProperty("similar");
+        similar.GetArrayLength().Should().Be(3);
+        similar[0].GetProperty("artist").GetString().Should().Be("Chic");
+        similar[0].GetProperty("title").GetString().Should().Be("Good Times");
+        similar[0].GetProperty("url").GetString().Should().Be("https://www.last.fm/music/Chic/_/Good+Times");
+        similar[0].GetProperty("match").GetDouble().Should().BeApproximately(0.85, 0.0001);
+        similar[0].GetProperty("songId").GetInt64().Should().Be(byMbid, "matched by recording id although the names differ");
+        similar[1].GetProperty("songId").GetInt64().Should().Be(byName, "matched by normalised artist and title");
+        similar[2].GetProperty("songId").ValueKind.Should().Be(JsonValueKind.Null);
+
+        // A second view is answered from the client's memory: no further Last.fm call.
+        var asked = last.Requests.Count;
+        asked.Should().Be(3);
+
+        using var again = await client.GetAsync(new Uri($"/api/v1/song/{songId}/details", UriKind.Relative));
+        again.StatusCode.Should().Be(HttpStatusCode.OK);
+        last.Requests.Should().HaveCount(asked);
+    }
+
+    [Fact]
+    public async Task Details_without_a_last_fm_key_leave_it_null_and_make_no_call()
+    {
+        var last = new MetadataSettingsApiTests.StubHandler(_ => Json(LastFmTrackAnswer));
+
+        using var factory = SongApiTests.FakeProviders(configure: services =>
+            services.AddHttpClient("lastfm").ConfigurePrimaryHttpMessageHandler(() => last));
+        using var client = SongApiTests.Authenticated(factory);
+        var songId = await SeedSongAsync(factory, deezerId: null);
+
+        using var response = await client.GetAsync(new Uri($"/api/v1/song/{songId}/details", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SongApiTests.ReadJsonAsync(response)).GetProperty("lastFm").ValueKind.Should().Be(JsonValueKind.Null);
+        last.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_failing_last_fm_leaves_its_section_null_and_the_endpoint_answers_200()
+    {
+        var last = new MetadataSettingsApiTests.StubHandler(_ => Json("""{"error":10,"message":"Invalid API key"}"""));
+
+        using var factory = SongApiTests.FakeProviders(configure: services =>
+            services.AddHttpClient("lastfm").ConfigurePrimaryHttpMessageHandler(() => last));
+        using var client = SongApiTests.Authenticated(factory);
+        var songId = await SeedSongAsync(factory, deezerId: null);
+
+        using var put = await client.PutAsync(
+            new Uri("/api/v1/metadata/settings", UriKind.Relative),
+            SongApiTests.Json("""{"lastFmApiKey":"details-key-0123456789"}"""));
+
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var response = await client.GetAsync(new Uri($"/api/v1/song/{songId}/details", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var details = await SongApiTests.ReadJsonAsync(response);
+        details.GetProperty("lastFm").ValueKind.Should().Be(JsonValueKind.Null);
+        details.GetProperty("lyrics").GetProperty("source").GetString().Should().Be("none");
+    }
+
+    private const string SimilarMbid = "11111111-2222-3333-4444-555555555555";
+
+    private const string LastFmTrackAnswer = """
+        {"track":{"name":"Get Lucky","url":"https://www.last.fm/music/Daft+Punk/_/Get+Lucky","listeners":"1234567","playcount":"9876543",
+        "artist":{"name":"Daft Punk"},
+        "toptags":{"tag":[{"name":"electronic"},{"name":"disco"},{"name":"funk"},{"name":"dance"},{"name":"pop"},{"name":"french"}]},
+        "wiki":{"summary":"Get Lucky is a song by <a href=\"https://www.last.fm/music/Daft+Punk\">Daft Punk</a> &amp; Pharrell. <a href=\"https://www.last.fm/music/Daft+Punk/_/Get+Lucky\">Read more on Last.fm</a>"}}}
+        """;
+
+    private const string LastFmArtistAnswer = """
+        {"artist":{"name":"Daft Punk","url":"https://www.last.fm/music/Daft+Punk","stats":{"listeners":"3000000"},
+        "bio":{"summary":"Daft Punk are a <b>French</b> duo. <a href=\"https://www.last.fm/music/Daft+Punk\">Read more on Last.fm</a>"}}}
+        """;
+
+    private const string LastFmSimilarAnswer = """
+        {"similartracks":{"track":[
+        {"name":"Good Times","mbid":"11111111-2222-3333-4444-555555555555","match":0.85,"url":"https://www.last.fm/music/Chic/_/Good+Times","artist":{"name":"Chic"}},
+        {"name":"Lose Yourself to Dance","mbid":"","match":0.7,"url":"https://www.last.fm/music/Daft+Punk/_/Lose+Yourself+to+Dance","artist":{"name":"Daft Punk"}},
+        {"name":"Never Heard Of It","mbid":"","match":0.2,"url":"https://www.last.fm/music/Nobody/_/Never","artist":{"name":"Nobody"}}
+        ]}}
+        """;
+
+    private static HttpResponseMessage Json(string body) =>
+        new(HttpStatusCode.OK) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+
+    /// <summary>Adds another song to the library under the same artist row as <paramref name="likeSongId"/>.</summary>
+    private static async Task<long> SeedLibrarySongAsync(
+        WondarrAppFactory factory,
+        long likeSongId,
+        string title,
+        string artistCredit,
+        string? mbRecordingId)
+    {
+        using var scope = factory.Services.CreateScope();
+        await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+        var original = await context.Songs.FindAsync(likeSongId);
+
+        var song = new Song
+        {
+            Title = title,
+            ArtistCredit = artistCredit,
+            PrimaryArtistId = original!.PrimaryArtistId,
+            MbRecordingId = mbRecordingId,
+            Monitored = true,
+            QualityProfileId = SeedData.StandardProfileId,
+            LibraryId = SeedData.DefaultLibraryId,
+            AddedBy = "api",
+        };
+
+        context.Songs.Add(song);
+        await context.SaveChangesAsync();
+
+        return song.Id;
+    }
+
     private static async Task<long> SeedSongAsync(WondarrAppFactory factory, long? deezerId, string? albumKey = null)
     {
         var id = await SongApiTests.SeedSongAsync(factory, "Get Lucky", RecordingId, monitored: true, albumKey);

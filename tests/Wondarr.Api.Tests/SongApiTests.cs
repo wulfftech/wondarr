@@ -296,7 +296,8 @@ public sealed class SongApiTests
         IIdentityResolver? resolver = null,
         IDeezerClient? deezer = null,
         IMusicBrainzClient? musicBrainz = null,
-        ICoverArtResolver? coverArt = null)
+        ICoverArtResolver? coverArt = null,
+        Action<IServiceCollection>? configure = null)
     {
         var mb = musicBrainz ?? Substitute.For<IMusicBrainzClient>();
         mb.GetReleaseAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -318,6 +319,8 @@ public sealed class SongApiTests
             services.AddSingleton(deezer ?? Substitute.For<IDeezerClient>());
             services.AddSingleton(mb);
             services.AddSingleton(covers);
+
+            configure?.Invoke(services);
         });
     }
 
