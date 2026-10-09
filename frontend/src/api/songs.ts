@@ -23,6 +23,8 @@ export type SongAddResource = components['schemas']['SongAddResource'];
 export type SongUpdateResource = components['schemas']['SongUpdateResource'];
 export type SongLookupResource = components['schemas']['SongLookupResource'];
 export type AlbumOptionResource = components['schemas']['AlbumOptionResource'];
+export type SongDetailsResource = components['schemas']['SongDetailsResource'];
+export type SongLyricsResource = components['schemas']['SongLyricsResource'];
 export type ArtistResource = components['schemas']['ArtistResource'];
 export type ImportListResource = components['schemas']['ImportListResource'];
 export type ImportListItemResource = components['schemas']['ImportListItemResource'];
@@ -308,6 +310,75 @@ export function useAlbumOptions(songId: number | null): UseQueryResult<AlbumOpti
 
       if (!response.ok || data === undefined) {
         throw new ApiError(response.status, 'The album options request failed.');
+      }
+
+      return data;
+    },
+  });
+}
+
+/** One song, with its full file. Disabled until there is an id. */
+export function useSong(id: number | null): UseQueryResult<SongResource, Error> {
+  const client = useApiClient();
+
+  return useQuery({
+    queryKey: [...SONGS_QUERY_KEY, 'one', id],
+    enabled: id !== null,
+    queryFn: async (): Promise<SongResource> => {
+      const { data, response } = await client.GET('/api/v1/song/{id}', {
+        params: { path: { id: id ?? 0 } },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The song request failed.');
+      }
+
+      return data;
+    },
+  });
+}
+
+/**
+ * What a song's own page shows besides the song: release options, MusicBrainz and Deezer data, the
+ * reference-library row and lyrics availability. An external section is `null` when its source failed.
+ */
+export function useSongDetails(id: number | null): UseQueryResult<SongDetailsResource, Error> {
+  const client = useApiClient();
+
+  return useQuery({
+    queryKey: [...SONGS_QUERY_KEY, 'details', id],
+    enabled: id !== null,
+    queryFn: async (): Promise<SongDetailsResource> => {
+      const { data, response } = await client.GET('/api/v1/song/{id}/details', {
+        params: { path: { id: id ?? 0 } },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The song details request failed.');
+      }
+
+      return data;
+    },
+  });
+}
+
+/**
+ * A song's lyrics: the sidecar next to the file, else one LRCLIB lookup. Pass `enabled` false until
+ * the lyrics are actually wanted (a lookup can reach the network).
+ */
+export function useSongLyrics(id: number | null, enabled: boolean): UseQueryResult<SongLyricsResource, Error> {
+  const client = useApiClient();
+
+  return useQuery({
+    queryKey: [...SONGS_QUERY_KEY, 'lyrics', id],
+    enabled: enabled && id !== null,
+    queryFn: async (): Promise<SongLyricsResource> => {
+      const { data, response } = await client.GET('/api/v1/song/{id}/lyrics', {
+        params: { path: { id: id ?? 0 } },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The lyrics request failed.');
       }
 
       return data;

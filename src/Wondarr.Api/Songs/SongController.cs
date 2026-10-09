@@ -3,6 +3,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
+using Wondarr.Core.Sources;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Wondarr.Api.Songs;
@@ -38,20 +39,33 @@ public sealed class SongController : ControllerBase
     private readonly ISongService _songs;
     private readonly IIdentityResolver _resolver;
     private readonly WondarrDbContext _database;
+    private readonly ISongDetailsService _details;
+    private readonly ISongLyricsService _lyrics;
 
     /// <summary>Initialises a new instance of the <see cref="SongController"/> class.</summary>
     /// <param name="songs">The song service.</param>
     /// <param name="resolver">The identity resolver, for the lookup.</param>
     /// <param name="database">The database, for the lookup's already-in-the-library read.</param>
-    public SongController(ISongService songs, IIdentityResolver resolver, WondarrDbContext database)
+    /// <param name="details">The song page's data.</param>
+    /// <param name="lyrics">The song's lyrics.</param>
+    public SongController(
+        ISongService songs,
+        IIdentityResolver resolver,
+        WondarrDbContext database,
+        ISongDetailsService details,
+        ISongLyricsService lyrics)
     {
         ArgumentNullException.ThrowIfNull(songs);
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(details);
+        ArgumentNullException.ThrowIfNull(lyrics);
 
         _songs = songs;
         _resolver = resolver;
         _database = database;
+        _details = details;
+        _lyrics = lyrics;
     }
 
     /// <summary>Lists songs, filtered and paged. Every filter is optional and they combine with AND.</summary>
@@ -106,7 +120,53 @@ public sealed class SongController : ControllerBase
     {
         var song = await _songs.GetAsync(id, cancellationToken).ConfigureAwait(false);
 
-        return song is null ? NotFound() : Ok(song.ToResource());
+        if (song is null)
+        {
+            return NotFound();
+        }
+
+        // One extra read for a song owned through a reference library: the file's source then names
+        // the library and the relative path, which a list would not pay a query per row for.
+        SongReferenceFileDetails? reference = null;
+
+        if (song.File is { SourceType: SourceTypes.Reference } file
+            && SongFileSource.Parse(file.SourceType, file.SourceRef).ReferenceFileId is { } referenceFileId)
+        {
+            reference = await _details.GetReferenceFileAsync(referenceFileId, cancellationToken).ConfigureAwait(false);
+        }
+
+        return Ok(song.ToResource(reference));
+    }
+
+    /// <summary>
+    /// Everything the song's own page shows that the song does not carry: release options, the
+    /// MusicBrainz recording, Deezer's numbers, the reference-library row and lyrics availability.
+    /// A source that fails or takes longer than five seconds leaves its section <see langword="null"/>.
+    /// </summary>
+    /// <param name="id">The song id.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    [HttpGet("{id:long}/details")]
+    [Produces("application/json")]
+    public async Task<ActionResult<SongDetailsResource>> GetSongDetails(long id, CancellationToken cancellationToken)
+    {
+        var details = await _details.GetAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return details is null ? NotFound() : Ok(details.ToResource());
+    }
+
+    /// <summary>
+    /// The song's lyrics: the <c>.lrc</c>/<c>.txt</c> sidecar next to its file, otherwise one LRCLIB
+    /// lookup (remembered for a day). Never writes a sidecar.
+    /// </summary>
+    /// <param name="id">The song id.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    [HttpGet("{id:long}/lyrics")]
+    [Produces("application/json")]
+    public async Task<ActionResult<SongLyricsResource>> GetSongLyrics(long id, CancellationToken cancellationToken)
+    {
+        var lyrics = await _lyrics.GetAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return lyrics is null ? NotFound() : Ok(lyrics.ToResource());
     }
 
     /// <summary>Adds one song, by MusicBrainz recording MBID or by Deezer track id.</summary>
