@@ -84,10 +84,10 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
             return Rejected(null, $"No download client for protocol '{release.Protocol}'");
         }
 
-        var songs = await MatchAsync(release.Title, cancellationToken).ConfigureAwait(false);
+        var (songs, byArtist) = await MatchAsync(release.Title, cancellationToken).ConfigureAwait(false);
         var first = songs.Count > 0 ? songs[0].Song : null;
 
-        if (songs.Count == 0)
+        if (songs.Count == 0 && byArtist.Count == 0)
         {
             return Rejected(null, $"No wanted song matches '{release.Title}'");
         }
@@ -108,6 +108,31 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
         catch (Exception exception) when (exception is IndexerException or HttpRequestException or TorrentMetainfoException or XmlException or InvalidDataException)
         {
             return Rejected(first, string.Concat("The release could not be read: ", exception.Message));
+        }
+
+        if (songs.Count == 0)
+        {
+            // No wanted song is filed under this album (a single usually sits in the artist's Singles):
+            // the artist's wanted songs that are really in the release go, the file list decides. Only
+            // with a file list — a magnet or an obfuscated post would otherwise grab for every song.
+            if (listing.Files is null)
+            {
+                return Rejected(null, $"No wanted song matches '{release.Title}' (its file list is not known before the grab)");
+            }
+
+            songs = [.. byArtist.Where(match => ContainerCandidates.Build(
+                    known,
+                    listing,
+                    new ContainerMatchRequest(match.Song.Title, VersionFlagNames.FromNames(match.Song.VersionFlags), null, match.Song.DurationMs, 1),
+                    release.Title,
+                    _time.GetUtcNow()) is not null)];
+
+            if (songs.Count == 0)
+            {
+                return Rejected(null, $"No wanted song by this artist is in '{release.Title}'");
+            }
+
+            first = songs[0].Song;
         }
 
         var rejections = new List<string>();
@@ -164,9 +189,13 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     /// <summary>
     /// The wanted songs (missing, or below cutoff) the release is for: by its parsed artist and album
     /// (the song's album context, or the song itself for a single), else by <c>Artist - Title</c>.
-    /// The song's track number is kept when the album is its album context.
+    /// The song's track number is kept when the album is its album context. When none matches by
+    /// album, the parsed artist's other wanted songs come back too, for the file list to decide
+    /// (DECISIONS build session 10 #7).
     /// </summary>
-    private async Task<List<(Song Song, int? TrackNo)>> MatchAsync(string title, CancellationToken cancellationToken)
+    private async Task<(List<(Song Song, int? TrackNo)> Matches, List<(Song Song, int? TrackNo)> ByArtist)> MatchAsync(
+        string title,
+        CancellationToken cancellationToken)
     {
         var paging = new PagingSpec(1, PagingSpec.MaxPageSize, null, descending: false);
         var missing = await _wanted.GetMissingAsync(paging, cancellationToken).ConfigureAwait(false);
@@ -174,6 +203,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
         var wanted = missing.Records.Concat(cutoff.Records).DistinctBy(song => song.Id).ToList();
 
         var matches = new List<(Song, int?)>();
+        var byArtist = new List<(Song, int?)>();
 
         if (ReleaseTitleParser.Parse(title) is { } parsed)
         {
@@ -190,6 +220,10 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
                 {
                     matches.Add((song, null));
                 }
+                else
+                {
+                    byArtist.Add((song, null));
+                }
             }
         }
 
@@ -200,7 +234,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
                 .Select(song => (song, (int?)null)));
         }
 
-        return matches;
+        return (matches, matches.Count == 0 ? byArtist : []);
     }
 
     /// <summary>The release's file list, read through the push pseudo-indexer (a magnet or an obfuscated post has none yet).</summary>
