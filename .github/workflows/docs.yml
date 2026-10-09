@@ -1,0 +1,55 @@
+name: Docs site
+
+# Builds the Starlight site in website/ on every change to it (the links validator fails a broken
+# link); on main it is deployed to GitHub Pages (https://wulfftech.github.io/wondarr/) once Pages is
+# set to "GitHub Actions" in the repository's settings and the repository variable PAGES_ENABLED is
+# "true" — until then the build still runs and nothing is published.
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", ".github/workflows/docs.yml"]
+  pull_request:
+    paths: ["website/**", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      # The links validator fails the build on a broken internal link.
+      - run: npm run build
+      - if: github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: website/dist
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
