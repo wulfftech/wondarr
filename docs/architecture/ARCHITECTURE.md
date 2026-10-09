@@ -121,6 +121,7 @@ Notifier
 | `blocklist` | `song_id?`, `source_type`, `blocklist_key`, `reason`, `expires_at?` |
 | `metadata_cache` | `provider`, `key`, `payload` (json), `fetched_at`, `ttl` |
 | `notification` | `type`, `name`, `settings` (json), `events` (json) |
+| `custom_filter` | `type` (e.g. `library`), `label` (unique per type), `filters` (json array of `{key, value, type}`) — a saved view of a list page |
 | `job` | `name`, `interval`, `last_run_at`, `next_run_at`, `last_result` |
 | `reference_library` | `name` (unique, case-insensitive), `root_path`, `mode` (reference/adopt), `library_id?` (the managed library songs are filed under; the target when adopting), `enabled`, `last_scanned_at?`, `last_scan_message?` |
 | `reference_file` | `reference_library_id`, `relative_path` (`/`-separated, unique per library), `size`, `modified_at` (UTC), `probe?` (json), `tags?` (json), `fingerprint?`, `acoust_id?`, `song_id?`, `confidence`, `state` (pending/identified/ambiguous/unmatched/adopted/unreadable/missing/skipped), `identified_by?`, `message?`, `last_seen_at`, `missing_since?` |
@@ -161,6 +162,10 @@ POST   /api/v1/system/backup/restore/{id} | /restore/upload   (stage the restore
 GET    /api/v1/song?artistId=&monitored=&page=…        POST /api/v1/song      PUT/DELETE /api/v1/song/{id}
 POST   /api/v1/song/lookup?term=… | ?mbid= | ?isrc= | ?spotifyId= | ?deezerId= | ?url=   (resolve without adding)
 GET    /api/v1/song/{id}/albumcontexts                   PUT /api/v1/song/{id}/albumcontext
+GET    /api/v1/song also filters on term= (title or credit, `%`/`_` literal), hasFile=, libraryId=, qualityProfileId=, qualityId=, tag=, cutoffMet= (a song without a file is in neither answer); sortKey adds quality | monitored | library; a song carries `tags`
+PUT/DELETE /api/v1/song/editor  {songIds (1..1000), monitored?, qualityProfileId?, libraryId? (queues MoveSongs for songs not already there), tags?, applyTags? add|remove|replace} -> {songs, moveCommandIds}; DELETE {songIds} -> {deleted}; an unknown id is a 404 and changes nothing
+GET    /api/v1/tag  ([{label, songCount}], tags are lower-case labels on `song.tags`, no tag table)
+GET/POST/PUT/DELETE /api/v1/customfilter  (?type=; saved views; a duplicate label for the type is a 409)
 GET    /api/v1/referencelibrary | POST … | POST /api/v1/referencelibrary/{id}/scan
 GET    /api/v1/matchqueue  | POST /api/v1/matchqueue/{id}/resolve {identity}
 GET/PUT /api/v1/soulseek/settings   (writes through to slskd)   GET /api/v1/soulseek/status
