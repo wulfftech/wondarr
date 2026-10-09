@@ -36,8 +36,31 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Library',
+          items: [
+            { slug: 'library/adding-songs' },
+            { slug: 'library/import-lists' },
+            { slug: 'library/reference-libraries' },
+            { slug: 'library/layouts-and-albums' },
+            { slug: 'library/quality-and-upgrades' },
+            { slug: 'library/conversion' },
+          ],
+        },
+        {
+          label: 'Operations',
+          items: [{ slug: 'operations/tasks-backups-logs' }, { slug: 'operations/notifications' }],
+        },
+        {
           label: 'Guides',
           items: [{ slug: 'guides/end-to-end' }],
+        },
+        {
+          label: 'Reference',
+          items: [
+            { slug: 'reference/api-and-integrations' },
+            { slug: 'reference/configuration' },
+            { slug: 'reference/troubleshooting' },
+          ],
         },
       ],
     }),

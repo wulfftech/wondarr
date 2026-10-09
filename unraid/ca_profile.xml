@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>Wondarr is a self-hosted *arr for single songs. It looks for each recording you want on Soulseek, YouTube Music, torrents and usenet, checks that the file is the right recording, tags it and files it into a Plex-friendly library. Source, documentation and support are on GitHub.</Profile>
+  <Icon>https://raw.githubusercontent.com/wulfftech/wondarr/main/frontend/public/icon-512.png</Icon>
+  <WebPage>https://github.com/wulfftech/wondarr</WebPage>
+</CommunityApplications>
