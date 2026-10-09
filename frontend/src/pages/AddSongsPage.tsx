@@ -234,6 +234,12 @@ function SearchTab() {
   };
 
   const rows = lookup.data ?? [];
+  const variables = add.variables;
+  // The row the add in flight (or the last one) was sent for, by the same key the rows are keyed with.
+  const pressed =
+    variables === undefined
+      ? null
+      : (variables.mbRecordingId ?? (variables.deezerId == null ? null : `deezer:${String(variables.deezerId)}`));
 
   return (
     <Stack gap="md">
@@ -256,12 +262,6 @@ function SearchTab() {
       {lookup.error !== null && (
         <Alert color="red" icon={<CircleAlert size={16} />} title="That search could not be run">
           {lookup.error.message}
-        </Alert>
-      )}
-
-      {add.error !== null && (
-        <Alert color="red" icon={<CircleAlert size={16} />}>
-          {add.error.message}
         </Alert>
       )}
 
@@ -294,16 +294,25 @@ function SearchTab() {
           );
         }
 
+        // Every row shares one mutation, so a row only reacts when the add it sent is the one in flight.
+        const mine = pressed === key;
+
         return (
-          <CandidateRow
-            key={key}
-            candidate={candidate}
-            action={
-              <Button size="compact-sm" onClick={() => onAdd(candidate)} loading={add.isPending}>
-                Add
-              </Button>
-            }
-          />
+          <Stack key={key} gap="xs">
+            {mine && add.error !== null && (
+              <Alert color="red" icon={<CircleAlert size={16} />}>
+                {add.error.message}
+              </Alert>
+            )}
+            <CandidateRow
+              candidate={candidate}
+              action={
+                <Button size="compact-sm" onClick={() => onAdd(candidate)} loading={mine && add.isPending}>
+                  Add
+                </Button>
+              }
+            />
+          </Stack>
         );
       })}
     </Stack>
