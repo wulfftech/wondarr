@@ -4498,7 +4498,11 @@
           "date",
           "trackNo",
           "totalTracks",
-          "isCurrent"
+          "isCurrent",
+          "coverUrl",
+          "isVariousArtists",
+          "originalDate",
+          "discNo"
         ],
         "type": "object",
         "properties": {
@@ -4567,6 +4571,30 @@
           },
           "isCurrent": {
             "type": "boolean"
+          },
+          "coverUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isVariousArtists": {
+            "type": "boolean"
+          },
+          "originalDate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "discNo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

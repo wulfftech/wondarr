@@ -194,16 +194,11 @@ public static class SongDetailsResourceExtensions
     }
 
     /// <summary>
-    /// The cover thumbnail URL of a release option, built from ids with no network call: the Cover
-    /// Art Archive's 250 px front image of the release, or of its release group when only that is
-    /// known; <see langword="null"/> when the option has neither id.
+    /// The cover thumbnail URL of a release option, built with no network call: the Cover Art Archive's
+    /// 250 px front image of the release, or of its release group when only that is known, else the cover
+    /// a Deezer option carries; <see langword="null"/> when there is none. The Change album dialog
+    /// (<c>AlbumOptionResource</c>) and the song page's release list both use this one rule.
     /// </summary>
-    /// <remarks>
-    /// Note for M-04: the Change album dialog needs this same rule on <c>AlbumOptionResource</c> (plus the
-    /// Deezer cover once <c>ReleaseOption</c> carries one). When M-04 lands, both must call one shared
-    /// mapper; this method is the intended home — move it next to <c>ReleaseOption</c> rather than
-    /// copying it.
-    /// </remarks>
     /// <param name="option">The option to build a URL for.</param>
     public static string? CoverUrlFor(ReleaseOption option)
     {
@@ -214,8 +209,11 @@ public static class SongDetailsResourceExtensions
             return $"{CoverArtArchive}release/{Uri.EscapeDataString(option.MbReleaseId)}/front-250";
         }
 
-        return !string.IsNullOrWhiteSpace(option.MbReleaseGroupId)
-            ? $"{CoverArtArchive}release-group/{Uri.EscapeDataString(option.MbReleaseGroupId)}/front-250"
-            : null;
+        if (!string.IsNullOrWhiteSpace(option.MbReleaseGroupId))
+        {
+            return $"{CoverArtArchive}release-group/{Uri.EscapeDataString(option.MbReleaseGroupId)}/front-250";
+        }
+
+        return string.IsNullOrWhiteSpace(option.CoverUrl) ? null : option.CoverUrl;
     }
 }
