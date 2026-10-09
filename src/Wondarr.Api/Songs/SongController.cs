@@ -54,19 +54,45 @@ public sealed class SongController : ControllerBase
         _database = database;
     }
 
-    /// <summary>Lists songs, filtered and paged.</summary>
+    /// <summary>Lists songs, filtered and paged. Every filter is optional and they combine with AND.</summary>
     /// <param name="artistId">Only songs an artist is credited on, in any role.</param>
     /// <param name="monitored">Only songs with this monitored flag.</param>
+    /// <param name="term">A case-insensitive substring of the title or the artist credit.</param>
+    /// <param name="hasFile">Only songs that do (or do not) hold a file.</param>
+    /// <param name="libraryId">Only songs filed in this library.</param>
+    /// <param name="qualityProfileId">Only songs on this quality profile.</param>
+    /// <param name="qualityId">Only songs whose file has this quality.</param>
+    /// <param name="tag">Only songs carrying this tag.</param>
+    /// <param name="cutoffMet">Only songs whose file meets (or misses) the profile's cutoff; songs without a file match neither.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     [HttpGet]
     [Produces("application/json")]
     public async Task<ActionResult<PagingResource<SongResource>>> GetSongs(
         long? artistId,
         bool? monitored,
+        string? term,
+        bool? hasFile,
+        long? libraryId,
+        long? qualityProfileId,
+        long? qualityId,
+        string? tag,
+        bool? cutoffMet,
         CancellationToken cancellationToken)
     {
         var paging = Request.ToPagingSpec();
-        var page = await _songs.GetPageAsync(paging, artistId, monitored, cancellationToken).ConfigureAwait(false);
+        var filter = new SongListFilter
+        {
+            ArtistId = artistId,
+            Monitored = monitored,
+            Term = term,
+            HasFile = hasFile,
+            LibraryId = libraryId,
+            QualityProfileId = qualityProfileId,
+            QualityId = qualityId,
+            Tag = tag,
+            CutoffMet = cutoffMet,
+        };
+        var page = await _songs.GetPageAsync(paging, filter, cancellationToken).ConfigureAwait(false);
 
         return Ok(page.ToPagingResource(paging, DefaultSortKey, song => song.ToResource()));
     }
