@@ -46,7 +46,9 @@ services:
       - "8080:8080"
 ```
 
-Set qBittorrent's default save path to a folder under `/data`, for example `/data/downloads/torrents`. With both containers seeing `/data` at the same path, no remote path mapping is needed.
+Set qBittorrent's default save path to a folder under `/data`, for example `/data/downloads/torrents` (in qBittorrent: **Tools → Options → Downloads → Default Save Path**; the linuxserver image starts with `/downloads`). With both containers seeing `/data` at the same path, no remote path mapping is needed.
+
+On its first start, qBittorrent 5 has no Web UI password: it prints a temporary one to its log (`docker compose logs qbittorrent`). Sign in at `http://192.168.1.10:8080` as `admin` with it, and set your own under **Tools → Options → Web UI**: Wondarr needs that username and password.
 
 ## Settings → Download clients
 
