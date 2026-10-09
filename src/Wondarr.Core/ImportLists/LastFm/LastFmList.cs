@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Wondarr.Core.Metadata.LastFm;
+using Microsoft.Extensions.Options;
 
 namespace Wondarr.Core.ImportLists.LastFm;
 
@@ -82,6 +84,14 @@ internal static class LastFmSettings
         && text.Trim().Length > 0
             ? text.Trim()
             : null;
+
+    /// <summary>
+    /// The key a list reads with: its own, else Wondarr's <c>lastfm.api_key</c>, else
+    /// <see langword="null"/> (the list then reports that it needs one).
+    /// </summary>
+    public static string? ApiKey(JsonElement settings, IOptionsMonitor<LastFmOptions>? global) =>
+        Setting(settings, "apiKey")
+        ?? (string.IsNullOrWhiteSpace(global?.CurrentValue.ApiKey) ? null : global!.CurrentValue.ApiKey!.Trim());
 
     /// <summary>The value of a number settings property, as a JSON number or a string of digits.</summary>
     public static int? Number(JsonElement settings, string name)

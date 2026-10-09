@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text.Json;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Metadata.LastFm;
 using Wondarr.Core.Notifications;
+using Microsoft.Extensions.Options;
 
 namespace Wondarr.Core.ImportLists.LastFm;
 
@@ -39,8 +41,8 @@ public sealed class LastFmTopProvider : IImportListProvider
             "apiKey",
             "API key",
             "password",
-            true,
-            "Your own Last.fm API key, from last.fm/api/account/create",
+            false,
+            "Your own Last.fm API key, from last.fm/api/account/create. Leave it empty to use the Last.fm API key from Settings > General.",
             Secret: true),
         new("period", "Period", "select", true, "Which stretch of listening the top tracks cover.", LastFmSettings.Periods),
         new("count", "How many top tracks", "number", true, "Between 1 and 500."),
@@ -48,22 +50,28 @@ public sealed class LastFmTopProvider : IImportListProvider
 
     private readonly IHttpClientFactory _factory;
     private readonly Func<TimeSpan, CancellationToken, Task> _wait;
+    private readonly IOptionsMonitor<LastFmOptions>? _global;
 
     /// <summary>Initialises a new instance of the <see cref="LastFmTopProvider"/> class.</summary>
     /// <param name="factory">Builds the named <c>lastfm</c> client.</param>
     /// <param name="time">Spaces the pages out.</param>
-    public LastFmTopProvider(IHttpClientFactory factory, TimeProvider time)
-        : this(factory, Delay(time))
+    /// <param name="global">Wondarr's own Last.fm key, which a list with no key of its own reads with.</param>
+    public LastFmTopProvider(IHttpClientFactory factory, TimeProvider time, IOptionsMonitor<LastFmOptions>? global = null)
+        : this(factory, Delay(time), global)
     {
     }
 
-    internal LastFmTopProvider(IHttpClientFactory factory, Func<TimeSpan, CancellationToken, Task> wait)
+    internal LastFmTopProvider(
+        IHttpClientFactory factory,
+        Func<TimeSpan, CancellationToken, Task> wait,
+        IOptionsMonitor<LastFmOptions>? global = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(wait);
 
         _factory = factory;
         _wait = wait;
+        _global = global;
     }
 
     /// <inheritdoc />
@@ -85,7 +93,7 @@ public sealed class LastFmTopProvider : IImportListProvider
             problems.Add("Enter your Last.fm user name.");
         }
 
-        if (LastFmSettings.Setting(settings, "apiKey") is null)
+        if (LastFmSettings.ApiKey(settings, _global) is null)
         {
             problems.Add("Enter your Last.fm API key.");
         }
@@ -120,7 +128,7 @@ public sealed class LastFmTopProvider : IImportListProvider
         using (var settings = JsonDocument.Parse(string.IsNullOrWhiteSpace(list.Settings) ? "{}" : list.Settings))
         {
             user = LastFmSettings.Setting(settings.RootElement, "user");
-            apiKey = LastFmSettings.Setting(settings.RootElement, "apiKey");
+            apiKey = LastFmSettings.ApiKey(settings.RootElement, _global);
             period = LastFmSettings.Setting(settings.RootElement, "period") ?? LastFmSettings.DefaultPeriod;
             count = Math.Clamp(
                 LastFmSettings.Number(settings.RootElement, "count") ?? DefaultCount,

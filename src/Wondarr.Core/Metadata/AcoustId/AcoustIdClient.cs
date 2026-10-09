@@ -72,6 +72,19 @@ public interface IAcoustIdClient
         string fingerprint,
         int durationSeconds,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Makes one lookup with <paramref name="clientKey"/> and a fingerprint that is not one, to see
+    /// whether AcoustID accepts the key: a key it knows answers "invalid fingerprint", one it does not
+    /// answers "invalid key". Nothing is stored and no fingerprint is sent.
+    /// </summary>
+    /// <param name="clientKey">The key to try.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>
+    /// <see cref="AcoustIdStatus.Ok"/> when the key is accepted, otherwise why not (a message safe to
+    /// show — never the key).
+    /// </returns>
+    Task<AcoustIdLookupResult> CheckKeyAsync(string clientKey, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -108,6 +121,9 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
 
     /// <summary>AcoustID's code for "the service is too busy".</summary>
     private const int ServiceBusyCode = 13;
+
+    /// <summary>A string that is not a fingerprint, sent to see whether a client key is accepted.</summary>
+    private const string ProbeFingerprint = "AQAAAAAA";
 
     /// <summary>How long to wait before a retry when the service sends no <c>Retry-After</c>.</summary>
     private static readonly TimeSpan DefaultRetryDelay = TimeSpan.FromSeconds(1);
@@ -153,8 +169,7 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
 
-        var options = _options.CurrentValue;
-        var clientKey = options.ClientKey;
+        var clientKey = _options.CurrentValue.ClientKey;
 
         if (string.IsNullOrWhiteSpace(clientKey))
         {
@@ -162,6 +177,29 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
             return new AcoustIdLookupResult(AcoustIdStatus.NotConfigured, [], null);
         }
 
+        return await LookupWithKeyAsync(clientKey, fingerprint, durationSeconds, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<AcoustIdLookupResult> CheckKeyAsync(string clientKey, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(clientKey);
+
+        var result = await LookupWithKeyAsync(clientKey.Trim(), ProbeFingerprint, 1, cancellationToken)
+            .ConfigureAwait(false);
+
+        // The probe fingerprint is rejected on purpose; being rejected for it means the key got past.
+        return result.Status == AcoustIdStatus.InvalidFingerprint
+            ? new AcoustIdLookupResult(AcoustIdStatus.Ok, [], null)
+            : result;
+    }
+
+    private async Task<AcoustIdLookupResult> LookupWithKeyAsync(
+        string clientKey,
+        string fingerprint,
+        int durationSeconds,
+        CancellationToken cancellationToken)
+    {
         for (var attempt = 1; ; attempt++)
         {
             using var request = BuildRequest(clientKey, fingerprint, durationSeconds);
