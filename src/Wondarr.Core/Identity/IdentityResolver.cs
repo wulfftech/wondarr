@@ -806,6 +806,7 @@ public sealed partial class IdentityResolver : IIdentityResolver
             TrackNo = track.TrackPosition,
             DiscNo = track.DiskNumber,
             TotalTracks = album.NbTracks,
+            CoverUrl = NullIfEmpty(album.CoverMedium) ?? NullIfEmpty(album.CoverXl),
         };
     }
 

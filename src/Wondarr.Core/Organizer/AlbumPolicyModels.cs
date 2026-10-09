@@ -52,6 +52,9 @@ public sealed record ReleaseOption
 
     /// <summary>The release's track count.</summary>
     public int? TotalTracks { get; init; }
+
+    /// <summary>A cover URL the option already holds (a Deezer album's); MusicBrainz options build theirs from ids.</summary>
+    public string? CoverUrl { get; init; }
 }
 
 /// <summary>A song waiting for an album context.</summary>
