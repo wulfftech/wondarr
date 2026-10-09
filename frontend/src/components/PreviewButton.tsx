@@ -27,7 +27,15 @@ function sharedAudio(): HTMLAudioElement {
 }
 
 /** Which way in the request takes: a Deezer id when the candidate has one, else its first ISRC. */
-function previewRequest(deezerId: number | string | null, isrcs: string[]): PreviewRequest | null {
+function previewRequest(
+  deezerId: number | string | null,
+  isrcs: string[],
+  songId: number | undefined,
+): PreviewRequest | null {
+  if (songId !== undefined) {
+    return { songId };
+  }
+
   if (deezerId !== null && deezerId !== '') {
     return { deezerId: Number(deezerId) };
   }
@@ -42,16 +50,18 @@ export interface PreviewButtonProps {
   deezerId: number | string | null;
   /** The candidate's ISRCs, used when there is no Deezer id. */
   isrcs?: string[];
+  /** A song already in the library; the server resolves its preview from the song itself. */
+  songId?: number;
 }
 
-export function PreviewButton({ deezerId, isrcs = [] }: PreviewButtonProps) {
+export function PreviewButton({ deezerId, isrcs = [], songId }: PreviewButtonProps) {
   const fetchPreview = usePreviewUrl();
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  const request = previewRequest(deezerId, isrcs);
+  const request = previewRequest(deezerId, isrcs, songId);
 
   const stop = useCallback(() => {
     sharedAudio().pause();
