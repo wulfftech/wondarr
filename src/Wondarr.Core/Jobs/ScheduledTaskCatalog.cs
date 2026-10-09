@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Backup;
+using Wondarr.Core.Housekeeping;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.References;
 using Wondarr.Core.Searching;
@@ -33,6 +34,9 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often the reference libraries are walked (ARCHITECTURE §5.5: daily).</summary>
     public static readonly TimeSpan ReferenceLibraryScanInterval = TimeSpan.FromHours(24);
 
+    /// <summary>How often housekeeping runs (ARCHITECTURE §5.5: daily).</summary>
+    public static readonly TimeSpan HousekeepingInterval = TimeSpan.FromHours(24);
+
     private readonly IReadOnlyList<ScheduledTaskDefinition> _tasks;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskCatalog"/> class.</summary>
@@ -54,6 +58,7 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
                 UpgradeSearchCommandHandler.CommandName,
                 TimeSpan.FromHours(searchOptions.Value.UpgradeIntervalHours)),
             new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
+            new(HousekeepingCommandHandler.CommandName, HousekeepingInterval),
             new(ImportListSyncCommandHandler.CommandName, ImportListSyncInterval),
             new(
                 BackupCommandHandler.CommandName,
