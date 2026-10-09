@@ -11,7 +11,10 @@ namespace Wondarr.Core.Songs;
 /// <c>reference</c> (the user's own file, never written), <c>adopted</c> (a copy filed into a managed
 /// library), <c>download</c> (a grab Wondarr made) or <c>unknown</c> when nothing could be read.
 /// </param>
-/// <param name="Provider">The download provider (<c>soulseek</c>, <c>youtube</c>, …), when stored.</param>
+/// <param name="Provider">
+/// The source type (<c>soulseek</c>, <c>youtube</c>) or, for a torrent or usenet grab, the user's own
+/// indexer name. Never a Soulseek peer's username.
+/// </param>
 /// <param name="Name">The remote file's name — its last path segment only, never the peer's folder — when stored.</param>
 /// <param name="ReferenceLibraryId">The reference library, for a reference or adopted file.</param>
 /// <param name="ReferenceFileId">The reference-library row, for a reference or adopted file.</param>
@@ -74,8 +77,8 @@ public sealed record SongFileSource(
                     null),
                 _ => new SongFileSource(
                     kind,
-                    ReadString(root, "provider") ?? bare.Provider,
-                    LastSegment(ReadString(root, "remotePath")),
+                    IsIndexer(sourceType) ? ReadString(root, "provider") ?? bare.Provider : bare.Provider,
+                    NameOf(sourceType, ReadString(root, "remotePath")),
                     null,
                     null,
                     ReadLong(root, "queueItemId")),
@@ -86,6 +89,17 @@ public sealed record SongFileSource(
             return bare;
         }
     }
+
+    /// <summary>Torrent and usenet grabs store the user's own indexer name; Soulseek stores a peer's username.</summary>
+    private static bool IsIndexer(string sourceType) =>
+        sourceType is SourceTypes.Torznab or SourceTypes.Newznab;
+
+    /// <summary>
+    /// The name to show. A Soulseek remote path is a peer's folder layout, so only its last segment
+    /// is kept; every other source's value (a release title, a video id) is shown whole.
+    /// </summary>
+    private static string? NameOf(string sourceType, string? remotePath) =>
+        sourceType == SourceTypes.Soulseek ? LastSegment(remotePath) : remotePath;
 
     /// <summary>Finds a property whatever its casing.</summary>
     private static bool TryGet(JsonElement root, string name, out JsonElement value)

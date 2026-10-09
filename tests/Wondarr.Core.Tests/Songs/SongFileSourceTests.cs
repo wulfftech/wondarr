@@ -14,7 +14,24 @@ public sealed class SongFileSourceTests
             "soulseek",
             """{"provider":"peer","remotePath":"\\\\peer\\Music\\Album\\01 Song.flac","candidateId":3,"queueItemId":9,"searchRunId":4}""");
 
-        source.Should().Be(new SongFileSource("download", "peer", "01 Song.flac", null, null, 9));
+        source.Should().Be(new SongFileSource("download", "soulseek", "01 Song.flac", null, null, 9));
+    }
+
+    [Fact]
+    public void A_slash_separated_soulseek_path_is_cut_the_same_way()
+    {
+        SongFileSource.Parse("soulseek", """{"provider":"peer","remotePath":"Music/Album/01 Song.flac"}""")
+            .Name.Should().Be("01 Song.flac");
+    }
+
+    [Fact]
+    public void An_indexer_grab_keeps_the_users_indexer_name_and_a_release_title_whole()
+    {
+        var source = SongFileSource.Parse(
+            "torznab",
+            """{"provider":"My Indexer","remotePath":"AC/DC - Back in Black [FLAC]","queueItemId":2}""");
+
+        source.Should().Be(new SongFileSource("download", "My Indexer", "AC/DC - Back in Black [FLAC]", null, null, 2));
     }
 
     [Fact]

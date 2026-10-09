@@ -39,6 +39,9 @@ public sealed partial class SongLyricsService : ISongLyricsService
     public static readonly TimeSpan LookupTtl = TimeSpan.FromDays(1);
 
     /// <summary>The biggest sidecar that is read; a lyrics file is a few kilobytes, anything bigger is not one.</summary>
+    /// <summary>How long an unavailable (throttled, failed, timed-out) lookup is remembered, so a struggling source is not retried on every page view.</summary>
+    private static readonly TimeSpan UnavailableTtl = TimeSpan.FromMinutes(1);
+
     private const long MaxSidecarBytes = 1024 * 1024;
 
     private readonly WondarrDbContext _database;
@@ -82,7 +85,10 @@ public sealed partial class SongLyricsService : ISongLyricsService
         {
             return File.Exists(Path.ChangeExtension(audioPath, extension));
         }
-        catch (ArgumentException)
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or IOException
+            or UnauthorizedAccessException)
         {
             return false;
         }
@@ -103,11 +109,6 @@ public sealed partial class SongLyricsService : ISongLyricsService
             return null;
         }
 
-        if (!_options.CurrentValue.Enabled)
-        {
-            return SongLyricsText.None;
-        }
-
         if (song.File is { } file && !string.IsNullOrWhiteSpace(file.Path))
         {
             var sidecar = await ReadSidecarAsync(file.Path, cancellationToken).ConfigureAwait(false);
@@ -116,6 +117,12 @@ public sealed partial class SongLyricsService : ISongLyricsService
             {
                 return sidecar;
             }
+        }
+
+        // Switched off only stops the outside lookup: a sidecar the user already has is still theirs to read.
+        if (!_options.CurrentValue.Enabled)
+        {
+            return SongLyricsText.None;
         }
 
         var seconds = DurationSeconds(song.File?.DurationMs ?? song.DurationMs);
@@ -136,9 +143,9 @@ public sealed partial class SongLyricsService : ISongLyricsService
     /// <summary>Reads the sidecars next to the file; <see langword="null"/> when there is none.</summary>
     private async Task<SongLyricsText?> ReadSidecarAsync(string audioPath, CancellationToken cancellationToken)
     {
-        var synced = await ReadTextAsync(Path.ChangeExtension(audioPath, LyricsSidecar.SyncedExtension), cancellationToken)
+        var synced = await ReadTextAsync(audioPath, LyricsSidecar.SyncedExtension, cancellationToken)
             .ConfigureAwait(false);
-        var plain = await ReadTextAsync(Path.ChangeExtension(audioPath, LyricsSidecar.PlainExtension), cancellationToken)
+        var plain = await ReadTextAsync(audioPath, LyricsSidecar.PlainExtension, cancellationToken)
             .ConfigureAwait(false);
 
         if (synced is null && plain is null)
@@ -152,10 +159,11 @@ public sealed partial class SongLyricsService : ISongLyricsService
         return new SongLyricsText("sidecar", synced, plain);
     }
 
-    private async Task<string?> ReadTextAsync(string path, CancellationToken cancellationToken)
+    private async Task<string?> ReadTextAsync(string audioPath, string extension, CancellationToken cancellationToken)
     {
         try
         {
+            var path = Path.ChangeExtension(audioPath, extension);
             var info = new FileInfo(path);
 
             if (!info.Exists || info.Length > MaxSidecarBytes)
@@ -167,7 +175,10 @@ public sealed partial class SongLyricsService : ISongLyricsService
 
             return string.IsNullOrWhiteSpace(text) ? null : text;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException)
         {
             LogSidecarUnreadable(_logger, exception.Message);
 
@@ -203,12 +214,15 @@ public sealed partial class SongLyricsService : ISongLyricsService
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             LogLookupFailed(_logger, "timed out");
+            _cache.Set(key, SongLyricsText.None, UnavailableTtl);
 
             return SongLyricsText.None;
         }
 
         if (lookup.Status == LyricsLookupStatus.Unavailable)
         {
+            _cache.Set(key, SongLyricsText.None, UnavailableTtl);
+
             return SongLyricsText.None;
         }
 

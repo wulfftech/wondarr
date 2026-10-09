@@ -112,6 +112,15 @@ public sealed partial class SongDetailsService : ISongDetailsService
     /// <summary>How long a Deezer answer is kept in memory.</summary>
     public static readonly TimeSpan DeezerTtl = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// How long the identity step (release options and MusicBrainz) may take: cold, it can need
+    /// several MusicBrainz calls at one per second.
+    /// </summary>
+    public static readonly TimeSpan IdentityTimeout = TimeSpan.FromSeconds(12);
+
+    /// <summary>How long a failed Deezer call is remembered, so a throttled Deezer is not retried on every page view.</summary>
+    public static readonly TimeSpan UnavailableTtl = TimeSpan.FromMinutes(1);
+
     private readonly WondarrDbContext _database;
     private readonly IIdentityResolver _resolver;
     private readonly IDeezerClient _deezer;
@@ -200,6 +209,7 @@ public sealed partial class SongDetailsService : ISongDetailsService
         return BoundedAsync(
             "identity",
             token => _resolver.GetIdentityAsync(song.MbRecordingId, song.DeezerId, token),
+            IdentityTimeout,
             cancellationToken);
     }
 
@@ -233,9 +243,9 @@ public sealed partial class SongDetailsService : ISongDetailsService
 
         var key = $"song-details:deezer:{id}";
 
-        if (_cache.TryGetValue(key, out SongDeezerDetails? cached))
+        if (_cache.TryGetValue(key, out Fetched<SongDeezerDetails>? cached) && cached is not null)
         {
-            return cached;
+            return cached.Value;
         }
 
         var fetched = await BoundedAsync(
@@ -243,15 +253,18 @@ public sealed partial class SongDetailsService : ISongDetailsService
             async token => await _deezer.GetTrackAsync(id, token).ConfigureAwait(false) is { } track
                 ? new Fetched<SongDeezerDetails>(Map(track))
                 : new Fetched<SongDeezerDetails>(null),
+            SourceTimeout,
             cancellationToken).ConfigureAwait(false);
 
         if (fetched is null)
         {
-            // Failed or too slow: not remembered, the next page view tries again.
+            // Failed or too slow: remembered briefly, not for the hour.
+            _cache.Set(key, new Fetched<SongDeezerDetails>(null), UnavailableTtl);
+
             return null;
         }
 
-        _cache.Set(key, fetched.Value, DeezerTtl);
+        _cache.Set(key, fetched, DeezerTtl);
 
         return fetched.Value;
     }
@@ -302,11 +315,12 @@ public sealed partial class SongDetailsService : ISongDetailsService
     private async Task<T?> BoundedAsync<T>(
         string source,
         Func<CancellationToken, Task<T?>> work,
+        TimeSpan budget,
         CancellationToken cancellationToken)
         where T : class
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(SourceTimeout);
+        timeout.CancelAfter(budget);
 
         try
         {
