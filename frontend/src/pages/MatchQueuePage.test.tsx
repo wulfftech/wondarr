@@ -223,6 +223,7 @@ describe('MatchQueuePage', () => {
     expect(term).toHaveValue('Daft Punk – Harder Better Faster Stronger');
 
     await user.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('Daft Punk feat. Pharrell Williams - Get Lucky')).toBeInTheDocument();
     await user.click(await screen.findByLabelText('Accept the musicbrainz result Get Lucky'));
 
     const body = await lastBody(`/api/v1/matchqueue/${AMBIGUOUS.id}/resolve`);
