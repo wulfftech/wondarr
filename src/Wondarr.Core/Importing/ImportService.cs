@@ -106,6 +106,7 @@ public sealed partial class ImportService : IImportService
     private readonly ITranscoder _transcoder;
     private readonly IMediaProbe _probe;
     private readonly ISpectralAnalyzer _spectral;
+    private readonly IReplayGainAnalyzer _replayGain;
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly ILibraryOrganizer _organizer;
     private readonly ISongSearchService _search;
@@ -121,6 +122,7 @@ public sealed partial class ImportService : IImportService
     /// <param name="transcoder">Turns a download into the library's output policy target.</param>
     /// <param name="probe">Measures what a downloaded file really is, so the right rule is applied.</param>
     /// <param name="spectral">Looks for a lossy encoder's low-pass in a lossless download.</param>
+    /// <param name="replayGain">Measures the file that will be placed, when the library has ReplayGain on.</param>
     /// <param name="importOptions">Whether the fake-lossless check runs.</param>
     /// <param name="organizer">Tags, names and places the file, recycling what it replaces.</param>
     /// <param name="search">Grabs the next candidate when a file is refused.</param>
@@ -135,6 +137,7 @@ public sealed partial class ImportService : IImportService
         ITranscoder transcoder,
         IMediaProbe probe,
         ISpectralAnalyzer spectral,
+        IReplayGainAnalyzer replayGain,
         IOptionsMonitor<ImportOptions> importOptions,
         ILibraryOrganizer organizer,
         ISongSearchService search,
@@ -149,6 +152,7 @@ public sealed partial class ImportService : IImportService
         ArgumentNullException.ThrowIfNull(transcoder);
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(spectral);
+        ArgumentNullException.ThrowIfNull(replayGain);
         ArgumentNullException.ThrowIfNull(importOptions);
         ArgumentNullException.ThrowIfNull(organizer);
         ArgumentNullException.ThrowIfNull(search);
@@ -163,6 +167,7 @@ public sealed partial class ImportService : IImportService
         _transcoder = transcoder;
         _probe = probe;
         _spectral = spectral;
+        _replayGain = replayGain;
         _importOptions = importOptions;
         _organizer = organizer;
         _search = search;
@@ -674,6 +679,13 @@ public sealed partial class ImportService : IImportService
                 .ConfigureAwait(false);
         }
 
+        // --- Loudness -----------------------------------------------------------------------------
+        // Measured on the file that will be placed (after any conversion: encoding changes the peak).
+        // A failed measurement is logged by the analyzer and the file imports without the tags.
+        var replayGain = library.ReplayGain
+            ? await _replayGain.MeasureAsync(importPath, cancellationToken).ConfigureAwait(false)
+            : null;
+
         // --- Tag, name, place ---------------------------------------------------------------------
         var placement = await _organizer
             .OrganizeAsync(
@@ -693,7 +705,9 @@ public sealed partial class ImportService : IImportService
                     // A song owned through a reference file is satisfied by the user's own copy, which
                     // Wondarr does not control: the grab imports into the library and repoints the song,
                     // and nothing recycles the reference file.
-                    song.File?.SourceType == SourceTypes.Reference ? null : song.File?.Path),
+                    song.File?.SourceType == SourceTypes.Reference ? null : song.File?.Path,
+                    ReplayGainDb: replayGain?.GainDb,
+                    ReplayGainPeak: replayGain?.Peak),
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -763,6 +777,8 @@ public sealed partial class ImportService : IImportService
                 Json);
             file.ImportedAt = now;
             file.TagsWritten = JsonSerializer.Serialize(placement.TagsWritten, Json);
+            file.ReplayGainDb = replayGain?.GainDb;
+            file.ReplayGainPeak = replayGain?.Peak;
 
             if (song.File is null)
             {

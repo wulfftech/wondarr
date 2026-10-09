@@ -97,6 +97,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The import options the host runs on, so a test can switch the fake-lossless check.</summary>
     public ImportOptions ImportOptions { get; private init; } = null!;
 
+    /// <summary>The scripted loudness analyzer, which finds a fixed gain unless a test says otherwise.</summary>
+    public FakeReplayGainAnalyzer ReplayGain { get; private init; } = null!;
+
     /// <summary>The scripted tag writer.</summary>
     public FakeTagWriter TagWriter { get; private init; } = null!;
 
@@ -140,6 +143,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         var spectral = new FakeSpectralAnalyzer();
         var importOptions = new ImportOptions();
         var tagWriter = new FakeTagWriter();
+        var replayGain = new FakeReplayGainAnalyzer();
         var placer = new FakeFilePlacer();
         var covers = new FakeCoverFetcher();
         var coverProcessor = new FakeCoverImageProcessor();
@@ -162,6 +166,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<IMediaProbe>(probe);
         services.AddSingleton<ISpectralAnalyzer>(spectral);
         services.AddSingleton<ITagWriter>(tagWriter);
+        services.AddSingleton<IReplayGainAnalyzer>(replayGain);
         services.AddSingleton<IFilePlacer>(placer);
         services.AddSingleton<ICoverFetcher>(covers);
         services.AddSingleton<ISongSearchService>(search);
@@ -189,6 +194,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
             Spectral = spectral,
             ImportOptions = importOptions,
             TagWriter = tagWriter,
+            ReplayGain = replayGain,
             Placer = placer,
             Covers = covers,
             Lrclib = lrclib,
@@ -373,6 +379,17 @@ internal sealed class ImportTestHost : IAsyncDisposable
 
         var library = await context.Libraries.SingleAsync(entry => entry.Id == SeedData.DefaultLibraryId);
         library.OutputPolicy = outputPolicy;
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>Switches ReplayGain on or off for the default library.</summary>
+    public async Task SetLibraryReplayGainAsync(bool on)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var library = await context.Libraries.SingleAsync(entry => entry.Id == SeedData.DefaultLibraryId);
+        library.ReplayGain = on;
 
         await context.SaveChangesAsync();
     }
@@ -723,6 +740,51 @@ internal sealed class FakeTagWriter : ITagWriter
         return Task.FromResult(Success
             ? new TagWriteResult(true, null, Written)
             : new TagWriteResult(false, Error, Empty));
+    }
+
+    /// <summary>Every in-place ReplayGain write the writer was asked for.</summary>
+    public List<(string Path, double GainDb, double Peak)> ReplayGainWrites { get; } = [];
+
+    /// <inheritdoc />
+    public Task<TagWriteResult> WriteReplayGainAsync(
+        string path,
+        double gainDb,
+        double peak,
+        CancellationToken cancellationToken = default)
+    {
+        ReplayGainWrites.Add((path, gainDb, peak));
+
+        return Task.FromResult(Success
+            ? new TagWriteResult(
+                true,
+                null,
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["ReplayGainTrackGain"] = TagWriter.FormatGain(gainDb)!,
+                    ["ReplayGainTrackPeak"] = TagWriter.FormatPeak(peak)!,
+                })
+            : new TagWriteResult(false, Error, Empty));
+    }
+}
+
+/// <summary>A loudness analyzer that records what it was asked to measure.</summary>
+internal sealed class FakeReplayGainAnalyzer : IReplayGainAnalyzer
+{
+    /// <summary>What a measurement returns; <see langword="null"/> is a failed measurement.</summary>
+    public ReplayGainValues? Values { get; set; } = new(-8.52, 1.047129);
+
+    /// <summary>Run for each measurement, to fail one file and not another.</summary>
+    public Func<string, ReplayGainValues?>? Answer { get; set; }
+
+    /// <summary>Every path measured, in order.</summary>
+    public List<string> Measured { get; } = [];
+
+    /// <inheritdoc />
+    public Task<ReplayGainValues?> MeasureAsync(string path, CancellationToken cancellationToken)
+    {
+        Measured.Add(path);
+
+        return Task.FromResult(Answer is null ? Values : Answer(path));
     }
 }
 

@@ -31,6 +31,10 @@ namespace Wondarr.Api.Profiles;
 /// same path Wondarr writes to.
 /// </param>
 /// <param name="IsDefault">Whether new songs go here by default.</param>
+/// <param name="ReplayGain">
+/// Whether every file placed in this library carries ReplayGain track gain and peak tags. Off by
+/// default; the audio is never changed. An omitted key reads as off.
+/// </param>
 public sealed record LibraryResource(
     long Id,
     string Name,
@@ -43,7 +47,8 @@ public sealed record LibraryResource(
     int MinTracksPerRealAlbum,
     string? PlexSectionId,
     string? PlexLibraryPath,
-    bool IsDefault);
+    bool IsDefault,
+    bool ReplayGain = false);
 
 /// <summary>Maps between <see cref="Library"/> and <see cref="LibraryResource"/>.</summary>
 public static class LibraryResourceMapper
@@ -71,7 +76,8 @@ public static class LibraryResourceMapper
             library.MinTracksPerRealAlbum,
             library.PlexSectionId,
             library.PlexLibraryPath,
-            library.IsDefault);
+            library.IsDefault,
+            library.ReplayGain);
     }
 
     /// <summary>Builds the library <paramref name="resource"/> describes.</summary>
@@ -101,6 +107,7 @@ public static class LibraryResourceMapper
             PlexSectionId = resource.PlexSectionId,
             PlexLibraryPath = resource.PlexLibraryPath,
             IsDefault = resource.IsDefault,
+            ReplayGain = resource.ReplayGain,
         };
     }
 

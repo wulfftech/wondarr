@@ -59,6 +59,15 @@ public sealed class SongFile : EntityBase
     /// <summary>Gets or sets a JSON snapshot of the tags written at import, or <see langword="null"/>.</summary>
     public string? TagsWritten { get; set; }
 
+    /// <summary>
+    /// Gets or sets the measured ReplayGain 2.0 track gain in dB (reference -18 LUFS), or
+    /// <see langword="null"/> when the file was never measured.
+    /// </summary>
+    public double? ReplayGainDb { get; set; }
+
+    /// <summary>Gets or sets the measured true peak as a linear value, or <see langword="null"/> when never measured.</summary>
+    public double? ReplayGainPeak { get; set; }
+
     /// <summary>Gets or sets the song this file satisfies.</summary>
     public Song Song { get; set; } = null!;
 

@@ -236,7 +236,9 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
                         // The file carries whatever lyrics the import gave it, and its sidecar is
                         // coming with it: asking LRCLIB again could only overwrite the user's own.
-                        LookUpLyrics: false),
+                        LookUpLyrics: false,
+                        ReplayGainDb: file.ReplayGainDb,
+                        ReplayGainPeak: file.ReplayGainPeak),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
