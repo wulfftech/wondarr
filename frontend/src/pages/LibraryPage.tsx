@@ -2,6 +2,7 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   Group,
   Menu,
   Modal,
@@ -11,14 +12,16 @@ import {
   Stack,
   Switch,
   Text,
+  TextInput,
   Title,
 } from '@mantine/core';
-import { CircleAlert, EllipsisVertical, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { CircleAlert, EllipsisVertical, Plus, Search, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useSongAlbum, type AlbumRefResource } from '../api/albums';
+import { filterEntries, useCustomFilters, type CustomFilterResource } from '../api/customFilters';
 import { firstPage, type Paging } from '../api/paging';
-import { readEnum, useLibraries } from '../api/profiles';
+import { readEnum, useLibraries, useQualityProfiles } from '../api/profiles';
 import {
   useAlbumOptions,
   useArtists,
@@ -28,19 +31,33 @@ import {
   useUpdateSong,
   type SongResource,
 } from '../api/songs';
+import { useTags } from '../api/tags';
 import { SongSearchButtons } from '../components/InteractiveSearchModal';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
 import { ConvertSongModal, MoveSongModal } from './SongActionModals';
 import { initCaps } from '../components/text';
+import {
+  fromViewEntries,
+  isUnfiltered,
+  NO_FILTERS,
+  toSongFilters,
+  toViewEntries,
+  type CutoffFilter,
+  type FileFilter,
+  type LibraryFilters,
+  type MonitoredFilter,
+} from './library/filters';
+import { MassEditorBar } from './library/MassEditorBar';
+import { LIBRARY_VIEW_TYPE, SavedViewsMenu } from './library/SavedViewsMenu';
 
 /** Library: the songs Wondarr manages, with their album assignment and monitored flag. */
 
 /** The wire spelling of `AlbumContextKind`; the API serialises enums as camelCase strings. */
 type AlbumContextKindName = 'album' | 'single' | 'ep' | 'compilation' | 'pseudoSingles';
 
-/** Which filter went the way of the monitored switch. */
-type MonitoredFilter = 'all' | 'monitored' | 'unmonitored';
+/** How long the search box waits after a keystroke before it asks the server, in milliseconds. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 const MONITORED_FILTERS: { value: MonitoredFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -94,6 +111,41 @@ function TitleCell({ song }: { song: SongResource }) {
   );
 }
 
+/** What the checkbox column needs from the page. */
+interface SelectionControl {
+  /** The songs on the current page. */
+  rows: SongResource[];
+  /** The ids selected, across pages. */
+  selected: ReadonlySet<number>;
+  /** A row's checkbox was clicked; `shift` asks for the range from the last one clicked. */
+  onToggle: (index: number, shift: boolean) => void;
+  /** The header checkbox: select (or deselect) every song on the page. */
+  onTogglePage: (selectAll: boolean) => void;
+}
+
+/** The tags a song carries, as badges that filter by the tag when clicked. */
+function TagsCell({ song, onTag }: { song: SongResource; onTag: (tag: string) => void }) {
+  return (
+    <Group gap={4} wrap="wrap">
+      {(song.tags ?? []).map((tag) => (
+        <Badge
+          key={tag}
+          component="button"
+          type="button"
+          variant="light"
+          size="sm"
+          color="teal"
+          style={{ cursor: 'pointer' }}
+          aria-label={`Filter by tag ${tag}`}
+          onClick={() => onTag(tag)}
+        >
+          {tag}
+        </Badge>
+      ))}
+    </Group>
+  );
+}
+
 /**
  * The table's columns. The row actions are handed in rather than owned by the table, because the page
  * keeps a single dialog state for whichever song a menu was opened on.
@@ -106,8 +158,39 @@ function libraryColumns(
   onOpenConvert: (song: SongResource) => void,
   onRestOfAlbum: (album: AlbumRefResource) => void,
   canMove: boolean,
+  selection: SelectionControl,
+  showTags: boolean,
+  onTag: (tag: string) => void,
 ): PagedColumn<SongResource>[] {
+  const onPage = selection.rows.filter((song) => selection.selected.has(Number(song.id))).length;
+
   return [
+    {
+      label: 'Select',
+      sortKey: null,
+      width: 40,
+      header: (
+        <Checkbox
+          aria-label="Select all on this page"
+          checked={selection.rows.length > 0 && onPage === selection.rows.length}
+          indeterminate={onPage > 0 && onPage < selection.rows.length}
+          onChange={(event) => selection.onTogglePage(event.currentTarget.checked)}
+        />
+      ),
+      render: (song) => {
+        const index = selection.rows.indexOf(song);
+
+        return (
+          <Checkbox
+            aria-label={`Select ${song.title}`}
+            checked={selection.selected.has(Number(song.id))}
+            // The click carries the shift key; the change event does not, so the click does the work.
+            onClick={(event) => selection.onToggle(index, event.shiftKey)}
+            onChange={() => undefined}
+          />
+        );
+      },
+    },
     {
       label: 'Cover',
       sortKey: null,
@@ -117,10 +200,13 @@ function libraryColumns(
     { label: 'Title', sortKey: 'title', render: (song) => <TitleCell song={song} /> },
     { label: 'Artist', sortKey: 'artist', render: (song) => song.artistCredit },
     { label: 'Album', sortKey: 'album', render: (song) => <AlbumCell song={song} /> },
+    ...(showTags
+      ? [{ label: 'Tags', sortKey: null, render: (song: SongResource) => <TagsCell song={song} onTag={onTag} /> }]
+      : []),
     { label: 'Duration', sortKey: null, width: 100, render: (song) => formatDuration(song.durationMs) },
     {
       label: 'Monitored',
-      sortKey: null,
+      sortKey: 'monitored',
       width: 110,
       render: (song) => (
         <Switch
@@ -334,67 +420,247 @@ function DeleteSongModal({
   );
 }
 
+const FILE_OPTIONS: { value: FileFilter; label: string }[] = [
+  { value: 'any', label: 'Any file state' },
+  { value: 'has', label: 'Has a file' },
+  { value: 'missing', label: 'Missing its file' },
+];
+
+const CUTOFF_OPTIONS: { value: CutoffFilter; label: string }[] = [
+  { value: 'any', label: 'Any cutoff state' },
+  { value: 'met', label: 'Cutoff met' },
+  { value: 'unmet', label: 'Cutoff not met' },
+];
+
 export function LibraryPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [artistId, setArtistId] = useState<string | null>(() => params.get('artistId'));
-  const [monitored, setMonitored] = useState<MonitoredFilter>('all');
+  const [filters, setFilters] = useState<LibraryFilters>(() => ({ ...NO_FILTERS, artistId: params.get('artistId') }));
+  const [termInput, setTermInput] = useState('');
+  const [activeViewId, setActiveViewId] = useState<number | null>(null);
   const [paging, setPaging] = useState<Paging>(() => firstPage());
+  const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
+  const [lastClicked, setLastClicked] = useState<number | null>(null);
   const [dialog, setDialog] = useState<{ song: SongResource; kind: 'album' | 'delete' | 'move' | 'convert' } | null>(
     null,
   );
 
   const artists = useArtists();
   const libraries = useLibraries();
+  const profiles = useQualityProfiles();
+  const tags = useTags();
+  const views = useCustomFilters(LIBRARY_VIEW_TYPE);
   const update = useUpdateSong();
-  const songs = useSongs(paging, {
-    artistId: artistId === null ? undefined : Number(artistId),
-    monitored: monitored === 'all' ? undefined : monitored === 'monitored',
-  });
+  const songs = useSongs(paging, toSongFilters(filters));
+
+  /** Any change of filters starts again from page 1 with nothing selected. */
+  const changeFilters = (change: (current: LibraryFilters) => LibraryFilters, fromView: number | null = null) => {
+    setFilters(change);
+    setActiveViewId(fromView);
+    setPaging((current) => ({ ...current, page: 1 }));
+    setSelected(new Set());
+    setLastClicked(null);
+  };
+
+  // The search box waits for a pause in typing before it asks the server.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (termInput === filters.term) {
+        return;
+      }
+
+      changeFilters((current) => ({ ...current, term: termInput }));
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+    // Only a keystroke starts the wait; the other values are read as they are when it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termInput]);
 
   const artistOptions = (artists.data ?? []).map((artist) => ({
     value: String(artist.id),
     label: artist.name,
   }));
 
-  const canMove = (libraries.data ?? []).length > 1;
+  const libraryList = libraries.data ?? [];
+  const profileList = profiles.data ?? [];
+  const tagList = (tags.data ?? []).map((tag) => tag.label);
+  const canMove = libraryList.length > 1;
+  const rows = songs.data?.records ?? [];
+  const showTags = rows.some((song) => (song.tags ?? []).length > 0);
+  const viewList = views.data ?? [];
+  const activeView = viewList.find((view) => Number(view.id) === activeViewId) ?? null;
 
   const onRestOfAlbum = (album: AlbumRefResource) => {
     void navigate(`/add?album=${album.source}:${album.id}`);
+  };
+
+  const applyView = (view: CustomFilterResource) => {
+    const next = fromViewEntries(filterEntries(view.filters));
+
+    setTermInput(next.term);
+    changeFilters(() => next, Number(view.id));
+  };
+
+  const clearFilters = () => {
+    setTermInput('');
+    changeFilters(() => NO_FILTERS);
+  };
+
+  const selection: SelectionControl = {
+    rows,
+    selected,
+    onToggle: (index, shift) => {
+      const song = rows[index];
+
+      if (song === undefined) {
+        return;
+      }
+
+      const wanted = !selected.has(Number(song.id));
+      const from = shift && lastClicked !== null ? Math.min(lastClicked, index) : index;
+      const to = shift && lastClicked !== null ? Math.max(lastClicked, index) : index;
+      const next = new Set(selected);
+
+      for (const covered of rows.slice(from, to + 1)) {
+        if (wanted) {
+          next.add(Number(covered.id));
+        } else {
+          next.delete(Number(covered.id));
+        }
+      }
+
+      setSelected(next);
+      setLastClicked(index);
+    },
+    onTogglePage: (selectAll) => {
+      const next = new Set(selected);
+
+      for (const song of rows) {
+        if (selectAll) {
+          next.add(Number(song.id));
+        } else {
+          next.delete(Number(song.id));
+        }
+      }
+
+      setSelected(next);
+    },
   };
 
   return (
     <Stack gap="lg">
       <Group justify="space-between">
         <Title order={2}>Library</Title>
-        <Button leftSection={<Plus size={16} />} onClick={() => void navigate('/add')}>
-          Add songs
-        </Button>
+        <Group>
+          <SavedViewsMenu
+            views={viewList}
+            active={activeView}
+            current={toViewEntries(filters)}
+            onApply={applyView}
+            onSaved={(view) => setActiveViewId(Number(view.id))}
+            onDeleted={() => setActiveViewId(null)}
+          />
+          <Button leftSection={<Plus size={16} />} onClick={() => void navigate('/add')}>
+            Add songs
+          </Button>
+        </Group>
       </Group>
 
       <Group align="flex-end">
+        <TextInput
+          label="Search"
+          placeholder="Title or artist"
+          leftSection={<Search size={14} />}
+          w={220}
+          value={termInput}
+          onChange={(event) => setTermInput(event.currentTarget.value)}
+        />
+
         <Select
           label="Artist"
           placeholder="Every artist"
           data={artistOptions}
-          value={artistId}
+          value={filters.artistId}
           searchable
           clearable
-          w={260}
-          onChange={(value) => {
-            setArtistId(value);
-            setPaging((current) => ({ ...current, page: 1 }));
-          }}
+          w={220}
+          onChange={(value) => changeFilters((current) => ({ ...current, artistId: value }))}
+        />
+
+        <Select
+          label="Library"
+          placeholder="Every library"
+          data={libraryList.map((library) => ({ value: String(library.id), label: library.name }))}
+          value={filters.libraryId}
+          clearable
+          w={160}
+          onChange={(value) => changeFilters((current) => ({ ...current, libraryId: value }))}
+        />
+
+        <Select
+          label="Quality profile"
+          placeholder="Every profile"
+          data={profileList.map((profile) => ({ value: String(profile.id), label: profile.name }))}
+          value={filters.qualityProfileId}
+          clearable
+          w={170}
+          onChange={(value) => changeFilters((current) => ({ ...current, qualityProfileId: value }))}
+        />
+
+        <Select
+          label="File"
+          data={FILE_OPTIONS}
+          value={filters.file}
+          allowDeselect={false}
+          w={170}
+          onChange={(value) =>
+            changeFilters((current) => ({
+              ...current,
+              file: value === 'has' || value === 'missing' ? value : 'any',
+            }))
+          }
+        />
+
+        <Select
+          label="Cutoff"
+          data={CUTOFF_OPTIONS}
+          value={filters.cutoff}
+          allowDeselect={false}
+          w={170}
+          onChange={(value) =>
+            changeFilters((current) => ({
+              ...current,
+              cutoff: value === 'met' || value === 'unmet' ? value : 'any',
+            }))
+          }
+        />
+
+        <Select
+          label="Tag"
+          placeholder="Every tag"
+          data={tagList}
+          value={filters.tag}
+          searchable
+          clearable
+          w={160}
+          onChange={(value) => changeFilters((current) => ({ ...current, tag: value }))}
         />
 
         <SegmentedControl
-          value={monitored}
+          value={filters.monitored}
           data={MONITORED_FILTERS.map((filter) => ({ value: filter.value, label: filter.label }))}
-          onChange={(value) => {
-            setMonitored(value === 'monitored' || value === 'unmonitored' ? value : 'all');
-            setPaging((current) => ({ ...current, page: 1 }));
-          }}
+          onChange={(value) =>
+            changeFilters((current) => ({
+              ...current,
+              monitored: value === 'monitored' || value === 'unmonitored' ? value : 'all',
+            }))
+          }
         />
+
+        <Button variant="subtle" leftSection={<X size={14} />} disabled={isUnfiltered(filters)} onClick={clearFilters}>
+          Clear
+        </Button>
       </Group>
 
       {update.error !== null && (
@@ -412,8 +678,11 @@ export function LibraryPage() {
           (song) => setDialog({ song, kind: 'convert' }),
           onRestOfAlbum,
           canMove,
+          selection,
+          showTags,
+          (tag) => changeFilters((current) => ({ ...current, tag })),
         )}
-        rows={songs.data?.records ?? []}
+        rows={rows}
         totalRecords={Number(songs.data?.totalRecords ?? 0)}
         paging={paging}
         onPaging={setPaging}
@@ -421,6 +690,17 @@ export function LibraryPage() {
         error={songs.error}
         emptyMessage="Nothing in the library matches these filters."
         rowKey={(song) => song.id}
+      />
+
+      <MassEditorBar
+        selectedIds={[...selected]}
+        profiles={profileList}
+        libraries={libraryList}
+        knownTags={tagList}
+        onClear={() => {
+          setSelected(new Set());
+          setLastClicked(null);
+        }}
       />
 
       <ChangeAlbumModal

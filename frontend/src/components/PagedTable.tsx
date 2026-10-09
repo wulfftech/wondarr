@@ -12,6 +12,8 @@ export interface PagedColumn<T> {
   sortKey: string | null;
   /** Renders one row's cell. */
   render: (row: T) => ReactNode;
+  /** Replaces the heading text with a control (a select-all checkbox); `label` stays the column's key. */
+  header?: ReactNode;
   /** A fixed column width, in pixels. */
   width?: number;
 }
@@ -81,7 +83,7 @@ export function PagedTable<T>({
                   aria-sort={sorted ? paging.sortDirection : column.sortKey === null ? undefined : 'none'}
                 >
                   {column.sortKey === null ? (
-                    column.label
+                    (column.header ?? column.label)
                   ) : (
                     <UnstyledButton
                       onClick={() =>
