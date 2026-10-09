@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Wondarr</Name>
+  <Repository>ghcr.io/wulfftech/wondarr:latest</Repository>
+  <Registry>https://github.com/wulfftech/wondarr/pkgs/container/wondarr</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/wulfftech/wondarr/issues</Support>
+  <Project>https://github.com/wulfftech/wondarr</Project>
+  <Overview>Wondarr is an *arr for single songs. You tell it which recordings you want, and it finds the best copy on Soulseek first, then YouTube Music, torrents and usenet. It checks each file is the right recording, tags it and files it into your library. Soulseek (slskd), ffmpeg and fpcalc are bundled in the image.</Overview>
+  <Category>MediaApp:Music Downloaders:</Category>
+  <WebUI>http://[IP]:[PORT:1077]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/wulfftech/wondarr/main/unraid/wondarr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/wulfftech/wondarr/main/frontend/public/icon-512.png</Icon>
+  <Config Name="WebUI port" Target="1077" Default="1077" Mode="tcp" Description="The web UI and the API." Type="Port" Display="always" Required="true" Mask="false">1077</Config>
+  <Config Name="Soulseek listen port" Target="50300" Default="50300" Mode="tcp" Description="The listen port of the bundled slskd. Forward it on your router for better Soulseek results." Type="Port" Display="always" Required="true" Mask="false">50300</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/wondarr" Mode="rw" Description="The database, config.yml, logs, backups and the bundled slskd's state." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/wondarr</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/data" Mode="rw" Description="Your music and every download. Use one share for both so torrent imports can hard-link." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="The user the app runs as (Unraid: nobody)." Type="Variable" Display="always" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="The group the app runs as (Unraid: users)." Type="Variable" Display="always" Required="true" Mask="false">100</Config>
+  <Config Name="UMASK" Target="UMASK" Default="002" Mode="" Description="The umask the app runs with." Type="Variable" Display="always" Required="true" Mask="false">002</Config>
+  <Config Name="Time zone" Target="TZ" Default="Etc/UTC" Mode="" Description="The time zone, for example Australia/Sydney." Type="Variable" Display="advanced" Required="false" Mask="false">Etc/UTC</Config>
+  <Config Name="Soulseek username" Target="APP__SOULSEEK__USERNAME" Default="" Mode="" Description="Optional. A dedicated Soulseek account; it can also be set in Settings, Soulseek. A value set here locks the field in the UI." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Soulseek password" Target="APP__SOULSEEK__PASSWORD" Default="" Mode="" Description="Optional. The password for that account." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+</Container>
