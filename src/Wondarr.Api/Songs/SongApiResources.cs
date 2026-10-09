@@ -81,6 +81,10 @@ public sealed record SongLookupResource(
 /// <param name="TrackNo">The song's track number on the release, or <see langword="null"/>.</param>
 /// <param name="TotalTracks">The release's track count, or <see langword="null"/>.</param>
 /// <param name="IsCurrent">Whether the song is filed under this album right now.</param>
+/// <param name="CoverUrl">A cover thumbnail the browser can load (built from ids, never fetched by the server), or <see langword="null"/>.</param>
+/// <param name="IsVariousArtists">Whether the release is credited to Various Artists.</param>
+/// <param name="OriginalDate">The release group's first release date, or <see langword="null"/>.</param>
+/// <param name="DiscNo">The disc the song sits on, or <see langword="null"/> when unknown.</param>
 public sealed record AlbumOptionResource(
     string Key,
     string? MbReleaseId,
@@ -93,7 +97,11 @@ public sealed record AlbumOptionResource(
     string? Date,
     int? TrackNo,
     int? TotalTracks,
-    bool IsCurrent);
+    bool IsCurrent,
+    string? CoverUrl,
+    bool IsVariousArtists,
+    string? OriginalDate,
+    int? DiscNo);
 
 /// <summary>The album a song is explicitly moved to.</summary>
 /// <param name="AlbumKey">One of the song's album option keys, or the literal <c>singles</c>.</param>
@@ -166,7 +174,11 @@ public static class SongApiResourceExtensions
             option.Date,
             option.TrackNo,
             option.TotalTracks,
-            isCurrent);
+            isCurrent,
+            SongDetailsResourceExtensions.CoverUrlFor(option),
+            option.IsVariousArtists,
+            option.ReleaseGroupFirstDate,
+            option.DiscNo);
     }
 
     /// <summary>Maps an artist and its song count.</summary>

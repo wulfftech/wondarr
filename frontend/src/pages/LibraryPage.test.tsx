@@ -185,7 +185,7 @@ describe('LibraryPage', () => {
 
     const dialog = await screen.findByRole('dialog');
 
-    await user.click(await within(dialog).findByRole('radio', { name: 'Singles' }));
+    await user.click(await within(dialog).findByRole('radio', { name: /^Singles/ }));
 
     await waitFor(async () => {
       const put = await lastBody('PUT');
@@ -193,6 +193,36 @@ describe('LibraryPage', () => {
       expect(put?.url).toContain('/api/v1/song/12/albumcontext');
       expect(put?.body).toEqual({ albumKey: 'singles' });
     });
+  });
+
+  it('shows each album option with its cover, album artist, compilation badge and track text', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('Get Lucky');
+    await openRowMenu(user, 'Get Lucky');
+    await user.click(await screen.findByRole('menuitem', { name: 'Change album…' }));
+
+    const dialog = await screen.findByRole('dialog');
+    const compilation = await within(dialog).findByRole('radio', { name: /So Fresh/ });
+    const row = compilation.closest('.mantine-Radio-root') as HTMLElement;
+
+    expect(within(row).getByText('by Various Artists')).toBeInTheDocument();
+    expect(within(row).getByText('Compilation')).toBeInTheDocument();
+    expect(within(row).getByText('22 tracks · 2004 · first released 1999')).toBeInTheDocument();
+    expect(row.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://coverartarchive.org/release/b7a1c2d3-0000-0000-0000-000000000000/front-250',
+    );
+    expect(row.querySelector('img')).toHaveAttribute('loading', 'lazy');
+
+    const current = within(dialog).getByRole('radio', { name: /Random Access Memories/ });
+
+    expect(current).toBeChecked();
+    expect(within(dialog).getByText('Track 8 of 13 · 2013')).toBeInTheDocument();
+    expect(within(dialog).getAllByText('by Daft Punk')).toHaveLength(2);
   });
 
   it('deletes the song once the confirmation is accepted', async () => {
