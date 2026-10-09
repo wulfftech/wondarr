@@ -55,10 +55,12 @@ public sealed record AcoustIdResult(string Id, double Score, IReadOnlyList<Acous
 /// <param name="Status">What happened.</param>
 /// <param name="Results">The AcoustIDs, in the order the service sent them; empty unless <see cref="AcoustIdStatus.Ok"/>.</param>
 /// <param name="Error">A message safe to show and to log — never the client key.</param>
+/// <param name="ErrorCode">The code of an error object AcoustID sent, or <see langword="null"/>.</param>
 public sealed record AcoustIdLookupResult(
     AcoustIdStatus Status,
     IReadOnlyList<AcoustIdResult> Results,
-    string? Error);
+    string? Error,
+    int? ErrorCode = null);
 
 /// <summary>Asks AcoustID what recording a fingerprint belongs to (MATCHING_ENGINE.md §6.5 step 3).</summary>
 public interface IAcoustIdClient
@@ -81,8 +83,9 @@ public interface IAcoustIdClient
     /// <param name="clientKey">The key to try.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>
     /// <returns>
-    /// <see cref="AcoustIdStatus.Ok"/> when the key is accepted, otherwise why not (a message safe to
-    /// show — never the key).
+    /// <see cref="AcoustIdStatus.Ok"/> when the key is accepted — AcoustID answered anything but its
+    /// invalid-key error (code 4); <see cref="AcoustIdLookupResult.Error"/> then holds the text of the
+    /// refusal of the probe fingerprint. Otherwise why not (a message safe to show — never the key).
     /// </returns>
     Task<AcoustIdLookupResult> CheckKeyAsync(string clientKey, CancellationToken cancellationToken);
 }
@@ -188,9 +191,10 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
         var result = await LookupWithKeyAsync(clientKey.Trim(), ProbeFingerprint, 1, cancellationToken)
             .ConfigureAwait(false);
 
-        // The probe fingerprint is rejected on purpose; being rejected for it means the key got past.
-        return result.Status == AcoustIdStatus.InvalidFingerprint
-            ? new AcoustIdLookupResult(AcoustIdStatus.Ok, [], null)
+        // The probe fingerprint is refused on purpose. AcoustID refusing it with any error object other
+        // than the invalid-key one (code 4, already reported as InvalidKey) means the key got past.
+        return result.Status is AcoustIdStatus.InvalidFingerprint or AcoustIdStatus.Error && result.ErrorCode is not null
+            ? new AcoustIdLookupResult(AcoustIdStatus.Ok, [], result.Error, result.ErrorCode)
             : result;
     }
 
@@ -287,7 +291,8 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
                     return new AcoustIdLookupResult(
                         AcoustIdStatus.InvalidFingerprint,
                         [],
-                        parsed.Message ?? "AcoustID rejected the fingerprint");
+                        parsed.Message ?? "AcoustID rejected the fingerprint",
+                        parsed.Code);
                 }
 
                 if (parsed.Code is InternalErrorCode or ServiceBusyCode || (int)response.StatusCode >= 500)
@@ -308,7 +313,8 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
                     return new AcoustIdLookupResult(
                         AcoustIdStatus.Error,
                         [],
-                        parsed.Message ?? $"AcoustID answered error {parsed.Code}");
+                        parsed.Message ?? $"AcoustID answered error {parsed.Code}",
+                        parsed.Code);
                 }
 
                 return new AcoustIdLookupResult(

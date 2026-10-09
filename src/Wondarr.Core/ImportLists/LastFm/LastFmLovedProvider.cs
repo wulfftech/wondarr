@@ -41,20 +41,27 @@ public sealed class LastFmLovedProvider : IImportListProvider
     private readonly IHttpClientFactory _factory;
     private readonly Func<TimeSpan, CancellationToken, Task> _wait;
     private readonly IOptionsMonitor<LastFmOptions>? _global;
+    private readonly ILastFmBackOff? _backOff;
 
     /// <summary>Initialises a new instance of the <see cref="LastFmLovedProvider"/> class.</summary>
     /// <param name="factory">Builds the named <c>lastfm</c> client.</param>
     /// <param name="time">Spaces the pages out.</param>
     /// <param name="global">Wondarr's own Last.fm key, which a list with no key of its own reads with.</param>
-    public LastFmLovedProvider(IHttpClientFactory factory, TimeProvider time, IOptionsMonitor<LastFmOptions>? global = null)
-        : this(factory, Delay(time), global)
+    /// <param name="backOff">The process-wide Last.fm rate-limit record, shared with the song page.</param>
+    public LastFmLovedProvider(
+        IHttpClientFactory factory,
+        TimeProvider time,
+        IOptionsMonitor<LastFmOptions>? global = null,
+        ILastFmBackOff? backOff = null)
+        : this(factory, Delay(time), global, backOff)
     {
     }
 
     internal LastFmLovedProvider(
         IHttpClientFactory factory,
         Func<TimeSpan, CancellationToken, Task> wait,
-        IOptionsMonitor<LastFmOptions>? global = null)
+        IOptionsMonitor<LastFmOptions>? global = null,
+        ILastFmBackOff? backOff = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(wait);
@@ -62,6 +69,7 @@ public sealed class LastFmLovedProvider : IImportListProvider
         _factory = factory;
         _wait = wait;
         _global = global;
+        _backOff = backOff;
     }
 
     /// <inheritdoc />
@@ -116,7 +124,7 @@ public sealed class LastFmLovedProvider : IImportListProvider
         for (var page = 1; page <= MaxPages; page++)
         {
             var answer = await LastFmFetch
-                .PageAsync(http, "user.getlovedtracks", user, apiKey, null, PageSize, page, cancellationToken)
+                .PageAsync(http, "user.getlovedtracks", user, apiKey, null, PageSize, page, _backOff, cancellationToken)
                 .ConfigureAwait(false);
 
             if (!answer.Ok)

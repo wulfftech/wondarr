@@ -132,8 +132,16 @@ internal static class LastFmFetch
         string? period,
         int limit,
         int page,
+        ILastFmBackOff? backOff,
         CancellationToken cancellationToken)
     {
+        // Last.fm limits the caller, not the list: while the song page's client or another list has
+        // been told to wait, this read does not go out.
+        if (backOff?.Remaining is not null)
+        {
+            return LastFmAnswer.Failed(RateLimitedText);
+        }
+
         var periodPart = period is null ? string.Empty : string.Create(
             CultureInfo.InvariantCulture,
             $"&period={Uri.EscapeDataString(period)}");
@@ -179,6 +187,14 @@ internal static class LastFmFetch
                 return LastFmAnswer.Failed("Last.fm could not be reached.");
             }
 
+            // A 429 or error 29 is Last.fm asking to be left alone: recorded for every Last.fm caller.
+            if (response.StatusCode == HttpStatusCode.TooManyRequests || ErrorCode(body) == 29)
+            {
+                backOff?.Trip(response);
+
+                return LastFmAnswer.Failed(RateLimitedText);
+            }
+
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 return LastFmAnswer.Failed(Error(body) ?? $"Last.fm answered {(int)response.StatusCode}.");
@@ -194,6 +210,9 @@ internal static class LastFmFetch
             return Error(body) is { } failure ? LastFmAnswer.Failed(failure) : new LastFmAnswer(response.StatusCode, body, null);
         }
     }
+
+    /// <summary>What a rate-limited read says, whether it was a 429 or error 29.</summary>
+    internal const string RateLimitedText = "Last.fm: Rate limit exceeded; the list will be read again later.";
 
     /// <summary>Reads a loved page, or <see langword="null"/> when the body is not one.</summary>
     public static LastFmTrackPage? Loved(string body) => Read<LastFmLovedResponse>(body)?.LovedTracks;
@@ -224,6 +243,19 @@ internal static class LastFmFetch
         return first.Length == 0 || (first[0] != '{' && first[0] != '[');
     }
 
+    /// <summary>The error code of a Last.fm error body, or <see langword="null"/> when it is not one.</summary>
+    private static int? ErrorCode(string body)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<LastFmError>(body, Json)?.Error;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The failure a Last.fm error body maps to, or <see langword="null"/> when it is not one.</summary>
     private static string? Error(string body)
     {
@@ -247,9 +279,7 @@ internal static class LastFmFetch
         // is the human part, and it never carries the key.
         var message = string.IsNullOrWhiteSpace(error.Message) ? $"error {code}" : error.Message.Trim();
 
-        return code == 29
-            ? $"Last.fm: {message}; the list will be read again later."
-            : $"Last.fm: {message}";
+        return code == 29 ? RateLimitedText : $"Last.fm: {message}";
     }
 
     private static T? Read<T>(string body)

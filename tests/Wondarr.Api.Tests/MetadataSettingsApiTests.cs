@@ -213,7 +213,10 @@ public sealed class MetadataSettingsApiTests
         {
             var (_, body) = await api.PostAsync($"{Endpoint}/test", new { service = "acoustid", key = AcoustIdKey });
 
-            ((JsonObject)body!)["ok"]!.GetValue<bool>().Should().BeTrue();
+            var result = (JsonObject)body!;
+
+            result["ok"]!.GetValue<bool>().Should().BeTrue();
+            result["message"]!.GetValue<string>().Should().Contain("refused the probe fingerprint").And.Contain("invalid fingerprint");
             api.Raw.Should().NotContain(AcoustIdKey);
             accepted.Requests.Should().ContainSingle("one lookup, never more");
         }
@@ -229,6 +232,47 @@ public sealed class MetadataSettingsApiTests
             result["ok"]!.GetValue<bool>().Should().BeFalse();
             result["message"]!.GetValue<string>().Should().Contain("rejected");
         }
+    }
+
+    [Fact]
+    public async Task Testing_acoustid_accepts_the_key_on_any_error_that_is_not_the_invalid_key_one()
+    {
+        var other = new StubHandler(_ => Json("""{"status":"error","error":{"code":2,"message":"missing required parameter"}}"""));
+        using var factory = Factory(acoustId: other);
+        using var api = new Session(factory);
+
+        var (_, body) = await api.PostAsync($"{Endpoint}/test", new { service = "acoustid", key = AcoustIdKey });
+
+        var result = (JsonObject)body!;
+
+        result["ok"]!.GetValue<bool>().Should().BeTrue();
+        result["message"]!.GetValue<string>().Should().Contain("missing required parameter");
+    }
+
+    [Fact]
+    public async Task A_429_from_last_fm_is_not_retried_by_the_pipeline_and_holds_the_next_call_back()
+    {
+        // If the lastfm pipeline retried a 429 (honouring Retry-After) this would see several requests,
+        // or sit out the Retry-After; the client reads Retry-After itself and records the wait instead.
+        var limited = new StubHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            };
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(3));
+
+            return response;
+        });
+        using var factory = Factory(lastFm: limited);
+        using var api = new Session(factory);
+
+        var (_, first) = await api.PostAsync($"{Endpoint}/test", new { service = "lastfm", key = LastFmKey });
+        var (_, second) = await api.PostAsync($"{Endpoint}/test", new { service = "lastfm", key = LastFmKey });
+
+        ((JsonObject)first!)["ok"]!.GetValue<bool>().Should().BeFalse();
+        ((JsonObject)second!)["message"]!.GetValue<string>().Should().Contain("3 minutes");
+        limited.Requests.Should().ContainSingle();
     }
 
     [Fact]
