@@ -61,13 +61,14 @@ public sealed class SongDetailsApiTests
 
         var source = file.GetProperty("source");
         source.GetProperty("kind").GetString().Should().Be("download");
-        source.GetProperty("provider").GetString().Should().Be("someuser");
+        source.GetProperty("provider").GetString().Should().Be("soulseek");
         source.GetProperty("name").GetString().Should().Be("Get Lucky.flac");
         source.GetProperty("queueItemId").GetInt64().Should().Be(7);
 
         // Never the stored blob, nor the peer's folder.
         var raw = file.GetRawText();
         raw.Should().NotContain("private share");
+        raw.Should().NotContain("someuser");
         raw.Should().NotContain("remotePath");
         raw.Should().NotContain("searchRunId");
     }
@@ -186,10 +187,11 @@ public sealed class SongDetailsApiTests
         details.GetProperty("musicBrainz").GetProperty("recordingId").GetString().Should().Be(RecordingId);
         details.GetProperty("releases").GetArrayLength().Should().Be(2);
 
-        // A failure is not remembered: the next view asks again.
+        // A failure is remembered for a minute, so a throttled Deezer is not hit on every view.
         using var again = await client.GetAsync(new Uri($"/api/v1/song/{songId}/details", UriKind.Relative));
         again.StatusCode.Should().Be(HttpStatusCode.OK);
-        await deezer.Received(2).GetTrackAsync(DeezerId, Arg.Any<CancellationToken>());
+        (await SongApiTests.ReadJsonAsync(again)).GetProperty("deezer").ValueKind.Should().Be(JsonValueKind.Null);
+        await deezer.Received(1).GetTrackAsync(DeezerId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -302,7 +304,7 @@ public sealed class SongDetailsApiTests
     }
 
     [Fact]
-    public async Task A_lookup_that_found_nothing_is_not_an_error_and_an_unavailable_one_is_not_remembered()
+    public async Task A_lookup_that_found_nothing_is_not_an_error_and_an_unavailable_one_is_remembered_for_a_minute()
     {
         var lrclib = Substitute.For<ILrclibClient>();
         lrclib.FindAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -322,8 +324,54 @@ public sealed class SongDetailsApiTests
             (await SongApiTests.ReadJsonAsync(response)).GetProperty("source").ValueKind.Should().Be(JsonValueKind.Null);
         }
 
-        // Unavailable is asked again, NotFound is remembered: two calls for three views.
-        await lrclib.Received(2).FindAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // The first answer was Unavailable and is held for a minute: one call for three views.
+        await lrclib.Received(1).FindAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Lyrics_switched_off_still_read_an_existing_sidecar_and_agree_with_details()
+    {
+        var lrclib = Substitute.For<ILrclibClient>();
+
+        using var factory = Factory(lrclib, new Dictionary<string, string?> { ["Lyrics:Enabled"] = "false" });
+        using var client = SongApiTests.Authenticated(factory);
+        var songId = await SeedSongAsync(factory, deezerId: null);
+        var audio = Path.Combine(factory.ConfigDir, "library", "Get Lucky.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(audio)!);
+        await File.WriteAllTextAsync(audio, "not really audio");
+        await File.WriteAllTextAsync(Path.ChangeExtension(audio, ".txt"), "We've come too far\n");
+        await SeedFileAsync(factory, songId, audio, SourceTypes.Soulseek, "{}");
+
+        using var response = await client.GetAsync(new Uri($"/api/v1/song/{songId}/lyrics", UriKind.Relative));
+        var lyrics = await SongApiTests.ReadJsonAsync(response);
+
+        lyrics.GetProperty("source").GetString().Should().Be("sidecar");
+        lyrics.GetProperty("plain").GetString().Should().Contain("We've come too far");
+
+        using var details = await client.GetAsync(new Uri($"/api/v1/song/{songId}/details", UriKind.Relative));
+        (await SongApiTests.ReadJsonAsync(details)).GetProperty("lyrics").GetProperty("source").GetString()
+            .Should().Be("sidecar");
+
+        await lrclib.DidNotReceiveWithAnyArgs().FindAsync(default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task A_file_path_that_cannot_be_read_gives_no_lyrics_not_a_500()
+    {
+        var lrclib = Substitute.For<ILrclibClient>();
+        lrclib.FindAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new LyricsLookup(LyricsLookupStatus.NotFound, null, null, null)));
+
+        using var factory = Factory(lrclib);
+        using var client = SongApiTests.Authenticated(factory);
+        var songId = await SeedSongAsync(factory, deezerId: null);
+        await SeedFileAsync(factory, songId, "bad\0path/Get Lucky.flac", SourceTypes.Soulseek, "{}");
+
+        using var lyrics = await client.GetAsync(new Uri($"/api/v1/song/{songId}/lyrics", UriKind.Relative));
+        lyrics.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var details = await client.GetAsync(new Uri($"/api/v1/song/{songId}/details", UriKind.Relative));
+        details.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]
