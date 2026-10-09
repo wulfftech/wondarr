@@ -9,8 +9,8 @@ namespace Wondarr.Api.Authentication;
 [Route("api/v1/auth/user")]
 public sealed class AuthUserController : ControllerBase
 {
-    private const int MaxUsernameLength = 64;
-    private const int MinPasswordLength = 8;
+    internal const int MaxUsernameLength = 64;
+    internal const int MinPasswordLength = 8;
 
     private readonly ICredentialStore _credentials;
 

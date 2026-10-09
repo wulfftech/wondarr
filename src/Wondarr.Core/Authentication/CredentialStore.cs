@@ -13,6 +13,10 @@ public sealed class CredentialStore : ICredentialStore
     private const int HashSize = 32;
     private const int Iterations = 210_000;
 
+    // One check-and-write at a time per process. Wondarr is a single process on a single SQLite
+    // file, and the store is scoped per request, so the lock is static: every request shares it.
+    private static readonly SemaphoreSlim InitialGate = new(1, 1);
+
     private readonly ISettingsRepository _settings;
 
     /// <summary>Initialises a new instance of the <see cref="CredentialStore"/> class.</summary>
@@ -45,6 +49,31 @@ public sealed class CredentialStore : ICredentialStore
         };
 
         await _settings.SetAsync(SettingsKey, stored, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TrySetInitialAsync(string username, string password, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(username);
+        ArgumentNullException.ThrowIfNull(password);
+
+        await InitialGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            if (await IsConfiguredAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            await SetAsync(username, password, cancellationToken).ConfigureAwait(false);
+
+            return true;
+        }
+        finally
+        {
+            InitialGate.Release();
+        }
     }
 
     /// <inheritdoc />
