@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Persistence;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Wondarr.Core.CustomFilters;
@@ -88,6 +89,9 @@ public sealed class CustomFilterService : ICustomFilterService
 
     /// <summary>The most filters one view holds.</summary>
     public const int MaxFilters = 20;
+
+    /// <summary>SQLite's extended result code for a broken UNIQUE constraint (<c>SQLITE_CONSTRAINT_UNIQUE</c>).</summary>
+    private const int UniqueConstraintFailed = 2067;
 
     /// <summary>The largest filters JSON, in bytes.</summary>
     public const int MaxFiltersBytes = 8 * 1024;
@@ -206,11 +210,14 @@ public sealed class CustomFilterService : ICustomFilterService
             throw new CustomFilterValidationException("filters", "filters must be a JSON array.");
         }
 
-        var count = 0;
+        // The count first: a huge array is refused before any entry is looked at.
+        if (filters.GetArrayLength() > MaxFilters)
+        {
+            throw new CustomFilterValidationException("filters", $"filters holds more than {MaxFilters} entries.");
+        }
+
         foreach (var entry in filters.EnumerateArray())
         {
-            count++;
-
             if (entry.ValueKind != JsonValueKind.Object
                 || !entry.TryGetProperty("key", out var key)
                 || key.ValueKind != JsonValueKind.String)
@@ -219,11 +226,6 @@ public sealed class CustomFilterService : ICustomFilterService
                     "filters",
                     "every filter must be an object with a string key.");
             }
-        }
-
-        if (count > MaxFilters)
-        {
-            throw new CustomFilterValidationException("filters", $"filters holds more than {MaxFilters} entries.");
         }
 
         var raw = filters.GetRawText();
@@ -251,7 +253,7 @@ public sealed class CustomFilterService : ICustomFilterService
         {
             await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (DbUpdateException) when (_database.CustomFilters.Local.Contains(row))
+        catch (DbUpdateException exception) when (exception.InnerException is SqliteException { SqliteExtendedErrorCode: UniqueConstraintFailed })
         {
             // A racing request took the label between the check and the write: the unique index says so.
             throw new CustomFilterConflictException(row.Type, row.Label);
