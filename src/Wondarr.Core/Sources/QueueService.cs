@@ -46,6 +46,20 @@ public interface IQueueService
     /// <param name="includeFinished">Whether imported, failed and cancelled items are on the page too.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     Task<PagedResult<QueueItem>> GetPageAsync(PagingSpec paging, bool includeFinished, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets a page of queue items, as the overload without a song does, optionally limited to the
+    /// grabs made for one song.
+    /// </summary>
+    /// <param name="paging">The page, size and sort the caller asked for.</param>
+    /// <param name="includeFinished">Whether imported, failed and cancelled items are on the page too.</param>
+    /// <param name="songId">Only items grabbed for this song, or <see langword="null"/> for every item.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    Task<PagedResult<QueueItem>> GetPageAsync(
+        PagingSpec paging,
+        bool includeFinished,
+        long? songId,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -160,9 +174,17 @@ public sealed class QueueService : IQueueService
         GetPageAsync(paging, includeFinished: true, cancellationToken);
 
     /// <inheritdoc />
+    public Task<PagedResult<QueueItem>> GetPageAsync(
+        PagingSpec paging,
+        bool includeFinished,
+        CancellationToken cancellationToken) =>
+        GetPageAsync(paging, includeFinished, songId: null, cancellationToken);
+
+    /// <inheritdoc />
     public async Task<PagedResult<QueueItem>> GetPageAsync(
         PagingSpec paging,
         bool includeFinished,
+        long? songId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(paging);
@@ -172,6 +194,11 @@ public sealed class QueueService : IQueueService
             .Include(item => item.Song)
             .Include(item => item.Candidate)
             .AsQueryable();
+
+        if (songId is { } id)
+        {
+            query = query.Where(item => item.SongId == id);
+        }
 
         if (!includeFinished)
         {

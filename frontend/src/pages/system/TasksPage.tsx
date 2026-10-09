@@ -6,6 +6,9 @@ import type { CommandStatusName } from '../../api/songs';
 import { useCommands, type CommandResource } from '../../api/system';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 
+/** A column that is exactly as wide as its longest value; the columns without a width share the rest. */
+const NOWRAP = { whiteSpace: 'nowrap' } as const;
+
 function orDash(value: string | null | undefined): string {
   return value === null || value === undefined || value === '' ? '—' : value;
 }
@@ -72,19 +75,21 @@ export function TasksPage() {
           <Table data-testid="task-list">
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Task</Table.Th>
+                <Table.Th w={1} style={NOWRAP}>
+                  Task
+                </Table.Th>
                 <Table.Th w={90}>Interval</Table.Th>
                 <Table.Th w={190}>Last run</Table.Th>
                 <Table.Th w={110}>Last duration</Table.Th>
                 <Table.Th w={190}>Next run</Table.Th>
-                <Table.Th w={140}>Last result</Table.Th>
+                <Table.Th>Last result</Table.Th>
                 <Table.Th w={110} />
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {tasks.data.map((task) => (
                 <Table.Tr key={task.id}>
-                  <Table.Td>{task.name}</Table.Td>
+                  <Table.Td style={NOWRAP}>{task.name}</Table.Td>
                   <Table.Td>{formatInterval(Number(task.interval))}</Table.Td>
                   <Table.Td>{formatTimestamp(task.lastExecution)}</Table.Td>
                   <Table.Td>{formatDuration(task.lastDuration)}</Table.Td>
@@ -122,7 +127,9 @@ export function TasksPage() {
           <Table data-testid="command-list">
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Command</Table.Th>
+                <Table.Th w={1} style={NOWRAP}>
+                  Command
+                </Table.Th>
                 <Table.Th w={110}>Status</Table.Th>
                 <Table.Th w={190}>Queued</Table.Th>
                 <Table.Th w={190}>Ended</Table.Th>
@@ -133,7 +140,7 @@ export function TasksPage() {
             <Table.Tbody>
               {commands.data.slice(0, 20).map((command) => (
                 <Table.Tr key={command.id}>
-                  <Table.Td>{command.commandName}</Table.Td>
+                  <Table.Td style={NOWRAP}>{command.commandName}</Table.Td>
                   <Table.Td>
                     <Text c={statusColour(command.status)}>{command.status}</Text>
                   </Table.Td>

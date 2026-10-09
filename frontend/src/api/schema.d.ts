@@ -977,6 +977,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/song/{id}/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SongDetailsResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/song/{id}/lyrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SongLyricsResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/song/lookup": {
         parameters: {
             query?: never;
@@ -1825,6 +1899,7 @@ export interface paths {
             parameters: {
                 query?: {
                     includeFinished?: boolean;
+                    songId?: number | string;
                 };
                 header?: never;
                 path?: never;
@@ -4317,7 +4392,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    songId?: number | string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -5607,6 +5684,7 @@ export interface components {
             unknownErrors: boolean;
             unknownWarnings: boolean;
         };
+        ReferenceFileState: number;
         ReferenceLibraryCountsResource: {
             /** Format: int32 */
             total: number | string;
@@ -5791,6 +5869,27 @@ export interface components {
         SongAlbumContextUpdateResource: {
             albumKey: null | string;
         };
+        SongDeezerResource: {
+            /** Format: int64 */
+            trackId: number | string;
+            url: string;
+            /** Format: int64 */
+            rank: null | number | string;
+            explicitLyrics: boolean;
+            /** Format: double */
+            bpm: null | number | string;
+            /** Format: double */
+            gain: null | number | string;
+            releaseDate: null | string;
+            albumCoverUrl: null | string;
+        };
+        SongDetailsResource: {
+            releases: components["schemas"]["SongReleaseResource"][];
+            musicBrainz: null | components["schemas"]["SongMusicBrainzResource"];
+            deezer: null | components["schemas"]["SongDeezerResource"];
+            referenceFile: null | components["schemas"]["SongReferenceFileResource"];
+            lyrics: components["schemas"]["SongLyricsAvailabilityResource"];
+        };
         SongEditorDeleteResource: {
             songIds: null | (number | string)[];
         };
@@ -5821,6 +5920,39 @@ export interface components {
             /** Format: int64 */
             size: number | string;
             sourceType: string;
+            /** Format: int32 */
+            sampleRate: null | number | string;
+            /** Format: int32 */
+            bitDepth: null | number | string;
+            /** Format: int32 */
+            channels: null | number | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            /** Format: int64 */
+            qualityId: number | string;
+            acoustId: null | string;
+            fingerprintVerified: boolean;
+            /** Format: date-time */
+            importedAt: string;
+            tagsWritten: null | {
+                [key: string]: string;
+            };
+            /** Format: double */
+            replayGainDb: null | number | string;
+            /** Format: double */
+            replayGainPeak: null | number | string;
+            source: components["schemas"]["SongFileSourceResource"];
+        };
+        SongFileSourceResource: {
+            kind: string;
+            provider: null | string;
+            name: null | string;
+            /** Format: int64 */
+            queueItemId: null | number | string;
+            /** Format: int64 */
+            referenceLibraryId: null | number | string;
+            referenceLibraryName: null | string;
+            relativePath: null | string;
         };
         SongLookupRequest: {
             term: null | string;
@@ -5847,6 +5979,16 @@ export interface components {
             /** Format: int64 */
             existingSongId: null | number | string;
         };
+        SongLyricsAvailabilityResource: {
+            source: string;
+            synced: boolean;
+            plain: boolean;
+        };
+        SongLyricsResource: {
+            source: null | string;
+            synced: null | string;
+            plain: null | string;
+        };
         SongMoveAcceptedResource: {
             /** Format: int64 */
             commandId: number | string;
@@ -5855,6 +5997,41 @@ export interface components {
             songIds: null | (number | string)[];
             /** Format: int64 */
             libraryId: number | string;
+        };
+        SongMusicBrainzResource: {
+            recordingId: string;
+            firstReleaseDate: null | string;
+            disambiguation: null | string;
+            isrcs: string[];
+            artistCredit: string;
+            url: string;
+        };
+        SongReferenceFileResource: {
+            /** Format: int64 */
+            libraryId: number | string;
+            libraryName: string;
+            relativePath: string;
+            identifiedBy: null | string;
+            /** Format: double */
+            confidence: number | string;
+            state: components["schemas"]["ReferenceFileState"];
+        };
+        SongReleaseResource: {
+            key: string;
+            mbReleaseId: null | string;
+            mbReleaseGroupId: null | string;
+            title: string;
+            albumArtist: string;
+            primaryType: null | string;
+            secondaryTypes: string[];
+            status: null | string;
+            date: null | string;
+            /** Format: int32 */
+            trackNo: null | number | string;
+            /** Format: int32 */
+            totalTracks: null | number | string;
+            coverUrl: null | string;
+            isCurrent: boolean;
         };
         SongResource: {
             /** Format: int64 */
