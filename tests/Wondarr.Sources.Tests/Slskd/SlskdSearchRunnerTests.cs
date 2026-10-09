@@ -39,7 +39,10 @@ public class SlskdSearchRunnerTests
         result.FinalState.Should().Be("Completed, ResponseLimitReached");
         result.StoppedByWallClock.Should().BeFalse();
         result.Responses.Should().ContainSingle();
-        result.Elapsed.Should().Be(Poll);
+        // Measured on the fake clock: whole poll steps. Under load the pump can advance the clock once
+        // before the runner reaches its first delay, so one step or two are both right.
+        result.Elapsed.Should().BeGreaterThanOrEqualTo(Poll).And.BeLessThanOrEqualTo(Poll * 2);
+        (result.Elapsed.Ticks % Poll.Ticks).Should().Be(0);
 
         await api.Received(1).GetResponsesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await api.Received(1).DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
