@@ -26,6 +26,24 @@ public interface IConfigFileWriter
         string section,
         IReadOnlyDictionary<string, object?> values,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Merges several sections in one read-modify-write, so the file changes once and is reloaded once.
+    /// The default writes them one after the other; <see cref="ConfigFileWriter"/> does it in a single write.
+    /// </summary>
+    /// <param name="sections">Section name to the keys to write there, as for <see cref="UpdateSectionAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels the write. A cancelled write leaves the file untouched.</param>
+    async Task UpdateSectionsAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> sections,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
+
+        foreach (var (section, values) in sections)
+        {
+            await UpdateSectionAsync(section, values, cancellationToken).ConfigureAwait(false);
+        }
+    }
 }
 
 /// <inheritdoc />
@@ -74,13 +92,25 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
     }
 
     /// <inheritdoc />
-    public async Task UpdateSectionAsync(
+    public Task UpdateSectionAsync(
         string section,
         IReadOnlyDictionary<string, object?> values,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(section);
         ArgumentNullException.ThrowIfNull(values);
+
+        return UpdateSectionsAsync(
+            new Dictionary<string, IReadOnlyDictionary<string, object?>> { [section] = values },
+            cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateSectionsAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> sections,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
 
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -91,20 +121,29 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
 
             var root = document.Documents[0].RootNode as YamlMappingNode
                 ?? throw new InvalidOperationException(
-                    $"{path} does not hold a YAML mapping at its top level, so {section} cannot be written");
+                    $"{path} does not hold a YAML mapping at its top level, so {string.Join(", ", sections.Keys)} cannot be written");
 
-            var sectionNode = Section(root, section);
-            foreach (var (key, value) in values)
+            foreach (var (section, values) in sections)
             {
-                SetKey(sectionNode, key, value);
+                ArgumentException.ThrowIfNullOrWhiteSpace(section);
+                ArgumentNullException.ThrowIfNull(values);
+
+                var sectionNode = Section(root, section);
+                foreach (var (key, value) in values)
+                {
+                    SetKey(sectionNode, key, value);
+                }
             }
 
             Write(path, document);
 
-            // The values are deliberately absent from the log: the section holds the Soulseek
+            // The values are deliberately absent from the log: a section holds the Soulseek
             // password and the generated API key.
-            var keys = string.Join(", ", values.Keys);
-            LogUpdated(_logger, section, keys);
+            foreach (var (section, values) in sections)
+            {
+                var keys = string.Join(", ", values.Keys);
+                LogUpdated(_logger, section, keys);
+            }
 
             if (_configuration is IConfigurationRoot configurationRoot)
             {

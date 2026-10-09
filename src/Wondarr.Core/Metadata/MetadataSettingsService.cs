@@ -158,28 +158,22 @@ public sealed partial class MetadataSettingsService : IMetadataSettingsService
         _secrets.Register(acoustId.Value);
         _secrets.Register(lastFm.Value);
 
+        // Both keys in one write: the file changes once, so a failure cannot leave one key saved.
+        var sections = new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.Ordinal);
+
         if (acoustId.Present)
         {
-            await _writer
-                .UpdateSectionAsync(
-                    AcoustIdSection,
-                    new Dictionary<string, object?> { [AcoustIdKey] = acoustId.Value },
-                    cancellationToken)
-                .ConfigureAwait(false);
+            sections[AcoustIdSection] = new Dictionary<string, object?> { [AcoustIdKey] = acoustId.Value };
         }
 
         if (lastFm.Present)
         {
-            await _writer
-                .UpdateSectionAsync(
-                    LastFmSection,
-                    new Dictionary<string, object?> { [LastFmKey] = lastFm.Value },
-                    cancellationToken)
-                .ConfigureAwait(false);
+            sections[LastFmSection] = new Dictionary<string, object?> { [LastFmKey] = lastFm.Value };
         }
 
-        if (acoustId.Present || lastFm.Present)
+        if (sections.Count > 0)
         {
+            await _writer.UpdateSectionsAsync(sections, cancellationToken).ConfigureAwait(false);
             LogUpdated(_logger, acoustId.Present, lastFm.Present);
         }
 
@@ -258,13 +252,22 @@ public sealed partial class MetadataSettingsService : IMetadataSettingsService
             return new MetadataKeyTestResult(false, "There is no AcoustID key to test; type one first.");
         }
 
-        _secrets.Register(key);
-
         var result = await _acoustIdClient.CheckKeyAsync(key, cancellationToken).ConfigureAwait(false);
+
+        if (result.Status == AcoustIdStatus.Ok)
+        {
+            // Only a key that worked is a real secret; a mistyped one is not worth remembering.
+            _secrets.Register(key);
+
+            return new MetadataKeyTestResult(
+                true,
+                result.Error is { Length: > 0 } refusal
+                    ? $"AcoustID accepted the key. It refused the probe fingerprint itself, as expected: {refusal}"
+                    : "AcoustID accepted the key.");
+        }
 
         return result.Status switch
         {
-            AcoustIdStatus.Ok => new MetadataKeyTestResult(true, "AcoustID accepted the key."),
             AcoustIdStatus.InvalidKey => new MetadataKeyTestResult(false, "AcoustID rejected the key."),
             AcoustIdStatus.RateLimited => new MetadataKeyTestResult(false, "AcoustID is rate limiting this server; try again in a minute."),
             AcoustIdStatus.Unavailable => new MetadataKeyTestResult(false, result.Error ?? "AcoustID could not be reached."),

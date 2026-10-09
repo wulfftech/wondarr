@@ -331,6 +331,8 @@ public static class ServiceCollectionExtensions
         lastFm.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(LastFmGateKey)));
 
+        // One record of a Last.fm rate limit for the whole process: the song page and the import lists share it.
+        services.AddSingleton<ILastFmBackOff, LastFmBackOff>();
         services.AddSingleton<ILastFmClient, LastFmClient>();
 
         // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a

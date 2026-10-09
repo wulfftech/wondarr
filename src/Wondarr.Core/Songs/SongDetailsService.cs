@@ -153,6 +153,9 @@ public sealed partial class SongDetailsService : ISongDetailsService
     /// </summary>
     public static readonly TimeSpan IdentityTimeout = TimeSpan.FromSeconds(12);
 
+    /// <summary>The most library rows read to find the song a similar track is, per similar track.</summary>
+    internal const int CandidateRowsPerTitle = 200;
+
     /// <summary>How long a failed Deezer call is remembered, so a throttled Deezer is not retried on every page view.</summary>
     public static readonly TimeSpan UnavailableTtl = TimeSpan.FromMinutes(1);
 
@@ -413,13 +416,29 @@ public sealed partial class SongDetailsService : ISongDetailsService
             }
         }
 
-        var unmatched = tracks.Any(track => track.Mbid is null || !byMbid.ContainsKey(track.Mbid.ToLowerInvariant()));
         var byText = new Dictionary<string, long>(StringComparer.Ordinal);
 
-        if (unmatched)
+        // Only the tracks the recording id did not settle are looked for by name.
+        var needles = tracks
+            .Where(track => track.Mbid is null || !byMbid.ContainsKey(track.Mbid.ToLowerInvariant()))
+            .SelectMany(track => TitleNeedles(track.Title))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // One small query per needle, each a case-insensitive LIKE on the title and capped: the
+        // library is never read whole. The exact comparison happens below, on these rows only.
+        foreach (var needle in needles)
         {
+            var pattern = "%" + needle.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("%", "\\%", StringComparison.Ordinal)
+                .Replace("_", "\\_", StringComparison.Ordinal) + "%";
+
             var rows = await _database.Songs
                 .AsNoTracking()
+                .Where(song => EF.Functions.Like(song.Title, pattern, "\\"))
+                .OrderBy(song => song.Title.Length)
+                .ThenBy(song => song.Id)
+                .Take(CandidateRowsPerTitle)
                 .Select(song => new { song.Id, song.Title, song.ArtistCredit, ArtistName = song.PrimaryArtist.Name })
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -451,6 +470,59 @@ public sealed partial class SongDetailsService : ISongDetailsService
                 return new SongLastFmSimilar(track.Artist, track.Title, track.Url, track.Match, id);
             }),
         ];
+    }
+
+    /// <summary>
+    /// The texts a library title may contain to be a candidate for <paramref name="title"/>: its two
+    /// longest runs of ASCII letters and digits among the words without an apostrophe (so "Don't"
+    /// spelled "Dont" or "Don’t" does not hide the match), else among any words, or the whole title
+    /// when it has none (for example a title in another script). A candidate holds any one of them.
+    /// </summary>
+    internal static IReadOnlyList<string> TitleNeedles(string title)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+
+        var words = title.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var plain = words.Where(word => !word.Contains('\'') && !word.Contains('’')).ToList();
+        var runs = Runs(plain);
+
+        if (runs.Count == 0)
+        {
+            runs = Runs(words);
+        }
+
+        return runs.Count > 0 ? runs : [title.Trim()];
+    }
+
+    private static List<string> Runs(IEnumerable<string> words)
+    {
+        var runs = new List<string>();
+
+        foreach (var word in words)
+        {
+            var start = -1;
+
+            for (var index = 0; index <= word.Length; index++)
+            {
+                var isWordCharacter = index < word.Length && char.IsAsciiLetterOrDigit(word[index]);
+
+                if (isWordCharacter && start < 0)
+                {
+                    start = index;
+                }
+                else if (!isWordCharacter && start >= 0)
+                {
+                    if (index - start >= 3)
+                    {
+                        runs.Add(word[start..index]);
+                    }
+
+                    start = -1;
+                }
+            }
+        }
+
+        return [.. runs.Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(run => run.Length).Take(2)];
     }
 
     private static string TextKey(string artist, string normalisedTitle) =>

@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Wondarr.Core.ImportLists.LastFm;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Metadata.LastFm;
 using Wondarr.Core.Tests.ImportLists;
@@ -276,6 +277,216 @@ public sealed class LastFmClientTests
     }
 
     [Fact]
+    public async Task A_rejected_key_is_remembered_for_five_minutes_per_key_not_for_a_day()
+    {
+        var calls = 0;
+        var handler = StubHttpMessageHandler.Scripted(uri =>
+        {
+            calls++;
+
+            return uri.Query.Contains("api_key=" + ApiKey, StringComparison.Ordinal)
+                ? Json("""{"error":10,"message":"Invalid API key"}""")
+                : Json(TrackAnswer);
+        });
+        var options = new StaticOptionsMonitor<LastFmOptions>(new LastFmOptions { ApiKey = ApiKey });
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero));
+        var client = new LastFmClient(
+            new ListHttpClientFactory(handler, BaseAddress),
+            options,
+            time,
+            new LastFmBackOff(time),
+            new SecretRegistry(),
+            NullLogger<LastFmClient>.Instance);
+
+        (await client.GetTrackAsync(null, "A", "B", CancellationToken.None)).Status.Should().Be(LastFmStatus.InvalidKey);
+        time.Advance(TimeSpan.FromMinutes(4));
+        await client.GetTrackAsync(null, "A", "B", CancellationToken.None);
+
+        calls.Should().Be(1, "inside five minutes the rejection is answered from memory");
+
+        // A corrected key is tried at once, not after the rejection of the old one expires.
+        options.CurrentValue = new LastFmOptions { ApiKey = "corrected-key-0001" };
+        (await client.GetTrackAsync(null, "A", "B", CancellationToken.None)).Status.Should().Be(LastFmStatus.Ok);
+        calls.Should().Be(2);
+
+        options.CurrentValue = new LastFmOptions { ApiKey = ApiKey };
+        (await client.GetTrackAsync(null, "X", "Y", CancellationToken.None)).Status.Should().Be(LastFmStatus.InvalidKey);
+        calls.Should().Be(3);
+
+        time.Advance(TimeSpan.FromMinutes(6));
+        await client.GetTrackAsync(null, "X", "Y", CancellationToken.None);
+
+        calls.Should().Be(4, "after five minutes the rejected key is asked about again");
+    }
+
+    [Fact]
+    public async Task An_unreachable_last_fm_is_remembered_for_five_minutes()
+    {
+        var calls = 0;
+        var handler = StubHttpMessageHandler.ScriptedAsync((_, _) =>
+        {
+            calls++;
+
+            throw new HttpRequestException("down");
+        });
+        var client = Client(handler, out var time);
+
+        (await client.GetTrackAsync(null, "A", "B", CancellationToken.None)).Status.Should().Be(LastFmStatus.Unavailable);
+        await client.GetTrackAsync(null, "A", "B", CancellationToken.None);
+
+        calls.Should().Be(1);
+
+        time.Advance(TimeSpan.FromMinutes(6));
+        await client.GetTrackAsync(null, "A", "B", CancellationToken.None);
+
+        calls.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_rate_limit_seen_by_an_import_list_stops_the_song_page_client_and_the_other_way_round()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero));
+        var backOff = new LastFmBackOff(time);
+
+        // An import list read gets a 429 with Retry-After: three minutes.
+        var listHandler = StubHttpMessageHandler.Scripted(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            };
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMinutes(3));
+
+            return response;
+        });
+        var answer = await LastFmFetch.PageAsync(
+            new HttpClient(listHandler) { BaseAddress = new Uri(BaseAddress) },
+            "user.getlovedtracks",
+            "someone",
+            ApiKey,
+            null,
+            200,
+            1,
+            backOff,
+            CancellationToken.None);
+
+        answer.Ok.Should().BeFalse();
+        answer.Error.Should().Contain("will be read again later");
+
+        var songHandler = StubHttpMessageHandler.Scripted(_ => Json(TrackAnswer));
+        var client = new LastFmClient(
+            new ListHttpClientFactory(songHandler, BaseAddress),
+            new StaticOptionsMonitor<LastFmOptions>(new LastFmOptions { ApiKey = ApiKey }),
+            time,
+            backOff,
+            new SecretRegistry(),
+            NullLogger<LastFmClient>.Instance);
+
+        var held = await client.GetTrackAsync(null, "A", "B", CancellationToken.None);
+
+        held.Status.Should().Be(LastFmStatus.RateLimited);
+        held.Message.Should().Contain("3 minutes");
+        songHandler.Requests.Should().BeEmpty("the import list's 429 told the whole process to wait");
+
+        // And the other way round: the song page client is told error 29, the list read does not go out.
+        time.Advance(TimeSpan.FromMinutes(4));
+        var limitedHandler = StubHttpMessageHandler.Scripted(_ => Json("""{"error":29,"message":"Rate limit exceeded"}"""));
+        var limitedClient = new LastFmClient(
+            new ListHttpClientFactory(limitedHandler, BaseAddress),
+            new StaticOptionsMonitor<LastFmOptions>(new LastFmOptions { ApiKey = ApiKey }),
+            time,
+            backOff,
+            new SecretRegistry(),
+            NullLogger<LastFmClient>.Instance);
+
+        (await limitedClient.GetArtistAsync("A", CancellationToken.None)).Status.Should().Be(LastFmStatus.RateLimited);
+
+        var skipped = StubHttpMessageHandler.Scripted(_ => Json("{}"));
+        var second = await LastFmFetch.PageAsync(
+            new HttpClient(skipped) { BaseAddress = new Uri(BaseAddress) },
+            "user.getlovedtracks",
+            "someone",
+            ApiKey,
+            null,
+            200,
+            1,
+            backOff,
+            CancellationToken.None);
+
+        second.Ok.Should().BeFalse();
+        skipped.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Error_29_seen_by_an_import_list_reads_the_same_as_a_429()
+    {
+        var backOff = new LastFmBackOff(TimeProvider.System);
+        var handler = StubHttpMessageHandler.Scripted(_ => Json("""{"error":29,"message":"Rate Limit Exceeded"}"""));
+
+        var answer = await LastFmFetch.PageAsync(
+            new HttpClient(handler) { BaseAddress = new Uri(BaseAddress) },
+            "user.getlovedtracks",
+            "someone",
+            ApiKey,
+            null,
+            200,
+            1,
+            backOff,
+            CancellationToken.None);
+
+        answer.Error.Should().Be(LastFmFetch.RateLimitedText);
+        backOff.Remaining.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Links_that_are_not_https_on_www_last_fm_are_dropped()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ => Json(
+            """{"track":{"url":"javascript:alert(1)","listeners":"1","playcount":"2"}}"""));
+        var client = Client(handler, out _);
+
+        (await client.GetTrackAsync(null, "A", "B", CancellationToken.None)).Value!.Url.Should().BeNull();
+
+        LastFmClient.SafeUrl("https://www.last.fm/music/Chic").Should().Be("https://www.last.fm/music/Chic");
+        LastFmClient.SafeUrl("http://www.last.fm/music/Chic").Should().BeNull();
+        LastFmClient.SafeUrl("https://evil.example/www.last.fm").Should().BeNull();
+        LastFmClient.SafeUrl("https://www.last.fm.evil.example/x").Should().BeNull();
+        LastFmClient.SafeUrl(null).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_key_that_failed_the_check_is_not_handed_to_the_secret_registry()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ => Json("""{"error":10,"message":"Invalid API key"}"""));
+        var secrets = new SecretRegistry();
+        var client = Client(handler, out _, apiKey: null, secrets: secrets);
+
+        await client.CheckKeyAsync("mistyped-key-123", CancellationToken.None);
+
+        secrets.Redact("api_key=mistyped-key-123").Should().Contain("mistyped-key-123");
+    }
+
+    [Fact]
+    public async Task The_rate_limit_message_gives_the_actual_wait()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            };
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromMinutes(7));
+
+            return response;
+        });
+        var client = Client(handler, out _);
+
+        var check = await client.CheckKeyAsync("typed-key-12345", CancellationToken.None);
+
+        check.Message.Should().Contain("7 minutes");
+    }
+
+    [Fact]
     public async Task A_key_that_is_only_being_tried_is_handed_to_the_secret_registry()
     {
         var handler = StubHttpMessageHandler.Scripted(_ => Json(TrackAnswer));
@@ -340,7 +551,8 @@ public sealed class LastFmClientTests
         StubHttpMessageHandler handler,
         out FakeTimeProvider time,
         string? apiKey = ApiKey,
-        ISecretRegistry? secrets = null)
+        ISecretRegistry? secrets = null,
+        Func<TimeProvider, ILastFmBackOff>? backOff = null)
     {
         time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero));
 
@@ -348,6 +560,7 @@ public sealed class LastFmClientTests
             new ListHttpClientFactory(handler, BaseAddress),
             new StaticOptionsMonitor<LastFmOptions>(new LastFmOptions { ApiKey = apiKey }),
             time,
+            backOff?.Invoke(time) ?? new LastFmBackOff(time),
             secrets ?? new SecretRegistry(),
             NullLogger<LastFmClient>.Instance);
     }

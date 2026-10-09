@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
@@ -127,8 +129,10 @@ public interface ILastFmClient
 /// <summary>
 /// The Last.fm 2.0 client the song page reads through, on the named <c>lastfm</c> <see cref="HttpClient"/>
 /// the import lists use: its request-spacing gate keeps the whole process under five requests a
-/// second. Every successful answer is kept in memory for 24 hours. A rate limit (error 29, or a 429
-/// with its <c>Retry-After</c>) holds every call back until the wait is over instead of asking again.
+/// second. Every successful answer is kept in memory for 24 hours (a rejected key or an unreachable
+/// Last.fm for five minutes). A rate limit (error 29, or a 429 with its <c>Retry-After</c>) is
+/// recorded in the process-wide <see cref="ILastFmBackOff"/>, which the import lists share, and holds
+/// every call back until the wait is over instead of asking again.
 /// A call takes five seconds at most. The API key travels in the query, as Last.fm's own clients send
 /// it, so no URL, header or exception text is ever logged or returned.
 /// </summary>
@@ -154,24 +158,25 @@ public sealed partial class LastFmClient : ILastFmClient
     private readonly TimeProvider _timeProvider;
     private readonly ISecretRegistry _secrets;
     private readonly ILogger<LastFmClient> _logger;
+    private readonly ILastFmBackOff _backOff;
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.Ordinal);
-    private readonly object _backOffSync = new();
-
-    private DateTimeOffset _blockedUntil = DateTimeOffset.MinValue;
 
     /// <summary>Initialises a new instance of the <see cref="LastFmClient"/> class.</summary>
     /// <param name="factory">Builds the named <c>lastfm</c> client, which carries the spacing gate.</param>
     /// <param name="options">The API key.</param>
-    /// <param name="timeProvider">The clock the cache and the back-off run on; tests drive it with <c>FakeTimeProvider</c>.</param>
+    /// <param name="timeProvider">The clock the cache runs on; tests drive it with <c>FakeTimeProvider</c>.</param>
+    /// <param name="backOff">The process-wide record of a Last.fm rate limit, shared with the import lists.</param>
     /// <param name="secrets">Told about a key that is only being tried, so no sink can print it.</param>
     /// <param name="logger">Logs failures at Debug by status; never a key or a URL.</param>
     public LastFmClient(
         IHttpClientFactory factory,
         IOptionsMonitor<LastFmOptions> options,
         TimeProvider timeProvider,
+        ILastFmBackOff backOff,
         ISecretRegistry secrets,
         ILogger<LastFmClient> logger)
     {
+        ArgumentNullException.ThrowIfNull(backOff);
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -181,6 +186,7 @@ public sealed partial class LastFmClient : ILastFmClient
         _factory = factory;
         _options = options;
         _timeProvider = timeProvider;
+        _backOff = backOff;
         _secrets = secrets;
         _logger = logger;
     }
@@ -191,11 +197,8 @@ public sealed partial class LastFmClient : ILastFmClient
     /// <summary>Gets how long an answer is kept in memory.</summary>
     public static TimeSpan CacheTtl { get; } = TimeSpan.FromHours(24);
 
-    /// <summary>Gets how long calls are held back after a rate limit that named no wait.</summary>
-    public static TimeSpan DefaultBackOff { get; } = TimeSpan.FromMinutes(1);
-
-    /// <summary>Gets the longest back-off a <c>Retry-After</c> can ask for.</summary>
-    public static TimeSpan MaxBackOff { get; } = TimeSpan.FromHours(1);
+    /// <summary>Gets how long a rejected key or an unreachable Last.fm is remembered.</summary>
+    public static TimeSpan FailureTtl { get; } = TimeSpan.FromMinutes(5);
 
     /// <inheritdoc />
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_options.CurrentValue.ApiKey);
@@ -277,17 +280,20 @@ public sealed partial class LastFmClient : ILastFmClient
 
         var key = apiKey.Trim();
 
-        // The key may not be stored yet, so the redactor has not been told about it.
-        _secrets.Register(key);
-
         var result = await CallAsync("track.getInfo", NamesQuery(CheckArtist, CheckTrack), ReadTrack, key, false, cancellationToken)
             .ConfigureAwait(false);
+
+        if (result.Status is LastFmStatus.Ok or LastFmStatus.NotFound)
+        {
+            // Only a key that worked is a real secret; a mistyped one is not worth remembering.
+            _secrets.Register(key);
+        }
 
         return result.Status switch
         {
             LastFmStatus.Ok or LastFmStatus.NotFound => new LastFmKeyCheck(result.Status, "Last.fm accepted the key."),
             LastFmStatus.InvalidKey => new LastFmKeyCheck(result.Status, "Last.fm rejected the key."),
-            LastFmStatus.RateLimited => new LastFmKeyCheck(result.Status, "Last.fm is rate limiting this server; try again in a minute."),
+            LastFmStatus.RateLimited => new LastFmKeyCheck(result.Status, result.Message ?? "Last.fm is rate limiting this server."),
             _ => new LastFmKeyCheck(result.Status, result.Message ?? "Last.fm answered something Wondarr could not use."),
         };
     }
@@ -310,6 +316,17 @@ public sealed partial class LastFmClient : ILastFmClient
 
         return collapsed.Length == 0 ? null : collapsed;
     }
+
+    /// <summary>
+    /// A URL from Last.fm's answer, kept only when it is https on <c>www.last.fm</c>: the page links it,
+    /// so a <c>javascript:</c> or foreign URL must never get through.
+    /// </summary>
+    internal static string? SafeUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps
+        && string.Equals(uri.Host, "www.last.fm", StringComparison.OrdinalIgnoreCase)
+            ? uri.AbsoluteUri
+            : null;
 
     private static string NamesQuery(string artist, string title)
     {
@@ -359,7 +376,7 @@ public sealed partial class LastFmClient : ILastFmClient
             : null;
 
         return new LastFmTrackInfo(
-            Text(track, "url"),
+            SafeUrl(Text(track, "url")),
             Count(track, "listeners"),
             Count(track, "playcount"),
             tags,
@@ -394,7 +411,7 @@ public sealed partial class LastFmClient : ILastFmClient
             listeners = Count(stats, "listeners");
         }
 
-        return new LastFmArtistInfo(name, Text(artist, "url"), bio, listeners);
+        return new LastFmArtistInfo(name, SafeUrl(Text(artist, "url")), bio, listeners);
     }
 
     private static IReadOnlyList<LastFmSimilarTrack>? ReadSimilar(JsonElement root)
@@ -418,7 +435,7 @@ public sealed partial class LastFmClient : ILastFmClient
                 continue;
             }
 
-            tracks.Add(new LastFmSimilarTrack(artist, title, Text(track, "url"), Number(track, "match"), Text(track, "mbid")));
+            tracks.Add(new LastFmSimilarTrack(artist, title, SafeUrl(Text(track, "url")), Number(track, "match"), Text(track, "mbid")));
         }
 
         return tracks;
@@ -496,8 +513,8 @@ public sealed partial class LastFmClient : ILastFmClient
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex Whitespace();
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Last.fm is rate limiting; calls are held back for {Wait}.")]
-    private static partial void LogBackOff(ILogger logger, TimeSpan wait);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Last.fm is rate limiting; every Last.fm request is held back until it is over.")]
+    private static partial void LogBackOff(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Last.fm answered {Status} with a body Wondarr could not read.")]
     private static partial void LogUnreadable(ILogger logger, int status);
@@ -522,26 +539,42 @@ public sealed partial class LastFmClient : ILastFmClient
         var cacheKey = (method + "?" + query).ToLowerInvariant();
         var now = _timeProvider.GetUtcNow();
 
-        if (cacheable && _cache.TryGetValue(cacheKey, out var cached) && cached.Expires > now)
+        // A rejected key or an unreachable Last.fm is remembered per key, so a corrected key is tried at once.
+        var failureKey = "!" + KeyId(key) + "|" + cacheKey;
+
+        if (cacheable)
         {
-            return (LastFmResult<T>)cached.Result;
+            if (_cache.TryGetValue(cacheKey, out var cached) && cached.Expires > now)
+            {
+                return (LastFmResult<T>)cached.Result;
+            }
+
+            if (_cache.TryGetValue(failureKey, out var failed) && failed.Expires > now)
+            {
+                return (LastFmResult<T>)failed.Result;
+            }
         }
 
-        if (BlockedFor(now) is { } wait)
+        if (_backOff.Remaining is { } wait)
         {
-            var seconds = Math.Ceiling(wait.TotalSeconds).ToString(CultureInfo.InvariantCulture);
-
             return new LastFmResult<T>(
                 LastFmStatus.RateLimited,
                 null,
-                $"Last.fm asked to be left alone for another {seconds} seconds.");
+                $"Last.fm is rate limiting this server; try again in {LastFmBackOff.Describe(wait)}.");
         }
 
         var result = await SendAsync(method, query, read, key, cancellationToken).ConfigureAwait(false);
 
-        if (cacheable && result.Status is LastFmStatus.Ok or LastFmStatus.NotFound)
+        if (cacheable)
         {
-            Remember(cacheKey, result);
+            if (result.Status is LastFmStatus.Ok or LastFmStatus.NotFound)
+            {
+                Remember(cacheKey, result, CacheTtl);
+            }
+            else if (result.Status is LastFmStatus.InvalidKey or LastFmStatus.Unavailable)
+            {
+                Remember(failureKey, result, FailureTtl);
+            }
         }
 
         return result;
@@ -613,9 +646,13 @@ public sealed partial class LastFmClient : ILastFmClient
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests || code == RateLimitCode)
             {
-                BackOff(response);
+                _backOff.Trip(response);
+                LogBackOff(_logger);
 
-                return new LastFmResult<T>(LastFmStatus.RateLimited, null, "Last.fm is rate limiting this server.");
+                return new LastFmResult<T>(
+                    LastFmStatus.RateLimited,
+                    null,
+                    $"Last.fm is rate limiting this server; try again in {LastFmBackOff.Describe(_backOff.Remaining ?? LastFmBackOff.DefaultWait)}.");
             }
 
             if (code is { } failure)
@@ -656,46 +693,10 @@ public sealed partial class LastFmClient : ILastFmClient
         }
     }
 
-    /// <summary>Holds every call back until the wait Last.fm asked for is over.</summary>
-    private void BackOff(HttpResponseMessage response)
-    {
-        var now = _timeProvider.GetUtcNow();
-        var wait = DefaultBackOff;
-        var retryAfter = response.Headers.RetryAfter;
+    private static string KeyId(string apiKey) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(apiKey)))[..16];
 
-        if (retryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
-        {
-            wait = delta;
-        }
-        else if (retryAfter?.Date is { } date && date - now > TimeSpan.Zero)
-        {
-            wait = date - now;
-        }
-
-        wait = wait > MaxBackOff ? MaxBackOff : wait;
-
-        lock (_backOffSync)
-        {
-            var until = now + wait;
-
-            if (until > _blockedUntil)
-            {
-                _blockedUntil = until;
-            }
-        }
-
-        LogBackOff(_logger, wait);
-    }
-
-    private TimeSpan? BlockedFor(DateTimeOffset now)
-    {
-        lock (_backOffSync)
-        {
-            return _blockedUntil > now ? _blockedUntil - now : null;
-        }
-    }
-
-    private void Remember(string cacheKey, object result)
+    private void Remember(string cacheKey, object result, TimeSpan ttl)
     {
         var now = _timeProvider.GetUtcNow();
 
@@ -715,7 +716,7 @@ public sealed partial class LastFmClient : ILastFmClient
             }
         }
 
-        _cache[cacheKey] = new CacheEntry(now + CacheTtl, result);
+        _cache[cacheKey] = new CacheEntry(now + ttl, result);
     }
 
     private sealed record CacheEntry(DateTimeOffset Expires, object Result);
