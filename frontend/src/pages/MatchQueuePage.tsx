@@ -264,7 +264,7 @@ function ReviewDrawer({
         <Group key={`${result.source}-${index}`} justify="space-between" wrap="nowrap" align="flex-start">
           <Stack gap={0}>
             <Text size="sm">
-              {result.title} · {result.artistCredit}
+              {result.artistCredit} - {result.title}
             </Text>
             <Text size="xs" c="dimmed">
               {result.source} · {formatDuration(result.durationMs)} · {formatScore(result.score)}
