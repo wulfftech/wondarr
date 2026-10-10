@@ -146,6 +146,7 @@ internal sealed class BackoffTestHost : IAsyncDisposable
         services.AddScoped<ISoulseekUserService, SoulseekUserService>();
         services.AddScoped<IHistoryService, HistoryService>();
         services.AddSingleton<IEventAggregator, EventAggregator>();
+        services.AddScoped<SlotWaitContext>();
         services.AddScoped<ISongSearchService, SongSearchService>();
         var built = services.BuildServiceProvider();
         var scope = built.CreateScope();

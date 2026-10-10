@@ -15,6 +15,7 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 - **Song page and Change album polish.** A cover that fails to load shows the placeholder instead of an empty square, editions of one album are grouped into a single expandable row ("N editions") in Change album and Appears on, and Library stays highlighted in the sidebar on a song page.
 
 ### Fixed
+- **Songs added together no longer lose their search when the download slots are full.** Adding ten songs at once left most of them "Cancelled — No free download slot" and waiting for the next 6-hourly Missing Search. A search that found something now waits for a slot (up to `search.slot_wait_minutes`, 30 by default; Activity → Tasks shows "Waiting for a download slot") and grabs the best candidate it already found when one frees, without searching again. Waiting searches no longer hold up other tasks.
 - **The Match queue writes songs as `Artist - Title`**, like everywhere else, and shows the top candidate's length difference in its own **Δ Length** column.
 - **Pressing Add on one search result no longer spins every Add button**, and an error shows on the row that failed.
 - **The Tasks page's Task column is only as wide as its longest name.**

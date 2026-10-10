@@ -9,14 +9,18 @@ using Microsoft.Extensions.Logging;
 namespace Wondarr.Core.Jobs;
 
 /// <summary>
-/// Runs queued commands. The queue hands out ids over a channel and this service drains it with a
-/// fixed set of workers, so no polling is needed and the concurrency limit is simply the number of
-/// workers.
+/// Runs queued commands. The queue hands out ids over a channel and this service drains it, so no
+/// polling is needed. At most <see cref="MaxConcurrency"/> commands work at once; a command that only
+/// waits (for a download slot) may hand its place back with <see cref="CommandContext.YieldWorker"/>,
+/// so a few waiting commands never starve the rest.
 /// </summary>
 public sealed partial class CommandExecutor : BackgroundService
 {
     /// <summary>How many commands may run at the same time.</summary>
     public const int MaxConcurrency = 3;
+
+    /// <summary>How many commands may be waiting with their place handed back at the same time.</summary>
+    public const int MaxYielded = 16;
 
     /// <summary>How long a worker waits after a command's bookkeeping threw, before it takes the next one.</summary>
     internal static readonly TimeSpan WorkerFaultPause = TimeSpan.FromSeconds(1);
@@ -30,6 +34,12 @@ public sealed partial class CommandExecutor : BackgroundService
     // Every status write is serialised: SQLite has one writer at a time, and three workers racing
     // for it would turn into "database is locked" under load.
     private readonly SemaphoreSlim _writeGate = new(1, 1);
+
+    // The places commands work in: a command holds one while it works and may hand it back while it
+    // only waits. The loops that read the channel outnumber the places by MaxYielded, so a command
+    // that handed its place back has a spare loop to take the next command.
+    private readonly SemaphoreSlim _places = new(MaxConcurrency, MaxConcurrency);
+    private int _yielded;
 
     /// <summary>Initialises a new instance of the <see cref="CommandExecutor"/> class.</summary>
     public CommandExecutor(
@@ -56,6 +66,7 @@ public sealed partial class CommandExecutor : BackgroundService
     public override void Dispose()
     {
         _writeGate.Dispose();
+        _places.Dispose();
         base.Dispose();
     }
 
@@ -73,7 +84,7 @@ public sealed partial class CommandExecutor : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var workers = new Task[MaxConcurrency];
+        var workers = new Task[MaxConcurrency + MaxYielded];
         for (var worker = 0; worker < workers.Length; worker++)
         {
             workers[worker] = RunWorkerAsync(stoppingToken);
@@ -88,9 +99,14 @@ public sealed partial class CommandExecutor : BackgroundService
         {
             await foreach (var id in _queue.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
+                // A place is taken only once there is a command to run. An idle loop holding one while
+                // it waits for work would keep a command that handed its place back from taking it again.
+                await _places.WaitAsync(stoppingToken).ConfigureAwait(false);
+                var place = new WorkerPlace(this);
+
                 try
                 {
-                    await RunAsync(id, stoppingToken).ConfigureAwait(false);
+                    await RunAsync(id, place, stoppingToken).ConfigureAwait(false);
                 }
                 catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
                 {
@@ -98,6 +114,10 @@ public sealed partial class CommandExecutor : BackgroundService
                     // host. The pause keeps a persistent fault from turning into a tight loop.
                     LogWorkerFault(id, exception);
                     await Task.Delay(WorkerFaultPause, _timeProvider, stoppingToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    place.Release();
                 }
             }
         }
@@ -107,7 +127,7 @@ public sealed partial class CommandExecutor : BackgroundService
         }
     }
 
-    private async Task RunAsync(long id, CancellationToken stoppingToken)
+    private async Task RunAsync(long id, WorkerPlace place, CancellationToken stoppingToken)
     {
         var started = await MarkStartedAsync(id).ConfigureAwait(false);
         if (started is null)
@@ -149,7 +169,8 @@ public sealed partial class CommandExecutor : BackgroundService
                     started.Id,
                     started.Body,
                     started.Trigger,
-                    progress => ReportProgressAsync(started.Id, progress));
+                    progress => ReportProgressAsync(started.Id, progress),
+                    place.Yield);
 
                 message = await handler.ExecuteAsync(context, stoppingToken).ConfigureAwait(false);
             }
@@ -321,6 +342,74 @@ public sealed partial class CommandExecutor : BackgroundService
         finally
         {
             _writeGate.Release();
+        }
+    }
+
+    /// <summary>One of the places a command works in, held for as long as the command is running.</summary>
+    private sealed class WorkerPlace(CommandExecutor executor)
+    {
+        private readonly object _lock = new();
+        private bool _held = true;
+
+        /// <summary>Hands the place back for the rest of the command, or reports that it cannot.</summary>
+        public IAsyncDisposable? Yield()
+        {
+            lock (_lock)
+            {
+                if (!_held || Interlocked.Increment(ref executor._yielded) > MaxYielded)
+                {
+                    if (_held)
+                    {
+                        Interlocked.Decrement(ref executor._yielded);
+                    }
+
+                    return null;
+                }
+
+                _held = false;
+            }
+
+            executor._places.Release();
+
+            return new Lease(this);
+        }
+
+        /// <summary>Gives the place back when the command is done with it.</summary>
+        public void Release()
+        {
+            lock (_lock)
+            {
+                if (!_held)
+                {
+                    return;
+                }
+
+                _held = false;
+            }
+
+            executor._places.Release();
+        }
+
+        private async ValueTask TakeBackAsync()
+        {
+            // Not cancellable: the command goes on to finish its own bookkeeping either way, and the
+            // places are freed by commands that honour the shutdown token.
+            await executor._places.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+
+            lock (_lock)
+            {
+                _held = true;
+            }
+
+            Interlocked.Decrement(ref executor._yielded);
+        }
+
+        private sealed class Lease(WorkerPlace place) : IAsyncDisposable
+        {
+            private int _disposed;
+
+            public ValueTask DisposeAsync() =>
+                Interlocked.Exchange(ref _disposed, 1) == 0 ? place.TakeBackAsync() : ValueTask.CompletedTask;
         }
     }
 
