@@ -64,6 +64,9 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
     /// <summary>The longest a limit is believed for.</summary>
     private static readonly TimeSpan MaxBlock = TimeSpan.FromHours(24);
 
+    /// <summary>The pause after a 429 without headers, or a <c>Retry-After</c> that is already over.</summary>
+    private static readonly TimeSpan ShortBlock = TimeSpan.FromMinutes(1);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IHttpClientFactory _clients;
     private readonly IOptionsMonitor<UpdateOptions> _options;
@@ -155,23 +158,30 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
         }
 
         bool ran;
+        UpdateStatus status;
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
             ran = await RunAsync(manual, cancellationToken).ConfigureAwait(false);
+
+            // The snapshot and the announcement stay inside the gate: two overlapping checks (the schedule and a
+            // Check now) must not both read the last announced version before either writes it.
+            status = GetStatus();
+
+            if (ran)
+            {
+                await AnnounceAsync(status, cancellationToken).ConfigureAwait(false);
+            }
         }
         finally
         {
             _gate.Release();
         }
 
-        var status = GetStatus();
-
         if (ran)
         {
-            await AnnounceAsync(status, cancellationToken).ConfigureAwait(false);
             await _events.PublishAsync(new UpdateCheckedEvent(status), cancellationToken).ConfigureAwait(false);
         }
 
@@ -316,7 +326,8 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
         }
 
         if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests
-            && LimitEnd(response, now) is { } until)
+            && (LimitEnd(response, now)
+                ?? (response.StatusCode == HttpStatusCode.TooManyRequests ? now + ShortBlock : null)) is { } until)
         {
             lock (_stateLock)
             {
@@ -340,9 +351,10 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
         {
             var wait = retryAfter.Delta ?? (retryAfter.Date is { } date ? date - now : (TimeSpan?)null);
 
-            if (wait is { } value && value > TimeSpan.Zero)
+            if (wait is { } value)
             {
-                return now + (value > MaxBlock ? MaxBlock : value);
+                // A wait of zero or a date already past still gets a short pause, never the hour-long default.
+                return now + (value > MaxBlock ? MaxBlock : value > ShortBlock ? value : ShortBlock);
             }
 
             return now + DefaultBlock;
@@ -356,7 +368,7 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
             {
                 var at = DateTimeOffset.FromUnixTimeSeconds(seconds);
 
-                return at > now ? (at - now > MaxBlock ? now + MaxBlock : at) : now + TimeSpan.FromMinutes(1);
+                return at > now ? (at - now > MaxBlock ? now + MaxBlock : at) : now + ShortBlock;
             }
 
             return now + DefaultBlock;
@@ -369,7 +381,7 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
     {
         var local = TimeZoneInfo.ConvertTime(until, _time.LocalTimeZone);
 
-        return $"GitHub's rate limit; next check after {local.ToString("HH:mm", CultureInfo.InvariantCulture)}.";
+        return $"GitHub's rate limit; next check after {local.ToString("HH:mm 'UTC'zzz", CultureInfo.InvariantCulture)}.";
     }
 
     private void Fail(string message)

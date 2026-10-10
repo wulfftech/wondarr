@@ -4,7 +4,8 @@ namespace Wondarr.Core.Updates;
 
 /// <summary>
 /// The version of the running build. A release image carries <c>0.1.0</c> or <c>0.1.0-rc.1</c>; a
-/// <c>main</c> or <c>sha-*</c> image carries <c>0.0.0-develop.&lt;run&gt;</c>; anything else that is not a
+/// <c>main</c> or <c>sha-*</c> image carries <c>0.0.0-develop.&lt;run&gt;</c> (an image built locally
+/// <c>0.0.0-dev</c>), so any <c>0.0.0-*</c> version is a development build; anything else that is not a
 /// Semantic Versioning version is a development build too, because it cannot be ordered against
 /// releases.
 /// </summary>
@@ -45,9 +46,7 @@ public sealed record RunningVersion(string Text, SemanticVersion? Parsed, bool I
 
         var parsed = SemanticVersion.TryParse(text);
         var development = parsed is null
-            || (parsed is { Major: 0, Minor: 0, Patch: 0 }
-                && parsed.PreReleaseIdentifiers.Count > 0
-                && string.Equals(parsed.PreReleaseIdentifiers[0], "develop", StringComparison.Ordinal));
+            || (parsed is { Major: 0, Minor: 0, Patch: 0 } && parsed.PreReleaseIdentifiers.Count > 0);
 
         return new RunningVersion(text, parsed, development);
     }

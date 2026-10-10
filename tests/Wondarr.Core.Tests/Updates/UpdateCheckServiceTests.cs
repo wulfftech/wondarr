@@ -194,6 +194,30 @@ public sealed class UpdateCheckServiceTests : IDisposable
         after.LatestVersion.Should().Be("0.1.5");
     }
 
+    [Theory]
+    [InlineData("0")]
+    [InlineData(null)]
+    public async Task A_429_with_a_zero_or_missing_retry_after_pauses_for_a_minute(string? retryAfter)
+    {
+        _github.Respond(
+            HttpStatusCode.TooManyRequests,
+            headers: retryAfter is null ? new() : new() { ["Retry-After"] = retryAfter });
+        var service = Service("0.1.0");
+
+        await service.CheckAsync(manual: false, Token);
+        _time.Advance(TimeSpan.FromSeconds(30));
+        await service.CheckAsync(manual: false, Token);
+
+        _github.Requests.Should().ContainSingle();
+
+        _github.Respond(Releases(Release("v0.1.5")));
+        _time.Advance(TimeSpan.FromSeconds(31));
+        var after = await service.CheckAsync(manual: false, Token);
+
+        _github.Requests.Should().HaveCount(2);
+        after.LatestVersion.Should().Be("0.1.5");
+    }
+
     [Fact]
     public async Task A_429_with_retry_after_blocks_requests_for_that_long()
     {
@@ -258,7 +282,7 @@ public sealed class UpdateCheckServiceTests : IDisposable
         var service = Service("0.1.0");
 
         var check = service.CheckAsync(manual: false, Token);
-        await _github.Started;
+        await _github.Started.WaitAsync(TimeSpan.FromSeconds(10));
         _time.Advance(UpdateCheckService.RequestTimeout + TimeSpan.FromSeconds(1));
 
         var status = await check.WaitAsync(TimeSpan.FromSeconds(30));
