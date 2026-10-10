@@ -9,6 +9,7 @@ using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.Updates;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Authorization;
@@ -91,5 +92,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHandle<HealthCheckCompletedEvent>, HealthEventsRelay>();
         services.AddSingleton<IHandle<QueueItemChangedEvent>, QueueEventsRelay>();
         services.AddSingleton<IHandle<SongImportedEvent>, QueueEventsRelay>();
+        services.AddSingleton<IHandle<UpdateCheckedEvent>, UpdateEventsRelay>();
     }
 }

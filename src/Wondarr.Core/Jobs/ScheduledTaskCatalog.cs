@@ -4,6 +4,7 @@ using Wondarr.Core.Housekeeping;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.References;
 using Wondarr.Core.Searching;
+using Wondarr.Core.Updates;
 
 namespace Wondarr.Core.Jobs;
 
@@ -37,6 +38,9 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often housekeeping runs (ARCHITECTURE §5.5: daily).</summary>
     public static readonly TimeSpan HousekeepingInterval = TimeSpan.FromHours(24);
 
+    /// <summary>How often Wondarr asks GitHub for a newer release.</summary>
+    public static readonly TimeSpan CheckForUpdatesInterval = TimeSpan.FromHours(12);
+
     private readonly IReadOnlyList<ScheduledTaskDefinition> _tasks;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskCatalog"/> class.</summary>
@@ -63,6 +67,10 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
             new(
                 BackupCommandHandler.CommandName,
                 TimeSpan.FromDays(backupOptions.Value.IntervalDays)),
+            new(
+                CheckForUpdatesCommandHandler.CommandName,
+                CheckForUpdatesInterval,
+                CheckForUpdatesCommandHandler.FirstRunDelay),
         ];
     }
 
