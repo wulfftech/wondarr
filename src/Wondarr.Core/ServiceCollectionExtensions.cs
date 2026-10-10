@@ -271,6 +271,7 @@ public static class ServiceCollectionExtensions
         // The search-and-grab loop itself: it reads all of the above and writes the runs, the queue and
         // the history in one unit of work, so it shares their scope.
         services.AddScoped<SlotWaitContext>();
+        services.AddSingleton<SlotWaiters>();
         services.AddScoped<ISongSearchService, SongSearchService>();
 
         // The import pipeline: it turns a finished download into a library file through the same

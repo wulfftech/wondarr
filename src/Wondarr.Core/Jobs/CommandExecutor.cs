@@ -350,6 +350,7 @@ public sealed partial class CommandExecutor : BackgroundService
     {
         private readonly object _lock = new();
         private bool _held = true;
+        private bool _leased;
 
         /// <summary>Hands the place back for the rest of the command, or reports that it cannot.</summary>
         public IAsyncDisposable? Yield()
@@ -367,6 +368,7 @@ public sealed partial class CommandExecutor : BackgroundService
                 }
 
                 _held = false;
+                _leased = true;
             }
 
             executor._places.Release();
@@ -381,6 +383,13 @@ public sealed partial class CommandExecutor : BackgroundService
             {
                 if (!_held)
                 {
+                    if (_leased)
+                    {
+                        // The command ended without taking its place back.
+                        _leased = false;
+                        Interlocked.Decrement(ref executor._yielded);
+                    }
+
                     return;
                 }
 
@@ -399,6 +408,7 @@ public sealed partial class CommandExecutor : BackgroundService
             lock (_lock)
             {
                 _held = true;
+                _leased = false;
             }
 
             Interlocked.Decrement(ref executor._yielded);

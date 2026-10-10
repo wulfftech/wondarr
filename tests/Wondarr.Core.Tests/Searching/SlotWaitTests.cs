@@ -17,6 +17,7 @@ public sealed class SlotWaitTests
     public async Task A_search_with_every_slot_busy_waits_and_grabs_without_a_second_search()
     {
         await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
         var songId = await host.SeedSongAsync("Alpha");
         host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
         var blockers = await FillSlotsAsync(host);
@@ -58,6 +59,7 @@ public sealed class SlotWaitTests
     public async Task A_search_that_never_gets_a_slot_ends_cancelled_after_the_wait_and_the_song_stays_wanted()
     {
         await using var host = await SearchTestHost.CreateAsync(options => options.SlotWaitMinutes = 2);
+        host.SlotWait.WaitForSlot = true;
         var songId = await host.SeedSongAsync("Alpha");
         host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
         await FillSlotsAsync(host);
@@ -79,6 +81,7 @@ public sealed class SlotWaitTests
     public async Task Cancelling_a_search_that_is_waiting_ends_the_run_cancelled()
     {
         await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
         var songId = await host.SeedSongAsync("Alpha");
         host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
         await FillSlotsAsync(host);
@@ -109,6 +112,7 @@ public sealed class SlotWaitTests
     public async Task A_candidate_blocklisted_during_the_wait_is_not_grabbed()
     {
         await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
         var songId = await host.SeedSongAsync("Alpha");
         var candidate = SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac");
         host.Provider.Candidates.Add(candidate);
@@ -150,6 +154,7 @@ public sealed class SlotWaitTests
     public async Task A_search_with_a_free_slot_grabs_at_once_and_reports_nothing()
     {
         await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
         var songId = await host.SeedSongAsync("Alpha");
         host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
         var reported = false;
@@ -164,6 +169,131 @@ public sealed class SlotWaitTests
 
         result.Outcome.Should().Be(SearchOutcome.Grabbed);
         reported.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_search_outside_the_command_fails_fast_when_every_slot_is_busy()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        await FillSlotsAsync(host);
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        result.Outcome.Should().Be(SearchOutcome.Cancelled);
+        result.Message.Should().Be("No free download slot");
+        host.Provider.Grabs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_place_is_taken_back_before_the_grab()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var blockers = await FillSlotsAsync(host);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var leaseDisposing = 0;
+        host.SlotWait.YieldWorker = () => new BlockingLease(release.Task, () => Interlocked.Increment(ref leaseDisposing));
+
+        var search = Task.Run(() => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
+
+        await WaitUntilAsync(() => host.SlotWait.YieldWorker is not null && Volatile.Read(ref leaseDisposing) == 0);
+        await Task.Delay(100);
+        await FinishItemAsync(host, blockers[0]);
+
+        var advancing = Task.Run(async () =>
+        {
+            while (Volatile.Read(ref leaseDisposing) == 0)
+            {
+                host.Time.Advance(TimeSpan.FromSeconds(host.Options.SlotWaitSeconds));
+                await Task.Delay(10);
+            }
+        });
+
+        await advancing;
+        await Task.Delay(200);
+
+        search.IsCompleted.Should().BeFalse("the search is still waiting for a place");
+        host.Provider.Grabs.Should().BeEmpty("nothing is grabbed until the place is back");
+
+        release.SetResult();
+        var result = await AdvanceUntilAsync(host, search);
+
+        result.Outcome.Should().Be(SearchOutcome.Grabbed);
+    }
+
+    [Fact]
+    public async Task A_song_whose_search_is_waiting_is_not_searched_a_second_time()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var blockers = await FillSlotsAsync(host);
+        var progress = 0;
+        host.SlotWait.ReportProgressAsync = _ =>
+        {
+            Interlocked.Increment(ref progress);
+
+            return Task.CompletedTask;
+        };
+
+        var search = Task.Run(() => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
+        await WaitUntilAsync(() => Volatile.Read(ref progress) > 0);
+
+        using (var scope = host.CreateScope())
+        {
+            var second = await scope.ServiceProvider.GetRequiredService<ISongSearchService>()
+                .SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+            second.Message.Should().Be("Already waiting for a download slot");
+        }
+
+        host.Provider.Requests.Should().ContainSingle();
+
+        await FinishItemAsync(host, blockers[0]);
+        (await AdvanceUntilAsync(host, search)).Outcome.Should().Be(SearchOutcome.Grabbed);
+
+        using var after = host.CreateScope();
+        after.ServiceProvider.GetRequiredService<SlotWaiters>().IsWaiting(songId).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_failed_progress_report_does_not_lose_the_candidates_and_the_end_is_reported()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var blockers = await FillSlotsAsync(host);
+        var messages = new List<string>();
+        host.SlotWait.ReportProgressAsync = message =>
+        {
+            lock (messages)
+            {
+                messages.Add(message);
+            }
+
+            return messages.Count == 1 ? throw new InvalidOperationException("database is locked") : Task.CompletedTask;
+        };
+
+        var search = Task.Run(() => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
+        await WaitUntilAsync(() =>
+        {
+            lock (messages)
+            {
+                return messages.Count > 0;
+            }
+        });
+
+        await FinishItemAsync(host, blockers[0]);
+        var result = await AdvanceUntilAsync(host, search);
+
+        result.Outcome.Should().Be(SearchOutcome.Grabbed);
+        messages.Last().Should().StartWith("Grabbed after waiting");
     }
 
     [Fact]
@@ -271,5 +401,14 @@ public sealed class SlotWaitTests
         await context.SaveChangesAsync();
 
         return item.Id;
+    }
+
+    private sealed class BlockingLease(Task gate, Action onDispose) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            onDispose();
+            await gate;
+        }
     }
 }

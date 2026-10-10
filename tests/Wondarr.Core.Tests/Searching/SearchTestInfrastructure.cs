@@ -121,6 +121,7 @@ internal sealed class SearchTestHost : IAsyncDisposable
         services.AddSingleton<GrabbedEventRecorder>();
         services.AddSingleton<IHandle<SongGrabbedEvent>>(provider => provider.GetRequiredService<GrabbedEventRecorder>());
         services.AddScoped<SlotWaitContext>();
+        services.AddSingleton<SlotWaiters>();
         services.AddScoped<ISongSearchService, SongSearchService>();
 
         var built = services.BuildServiceProvider();
