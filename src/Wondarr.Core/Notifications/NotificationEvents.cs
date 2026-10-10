@@ -21,9 +21,12 @@ public static class NotificationEventNames
     /// <summary>A health check started failing.</summary>
     public const string Health = "health";
 
+    /// <summary>A newer Wondarr release exists; sent once per new version, never for a development build.</summary>
+    public const string Update = "update";
+
     /// <summary>The test message the API sends; never selectable, so it is not in <see cref="All"/>.</summary>
     public const string Test = "test";
 
     /// <summary>Every event a user may subscribe to.</summary>
-    public static readonly IReadOnlyList<string> All = [Grab, Import, Upgrade, Failure, Health];
+    public static readonly IReadOnlyList<string> All = [Grab, Import, Upgrade, Failure, Health, Update];
 }

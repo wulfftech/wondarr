@@ -35,6 +35,7 @@ using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
+using Wondarr.Core.Updates;
 using Wondarr.Core.Verification;
 using Wondarr.Core.Wanted;
 using Microsoft.EntityFrameworkCore;
@@ -183,6 +184,11 @@ public static class ServiceCollectionExtensions
 
         // The daily Housekeeping task: command, search-run, blocklist and recycle-bin retention, then a vacuum.
         services.AddScoped<ICommandHandler, HousekeepingCommandHandler>();
+
+        // The twice-a-day CheckForUpdates task, the notification on a new version, and the card that switches it off.
+        services.AddWondarrUpdates();
+        services.AddScoped<ICommandHandler, CheckForUpdatesCommandHandler>();
+        services.AddSingleton<IHandle<UpdateAvailableEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
 
         // Lets the executor tell a handler DI cannot build from the ones it can.
         services.TryAddSingleton(new CommandHandlerRegistrations(services));
@@ -380,6 +386,10 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>();
+
+        // Whether Wondarr asks GitHub for new releases (update.check_enabled).
+        services.AddOptions<UpdateOptions>()
+            .Bind(configuration.GetSection("Update"));
 
         services.AddSingleton<ISecretRegistry, SecretRegistry>();
 

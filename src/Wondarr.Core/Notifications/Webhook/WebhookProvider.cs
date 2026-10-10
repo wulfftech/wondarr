@@ -21,7 +21,8 @@ namespace Wondarr.Core.Notifications.Webhook;
 /// upgrade, <c>DownloadFailure</c>, <c>Health</c>), <c>instanceName</c> is <c>Wondarr</c>, and
 /// <c>applicationUrl</c> is present and null until Wondarr knows its own URL. Where Lidarr sends an
 /// artist and an album, Wondarr sends its camelCase <c>song</c> object, plus <c>release</c> on a grab
-/// and <c>trackFile</c> on an import. A health payload carries <c>level</c>, <c>message</c>,
+/// and <c>trackFile</c> on an import. An update payload (<c>eventType</c> <c>Update</c>) carries an
+/// <c>update</c> object with <c>currentVersion</c>, <c>latestVersion</c> and <c>releaseUrl</c>. A health payload carries <c>level</c>, <c>message</c>,
 /// <c>type</c> and <c>wikiUrl</c> as Lidarr's <c>WebhookHealthPayload</c> does.
 /// </remarks>
 public sealed partial class WebhookProvider : INotificationProvider
@@ -160,6 +161,14 @@ public sealed partial class WebhookProvider : INotificationProvider
             Message = message.Health?.Message,
             Type = message.Health?.Source,
             WikiUrl = message.Health?.WikiUrl,
+        },
+
+        NotificationEventNames.Update => Payload(message, WebhookEventTypes.Update) with
+        {
+            Message = message.Body,
+            Update = message.Update is { } update
+                ? new WebhookUpdate(update.CurrentVersion, update.LatestVersion, update.ReleaseUrl)
+                : null,
         },
 
         NotificationEventNames.Test => Payload(message, WebhookEventTypes.Test) with
