@@ -94,7 +94,7 @@ public sealed partial class ScheduledTaskService : IHostedService
     /// Writes the row for one definition and returns when that task is next due.
     /// <paramref name="now"/> is the moment the host started.
     /// </summary>
-    internal static DateTime NextRunAt(DateTime? lastRunAt, TimeSpan interval, DateTime now)
+    internal static DateTime NextRunAt(DateTime? lastRunAt, TimeSpan interval, DateTime now, TimeSpan? firstRunDelay = null)
     {
         if (lastRunAt is { } lastRun)
         {
@@ -106,7 +106,7 @@ public sealed partial class ScheduledTaskService : IHostedService
             }
         }
 
-        return now + StartupDelay;
+        return now + (firstRunDelay ?? StartupDelay);
     }
 
     private async Task<DateTime> UpsertJobAsync(
@@ -130,7 +130,7 @@ public sealed partial class ScheduledTaskService : IHostedService
         // The definition wins on the interval, so changing it in code takes effect on restart; the
         // run history is left exactly as the last run wrote it.
         job.Interval = definition.Interval;
-        job.NextRunAt = NextRunAt(job.LastRunAt, definition.Interval, now);
+        job.NextRunAt = NextRunAt(job.LastRunAt, definition.Interval, now, definition.FirstRunDelay);
 
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

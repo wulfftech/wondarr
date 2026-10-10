@@ -17,6 +17,7 @@ import { BackupPage } from '../pages/system/BackupPage';
 import { LogsPage } from '../pages/system/LogsPage';
 import { StatusPage } from '../pages/system/StatusPage';
 import { TasksPage } from '../pages/system/TasksPage';
+import { UpdatesPage } from '../pages/system/UpdatesPage';
 import { UnresolvedPage } from '../pages/UnresolvedPage';
 import { WantedPage } from '../pages/WantedPage';
 import { theme } from '../theme/theme';
@@ -40,6 +41,7 @@ const ROUTES: RouteObject[] = [
       { path: 'settings', element: <SettingsPage /> },
       { path: 'settings/:section', element: <SettingsPage /> },
       { path: 'system/status', element: <StatusPage /> },
+      { path: 'system/updates', element: <UpdatesPage /> },
       { path: 'system/tasks', element: <TasksPage /> },
       { path: 'system/backup', element: <BackupPage /> },
       { path: 'system/logs', element: <LogsPage /> },

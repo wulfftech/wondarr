@@ -128,6 +128,14 @@ See [YouTube Music](/wondarr/sources/youtube/) for every key, including `enabled
 
 Wondarr asks Last.fm for at most four requests a second, keeps each answer in memory for 24 hours, and backs off for as long as Last.fm asks when it is rate limiting. A key set by an environment variable shows as read-only in the web UI.
 
+## update
+
+| Key | Default | Meaning |
+|---|---|---|
+| `check_enabled` | `true` | Whether Wondarr asks GitHub's public releases list, twice a day, for a newer release. Off: no request is ever made. Also under **Settings → General → Updates**. Environment: `APP__UPDATE__CHECK_ENABLED`. |
+
+A newer release shows as an **Update available** badge, on **System → Updates** and, if you subscribe a notification to it, as a message. See [Upgrading](/wondarr/getting-started/install/#upgrading). A value set by the environment variable shows as read-only in the web UI.
+
 ## media
 
 | Key | Default | Meaning |

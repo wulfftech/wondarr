@@ -17,6 +17,7 @@ description: The scheduled tasks, making and restoring backups, reading the logs
 | Import List Sync | 1 h | Syncs the [import lists](/wondarr/library/import-lists/) that are due. |
 | Housekeeping | 24 h | Keeps the database small: deletes finished commands older than 7 days (the newest run of each task is kept, for the Last run column), search results older than 30 days that no download or file still refers to, and expired blocklist entries; empties the recycle bin of files older than `import.recycle_bin_cleanup_days`; then compacts the database when a quarter of it is free space. The history is never pruned. |
 | Backup | 7 days (`backup.interval_days`) | Makes a scheduled backup. |
+| Check For Updates | 12 h | Asks GitHub whether a newer Wondarr release exists (the first run is about two minutes after start-up). Does nothing when `update.check_enabled` is off. See [Upgrading](/wondarr/getting-started/install/#upgrading). |
 
 The intervals in brackets can be changed in `config.yml`; see [Configuration](/wondarr/reference/configuration/). Longer jobs you start yourself, such as compacting or converting a library, also appear under Recent commands.
 

@@ -38,6 +38,7 @@ export const NOTIFICATION_EVENTS: readonly { value: string; label: string }[] = 
   { value: 'upgrade', label: 'On upgrade' },
   { value: 'failure', label: 'On download failure' },
   { value: 'health', label: 'On health issue' },
+  { value: 'update', label: 'On update available' },
 ];
 
 /** What a field's `type` tells the form to render. */

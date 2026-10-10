@@ -11,6 +11,7 @@ import {
 import {
   Activity,
   Archive,
+  Download,
   GitMerge,
   HeartPulse,
   Library,
@@ -27,6 +28,7 @@ import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
 import { useMatchQueueTotal } from '../api/references';
 import { isProblem } from '../api/types';
+import { UpdateBadge } from './UpdateBadge';
 
 const NAV_ITEMS = [
   { to: '/library', match: ['/library', '/song'], label: 'Library', icon: Library },
@@ -36,6 +38,7 @@ const NAV_ITEMS = [
   { to: '/activity', match: ['/activity'], label: 'Activity', icon: Activity },
   { to: '/settings', match: ['/settings'], label: 'Settings', icon: Settings },
   { to: '/system/status', match: ['/system/status'], label: 'System', icon: HeartPulse },
+  { to: '/system/updates', match: ['/system/updates'], label: 'Updates', icon: Download },
   { to: '/system/tasks', match: ['/system/tasks'], label: 'Tasks', icon: Timer },
   { to: '/system/backup', match: ['/system/backup'], label: 'Backup', icon: Archive },
   { to: '/system/logs', match: ['/system/logs'], label: 'Logs', icon: ScrollText },
@@ -91,6 +94,7 @@ export function AppLayout() {
         <Group h="100%" px="md" justify="space-between">
           <Text fw={600}>{instanceName}</Text>
           <Group gap="sm">
+            <UpdateBadge />
             {problemCount !== null && <HealthBadge count={problemCount} />}
             <ColorSchemeToggle />
           </Group>

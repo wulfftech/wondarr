@@ -5,6 +5,7 @@ using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Updates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -26,7 +27,8 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     IHandle<SongGrabbedEvent>,
     IHandle<SongImportedEvent>,
     IHandle<QueueItemChangedEvent>,
-    IHandle<HealthCheckCompletedEvent>
+    IHandle<HealthCheckCompletedEvent>,
+    IHandle<UpdateAvailableEvent>
 {
     /// <summary>How many events may wait for a send before the newest is dropped.</summary>
     public const int QueueCapacity = 500;
@@ -113,6 +115,14 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     }
 
     /// <inheritdoc />
+    public Task HandleAsync(UpdateAvailableEvent message, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        return Enqueue(new WorkItem(NotificationEventNames.Update, Update: message));
+    }
+
+    /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
@@ -172,6 +182,10 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         if (item.Event == NotificationEventNames.Health)
         {
             messages = NewIssues(item.Results ?? []);
+        }
+        else if (item.Event == NotificationEventNames.Update)
+        {
+            messages = item.Update is { } update ? [UpdateMessage(update)] : [];
         }
         else
         {
@@ -443,6 +457,20 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         ];
     }
 
+    private static NotificationMessage UpdateMessage(UpdateAvailableEvent update) => new(
+        NotificationEventNames.Update,
+        string.Concat("Update available: Wondarr ", update.LatestVersion),
+        string.Concat(
+            "Wondarr ",
+            update.LatestVersion,
+            " is available (you have ",
+            update.CurrentVersion,
+            ")",
+            update.ReleaseUrl is null ? string.Empty : string.Concat(". ", update.ReleaseUrl)))
+    {
+        Update = new NotificationUpdate(update.CurrentVersion, update.LatestVersion, update.ReleaseUrl),
+    };
+
     private static Task<Song?> LoadSongAsync(
         WondarrDbContext database,
         long songId,
@@ -507,11 +535,13 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     /// <param name="SongFileId">The library file, for an import.</param>
     /// <param name="IsUpgrade">Whether the import replaced a file.</param>
     /// <param name="Results">The health results, for a health event.</param>
+    /// <param name="Update">The newer release, for an update event.</param>
     private sealed record WorkItem(
         string Event,
         long SongId = 0,
         long QueueItemId = 0,
         long SongFileId = 0,
         bool IsUpgrade = false,
-        IReadOnlyList<HealthCheck.HealthCheck>? Results = null);
+        IReadOnlyList<HealthCheck.HealthCheck>? Results = null,
+        UpdateAvailableEvent? Update = null);
 }

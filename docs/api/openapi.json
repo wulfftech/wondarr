@@ -132,6 +132,95 @@
         }
       }
     },
+    "/api/v1/update": {
+      "get": {
+        "tags": [
+          "Update"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/update/check": {
+      "post": {
+        "tags": [
+          "Update"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/update/settings": {
+      "get": {
+        "tags": [
+          "Update"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Update"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettingsUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettingsUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tag": {
       "get": {
         "tags": [
@@ -11348,6 +11437,106 @@
           }
         }
       },
+      "UpdateResource": {
+        "required": [
+          "currentVersion",
+          "isDevelopmentBuild",
+          "latestVersion",
+          "updateAvailable",
+          "releaseName",
+          "releaseUrl",
+          "releaseNotes",
+          "publishedAt",
+          "checkedAt",
+          "lastError",
+          "checkEnabled"
+        ],
+        "type": "object",
+        "properties": {
+          "currentVersion": {
+            "type": "string"
+          },
+          "isDevelopmentBuild": {
+            "type": "boolean"
+          },
+          "latestVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updateAvailable": {
+            "type": "boolean"
+          },
+          "releaseName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "releaseUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "releaseNotes": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publishedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "checkedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "checkEnabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateSettingsResource": {
+        "required": [
+          "checkEnabled",
+          "checkEnabledLocked"
+        ],
+        "type": "object",
+        "properties": {
+          "checkEnabled": {
+            "type": "boolean"
+          },
+          "checkEnabledLocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateSettingsUpdateResource": {
+        "type": "object",
+        "properties": {
+          "checkEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
       "ValidationProblemDetails": {
         "type": "object",
         "properties": {
@@ -11611,6 +11800,9 @@
     },
     {
       "name": "Wanted"
+    },
+    {
+      "name": "Update"
     },
     {
       "name": "Tag"

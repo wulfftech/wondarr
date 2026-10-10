@@ -28,8 +28,10 @@ public class ScheduledTaskServiceTests
 
         var jobs = await host.ReadJobsAsync();
 
-        jobs.Select(job => job.Name).Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan", "Backup", "ImportListSync", "Housekeeping");
-        jobs.Should().OnlyContain(job => job.NextRunAt == host.Now + TimeSpan.FromSeconds(10));
+        jobs.Select(job => job.Name).Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan", "Backup", "ImportListSync", "Housekeeping", "CheckForUpdates");
+        jobs.Where(job => job.Name != "CheckForUpdates").Should().OnlyContain(job => job.NextRunAt == host.Now + TimeSpan.FromSeconds(10));
+        jobs.Single(job => job.Name == "CheckForUpdates").NextRunAt.Should().Be(host.Now + TimeSpan.FromMinutes(2), "the update check waits longer than the other tasks on a first run");
+        jobs.Single(job => job.Name == "CheckForUpdates").Interval.Should().Be(TimeSpan.FromHours(12));
         jobs.Single(job => job.Name == "Heartbeat").Interval.Should().Be(TimeSpan.FromMinutes(1));
         jobs.Single(job => job.Name == "CheckHealth").Interval.Should().Be(TimeSpan.FromMinutes(15));
         jobs.Single(job => job.Name == "MissingSearch").Interval.Should().Be(TimeSpan.FromHours(6));
@@ -39,8 +41,8 @@ public class ScheduledTaskServiceTests
 
         host.Triggers.Should().HaveCount(jobs.Count, "every row gets its own trigger");
         host.Triggers.Select(trigger => trigger.JobKey.Name)
-            .Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan", "Backup", "ImportListSync", "Housekeeping");
-        host.Triggers.Should().OnlyContain(trigger =>
+            .Should().BeEquivalentTo("Heartbeat", "CheckHealth", "MissingSearch", "UpgradeSearch", "ReferenceLibraryScan", "Backup", "ImportListSync", "Housekeeping", "CheckForUpdates");
+        host.Triggers.Where(trigger => trigger.JobKey.Name != "CheckForUpdates").Should().OnlyContain(trigger =>
             trigger.StartTimeUtc == new DateTimeOffset(host.Now + TimeSpan.FromSeconds(10), TimeSpan.Zero));
         host.Triggers.Cast<ISimpleTrigger>()
             .Single(trigger => trigger.JobKey.Name == "Heartbeat")
@@ -115,13 +117,13 @@ public class ScheduledTaskServiceTests
 
         var jobs = await host.ReadJobsAsync();
 
-        jobs.Should().HaveCount(9);
+        jobs.Should().HaveCount(10);
         var orphan = jobs.Single(job => job.Name == "SomethingRemoved");
         orphan.Interval.Should().Be(TimeSpan.FromMinutes(3));
         orphan.NextRunAt.Should().BeNull("rows for tasks the catalog does not know are not touched");
         orphan.LastResult.Should().Be("successful: did work");
 
-        host.Triggers.Should().HaveCount(8, "no trigger is created for a name the catalog does not know");
+        host.Triggers.Should().HaveCount(9, "no trigger is created for a name the catalog does not know");
     }
 
     /// <summary>
