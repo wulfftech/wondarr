@@ -123,7 +123,7 @@ public class ScheduledTaskServiceTests
         orphan.NextRunAt.Should().BeNull("rows for tasks the catalog does not know are not touched");
         orphan.LastResult.Should().Be("successful: did work");
 
-        host.Triggers.Should().HaveCount(8, "no trigger is created for a name the catalog does not know");
+        host.Triggers.Should().HaveCount(9, "no trigger is created for a name the catalog does not know");
     }
 
     /// <summary>
