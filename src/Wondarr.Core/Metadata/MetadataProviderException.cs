@@ -14,12 +14,25 @@ public sealed class MetadataProviderException : Exception
     /// A description that names no header or key value: response headers can carry rate-limit bucket
     /// identifiers, and this message ends up in logs.
     /// </param>
-    public MetadataProviderException(string provider, HttpStatusCode statusCode, string message)
+    /// <param name="retryAfter">How long the provider asked to be left alone, when it said.</param>
+    public MetadataProviderException(
+        string provider,
+        HttpStatusCode statusCode,
+        string message,
+        TimeSpan? retryAfter = null)
         : base(message)
     {
         Provider = provider;
         StatusCode = statusCode;
+        RetryAfter = retryAfter;
     }
+
+    /// <summary>Gets how long the provider asked to be left alone, when it said.</summary>
+    public TimeSpan? RetryAfter { get; }
+
+    /// <summary>Whether the provider is busy or down (a 5xx, 408 or 429), as against refusing the request (any other 4xx).</summary>
+    public bool IsUnavailable =>
+        (int)StatusCode >= 500 || StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests;
 
     /// <summary>Gets the provider key the request was made to.</summary>
     public string Provider { get; }
