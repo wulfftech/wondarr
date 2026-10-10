@@ -46,6 +46,12 @@ public sealed class SearchOptions
     public int SlotWaitSeconds { get; set; } = 10;
 
     /// <summary>
+    /// How long a search that found something to grab waits for a download slot before it gives up and
+    /// leaves the song wanted for the next <c>MissingSearch</c>.
+    /// </summary>
+    public int SlotWaitMinutes { get; set; } = 30;
+
+    /// <summary>
     /// The largest usenet post, in MB, downloaded whole for one song (DECISIONS build session 8 #7). A
     /// torrent is never limited: only its wanted files download.
     /// </summary>
@@ -103,6 +109,11 @@ public sealed class SearchOptionsValidator : IValidateOptions<SearchOptions>
         if (options.SlotWaitSeconds is < 1 or > 300)
         {
             failures.Add($"search.slot_wait_seconds: must be between 1 and 300 (was {options.SlotWaitSeconds})");
+        }
+
+        if (options.SlotWaitMinutes is < 1 or > 1440)
+        {
+            failures.Add($"search.slot_wait_minutes: must be between 1 and 1440 (was {options.SlotWaitMinutes})");
         }
 
         if (options.MaxContainerSizeMb is < 50 or > 100_000)
