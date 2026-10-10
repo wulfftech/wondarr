@@ -60,6 +60,7 @@ public sealed class SemanticVersionTests
     [InlineData("1.0.0", false)]
     [InlineData("0.0.0-develop.42+deadbeef", true)]
     [InlineData("0.0.0-develop.1", true)]
+    [InlineData("0.0.0-dev", true)]
     [InlineData("nightly", true)]
     [InlineData("1.0", true)]
     public void A_development_build_is_develop_or_not_semver(string informational, bool development)
