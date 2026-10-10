@@ -98,11 +98,12 @@ public sealed class DecisionEngine
         ArgumentNullException.ThrowIfNull(candidates);
 
         var songBaseTitle = VersionFlagParser.Parse(context.SongTitle).BaseTitle;
+        var songVariants = CandidateTitleMatcher.SongVariants(context.SongTitle);
         var decisions = new List<CandidateDecision>();
 
         foreach (var candidate in candidates)
         {
-            decisions.Add(Judge(context, candidate, songBaseTitle));
+            decisions.Add(Judge(context, candidate, songBaseTitle, songVariants));
         }
 
         decisions.Sort((left, right) => Compare(context, left, right));
@@ -129,11 +130,16 @@ public sealed class DecisionEngine
     }
 
     /// <summary>Scores one candidate and collects every rule it fails.</summary>
-    private static CandidateDecision Judge(DecisionContext context, Candidate candidate, string songBaseTitle)
+    private static CandidateDecision Judge(
+        DecisionContext context,
+        Candidate candidate,
+        string songBaseTitle,
+        IReadOnlyList<string> songVariants)
     {
         var score = Score(context, candidate, songBaseTitle);
+        var similarity = CandidateTitleMatcher.Similarity(songVariants, candidate);
 
-        return new CandidateDecision(candidate, score, Rejections(context, candidate, score));
+        return new CandidateDecision(candidate, score, Rejections(context, candidate, score, similarity));
     }
 
     /// <summary>Accepted before rejected, then by score, then by the tie-breaks of MATCHING_ENGINE §6.3.</summary>
@@ -182,7 +188,11 @@ public sealed class DecisionEngine
     }
 
     /// <summary>Every rule the candidate fails, in the order the reasons are declared.</summary>
-    private static List<Rejection> Rejections(DecisionContext context, Candidate candidate, ScoreBreakdown score)
+    private static List<Rejection> Rejections(
+        DecisionContext context,
+        Candidate candidate,
+        ScoreBreakdown score,
+        double? similarity)
     {
         var rejections = new List<Rejection>();
         var quality = QualityOf(context, candidate.QualityId);
@@ -248,8 +258,8 @@ public sealed class DecisionEngine
 
         AddDurationRejection(context, candidate, rejections);
         AddVersionRejection(context, candidate, rejections);
-        AddTitleRejection(context, candidate, rejections);
-        AddArtistRejection(context, candidate, rejections);
+        AddTitleRejection(context, candidate, similarity, rejections);
+        AddArtistRejection(context, candidate, similarity, rejections);
         AddSizeRejection(context, candidate, quality, rejections);
 
         if (candidate.SourceType == SourceTypes.Torznab && candidate.Availability.Seeders is 0)
@@ -365,9 +375,13 @@ public sealed class DecisionEngine
                 ".")));
     }
 
-    private static void AddTitleRejection(DecisionContext context, Candidate candidate, List<Rejection> rejections)
+    private static void AddTitleRejection(
+        DecisionContext context,
+        Candidate candidate,
+        double? similarity,
+        List<Rejection> rejections)
     {
-        if (CandidateTitleMatcher.Similarity(context.SongTitle, candidate) is not { } similarity || similarity >= TitleFloor)
+        if (similarity is not { } value || value >= TitleFloor || IsTransliteration(context, candidate))
         {
             return;
         }
@@ -382,7 +396,34 @@ public sealed class DecisionEngine
                 "'.")));
     }
 
-    private static void AddArtistRejection(DecisionContext context, Candidate candidate, List<Rejection> rejections)
+    /// <summary>
+    /// A song titled in one script and a file named in another cannot be compared letter by letter: the
+    /// title floor stands down when the artist is genuinely matched (not by the compilation skip) and
+    /// the length is within tolerance, which is what the fingerprint check after the download confirms.
+    /// </summary>
+    private static bool IsTransliteration(DecisionContext context, Candidate candidate)
+    {
+        var fileTitle = FileTitle(candidate);
+
+        if (CandidateTitleMatcher.IsLatinScript(context.SongTitle) is not { } songLatin ||
+            CandidateTitleMatcher.IsLatinScript(fileTitle) is not { } fileLatin ||
+            songLatin == fileLatin)
+        {
+            return false;
+        }
+
+        return context.MainArtists.Count > 0 &&
+            ArtistOverlap(context, candidate) > 0 &&
+            context.SongDurationMs is { } songMs &&
+            candidate.DurationMs is { } candidateMs &&
+            Math.Abs(songMs - candidateMs) <= Tolerance(context);
+    }
+
+    private static void AddArtistRejection(
+        DecisionContext context,
+        Candidate candidate,
+        double? similarity,
+        List<Rejection> rejections)
     {
         if (context.MainArtists.Count == 0 || ArtistOverlap(context, candidate) > 0)
         {
@@ -394,8 +435,8 @@ public sealed class DecisionEngine
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
             if (FileNameNamesArtist(context, candidate) ||
-                CandidateTitleMatcher.Similarity(context.SongTitle, candidate) is not { } similarity ||
-                similarity >= StrongTitleMatch)
+                similarity is not { } value ||
+                value >= StrongTitleMatch)
             {
                 return;
             }
@@ -569,8 +610,11 @@ public sealed class DecisionEngine
         // A source whose candidates carry parsed metadata (YouTube: the video id is the path, the
         // artist is metadata) is matched on that; a path-shaped candidate (Soulseek) is matched on
         // its path tokens, where the artist legitimately appears.
+        // The file name is looked at as well: "Hey Jude - The Beatles.mp3" parses the artist as "Hey Jude".
         var candidateTokens = !string.IsNullOrWhiteSpace(candidate.Parsed.Artist)
-            ? TokenizePath(candidate.Parsed.Artist)
+            ? new HashSet<string>(
+                TokenizePath(candidate.Parsed.Artist).Concat(TokenizePath(LastSegment(candidate.RemotePath))),
+                StringComparer.Ordinal)
             : TokenizePath(candidate.RemotePath);
         var best = 0.0;
 

@@ -1866,6 +1866,517 @@
           ]
         }
       }
+    },
+    {
+      "name": "youtube 'Artist - Title (Official Video)' passes the title floor",
+      "song": {
+        "title": "Hurt",
+        "mainArtists": [
+          "Johnny Cash"
+        ],
+        "durationMs": 218000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "yt",
+          "provider": "peer1",
+          "remotePath": "yt0Hurt00001",
+          "extension": "opus",
+          "parsed": {
+            "artist": "Johnny Cash",
+            "title": "Johnny Cash - Hurt (Official Video)",
+            "album": null,
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 218000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": null,
+          "qualityId": 28,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "yt"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "'Title - Artist' file name passes the title floor and the artist rule",
+      "song": {
+        "title": "Hey Jude",
+        "mainArtists": [
+          "The Beatles"
+        ],
+        "durationMs": 431000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@u\\Music\\Beatles Collection\\Hey Jude - The Beatles.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Hey Jude",
+            "title": "The Beatles",
+            "album": "Beatles Collection",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 431000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 17200000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "scene-style file name passes",
+      "song": {
+        "title": "Kashmir",
+        "mainArtists": [
+          "Led Zeppelin"
+        ],
+        "durationMs": 508000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@u\\Led Zeppelin\\Physical Graffiti\\01-led_zeppelin-kashmir.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Led Zeppelin",
+            "title": "led zeppelin-kashmir",
+            "album": "Physical Graffiti",
+            "trackNo": 1,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 508000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 20300000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "a title that starts with a number keeps it ('05 - 21 Guns')",
+      "song": {
+        "title": "21 Guns",
+        "mainArtists": [
+          "Green Day"
+        ],
+        "durationMs": 321000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@u\\Green Day\\21st Century Breakdown\\05 - 21 Guns.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Green Day",
+            "title": "Guns",
+            "album": "21st Century Breakdown",
+            "trackNo": 5,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 321000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 12800000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "a song titled in another script passes on a romanised file name when the artist and length agree",
+      "song": {
+        "title": "残酷な天使のテーゼ",
+        "mainArtists": [
+          "Yoko Takahashi"
+        ],
+        "durationMs": 270000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@u\\Yoko Takahashi\\Neon Genesis\\01 Zankoku na Tenshi no Teze.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Yoko Takahashi",
+            "title": "Zankoku na Tenshi no Teze",
+            "album": "Neon Genesis",
+            "trackNo": 1,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 270000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 30000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "b",
+          "provider": "peer1",
+          "remotePath": "@@u\\Someone Else\\Other Album\\01 Zankoku na Tenshi no Teze.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Someone Else",
+            "title": "Zankoku na Tenshi no Teze",
+            "album": "Other Album",
+            "trackNo": 1,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 270000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 30000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {
+          "b": [
+            "titleMismatch",
+            "artistMismatch"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a classical movement named shorter than the MusicBrainz title passes",
+      "song": {
+        "title": "Symphony No. 5 in C minor, Op. 67: I. Allegro con brio",
+        "mainArtists": [
+          "Ludwig van Beethoven"
+        ],
+        "durationMs": 445000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@u\\Beethoven\\Symphony 5\\01 Symphony No.5 - I. Allegro con brio.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Beethoven",
+            "title": "I. Allegro con brio",
+            "album": "Symphony 5",
+            "trackNo": 1,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 445000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 35000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "a '- Remastered 2011' dash suffix passes",
+      "song": {
+        "title": "Bohemian Rhapsody",
+        "mainArtists": [
+          "Queen"
+        ],
+        "durationMs": 355000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@u\\Queen\\A Night at the Opera\\11 Bohemian Rhapsody - Remastered 2011.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Queen",
+            "title": "Bohemian Rhapsody",
+            "album": "A Night at the Opera",
+            "trackNo": 11,
+            "flags": [
+              "remaster"
+            ],
+            "pathFlags": [],
+            "hints": [
+              "Remastered 2011"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 355000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 40000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "a feat. clause in the file name passes",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "@@u\\Daft Punk\\Random Access Memories\\08 Get Lucky (feat. Pharrell Williams).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [
+              "Pharrell Williams"
+            ],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 43600000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "a torrent whose file list is unknown has no title to judge",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": null,
+        "trackNo": null
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "a",
+          "provider": "peer1",
+          "remotePath": "Daft Punk - Random Access Memories [FLAC]",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": null,
+            "album": "Random Access Memories",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": null,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": null,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false,
+          "sourceType": "torznab",
+          "container": "albumContainer"
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "a"
+        ],
+        "rejections": {}
+      }
     }
   ]
 }
