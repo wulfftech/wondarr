@@ -8,6 +8,7 @@ import {
   Group,
   PasswordInput,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title,
@@ -25,6 +26,7 @@ import {
   type MetadataKeyService,
   type MetadataSettingsResource,
 } from '../../api/metadata';
+import { useSaveUpdateSettings, useUpdateSettings, type UpdateSettings } from '../../api/update';
 import { ErrorState, LoadingState } from '../../components/DataState';
 
 const MASK = '••••••••';
@@ -389,6 +391,51 @@ function MetadataServicesCard() {
   );
 }
 
+function UpdateCheckSwitch({ settings }: { settings: UpdateSettings }) {
+  const save = useSaveUpdateSettings();
+
+  return (
+    <Stack gap="xs">
+      <Switch
+        label="Check for new versions on GitHub"
+        description="Wondarr asks GitHub's public API twice a day whether a newer release exists. Nothing about your library is sent."
+        checked={settings.checkEnabled}
+        disabled={settings.checkEnabledLocked || save.isPending}
+        onChange={(event) => save.mutate(event.currentTarget.checked)}
+      />
+      {settings.checkEnabledLocked && (
+        <Text size="sm" c="dimmed">
+          This is set by <Code>APP__UPDATE__CHECK_ENABLED</Code> and cannot be changed here.
+        </Text>
+      )}
+      {save.isError && (
+        <Alert color="red" icon={<CircleAlert size={16} />}>
+          {save.error.message}
+        </Alert>
+      )}
+    </Stack>
+  );
+}
+
+function UpdatesCard() {
+  const settings = useUpdateSettings();
+
+  return (
+    <Card withBorder padding="md">
+      <Stack gap="md">
+        <Title order={4}>Updates</Title>
+        {settings.isPending ? (
+          <LoadingState label="Loading the update setting…" />
+        ) : settings.isError ? (
+          <ErrorState title="The update setting could not be loaded" message={settings.error.message} />
+        ) : (
+          <UpdateCheckSwitch settings={settings.data} />
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
 function InstanceCard() {
   const config = useAppConfig();
   const status = useSystemStatus();
@@ -420,6 +467,7 @@ export function GeneralSettingsPage() {
         </Stack>
       </Card>
       <MetadataServicesCard />
+      <UpdatesCard />
       <InstanceCard />
     </Stack>
   );

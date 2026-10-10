@@ -168,6 +168,7 @@ public sealed partial class DiscordProvider : INotificationProvider
         NotificationEventNames.Upgrade => DiscordColors.Success,
         NotificationEventNames.Failure => DiscordColors.Danger,
         NotificationEventNames.Health => IsWarning(message.Health?.Level) ? DiscordColors.Warning : DiscordColors.Danger,
+        NotificationEventNames.Update => DiscordColors.Standard,
         NotificationEventNames.Test => DiscordColors.Standard,
         _ => throw new NotificationSendException($"no Discord embed exists for the event '{message.Event}'."),
     };
@@ -201,6 +202,13 @@ public sealed partial class DiscordProvider : INotificationProvider
         if (message.IsUpgrade)
         {
             Add(fields, "Upgrade", "Yes");
+        }
+
+        if (message.Update is { } update)
+        {
+            Add(fields, "Installed", update.CurrentVersion);
+            Add(fields, "Latest", update.LatestVersion);
+            Add(fields, "Release", update.ReleaseUrl);
         }
 
         return fields.Count == 0 ? null : fields;

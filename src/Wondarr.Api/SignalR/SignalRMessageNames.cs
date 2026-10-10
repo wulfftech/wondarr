@@ -15,6 +15,9 @@ public static class SignalRMessageNames
     /// <summary>A queue item changed; the resource is a queue item projection.</summary>
     public const string Queue = "queue";
 
+    /// <summary>An update check finished; the resource is the update status. The UI refetches it.</summary>
+    public const string Update = "update";
+
     /// <summary>A song changed; the resource names it.</summary>
     public const string Song = "song";
 }

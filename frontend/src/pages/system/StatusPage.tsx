@@ -1,8 +1,10 @@
-import { Badge, Card, Group, Stack, Table, Text, Title } from '@mantine/core';
+import { Anchor, Badge, Card, Group, Stack, Table, Text, Title } from '@mantine/core';
 import { useHealth, useSystemStatus, type SystemStatus } from '../../api/hooks';
 import { ErrorState, LoadingState } from '../../components/DataState';
 import { isProblem, type HealthCheckOutcome } from '../../api/types';
-import { initCaps } from '../../components/text';
+import { initCaps, updateSummary } from '../../components/text';
+import { useUpdateStatus } from '../../api/update';
+import { Link } from 'react-router';
 
 const OUTCOME_COLOR: Record<HealthCheckOutcome, string> = {
   ok: 'green',
@@ -62,6 +64,7 @@ function statusRows(status: SystemStatus): { label: string; value: string }[] {
 export function StatusPage() {
   const status = useSystemStatus();
   const health = useHealth();
+  const update = useUpdateStatus();
 
   return (
     <Stack gap="lg">
@@ -81,6 +84,18 @@ export function StatusPage() {
                   <Table.Td>{row.value}</Table.Td>
                 </Table.Tr>
               ))}
+              {update.data !== undefined && (
+                <Table.Tr>
+                  <Table.Td w={220}>
+                    <Text fw={500}>Update</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Anchor component={Link} to="/system/updates" data-testid="update-row">
+                      {updateSummary(update.data)}
+                    </Anchor>
+                  </Table.Td>
+                </Table.Tr>
+              )}
             </Table.Tbody>
           </Table>
         </Card>

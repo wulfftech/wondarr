@@ -195,25 +195,30 @@ public sealed class SlotWaitTests
         host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
         var blockers = await FillSlotsAsync(host);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var leaseTaken = 0;
         var leaseDisposing = 0;
-        host.SlotWait.YieldWorker = () => new BlockingLease(release.Task, () => Interlocked.Increment(ref leaseDisposing));
+        host.SlotWait.YieldWorker = () =>
+        {
+            Interlocked.Increment(ref leaseTaken);
+
+            return new BlockingLease(release.Task, () => Interlocked.Increment(ref leaseDisposing));
+        };
 
         var search = Task.Run(() => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
 
-        await WaitUntilAsync(() => host.SlotWait.YieldWorker is not null && Volatile.Read(ref leaseDisposing) == 0);
-        await Task.Delay(100);
+        // Free a slot only once the search has handed its place back; earlier, it would grab without waiting.
+        await WaitUntilAsync(() => Volatile.Read(ref leaseTaken) > 0);
         await FinishItemAsync(host, blockers[0]);
 
-        var advancing = Task.Run(async () =>
-        {
-            while (Volatile.Read(ref leaseDisposing) == 0)
-            {
-                host.Time.Advance(TimeSpan.FromSeconds(host.Options.SlotWaitSeconds));
-                await Task.Delay(10);
-            }
-        });
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
 
-        await advancing;
+        while (Volatile.Read(ref leaseDisposing) == 0 && DateTime.UtcNow < deadline)
+        {
+            host.Time.Advance(TimeSpan.FromSeconds(host.Options.SlotWaitSeconds));
+            await Task.Delay(10);
+        }
+
+        Volatile.Read(ref leaseDisposing).Should().BePositive("the search should take its place back once a slot frees");
         await Task.Delay(200);
 
         search.IsCompleted.Should().BeFalse("the search is still waiting for a place");

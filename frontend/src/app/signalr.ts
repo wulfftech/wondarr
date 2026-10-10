@@ -6,6 +6,7 @@ import { HEALTH_QUERY_KEY, TASKS_QUERY_KEY } from '../api/hooks';
 import { QUEUE_QUERY_KEY } from '../api/queue';
 import { COMMANDS_QUERY_KEY, SONGS_QUERY_KEY } from '../api/songs';
 import { asHealthEntries } from '../api/types';
+import { UPDATE_QUERY_KEY } from '../api/update';
 import { HISTORY_QUERY_KEY, WANTED_QUERY_KEY } from '../api/wanted';
 
 /** The hub the API broadcasts on. Guarded by the `SignalR` policy, hence the API key. */
@@ -36,7 +37,7 @@ export function eventStreamUrl(config: AppConfig): string {
 
 /**
  * Folds one server push into the query cache: a `health` message becomes the `['health']` data, a
- * `command` message invalidates `['tasks']`, a `queue` message invalidates the queue list and its
+ * `command` message invalidates `['tasks']`, an `update` message invalidates the update status, a `queue` message invalidates the queue list and its
  * status, and a `song` message invalidates the lists an import changes.
  *
  * Pure, and separate from the connection, so the mapping can be tested without a hub: the push
@@ -57,6 +58,9 @@ export function applyEventMessage(queryClient: QueryClient, message: unknown): v
   } else if (message.name === 'queue') {
     // One key covers the list and the status: both hang off `['queue']`.
     void queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY });
+  } else if (message.name === 'update') {
+    // A check found something (or failed): the badge and the Updates page read the status again.
+    void queryClient.invalidateQueries({ queryKey: UPDATE_QUERY_KEY });
   } else if (message.name === 'song') {
     void queryClient.invalidateQueries({ queryKey: SONGS_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: WANTED_QUERY_KEY });

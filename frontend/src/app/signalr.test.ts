@@ -52,6 +52,16 @@ describe('applyEventMessage', () => {
     expect(isInvalidated(queryClient, ['blocklist', { page: 1 }])).toBe(false);
   });
 
+  it('invalidates the update status when a check finishes', () => {
+    const queryClient = cacheWithEntries();
+    queryClient.setQueryData(['update'], { currentVersion: '0.1.0', updateAvailable: false });
+
+    applyEventMessage(queryClient, { name: 'update', body: { latestVersion: '0.2.0', updateAvailable: true } });
+
+    expect(isInvalidated(queryClient, ['update'])).toBe(true);
+    expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(false);
+  });
+
   it('ignores a message it does not know and one that is not a message at all', () => {
     const queryClient = cacheWithEntries();
 

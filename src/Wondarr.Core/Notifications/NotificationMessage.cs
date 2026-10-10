@@ -32,6 +32,12 @@ public sealed record NotificationFile(string Path, string Quality);
 /// <param name="WikiUrl">The wiki page explaining it, or <see langword="null"/>.</param>
 public sealed record NotificationHealth(string Source, string Level, string Message, string? WikiUrl);
 
+/// <summary>The newer release an update message is about.</summary>
+/// <param name="CurrentVersion">The version that is running.</param>
+/// <param name="LatestVersion">The newer version.</param>
+/// <param name="ReleaseUrl">The release's page on GitHub, or <see langword="null"/>.</param>
+public sealed record NotificationUpdate(string CurrentVersion, string LatestVersion, string? ReleaseUrl);
+
 /// <summary>
 /// What a provider is asked to send: a one-line title, a short body, and the structured parts the
 /// richer providers (the webhook) render.
@@ -55,4 +61,7 @@ public sealed record NotificationMessage(string Event, string Title, string Body
 
     /// <summary>Gets the health check the message is about, or <see langword="null"/>.</summary>
     public NotificationHealth? Health { get; init; }
+
+    /// <summary>Gets the newer release an update message is about, or <see langword="null"/>.</summary>
+    public NotificationUpdate? Update { get; init; }
 }

@@ -27,6 +27,9 @@ internal static class WebhookEventTypes
     public const string Download = "Download";
     public const string DownloadFailure = "DownloadFailure";
     public const string Health = "Health";
+
+    /// <summary>A newer Wondarr release exists. Lidarr has no equivalent, so the name is Wondarr's own.</summary>
+    public const string Update = "Update";
 }
 
 /// <summary>
@@ -72,7 +75,17 @@ internal sealed record WebhookPayload(string EventType, string InstanceName)
     /// <summary>The wiki page explaining a health result, or <see langword="null"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? WikiUrl { get; init; }
+
+    /// <summary>The newer release an <c>Update</c> event is about.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WebhookUpdate? Update { get; init; }
 }
+
+/// <summary>The newer release an <c>Update</c> webhook is about.</summary>
+/// <param name="CurrentVersion">The version that is running.</param>
+/// <param name="LatestVersion">The newer version.</param>
+/// <param name="ReleaseUrl">The release's page on GitHub, or <see langword="null"/>.</param>
+internal sealed record WebhookUpdate(string CurrentVersion, string LatestVersion, string? ReleaseUrl);
 
 /// <summary>Wondarr's song object (Lidarr's <c>WebhookTrack</c>, narrowed to what a song is here).</summary>
 /// <param name="Id">The song id.</param>

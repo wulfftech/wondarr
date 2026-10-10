@@ -14,6 +14,7 @@ Notifications are under **Settings → Notifications**. Press **Add notification
 | On upgrade | A better file replaced the one a song already had. |
 | On download failure | A grab or an import failed. |
 | On health issue | A health check started failing (a new warning or error under **System**). The first check after start-up sets the baseline and does not notify. |
+| On update available | A newer Wondarr release exists: "Wondarr 0.2.0 is available (you have 0.1.0)", with the release's address. Sent once per new version (a restart does not repeat it) and never by a development build. See [Upgrading](/wondarr/getting-started/install/#upgrading). |
 
 ## Types
 
@@ -26,7 +27,7 @@ Sends a JSON body to a URL.
 - **Username** and **Password**: for HTTP basic authentication.
 - **Headers** (Advanced): extra headers as name and value pairs. Their values are shown in full, so put credentials in Username and Password, which are masked.
 
-The body uses Lidarr's `eventType` values, so tools that read Lidarr's webhook keep working: `Grab`, `Download` (for both a first import and an upgrade, with `isUpgrade` telling them apart), `DownloadFailure`, `Health` and `Test`. It also carries `instanceName` (always `Wondarr`), `applicationUrl` and a `song` object.
+The body uses Lidarr's `eventType` values, so tools that read Lidarr's webhook keep working: `Grab`, `Download` (for both a first import and an upgrade, with `isUpgrade` telling them apart), `DownloadFailure`, `Health`, `Update` and `Test`. It also carries `instanceName` (always `Wondarr`), `applicationUrl` and a `song` object. An `Update` body carries an `update` object with `currentVersion`, `latestVersion` and `releaseUrl` instead of a song.
 
 ### Discord
 
