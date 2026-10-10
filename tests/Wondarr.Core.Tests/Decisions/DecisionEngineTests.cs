@@ -294,9 +294,44 @@ public class DecisionEngineTests
     }
 
     [Fact]
+    public void A_title_failing_the_floor_is_rejected_before_the_identity_comparison_matters()
+    {
+        // A held file with a known identity score, an upgrade in quality, and a different song:
+        // the title floor names the real problem, and the candidate is not accepted.
+        var context = Context() with { CurrentFileQualityId = 23, CurrentFileIdentityScore = 390 };
+        var other = NewCandidate(
+            qualityId: 36,
+            sizeBytes: 43_600_000,
+            remotePath: @"@@b\Music\Daft Punk\Random Access Memories\08 Instant Crush.flac",
+            parsed: GoodParse with { Title = "Instant Crush" });
+
+        var decision = Judge(context, other);
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void The_title_floor_stands_down_for_another_script_only_with_the_artist_and_the_length()
+    {
+        var context = Context() with { SongTitle = "残酷な天使のテーゼ" };
+        var romanised = NewCandidate(
+            remotePath: @"@@b\Music\Daft Punk\Album\01 Zankoku na Tenshi no Teze.mp3",
+            parsed: GoodParse with { Title = "Zankoku na Tenshi no Teze" });
+
+        Judge(context, romanised).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+        Judge(context, romanised with { DurationMs = 380_000 }).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+        Judge(context, romanised with { DurationMs = null }).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+        Judge(context with { MainArtists = ["Someone Else"] }, romanised).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
     public void A_title_just_above_the_floor_passes()
     {
-        // "Get Lucky Star": 5 edits over 14 characters, a similarity of 0.64.
+        // "Get Lucky Star" holds "Get Lucky" as a run of words.
         var candidate = NewCandidate(parsed: GoodParse with { Title = "Get Lucky Star" });
 
         Judge(Context(), candidate).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
@@ -340,10 +375,10 @@ public class DecisionEngineTests
 
         Judge(Context(), unrelated).Rejections.Should().Contain(new Rejection(RejectionReason.ArtistMismatch, message));
 
-        // A close but not strong title match ("Get Lucky Star") is not enough either.
+        // A close but not strong title match ("Get Lucy Star") is not enough either.
         var close = NewCandidate(
-            remotePath: @"@@b\Various Artists\Hits 2013\05 Get Lucky Star.mp3",
-            parsed: ParsedName.Empty with { Title = "Get Lucky Star", TrackNo = 5 });
+            remotePath: @"@@b\Various Artists\Hits 2013\05 Get Lucy Star.mp3",
+            parsed: ParsedName.Empty with { Title = "Get Lucy Star", TrackNo = 5 });
 
         Judge(Context(), close).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
 

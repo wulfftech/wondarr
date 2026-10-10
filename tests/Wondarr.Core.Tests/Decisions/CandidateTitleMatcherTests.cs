@@ -47,6 +47,33 @@ public class CandidateTitleMatcherTests
         CandidateTitleMatcher.Similarity(song, Candidate(path, parsedTitle)).Should().BeApproximately(expected, 0.001);
     }
 
+    [Theory]
+    [InlineData("Hurt", "yt0Hurt00001", "Johnny Cash - Hurt", 1.0)]
+    [InlineData("Hurt", "yt0Hurt00001", "Johnny Cash - Hurt (Official Video)", 1.0)]
+    [InlineData("Hey Jude", @"@@u\Beatles\Hey Jude - The Beatles.mp3", "The Beatles", 1.0)]
+    [InlineData("Kashmir", @"@@u\Led Zeppelin\Album\01-led_zeppelin-kashmir.mp3", "led zeppelin-kashmir", 1.0)]
+    [InlineData("21 Guns", @"@@u\Green Day\Album\05 - 21 Guns.mp3", "Guns", 1.0)]
+    [InlineData("3 AM", @"@@u\Matchbox\Album\03 - 3 AM.mp3", "AM", 1.0)]
+    [InlineData("Bohemian Rhapsody", @"@@u\Queen\Album\11 Bohemian Rhapsody - Remastered 2011.flac", "Bohemian Rhapsody", 1.0)]
+    // Every word of the shorter title is in the longer one, but scattered: 0.9.
+    [InlineData("Symphony No. 5 in C minor", @"@@u\B\S5\01 Symphony 5.flac", "Symphony 5", 0.9)]
+    [InlineData("Symphony No. 5 in C minor, Op. 67: I. Allegro con brio", @"@@u\B\S5\01 Symphony No.5 - I. Allegro con brio.flac", "I. Allegro con brio", 1.0)]
+    public void Matches_a_title_inside_a_longer_one(string song, string path, string? parsedTitle, double expected)
+    {
+        CandidateTitleMatcher.Similarity(song, Candidate(path, parsedTitle)).Should().BeApproximately(expected, 0.001);
+    }
+
+    [Theory]
+    [InlineData("Story of a Girl", true)]
+    [InlineData("Café Tacvba", true)]
+    [InlineData("残酷な天使のテーゼ", false)]
+    [InlineData("사랑이 온거야", false)]
+    [InlineData("1999", null)]
+    public void Tells_the_script_of_a_title(string title, bool? latin)
+    {
+        CandidateTitleMatcher.IsLatinScript(title).Should().Be(latin);
+    }
+
     [Fact]
     public void Scores_an_unrelated_title_low()
     {
