@@ -229,8 +229,9 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
             }
         }
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(RequestTimeout);
+        // On the injected clock, so a test can run the 15 seconds out without waiting for them.
+        using var deadline = new CancellationTokenSource(RequestTimeout, _time);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
 
         try
         {

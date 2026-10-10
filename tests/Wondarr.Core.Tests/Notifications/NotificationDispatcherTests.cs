@@ -12,6 +12,7 @@ using Wondarr.Core.Messaging;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Tests.Persistence;
+using Wondarr.Core.Updates;
 using Xunit;
 using HealthResult = Wondarr.Core.HealthCheck.HealthCheck;
 
@@ -56,6 +57,7 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         services.AddSingleton<IHandle<SongImportedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
         services.AddSingleton<IHandle<QueueItemChangedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
         services.AddSingleton<IHandle<HealthCheckCompletedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
+        services.AddSingleton<IHandle<UpdateAvailableEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
         services.AddSingleton<IEventAggregator, EventAggregator>();
 
         _services = services.BuildServiceProvider();
@@ -162,6 +164,26 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         sent.Health!.Source.Should().Be("Indexer");
         sent.Health.Level.Should().Be("error");
         sent.Health.Message.Should().Be("the indexer is unreachable");
+    }
+
+    [Fact]
+    public async Task A_new_version_is_sent_to_the_notifications_that_subscribe_to_update()
+    {
+        await SeedNotificationAsync("Updates", "Webhook", NotificationEventNames.Update);
+        await SeedNotificationAsync("Imports", "Discord", NotificationEventNames.Import);
+
+        await _aggregator.PublishAsync(
+            new UpdateAvailableEvent("0.1.0", "0.2.0", "https://github.com/wulfftech/wondarr/releases/tag/v0.2.0"),
+            Token);
+
+        await WaitUntilAsync(() => _webhook.Sent.Count == 1, "the update to be sent");
+
+        var sent = _webhook.Sent[0];
+        sent.Event.Should().Be(NotificationEventNames.Update);
+        sent.Body.Should().Contain("Wondarr 0.2.0 is available (you have 0.1.0)")
+            .And.Contain("https://github.com/wulfftech/wondarr/releases/tag/v0.2.0");
+        sent.Update!.LatestVersion.Should().Be("0.2.0");
+        _discord.Sent.Should().BeEmpty();
     }
 
     [Fact]
