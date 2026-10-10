@@ -246,6 +246,55 @@ public class CommandExecutorTests
         await executor.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task Commands_that_hand_their_worker_back_do_not_starve_the_others_and_never_exceed_the_limit()
+    {
+        YieldingCommandHandler.Reset();
+        var waiting = Enumerable.Range(0, CommandExecutor.MaxConcurrency + 2)
+            .Select(index => new YieldingCommandHandler($"Waiting{index}"))
+            .ToList();
+        await using var host = await JobTestHost.CreateAsync(services =>
+        {
+            foreach (var handler in waiting)
+            {
+                services.AddSingleton<ICommandHandler>(handler);
+            }
+        });
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        var ids = new List<long>();
+
+        foreach (var handler in waiting)
+        {
+            ids.Add((await host.Queue.EnqueueAsync(handler.Name, null, CommandTrigger.Manual, CancellationToken.None)).Id);
+        }
+
+        (await TestWait.UntilAsync(() => Task.FromResult(waiting.All(handler => handler.IsWaiting))))
+            .Should().BeTrue("more waiting commands than workers all got to wait");
+
+        var other = await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Manual, CancellationToken.None);
+
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, other.Id) == CommandStatus.Completed))
+            .Should().BeTrue("waiting commands gave their workers back");
+
+        foreach (var handler in waiting)
+        {
+            handler.Release();
+        }
+
+        foreach (var id in ids)
+        {
+            (await TestWait.UntilAsync(async () => await StatusAsync(host, id) == CommandStatus.Completed))
+                .Should().BeTrue();
+        }
+
+        YieldingCommandHandler.PeakWorking.Should().BeLessThanOrEqualTo(CommandExecutor.MaxConcurrency);
+
+        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
+        await executor.StopAsync(stopBudget.Token);
+    }
+
     private static async Task<CommandStatus?> StatusAsync(JobTestHost host, long id) =>
         (await host.Queue.GetAsync(id, CancellationToken.None))?.Status;
 

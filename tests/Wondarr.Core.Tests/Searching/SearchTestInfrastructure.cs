@@ -67,6 +67,9 @@ internal sealed class SearchTestHost : IAsyncDisposable
     /// <summary>The search-and-grab service under test.</summary>
     public ISongSearchService Search => _scope.ServiceProvider.GetRequiredService<ISongSearchService>();
 
+    /// <summary>What a command lends a search that has to wait for a download slot.</summary>
+    public SlotWaitContext SlotWait => _scope.ServiceProvider.GetRequiredService<SlotWaitContext>();
+
     /// <summary>The queue the grabs land in.</summary>
     public IQueueService Queue => _scope.ServiceProvider.GetRequiredService<IQueueService>();
 
@@ -117,6 +120,7 @@ internal sealed class SearchTestHost : IAsyncDisposable
         services.AddSingleton<IEventAggregator, EventAggregator>();
         services.AddSingleton<GrabbedEventRecorder>();
         services.AddSingleton<IHandle<SongGrabbedEvent>>(provider => provider.GetRequiredService<GrabbedEventRecorder>());
+        services.AddScoped<SlotWaitContext>();
         services.AddScoped<ISongSearchService, SongSearchService>();
 
         var built = services.BuildServiceProvider();

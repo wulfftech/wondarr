@@ -23,17 +23,24 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
     };
 
     private readonly ISongSearchService _search;
+    private readonly SlotWaitContext _slotWait;
     private readonly ILogger<SongSearchCommandHandler> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="SongSearchCommandHandler"/> class.</summary>
     /// <param name="search">The search-and-grab service.</param>
+    /// <param name="slotWait">Where this command offers its progress and its worker to a search that has to wait.</param>
     /// <param name="logger">The logger.</param>
-    public SongSearchCommandHandler(ISongSearchService search, ILogger<SongSearchCommandHandler> logger)
+    public SongSearchCommandHandler(
+        ISongSearchService search,
+        SlotWaitContext slotWait,
+        ILogger<SongSearchCommandHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(search);
+        ArgumentNullException.ThrowIfNull(slotWait);
         ArgumentNullException.ThrowIfNull(logger);
 
         _search = search;
+        _slotWait = slotWait;
         _logger = logger;
     }
 
@@ -48,6 +55,11 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
         var songId = ReadSongId(context.Body);
 
         LogSearching(_logger, songId);
+
+        // The service shares this scope: if the search has to wait for a download slot it reports it on
+        // this command and lends this command's executor worker meanwhile.
+        _slotWait.ReportProgressAsync = context.ReportProgressAsync;
+        _slotWait.YieldWorker = context.YieldWorker;
 
         // A user asking for this song must not be held back by the backoff, but the run still obeys
         // the automatic rules: the trigger stays Automatic, so the interactive exemptions do not apply.
