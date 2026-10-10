@@ -4,7 +4,13 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
-### Added
+## [0.1.0] — 2026-10-10
+
+The first public release: every phase of the plan (0–8) is in. Install: `docker pull ghcr.io/wulfftech/wondarr:0.1.0` (linux/amd64, linux/arm64); documentation at https://wulfftech.github.io/wondarr/.
+
+### New since the release candidate (0.1.0-rc.1)
+
+#### Added
 - **Wondarr tells you when a newer version is out.** It never updates itself (it runs in a container), but twice a day it asks GitHub's public releases list for the newest release. An **Update available** badge appears in the header (dismiss it for that version), **System → Updates** shows the release notes and how to update with Docker Compose, `docker run` and Unraid, **System → Status** has an Update row, and a new **On update available** notification event is sent once per version. A release candidate hears about newer candidates and the release; a development build is never told it is out of date. Turn it off under **Settings → General → Updates** or with `update.check_enabled` / `APP__UPDATE__CHECK_ENABLED`; off, Wondarr makes no request at all. New API: `GET /api/v1/update`, `POST /api/v1/update/check`, `GET`/`PUT /api/v1/update/settings`; new task `CheckForUpdates` (every 12 hours).
 - **A page for every song.** Click a song's title (in the Library, Wanted, Activity's Queue and History) to open its page: the cover and status at the top with Search, Interactive search (inline), Change album, Convert, Move and Delete; then tabs for the file (quality, codec, ReplayGain, AcoustID, where it came from), About (MusicBrainz, Deezer and every release it appears on), Last.fm (with a key), Lyrics, History, and its Queue and blocklist. The Library keeps its filters in the address, so Back returns to the same list, and the Change album dialog scrolls and gets a filter box when a song is on many releases.
 - **A wider Change album dialog.** Each album shows its cover, its own artist (a compilation reads "by Various Artists" with a Compilation badge), the track number, and the release and first-release years.
@@ -12,10 +18,10 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 - **Optional Last.fm and AcoustID keys in Settings, and Last.fm facts on the song page's data.** Settings → General has a **Metadata services** card: the AcoustID client key and a new Last.fm API key (`lastfm.api_key`, `APP__LASTFM__API_KEY`), each stored without ever being shown again, each with a **Test** button and a link to where the key is made; a key set by an environment variable shows as read-only. With a Last.fm key, `GET /api/v1/song/{id}/details` gains `lastFm` (listeners, plays, top tags, a plain-text wiki, the artist's bio and up to ten similar tracks, with the Wondarr song when you already own it). Last.fm calls stay under four a second, are cached for 24 hours and back off when Last.fm rate limits; a Last.fm import list with no key of its own reads with the global one.
 - **Create your login on the login page.** With `auth: forms` and no login yet, the login page asks for one (username, password twice) instead of a sign-in form that can never succeed; from the local network only, and it signs you in.
 
-### Changed
+#### Changed
 - **Song page and Change album polish.** A cover that fails to load shows the placeholder instead of an empty square, editions of one album are grouped into a single expandable row ("N editions") in Change album and Appears on, and Library stays highlighted in the sidebar on a song page.
 
-### Fixed
+#### Fixed
 - **Songs added together no longer lose their search when the download slots are full.** Adding ten songs at once left most of them "Cancelled — No free download slot" and waiting for the next 6-hourly Missing Search. A search that found something now waits for a slot (up to `search.slot_wait_minutes`, 30 by default; Activity → Tasks shows "Waiting for a download slot") and grabs the best candidate it already found when one frees, without searching again. Waiting searches no longer hold up other tasks.
 - **A file from an unrelated track is no longer grabbed.** A Soulseek result was accepted whatever its title, and a path with "Various Artists" or "OST" in it skipped the artist check entirely, so "Lonely Girl" on a jazz anthology was downloaded for "Story of a Girl". A candidate's own track title (from the file name, never the folders) now has to be close to the song's, or it is rejected with `Title mismatch`; a title that holds the other as a parenthesised part ("Absolutely (Story of a Girl)") still matches. On a compilation path the file name must name the artist or the song almost exactly, or the result is rejected with `Artist mismatch`.
 - **A busy MusicBrainz no longer turns Add songs into a server error.** A `Retry-After` from any metadata host (429 or 503) now holds back every later request to that host. Background work (syncs, pasted lists) waits it out and keeps its three retries; a search someone is waiting on retries twice and fails fast when the host asks for more than 15 seconds. If it still does not answer, the Search and Album tabs show what Deezer found with a notice above the results, and `POST /song/lookup` and `GET /album/lookup` send the list as before with an `X-Wondarr-Partial: musicbrainz` header. Only when neither provider answers is it a 503 problem ("Song search is unavailable", with a `Retry-After`) whose detail the page shows; the song and album endpoints that read from MusicBrainz or Deezer answer a provider outage with the same 503 instead of a 500.
@@ -25,11 +31,8 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 - **A reference library scan no longer downloads songs you already own.** Songs found in a reference library were being searched for (and grabbed again) the moment they were added, because the search ran before their file was recorded. They are now added without a search, and a song a reference file identifies is skipped by the missing-song search and left out of Wanted. A song whose file goes missing is wanted again, as before.
 - **Scanning a second reference library is no longer swallowed by the first scan.** Starting a scan while another library's scan was queued or running returned the other scan and never scanned the library you asked for. A queued command is now reused only when it is the same command with the same settings, so two libraries queue two scans.
 
-## [0.1.0] — 2026-10-09
-
-The first public release: every phase of the plan (0–8) is in. Install: `docker pull ghcr.io/wulfftech/wondarr:0.1.0` (linux/amd64, linux/arm64); documentation at https://wulfftech.github.io/wondarr/.
-
-### Added
+### Since the first development builds
+#### Added
 - **Songs, not albums.** One MusicBrainz recording per song; add by search (with length, release types, cover and a Deezer preview), by album (all or some of its tracks, pinned to the release), or by pasting up to 1000 `Artist - Title` lines; unresolved lines wait in a review screen.
 - **Soulseek first, through a bundled slskd** (or your own slskd): searches within Soulseek's limits (≤ 30 per 4 minutes, ≤ 2 at once), candidates scored on identity, quality and availability, a wrong file caught after download and the next candidate tried; Settings → Soulseek writes slskd's own configuration, including "Share my library".
 - **YouTube Music second** (off by default): Art Tracks first, yt-dlp with Deno, bot-check backoff, transcoded to AAC 256 by default and ranked as its OPUS-160 source so a better copy still replaces it.
@@ -43,10 +46,10 @@ The first public release: every phase of the plan (0–8) is in. Install: `docke
 - **Operations**: Activity (queue with live progress, history, blocklist), Wanted (missing, cutoff unmet), System → Tasks / Backup (scheduled and on demand, staged restore) / Logs, a daily Housekeeping task, notifications (Webhook, Discord, Apprise), Settings → General (API key, login account).
 - **\*arr conventions**: `/api/v1` with `X-Api-Key`, Lidarr's queue/history/system shapes for Homepage, Unpackerr and autobrr, the API reference at `/docs`; Docker with `/config`, `/data`, `PUID/PGID/UMASK/TZ`; an Unraid template.
 
-### Upgrading from a development build
+#### Upgrading from a development build
 - A database from any earlier build, including the 0.0.1-alpha.1 image under its old name (`compilarr.db`), is migrated on the first start; take a backup first (System → Backup → Back up now).
 
-### Changed
+#### Changed
 - **Renamed from Compilarr to Wondarr** (2026-09-28): the image is `ghcr.io/wulfftech/wondarr`; an existing `/config/compilarr.db` is renamed to `wondarr.db` on first start; `COMPILARR_CONFIG_DIR` is still honoured.
 
 ## [0.0.1-alpha.1] — 2026-09-28

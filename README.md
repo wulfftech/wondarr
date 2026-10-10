@@ -30,7 +30,7 @@ Docker is the way. One container, everything bundled (slskd, ffmpeg, fpcalc, yt-
 ```yaml
 services:
   wondarr:
-    image: ghcr.io/wulfftech/wondarr:0.1.0-rc.1   # :latest once 0.1.0 is final
+    image: ghcr.io/wulfftech/wondarr:latest      # or pin a version: :0.1
     container_name: wondarr
     environment:
       - PUID=1000
@@ -75,7 +75,7 @@ The full manual — install, every setting, Plex, qBittorrent, SABnzbd, troubles
 
 ## Status
 
-Every part of the plan is built and it's in daily use. The release candidate **0.1.0-rc.1** is out ([release notes](https://github.com/wulfftech/wondarr/releases/tag/v0.1.0-rc.1)); `:latest` follows once 0.1.0 is final. Found a bug or want something? [Open an issue](https://github.com/wulfftech/wondarr/issues).
+Every part of the plan is built and it's in daily use. **0.1.0** is out ([release notes](https://github.com/wulfftech/wondarr/releases/tag/v0.1.0)), and Wondarr tells you itself when there's a newer one: an **Update available** badge in the header, with the release notes and the update steps under System → Updates. Found a bug or want something? [Open an issue](https://github.com/wulfftech/wondarr/issues).
 
 ## Under the hood
 

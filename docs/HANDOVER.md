@@ -425,3 +425,12 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 - **Backlog added:** the lookup ranks compilation-only recordings above the original album recording (2026-10-10-05).
 
 **Next:** merge the PR, deploy its `sha-…` image to production (VM 177), then 0.1.0 with the owner.
+
+### 2026-10-10 — Build session 11 (continued): the update checker and 0.1.0
+
+**Outcome.** PR #11 (M-07 to M-10) merged and deployed to production as `sha-cfafd0f`. With the owner's go-ahead for 0.1.0 they asked for an in-app update checker: M-11 (GitHub Releases every 12 h, an Update available badge, System → Updates with the notes and update steps, an `update` notification event once per version, on by default with `update.check_enabled` to turn it off; DECISIONS build session 11 #6). Then the release: the CHANGELOG's `[Unreleased]` folded into `[0.1.0]` (a "New since the release candidate" part), the README's and install page's release-candidate notes removed, `v0.1.0` tagged; production moves to `ghcr.io/wulfftech/wondarr:0.1` (#7).
+
+- **Test fixes on the way:** `SlotWaitTests.The_place_is_taken_back_before_the_grab` (M-09) could free the slot before the search waited and then spin forever — the Core run "hung"; it now waits for the lease and is bounded.
+- **Still flaky:** an Api test failed once before the M-11 merge and passed on the rerun (backlog 2026-10-09-23).
+
+**Next:** the maintenance list in `NEXT_SESSION_PROMPT.md`; GitHub Pages and the Unraid CA submission are the owner's steps.
