@@ -197,7 +197,7 @@ public class DecisionEngineTests
         // identity rule must not.
         var context = Context() with { CurrentFileQualityId = 23, CurrentFileIdentityScore = 390 };
 
-        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Lucky Star" });
+        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, durationMs: 371_000, parsed: GoodParse with { Title = "Get Lucky Star" });
 
         Judge(context, worse).Accepted.Should().BeFalse();
         Judge(context, worse).Rejections.Should().ContainSingle()
@@ -225,7 +225,7 @@ public class DecisionEngineTests
     [Fact]
     public void The_identity_rule_never_applies_without_a_known_held_score_or_to_a_manual_grab()
     {
-        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Lucky Star" });
+        var worse = NewCandidate(qualityId: 36, sizeBytes: 43_600_000, parsed: GoodParse with { Title = "Get Lucky Star" });
 
         // No stored candidate behind the held file (adopted, or imported before scores were kept):
         // the quality rule is all there is.
@@ -278,6 +278,138 @@ public class DecisionEngineTests
             .Should().NotContain(rejection => rejection.Reason == RejectionReason.ContainerTooLarge);
         Judge(Context(), torrent).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ContainerTooLarge);
         Judge(Context(), post).Score.Availability.Should().Be(90);
+    }
+
+    [Fact]
+    public void A_different_title_is_rejected_with_the_file_title_in_the_message()
+    {
+        var candidate = NewCandidate(
+            remotePath: @"@@b\Music\Daft Punk\Random Access Memories\08 Instant Crush.mp3",
+            parsed: GoodParse with { Title = "Instant Crush" });
+
+        Judge(Context(), candidate).Rejections.Should().ContainSingle()
+            .Which.Should().Be(new Rejection(
+                RejectionReason.TitleMismatch,
+                "Title mismatch: 'Instant Crush' does not match 'Get Lucky'."));
+    }
+
+    [Fact]
+    public void A_title_failing_the_floor_is_rejected_before_the_identity_comparison_matters()
+    {
+        // A held file with a known identity score, an upgrade in quality, and a different song:
+        // the title floor names the real problem, and the candidate is not accepted.
+        var context = Context() with { CurrentFileQualityId = 23, CurrentFileIdentityScore = 390 };
+        var other = NewCandidate(
+            qualityId: 36,
+            sizeBytes: 43_600_000,
+            remotePath: @"@@b\Music\Daft Punk\Random Access Memories\08 Instant Crush.flac",
+            parsed: GoodParse with { Title = "Instant Crush" });
+
+        var decision = Judge(context, other);
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void The_title_floor_stands_down_for_another_script_only_with_the_artist_and_the_length()
+    {
+        var context = Context() with { SongTitle = "残酷な天使のテーゼ" };
+        var romanised = NewCandidate(
+            remotePath: @"@@b\Music\Daft Punk\Album\01 Zankoku na Tenshi no Teze.mp3",
+            parsed: GoodParse with { Title = "Zankoku na Tenshi no Teze" });
+
+        Judge(context, romanised).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+        Judge(context, romanised with { DurationMs = 380_000 }).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+        Judge(context, romanised with { DurationMs = null }).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+        Judge(context with { MainArtists = ["Someone Else"] }, romanised).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void A_title_just_above_the_floor_passes()
+    {
+        // "Get Lucky Star" holds "Get Lucky" as a run of words.
+        var candidate = NewCandidate(parsed: GoodParse with { Title = "Get Lucky Star" });
+
+        Judge(Context(), candidate).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void A_youtube_candidate_is_judged_on_its_parsed_title_not_its_video_id()
+    {
+        var video = NewCandidate(remotePath: "4D7u5KF7SP8", extension: null) with { SourceType = SourceTypes.YouTube };
+
+        Judge(Context(), video).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+        Judge(Context(), video with { Parsed = GoodParse with { Title = "Instant Crush" } }).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void A_container_whose_file_list_is_unknown_has_no_title_to_judge()
+    {
+        var release = NewCandidate(
+            remotePath: "Daft Punk - Random Access Memories [FLAC]",
+            extension: null,
+            parsed: ParsedName.Empty with { Artist = "Daft Punk" }) with
+        {
+            SourceType = SourceTypes.Torznab,
+            Container = CandidateContainer.AlbumContainer,
+            Availability = new CandidateAvailability(Seeders: 5),
+        };
+
+        Judge(Context(), release).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void A_compilation_path_needs_the_artist_or_the_song_in_the_file_name()
+    {
+        const string message = "Artist mismatch: a compilation path, and the file name names neither the artist nor the song closely enough.";
+
+        // Neither the artist nor the song: rejected, with the compilation message.
+        var unrelated = NewCandidate(
+            remotePath: @"@@b\Various Artists\Hits 2013\05 Other Song.mp3",
+            parsed: ParsedName.Empty with { Title = "Other Song", TrackNo = 5 });
+
+        Judge(Context(), unrelated).Rejections.Should().Contain(new Rejection(RejectionReason.ArtistMismatch, message));
+
+        // A close but not strong title match ("Get Lucy Star") is not enough either.
+        var close = NewCandidate(
+            remotePath: @"@@b\Various Artists\Hits 2013\05 Get Lucy Star.mp3",
+            parsed: ParsedName.Empty with { Title = "Get Lucy Star", TrackNo = 5 });
+
+        Judge(Context(), close).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+
+        // The song's own title: passes, as before.
+        var song = NewCandidate(
+            remotePath: @"@@b\Various Artists\Hits 2013\05 Get Lucky.mp3",
+            parsed: ParsedName.Empty with { Title = "Get Lucky", TrackNo = 5 });
+
+        Judge(Context(), song).Rejections.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_compilation_path_passes_when_the_file_name_names_the_artist()
+    {
+        // The parser read a different artist off the folders, so the overlap is 0; the file name has it.
+        var candidate = NewCandidate(
+            remotePath: @"@@b\OST\Movie\05 Daft Punk - Get Lucky Star.mp3",
+            parsed: ParsedName.Empty with { Artist = "Movie", Title = "Get Lucky Star", TrackNo = 5 });
+
+        Judge(Context(), candidate).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+    }
+
+    [Fact]
+    public void A_path_without_a_compilation_marker_keeps_the_ordinary_artist_message()
+    {
+        var candidate = NewCandidate(
+            remotePath: @"@@b\Music\Phrenia\Covers\06 Phrenia - Get Lucky.mp3",
+            parsed: GoodParse with { Artist = "Phrenia" });
+
+        Judge(Context(), candidate).Rejections.Should().ContainSingle()
+            .Which.Message.Should().Be("Artist mismatch: none of the song's artists appears in the candidate's path.");
     }
 
     private static CandidateDecision Judge(DecisionContext context, Candidate candidate) =>
