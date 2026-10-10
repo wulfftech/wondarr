@@ -21,6 +21,8 @@ using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
+using Polly.Retry;
+using Polly.Timeout;
 
 namespace Wondarr.Core.Metadata;
 
@@ -150,13 +152,19 @@ public static class ServiceCollectionExtensions
 
                 // MusicBrainz answers 503 when throttled; when it sends Retry-After, obey it.
                 ShouldRetryAfterHeader = true,
+
+                // A background caller (a sync, a pasted list) keeps all three retries and waits out
+                // Retry-After. A person waiting on the Add songs page gets two, and a Retry-After past
+                // the interactive budget is surfaced at once instead of hanging the page.
+                ShouldHandle = args => ValueTask.FromResult(ShouldRetryInteractively(args)),
             });
         });
 
         // Registered after the retry pipeline, and therefore inside it: every attempt, the retries
         // included, waits for its own slot.
         musicBrainz.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
-            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(MusicBrainzGateKey)));
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(MusicBrainzGateKey),
+            ProviderKeys.MusicBrainz));
 
         services.AddKeyedSingleton(CoverArtArchiveGateKey, (serviceProvider, _) => new RequestSpacingGate(
             CoverArtArchiveInterval,
@@ -248,7 +256,8 @@ public static class ServiceCollectionExtensions
         });
 
         deezer.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
-            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(DeezerGateKey)));
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(DeezerGateKey),
+            ProviderKeys.Deezer));
 
         // Innermost, below the spacing handler: a retried attempt is spaced first, then inspected.
         deezer.AddHttpMessageHandler(() => new DeezerQuotaHandler());
@@ -412,6 +421,36 @@ public static class ServiceCollectionExtensions
     {
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BuildUserAgent(options));
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+    }
+
+    /// <summary>
+    /// The MusicBrainz retry decision. Transient failures and statuses are retried; for an interactive
+    /// request, at most twice and never when the host asks for more than the interactive budget.
+    /// </summary>
+    private static bool ShouldRetryInteractively(RetryPredicateArguments<HttpResponseMessage> args)
+    {
+        var interactive = InteractiveRequests.IsActive;
+
+        if (interactive && args.AttemptNumber >= InteractiveRequests.MaxRetries)
+        {
+            return false;
+        }
+
+        if (args.Outcome.Exception is { } exception)
+        {
+            return exception is HttpRequestException
+                or TimeoutRejectedException
+                || (exception is TaskCanceledException && !args.Context.CancellationToken.IsCancellationRequested);
+        }
+
+        if (args.Outcome.Result is not { } response || !IsRetryable(response.StatusCode))
+        {
+            return false;
+        }
+
+        return !(interactive
+            && RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) is { } wait
+            && wait > InteractiveRequests.MaxWait);
     }
 
     /// <summary>Whether a status is the kind worth another attempt.</summary>

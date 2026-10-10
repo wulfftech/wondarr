@@ -19,7 +19,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { firstPage, type Paging } from '../api/paging';
 import { readEnum } from '../api/profiles';
-import { useSongLookup, type SongLookupResource } from '../api/songs';
+import { partialNotice, useSongSearch, type SongLookupResource } from '../api/songs';
 import {
   useBulkAcceptMatches,
   useMatchQueue,
@@ -178,16 +178,23 @@ function ReviewDrawer({
   resolve: ReturnType<typeof useResolveMatch>;
   onClose: () => void;
 }) {
-  const lookup = useSongLookup();
+  const lookup = useSongSearch();
   const [term, setTerm] = useState(() => searchSeed(item));
   const [results, setResults] = useState<SongLookupResource[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const settle = (input: MatchResolveInput) => resolve.mutate(input, { onSuccess: () => onClose() });
 
   const search = () =>
     lookup.mutate(term, {
-      onSuccess: (found) => setResults(found),
-      onError: () => setResults([]),
+      onSuccess: (found) => {
+        setResults(found.items);
+        setNotice(partialNotice(found.partial));
+      },
+      onError: () => {
+        setResults([]);
+        setNotice(null);
+      },
     });
 
   return (
@@ -259,6 +266,12 @@ function ReviewDrawer({
           Search
         </Button>
       </Group>
+
+      {notice !== null && (
+        <Alert color="yellow" icon={<CircleAlert size={16} />}>
+          {notice}
+        </Alert>
+      )}
 
       {(results ?? []).map((result, index) => (
         <Group key={`${result.source}-${index}`} justify="space-between" wrap="nowrap" align="flex-start">

@@ -38,6 +38,7 @@ function install(
   items: unknown = paged(MATCH_QUEUE_ITEMS),
   bulk: () => Response = () =>
     jsonResponse({ resolved: 1, failed: 1, errors: ['Unknown artist/04 track04.mp3: nothing to accept'] }),
+  lookup: () => Response = () => jsonResponse(LOOKUP_RESULTS),
 ): FetchMock {
   return installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
@@ -61,7 +62,7 @@ function install(
     }
 
     if (url.includes('/api/v1/song/lookup')) {
-      return jsonResponse(LOOKUP_RESULTS);
+      return lookup();
     }
 
     if (url.includes('/api/v1/referencelibrary')) {
@@ -244,6 +245,30 @@ describe('MatchQueuePage', () => {
     const body = await lastBody(`/api/v1/matchqueue/${AMBIGUOUS.id}/resolve`);
 
     expect(body).toMatchObject({ deezerId: LOOKUP_RESULTS[1].deezerId });
+  });
+
+  it('says so when the manual search only had one provider’s results', async () => {
+    install(
+      paged(MATCH_QUEUE_ITEMS),
+      undefined,
+      () =>
+        new Response(JSON.stringify(LOOKUP_RESULTS), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-Wondarr-Partial': 'musicbrainz' },
+        }),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText(`Review ${AMBIGUOUS.relativePath}`));
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(
+      await screen.findByText(
+        "MusicBrainz didn't answer, so these are Deezer's results only. Try again for the full list.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it('skips a file the user does not want to settle', async () => {
