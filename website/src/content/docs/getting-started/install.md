@@ -120,11 +120,28 @@ The image checks `http://localhost:1077/ping` every 30 seconds.
 
 ## Upgrading
 
+### Finding out there is a new version
+
+Wondarr never updates itself: it runs in a container, so you pull the new image. It does find out when there is one. Twice a day it asks GitHub's public releases list for the newest release and compares it with the version you run. When a newer one exists:
+
+- An **Update available** badge appears in the header, next to the health badge. It links to **System → Updates** and can be dismissed for that version; a newer release shows it again.
+- **System → Updates** shows the version you run, the latest version, when Wondarr last checked, the release notes and how to update. **Check now** asks GitHub straight away (a check made less than a minute ago is reused).
+- **System → Status** has an **Update** row with the same answer.
+- A notification is sent, once per new version, to every [notification](/wondarr/operations/notifications/) that listens to **On update available**.
+
+A release candidate (`0.1.0-rc.1`) hears about newer candidates and the final release; a stable install only hears about stable releases. A development build (the `develop` or `sha-` images) is never told it is out of date, because its version cannot be compared with a release; the Updates page still shows the latest release.
+
+Only the public releases list is asked for; nothing about your library, your settings or this install is sent. To turn it off, clear **Check for new versions on GitHub** under **Settings → General → Updates**, or set `update.check_enabled: false` in `config.yml` (environment: `APP__UPDATE__CHECK_ENABLED`; a value set there is read-only in the UI). With the check off Wondarr makes no request to GitHub at all.
+
+### Applying an update
+
 Pull the new image and recreate the container:
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
+
+If the image is pinned to a tag such as `:0.1`, change the tag to move to a new minor version; `:latest` follows every release. With `docker run`, pull the image, stop and remove the container, then create it again with the same command. On Unraid, open the **Docker** tab, choose **Check for updates**, then apply the update on the Wondarr container.
 
 The database migrates itself when the new version starts. Wondarr does not take a backup first, so make one before a major upgrade: the **Backup** page in the web UI (in the left-hand navigation) has a **Back up now** button. Scheduled backups also run weekly into `/config/backups`.
