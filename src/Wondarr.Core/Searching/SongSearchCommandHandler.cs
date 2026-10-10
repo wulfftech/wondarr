@@ -60,6 +60,7 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
         // this command and lends this command's executor worker meanwhile.
         _slotWait.ReportProgressAsync = context.ReportProgressAsync;
         _slotWait.YieldWorker = context.YieldWorker;
+        _slotWait.WaitForSlot = true;
 
         // A user asking for this song must not be held back by the backoff, but the run still obeys
         // the automatic rules: the trigger stays Automatic, so the interactive exemptions do not apply.
