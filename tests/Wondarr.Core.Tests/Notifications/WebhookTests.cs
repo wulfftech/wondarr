@@ -135,6 +135,28 @@ public class WebhookTests
     }
 
     [Fact]
+    public async Task An_update_posts_the_versions_and_the_release_url()
+    {
+        var (provider, handler) = CreateProvider();
+        var message = new NotificationMessage("update", "Update available: Wondarr 0.2.0", "Wondarr 0.2.0 is available (you have 0.1.0)")
+        {
+            Update = new NotificationUpdate("0.1.0", "0.2.0", "https://github.com/wulfftech/wondarr/releases/tag/v0.2.0"),
+        };
+
+        await provider.SendAsync(message, GrabSettings, CancellationToken.None);
+
+        var payload = handler.Payloads.Single();
+
+        payload.GetProperty("eventType").GetString().Should().Be("Update");
+        payload.GetProperty("instanceName").GetString().Should().Be("Wondarr");
+
+        var update = payload.GetProperty("update");
+        update.GetProperty("currentVersion").GetString().Should().Be("0.1.0");
+        update.GetProperty("latestVersion").GetString().Should().Be("0.2.0");
+        update.GetProperty("releaseUrl").GetString().Should().Be("https://github.com/wulfftech/wondarr/releases/tag/v0.2.0");
+    }
+
+    [Fact]
     public async Task A_test_post_is_marked_as_one_and_carries_a_sample_song()
     {
         var (provider, handler) = CreateProvider();

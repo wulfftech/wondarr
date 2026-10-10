@@ -22,4 +22,18 @@ public class ScheduledTaskCatalogTests
         task.Should().NotBeNull();
         task!.Interval.Should().Be(TimeSpan.FromHours(24));
     }
+
+    [Fact]
+    public void Check_for_updates_runs_every_12_hours_and_first_about_two_minutes_after_startup()
+    {
+        var catalog = new ScheduledTaskCatalog(
+            Options.Create(new SearchOptions()),
+            Options.Create(new BackupOptions()));
+
+        var task = catalog.Find(Wondarr.Core.Updates.CheckForUpdatesCommandHandler.CommandName);
+
+        task.Should().NotBeNull();
+        task!.Interval.Should().Be(TimeSpan.FromHours(12));
+        task.FirstRunDelay.Should().Be(TimeSpan.FromMinutes(2));
+    }
 }
