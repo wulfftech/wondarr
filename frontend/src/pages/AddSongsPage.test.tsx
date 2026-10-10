@@ -303,4 +303,59 @@ describe('AddSongsPage', () => {
     expect(screen.getByText('Unresolved: 3')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Review 3 unresolved' })).toBeInTheDocument();
   });
+
+  it('says so above the results when MusicBrainz did not answer', async () => {
+    install({
+      lookup: () =>
+        new Response(JSON.stringify(LOOKUP_RESULTS), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-Wondarr-Partial': 'musicbrainz' },
+        }),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+    await search(user, 'Daft Punk - Get Lucky');
+
+    expect(
+      await screen.findByText(
+        "MusicBrainz didn't answer, so these are Deezer's results only. Try again for the full list.",
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('album version')).toBeInTheDocument();
+  });
+
+  it('shows no notice when every provider answered', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+    await search(user, 'Daft Punk - Get Lucky');
+    await screen.findByText('album version');
+
+    expect(screen.queryByText(/didn't answer/u)).not.toBeInTheDocument();
+  });
+
+  it("shows a 503 problem's detail instead of a generic error", async () => {
+    install({
+      lookup: () =>
+        jsonResponse(
+          {
+            title: 'Song search is unavailable',
+            detail: 'MusicBrainz and Deezer did not answer; try again in a minute.',
+            status: 503,
+          },
+          503,
+        ),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+    await search(user, 'Daft Punk - Get Lucky');
+
+    expect(
+      await screen.findByText('MusicBrainz and Deezer did not answer; try again in a minute.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
+  });
 });

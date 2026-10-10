@@ -26,7 +26,8 @@ import {
   useBulkAdd,
   useCommand,
   useImportList,
-  useSongLookup,
+  partialNotice,
+  useSongSearch,
   type BulkAddAcceptedResource,
   type CommandStatusName,
   type SongLookupResource,
@@ -200,7 +201,7 @@ function LibraryLink({ songId, artistId }: { songId: number; artistId: number | 
 
 /** The search tab: one term, the ranked candidates, and an Add that never double-adds. */
 function SearchTab() {
-  const lookup = useSongLookup();
+  const lookup = useSongSearch();
   const add = useAddSong();
   const library = useLibraryChoice();
   const [term, setTerm] = useState('');
@@ -233,7 +234,8 @@ function SearchTab() {
     );
   };
 
-  const rows = lookup.data ?? [];
+  const rows = lookup.data?.items ?? [];
+  const notice = partialNotice(lookup.data?.partial ?? []);
   const variables = add.variables;
   // The row the add in flight (or the last one) was sent for, by the same key the rows are keyed with.
   const pressed =
@@ -266,6 +268,12 @@ function SearchTab() {
       )}
 
       {lookup.isPending && <LoadingState label="Searching…" />}
+
+      {notice !== null && (
+        <Alert color="yellow" icon={<CircleAlert size={16} />}>
+          {notice}
+        </Alert>
+      )}
 
       {lookup.isSuccess && rows.length === 0 && <EmptyState message="No matches — try 'Artist - Title'" />}
 

@@ -605,27 +605,6 @@ public async Task An_interactive_search_with_an_acceptable_candidate_finishes_ca
 }
 
 [Fact]
-public async Task An_automatic_grab_does_not_start_without_a_free_download_slot()
-{
-    await using var host = await SearchTestHost.CreateAsync();
-    var songId = await host.SeedSongAsync("Alpha");
-    host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
-
-    for (var index = 0; index < 3; index++)
-    {
-        var blocker = await host.SeedSongAsync($"Blocker {index}");
-        await SeedActiveQueueItemAsync(host, blocker);
-    }
-
-    var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
-
-    result.Outcome.Should().Be(SearchOutcome.Cancelled);
-    result.Message.Should().Be("No free download slot");
-    result.QueueItemId.Should().BeNull();
-    host.Provider.Grabs.Should().BeEmpty("three downloads in flight is the limit");
-}
-
-[Fact]
 public async Task A_candidate_the_reputation_rejects_afterwards_does_not_fail_the_run()
 {
     await using var host = await SearchTestHost.CreateAsync();
@@ -666,7 +645,7 @@ public async Task The_search_now_command_reports_an_already_downloading_song_as_
     var songId = await host.SeedSongAsync();
     await SeedActiveQueueItemAsync(host, songId);
 
-    var handler = new SongSearchCommandHandler(host.Search, NullLogger<SongSearchCommandHandler>.Instance);
+    var handler = new SongSearchCommandHandler(host.Search, new SlotWaitContext(), NullLogger<SongSearchCommandHandler>.Instance);
     var context = new CommandContext(
         1,
         $"{{\"songId\":{songId}}}",

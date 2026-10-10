@@ -90,6 +90,37 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
         bool shareDirectory = true,
         string? innertubeFixtures = null)
     {
+        // FreePort hands out a port that is free now, not when Kestrel binds it: a test running in
+        // parallel can take it in between (seen in CI). Start again on fresh ports when that happens.
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await StartOnceAsync(scenarioJson, username, generator, shareDirectory, innertubeFixtures)
+                    .ConfigureAwait(false);
+            }
+            catch (IOException exception) when (attempt < MaxStartAttempts && IsAddressInUse(exception))
+            {
+                // The failed attempt has already stopped what it started.
+            }
+        }
+    }
+
+    /// <summary>How many times <see cref="StartAsync"/> tries fresh ports before giving up.</summary>
+    private const int MaxStartAttempts = 5;
+
+    private static bool IsAddressInUse(Exception exception) =>
+        exception is Microsoft.AspNetCore.Connections.AddressInUseException
+        || exception.InnerException is Microsoft.AspNetCore.Connections.AddressInUseException
+        || exception.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<FakeSlskdHarness> StartOnceAsync(
+        string scenarioJson,
+        string? username,
+        IAudioGenerator? generator,
+        bool shareDirectory,
+        string? innertubeFixtures)
+    {
         var root = Path.Combine(Path.GetTempPath(), "fakeslskd-tests", Guid.NewGuid().ToString("N"));
 
         Directory.CreateDirectory(Path.Combine(root, "downloads"));
@@ -101,73 +132,107 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
         var webhookPort = FreePort();
         var innertubePort = FreePort();
 
-        var webhooks = new WebhookReceiver();
-        var webhookApp = BuildWebhookReceiver(webhookPort, webhooks);
-        await webhookApp.StartAsync().ConfigureAwait(false);
+        var started = new List<WebApplication>();
 
-        var configuration = new SlskdConfiguration
+        try
         {
-            WebPort = port,
-            WebIpAddress = "127.0.0.1",
-            ApiKeys = [ApiKey],
-            SoulseekUsername = username,
-            DownloadsDirectory = Path.Combine(root, "downloads"),
-            IncompleteDirectory = Path.Combine(root, "incomplete"),
-            ShareDirectories = shareDirectory ? [Path.Combine(root, "music")] : [],
-            Webhooks =
-            [
-                new WebhookTarget(
-                    "gate",
-                    $"http://127.0.0.1:{webhookPort}/hook",
-                    [DownloadFileCompleteEvent.EventName],
-                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        [WebhookHeaderName] = WebhookHeaderValue,
-                    }),
-            ],
-        };
-
-        var options = new FakeSlskdOptions
+            return await StartAppsAsync().ConfigureAwait(false);
+        }
+        catch
         {
-            Configuration = configuration,
-            Scenario = Scenario.Parse(scenarioJson),
-            AcoustIdPort = acoustIdPort,
-            InnertubePort = innertubePort,
-            InnertubeFixtureDir = innertubeFixtures,
-            AudioGenerator = generator ?? new TestAudioGenerator(),
-        };
+            // A port taken from under us (or any other start failure): leave nothing listening and no
+            // temporary folder behind, so the caller can try again on fresh ports.
+            foreach (var app in started)
+            {
+                await app.StopAsync().ConfigureAwait(false);
+                await app.DisposeAsync().ConfigureAwait(false);
+            }
 
-        var state = new FakeSlskdState(options);
-        var slskdApp = FakeSlskdApp.Build(options, state);
-        var acoustIdApp = AcoustIdStubApp.Build(options, state);
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
 
-        await slskdApp.StartAsync().ConfigureAwait(false);
-        await acoustIdApp.StartAsync().ConfigureAwait(false);
-
-        var apps = new List<WebApplication> { webhookApp, slskdApp, acoustIdApp };
-        HttpClient? innertube = null;
-
-        if (innertubeFixtures is not null)
-        {
-            var innertubeApp = InnertubeStubApp.Build(options, state);
-            await innertubeApp.StartAsync().ConfigureAwait(false);
-            apps.Add(innertubeApp);
-            innertube = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{innertubePort}/") };
+            throw;
         }
 
-        var slskd = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
-        slskd.DefaultRequestHeaders.Add(FakeSlskdApp.ApiKeyHeader, ApiKey);
-
-        var acoustId = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{acoustIdPort}/") };
-
-        var harness = new FakeSlskdHarness(root, state, slskd, acoustId, innertube, webhooks) { HasShare = shareDirectory };
-
-        foreach (var app in apps)
+        async Task<FakeSlskdHarness> StartAppsAsync()
         {
-            harness._apps.Add(app);
-        }
+            var webhooks = new WebhookReceiver();
+            var webhookApp = BuildWebhookReceiver(webhookPort, webhooks);
+            await webhookApp.StartAsync().ConfigureAwait(false);
+            started.Add(webhookApp);
 
-        return harness;
+            var configuration = new SlskdConfiguration
+            {
+                WebPort = port,
+                WebIpAddress = "127.0.0.1",
+                ApiKeys = [ApiKey],
+                SoulseekUsername = username,
+                DownloadsDirectory = Path.Combine(root, "downloads"),
+                IncompleteDirectory = Path.Combine(root, "incomplete"),
+                ShareDirectories = shareDirectory ? [Path.Combine(root, "music")] : [],
+                Webhooks =
+                [
+                    new WebhookTarget(
+                        "gate",
+                        $"http://127.0.0.1:{webhookPort}/hook",
+                        [DownloadFileCompleteEvent.EventName],
+                        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            [WebhookHeaderName] = WebhookHeaderValue,
+                        }),
+                ],
+            };
+
+            var options = new FakeSlskdOptions
+            {
+                Configuration = configuration,
+                Scenario = Scenario.Parse(scenarioJson),
+                AcoustIdPort = acoustIdPort,
+                InnertubePort = innertubePort,
+                InnertubeFixtureDir = innertubeFixtures,
+                AudioGenerator = generator ?? new TestAudioGenerator(),
+            };
+
+            var state = new FakeSlskdState(options);
+            var slskdApp = FakeSlskdApp.Build(options, state);
+            var acoustIdApp = AcoustIdStubApp.Build(options, state);
+
+            await slskdApp.StartAsync().ConfigureAwait(false);
+            started.Add(slskdApp);
+            await acoustIdApp.StartAsync().ConfigureAwait(false);
+            started.Add(acoustIdApp);
+
+            var apps = new List<WebApplication> { webhookApp, slskdApp, acoustIdApp };
+            HttpClient? innertube = null;
+
+            if (innertubeFixtures is not null)
+            {
+                var innertubeApp = InnertubeStubApp.Build(options, state);
+                await innertubeApp.StartAsync().ConfigureAwait(false);
+                started.Add(innertubeApp);
+                apps.Add(innertubeApp);
+                innertube = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{innertubePort}/") };
+            }
+
+            var slskd = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
+            slskd.DefaultRequestHeaders.Add(FakeSlskdApp.ApiKeyHeader, ApiKey);
+
+            var acoustId = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{acoustIdPort}/") };
+
+            var harness = new FakeSlskdHarness(root, state, slskd, acoustId, innertube, webhooks) { HasShare = shareDirectory };
+
+            foreach (var app in apps)
+            {
+                harness._apps.Add(app);
+            }
+
+            return harness;
+        }
     }
 
     /// <summary>An API-key-less client, for the 401 cases.</summary>

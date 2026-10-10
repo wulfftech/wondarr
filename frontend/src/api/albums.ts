@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { useApiClient } from './context';
 import { ApiError } from './errors';
-import { problemError, invalidateLibrary, SONGS_QUERY_KEY } from './songs';
+import { partialProviders, problemError, invalidateLibrary, SONGS_QUERY_KEY, type SearchOutcome } from './songs';
 import type { components } from './schema';
 
 /** The album search, a release group's releases, a tracklist, and adding the selected tracks. */
@@ -22,11 +22,11 @@ export type AlbumRefResource = components['schemas']['AlbumRefResource'];
 export const ALBUMS_QUERY_KEY = ['albums'] as const;
 
 /** A search for albums Wondarr could add, without adding them. */
-export function useAlbumLookup(): UseMutationResult<AlbumSearchResultResource[], Error, string> {
+export function useAlbumLookup(): UseMutationResult<SearchOutcome<AlbumSearchResultResource>, Error, string> {
   const client = useApiClient();
 
   return useMutation({
-    mutationFn: async (term: string): Promise<AlbumSearchResultResource[]> => {
+    mutationFn: async (term: string): Promise<SearchOutcome<AlbumSearchResultResource>> => {
       const { data, error, response } = await client.GET('/api/v1/album/lookup', {
         params: { query: { term } },
       });
@@ -35,7 +35,7 @@ export function useAlbumLookup(): UseMutationResult<AlbumSearchResultResource[],
         throw problemError(response.status, error, 'The album search failed.');
       }
 
-      return data;
+      return { items: data, partial: partialProviders(response) };
     },
   });
 }

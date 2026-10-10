@@ -316,4 +316,60 @@ describe('AddAlbumTab', () => {
       sent().some((request) => request.url.includes(`/api/v1/album/musicbrainz/${DEFAULT_RELEASE_ID}/tracks`)),
     ).toBe(true);
   });
+
+  it('says so above the results when MusicBrainz did not answer', async () => {
+    install({
+      lookup: () =>
+        new Response(JSON.stringify([ALBUM_SEARCH_RESULTS[1]]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-Wondarr-Partial': 'musicbrainz' },
+        }),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+    await user.click(screen.getByRole('tab', { name: 'Album' }));
+    await user.type(screen.getByRole('textbox', { name: 'Album' }), 'Daft Punk Discovery{Enter}');
+
+    expect(
+      await screen.findByText(
+        "MusicBrainz didn't answer, so these are Deezer's results only. Try again for the full list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Discovery')).toBeInTheDocument();
+  });
+
+  it('shows no notice when every provider answered', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+    await searchAlbum(user);
+
+    expect(screen.queryByText(/didn't answer/u)).not.toBeInTheDocument();
+  });
+
+  it("shows a 503 problem's detail instead of a generic error", async () => {
+    install({
+      lookup: () =>
+        jsonResponse(
+          {
+            title: 'Album search is unavailable',
+            detail: 'MusicBrainz and Deezer did not answer; try again in a minute.',
+            status: 503,
+          },
+          503,
+        ),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+    await user.click(screen.getByRole('tab', { name: 'Album' }));
+    await user.type(screen.getByRole('textbox', { name: 'Album' }), 'Daft Punk Discovery{Enter}');
+
+    expect(
+      await screen.findByText('MusicBrainz and Deezer did not answer; try again in a minute.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
+  });
 });

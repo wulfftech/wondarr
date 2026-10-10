@@ -55,6 +55,9 @@ public enum RejectionReason
 
     /// <summary>A usenet post larger than the limit; it cannot be downloaded selectively (DECISIONS build session 8 #7).</summary>
     ContainerTooLarge,
+
+    /// <summary>The candidate's own track title is too far from the song's (the title floor, MATCHING_ENGINE §6.2).</summary>
+    TitleMismatch,
 }
 
 /// <summary>Maps <see cref="RejectionReason"/> onto the camel-case wire name the API returns.</summary>

@@ -127,7 +127,10 @@ public class DecisionEngineGoldenTests
 
         return new Candidate
         {
-            SourceType = SourceTypes.Soulseek,
+            SourceType = spec.SourceType ?? SourceTypes.Soulseek,
+            Container = string.Equals(spec.Container, "albumContainer", StringComparison.Ordinal)
+                ? CandidateContainer.AlbumContainer
+                : CandidateContainer.SingleFile,
             BlocklistKey = BlocklistKeys.Soulseek(spec.Provider, spec.RemotePath),
             DisplayName = LastSegment(spec.RemotePath),
             RemotePath = spec.RemotePath,
@@ -230,7 +233,9 @@ public class DecisionEngineGoldenTests
         int? BitDepth = null,
         long? SizeBytes = null,
         long QualityId = 1,
-        bool IsLocked = false);
+        bool IsLocked = false,
+        string? SourceType = null,
+        string? Container = null);
 
     private sealed record ParsedSpec(
         string? Artist,
