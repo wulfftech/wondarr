@@ -1,6 +1,6 @@
 import { Badge, Center, Group, Image, Stack, Text } from '@mantine/core';
 import { Disc3 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { initCaps } from '../text';
 
 /**
@@ -21,6 +21,10 @@ export interface AlbumOptionView {
   isVariousArtists?: boolean;
   originalDate?: string | null;
   discNo?: number | string | null;
+  /** Set on a group row: how many editions of the album it stands for. */
+  editions?: number;
+  /** Not in the API yet; shown on an edition when it is there. */
+  country?: string | null;
 }
 
 /** The song's track position on an album option, as the dialog words it. */
@@ -56,18 +60,29 @@ function dateText(option: AlbumOptionView): string | null {
 
 /** A square album cover, lazy-loaded, with a neutral placeholder when there is none or it fails. */
 export function AlbumCover({ url, size = 64 }: { url: string | null | undefined; size?: number }) {
-  const [failed, setFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const image = useRef<HTMLImageElement>(null);
 
-  if (url == null || url === '' || failed) {
+  // An image can fail before React attaches `onError` (server-rendered or cached), so look once on mount.
+  useEffect(() => {
+    const element = image.current;
+
+    if (element !== null && element.complete && element.naturalWidth === 0) {
+      setFailedUrl(element.getAttribute('src'));
+    }
+  }, [url]);
+
+  if (url == null || url === '' || failedUrl === url) {
     return (
       <Center w={size} h={size} bg="var(--mantine-color-default-hover)" style={{ borderRadius: 4, flexShrink: 0 }}>
-        <Disc3 size={Math.round(size / 2)} aria-hidden />
+        <Disc3 size={Math.round(size / 2)} aria-hidden data-testid="cover-placeholder" />
       </Center>
     );
   }
 
   return (
     <Image
+      ref={image}
       src={url}
       alt=""
       w={size}
@@ -76,7 +91,7 @@ export function AlbumCover({ url, size = 64 }: { url: string | null | undefined;
       fit="cover"
       loading="lazy"
       style={{ flexShrink: 0 }}
-      onError={() => setFailed(true)}
+      onError={() => setFailedUrl(url)}
     />
   );
 }
@@ -85,7 +100,8 @@ export function AlbumOptionLabel({ option }: { option: AlbumOptionView }) {
   const isCompilation = option.isVariousArtists === true || option.secondaryTypes.includes('Compilation');
   const track = trackText(option);
   const date = dateText(option);
-  const details = [track, date].filter((part) => part !== null).join(' · ');
+  const editions = option.editions != null ? `${option.editions} editions` : null;
+  const details = [track, date, editions].filter((part) => part !== null).join(' · ');
 
   return (
     <Group component="span" gap="sm" wrap="nowrap" align="flex-start">

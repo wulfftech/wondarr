@@ -2,7 +2,9 @@ import { Badge, Button, Card, Group, Stack, Text, TextInput } from '@mantine/cor
 import { Search } from 'lucide-react';
 import { useState } from 'react';
 import type { SongDetailsResource } from '../../api/songs';
+import { AlbumGroupRow } from '../../components/song/AlbumGroupRow';
 import { AlbumOptionLabel } from '../../components/song/AlbumOptionLabel';
+import { editionText, groupAlbumOptions, groupMatches, type AlbumGroup } from '../../components/song/albumGroups';
 import { formatCount, formatDecibels } from '../../components/song/format';
 import { Block, Fact, FactGrid, SourceLink } from './Facts';
 
@@ -30,41 +32,61 @@ function compareReleases(a: Release, b: Release): number {
   return b.date === null ? -1 : a.date.localeCompare(b.date);
 }
 
-function ReleaseRow({ release }: { release: Release }) {
+const CURRENT_BADGE = (label: string) => (
+  <Badge size="sm" variant="filled">
+    {label}
+  </Badge>
+);
+
+/** One group of editions of an album: a single release as itself, several as an expandable row. */
+function ReleaseGroupRow({ group }: { group: AlbumGroup<Release> }) {
+  const [open, setOpen] = useState(group.hasCurrent);
+
+  if (group.editions.length === 1) {
+    const release = group.editions[0];
+
+    return (
+      <Group gap="sm" wrap="nowrap" align="flex-start">
+        <AlbumOptionLabel option={release} />
+        {release.isCurrent && CURRENT_BADGE('Current album')}
+      </Group>
+    );
+  }
+
   return (
-    <Group gap="sm" wrap="nowrap" align="flex-start">
-      <AlbumOptionLabel option={release} />
-      {release.isCurrent && (
-        <Badge size="sm" variant="filled">
-          Current album
-        </Badge>
-      )}
-    </Group>
+    <AlbumGroupRow
+      view={group.view}
+      open={open}
+      onToggle={() => setOpen(!open)}
+      badge={group.hasCurrent ? CURRENT_BADGE('Current album') : undefined}
+    >
+      {group.editions.map((release) => (
+        <Group key={release.key} gap="sm" wrap="nowrap">
+          <Text size="sm">{editionText(release)}</Text>
+          {release.isCurrent && CURRENT_BADGE('Current edition')}
+        </Group>
+      ))}
+    </AlbumGroupRow>
   );
 }
 
 /**
- * Every release the song appears on. A popular song can be on hundreds, so only the current album and
- * the first few originals show until "Show all"; once expanded, a filter box narrows the list.
+ * Every album the song appears on, the editions of one album grouped into a row. A popular song can be
+ * on hundreds, so only the current album and the first few originals show until "Show all"; once
+ * expanded, a filter box narrows the list. The counts are of albums, not editions.
  */
 function AppearsOn({ releases }: { releases: Release[] }) {
   const [expanded, setExpanded] = useState(false);
   const [filter, setFilter] = useState('');
 
-  const current = releases.filter((release) => release.isCurrent);
-  const others = releases.filter((release) => !release.isCurrent).sort(compareReleases);
+  const groups = groupAlbumOptions([...releases].sort(compareReleases));
+  const current = groups.filter((group) => group.hasCurrent);
+  const others = groups.filter((group) => !group.hasCurrent);
   const needle = filter.trim().toLowerCase();
 
   const collapsed = [...current, ...others.slice(0, COLLAPSED_COUNT)];
   const all = [...current, ...others];
-  const shown = !expanded
-    ? collapsed
-    : needle === ''
-      ? all
-      : all.filter(
-          (release) =>
-            release.title.toLowerCase().includes(needle) || release.albumArtist.toLowerCase().includes(needle),
-        );
+  const shown = !expanded ? collapsed : needle === '' ? all : all.filter((group) => groupMatches(group, needle));
 
   return (
     <Block title="Appears on">
@@ -79,8 +101,8 @@ function AppearsOn({ releases }: { releases: Release[] }) {
       )}
 
       <Stack gap="md">
-        {shown.map((release) => (
-          <ReleaseRow key={release.key} release={release} />
+        {shown.map((group) => (
+          <ReleaseGroupRow key={group.id} group={group} />
         ))}
 
         {expanded && shown.length === 0 && (
