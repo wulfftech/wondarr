@@ -415,3 +415,13 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 - **Never test against production.** Live checks stay on `ch01`.
 
 **Next:** when 0.1.0 is final, move production to `ghcr.io/wulfftech/wondarr:0.1` (`/srv/wondarr/docker-compose.yml` on VM 177). Then the backlog as before.
+
+### 2026-10-10 — Build session 11 (continued): owner feedback, the song page, Last.fm, three bugs, the README, the history rewrite
+
+**Outcome.** The owner's UI feedback is built: Artist - Title and a Δ Length column in the Match queue, one Add spinning, a narrow Task column (M-03), a wide Change album dialog with covers and album artists (M-04), a page for every song (M-05a/b) with optional Last.fm facts and AcoustID/Last.fm keys in Settings → General (M-05c), and its polish (M-07). Seeding the README's demo songs on `ch01` found three bugs, fixed as M-08 (a busy MusicBrainz; Retry-After shared per host), M-09 (a search waits for a download slot) and M-10 (a title floor for candidates). The README was rewritten for users with five screenshots from `ch01` (`docs/screenshots/`). Production (VM 177) runs `sha-cd2fbee` (up to M-05b); M-07 to M-10 reach it after this PR merges.
+
+- **History rewrite (owner):** no Claude author, co-author or session line anywhere; all commit ids changed (PROGRESS's note); tags moved; the old `claude/…` and Dependabot branches deleted (Dependabot reopens its updates). The `compilarr` GHCR package was deleted by the owner. **Never add an AI trailer** (DECISIONS build session 11 #4).
+- **Workflow:** the last batch went to `main` through a PR rather than a direct push (owner's request).
+- **Backlog added:** the lookup ranks compilation-only recordings above the original album recording (2026-10-10-05).
+
+**Next:** merge the PR, deploy its `sha-…` image to production (VM 177), then 0.1.0 with the owner.
