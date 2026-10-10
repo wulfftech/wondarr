@@ -47,6 +47,20 @@ public sealed class DecisionEngine
     /// </summary>
     public const int HeldIdentityCeiling = 360;
 
+    /// <summary>
+    /// The title floor: a candidate whose own track title is less similar than this to the song's
+    /// (token-sort ratio, 0 to 1) is a different song. Unrelated titles sharing a word score 0.07 to
+    /// 0.45 and every title of the golden set that names the song scores 1.0; 0.6 sits well clear of
+    /// both, so a one-word subtitle, a missing "The" or a typo still passes.
+    /// </summary>
+    public const double TitleFloor = 0.6;
+
+    /// <summary>
+    /// The title similarity that stands in for the artist on a compilation path, where the artist is
+    /// legitimately absent from the folders: the file name has to name the song almost exactly.
+    /// </summary>
+    public const double StrongTitleMatch = 0.85;
+
     /// <summary>Below this a file cannot be the song, whatever the source claims.</summary>
     private const long MinimumSizeBytes = 500_000;
 
@@ -234,6 +248,7 @@ public sealed class DecisionEngine
 
         AddDurationRejection(context, candidate, rejections);
         AddVersionRejection(context, candidate, rejections);
+        AddTitleRejection(context, candidate, rejections);
         AddArtistRejection(context, candidate, rejections);
         AddSizeRejection(context, candidate, quality, rejections);
 
@@ -350,6 +365,23 @@ public sealed class DecisionEngine
                 ".")));
     }
 
+    private static void AddTitleRejection(DecisionContext context, Candidate candidate, List<Rejection> rejections)
+    {
+        if (CandidateTitleMatcher.Similarity(context.SongTitle, candidate) is not { } similarity || similarity >= TitleFloor)
+        {
+            return;
+        }
+
+        rejections.Add(new Rejection(
+            RejectionReason.TitleMismatch,
+            string.Concat(
+                "Title mismatch: '",
+                FileTitle(candidate),
+                "' does not match '",
+                context.SongTitle,
+                "'.")));
+    }
+
     private static void AddArtistRejection(DecisionContext context, Candidate candidate, List<Rejection> rejections)
     {
         if (context.MainArtists.Count == 0 || ArtistOverlap(context, candidate) > 0)
@@ -357,9 +389,21 @@ public sealed class DecisionEngine
             return;
         }
 
-        // Compilations ("Various Artists", "OST") legitimately carry no artist in the path.
+        // Compilations ("Various Artists", "OST") legitimately carry no artist in the folders, but the
+        // file itself must still name the artist or, failing that, the song almost exactly.
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
+            if (FileNameNamesArtist(context, candidate) ||
+                CandidateTitleMatcher.Similarity(context.SongTitle, candidate) is not { } similarity ||
+                similarity >= StrongTitleMatch)
+            {
+                return;
+            }
+
+            rejections.Add(new Rejection(
+                RejectionReason.ArtistMismatch,
+                "Artist mismatch: a compilation path, and the file name names neither the artist nor the song closely enough."));
+
             return;
         }
 
@@ -367,6 +411,30 @@ public sealed class DecisionEngine
             RejectionReason.ArtistMismatch,
             "Artist mismatch: none of the song's artists appears in the candidate's path."));
     }
+
+    /// <summary>Whether every word of one of the song's artists is in the file name (not the folders).</summary>
+    private static bool FileNameNamesArtist(DecisionContext context, Candidate candidate)
+    {
+        var fileTokens = TokenizePath(LastSegment(candidate.RemotePath));
+
+        foreach (var artist in context.MainArtists)
+        {
+            var tokens = TextMatching.NormalizeArtist(artist).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (tokens.Length > 0 && tokens.All(fileTokens.Contains))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The candidate's own track title for messages: what the parser found, else the file name's.</summary>
+    private static string FileTitle(Candidate candidate) =>
+        !string.IsNullOrWhiteSpace(candidate.Parsed.Title)
+            ? candidate.Parsed.Title
+            : CandidateTitleMatcher.ExtractTitle(candidate.RemotePath) ?? candidate.DisplayName;
 
     private static void AddSizeRejection(
         DecisionContext context,

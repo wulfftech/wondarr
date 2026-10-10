@@ -123,7 +123,8 @@ public sealed class HeldIdentityScoreTests
     /// <summary>A FLAC that matches the song clearly less well than the held file's candidate did (more than the identity tolerance below it).</summary>
     private static Candidate Worse() => SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha2.flac") with
     {
-        Parsed = SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha2.flac").Parsed with { Title = "Omega" },
+        Parsed = SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha2.flac").Parsed with { Title = "Alphabet" },
+        DurationMs = 202_000,
     };
 
     /// <summary>The shape <c>song_file.source_ref</c> has when a stored candidate produced the file.</summary>

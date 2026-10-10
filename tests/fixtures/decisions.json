@@ -1655,6 +1655,217 @@
           "atv": 850
         }
       }
+    },
+    {
+      "name": "unrelated tracks on compilation paths are rejected by the title floor and the compilation rule; the real album track is accepted",
+      "song": {
+        "title": "Story of a Girl",
+        "mainArtists": [
+          "Nine Days"
+        ],
+        "durationMs": 197600,
+        "flags": [],
+        "albumTitle": "The Madding Crowd",
+        "trackNo": 2
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "cadet",
+          "provider": "peer1",
+          "remotePath": "@@qmdmb\\_3rd\\_2309\\Various Artists-2023-The Story Of Cadet Records (VMP Anthology Vinyl)-FLAC [24 192]\\2. Dorothy Ashby (1968) Afro-Harping\\04 Lonely Girl.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Various Artists-2023-The Story Of Cadet Records (VMP Anthology Vinyl)-FLAC [24 192]",
+            "title": "Lonely Girl",
+            "album": "2. Dorothy Ashby Afro-Harping",
+            "trackNo": 4,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "bright",
+          "provider": "peer1",
+          "remotePath": "@@qmdmb\\_1st\\_2305\\Various Artists - Successful Story of a Bright Girl (명랑소녀 성공기) OST (2002) [FLAC]\\09 - 사랑이 온거야.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "_2305",
+            "title": "사랑이 온거야",
+            "album": "Various Artists - Successful Story of a Bright Girl (명랑소녀 성공기) OST",
+            "trackNo": 9,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 199000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "madding",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Nine Days\\The Madding Crowd\\02 Absolutely (Story of a Girl).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Nine Days",
+            "title": "Absolutely",
+            "album": "The Madding Crowd",
+            "trackNo": 2,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": true
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "madding"
+        ],
+        "rejections": {
+          "cadet": [
+            "titleMismatch",
+            "artistMismatch"
+          ],
+          "bright": [
+            "titleMismatch",
+            "artistMismatch"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a compilation path that names the artist passes the artist rule; the acoustic version is still rejected",
+      "song": {
+        "title": "Story of a Girl",
+        "mainArtists": [
+          "Nine Days"
+        ],
+        "durationMs": 197600,
+        "flags": [],
+        "albumTitle": "The Madding Crowd",
+        "trackNo": 2
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "acoustic",
+          "provider": "peer1",
+          "remotePath": "@@zz\\VA - ALBUMS VA\\Nine Days\\14 - Nine Days - Absolutely (story Of A Girl) (acoustic).mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Nine Days",
+            "title": "Absolutely",
+            "album": "Nine Days",
+            "trackNo": 14,
+            "flags": [
+              "acoustic"
+            ],
+            "pathFlags": [],
+            "hints": [
+              "(acoustic)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": true
+          },
+          "durationMs": 197000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 7900000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "madding",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Nine Days\\The Madding Crowd\\02 Absolutely (Story of a Girl).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Nine Days",
+            "title": "Absolutely",
+            "album": "The Madding Crowd",
+            "trackNo": 2,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": true
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "madding"
+        ],
+        "rejections": {
+          "acoustic": [
+            "versionMismatch"
+          ]
+        }
+      }
     }
   ]
 }
