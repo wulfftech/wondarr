@@ -47,6 +47,20 @@ public sealed class DecisionEngine
     /// </summary>
     public const int HeldIdentityCeiling = 360;
 
+    /// <summary>
+    /// The title floor: a candidate whose own track title is less similar than this to the song's
+    /// (token-sort ratio, 0 to 1) is a different song. Unrelated titles sharing a word score 0.07 to
+    /// 0.45 and every title of the golden set that names the song scores 1.0; 0.6 sits well clear of
+    /// both, so a one-word subtitle, a missing "The" or a typo still passes.
+    /// </summary>
+    public const double TitleFloor = 0.6;
+
+    /// <summary>
+    /// The title similarity that stands in for the artist on a compilation path, where the artist is
+    /// legitimately absent from the folders: the file name has to name the song almost exactly.
+    /// </summary>
+    public const double StrongTitleMatch = 0.85;
+
     /// <summary>Below this a file cannot be the song, whatever the source claims.</summary>
     private const long MinimumSizeBytes = 500_000;
 
@@ -84,11 +98,12 @@ public sealed class DecisionEngine
         ArgumentNullException.ThrowIfNull(candidates);
 
         var songBaseTitle = VersionFlagParser.Parse(context.SongTitle).BaseTitle;
+        var songVariants = CandidateTitleMatcher.SongVariants(context.SongTitle);
         var decisions = new List<CandidateDecision>();
 
         foreach (var candidate in candidates)
         {
-            decisions.Add(Judge(context, candidate, songBaseTitle));
+            decisions.Add(Judge(context, candidate, songBaseTitle, songVariants));
         }
 
         decisions.Sort((left, right) => Compare(context, left, right));
@@ -115,11 +130,16 @@ public sealed class DecisionEngine
     }
 
     /// <summary>Scores one candidate and collects every rule it fails.</summary>
-    private static CandidateDecision Judge(DecisionContext context, Candidate candidate, string songBaseTitle)
+    private static CandidateDecision Judge(
+        DecisionContext context,
+        Candidate candidate,
+        string songBaseTitle,
+        IReadOnlyList<string> songVariants)
     {
         var score = Score(context, candidate, songBaseTitle);
+        var similarity = CandidateTitleMatcher.Similarity(songVariants, candidate);
 
-        return new CandidateDecision(candidate, score, Rejections(context, candidate, score));
+        return new CandidateDecision(candidate, score, Rejections(context, candidate, score, similarity));
     }
 
     /// <summary>Accepted before rejected, then by score, then by the tie-breaks of MATCHING_ENGINE §6.3.</summary>
@@ -168,7 +188,11 @@ public sealed class DecisionEngine
     }
 
     /// <summary>Every rule the candidate fails, in the order the reasons are declared.</summary>
-    private static List<Rejection> Rejections(DecisionContext context, Candidate candidate, ScoreBreakdown score)
+    private static List<Rejection> Rejections(
+        DecisionContext context,
+        Candidate candidate,
+        ScoreBreakdown score,
+        double? similarity)
     {
         var rejections = new List<Rejection>();
         var quality = QualityOf(context, candidate.QualityId);
@@ -234,7 +258,8 @@ public sealed class DecisionEngine
 
         AddDurationRejection(context, candidate, rejections);
         AddVersionRejection(context, candidate, rejections);
-        AddArtistRejection(context, candidate, rejections);
+        AddTitleRejection(context, candidate, similarity, rejections);
+        AddArtistRejection(context, candidate, similarity, rejections);
         AddSizeRejection(context, candidate, quality, rejections);
 
         if (candidate.SourceType == SourceTypes.Torznab && candidate.Availability.Seeders is 0)
@@ -350,16 +375,76 @@ public sealed class DecisionEngine
                 ".")));
     }
 
-    private static void AddArtistRejection(DecisionContext context, Candidate candidate, List<Rejection> rejections)
+    private static void AddTitleRejection(
+        DecisionContext context,
+        Candidate candidate,
+        double? similarity,
+        List<Rejection> rejections)
+    {
+        if (similarity is not { } value || value >= TitleFloor || IsTransliteration(context, candidate))
+        {
+            return;
+        }
+
+        rejections.Add(new Rejection(
+            RejectionReason.TitleMismatch,
+            string.Concat(
+                "Title mismatch: '",
+                FileTitle(candidate),
+                "' does not match '",
+                context.SongTitle,
+                "'.")));
+    }
+
+    /// <summary>
+    /// A song titled in one script and a file named in another cannot be compared letter by letter: the
+    /// title floor stands down when the artist is genuinely matched (not by the compilation skip) and
+    /// the length is within tolerance, which is what the fingerprint check after the download confirms.
+    /// </summary>
+    private static bool IsTransliteration(DecisionContext context, Candidate candidate)
+    {
+        var fileTitle = FileTitle(candidate);
+
+        if (CandidateTitleMatcher.IsLatinScript(context.SongTitle) is not { } songLatin ||
+            CandidateTitleMatcher.IsLatinScript(fileTitle) is not { } fileLatin ||
+            songLatin == fileLatin)
+        {
+            return false;
+        }
+
+        return context.MainArtists.Count > 0 &&
+            ArtistOverlap(context, candidate) > 0 &&
+            context.SongDurationMs is { } songMs &&
+            candidate.DurationMs is { } candidateMs &&
+            Math.Abs(songMs - candidateMs) <= Tolerance(context);
+    }
+
+    private static void AddArtistRejection(
+        DecisionContext context,
+        Candidate candidate,
+        double? similarity,
+        List<Rejection> rejections)
     {
         if (context.MainArtists.Count == 0 || ArtistOverlap(context, candidate) > 0)
         {
             return;
         }
 
-        // Compilations ("Various Artists", "OST") legitimately carry no artist in the path.
+        // Compilations ("Various Artists", "OST") legitimately carry no artist in the folders, but the
+        // file itself must still name the artist or, failing that, the song almost exactly.
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
+            if (FileNameNamesArtist(context, candidate) ||
+                similarity is not { } value ||
+                value >= StrongTitleMatch)
+            {
+                return;
+            }
+
+            rejections.Add(new Rejection(
+                RejectionReason.ArtistMismatch,
+                "Artist mismatch: a compilation path, and the file name names neither the artist nor the song closely enough."));
+
             return;
         }
 
@@ -367,6 +452,30 @@ public sealed class DecisionEngine
             RejectionReason.ArtistMismatch,
             "Artist mismatch: none of the song's artists appears in the candidate's path."));
     }
+
+    /// <summary>Whether every word of one of the song's artists is in the file name (not the folders).</summary>
+    private static bool FileNameNamesArtist(DecisionContext context, Candidate candidate)
+    {
+        var fileTokens = TokenizePath(LastSegment(candidate.RemotePath));
+
+        foreach (var artist in context.MainArtists)
+        {
+            var tokens = TextMatching.NormalizeArtist(artist).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (tokens.Length > 0 && tokens.All(fileTokens.Contains))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The candidate's own track title for messages: what the parser found, else the file name's.</summary>
+    private static string FileTitle(Candidate candidate) =>
+        !string.IsNullOrWhiteSpace(candidate.Parsed.Title)
+            ? candidate.Parsed.Title
+            : CandidateTitleMatcher.ExtractTitle(candidate.RemotePath) ?? candidate.DisplayName;
 
     private static void AddSizeRejection(
         DecisionContext context,
@@ -501,8 +610,11 @@ public sealed class DecisionEngine
         // A source whose candidates carry parsed metadata (YouTube: the video id is the path, the
         // artist is metadata) is matched on that; a path-shaped candidate (Soulseek) is matched on
         // its path tokens, where the artist legitimately appears.
+        // The file name is looked at as well: "Hey Jude - The Beatles.mp3" parses the artist as "Hey Jude".
         var candidateTokens = !string.IsNullOrWhiteSpace(candidate.Parsed.Artist)
-            ? TokenizePath(candidate.Parsed.Artist)
+            ? new HashSet<string>(
+                TokenizePath(candidate.Parsed.Artist).Concat(TokenizePath(LastSegment(candidate.RemotePath))),
+                StringComparer.Ordinal)
             : TokenizePath(candidate.RemotePath);
         var best = 0.0;
 

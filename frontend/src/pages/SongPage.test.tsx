@@ -84,6 +84,26 @@ function release(index: number, extra: Record<string, unknown> = {}) {
   };
 }
 
+/** Three editions of one album (one release group) plus single releases, for the grouping tests. */
+const GROUP_ID = '8mile-0000-0000-0000-000000000000';
+
+function edition(index: number, extra: Record<string, unknown> = {}) {
+  return {
+    ...ALBUM_OPTIONS[0],
+    key: `8mile-${index}`,
+    mbReleaseId: `8mile-release-${index}`,
+    mbReleaseGroupId: GROUP_ID,
+    title: '8 Mile',
+    albumArtist: 'Various Artists',
+    coverUrl: index === 1 ? null : `https://coverartarchive.org/release/8mile-${index}/front-250`,
+    date: `${2002 + index}-11-12`,
+    totalTracks: index === 3 ? 16 : 22,
+    trackNo: null,
+    isCurrent: false,
+    ...extra,
+  };
+}
+
 const DETAILS = {
   releases: [
     release(1, { title: 'Random Access Memories', isCurrent: true, date: '2013-05-17' }),
@@ -527,6 +547,7 @@ describe('SongPage', () => {
     const many = Array.from({ length: 12 }, (_, index) => ({
       ...ALBUM_OPTIONS[1],
       key: `many-${index}`,
+      mbReleaseGroupId: null,
       title: index === 5 ? 'Needle Album' : `Hits ${index}`,
       isCurrent: false,
     }));
@@ -557,6 +578,126 @@ describe('SongPage', () => {
 
     await within(dialog).findByRole('radio', { name: /Singles/ });
     expect(within(dialog).queryByRole('textbox', { name: 'Filter albums' })).not.toBeInTheDocument();
+  });
+
+  it('groups editions of one album in Change album: one row, expandable, radios only on the editions', async () => {
+    const options = [
+      ALBUM_OPTIONS[0],
+      edition(1),
+      edition(2),
+      edition(3),
+      { ...ALBUM_OPTIONS[1], key: 'other', mbReleaseGroupId: null, title: 'Other Hits' },
+    ];
+    install({ albumOptions: options });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Change album…' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    // The group is one row with the earliest year and a count; its editions (and their radios) are hidden.
+    expect(await within(dialog).findByText(/2003 · 3 editions/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText('8 Mile')).toHaveLength(1);
+    expect(within(dialog).getAllByRole('radio')).toHaveLength(2);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Show the editions of 8 Mile' }));
+
+    const editions = within(dialog).getByRole('group', { name: 'Editions of 8 Mile' });
+
+    expect(within(editions).getAllByRole('radio')).toHaveLength(3);
+    expect(within(editions).getByRole('radio', { name: /2005 · Official/ })).toBeInTheDocument();
+    expect(within(editions).getByRole('radio', { name: /16 tracks/ })).toBeInTheDocument();
+  });
+
+  it('starts the group that holds the current album expanded in Change album', async () => {
+    install({ albumOptions: [edition(1), edition(2, { isCurrent: true }), edition(3)] });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Change album…' }));
+
+    const dialog = await screen.findByRole('dialog');
+    const editions = await within(dialog).findByRole('group', { name: 'Editions of 8 Mile' });
+
+    expect(within(editions).getAllByRole('radio')).toHaveLength(3);
+    expect(within(editions).getByRole('radio', { checked: true })).toBeInTheDocument();
+  });
+
+  it('filters the grouped Change album list by group title', async () => {
+    const many = Array.from({ length: 12 }, (_, index) => ({
+      ...ALBUM_OPTIONS[1],
+      key: `many-${index}`,
+      mbReleaseGroupId: null,
+      title: `Hits ${index}`,
+      isCurrent: false,
+    }));
+    install({ albumOptions: [ALBUM_OPTIONS[0], edition(1), edition(2), ...many] });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Change album…' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(await within(dialog).findByRole('textbox', { name: 'Filter albums' }), '8 mile');
+
+    expect(within(dialog).getByText(/2 editions/)).toBeInTheDocument();
+    expect(within(dialog).queryByText('Hits 3')).not.toBeInTheDocument();
+  });
+
+  it('groups editions in Appears on, counting albums not editions', async () => {
+    const releases = [
+      release(0, { title: 'Current One', isCurrent: true, date: '2013-01-01' }),
+      ...[1, 2, 3].map((index) =>
+        release(20 + index, {
+          title: '8 Mile',
+          mbReleaseGroupId: GROUP_ID,
+          date: `${2002 + index}-11-12`,
+          totalTracks: index === 3 ? 16 : 22,
+        }),
+      ),
+      ...Array.from({ length: 11 }, (_, index) => release(index + 2)),
+    ];
+    install({ details: { ...DETAILS, releases } });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('tab', { name: 'About' }));
+
+    const appears = await screen.findByRole('region', { name: 'Appears on' });
+
+    // 1 current + 1 group + 11 singles = 13 albums, not 15 releases; the group is one row.
+    expect(within(appears).getAllByText('8 Mile')).toHaveLength(1);
+    expect(within(appears).getByText(/2003 · 3 editions/)).toBeInTheDocument();
+    expect(within(appears).getByRole('button', { name: 'Show all 13' })).toBeInTheDocument();
+
+    await user.click(within(appears).getByRole('button', { name: 'Show the editions of 8 Mile' }));
+
+    const editions = within(appears).getByRole('group', { name: 'Editions of 8 Mile' });
+
+    expect(within(editions).getByText(/of 16/)).toBeInTheDocument();
+    expect(within(editions).queryByRole('radio')).not.toBeInTheDocument();
+
+    await user.click(within(appears).getByRole('button', { name: 'Show all 13' }));
+    await user.type(within(appears).getByRole('textbox', { name: 'Filter releases' }), '8 mile');
+
+    expect(within(appears).getByText(/3 editions/)).toBeInTheDocument();
+    expect(within(appears).queryByText('Current One')).not.toBeInTheDocument();
+  });
+
+  it('highlights Library in the sidebar on a song page', async () => {
+    install();
+
+    renderApp();
+
+    await screen.findByRole('heading', { name: 'Get Lucky' });
+    expect(screen.getByRole('link', { name: 'Library' })).toHaveAttribute('data-active', 'true');
+    expect(screen.getByRole('link', { name: 'Wanted' })).not.toHaveAttribute('data-active');
   });
 
   it('opens the Convert dialog from the song page', async () => {

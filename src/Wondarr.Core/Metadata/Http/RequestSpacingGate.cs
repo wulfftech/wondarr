@@ -17,6 +17,7 @@ public sealed class RequestSpacingGate
     private readonly object _sync = new();
 
     private DateTimeOffset _nextFreeSlot = DateTimeOffset.MinValue;
+    private DateTimeOffset _cooldownUntil = DateTimeOffset.MinValue;
 
     /// <summary>Initialises a new instance of the <see cref="RequestSpacingGate"/> class.</summary>
     /// <param name="minInterval">Minimum distance between two request starts.</param>
@@ -45,6 +46,11 @@ public sealed class RequestSpacingGate
             now = _timeProvider.GetUtcNow();
 
             var slot = now > _nextFreeSlot ? now : _nextFreeSlot;
+            if (slot < _cooldownUntil)
+            {
+                slot = _cooldownUntil;
+            }
+
             _nextFreeSlot = slot + _minInterval;
             delay = slot - now;
         }
@@ -52,6 +58,42 @@ public sealed class RequestSpacingGate
         return delay > TimeSpan.Zero
             ? new ValueTask(WaitUntilAsync(now + delay, cancellationToken))
             : ValueTask.CompletedTask;
+    }
+
+    /// <summary>Gets the gate's clock reading, which a <c>Retry-After</c> date is measured against.</summary>
+    public DateTimeOffset UtcNow => _timeProvider.GetUtcNow();
+
+    /// <summary>
+    /// How much longer the host has asked to be left alone (a <c>Retry-After</c>), or zero. Every
+    /// caller of the host shares it, whichever client it came from.
+    /// </summary>
+    public TimeSpan Cooldown
+    {
+        get
+        {
+            lock (_sync)
+            {
+                var remaining = _cooldownUntil - _timeProvider.GetUtcNow();
+
+                return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Holds every later caller back until <paramref name="until"/>. Never shortens a cooldown that
+    /// is already longer.
+    /// </summary>
+    /// <param name="until">The moment the host may be asked again.</param>
+    public void DelayUntil(DateTimeOffset until)
+    {
+        lock (_sync)
+        {
+            if (until > _cooldownUntil)
+            {
+                _cooldownUntil = until;
+            }
+        }
     }
 
     /// <summary>

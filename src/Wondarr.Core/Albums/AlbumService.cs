@@ -3,6 +3,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
@@ -57,13 +58,37 @@ public sealed partial class AlbumService : IAlbumService
     public async Task<IReadOnlyList<AlbumSearchResult>> SearchAsync(
         string term,
         int limit = 20,
+        CancellationToken cancellationToken = default) =>
+        (await SearchPartialAsync(term, limit, cancellationToken).ConfigureAwait(false)).Items;
+
+    /// <inheritdoc />
+    public async Task<PartialSearch<AlbumSearchResult>> SearchPartialAsync(
+        string term,
+        int limit = 20,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(term);
 
-        var groups = await _musicBrainz
-            .SearchReleaseGroupsAsync(MusicBrainzQuery.ReleaseGroupByTerm(term), limit, cancellationToken)
-            .ConfigureAwait(false);
+        // A person is waiting on this: the provider calls fail fast rather than queue behind a long Retry-After.
+        using var interactive = InteractiveRequests.Begin();
+
+        var failed = new List<string>();
+        Exception? firstFailure = null;
+        var groups = new MbReleaseGroupSearchResult();
+
+        try
+        {
+            groups = await _musicBrainz
+                .SearchReleaseGroupsAsync(MusicBrainzQuery.ReleaseGroupByTerm(term), limit, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (ProviderKeys.IsProviderFailure(exception, cancellationToken))
+        {
+            // Deezer can still answer; only when it fails too is the search unavailable.
+            LogProviderFailed(_logger, ProviderKeys.MusicBrainz, exception.Message);
+            failed.Add(ProviderKeys.MusicBrainz);
+            firstFailure = exception;
+        }
 
         var hits = new List<AlbumSearchResult>(groups.ReleaseGroups.Count);
 
@@ -84,10 +109,28 @@ public sealed partial class AlbumService : IAlbumService
         {
             LogSearched(_logger, hits.Count, AlbumRef.MusicBrainzSource);
 
-            return hits;
+            return new PartialSearch<AlbumSearchResult>(hits, failed);
         }
 
-        var albums = await _deezer.SearchAlbumsAsync(term, limit, cancellationToken).ConfigureAwait(false);
+        DeezerAlbumSearchResult albums;
+
+        try
+        {
+            albums = await _deezer.SearchAlbumsAsync(term, limit, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (ProviderKeys.IsProviderFailure(exception, cancellationToken))
+        {
+            LogProviderFailed(_logger, ProviderKeys.Deezer, exception.Message);
+            failed.Add(ProviderKeys.Deezer);
+            firstFailure ??= exception;
+
+            if (failed.Contains(ProviderKeys.MusicBrainz))
+            {
+                throw new ProvidersUnavailableException(failed, firstFailure);
+            }
+
+            return new PartialSearch<AlbumSearchResult>(hits, failed);
+        }
 
         foreach (var album in albums.Data)
         {
@@ -106,7 +149,7 @@ public sealed partial class AlbumService : IAlbumService
 
         LogSearched(_logger, hits.Count, AlbumRef.DeezerSource);
 
-        return hits;
+        return new PartialSearch<AlbumSearchResult>(hits, failed);
     }
 
     /// <inheritdoc />
@@ -535,6 +578,9 @@ public sealed partial class AlbumService : IAlbumService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Album search returned {Count} hits from {Source}")]
     private static partial void LogSearched(ILogger logger, int count, string source);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Provider} did not answer the album search, carrying on without it: {Reason}")]
+    private static partial void LogProviderFailed(ILogger logger, string provider, string reason);
 
     [LoggerMessage(
         Level = LogLevel.Information,

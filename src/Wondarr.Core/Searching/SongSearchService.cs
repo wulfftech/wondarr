@@ -161,6 +161,9 @@ public sealed partial class SongSearchService : ISongSearchService
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
+    /// <summary>Serialises "is a slot free?" with the grab that takes it, across every scope in the process.</summary>
+    private static readonly SemaphoreSlim SlotGate = new(1, 1);
+
     private readonly WondarrDbContext _database;
     private readonly IEnumerable<ISourceProvider> _providers;
     private readonly DecisionEngine _engine;
@@ -171,6 +174,8 @@ public sealed partial class SongSearchService : ISongSearchService
     private readonly IHistoryService _history;
     private readonly IEventAggregator _events;
     private readonly IOptionsMonitor<SearchOptions> _options;
+    private readonly SlotWaitContext _slotWait;
+    private readonly SlotWaiters _waiters;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SongSearchService> _logger;
 
@@ -185,6 +190,8 @@ public sealed partial class SongSearchService : ISongSearchService
     /// <param name="history">The song lifecycle log.</param>
     /// <param name="events">The aggregator a successful grab is announced on.</param>
     /// <param name="options">The search limits.</param>
+    /// <param name="slotWait">The command a search waiting for a download slot reports through.</param>
+    /// <param name="waiters">The songs whose searches are waiting for a download slot.</param>
     /// <param name="timeProvider">The clock used to stamp the run.</param>
     /// <param name="logger">The logger.</param>
     public SongSearchService(
@@ -198,6 +205,8 @@ public sealed partial class SongSearchService : ISongSearchService
         IHistoryService history,
         IEventAggregator events,
         IOptionsMonitor<SearchOptions> options,
+        SlotWaitContext slotWait,
+        SlotWaiters waiters,
         TimeProvider timeProvider,
         ILogger<SongSearchService> logger)
     {
@@ -211,6 +220,8 @@ public sealed partial class SongSearchService : ISongSearchService
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(slotWait);
+        ArgumentNullException.ThrowIfNull(waiters);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -224,6 +235,8 @@ public sealed partial class SongSearchService : ISongSearchService
         _history = history;
         _events = events;
         _options = options;
+        _slotWait = slotWait;
+        _waiters = waiters;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -237,6 +250,12 @@ public sealed partial class SongSearchService : ISongSearchService
     {
         var song = await LoadSongAsync(songId, cancellationToken).ConfigureAwait(false)
             ?? throw new SongNotFoundException(string.Concat("No song has the id ", songId.ToString(CultureInfo.InvariantCulture), "."));
+
+        if (grab && _waiters.IsWaiting(songId))
+        {
+            // A search for this song is parked waiting for a download slot, with its candidates in hand.
+            return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, "Already waiting for a download slot");
+        }
 
         if (grab && await _queue.HasActiveForSongAsync(songId, cancellationToken).ConfigureAwait(false))
         {
@@ -297,6 +316,12 @@ public sealed partial class SongSearchService : ISongSearchService
 
         var song = await LoadSongAsync(songId, cancellationToken).ConfigureAwait(false)
             ?? throw new SongNotFoundException(string.Concat("No song has the id ", songId.ToString(CultureInfo.InvariantCulture), "."));
+
+        if (grab && _waiters.IsWaiting(songId))
+        {
+            // A search for this song is parked waiting for a download slot, with its candidates in hand.
+            return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, "Already waiting for a download slot");
+        }
 
         if (grab && await _queue.HasActiveForSongAsync(songId, cancellationToken).ConfigureAwait(false))
         {
@@ -467,18 +492,34 @@ public sealed partial class SongSearchService : ISongSearchService
         SearchOutcome outcome;
         string? message;
 
-        if (grab && accepted > 0 && trigger != SearchTrigger.Manual && !await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
+        if (grab && accepted > 0)
         {
-            // The batch loop waited for a slot before it got here; the downloads it counted may since
-            // have been joined by others, so an automatic grab is only made when one is still free.
-            outcome = SearchOutcome.Cancelled;
-            message = "No free download slot";
-        }
-        else if (grab && accepted > 0)
-        {
-            queueItemId = await GrabBestAsync(searchRunId, 1, cancellationToken).ConfigureAwait(false);
+            var slotTimedOut = false;
 
-            if (queueItemId is null)
+            if (trigger == SearchTrigger.Manual)
+            {
+                queueItemId = await GrabBestAsync(searchRunId, 1, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // An automatic grab only starts when a download slot is free. The candidates this run
+                // accepted are kept and grabbed when one frees; searching again would only spend the
+                // Soulseek budget on the same answer.
+                (slotTimedOut, queueItemId) = await GrabWhenSlotIsFreeAsync(songId, searchRunId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            if (slotTimedOut)
+            {
+                outcome = SearchOutcome.Cancelled;
+                message = _slotWait.WaitForSlot
+                    ? string.Concat(
+                        "still no free download slot after ",
+                        _options.CurrentValue.SlotWaitMinutes.ToString(CultureInfo.InvariantCulture),
+                        " min")
+                    : "No free download slot";
+            }
+            else if (queueItemId is null)
             {
                 if (await _queue.HasActiveForSongAsync(songId, cancellationToken).ConfigureAwait(false))
                 {
@@ -587,6 +628,166 @@ public sealed partial class SongSearchService : ISongSearchService
             .ConfigureAwait(false);
 
         return active < _options.CurrentValue.MaxActiveDownloads;
+    }
+
+    /// <summary>
+    /// Grabs the best accepted candidate of a run when a download slot is free. Only a search that runs
+    /// as a <c>SongSearch</c> command (<see cref="SlotWaitContext.WaitForSlot"/>) waits for one, for up
+    /// to <see cref="SearchOptions.SlotWaitMinutes"/>; any other caller (the batch loops, which wait
+    /// for a slot before each song themselves) fails fast.
+    /// </summary>
+    /// <remarks>
+    /// The wait holds no search budget and no transaction, polls every
+    /// <see cref="SearchOptions.SlotWaitSeconds"/>, honours the cancellation token, and hands its
+    /// executor place back so a few waiting searches cannot starve every other command. The place is
+    /// taken back <em>before</em> the grab, and the check and the grab happen under one process-wide
+    /// gate that is never held while waiting for a place.
+    /// </remarks>
+    private async Task<(bool TimedOut, long? QueueItemId)> GrabWhenSlotIsFreeAsync(
+        long songId,
+        long searchRunId,
+        CancellationToken cancellationToken)
+    {
+        if (!_slotWait.WaitForSlot)
+        {
+            return await TryGrabNowAsync(searchRunId, cancellationToken).ConfigureAwait(false);
+        }
+
+        var started = _timeProvider.GetUtcNow();
+        var announced = false;
+        var result = (TimedOut: false, QueueItemId: (long?)null);
+
+        _waiters.Add(songId);
+
+        try
+        {
+            result = await WaitLoopAsync(searchRunId, started, () => announced = true, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _waiters.Remove(songId);
+        }
+
+        if (announced)
+        {
+            var waited = (int)(_timeProvider.GetUtcNow() - started).TotalSeconds;
+
+            await TryReportAsync(
+                    result.TimedOut
+                        ? string.Concat("Cancelled — still no free download slot after ", _options.CurrentValue.SlotWaitMinutes.ToString(CultureInfo.InvariantCulture), " min")
+                        : string.Concat("Grabbed after waiting ", waited.ToString(CultureInfo.InvariantCulture), " s for a slot"))
+                .ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    private async Task<(bool TimedOut, long? QueueItemId)> WaitLoopAsync(
+        long searchRunId,
+        DateTimeOffset started,
+        Action onAnnounced,
+        CancellationToken cancellationToken)
+    {
+        var options = _options.CurrentValue;
+        var deadline = started + TimeSpan.FromMinutes(options.SlotWaitMinutes);
+        IAsyncDisposable? lease = null;
+        var announced = false;
+
+        try
+        {
+            while (true)
+            {
+                if (lease is not null && await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    // Work again only with a place of our own, and before anything is grabbed.
+                    var held = lease;
+                    lease = null;
+                    await held.DisposeAsync().ConfigureAwait(false);
+                }
+
+                if (lease is null)
+                {
+                    var attempt = await TryGrabNowAsync(searchRunId, cancellationToken).ConfigureAwait(false);
+
+                    if (!attempt.TimedOut)
+                    {
+                        return attempt;
+                    }
+                }
+
+                var remaining = deadline - _timeProvider.GetUtcNow();
+
+                if (remaining <= TimeSpan.Zero)
+                {
+                    return (true, null);
+                }
+
+                if (!announced)
+                {
+                    announced = true;
+                    onAnnounced();
+                    LogWaitingForSlot(_logger, searchRunId);
+                    await TryReportAsync("Waiting for a download slot").ConfigureAwait(false);
+                }
+
+                lease ??= _slotWait.YieldWorker?.Invoke();
+
+                var pause = TimeSpan.FromSeconds(options.SlotWaitSeconds);
+
+                await Task.Delay(pause < remaining ? pause : remaining, _timeProvider, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            if (lease is not null)
+            {
+                await lease.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>Grabs now when a slot is free (under the gate); <c>TimedOut</c> here means "no slot".</summary>
+    private async Task<(bool TimedOut, long? QueueItemId)> TryGrabNowAsync(
+        long searchRunId,
+        CancellationToken cancellationToken)
+    {
+        await SlotGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            if (await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var item = await GrabBestAsync(searchRunId, 1, cancellationToken).ConfigureAwait(false);
+
+                return (false, item);
+            }
+
+            return (true, null);
+        }
+        finally
+        {
+            SlotGate.Release();
+        }
+    }
+
+    /// <summary>Reports progress on the command; a failed report is logged, never allowed to lose the run.</summary>
+    private async Task TryReportAsync(string message)
+    {
+        if (_slotWait.ReportProgressAsync is not { } report)
+        {
+            return;
+        }
+
+        try
+        {
+            await report(message).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogProgressFailed(_logger, exception);
+        }
     }
 
     /// <inheritdoc />
@@ -1176,6 +1377,12 @@ public sealed partial class SongSearchService : ISongSearchService
 
         return flags;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The waiting-for-a-slot progress could not be reported; the search goes on")]
+    private static partial void LogProgressFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Search run {SearchRunId} found a candidate and is waiting for a download slot")]
+    private static partial void LogWaitingForSlot(ILogger logger, long searchRunId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Song {SongId} bundled with song {GrabbedSongId}'s grab (candidate {CandidateId})")]
     private static partial void LogBundled(ILogger logger, long songId, long grabbedSongId, long candidateId);
