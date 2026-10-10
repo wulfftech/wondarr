@@ -42,7 +42,7 @@ public sealed class SystemTaskTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var tasks = document.RootElement.EnumerateArray().ToList();
-        tasks.Should().HaveCount(8, "the catalog holds the two Phase 0 tasks, the missing-song and upgrade searches, the reference-library scan, housekeeping, the backup and the import-list sync");
+        tasks.Should().HaveCount(9, "the catalog holds the two Phase 0 tasks, the missing-song and upgrade searches, the reference-library scan, housekeeping, the backup, the import-list sync and the update check");
 
         var heartbeat = tasks.Single(task => task.GetProperty("taskName").GetString() == "Heartbeat");
         heartbeat.GetProperty("name").GetString().Should().Be("Heartbeat");
