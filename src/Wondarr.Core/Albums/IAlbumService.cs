@@ -18,6 +18,21 @@ public interface IAlbumService
         int limit = 20,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <see cref="SearchAsync"/> that survives one provider being down: the other provider's hits come
+    /// back with the key of the one that did not answer.
+    /// </summary>
+    /// <param name="term">What the user typed.</param>
+    /// <param name="limit">How many hits to return at most.</param>
+    /// <param name="cancellationToken">Cancels the search.</param>
+    /// <returns>The hits, best first, and the providers that failed.</returns>
+    /// <exception cref="ArgumentException">The term is blank.</exception>
+    /// <exception cref="Metadata.ProvidersUnavailableException">Both providers failed.</exception>
+    Task<Metadata.PartialSearch<AlbumSearchResult>> SearchPartialAsync(
+        string term,
+        int limit = 20,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Lists every official release of a release group, with the default one marked.</summary>
     /// <param name="releaseGroupId">The release-group MBID.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>

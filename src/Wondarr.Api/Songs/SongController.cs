@@ -1,6 +1,8 @@
+using Wondarr.Api.Middleware;
 using Wondarr.Api.Paging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Metadata;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
@@ -15,6 +17,7 @@ namespace Wondarr.Api.Songs;
 /// this controller only maps resources and turns the services' failures into RFC 7807 problems.
 /// </summary>
 [ApiController]
+[MetadataUnavailableFilter]
 [Route("api/v1/song")]
 public sealed class SongController : ControllerBase
 {
@@ -315,7 +318,29 @@ public sealed class SongController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var candidates = await _resolver.SearchAsync(term, LookupLimit, cancellationToken).ConfigureAwait(false);
+        PartialSearch<SongCandidate> found;
+
+        try
+        {
+            found = await _resolver.SearchPartialAsync(term, LookupLimit, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ProvidersUnavailableException)
+        {
+            return MetadataUnavailableFilterAttribute.Unavailable(
+                HttpContext,
+                "Song search is unavailable",
+                "MusicBrainz and Deezer did not answer; try again in a minute.");
+        }
+
+        var candidates = found.Items;
+
+        if (found.IsPartial)
+        {
+            // The list is still the body, so a client that never heard of the header keeps working.
+            Response.Headers[MetadataUnavailableFilterAttribute.PartialHeader] =
+                MetadataUnavailableFilterAttribute.PartialValue(found.FailedProviders);
+        }
+
         var existing = await SongLookupIndex
             .FindExistingAsync(_database, candidates, cancellationToken)
             .ConfigureAwait(false);

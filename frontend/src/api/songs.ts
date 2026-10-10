@@ -426,6 +426,49 @@ export function useArtists(): UseQueryResult<ArtistResource[], Error> {
   });
 }
 
+/** The header a lookup sets when a provider did not answer: `musicbrainz`, `deezer` or both, comma-separated. */
+export const PARTIAL_HEADER = 'X-Wondarr-Partial';
+
+/** What a search found, and the providers that did not answer while it ran. */
+export interface SearchOutcome<T> {
+  items: T[];
+  /** The provider keys that failed, empty when every provider answered. */
+  partial: string[];
+}
+
+/** The providers named by a response's partial header. */
+export function partialProviders(response: Response): string[] {
+  const value = response.headers.get(PARTIAL_HEADER);
+
+  return value === null
+    ? []
+    : value
+        .split(',')
+        .map((provider) => provider.trim().toLowerCase())
+        .filter((provider) => provider !== '');
+}
+
+const PROVIDER_NAMES: Record<string, string> = { musicbrainz: 'MusicBrainz', deezer: 'Deezer' };
+
+/**
+ * The notice above a search that only some providers answered, or `null` when all of them did.
+ * MusicBrainz and Deezer are the only two providers a search reads, so the one that answered is
+ * the other one.
+ */
+export function partialNotice(partial: string[]): string | null {
+  if (partial.length === 0) {
+    return null;
+  }
+
+  const failed = partial.map((provider) => PROVIDER_NAMES[provider] ?? provider);
+  const answered = ['MusicBrainz', 'Deezer'].filter((name) => !failed.includes(name));
+  const who = failed.join(' and ');
+
+  return answered.length === 0
+    ? `${who} didn't answer. Try again for the full list.`
+    : `${who} didn't answer, so these are ${answered.join(' and ')}'s results only. Try again for the full list.`;
+}
+
 /** A search for songs Wondarr could add, without adding them. */
 export function useSongLookup(): UseMutationResult<SongLookupResource[], Error, string> {
   const client = useApiClient();
@@ -441,6 +484,28 @@ export function useSongLookup(): UseMutationResult<SongLookupResource[], Error, 
       }
 
       return data;
+    },
+  });
+}
+
+/**
+ * {@link useSongLookup} for the Add songs page, which also tells the user when a provider did not
+ * answer. The review screens keep the plain list.
+ */
+export function useSongSearch(): UseMutationResult<SearchOutcome<SongLookupResource>, Error, string> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async (term: string): Promise<SearchOutcome<SongLookupResource>> => {
+      const { data, error, response } = await client.POST('/api/v1/song/lookup', {
+        body: { term },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The lookup failed.');
+      }
+
+      return { items: data, partial: partialProviders(response) };
     },
   });
 }

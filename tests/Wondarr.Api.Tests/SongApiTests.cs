@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Metadata.MusicBrainz;
@@ -38,11 +39,13 @@ public sealed class SongApiTests
     public async Task Lookup_returns_every_candidate_and_names_the_one_already_in_the_library()
     {
         var resolver = Substitute.For<IIdentityResolver>();
-        resolver.SearchAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<SongCandidate>>([
-                Candidate("22222222-3333-4444-5555-666666666666", "Get Lucky (Radio Edit)", 96.5),
-                Candidate(StoredRecordingId, "Get Lucky", 99.0),
-            ]));
+        resolver.SearchPartialAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new PartialSearch<SongCandidate>(
+                [
+                    Candidate("22222222-3333-4444-5555-666666666666", "Get Lucky (Radio Edit)", 96.5),
+                    Candidate(StoredRecordingId, "Get Lucky", 99.0),
+                ],
+                [])));
 
         using var factory = FakeProviders(resolver: resolver);
         using var client = Authenticated(factory);
@@ -65,7 +68,7 @@ public sealed class SongApiTests
         candidates[1].GetProperty("isrcs")[0].GetString().Should().Be("GBDUW1300040");
 
         // The resolver was asked for 20 candidates, as the task specifies.
-        await resolver.Received(1).SearchAsync("Daft Punk - Get Lucky", 20, Arg.Any<CancellationToken>());
+        await resolver.Received(1).SearchPartialAsync("Daft Punk - Get Lucky", 20, Arg.Any<CancellationToken>());
     }
 
     [Fact]
