@@ -3,6 +3,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
@@ -67,6 +68,9 @@ public sealed partial class AlbumService : IAlbumService
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(term);
+
+        // A person is waiting on this: the provider calls fail fast rather than queue behind a long Retry-After.
+        using var interactive = InteractiveRequests.Begin();
 
         var failed = new List<string>();
         Exception? firstFailure = null;

@@ -79,6 +79,72 @@ public sealed class MetadataUnavailableApiTests
     }
 
     [Fact]
+    public async Task A_song_lookup_names_only_the_providers_that_failed()
+    {
+        var resolver = Substitute.For<IIdentityResolver>();
+        resolver.SearchPartialAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns<PartialSearch<SongCandidate>>(_ => throw new ProvidersUnavailableException(["deezer"], null));
+
+        using var factory = SongApiTests.FakeProviders(resolver: resolver);
+        using var client = SongApiTests.Authenticated(factory);
+
+        using var response = await client.PostAsync(new Uri(SongLookup, UriKind.Relative), SongApiTests.Json("""{"term":"Daft Punk - Get Lucky"}"""));
+
+        await AssertUnavailableAsync(response, "Song search is unavailable", "Deezer did not answer; try again in a minute.");
+    }
+
+    [Fact]
+    public async Task The_retry_after_is_what_the_provider_asked_for_capped_at_five_minutes()
+    {
+        var asked = await ReleasesStatusAsync(new MetadataProviderException(
+            "musicbrainz", HttpStatusCode.TooManyRequests, "MusicBrainz answered 429.", TimeSpan.FromSeconds(120)));
+        asked.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        asked.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(120));
+
+        var tooLong = await ReleasesStatusAsync(new MetadataProviderException(
+            "musicbrainz", HttpStatusCode.ServiceUnavailable, "MusicBrainz answered 503.", TimeSpan.FromHours(2)));
+        tooLong.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(300));
+    }
+
+    [Fact]
+    public async Task A_provider_that_rejects_the_request_is_a_502_naming_it()
+    {
+        using var response = await ReleasesStatusAsync(new MetadataProviderException(
+            "musicbrainz", HttpStatusCode.Forbidden, "MusicBrainz answered 403 for a GET request."));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+        response.Headers.RetryAfter.Should().BeNull();
+
+        var problem = await SongApiTests.ReadJsonAsync(response);
+        problem.GetProperty("detail").GetString().Should().Contain("MusicBrainz rejected the request");
+    }
+
+    [Fact]
+    public async Task No_connection_to_a_provider_is_a_503()
+    {
+        using var response = await ReleasesStatusAsync(new HttpRequestException("connection refused"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(60));
+    }
+
+    private static async Task<HttpResponseMessage> ReleasesStatusAsync(Exception failure)
+    {
+        using var factory = SongApiTests.FakeProviders();
+        using (var scope = factory.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<IMusicBrainzClient>()
+                .GetReleasesForReleaseGroupAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns<IReadOnlyList<MbRelease>>(_ => throw failure);
+        }
+
+        using var client = SongApiTests.Authenticated(factory);
+
+        return await client.GetAsync(
+            new Uri("/api/v1/album/releasegroup/6b47c9a0-b9e1-3df9-a5e8-50a6ce0dbdbd/releases", UriKind.Relative));
+    }
+
+    [Fact]
     public async Task An_album_lookup_with_musicbrainz_down_returns_deezers_albums_and_the_partial_header()
     {
         using var factory = SongApiTests.FakeProviders();

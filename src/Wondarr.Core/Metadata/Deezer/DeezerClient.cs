@@ -346,7 +346,8 @@ public sealed class DeezerClient : IDeezerClient
             throw new MetadataProviderException(
                 Provider,
                 response.StatusCode,
-                $"Deezer answered {(int)response.StatusCode} for a {request.Method} request.");
+                $"Deezer answered {(int)response.StatusCode} for a {request.Method} request.",
+                Http.RetryAfterHeader.Read(response, DateTimeOffset.UtcNow));
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

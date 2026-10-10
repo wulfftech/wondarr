@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.MusicBrainz;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
@@ -33,9 +34,9 @@ public sealed class MusicBrainzRetryTests
     }
 
     [Fact]
-    public async Task A_503_that_never_clears_is_retried_twice_and_then_reported()
+    public async Task A_background_503_that_never_clears_is_retried_three_times_and_then_reported()
     {
-        var handler = new CountingHandler(Busy(), Busy(), Busy(), Busy());
+        var handler = new CountingHandler(Busy(), Busy(), Busy(), Busy(), Busy());
 
         await using var provider = BuildProvider(handler);
         var search = () => provider.GetRequiredService<IMusicBrainzClient>()
@@ -44,20 +45,36 @@ public sealed class MusicBrainzRetryTests
         var thrown = await search.Should().ThrowAsync<MetadataProviderException>();
         thrown.Which.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         thrown.Which.Provider.Should().Be("musicbrainz");
-        handler.Requests.Should().Be(3);
+        handler.Requests.Should().Be(4);
     }
 
     [Fact]
-    public async Task A_retry_after_longer_than_the_budget_is_not_waited_out()
+    public async Task An_interactive_503_that_never_clears_is_retried_twice_and_then_reported()
     {
-        var handler = new CountingHandler(Busy(retryAfter: TimeSpan.FromMinutes(5)), Ok());
+        var handler = new CountingHandler(Busy(), Busy(), Busy(), Busy(), Busy());
 
         await using var provider = BuildProvider(handler);
-        var started = DateTimeOffset.UtcNow;
+        using var interactive = InteractiveRequests.Begin();
         var search = () => provider.GetRequiredService<IMusicBrainzClient>()
             .SearchRecordingsAsync("recording:\"x\"", 5);
 
         await search.Should().ThrowAsync<MetadataProviderException>();
+        handler.Requests.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task A_retry_after_longer_than_the_interactive_budget_is_not_waited_out()
+    {
+        var handler = new CountingHandler(Busy(retryAfter: TimeSpan.FromMinutes(5)), Ok());
+
+        await using var provider = BuildProvider(handler);
+        using var interactive = InteractiveRequests.Begin();
+        var started = DateTimeOffset.UtcNow;
+        var search = () => provider.GetRequiredService<IMusicBrainzClient>()
+            .SearchRecordingsAsync("recording:\"x\"", 5);
+
+        var thrown = await search.Should().ThrowAsync<MetadataProviderException>();
+        thrown.Which.RetryAfter.Should().Be(TimeSpan.FromSeconds(300));
 
         handler.Requests.Should().Be(1);
         (DateTimeOffset.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(5));

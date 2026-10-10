@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Organizer;
 using Microsoft.Extensions.Logging;
@@ -212,6 +213,9 @@ public sealed partial class IdentityResolver : IIdentityResolver
         {
             return new PartialSearch<SongCandidate>([], []);
         }
+
+        // A person is waiting on this: the provider calls fail fast rather than queue behind a long Retry-After.
+        using var interactive = InteractiveRequests.Begin();
 
         var tracker = new ProviderTracker();
         var outcome = await RunTextPipelineAsync(input, tracker, cancellationToken).ConfigureAwait(false);
