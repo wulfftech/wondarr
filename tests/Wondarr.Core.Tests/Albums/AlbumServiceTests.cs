@@ -2,6 +2,7 @@ using System.Text.Json;
 using Wondarr.Core.Albums;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Organizer;
@@ -308,6 +309,45 @@ public sealed class AlbumServiceTests : IDisposable
         fallback[0].TrackCount.Should().Be(12);
         fallback[0].CoverUrl.Should().Be("https://api.deezer.com/album/1007321681/image");
     }
+
+    [Fact]
+    public async Task A_search_falls_back_to_deezer_and_names_musicbrainz_when_it_is_busy()
+    {
+        _musicBrainz
+            .SearchReleaseGroupsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns<MbReleaseGroupSearchResult>(_ => throw BusyMusicBrainz());
+        _deezer
+            .SearchAlbumsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new DeezerAlbumSearchResult
+            {
+                Data = [new DeezerAlbum { Id = 1007321681, Title = "A Night at the Opera", RecordType = "album" }],
+            });
+
+        var found = await NewService().SearchPartialAsync("A Night at the Opera", 20, CancellationToken.None);
+
+        found.Items.Should().ContainSingle().Which.Source.Should().Be(AlbumRef.DeezerSource);
+        found.FailedProviders.Should().Equal("musicbrainz");
+        found.IsPartial.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_search_is_unavailable_when_both_providers_fail()
+    {
+        _musicBrainz
+            .SearchReleaseGroupsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns<MbReleaseGroupSearchResult>(_ => throw BusyMusicBrainz());
+        _deezer
+            .SearchAlbumsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns<DeezerAlbumSearchResult>(_ => throw new HttpRequestException("connection refused"));
+
+        var search = () => NewService().SearchPartialAsync("A Night at the Opera", 20, CancellationToken.None);
+
+        var thrown = await search.Should().ThrowAsync<ProvidersUnavailableException>();
+        thrown.Which.Providers.Should().Equal("musicbrainz", "deezer");
+    }
+
+    private static MetadataProviderException BusyMusicBrainz() =>
+        new("musicbrainz", System.Net.HttpStatusCode.ServiceUnavailable, "MusicBrainz answered 503 for a GET request.");
 
     [Fact]
     public async Task The_album_of_a_song_is_its_pinned_release_and_nothing_else()

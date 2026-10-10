@@ -28,7 +28,7 @@ import {
   type AlbumTrackResource,
 } from '../api/albums';
 import { useLibraries, useQualityProfiles, readEnum } from '../api/profiles';
-import { useCommand, type CommandStatusName } from '../api/songs';
+import { partialNotice, useCommand, type CommandStatusName } from '../api/songs';
 import { EmptyState, LoadingState } from '../components/DataState';
 import { formatDuration } from '../components/SongCells';
 import { initCaps } from '../components/text';
@@ -268,7 +268,8 @@ export function AddAlbumTab({ prefill }: { prefill: AlbumPrefill | null }) {
     );
   };
 
-  const results = lookup.data ?? [];
+  const results = lookup.data?.items ?? [];
+  const notice = partialNotice(lookup.data?.partial ?? []);
 
   return (
     <Stack gap="md">
@@ -312,6 +313,12 @@ export function AddAlbumTab({ prefill }: { prefill: AlbumPrefill | null }) {
       )}
 
       {lookup.isPending && <LoadingState label="Searching…" />}
+
+      {notice !== null && chosen === null && (
+        <Alert color="yellow" icon={<CircleAlert size={16} />}>
+          {notice}
+        </Alert>
+      )}
 
       {lookup.isSuccess && chosen === null && results.length === 0 && (
         <EmptyState message="No albums matched — try 'Artist - Album'" />

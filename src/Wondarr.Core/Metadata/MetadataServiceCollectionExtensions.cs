@@ -57,6 +57,12 @@ public static class ServiceCollectionExtensions
     /// <summary>ListenBrainz's 1.0 API, which the loved and playlist lists are read from.</summary>
     public const string ListenBrainzBaseUrl = "https://api.listenbrainz.org/1/";
 
+    /// <summary>How many times a throttled or failed MusicBrainz request is retried.</summary>
+    internal const int MusicBrainzMaxRetries = 2;
+
+    /// <summary>The longest <c>Retry-After</c> the MusicBrainz client waits out; anything longer is reported as a failure.</summary>
+    internal static readonly TimeSpan MusicBrainzRetryAfterBudget = TimeSpan.FromSeconds(15);
+
     /// <summary>How long one Last.fm or ListenBrainz request may take.</summary>
     private static readonly TimeSpan ListClientTimeout = TimeSpan.FromSeconds(30);
 
@@ -143,13 +149,23 @@ public static class ServiceCollectionExtensions
 
             builder.AddRetry(new HttpRetryStrategyOptions
             {
-                MaxRetryAttempts = 3,
+                // Two retries at most: a user is waiting on the Add songs page, and the spacing gate
+                // already adds a second to every attempt.
+                MaxRetryAttempts = MusicBrainzMaxRetries,
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 Delay = options.RetryBaseDelay,
 
                 // MusicBrainz answers 503 when throttled; when it sends Retry-After, obey it.
                 ShouldRetryAfterHeader = true,
+
+                // ... but not for longer than the request can afford: a Retry-After past the budget is
+                // surfaced at once (the caller reports MusicBrainz as busy) instead of hanging the page.
+                ShouldHandle = args => ValueTask.FromResult(
+                    args.Outcome.Exception is not null
+                    || (args.Outcome.Result is { } response
+                        && IsRetryable(response.StatusCode)
+                        && !ExceedsRetryAfterBudget(response))),
             });
         });
 
@@ -412,6 +428,21 @@ public static class ServiceCollectionExtensions
     {
         client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BuildUserAgent(options));
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+    }
+
+    /// <summary>Whether the response asks the caller to wait longer than a MusicBrainz request may.</summary>
+    private static bool ExceedsRetryAfterBudget(HttpResponseMessage response)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter is null)
+        {
+            return false;
+        }
+
+        var wait = retryAfter.Delta
+            ?? (retryAfter.Date is { } date ? date - DateTimeOffset.UtcNow : TimeSpan.Zero);
+
+        return wait > MusicBrainzRetryAfterBudget;
     }
 
     /// <summary>Whether a status is the kind worth another attempt.</summary>

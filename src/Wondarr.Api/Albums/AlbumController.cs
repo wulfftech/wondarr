@@ -1,6 +1,8 @@
 using System.Text.Json;
+using Wondarr.Api.Middleware;
 using Wondarr.Core.Albums;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.Metadata;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Wondarr.Api.Albums;
@@ -12,6 +14,7 @@ namespace Wondarr.Api.Albums;
 /// caller polls <c>GET /api/v1/command/{commandId}</c> while the MusicBrainz lookups pace themselves.
 /// </summary>
 [ApiController]
+[MetadataUnavailableFilter]
 [Route("api/v1/album")]
 public sealed class AlbumController : ControllerBase
 {
@@ -63,9 +66,23 @@ public sealed class AlbumController : ControllerBase
 
         try
         {
-            var hits = await _albums.SearchAsync(term, capped, cancellationToken).ConfigureAwait(false);
+            var found = await _albums.SearchPartialAsync(term, capped, cancellationToken).ConfigureAwait(false);
 
-            return Ok(hits.Select(hit => hit.ToResource()).ToList());
+            if (found.IsPartial)
+            {
+                // The list is still the body, so a client that never heard of the header keeps working.
+                Response.Headers[MetadataUnavailableFilterAttribute.PartialHeader] =
+                    MetadataUnavailableFilterAttribute.PartialValue(found.FailedProviders);
+            }
+
+            return Ok(found.Items.Select(hit => hit.ToResource()).ToList());
+        }
+        catch (ProvidersUnavailableException)
+        {
+            return MetadataUnavailableFilterAttribute.Unavailable(
+                HttpContext,
+                "Album search is unavailable",
+                "MusicBrainz and Deezer did not answer; try again in a minute.");
         }
         catch (ArgumentException exception)
         {

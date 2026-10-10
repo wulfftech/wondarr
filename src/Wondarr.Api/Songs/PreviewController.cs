@@ -1,3 +1,4 @@
+using Wondarr.Api.Middleware;
 using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Songs;
 using Microsoft.AspNetCore.Mvc;
@@ -11,6 +12,7 @@ namespace Wondarr.Api.Songs;
 /// marked <c>no-store</c>.
 /// </summary>
 [ApiController]
+[MetadataUnavailableFilter]
 [Route("api/v1/preview")]
 public sealed class PreviewController : ControllerBase
 {

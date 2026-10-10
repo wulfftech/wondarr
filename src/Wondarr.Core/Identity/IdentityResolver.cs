@@ -35,6 +35,17 @@ public interface IIdentityResolver
     Task<IReadOnlyList<SongCandidate>> SearchAsync(string raw, int limit, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// <see cref="SearchAsync"/> that survives one provider being down: the other provider's candidates
+    /// come back with the key of the one that did not answer.
+    /// </summary>
+    /// <param name="raw">What the user typed.</param>
+    /// <param name="limit">How many candidates to return at most.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The candidates, best first, and the providers that failed.</returns>
+    /// <exception cref="ProvidersUnavailableException">Every provider the search needed failed.</exception>
+    Task<PartialSearch<SongCandidate>> SearchPartialAsync(string raw, int limit, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the full identity of a song from MusicBrainz (when an MBID is given) or Deezer. At least
     /// one id must be given; a Deezer id passed with an MBID is kept on the identity.
     /// </summary>
@@ -177,9 +188,43 @@ public sealed partial class IdentityResolver : IIdentityResolver
             return [];
         }
 
-        var outcome = await RunTextPipelineAsync(input, cancellationToken).ConfigureAwait(false);
+        var outcome = await RunTextPipelineAsync(input, null, cancellationToken).ConfigureAwait(false);
 
         return Rank(BuildCandidates(outcome, ReviewCandidateLimit * 10), limit);
+    }
+
+    /// <inheritdoc />
+    public async Task<PartialSearch<SongCandidate>> SearchPartialAsync(
+        string raw,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(raw);
+
+        if (limit < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, "At least one candidate must be asked for.");
+        }
+
+        var input = LookupInput.Parse(raw);
+
+        if (input.Kind is not (LookupKind.ArtistTitle or LookupKind.FreeText))
+        {
+            return new PartialSearch<SongCandidate>([], []);
+        }
+
+        var tracker = new ProviderTracker();
+        var outcome = await RunTextPipelineAsync(input, tracker, cancellationToken).ConfigureAwait(false);
+
+        // Nobody answered: there is nothing to show, and "no results" would be a lie.
+        if (tracker.Failed.Count > 0 && tracker.Succeeded.Count == 0)
+        {
+            throw new ProvidersUnavailableException(tracker.Failed, tracker.FirstFailure);
+        }
+
+        return new PartialSearch<SongCandidate>(
+            Rank(BuildCandidates(outcome, ReviewCandidateLimit * 10), limit),
+            tracker.Failed);
     }
 
     /// <inheritdoc />
@@ -301,7 +346,7 @@ public sealed partial class IdentityResolver : IIdentityResolver
     /// <summary>Runs the artist-title and free-text pipeline: Deezer, the ISRC bridge, then MusicBrainz search.</summary>
     private async Task<ResolveResult> ResolveTextAsync(LookupInput input, CancellationToken cancellationToken)
     {
-        var outcome = await RunTextPipelineAsync(input, cancellationToken).ConfigureAwait(false);
+        var outcome = await RunTextPipelineAsync(input, null, cancellationToken).ConfigureAwait(false);
 
         if (outcome.Ranked.Count > 0)
         {
@@ -330,11 +375,18 @@ public sealed partial class IdentityResolver : IIdentityResolver
     /// Steps 1 to 3 of the text pipeline: the Deezer search and its reference hit, the ISRC bridge and
     /// the MusicBrainz search.
     /// </summary>
-    private async Task<TextOutcome> RunTextPipelineAsync(LookupInput input, CancellationToken cancellationToken)
+    private async Task<TextOutcome> RunTextPipelineAsync(
+        LookupInput input,
+        ProviderTracker? tracker,
+        CancellationToken cancellationToken)
     {
         var searchTerm = SearchTerm(input);
-        var hits = (await _deezer
-            .SearchTracksAsync(searchTerm, SearchLimit, cancellationToken)
+        IReadOnlyList<DeezerTrack> hits = (await GuardedAsync(
+                ProviderKeys.Deezer,
+                tracker,
+                () => _deezer.SearchTracksAsync(searchTerm, SearchLimit, cancellationToken),
+                new DeezerSearchResult(),
+                cancellationToken)
             .ConfigureAwait(false)).Data;
 
         var query = QueryFromInput(input);
@@ -344,8 +396,12 @@ public sealed partial class IdentityResolver : IIdentityResolver
         // artists (Calum Scott covers, say), so an artist-title lookup gets one retry on the title alone.
         if (reference is null && query is not null && input.Kind == LookupKind.ArtistTitle)
         {
-            var retried = (await _deezer
-                .SearchTracksAsync(query.Title, RetrySearchLimit, cancellationToken)
+            var retried = (await GuardedAsync(
+                    ProviderKeys.Deezer,
+                    tracker,
+                    () => _deezer.SearchTracksAsync(query.Title, RetrySearchLimit, cancellationToken),
+                    new DeezerSearchResult(),
+                    cancellationToken)
                 .ConfigureAwait(false)).Data;
 
             if (retried.Count > 0)
@@ -370,8 +426,12 @@ public sealed partial class IdentityResolver : IIdentityResolver
         IReadOnlyList<MbRecording> viaIsrc = [];
         if (query is not null && !string.IsNullOrWhiteSpace(reference?.Isrc))
         {
-            viaIsrc = await _musicBrainz
-                .GetRecordingsByIsrcAsync(reference!.Isrc!, cancellationToken)
+            viaIsrc = await GuardedAsync(
+                    ProviderKeys.MusicBrainz,
+                    tracker,
+                    () => _musicBrainz.GetRecordingsByIsrcAsync(reference!.Isrc!, cancellationToken),
+                    [],
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             var bridged = RankAcceptable(viaIsrc, query, referenceDurationMs, viaIsrc: true);
@@ -385,7 +445,8 @@ public sealed partial class IdentityResolver : IIdentityResolver
         IReadOnlyList<MbRecording> searched = [];
         if (query is not null)
         {
-            searched = await SearchRecordingsAsync(query, referenceDurationMs, cancellationToken).ConfigureAwait(false);
+            searched = await SearchRecordingsAsync(query, referenceDurationMs, tracker, cancellationToken)
+                .ConfigureAwait(false);
 
             var ranked = RankAcceptable(searched, query, referenceDurationMs, viaIsrc: false);
             if (ranked.Count > 0)
@@ -405,16 +466,17 @@ public sealed partial class IdentityResolver : IIdentityResolver
     private async Task<IReadOnlyList<MbRecording>> SearchRecordingsAsync(
         TextQuery query,
         int? referenceDurationMs,
+        ProviderTracker? tracker,
         CancellationToken cancellationToken)
     {
         var unbounded = MusicBrainzQuery.RecordingByArtistAndTitle(query.Artist, query.Title);
 
         if (referenceDurationMs is null)
         {
-            return await RunSearchAsync(unbounded, cancellationToken).ConfigureAwait(false);
+            return await RunSearchAsync(unbounded, tracker, cancellationToken).ConfigureAwait(false);
         }
 
-        var bounded = await RunSearchAsync(BoundedQuery(unbounded, referenceDurationMs.Value), cancellationToken)
+        var bounded = await RunSearchAsync(BoundedQuery(unbounded, referenceDurationMs.Value), tracker, cancellationToken)
             .ConfigureAwait(false);
 
         if (RankAcceptable(bounded, query, referenceDurationMs, viaIsrc: false).Count > 0)
@@ -422,16 +484,61 @@ public sealed partial class IdentityResolver : IIdentityResolver
             return bounded;
         }
 
-        var all = await RunSearchAsync(unbounded, cancellationToken).ConfigureAwait(false);
+        var all = await RunSearchAsync(unbounded, tracker, cancellationToken).ConfigureAwait(false);
 
         return [.. bounded, .. all];
     }
 
     /// <summary>One MusicBrainz recording search.</summary>
-    private async Task<IReadOnlyList<MbRecording>> RunSearchAsync(string luceneQuery, CancellationToken cancellationToken) =>
-        (await _musicBrainz
-            .SearchRecordingsAsync(luceneQuery, SearchLimit, cancellationToken)
+    private async Task<IReadOnlyList<MbRecording>> RunSearchAsync(
+        string luceneQuery,
+        ProviderTracker? tracker,
+        CancellationToken cancellationToken) =>
+        (await GuardedAsync(
+                ProviderKeys.MusicBrainz,
+                tracker,
+                () => _musicBrainz.SearchRecordingsAsync(luceneQuery, SearchLimit, cancellationToken),
+                new MbRecordingSearchResult(),
+                cancellationToken)
             .ConfigureAwait(false)).Recordings;
+
+    /// <summary>
+    /// Runs one provider call. Without a tracker a failure is the caller's problem; with one it is
+    /// recorded, the provider is not asked again, and the fallback stands in for its answer.
+    /// </summary>
+    private async Task<T> GuardedAsync<T>(
+        string provider,
+        ProviderTracker? tracker,
+        Func<Task<T>> call,
+        T fallback,
+        CancellationToken cancellationToken)
+    {
+        if (tracker is null)
+        {
+            return await call().ConfigureAwait(false);
+        }
+
+        if (tracker.Failed.Contains(provider))
+        {
+            return fallback;
+        }
+
+        try
+        {
+            var result = await call().ConfigureAwait(false);
+            tracker.Succeeded.Add(provider);
+
+            return result;
+        }
+        catch (Exception exception) when (ProviderKeys.IsProviderFailure(exception, cancellationToken))
+        {
+            LogProviderFailed(_logger, provider, exception.Message);
+            tracker.Failed.Add(provider);
+            tracker.FirstFailure ??= exception;
+
+            return fallback;
+        }
+    }
 
     /// <summary>The Lucene query restricted to recordings within ten seconds of a reference length.</summary>
     private static string BoundedQuery(string luceneQuery, int referenceDurationMs)
@@ -1208,6 +1315,16 @@ public sealed partial class IdentityResolver : IIdentityResolver
         IReadOnlyList<MbRecording> Searched,
         IReadOnlyList<ScoredRecording> Ranked);
 
+    /// <summary>Which providers answered and which did not, over one partial-tolerant search.</summary>
+    private sealed class ProviderTracker
+    {
+        public List<string> Failed { get; } = [];
+
+        public HashSet<string> Succeeded { get; } = [];
+
+        public Exception? FirstFailure { get; set; }
+    }
+
     /// <summary>A recording that cleared every bar, with the score that got it there.</summary>
     private sealed record ScoredRecording(MbRecording Recording, Score Score);
 
@@ -1217,6 +1334,9 @@ public sealed partial class IdentityResolver : IIdentityResolver
     // Debug on purpose: a bulk add resolves hundreds of lines, and per-line Information would flood the log.
     [LoggerMessage(Level = LogLevel.Debug, Message = "Resolving a {Kind} lookup for {Input}")]
     private static partial void LogResolving(ILogger logger, LookupKind kind, string input);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Provider} did not answer the search, carrying on without it: {Reason}")]
+    private static partial void LogProviderFailed(ILogger logger, string provider, string reason);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Resolved {Input} to the recording {RecordingId}")]
     private static partial void LogResolvedRecording(ILogger logger, string input, string recordingId);
