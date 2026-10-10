@@ -14,8 +14,11 @@ namespace Wondarr.Api.Middleware;
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false)]
 public sealed class MetadataUnavailableFilterAttribute : ExceptionFilterAttribute
 {
-    /// <summary>Seconds a client is told to wait before trying again.</summary>
-    public const int RetryAfterSeconds = 60;
+    /// <summary>Seconds a client is told to wait when the provider did not say.</summary>
+    public const int DefaultRetryAfterSeconds = 60;
+
+    /// <summary>The longest <c>Retry-After</c> sent, however long the provider asked for.</summary>
+    public const int MaxRetryAfterSeconds = 300;
 
     /// <summary>The title of the problem.</summary>
     public const string Title = "A metadata provider is unavailable";
@@ -28,44 +31,65 @@ public sealed class MetadataUnavailableFilterAttribute : ExceptionFilterAttribut
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var providers = context.Exception switch
-        {
-            MetadataProviderException exception => (IReadOnlyList<string>)[exception.Provider],
-            ProvidersUnavailableException exception => exception.Providers,
-            _ => null,
-        };
+        var http = context.HttpContext;
 
-        if (providers is null)
+        switch (context.Exception)
         {
-            return;
+            // The provider refused the request (a banned User-Agent, a bad key): waiting will not help,
+            // so this is a bad gateway, not a busy one.
+            case MetadataProviderException { IsUnavailable: false } rejected:
+                context.Result = Problem(
+                    http,
+                    StatusCodes.Status502BadGateway,
+                    "A metadata provider rejected the request",
+                    $"{NameOf(rejected.Provider)} rejected the request ({(int)rejected.StatusCode}).");
+                context.ExceptionHandled = true;
+                break;
+
+            case MetadataProviderException busy:
+                context.Result = Unavailable(http, Title, DetailFor([busy.Provider]), busy.RetryAfter);
+                context.ExceptionHandled = true;
+                break;
+
+            case ProvidersUnavailableException none:
+                context.Result = Unavailable(http, Title, DetailFor(none.Providers), none.RetryAfter);
+                context.ExceptionHandled = true;
+                break;
+
+            // No connection, or the provider's own timeout; a caller who gave up is not a provider outage.
+            case HttpRequestException:
+            case TaskCanceledException when !http.RequestAborted.IsCancellationRequested:
+                context.Result = Unavailable(http, Title, DetailFor([]), null);
+                context.ExceptionHandled = true;
+                break;
         }
-
-        context.Result = Unavailable(context.HttpContext, Title, DetailFor(providers));
-        context.ExceptionHandled = true;
     }
 
     /// <summary>The 503 problem: a title, a detail, and <c>Retry-After</c>.</summary>
     /// <param name="httpContext">The request being answered.</param>
     /// <param name="title">The problem title.</param>
     /// <param name="detail">The sentence the UI shows.</param>
-    public static ObjectResult Unavailable(HttpContext httpContext, string title, string detail)
+    /// <param name="retryAfter">How long the provider asked to be left alone; a minute when unknown.</param>
+    public static ObjectResult Unavailable(HttpContext httpContext, string title, string detail, TimeSpan? retryAfter = null)
     {
         ArgumentNullException.ThrowIfNull(httpContext);
 
-        httpContext.Response.Headers.RetryAfter = RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var seconds = retryAfter is { } wait
+            ? (int)Math.Clamp(Math.Ceiling(wait.TotalSeconds), 1, MaxRetryAfterSeconds)
+            : DefaultRetryAfterSeconds;
 
+        httpContext.Response.Headers.RetryAfter = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        return Problem(httpContext, StatusCodes.Status503ServiceUnavailable, title, detail);
+    }
+
+    private static ObjectResult Problem(HttpContext httpContext, int status, string title, string detail)
+    {
         var problem = httpContext.RequestServices
             .GetRequiredService<ProblemDetailsFactory>()
-            .CreateProblemDetails(
-                httpContext,
-                StatusCodes.Status503ServiceUnavailable,
-                title,
-                detail: detail);
+            .CreateProblemDetails(httpContext, status, title, detail: detail);
 
-        return new ObjectResult(problem)
-        {
-            StatusCode = StatusCodes.Status503ServiceUnavailable,
-        };
+        return new ObjectResult(problem) { StatusCode = status };
     }
 
     /// <summary>The value for <see cref="PartialHeader"/>.</summary>
@@ -73,7 +97,9 @@ public sealed class MetadataUnavailableFilterAttribute : ExceptionFilterAttribut
     public static string PartialValue(IEnumerable<string> providers) =>
         string.Join(',', providers);
 
-    private static string DetailFor(IReadOnlyList<string> providers)
+    /// <summary>The sentence for a 503: which providers did not answer.</summary>
+    /// <param name="providers">The provider keys that did not answer.</param>
+    public static string DetailFor(IReadOnlyList<string> providers)
     {
         var names = providers.Select(NameOf).Distinct(StringComparer.Ordinal).ToList();
 

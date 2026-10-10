@@ -43,6 +43,22 @@ public sealed class IdentityResolverPartialSearchTests
     }
 
     [Fact]
+    public async Task A_provider_answering_html_is_a_failed_provider_not_a_crash()
+    {
+        _deezer
+            .SearchTracksAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new DeezerSearchResult { Data = [GetLucky()], Total = 1 });
+        _musicBrainz
+            .SearchRecordingsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns<MbRecordingSearchResult>(_ => throw new System.Text.Json.JsonException("'<' is an invalid start of a value."));
+
+        var found = await NewResolver().SearchPartialAsync("Daft Punk - Get Lucky", 10);
+
+        found.FailedProviders.Should().Equal("musicbrainz");
+        found.Items.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public async Task A_busy_deezer_still_searches_musicbrainz_for_an_artist_and_title_line()
     {
         _deezer

@@ -19,6 +19,16 @@ The key is `server.api_key` in `/config/config.yml`; see [Install](/wondarr/gett
 
 If you serve Wondarr under a URL base, put it in front of every path.
 
+### When a metadata provider is busy
+
+`POST /api/v1/song/lookup` and `GET /api/v1/album/lookup` search MusicBrainz and Deezer. If one of them does not answer, the search still answers `200` with the other's results (the body is the same list), and sets a response header naming the one that failed:
+
+```
+X-Wondarr-Partial: musicbrainz
+```
+
+The value is `musicbrainz`, `deezer`, or both separated by a comma. A client that ignores the header gets a shorter list; the web UI shows a notice above the results. Only when no provider answers is the search a `503` problem (`Song search is unavailable` or `Album search is unavailable`) with a `Retry-After` in seconds, at most 300. Other endpoints that read from a provider answer a provider outage the same way (`503`), and a provider that refuses the request outright (a rejected key, say) is a `502`.
+
 ## The Lidarr-compatible surface
 
 Wondarr mirrors the parts of Lidarr's API that dashboards and automation tools read, using the same field names. A tool written for Lidarr can usually be pointed at Wondarr unchanged. Songs take the place of Lidarr's tracks.

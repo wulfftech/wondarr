@@ -77,12 +77,13 @@ public sealed class AlbumController : ControllerBase
 
             return Ok(found.Items.Select(hit => hit.ToResource()).ToList());
         }
-        catch (ProvidersUnavailableException)
+        catch (ProvidersUnavailableException exception)
         {
             return MetadataUnavailableFilterAttribute.Unavailable(
                 HttpContext,
                 "Album search is unavailable",
-                "MusicBrainz and Deezer did not answer; try again in a minute.");
+                MetadataUnavailableFilterAttribute.DetailFor(exception.Providers),
+                exception.RetryAfter);
         }
         catch (ArgumentException exception)
         {

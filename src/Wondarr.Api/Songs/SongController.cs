@@ -324,12 +324,13 @@ public sealed class SongController : ControllerBase
         {
             found = await _resolver.SearchPartialAsync(term, LookupLimit, cancellationToken).ConfigureAwait(false);
         }
-        catch (ProvidersUnavailableException)
+        catch (ProvidersUnavailableException exception)
         {
             return MetadataUnavailableFilterAttribute.Unavailable(
                 HttpContext,
                 "Song search is unavailable",
-                "MusicBrainz and Deezer did not answer; try again in a minute.");
+                MetadataUnavailableFilterAttribute.DetailFor(exception.Providers),
+                exception.RetryAfter);
         }
 
         var candidates = found.Items;

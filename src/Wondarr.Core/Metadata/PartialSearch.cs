@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Wondarr.Core.Metadata;
 
 /// <summary>
@@ -26,7 +28,11 @@ public sealed class ProvidersUnavailableException : Exception
         : base($"No metadata provider answered ({string.Join(", ", providers ?? [])}).", inner)
     {
         Providers = providers ?? [];
+        RetryAfter = (inner as MetadataProviderException)?.RetryAfter;
     }
+
+    /// <summary>Gets how long the first provider asked to be left alone, when it said.</summary>
+    public TimeSpan? RetryAfter { get; }
 
     /// <summary>Gets the provider keys that did not answer.</summary>
     public IReadOnlyList<string> Providers { get; }
@@ -55,6 +61,9 @@ public static class ProviderKeys
         {
             MetadataProviderException => true,
             HttpRequestException => true,
+
+            // A provider that answers with an HTML error page is as unavailable as one that does not answer.
+            JsonException => true,
             TaskCanceledException => !cancellationToken.IsCancellationRequested,
             _ => false,
         };
