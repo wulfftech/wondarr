@@ -424,9 +424,16 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddDbContext<WondarrDbContext>(options => options
             .UseSqlite(connectionString)
+            .AddInterceptors(new BusyTimeoutInterceptor())
             .UseSnakeCaseNamingConvention());
         services.AddScoped<ISettingsRepository, SettingsRepository>();
-        services.AddScoped<DatabaseMigrator>();
+
+        // The backup service is looked up only when an existing database has migrations to apply:
+        // a host that never gets that far (most tests) need not be able to build one.
+        services.AddScoped(provider => new DatabaseMigrator(
+            provider.GetRequiredService<WondarrDbContext>(),
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DatabaseMigrator>>(),
+            () => provider.GetService<IBackupService>()));
         services.AddHostedService<DatabaseMigrationHostedService>();
 
         return services;

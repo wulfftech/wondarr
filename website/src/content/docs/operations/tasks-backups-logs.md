@@ -31,7 +31,22 @@ The intervals in brackets can be changed in `config.yml`; see [Configuration](/w
 - The row's buttons **Download**, **Restore** and **Delete** do what they say.
 - **Restore from file…** restores a zip you upload, for example one downloaded earlier or from another install.
 
-A restore replaces the database and `config.yml`, so the API key and every setting become the backup's. Wondarr checks the zip, stages it, and restarts to apply it. The page shows "Restoring — Wondarr is restarting" and reloads when Wondarr is back. The files it replaced are kept next to the new ones as `*.pre-restore`.
+A restore replaces the database and `config.yml`, so the API key and every setting become the backup's. Wondarr checks the zip, stages it, and restarts to apply it. The page shows "Restoring — Wondarr is restarting" and reloads when Wondarr is back. The files it replaced are kept next to the new ones as `*.pre-restore`, and the last three restores are kept: `*.pre-restore` is the newest, then `*.pre-restore.1` and `*.pre-restore.2`. A restore that is interrupted part-way is finished at the next start. A backup made by a newer Wondarr than the one you run is refused.
+
+### A backup before every upgrade
+
+When a new version has database changes to apply, Wondarr first makes a backup named `wondarr_pre-<previous version>_<time>.zip` in `/config/backups/scheduled` (`unknown` as the version the first time). It is kept under the scheduled retention (`backup.retention_days`) like any scheduled backup. **If that backup fails, the upgrade stops**: nothing is changed and Wondarr does not start until the cause is fixed (the log says why and how much space the backups volume has). Keep about twice your database's size free in `/config`.
+
+### Undoing a restore
+
+Stop the container, then in `/config` put the files Wondarr set aside back:
+
+```
+mv wondarr.db wondarr.db.restored && mv config.yml config.yml.restored
+mv wondarr.db.pre-restore wondarr.db && mv config.yml.pre-restore config.yml
+```
+
+Use `*.pre-restore.1` or `.2` to go back two or three restores, delete a stray `wondarr.db-wal` or `wondarr.db-shm` left from the restored database, then start the container. Do this before restoring again: a fourth restore deletes the oldest set.
 
 Wondarr does not back up your music, only its own database and settings. Make a backup before upgrading to a major version.
 

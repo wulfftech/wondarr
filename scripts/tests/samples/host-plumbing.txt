@@ -1,0 +1,4 @@
+The active test run was aborted. Reason: Test host process crashed
+Passed!  - Failed:     0, Passed:  1834, Skipped:     3, Total:  1837, Duration: 1 m 29 s - Wondarr.Core.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   360, Skipped:     0, Total:   360, Duration: 1 m 10 s - Wondarr.Api.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   412, Skipped:     0, Total:   412, Duration: 23 s - Wondarr.Sources.Tests.dll (net10.0)
