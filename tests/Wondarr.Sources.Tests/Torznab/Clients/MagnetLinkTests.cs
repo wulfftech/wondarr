@@ -39,6 +39,16 @@ public sealed class MagnetLinkTests
     }
 
     [Fact]
+    public void A_hybrid_magnet_whose_first_xt_is_btmh_gives_its_btih_hash()
+    {
+        var magnet = "magnet:?xt=urn:btmh:1220ea8d3b40a7a2c0c1f3d1e0a9b8c7d6e5f4a3b2c1d" +
+            "0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9&xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567&dn=Some+Release";
+
+        MagnetLink.TryGetInfoHash(magnet, out var hex).Should().BeTrue();
+        hex.Should().Be("0123456789abcdef0123456789abcdef01234567");
+    }
+
+    [Fact]
     public void A_magnet_without_an_xt_parameter_is_refused()
     {
         var magnet = "magnet:?dn=Some+Release";

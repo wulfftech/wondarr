@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Wondarr.Core.Domain;
 using Wondarr.Core.DownloadClients;
+using Wondarr.Core.Messaging;
+using NSubstitute;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -198,6 +200,21 @@ public sealed class DownloadClientServiceTests : IDisposable
 
         (await _service.DeleteAsync(client.Id, Token)).Should().BeTrue();
         (await _service.ListAsync(Token)).Should().BeEmpty();
+    }
+
+    /// <summary>What holds state for a client (a login session) is told when the row goes.</summary>
+    [Fact]
+    public async Task Deleting_a_client_announces_it_and_a_miss_announces_nothing()
+    {
+        var events = Substitute.For<IEventAggregator>();
+        var service = new DownloadClientService(_context, [_qbittorrent], new NoopSecretRegistry(), NullLogger<DownloadClientService>.Instance, events);
+        var client = await service.CreateAsync(Draft(), Token);
+
+        (await service.DeleteAsync(404, Token)).Should().BeFalse();
+        await events.DidNotReceiveWithAnyArgs().PublishAsync<DownloadClientDeletedEvent>(default!, default);
+
+        (await service.DeleteAsync(client.Id, Token)).Should().BeTrue();
+        await events.Received(1).PublishAsync(Arg.Is<DownloadClientDeletedEvent>(message => message.ClientId == client.Id), Arg.Any<CancellationToken>());
     }
 
     /// <summary>Deleting a client that is not there is not an error, it is a miss.</summary>

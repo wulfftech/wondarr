@@ -10,13 +10,14 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Housekeeping;
 
 /// <summary>
 /// The daily <c>Housekeeping</c> task (ARCHITECTURE §5.5): keeps a long-running install small.
 /// It prunes finished commands, old search runs with their candidates, expired blocklist rows and the
-/// recycle bin, then checkpoints the WAL and vacuums when a good part of the file is free pages.
+/// recycle bin, clears the download links of candidates older than a day, then checkpoints the WAL and vacuums when a good part of the file is free pages.
 /// History, queue items and song files are never touched. Every step runs even when an earlier one
 /// failed; a failed step fails the command after the others have run.
 /// </summary>
@@ -123,6 +124,9 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
 
                 return $"search runs {runs} (candidates {candidates})";
             }).ConfigureAwait(false);
+
+        await Step("download links", async () => $"download links {await ClearOldLinksAsync(now, cancellationToken).ConfigureAwait(false)}")
+            .ConfigureAwait(false);
 
         await Step("blocklist", async () => $"blocklist {await PruneBlocklistAsync(now, cancellationToken).ConfigureAwait(false)}")
             .ConfigureAwait(false);
@@ -281,6 +285,36 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
                 AND (CASE WHEN json_valid(f.source_ref) THEN json_extract(f.source_ref, '$.candidateId') END) = c.id)
         ORDER BY r.id
         LIMIT {{SearchRunBatchSize}}
+        """;
+
+    /// <summary>
+    /// Removes the download links (they can carry a passkey or an API key) from every stored candidate
+    /// older than <see cref="ContainerRelease.LinkRetention"/>, in case a grab, a rejection or a failure
+    /// missed one — and from the rows an earlier version stored with links for good (R-082). A data
+    /// update, no migration: the candidate keeps everything else it shows.
+    /// </summary>
+    private async Task<int> ClearOldLinksAsync(DateTime now, CancellationToken cancellationToken)
+    {
+        var cutoff = now - ContainerRelease.LinkRetention;
+
+        using var scope = _scopes.CreateScope();
+        var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+        return await database.Database
+            .ExecuteSqlRawAsync(
+                ClearLinksSql,
+                [cutoff],
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private const string ClearLinksSql = """
+        UPDATE candidate
+        SET normalised = json_remove(normalised, '$.release.downloadUrl', '$.release.magnetUrl')
+        WHERE created_at < {0}
+          AND json_valid(normalised)
+          AND (json_extract(normalised, '$.release.downloadUrl') IS NOT NULL
+               OR json_extract(normalised, '$.release.magnetUrl') IS NOT NULL)
         """;
 
     private async Task<int> PruneBlocklistAsync(DateTime now, CancellationToken cancellationToken)

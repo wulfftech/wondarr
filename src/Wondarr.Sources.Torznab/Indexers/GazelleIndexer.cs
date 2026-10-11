@@ -119,6 +119,19 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
     /// <summary>How many requests a row may send in <see cref="Window"/>.</summary>
     public const int RequestsPerWindow = 5;
 
+    /// <summary>
+    /// The named <see cref="HttpClient"/> Gazelle requests go through: registered without the indexer
+    /// client's retry handler, so every request on the wire took a turn of the limiter.
+    /// </summary>
+    public const string HttpClientName = "indexer-gazelle";
+
+    /// <summary>
+    /// What marks a download link as one a freeleech token may be spent on. It is a URL fragment, which
+    /// is never sent: the link itself carries no <c>usetoken</c>, so reading a container at search time
+    /// cannot spend a token (R-006). <see cref="ForGrab"/> turns it into the parameter.
+    /// </summary>
+    public const string TokenMark = "#token-spendable";
+
     /// <summary>The tracker's rate-limit window.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromSeconds(10);
 
@@ -211,6 +224,9 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         var settings = GazelleSettings.Read(NotificationSecrets.Read(indexer.Settings));
         var url = release.DownloadUrl ?? throw new IndexerException("The release has no download URL.");
 
+        // The mark never goes on the wire; a grab has already turned it into usetoken=1 where wanted.
+        url = url.EndsWith(TokenMark, StringComparison.Ordinal) ? url[..^TokenMark.Length] : url;
+
         using var response = await SendAsync(indexer.Id, settings, new Uri(url), cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
@@ -228,6 +244,28 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         }
 
         return new IndexerDownload(content, null);
+    }
+
+    /// <summary>
+    /// The link a grab downloads: a link marked with <see cref="TokenMark"/> gets <c>usetoken=1</c> when
+    /// the row's "Use freeleech tokens" setting is on; every other link is returned as it is. Orpheus
+    /// fails a download with <c>usetoken=0</c>, so the parameter is only ever sent as 1.
+    /// </summary>
+    /// <param name="indexer">The indexer row the release came from.</param>
+    /// <param name="downloadUrl">The release's download link.</param>
+    public static string ForGrab(Indexer indexer, string downloadUrl)
+    {
+        ArgumentNullException.ThrowIfNull(indexer);
+        ArgumentNullException.ThrowIfNull(downloadUrl);
+
+        if (!downloadUrl.EndsWith(TokenMark, StringComparison.Ordinal))
+        {
+            return downloadUrl;
+        }
+
+        var bare = downloadUrl[..^TokenMark.Length];
+
+        return GazelleSettings.Read(NotificationSecrets.Read(indexer.Settings)).UseFreeleechTokens ? bare + "&usetoken=1" : bare;
     }
 
     /// <summary>The connection test: <c>ajax.php?action=index</c> answers success.</summary>
@@ -287,10 +325,11 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
 
                 var download = $"{settings.Url}/ajax.php?action=download&id={torrentId}";
 
-                // Orpheus fails a download with usetoken=0, so the parameter is only ever sent as 1.
-                if (settings.UseFreeleechTokens && !freeleech && Flag(torrent, "canUseToken"))
+                // A token can be spent on this one. The mark is not a parameter: only a grab turns it
+                // into usetoken=1 (ForGrab), a search reads the container without it.
+                if (!freeleech && Flag(torrent, "canUseToken"))
                 {
-                    download += "&usetoken=1";
+                    download += TokenMark;
                 }
 
                 var seeders = Integer(torrent, "seeders");
@@ -380,39 +419,72 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         return document;
     }
 
-    /// <summary>Sends one request with the API key, after waiting for the row's rate limit.</summary>
+    /// <summary>The most times a request is retried after a 502, 503, 504 or a timeout.</summary>
+    private const int MaxRetries = 2;
+
+    /// <summary>How long a 429 without a <c>Retry-After</c> keeps a row quiet.</summary>
+    private static readonly TimeSpan DefaultRateLimitWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Sends one request with the API key. Every attempt, a retry after a 502, 503, 504 or a timeout
+    /// included, waits for the row's rate limit first, so each request on the wire takes a turn
+    /// (R-024). A 429 keeps the row quiet until its <c>Retry-After</c> and is reported as a rate limit.
+    /// </summary>
     private async Task<HttpResponseMessage> SendAsync(long rowId, GazelleSettings settings, Uri url, CancellationToken cancellationToken)
     {
         _secrets.Register(settings.ApiKey);
-        await WaitForTurnAsync(rowId, cancellationToken).ConfigureAwait(false);
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.TryAddWithoutValidation("Authorization", settings.ApiKey);
+        for (var attempt = 0; ; attempt++)
+        {
+            await WaitForTurnAsync(rowId, cancellationToken).ConfigureAwait(false);
 
-        try
-        {
-            return await _clients.CreateClient(IndexerHttp.ClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
-        }
-        catch (HttpRequestException exception)
-        {
-            throw new IndexerException("The tracker could not be reached.", exception);
-        }
-        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            // The client's own timeout: a failed request, not a stopped caller.
-            throw new IndexerException("The tracker did not answer in time.", exception);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("Authorization", settings.ApiKey);
+
+            HttpResponseMessage response;
+
+            try
+            {
+                response = await _clients.CreateClient(HttpClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+            catch (HttpRequestException exception)
+            {
+                throw new IndexerException("The tracker could not be reached.", exception);
+            }
+            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The client's own timeout: a failed request, not a stopped caller.
+                if (attempt < MaxRetries)
+                {
+                    continue;
+                }
+
+                throw new IndexerException("The tracker did not answer in time.", exception);
+            }
+
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var wait = response.Headers.RetryAfter is { } after
+                    ? after.Delta ?? (after.Date is { } date ? date - _time.GetUtcNow() : DefaultRateLimitWait)
+                    : DefaultRateLimitWait;
+                response.Dispose();
+                PushOut(rowId, wait > TimeSpan.Zero ? wait : DefaultRateLimitWait);
+
+                throw new IndexerException("The tracker is rate limiting requests; try again in a few seconds.");
+            }
+
+            if (attempt < MaxRetries && response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
+            {
+                response.Dispose();
+                continue;
+            }
+
+            return response;
         }
     }
 
-    /// <summary>
-    /// At most <see cref="RequestsPerWindow"/> requests per row in any <see cref="Window"/>: a request
-    /// that would be one too many waits until the oldest one leaves the window. Each row waits on its
-    /// own turn, so one tracker's wait never holds up another's.
-    /// </summary>
-    private async Task WaitForTurnAsync(long rowId, CancellationToken cancellationToken)
+    private RowLimit GetRow(long rowId)
     {
-        RowLimit row;
-
         lock (_rowsGate)
         {
             if (!_rows.TryGetValue(rowId, out var found))
@@ -421,8 +493,35 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
                 _rows[rowId] = found;
             }
 
-            row = found;
+            return found;
         }
+    }
+
+    /// <summary>Keeps a row from sending anything for <paramref name="wait"/>.</summary>
+    private void PushOut(long rowId, TimeSpan wait)
+    {
+        var row = GetRow(rowId);
+
+        lock (row)
+        {
+            var until = _time.GetUtcNow() + wait;
+
+            if (until > row.BlockedUntil)
+            {
+                row.BlockedUntil = until;
+            }
+        }
+    }
+
+    /// <summary>
+    /// At most <see cref="RequestsPerWindow"/> requests per row in any <see cref="Window"/>: a request
+    /// that would be one too many waits until the oldest one leaves the window, and none is sent while a
+    /// 429's <c>Retry-After</c> lasts. Each row waits on its own turn, so one tracker's wait never holds
+    /// up another's.
+    /// </summary>
+    private async Task WaitForTurnAsync(long rowId, CancellationToken cancellationToken)
+    {
+        var row = GetRow(rowId);
 
         await row.Turn.WaitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -433,6 +532,19 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
             while (true)
             {
                 var now = _time.GetUtcNow();
+
+                DateTimeOffset blocked;
+
+                lock (row)
+                {
+                    blocked = row.BlockedUntil;
+                }
+
+                if (blocked > now)
+                {
+                    await Task.Delay(blocked - now, _time, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
 
                 while (sent.Count > 0 && now - sent.Peek() >= Window)
                 {
@@ -460,6 +572,9 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         public SemaphoreSlim Turn { get; } = new(1, 1);
 
         public Queue<DateTimeOffset> Sent { get; } = new();
+
+        /// <summary>No request is sent before this instant (a 429's <c>Retry-After</c>).</summary>
+        public DateTimeOffset BlockedUntil { get; set; }
     }
 
     private static string? Text(JsonElement element, string name) =>

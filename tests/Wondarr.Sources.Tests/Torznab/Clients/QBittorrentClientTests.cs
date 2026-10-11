@@ -39,7 +39,7 @@ public sealed class QBittorrentClientTests
     [InlineData("moving", TorrentStatus.Moving)]
     [InlineData("error", TorrentStatus.Error)]
     [InlineData("missingFiles", TorrentStatus.Error)]
-    [InlineData("somethingNewInApi6", TorrentStatus.Downloading)]
+    [InlineData("somethingNewInApi6", TorrentStatus.Unknown)]
     public void Every_state_name_of_both_generations_maps_to_its_status(string state, TorrentStatus expected)
     {
         QBittorrentClient.MapState(state, hasMetadata: true).Should().Be(expected);
@@ -94,6 +94,26 @@ public sealed class QBittorrentClientTests
         torrent.ContentPath.Should().Be(Path.Combine("/mnt/media", "Some Release"));
         torrent.InfoHash.Should().Be(QBittorrentHarness.InfoHash);
         torrent.Name.Should().Be("Some Release");
+    }
+
+    [Fact]
+    public async Task The_incomplete_folder_is_mapped_too_and_absent_when_the_client_keeps_none()
+    {
+        var settings = """
+            {"host":"127.0.0.1","port":8080,"username":"admin","password":"fixture-password-1234",
+             "remotePathMappings":[{"key":"/downloads","value":"/mnt/media"}]}
+            """;
+        var harness = new QBittorrentHarness();
+        var fake = harness.Fake.AddTorrent(QBittorrentHarness.InfoHash, "downloading");
+        fake.HasMetadata = true;
+
+        (await harness.Client.GetAsync(QBittorrentHarness.Row(settings), QBittorrentHarness.InfoHash, CancellationToken.None))!
+            .DownloadPath.Should().BeNull();
+
+        fake.DownloadPath = "/downloads/incomplete";
+
+        (await harness.Client.GetAsync(QBittorrentHarness.Row(settings), QBittorrentHarness.InfoHash, CancellationToken.None))!
+            .DownloadPath.Should().Be(Path.Combine("/mnt/media", "incomplete"));
     }
 
     [Fact]
@@ -158,7 +178,7 @@ public sealed class QBittorrentClientTests
     }
 
     [Fact]
-    public async Task An_unknown_state_is_logged_once_and_treated_as_downloading()
+    public async Task An_unknown_state_is_logged_once_and_reported_as_unknown()
     {
         var harness = new QBittorrentHarness();
         harness.Fake.AddTorrent(QBittorrentHarness.InfoHash, "brandNewState");
@@ -166,7 +186,7 @@ public sealed class QBittorrentClientTests
         var first = await harness.Client.GetAsync(QBittorrentHarness.Row(), QBittorrentHarness.InfoHash, CancellationToken.None);
         var second = await harness.Client.GetAsync(QBittorrentHarness.Row(), QBittorrentHarness.InfoHash, CancellationToken.None);
 
-        first!.Status.Should().Be(TorrentStatus.Downloading);
-        second!.Status.Should().Be(TorrentStatus.Downloading);
+        first!.Status.Should().Be(TorrentStatus.Unknown);
+        second!.Status.Should().Be(TorrentStatus.Unknown);
     }
 }

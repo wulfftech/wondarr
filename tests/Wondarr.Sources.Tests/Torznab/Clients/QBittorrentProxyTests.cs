@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
 using Wondarr.Sources.Torznab.Clients;
 using FluentAssertions;
 using Xunit;
@@ -28,6 +29,60 @@ public sealed class QBittorrentProxyTests
         await harness.Proxy.GetTorrentsAsync(harness.Session, QBittorrentHarness.Settings, QBittorrentHarness.InfoHash, CancellationToken.None);
 
         harness.Fake.Requests.Count(request => request.Path == "/api/v2/auth/login").Should().Be(1);
+    }
+
+    [Fact]
+    public void A_row_keeps_one_session_and_a_settings_change_replaces_it()
+    {
+        var harness = new QBittorrentHarness();
+        var proxy = harness.Proxy;
+
+        var first = proxy.Session(QBittorrentProxy.SessionKey(7, "{\"a\":1}"));
+        proxy.Session(QBittorrentProxy.SessionKey(7, "{\"a\":1}")).Should().BeSameAs(first, "the login survives between calls");
+
+        var changed = proxy.Session(QBittorrentProxy.SessionKey(7, "{\"a\":2}"));
+
+        changed.Should().NotBeSameAs(first);
+        proxy.SessionCount.Should().Be(1, "the old session was replaced, not added to");
+    }
+
+    [Fact]
+    public void Sessions_are_bounded_by_the_number_of_rows_and_a_deleted_row_is_evicted()
+    {
+        var harness = new QBittorrentHarness();
+        var proxy = harness.Proxy;
+
+        for (var edit = 0; edit < 50; edit++)
+        {
+            proxy.Session(QBittorrentProxy.SessionKey(1, "{\"edit\":" + edit + "}"));
+            proxy.Session(QBittorrentProxy.SessionKey(2, "{\"edit\":" + edit + "}"));
+        }
+
+        proxy.SessionCount.Should().Be(2);
+
+        proxy.Evict(1);
+
+        proxy.SessionCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Deleting_a_client_evicts_its_session()
+    {
+        var harness = new QBittorrentHarness();
+        var kept = harness.Proxy.Session(QBittorrentProxy.SessionKey(1, "{}"));
+        harness.Proxy.Session(QBittorrentProxy.SessionKey(2, "{}"));
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(harness.Proxy);
+        services.AddSingleton<Wondarr.Core.Messaging.IHandle<Wondarr.Core.DownloadClients.DownloadClientDeletedEvent>, SessionEvictor>();
+        services.AddSingleton<Wondarr.Core.Messaging.IEventAggregator, Wondarr.Core.Messaging.EventAggregator>();
+        await using var provider = services.BuildServiceProvider();
+
+        await provider.GetRequiredService<Wondarr.Core.Messaging.IEventAggregator>()
+            .PublishAsync(new Wondarr.Core.DownloadClients.DownloadClientDeletedEvent(2), CancellationToken.None);
+
+        harness.Proxy.SessionCount.Should().Be(1);
+        harness.Proxy.Session(QBittorrentProxy.SessionKey(1, "{}")).Should().BeSameAs(kept);
     }
 
     [Fact]

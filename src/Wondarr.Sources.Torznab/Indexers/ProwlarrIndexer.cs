@@ -14,7 +14,8 @@ namespace Wondarr.Sources.Torznab.Indexers;
 /// <param name="ApiKey">Prowlarr's API key; a secret, sent only in the <c>X-Api-Key</c> header.</param>
 /// <param name="IndexerIds">The Prowlarr indexers to ask; empty asks them all.</param>
 /// <param name="Categories">The newznab categories to search.</param>
-public sealed record ProwlarrSettings(string Url, string ApiKey, IReadOnlyList<int> IndexerIds, IReadOnlyList<int> Categories)
+/// <param name="MinimumSeeders">Torrents with fewer seeders are skipped, as a Torznab row does; usenet results are not filtered.</param>
+public sealed record ProwlarrSettings(string Url, string ApiKey, IReadOnlyList<int> IndexerIds, IReadOnlyList<int> Categories, int MinimumSeeders = IndexerEndpoint.DefaultMinimumSeeders)
 {
     /// <summary>Reads a row's (or a draft's) settings.</summary>
     /// <param name="settings">The settings JSON.</param>
@@ -22,7 +23,8 @@ public sealed record ProwlarrSettings(string Url, string ApiKey, IReadOnlyList<i
         Text(settings, "url").Trim().TrimEnd('/'),
         Text(settings, "apiKey").Trim(),
         Numbers(Text(settings, "indexerIds")),
-        Numbers(Text(settings, "categories")) is { Count: > 0 } categories ? categories : [3000]);
+        Numbers(Text(settings, "categories")) is { Count: > 0 } categories ? categories : [3000],
+        int.TryParse(Text(settings, "minimumSeeders"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var minimum) ? minimum : IndexerEndpoint.DefaultMinimumSeeders);
 
     private static string Text(JsonElement settings, string name) =>
         settings.ValueKind == JsonValueKind.Object && settings.TryGetProperty(name, out var value)
@@ -74,6 +76,7 @@ public sealed class ProwlarrIndexerType : IIndexerType
         new("apiKey", "API key", "password", Required: true, Secret: true, HelpText: "Prowlarr's API key (Settings → General)."),
         new("indexerIds", "Indexer ids", "text", Required: false, HelpText: "The Prowlarr indexers to ask, comma-separated; empty asks them all."),
         new("categories", "Categories", "text", Required: false, HelpText: "The newznab category ids to search, comma-separated; 3000 is music."),
+        new("minimumSeeders", "Minimum seeders", "number", Required: false, HelpText: "Releases with fewer seeders than this are skipped."),
     ];
 
     /// <inheritdoc />
@@ -199,6 +202,14 @@ public sealed partial class ProwlarrSearchClient : IIndexerClient
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var releases = Parse(body, indexer);
+
+            // A torrent nobody seeds would never finish; the same rule as a Torznab row's. A result
+            // that reports no seeder count is given the benefit of the doubt, usenet has none.
+            if (indexer.Protocol == DownloadProtocol.Torrent)
+            {
+                releases = [.. releases.Where(release => release.Seeders is not { } seeders || seeders >= settings.MinimumSeeders)];
+            }
+
             LogFound(_logger, releases.Count, indexer.Name);
 
             return releases;

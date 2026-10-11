@@ -48,6 +48,7 @@ One row that searches through all of Prowlarr's indexers at once, using Prowlarr
 - **API key**: from Prowlarr's **Settings → General**.
 - **Indexer ids**: comma-separated Prowlarr indexer IDs to ask. Empty asks all of them.
 - **Categories**: as above.
+- **Minimum seeders**: releases with fewer seeders are skipped, as for Torznab. Default 1. Usenet results are not filtered.
 
 Choose **Torrent** or **Usenet** for the row; make a second Prowlarr row if you want both.
 
@@ -57,7 +58,7 @@ A Gazelle tracker such as Redacted or Orpheus, searched directly by song title i
 
 - **URL**: the tracker's address.
 - **API key**: from the tracker's settings; it needs the torrents scope.
-- **Use freeleech tokens** (Advanced): spend a token on each download that is not freeleech already.
+- **Use freeleech tokens** (Advanced): spend a token on each grab that is not freeleech already. A search never spends one: Wondarr reads a release's files from the tracker's file lists, or downloads the `.torrent` without the token flag, and adds the flag only when it grabs.
 
 ## Pushing releases from autobrr
 
