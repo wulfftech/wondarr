@@ -224,9 +224,7 @@ describe('SoulseekSettingsPage', () => {
   });
 
   it('switching to my own slskd saves the mode and needs no restart', async () => {
-    install({}, () =>
-      jsonResponse({ settings: { ...SETTINGS, mode: 'external' }, restartsSlskd: false }),
-    );
+    install({}, () => jsonResponse({ settings: { ...SETTINGS, mode: 'external' }, restartsSlskd: false }));
     const user = userEvent.setup();
 
     renderApp();
