@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
+using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
@@ -191,13 +192,68 @@ public sealed class RecycleBinLibraryRootTests : IAsyncDisposable
             new Library { Name = "Second", RootPath = "/srv/elsewhere", Layout = LibraryLayout.Flat },
             CancellationToken.None);
 
-        created.RootPath = "/srv/bin/music";
+        // As the API sends it: a separate object carrying the new values.
+        var edited = new Library
+        {
+            Id = created.Id,
+            Name = created.Name,
+            RootPath = "/srv/bin/music",
+            Layout = created.Layout,
+            NamingTemplate = created.NamingTemplate,
+        };
 
-        var act = async () => await service.UpdateAsync(created, CancellationToken.None);
+        var act = async () => await service.UpdateAsync(edited, CancellationToken.None);
 
         var exception = await act.Should().ThrowAsync<ProfileValidationException>();
         exception.Which.Errors.Should().Contain(
             error => error.Property == "rootPath" && error.Message.Contains("recycle bin", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_existing_library_that_overlaps_the_bin_can_still_be_renamed()
+    {
+        await _database.MigrateAsync(_time);
+
+        _options.RecycleBinPath = "/srv/bin";
+
+        await using (var seed = _database.CreateContext(_time))
+        {
+            seed.Libraries.Add(new Library { Name = "Old", RootPath = "/srv/bin/music", Layout = LibraryLayout.Flat, NamingTemplate = "{Track Title}" });
+            await seed.SaveChangesAsync();
+        }
+
+        await using var context = _database.CreateContext(_time);
+        var service = Service(context);
+
+        var existing = (await service.GetAllAsync(CancellationToken.None)).Single(library => library.Name == "Old");
+        existing.Name = "Renamed";
+
+        var updated = await service.UpdateAsync(existing, CancellationToken.None);
+
+        updated.Name.Should().Be("Renamed");
+    }
+
+    [Fact]
+    public async Task The_health_check_reports_a_bin_that_overlaps_a_reference_library()
+    {
+        await _database.MigrateAsync(_time);
+
+        _options.RecycleBinPath = _temp.Full("media");
+
+        await using var context = _database.CreateContext(_time);
+        var check = new RecycleBinHealthCheck(
+            context,
+            new TestOptionsMonitor<ImportOptions>(_options),
+            new WondarrPaths(_temp.Full("config")));
+
+        (await check.CheckAsync(CancellationToken.None)).Type.Should().Be(HealthCheckResult.Ok);
+
+        context.ReferenceLibraries.Add(new ReferenceLibrary { Name = "Collection", RootPath = _temp.Full("media/collection") });
+        await context.SaveChangesAsync();
+
+        var report = await check.CheckAsync(CancellationToken.None);
+        report.Type.Should().Be(HealthCheckResult.Error);
+        report.Message.Should().Contain("Collection").And.Contain("recycle_bin_path");
     }
 
     private LibraryService Service(WondarrDbContext context) =>

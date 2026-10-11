@@ -124,6 +124,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The cover processor that hands every image straight back.</summary>
     public FakeCoverImageProcessor CoverProcessor { get; private init; } = null!;
 
+    /// <summary>What the process knows about the AcoustID key, shared by every import.</summary>
+    public AcoustIdKeyState KeyState => _services.GetRequiredService<AcoustIdKeyState>();
+
     /// <summary>The scripted search service, which records the next-attempt asks.</summary>
     public FakeSongSearchService Search { get; private init; } = null!;
 
@@ -834,6 +837,12 @@ internal sealed class FakeFilePlacer : IFilePlacer
     /// </summary>
     public string? LandedWithError { get; set; }
 
+    /// <summary>
+    /// When set, the placement fails after the replaced file went to the bin and could not be put
+    /// back: the result carries this recycled path and no final path.
+    /// </summary>
+    public string? StrandedRecycledPath { get; set; }
+
     /// <summary>Run just before a placement is reported, to move the world under the import's feet.</summary>
     public Func<PlacementRequest, Task>? OnPlaceAsync { get; set; }
 
@@ -865,6 +874,11 @@ internal sealed class FakeFilePlacer : IFilePlacer
             await File.WriteAllBytesAsync(landedTarget, new byte[8], cancellationToken);
 
             return new PlacementResult(false, landedTarget, null, request.Mode, landedError);
+        }
+
+        if (StrandedRecycledPath is { } stranded)
+        {
+            return new PlacementResult(false, null, stranded, null, "The old file could not be put back.");
         }
 
         return Success

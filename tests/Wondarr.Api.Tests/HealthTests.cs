@@ -84,9 +84,9 @@ public sealed class HealthTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (await ReadEntriesAsync(response)).Should().HaveCount(
-            10,
+            11,
             "database, config folder, log folder, slskd, its download folder, sharing, the media tools, "
-            + "the Plex partial scans, yt-dlp and the AcoustID key");
+            + "the Plex partial scans, yt-dlp, the AcoustID key and the recycle bin");
     }
 
     private static async Task<List<(string Source, string Type, string Message)>> ReadEntriesAsync(HttpResponseMessage response)

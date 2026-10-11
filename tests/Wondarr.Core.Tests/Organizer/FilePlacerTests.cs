@@ -466,6 +466,83 @@ public class FilePlacerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_recycle_bin_reports_where_the_file_is_when_a_step_after_the_move_fails()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var bin = new RecycleBin(
+            new FaultyDisk { StampFailure = new InvalidOperationException("unforeseen") },
+            new TestOptionsMonitor<ImportOptions>(_options),
+            new WondarrPaths(_temp.Full("config")),
+            TimeProvider.System,
+            NullLogger<RecycleBin>.Instance);
+
+        var act = async () => await bin.RecycleAsync(replaced, Library, CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<RecycleMovedException>();
+        exception.Which.RecycledPath.Should().Be(_temp.Full("recycle/Artist/Album/track.mp3"));
+        File.ReadAllText(exception.Which.RecycledPath).Should().Be("old");
+    }
+
+    [Fact]
+    public async Task Puts_the_file_back_when_the_bin_reports_a_failure_after_the_move()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var source = _temp.CreateFile("downloads/track.mp3", "new");
+        var inBin = _temp.Full("recycle/track.mp3");
+
+        var bin = MovingThenFailingBin(replaced, inBin);
+
+        var result = await new FilePlacer(
+                new DiskOperations(),
+                bin,
+                new TestOptionsMonitor<ImportOptions>(_options),
+                NullLogger<FilePlacer>.Instance)
+            .PlaceAsync(Request(source, "Artist/Album/track", TransferMode.Move, replaced), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.RecycledPath.Should().BeNull("the old file is back where it was");
+        File.ReadAllText(replaced).Should().Be("old");
+        File.Exists(inBin).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reports_the_recycled_path_when_the_file_cannot_be_put_back()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var source = _temp.CreateFile("downloads/track.mp3", "new");
+        var inBin = _temp.Full("recycle/track.mp3");
+
+        var bin = MovingThenFailingBin(replaced, inBin);
+        var disk = new FaultyDisk { FailMoveTarget = target => string.Equals(target, replaced, StringComparison.Ordinal) };
+
+        var result = await new FilePlacer(
+                disk,
+                bin,
+                new TestOptionsMonitor<ImportOptions>(_options),
+                NullLogger<FilePlacer>.Instance)
+            .PlaceAsync(Request(source, "Artist/Album/track", TransferMode.Move, replaced), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.RecycledPath.Should().Be(inBin, "callers record where the old file is");
+        File.ReadAllText(inBin).Should().Be("old");
+    }
+
+    private static IRecycleBin MovingThenFailingBin(string replaced, string inBin)
+    {
+        var bin = Substitute.For<IRecycleBin>();
+        bin.RecycleAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<string>>(_ =>
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(inBin)!);
+                File.Move(replaced, inBin);
+
+                throw new RecycleMovedException(inBin, new InvalidOperationException("unforeseen"));
+            });
+
+        return bin;
+    }
+
+    [Fact]
     public async Task Keeps_the_replaced_file_in_the_bin_when_the_new_file_landed_but_the_download_stayed()
     {
         var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
@@ -512,6 +589,9 @@ public class FilePlacerTests : IDisposable
 
         /// <summary>Fails every attempt to set a file's time, as a file owned by another uid does.</summary>
         public bool FailStamp { get; init; }
+
+        /// <summary>Throws this from every attempt to set a file's time.</summary>
+        public Exception? StampFailure { get; init; }
 
         public bool FileExists(string path) => _inner.FileExists(path);
 
@@ -570,6 +650,11 @@ public class FilePlacerTests : IDisposable
 
         public void SetLastWriteTimeUtc(string path, DateTime utc)
         {
+            if (StampFailure is not null)
+            {
+                throw StampFailure;
+            }
+
             if (FailStamp)
             {
                 throw new UnauthorizedAccessException($"Simulated a refused time stamp on '{path}'.");

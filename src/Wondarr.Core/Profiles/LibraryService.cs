@@ -116,7 +116,13 @@ public sealed class LibraryService : ILibraryService
 
         var errors = await ValidateAsync(library, stored, cancellationToken).ConfigureAwait(false);
         errors.AddRange(await RootOverlapErrorsAsync(library.RootPath, library.Id, cancellationToken).ConfigureAwait(false));
-        errors.AddRange(RecycleBinErrors(library.RootPath));
+
+        // Only a root being moved is checked: a library that already overlaps the bin from before this
+        // rule must still be editable (renamed, say).
+        if (!PathRules.AreEqual(stored.RootPath, library.RootPath))
+        {
+            errors.AddRange(RecycleBinErrors(library.RootPath));
+        }
 
         if (!PathRules.AreEqual(stored.RootPath, library.RootPath)
             && await _context.Songs
