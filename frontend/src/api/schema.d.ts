@@ -5845,6 +5845,7 @@ export interface components {
         };
         PlexServerResourceUpdate: {
             serverUrl: string;
+            token?: null | string;
         };
         PlexStateResource: {
             signedIn: boolean;

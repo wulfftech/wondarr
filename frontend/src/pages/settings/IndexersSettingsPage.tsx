@@ -33,7 +33,7 @@ import {
 } from '../../api/indexers';
 import { ValidationError } from '../../api/profiles';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
-import { initialValues, SettingsField, wireValue } from '../../components/SchemaFields';
+import { initialValues, SettingsField, targetOf, wireValue } from '../../components/SchemaFields';
 import { initCaps } from '../../components/text';
 
 /**
@@ -107,6 +107,10 @@ function IndexerForm({
   const [tested, setTested] = useState<{ success: boolean; error: string | null } | null>(null);
 
   const fields = save.error instanceof ValidationError ? save.error.fields : {};
+  const testFields = test.error instanceof ValidationError ? test.error.fields : {};
+
+  // A secret is reused only for the address it was saved for: once the address differs it is typed again.
+  const reenter = targetOf(schema.fields, values) !== targetOf(schema.fields, initial.values);
   const ofProtocol = clients.filter((client) => asProtocol(client.protocol) === protocol);
   const clientOptions = [
     { value: 'default', label: `Default ${protocolName(protocol).toLowerCase()} client` },
@@ -136,7 +140,11 @@ function IndexerForm({
     setTested(null);
     test.mutate(input(indexer === null ? undefined : Number(indexer.id)), {
       onSuccess: (result) => setTested({ success: result.success, error: result.error ?? null }),
-      onError: (error) => setTested({ success: false, error: error.message }),
+      onError: (error) =>
+        setTested({
+          success: false,
+          error: error instanceof ValidationError ? (Object.values(error.fields)[0] ?? error.message) : error.message,
+        }),
     });
   };
 
@@ -208,7 +216,8 @@ function IndexerForm({
           field={field}
           value={values[field.name]}
           masked={masked.has(field.name)}
-          error={fields[field.name]}
+          reenter={reenter}
+          error={fields[field.name] ?? testFields[field.name]}
           onChange={(next) => setValues((current) => ({ ...current, [field.name]: next }))}
         />
       ))}
@@ -223,7 +232,8 @@ function IndexerForm({
                 field={field}
                 value={values[field.name]}
                 masked={masked.has(field.name)}
-                error={fields[field.name]}
+                reenter={reenter}
+                error={fields[field.name] ?? testFields[field.name]}
                 onChange={(next) => setValues((current) => ({ ...current, [field.name]: next }))}
               />
             ))}
