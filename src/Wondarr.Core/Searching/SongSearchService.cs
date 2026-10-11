@@ -12,6 +12,7 @@ using Wondarr.Core.Importing;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Profiles;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
@@ -1221,8 +1222,18 @@ public sealed partial class SongSearchService : ISongSearchService
             .ToDictionaryAsync(quality => quality.Id, cancellationToken)
             .ConfigureAwait(false);
 
+        // The library's conversion rules decide whether a container the tag writer cannot handle
+        // (APE, WavPack, WMA) is worth grabbing: a rule that converts it saves it.
+        var outputPolicy = await _database.Libraries
+            .AsNoTracking()
+            .Where(library => library.Id == song.LibraryId)
+            .Select(library => library.OutputPolicy)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         return new DecisionContext
         {
+            OutputPolicy = LibraryOutputPolicy.Parse(outputPolicy),
             SongTitle = song.Title,
             MainArtists =
             [

@@ -57,6 +57,10 @@ public sealed class AudioTranscoderTests
         call.FileName.Should().Be("ffmpeg");
         call.Arguments.Should().ContainInOrder("-i", Source, "-vn", "-c:a", "aac", "-b:a", "256k", target);
         call.Arguments.Should().NotContain("-y");
+
+        // Never read an inherited terminal, and never overwrite (or ask about overwriting) the target.
+        call.Arguments[0].Should().Be("-nostdin");
+        call.Arguments.Should().ContainInOrder("-n", target);
         call.Timeout.Should().Be(TimeSpan.FromSeconds(120));
     }
 

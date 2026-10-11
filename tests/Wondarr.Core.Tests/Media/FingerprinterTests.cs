@@ -86,7 +86,7 @@ public sealed class FingerprinterTests
 
         runner.Calls[0].FileName.Should().Be("ffmpeg");
         runner.Calls[0].Arguments.Should().Equal(
-            "-v", "error", "-ss", expectedStart, "-t", "120", "-i", "/m/tone-320.mp3",
+            "-nostdin", "-v", "error", "-ss", expectedStart, "-t", "120", "-i", "/m/tone-320.mp3",
             "-ac", "2", "-ar", "44100", "-f", "wav", temporary);
 
         // The cut-out window is what fpcalc is handed, and it is gone once the call returns.

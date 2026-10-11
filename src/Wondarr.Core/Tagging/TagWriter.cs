@@ -619,12 +619,26 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         CoverNativeCode: null);
 
     internal static FormatKeys KeysFor(string path) =>
-        Path.GetExtension(path).ToLowerInvariant() switch
+        KeysForExtension(Path.GetExtension(path))
+        ?? throw new NotSupportedException("The file's format is not one of MP3, FLAC, Opus or M4A.");
+
+    /// <summary>
+    /// Whether the tag writer can write to a file with this extension (with or without the dot). This
+    /// is the one list of taggable containers: the decision engine and the import ask it, so a format
+    /// the writer would refuse (APE, WavPack, WMA) is turned away before it is ever downloaded or tagged.
+    /// </summary>
+    /// <param name="extension">The extension, for example <c>flac</c> or <c>.flac</c>.</param>
+    /// <returns><see langword="true"/> when the writer supports the container.</returns>
+    public static bool CanTag(string? extension) => KeysForExtension(extension) is not null;
+
+    /// <summary>The tag keys of the container an extension names, or <see langword="null"/> when it is not supported.</summary>
+    private static FormatKeys? KeysForExtension(string? extension) =>
+        (extension ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant() switch
         {
-            ".mp3" or ".aiff" or ".aif" or ".wav" or ".aac" => Id3Keys,
-            ".m4a" or ".m4b" or ".mp4" => Mp4Keys,
-            ".flac" or ".opus" or ".ogg" or ".oga" => VorbisKeys,
-            _ => throw new NotSupportedException("The file's format is not one of MP3, FLAC, Opus or M4A."),
+            "mp3" or "aiff" or "aif" or "wav" or "aac" => Id3Keys,
+            "m4a" or "m4b" or "mp4" => Mp4Keys,
+            "flac" or "opus" or "ogg" or "oga" => VorbisKeys,
+            _ => null,
         };
 
     /// <summary>A track gain as ReplayGain readers expect it: invariant culture, signed, two decimals, <c>-8.52 dB</c>.</summary>
