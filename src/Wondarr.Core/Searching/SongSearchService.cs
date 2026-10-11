@@ -156,6 +156,9 @@ public sealed partial class SongSearchService : ISongSearchService
     /// <summary>Why a song a reference file identifies is not searched for.</summary>
     internal const string ReferenceOwnedMessage = "Owned through a reference library; it is never searched for";
 
+    /// <summary>What a grab of a candidate whose download links were cleared says (R-082).</summary>
+    internal const string LinkGoneMessage = "The download link of this release is no longer kept; search again to get a fresh one.";
+
     /// <summary>The JSON shape of every body and column this class writes: camelCase, enums as strings.</summary>
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -341,7 +344,7 @@ public sealed partial class SongSearchService : ISongSearchService
             var context = await BuildContextAsync(song, trigger, blockedKeys, ignored, cancellationToken).ConfigureAwait(false);
             var decisions = _engine.Evaluate(context, candidates);
 
-            await StoreCandidatesAsync(song, run.Id, decisions, cancellationToken).ConfigureAwait(false);
+            await StoreCandidatesAsync(song, run.Id, decisions, keepAllLinks: false, cancellationToken).ConfigureAwait(false);
 
             var accepted = decisions.Count(decision => decision.Accepted);
             long? queueItemId = grab && accepted > 0
@@ -487,7 +490,7 @@ public sealed partial class SongSearchService : ISongSearchService
 
         var decisions = _engine.Evaluate(context, candidates);
 
-        await StoreCandidatesAsync(song, searchRunId, decisions, cancellationToken).ConfigureAwait(false);
+        await StoreCandidatesAsync(song, searchRunId, decisions, keepAllLinks: trigger == SearchTrigger.Manual && !grab, cancellationToken).ConfigureAwait(false);
 
         var accepted = decisions.Count(decision => decision.Accepted);
         long? queueItemId = null;
@@ -935,6 +938,14 @@ public sealed partial class SongSearchService : ISongSearchService
             ?? throw new GrabFailedException(
                 string.Concat("No source is registered for the type '", record.SourceType, "'."));
 
+        // A container's download links are kept for a day (R-082). A candidate whose links were cleared
+        // — grabbed, failed, rejected, or past that day — cannot be fetched again.
+        if (candidate.Release is { } stored
+            && (!stored.HasLink() || _timeProvider.GetUtcNow().UtcDateTime - record.CreatedAt > ContainerRelease.LinkRetention))
+        {
+            throw new GrabFailedException(LinkGoneMessage);
+        }
+
         // The other wanted songs in the same container are found before the grab, so the client
         // selects their files (and SABnzbd keeps them) from the start.
         var bundled = bundle
@@ -1011,6 +1022,9 @@ public sealed partial class SongSearchService : ISongSearchService
 
         item.Handle = handle.Value;
         record.Grabbed = true;
+
+        // The client has the release now and the handle holds no link: the stored one goes (R-082).
+        ClearLinks(record);
 
         // The item, the candidate's flag and the history row are one unit: the queue item must not
         // claim a handle the history does not know about, or the other way round.
@@ -1125,6 +1139,7 @@ public sealed partial class SongSearchService : ISongSearchService
         // The candidate counts as grabbed even though the grab failed: retrying the same file is what
         // the attempt loop is for, and the next attempt takes the next candidate.
         record.Grabbed = true;
+        ClearLinks(record);
 
         try
         {
@@ -1133,6 +1148,22 @@ public sealed partial class SongSearchService : ISongSearchService
         catch (Exception exception)
         {
             LogFailWriteFailed(_logger, item.Id, exception);
+        }
+    }
+
+    /// <summary>Removes the download links from a stored candidate; a snapshot that cannot be read is left as it is.</summary>
+    private static void ClearLinks(CandidateRecord record)
+    {
+        try
+        {
+            if (JsonSerializer.Deserialize<Candidate>(record.Normalised, Json) is { Release: { } release } candidate && release.HasLink())
+            {
+                record.Normalised = JsonSerializer.Serialize(candidate.WithoutLinks(), Json);
+            }
+        }
+        catch (JsonException)
+        {
+            // Not one of ours; nothing in it to clear.
         }
     }
 
@@ -1322,11 +1353,18 @@ public sealed partial class SongSearchService : ISongSearchService
     /// <param name="CandidateId">The stored candidate that produced the file, when one did.</param>
     private sealed record HeldSourceReference(long? CandidateId);
 
-    /// <summary>Stores the best of what the run saw, with the score and every rejection.</summary>
+    /// <summary>
+    /// Stores the best of what the run saw, with the score and every rejection. A container's download
+    /// links (they can carry a passkey) are stored only on a candidate that can still be grabbed: an
+    /// accepted one, or any of an interactive search's (<paramref name="keepAllLinks"/>), whose results
+    /// the user may grab for <see cref="ContainerRelease.LinkRetention"/>. A rejected automatic
+    /// candidate is stored without them (R-082).
+    /// </summary>
     private async Task StoreCandidatesAsync(
         Song song,
         long searchRunId,
         IReadOnlyList<CandidateDecision> decisions,
+        bool keepAllLinks,
         CancellationToken cancellationToken)
     {
         var stored = decisions
@@ -1343,7 +1381,7 @@ public sealed partial class SongSearchService : ISongSearchService
                 QualityId = decision.Candidate.QualityId,
                 SizeBytes = decision.Candidate.SizeBytes,
                 DurationMs = decision.Candidate.DurationMs,
-                Normalised = JsonSerializer.Serialize(decision.Candidate, Json),
+                Normalised = JsonSerializer.Serialize(keepAllLinks || decision.Accepted ? decision.Candidate : decision.Candidate.WithoutLinks(), Json),
                 Score = decision.Score.Total,
                 ScoreBreakdown = JsonSerializer.Serialize(decision.Score, Json),
                 Rejections = JsonSerializer.Serialize(

@@ -295,8 +295,10 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     }
 
     /// <summary>
-    /// A stable id for a pushed release without putting its link (which can carry a passkey) into the
-    /// database: a hash of the link, or of the title when there is none.
+    /// A stable id for a pushed release that is not the link itself (which can carry a passkey): a hash
+    /// of the link, or of the title when there is none. The link is still stored with a candidate that
+    /// can be grabbed, as every release's is, and cleared once it is grabbed, rejected or failed or a
+    /// day old (<see cref="ContainerRelease.LinkRetention"/>).
     /// </summary>
     private static string ReleaseId(PushedRelease release)
     {

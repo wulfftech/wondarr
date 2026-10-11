@@ -500,6 +500,7 @@ public async Task A_container_grab_takes_the_other_wanted_songs_of_the_same_arti
             IndexerName = "Indexer",
             Title = "Aphex Twin - Selected Ambient Works [FLAC]",
             ReleaseId = "guid-1",
+            DownloadUrl = "https://tracker.example/download/1",
             InfoHash = "0123456789abcdef0123456789abcdef01234567",
             FileIndex = 0,
             Files = files,
