@@ -72,6 +72,26 @@ public class SecretRegistryTests
     }
 
     [Fact]
+    public void The_escaped_form_matches_what_serilogs_json_formatter_writes_for_control_characters()
+    {
+        const string secret = "tab\t-nl\n-ff\f-bs\b-bell\u0007-end\"\\";
+        var registry = new SecretRegistry();
+        registry.Register(secret);
+
+        var logEvent = new Serilog.Events.LogEvent(
+            DateTimeOffset.UtcNow,
+            Serilog.Events.LogEventLevel.Error,
+            null,
+            new Serilog.Parsing.MessageTemplateParser().Parse("Login failed for {Password}"),
+            [new Serilog.Events.LogEventProperty("Password", new Serilog.Events.ScalarValue(secret))]);
+
+        using var output = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+        new RedactingTextFormatter(new Serilog.Formatting.Json.JsonFormatter(), registry).Format(logEvent, output);
+
+        output.ToString().Should().Contain("(removed)").And.NotContain("tab").And.NotContain("bell");
+    }
+
+    [Fact]
     public void Replaces_a_longer_secret_before_a_shorter_one_registered_later()
     {
         var registry = new SecretRegistry();
