@@ -22,6 +22,13 @@ public sealed class BackupOptions
     /// because the options class cannot see the resolved configuration directory.
     /// </summary>
     public string? Folder { get; set; }
+
+    /// <summary>
+    /// The most bytes a restore will extract from an uploaded backup's database entry. The upload
+    /// itself is capped at 512 MB; this is that, scaled for compression, so a zip bomb cannot fill
+    /// the volume the live database shares.
+    /// </summary>
+    public long MaxRestoreDatabaseBytes { get; set; } = 4L * 1024 * 1024 * 1024;
 }
 
 /// <summary>
@@ -45,6 +52,11 @@ public sealed class BackupOptionsValidator : IValidateOptions<BackupOptions>
         if (options.RetentionDays is < 1 or > 3650)
         {
             failures.Add($"backup.retention_days: must be between 1 and 3650 (was {options.RetentionDays})");
+        }
+
+        if (options.MaxRestoreDatabaseBytes < 1024 * 1024)
+        {
+            failures.Add($"backup.max_restore_database_bytes: must be at least 1048576 (was {options.MaxRestoreDatabaseBytes})");
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);

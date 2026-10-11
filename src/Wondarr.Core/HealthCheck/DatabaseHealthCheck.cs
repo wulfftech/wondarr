@@ -1,4 +1,5 @@
 using System.Data;
+using Wondarr.Core.Backup;
 using Wondarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -52,6 +53,20 @@ public sealed class DatabaseHealthCheck : IHealthCheck
                 {
                     await connection.CloseAsync().ConfigureAwait(false);
                 }
+            }
+
+            // A database moved down from a newer Wondarr starts and then fails on every query that
+            // touches a column this build does not have (R-039).
+            var applied = await _context.Database.GetAppliedMigrationsAsync(cancellationToken).ConfigureAwait(false);
+            var newer = KnownMigrations.NewestUnknown(applied);
+
+            if (newer is not null)
+            {
+                return new HealthCheck(
+                    Name,
+                    HealthCheckResult.Error,
+                    $"This database was written by a newer Wondarr (it has the migration {newer}, which this version does not know). Update Wondarr, or restore a backup made by this version.",
+                    null);
             }
 
             var pending = (await _context.Database.GetPendingMigrationsAsync(cancellationToken).ConfigureAwait(false)).ToList();

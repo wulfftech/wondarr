@@ -1,3 +1,4 @@
+using Wondarr.Core.Backup;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
@@ -6,6 +7,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -176,8 +178,20 @@ public sealed class Phase0UpgradeTests
 
         public async Task MigrateAsync()
         {
+            // An existing database is backed up before it is migrated, and a backup carries config.yml.
+            if (!File.Exists(Paths.ConfigFile))
+            {
+                File.WriteAllText(Paths.ConfigFile, "server:\n  api_key: test\n");
+            }
+
+            var backups = new BackupService(
+                Paths,
+                Options.Create(new BackupOptions()),
+                new FakeTimeProvider(),
+                NullLogger<BackupService>.Instance);
+
             await using var context = CreateContext();
-            await new DatabaseMigrator(context, NullLogger<DatabaseMigrator>.Instance).MigrateAsync(CancellationToken.None);
+            await new DatabaseMigrator(context, NullLogger<DatabaseMigrator>.Instance, backups).MigrateAsync(CancellationToken.None);
         }
 
         /// <summary>The migration ids recorded in <c>__EFMigrationsHistory</c>, oldest first.</summary>

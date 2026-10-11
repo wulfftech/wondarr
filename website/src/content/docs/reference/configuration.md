@@ -92,6 +92,7 @@ See [YouTube Music](/wondarr/sources/youtube/) for every key, including `enabled
 | `interval_days` | `7` | How often the scheduled backup runs (1 to 365). |
 | `retention_days` | `28` | How long scheduled backups are kept (1 to 3650). |
 | `folder` | `/config/backups` | Where backups are stored. |
+| `max_restore_database_bytes` | `4294967296` (4 GiB) | The most a restore extracts from an uploaded backup's database, so a zip bomb cannot fill the volume. Restores past it are refused (at least 1048576). |
 
 ## queue
 

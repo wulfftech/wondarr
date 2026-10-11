@@ -4,9 +4,16 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **An automatic backup before an upgrade migrates your database.** When a new version has database changes to apply, Wondarr first writes a backup (`wondarr_pre-<previous version>_<time>.zip`, in the scheduled backups, cleared out by the usual retention). If that backup fails, nothing is migrated and Wondarr does not start, so a failed upgrade can always be rolled back.
+- **Restores keep the last three sets of replaced files** (`*.pre-restore`, `.pre-restore.1`, `.pre-restore.2`), and a restore that is interrupted part-way is finished at the next start instead of leaving a fresh `config.yml` with a new API key. How to undo a restore is in the deployment guide.
+- **`backup.max_restore_database_bytes`** (default 4 GiB): the most a restore will extract from an uploaded backup's database.
+
 ### Changed
 - **Choosing a song's album now moves its file.** In Change album, a managed file is moved to the folder the naming template renders for the new album and retagged, with its lyrics and cover, and Plex is asked to scan the old and new folders. The dialog says "The file will be moved to the new album's folder" and follows the move until it finishes. `PUT /api/v1/song/{id}/albumcontext` returns the new `refileCommandId` (nothing is queued for a song with no file or only a reference file, which are never touched). While a Compact run has the song the choice is refused with a 409.
 - **Compact empties Plex's trash only when that is safe.** It leaves the trash alone, logs why and says so in the run's result when the scan was not seen to finish, when Plex's own "empty trash automatically" (`autoEmptyTrash`) is on, or when a folder of the Plex section cannot be confirmed present (missing, empty like an unmounted share, or not under any library or reference library root). Before, it emptied after a 10 minute timeout whatever Plex was doing.
+- **Housekeeping's `VACUUM` waits for a quiet moment.** It is skipped, and logged as "imports in progress", while a download is waiting to be imported or an import is running. The app's SQLite connections now wait up to 60 seconds for a lock.
+- **Releases publish a tested image.** The image is pushed under a `sha-*` tag only; `:<version>`, `:<major>.<minor>`, `:latest` and `:develop` move after the tests and the amd64 and arm64 smoke runs pass, and `:latest` follows only the highest stable release. The ffmpeg image is pinned by digest and every GitHub Action by commit.
 
 ### Fixed
 - **A file that moved is always recorded.** A recycle whose time stamp is refused (library files owned by another user, or a mount that refuses it) no longer fails after the old file is already in the bin; the placer also says so, instead of "untouched", when a recycle fails after the move. An import, library move or conversion whose placement moved the file and then failed (a refused chmod, a download that could not be removed) is now recorded as placed instead of leaving the song pointing at nothing, every database write after a move ignores a shutdown, and a restart finds the file an interrupted import had already placed instead of grabbing a second copy beside it. An upgrade that renames the file takes its `.lrc` sidecar along, and conversions and library moves decide from the song as it is when they get their turn.
@@ -20,6 +27,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 - **A compaction that fails can no longer block its library, and one that is cut short is finished.** A move that keeps failing is retried three times and then given up on: its file goes back where it came from (or stays, named in the log and the result) and the song points at it. A move whose song was deleted sends its staged file to the recycle bin. A song with a move in flight cannot be deleted (409). After a restart, Wondarr queues Compact for every library with unfinished moves, and a **Compaction** health warning names the library until they are done. Database writes after a file has moved are no longer cancelled by a shutdown, a file an interrupted run had already placed is found and recorded, and a placement that reports an error after putting the file down is recorded as placed.
 - **Choosing an album during a compaction is no longer overwritten.** The choice is refused until the run finishes, and a run never applies its plan over an album you pinned after it was made.
 - **"Adopt now" beside a scan no longer copies every file twice.** It takes the same per-library gate as the scan, and adoption holds each song's file lock while it files the copy.
+- **A backup from a newer Wondarr is refused** at restore time, naming the newest unknown migration, and Health shows an error when the live database was written by a newer Wondarr.
+- **Two backups at once can no longer tear each other.** Backups and restore staging are serialised, temporary files are uniquely named, an existing backup is never overwritten, and leftover temporary files older than an hour are deleted at start.
+- **A restore sets the database aside complete.** The write-ahead log is folded into the database first, so renaming `wondarr.db.pre-restore` back loses nothing.
 
 ## [0.1.0] — 2026-10-10
 

@@ -1,0 +1,5 @@
+[xUnit.net 00:00:41.50]     Wondarr.Api.Tests.SignalRTests.Broadcasts_a_queue_change [FAIL]
+  Failed Wondarr.Api.Tests.SignalRTests.Broadcasts_a_queue_change [5 s]
+Failed!  - Failed:     2, Passed:   358, Skipped:     0, Total:   360, Duration: 1 m 10 s - Wondarr.Api.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:  1834, Skipped:     3, Total:  1837, Duration: 1 m 29 s - Wondarr.Core.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   412, Skipped:     0, Total:   412, Duration: 23 s - Wondarr.Sources.Tests.dll (net10.0)
