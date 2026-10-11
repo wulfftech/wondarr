@@ -86,8 +86,8 @@ public interface IPlexConnectionService
 
     /// <summary>
     /// Selects a server, and remembers how to talk to it. The stored token goes only to an address it
-    /// belongs to: the one already selected, or one plex.tv lists for the account. Any other address
-    /// needs a token in the request.
+    /// belongs to: one plex.tv lists for the account. Any other address needs a token in the request,
+    /// every time, even when it is the server already selected.
     /// </summary>
     /// <param name="serverUrl">The server URL, absolute and http or https.</param>
     /// <param name="suppliedToken">A token for that server, required when the address is neither the selected one nor listed by plex.tv.</param>
@@ -311,7 +311,7 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
 
         // The account's tokens are sent only to an address they belong to: the selected server, or a
         // connection plex.tv lists for the account. Anywhere else the request must bring a token.
-        var trusted = IsTrustedAddress(server, settings.ServerUrl, servers);
+        var trusted = IsTrustedAddress(server, servers);
 
         if (!trusted)
         {
@@ -585,18 +585,17 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
     }
 
     /// <summary>
-    /// Whether the stored token may be sent to <paramref name="candidate"/>: it is the server already
-    /// selected, or one of the connections plex.tv lists for the account. Compared by scheme, host and
+    /// Whether the stored token may be sent to <paramref name="candidate"/>: only a connection plex.tv
+    /// lists for the account. The server already selected is not enough, because a request that carried
+    /// its own token can have selected an address plex.tv never listed. Compared by scheme, host and
     /// port; a path prefix stays on the same host.
     /// </summary>
-    private static bool IsTrustedAddress(Uri candidate, string? selectedUrl, IReadOnlyList<PlexServer> servers)
+    private static bool IsTrustedAddress(Uri candidate, IReadOnlyList<PlexServer> servers)
     {
         var wanted = NotificationSecrets.UrlTarget(candidate.AbsoluteUri);
 
-        return (!string.IsNullOrEmpty(selectedUrl)
-                && string.Equals(NotificationSecrets.UrlTarget(selectedUrl), wanted, StringComparison.Ordinal))
-            || servers.Any(server => server.Connections.Any(connection =>
-                string.Equals(NotificationSecrets.UrlTarget(connection.Uri), wanted, StringComparison.Ordinal)));
+        return servers.Any(server => server.Connections.Any(connection =>
+            string.Equals(NotificationSecrets.UrlTarget(connection.Uri), wanted, StringComparison.Ordinal)));
     }
 
     /// <summary>The token to call the selected server with: its own when plex.tv gave one.</summary>

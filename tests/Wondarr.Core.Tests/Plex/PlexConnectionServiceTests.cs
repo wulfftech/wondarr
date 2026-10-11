@@ -60,6 +60,29 @@ public class PlexConnectionServiceTests
     }
 
     [Fact]
+    public async Task SelectServer_does_not_trust_an_unlisted_address_just_because_an_earlier_request_selected_it()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubIdentity(harness);
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", [ListedConnection]),
+            ]));
+        var service = harness.CreateService();
+
+        // Step 1: a request with a junk token of its own selects the attacker's address.
+        await service.SelectServerAsync("http://evil.example:32400", "junk", CancellationToken.None);
+        (await harness.ReadSettingsAsync())!.ServerUrl.Should().Be("http://evil.example:32400");
+
+        // Step 2: the same address with no token is no longer "the selected server"; the account token stays home.
+        var act = async () => await service.SelectServerAsync("http://evil.example:32400", null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<Wondarr.Core.Notifications.SecretReentryException>();
+        await harness.Server.DidNotReceive().GetIdentityAsync(Arg.Any<Uri>(), UserToken, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task SelectServer_keeps_using_the_stored_token_for_the_server_already_selected_under_another_path()
     {
         using var harness = new PlexConnectionHarness();
