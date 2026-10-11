@@ -39,6 +39,10 @@ function install(restore: Response = jsonResponse({ restartRequired: true })): v
       return jsonResponse(HEALTH_ENTRIES);
     }
 
+    if (url.includes('/api/v1/system/download-token')) {
+      return jsonResponse({ token: 'tok-123', expiresInSeconds: 60 });
+    }
+
     if (url.includes('/api/v1/system/backup/restore/')) {
       return restore;
     }
@@ -68,10 +72,25 @@ describe('BackupPage', () => {
     expect(await screen.findByText(BACKUP.name)).toBeInTheDocument();
     expect(screen.getByText('2.5 MB')).toBeInTheDocument();
     expect(screen.getByText('manual')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: `Download ${BACKUP.name}` })).toHaveAttribute(
-      'href',
-      expect.stringContaining(`/api/v1/system/backup/${encodeURIComponent(BACKUP.id)}/download?apikey=test-api-key`),
-    );
+  });
+
+  it('downloads a backup through a short-lived token, never the API key', async () => {
+    install();
+    const user = userEvent.setup();
+    const clicked: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this.href);
+    });
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: `Download ${BACKUP.name}` }));
+
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    expect(clicked[0]).toContain(`/api/v1/system/backup/${encodeURIComponent(BACKUP.id)}/download?token=tok-123`);
+    expect(clicked[0]).not.toContain('apikey');
+    expect(clicked[0]).not.toContain('test-api-key');
+    click.mockRestore();
   });
 
   it('backs up now', async () => {
