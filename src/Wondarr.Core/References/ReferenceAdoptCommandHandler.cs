@@ -51,28 +51,42 @@ public sealed partial class ReferenceAdoptCommandHandler(
 
         foreach (var libraryId in libraries)
         {
-            // A library that cannot be adopted from must not stop the batch, and a scope of its own
-            // keeps its half-written rows out of the next library's context.
-            using var scope = scopes.CreateScope();
+            // The scan's gate: a scan of this library that adopts as its last step, and this command,
+            // would otherwise walk the same Identified rows together and copy every file twice. The
+            // second waits here until the first has finished with the library.
+            var gate = ReferenceLibraryGates.For(libraryId);
+
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
-                var adopter = scope.ServiceProvider.GetRequiredService<IReferenceAdopter>();
-                var result = await adopter
-                    .AdoptAsync(libraryId, context.ReportProgressAsync, cancellationToken)
-                    .ConfigureAwait(false);
+                // A library that cannot be adopted from must not stop the batch, and a scope of its own
+                // keeps its half-written rows out of the next library's context.
+                using var scope = scopes.CreateScope();
 
-                totals = totals with
+                try
                 {
-                    Adopted = totals.Adopted + result.Adopted,
-                    Skipped = totals.Skipped + result.Skipped,
-                    Failed = totals.Failed + result.Failed,
-                };
+                    var adopter = scope.ServiceProvider.GetRequiredService<IReferenceAdopter>();
+                    var result = await adopter
+                        .AdoptAsync(libraryId, context.ReportProgressAsync, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    totals = totals with
+                    {
+                        Adopted = totals.Adopted + result.Adopted,
+                        Skipped = totals.Skipped + result.Skipped,
+                        Failed = totals.Failed + result.Failed,
+                    };
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    unavailable++;
+                    LogAdoptFailed(logger, libraryId, exception);
+                }
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            finally
             {
-                unavailable++;
-                LogAdoptFailed(logger, libraryId, exception);
+                gate.Release();
             }
         }
 
