@@ -3,7 +3,6 @@
 // IOptionsMonitor<ServerOptions>, and GET /login renders the form the reverse proxy redirects to.
 
 using System.Net;
-using System.Security.Claims;
 using Wondarr.Api.Extensions;
 using Wondarr.Core.Authentication;
 using Wondarr.Core.Configuration;
@@ -22,19 +21,6 @@ namespace Wondarr.Api.Authentication;
 [ApiController]
 public sealed partial class AuthenticationController : Controller
 {
-    // Any of these means a proxy is in the path, so the socket address is the proxy's, not the visitor's.
-    // X-Original-For is what the ForwardedHeaders middleware leaves behind when it rewrites the address.
-    private static readonly string[] ProxyHeaders =
-    [
-        "X-Forwarded-For",
-        "Forwarded",
-        "X-Real-IP",
-        "X-Forwarded-Host",
-        "X-Forwarded-Proto",
-        "Via",
-        "X-Original-For",
-    ];
-
     private readonly ICredentialStore _credentials;
     private readonly IOptionsMonitor<ServerOptions> _serverOptions;
     private readonly ILogger<AuthenticationController> _logger;
@@ -85,7 +71,7 @@ public sealed partial class AuthenticationController : Controller
             return Redirect($"{urlBase}/login?returnUrl={Uri.EscapeDataString(returnUrl ?? string.Empty)}&loginFailed=true");
         }
 
-        return await SignInAndRedirectAsync(resource.Username, resource.RememberMe, returnUrl).ConfigureAwait(false);
+        return await SignInAndRedirectAsync(resource.Username, resource.RememberMe, returnUrl, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -150,7 +136,7 @@ public sealed partial class AuthenticationController : Controller
 
         LogSetupCompleted(_logger, remoteAddress);
 
-        return await SignInAndRedirectAsync(username!, resource!.RememberMe, returnUrl).ConfigureAwait(false);
+        return await SignInAndRedirectAsync(username!, resource!.RememberMe, returnUrl, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Ends the Forms session.</summary>
@@ -190,14 +176,10 @@ public sealed partial class AuthenticationController : Controller
     private static partial void LogSetupCompleted(ILogger logger, IPAddress? remoteAddress);
 
     /// <summary>
-    /// Whether the caller is on the local network, with exactly the definition
-    /// <see cref="UiAuthorizationHandler"/> uses for <c>disabledForLocalAddresses</c>: a request that
-    /// carries <c>X-Forwarded-For</c> is never local.
+    /// Whether the caller is on the local network, by <see cref="LocalCallerRules"/>: the same rule
+    /// <see cref="UiAuthorizationHandler"/> applies for <c>disabledForLocalAddresses</c>.
     /// </summary>
-    private bool IsLocalRequest() =>
-        !ProxyHeaders.Any(Request.Headers.ContainsKey) &&
-        HttpContext.GetRemoteIp() is { } remoteIp &&
-        remoteIp.IsLocalAddress();
+    private bool IsLocalRequest() => LocalCallerRules.IsLocalCaller(HttpContext, _serverOptions.CurrentValue);
 
     /// <summary>
     /// Whether the <c>Origin</c> header, when there is one, names this host. A missing header (curl,
@@ -234,15 +216,13 @@ public sealed partial class AuthenticationController : Controller
         return IsLocalRequest() ? LoginPage.Variant.Create : LoginPage.Variant.CreateFromLocalNetwork;
     }
 
-    private async Task<IActionResult> SignInAndRedirectAsync(string username, string? rememberMe, string? returnUrl)
+    private async Task<IActionResult> SignInAndRedirectAsync(
+        string username,
+        string? rememberMe,
+        string? returnUrl,
+        CancellationToken cancellationToken)
     {
         var urlBase = _serverOptions.CurrentValue.UrlBase;
-
-        var claims = new List<Claim>
-        {
-            new("user", username),
-            new("AuthType", nameof(AuthenticationMethod.Forms)),
-        };
 
         var properties = new AuthenticationProperties
         {
@@ -251,7 +231,7 @@ public sealed partial class AuthenticationController : Controller
 
         await HttpContext.SignInAsync(
             nameof(AuthenticationMethod.Forms),
-            new ClaimsPrincipal(new ClaimsIdentity(claims, "Cookies", "user", "identifier")),
+            await FormsSession.CreatePrincipalAsync(username, _credentials, cancellationToken).ConfigureAwait(false),
             properties).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(returnUrl) || !Url.IsLocalUrl(returnUrl))

@@ -15,13 +15,13 @@ import {
 } from '@mantine/core';
 import { Archive, Download, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useAppConfig } from '../../api/context';
 import {
-  backupDownloadUrl,
+  backupDownloadTarget,
   reloadAfterRestore,
   useBackups,
   useCreateBackup,
   useDeleteBackup,
+  useDownload,
   usePing,
   useRestoreBackup,
   useUploadRestore,
@@ -59,7 +59,7 @@ type Pending =
  * answer again and then reloads — the settings, including the API key, are the backup's from then on.
  */
 export function BackupPage() {
-  const config = useAppConfig();
+  const download = useDownload();
   const backups = useBackups();
   const create = useCreateBackup();
   const remove = useDeleteBackup();
@@ -148,6 +148,7 @@ export function BackupPage() {
       {create.error !== null && <ErrorState title="The backup could not be made" message={create.error.message} />}
       {remove.error !== null && <ErrorState title="The backup could not be deleted" message={remove.error.message} />}
       {restoreError !== null && <ErrorState title="The backup could not be restored" message={restoreError.message} />}
+      {download.error !== null && <ErrorState message={download.error.message} />}
 
       {backups.isPending && <LoadingState />}
       {backups.error !== null && <ErrorState message={backups.error.message} />}
@@ -177,10 +178,8 @@ export function BackupPage() {
                     <Group gap={4} wrap="nowrap">
                       <Tooltip label="Download">
                         <ActionIcon
-                          component="a"
-                          href={backupDownloadUrl(config, backup.id)}
-                          download={backup.name}
                           variant="subtle"
+                          onClick={() => download.mutate(backupDownloadTarget(backup.id))}
                           aria-label={`Download ${backup.name}`}
                         >
                           <Download size={16} />

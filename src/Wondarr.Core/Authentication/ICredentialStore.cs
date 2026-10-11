@@ -12,6 +12,13 @@ public interface ICredentialStore
     /// <summary>The configured username, or <see langword="null"/> when nothing is configured.</summary>
     Task<string?> GetUsernameAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// A short stamp of the stored username and password hash, or <see langword="null"/> when nothing
+    /// is configured. It changes whenever the credentials are written, so a session ticket that
+    /// carries it ends when the login is changed (R-036).
+    /// </summary>
+    Task<string?> GetStampAsync(CancellationToken cancellationToken);
+
     /// <summary>Creates or replaces the credentials.</summary>
     Task SetAsync(string username, string password, CancellationToken cancellationToken);
 

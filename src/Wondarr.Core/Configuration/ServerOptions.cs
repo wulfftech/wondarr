@@ -22,7 +22,10 @@ public enum AuthenticationRequired
     /// <summary>Authentication is required from every address.</summary>
     Enabled,
 
-    /// <summary>Loopback addresses may skip authentication (the *arr default).</summary>
+    /// <summary>
+    /// Callers on the local network may skip authentication (the *arr default): a private or loopback
+    /// socket address, no proxy header, and a LAN-style <c>Host</c> (see <c>LocalCallerRules</c>).
+    /// </summary>
     DisabledForLocalAddresses,
 }
 
@@ -48,6 +51,20 @@ public sealed class ServerOptions
 
     /// <summary>API key used by *arr-style clients (<c>X-Api-Key</c>).</summary>
     public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Extra host names that count as local for <see cref="AuthenticationRequired.DisabledForLocalAddresses"/>
+    /// and first-login setup, beyond IP literals, <c>localhost</c>, single-label names and the
+    /// <c>.local</c>, <c>.lan</c>, <c>.home.arpa</c> and <c>.internal</c> suffixes. An entry is an exact
+    /// name or <c>*.suffix</c>. Empty by default.
+    /// </summary>
+    public List<string> AllowedHosts { get; set; } = [];
+
+    /// <summary>
+    /// Origins, such as <c>https://dash.example.lan</c>, that may frame the web UI in addition to
+    /// itself (CSP <c>frame-ancestors</c>). Empty by default.
+    /// </summary>
+    public List<string> FrameAncestors { get; set; } = [];
 }
 
 /// <summary>
@@ -58,6 +75,9 @@ public sealed class ServerOptionsValidator : IValidateOptions<ServerOptions>
 {
     private static readonly Regex UrlBasePattern = new("^(/[A-Za-z0-9._~-]+)+$", RegexOptions.Compiled);
     private static readonly Regex ApiKeyPattern = new("^[0-9a-f]{32}$", RegexOptions.Compiled);
+    private static readonly Regex DnsNamePattern = new(
+        @"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$",
+        RegexOptions.Compiled);
 
     public ValidateOptionsResult Validate(string? name, ServerOptions options)
     {
@@ -83,7 +103,46 @@ public sealed class ServerOptionsValidator : IValidateOptions<ServerOptions>
             failures.Add("server.api_key: must be 32 lowercase hexadecimal characters");
         }
 
+        foreach (var host in options.AllowedHosts ?? [])
+        {
+            var dnsName = host is not null && host.StartsWith("*.", StringComparison.Ordinal) ? host[2..] : host;
+
+            if (string.IsNullOrEmpty(dnsName) || !DnsNamePattern.IsMatch(dnsName))
+            {
+                failures.Add($"server.allowed_hosts: '{host}' must be a DNS name such as nas.example.com, or *. followed by one");
+            }
+            else if (dnsName != host && !dnsName.Contains('.', StringComparison.Ordinal))
+            {
+                failures.Add($"server.allowed_hosts: '{host}' is too broad: a wildcard needs at least two labels after '*.', such as *.example.com, or it would match a whole top-level domain");
+            }
+        }
+
+        foreach (var origin in options.FrameAncestors ?? [])
+        {
+            if (!IsOrigin(origin))
+            {
+                failures.Add($"server.frame_ancestors: '{origin}' must be an http or https origin with no path, such as https://dash.example.lan");
+            }
+        }
+
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static bool IsOrigin(string? value)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            value.EndsWith('/') ||
+            value.Any(character => char.IsWhiteSpace(character) || char.IsControl(character) || character is ';' or ',' or '\'' or '"') ||
+            !Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        return (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+            uri.AbsolutePath == "/" &&
+            uri.Query.Length == 0 &&
+            uri.Fragment.Length == 0 &&
+            uri.UserInfo.Length == 0;
     }
 }
 

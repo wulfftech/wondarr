@@ -19,6 +19,10 @@ The key is `server.api_key` in `/config/config.yml`; see [Install](/wondarr/gett
 
 If you serve Wondarr under a URL base, put it in front of every path.
 
+### Downloads from a link
+
+The web UI downloads a backup or a log file without putting the key in the address. It asks `POST /api/v1/system/download-token` with `{ "path": "/api/v1/system/backup/<id>/download" }` (or `/api/v1/log/file/<name>`, without the URL base) and gets a token that works for that one path for 60 seconds. It then opens the path with `?token=<token>`. Only those two downloads accept a token, and a restart voids any outstanding one. Your own scripts can keep using the key as shown above.
+
 ### When a metadata provider is busy
 
 `POST /api/v1/song/lookup` and `GET /api/v1/album/lookup` search MusicBrainz and Deezer. If one of them does not answer, the search still answers `200` with the other's results (the body is the same list), and sets a response header naming the one that failed:
