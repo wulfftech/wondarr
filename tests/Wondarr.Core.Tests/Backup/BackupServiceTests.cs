@@ -70,6 +70,51 @@ public sealed class BackupServiceTests : IDisposable
         (await ReadMarkerAsync(backup)).Should().Be(LastWrite);
     }
 
+    // R-054: a backup holds the API key, the Soulseek password and every indexer key.
+    [Fact]
+    public async Task A_new_backup_zip_is_0600_under_umask_002()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        BackupItem backup;
+
+        using (new Wondarr.Core.Tests.Configuration.Umask(0x2))
+        {
+            backup = await _backups.CreateAsync(BackupType.Manual, CancellationToken.None);
+        }
+
+        var zip = Path.Combine(_paths.BackupsDir, "manual", backup.Name);
+
+        File.GetUnixFileMode(zip).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        Directory.GetFiles(Path.Combine(_paths.BackupsDir, "manual"), "*.tmp").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_staged_restore_is_0600_under_umask_002()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var backup = await _backups.CreateAsync(BackupType.Manual, CancellationToken.None);
+
+        using (new Wondarr.Core.Tests.Configuration.Umask(0x2))
+        {
+            (await _backups.StageRestoreAsync(backup.Id, CancellationToken.None)).Staged.Should().BeTrue();
+        }
+
+        var restore = Path.Combine(_paths.ConfigDir, PendingRestore.RestoreFolderName);
+
+        foreach (var name in new[] { BackupService.DatabaseEntryName, BackupService.ConfigEntryName })
+        {
+            File.GetUnixFileMode(Path.Combine(restore, name)).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite, name);
+        }
+    }
+
     [Fact]
     public async Task A_backup_is_named_after_the_version_and_the_moment_it_was_made()
     {

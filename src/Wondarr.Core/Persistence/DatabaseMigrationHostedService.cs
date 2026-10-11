@@ -1,3 +1,4 @@
+using Wondarr.Core.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -24,9 +25,18 @@ public sealed partial class DatabaseMigrationHostedService : IHostedService
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+
+        // Before EF first opens the database: it holds every stored secret, and SQLite gives its
+        // -wal and -shm files the mode of the main file. A host without paths (a test) has no files.
+        if (scope.ServiceProvider.GetService<WondarrPaths>() is { } paths)
+        {
+            SecretFileModes.PrepareDatabase(paths.DatabaseFile);
+            SecretFileModes.TightenExisting(paths, _logger);
+        }
+
         LogApplyingMigrations();
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
         var migrator = scope.ServiceProvider.GetRequiredService<DatabaseMigrator>();
         await migrator.MigrateAsync(cancellationToken).ConfigureAwait(false);
     }
