@@ -132,7 +132,7 @@ public sealed class ReferenceLibraryScanCommandHandlerTests : IDisposable
         var all = Handler.ExecuteAsync(Context(null), CancellationToken.None);
         var one = Handler.ExecuteAsync(Context($"{{\"referenceLibraryId\": {first}}}"), CancellationToken.None);
 
-        var summaries = await Task.WhenAll(all, one);
+        var summaries = await Task.WhenAll(all, one).WaitAsync(TimeSpan.FromSeconds(30));
 
         overlapped.Should().BeFalse("two scans of one library never run at once");
         ScannedIds().Should().Equal(first, first);
@@ -178,7 +178,7 @@ public sealed class ReferenceLibraryScanCommandHandlerTests : IDisposable
                 NullLogger<ReferenceAdoptCommandHandler>.Instance)
             .ExecuteAsync(Context($"{{\"referenceLibraryId\": {first}}}"), CancellationToken.None);
 
-        await Task.WhenAll(scan, adopt);
+        await Task.WhenAll(scan, adopt).WaitAsync(TimeSpan.FromSeconds(30));
 
         overlapped.Should().BeFalse("the adopter would otherwise copy every file twice");
         await _adopter.Received(2).AdoptAsync(first, Arg.Any<Func<string, Task>?>(), Arg.Any<CancellationToken>());

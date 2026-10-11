@@ -74,6 +74,7 @@ public partial class CompactExecutorTests : IDisposable
     private readonly string _bin;
     private readonly string _config;
     private readonly CompactExecutor _executor;
+    private readonly FaultyDisk _faulty;
 
     private Func<long, CancellationToken, Task<CompactPlan>> _planHandler = (_, _) => Task.FromResult(EmptyPlan);
 
@@ -140,11 +141,13 @@ public partial class CompactExecutorTests : IDisposable
             _timeProvider,
             NullLogger<RecycleBin>.Instance);
 
+        _faulty = new FaultyDisk(_disk);
+
         _executor = new CompactExecutor(
             _database.CreateContext(_timeProvider),
             _planner,
             _organizer,
-            _disk,
+            _faulty,
             recycleBin,
             _connection,
             _plex,
@@ -262,7 +265,7 @@ public partial class CompactExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_scan_that_never_reports_itself_is_not_waited_for_forever()
+    public async Task A_scan_that_never_reports_itself_is_not_waited_for_forever_and_leaves_the_trash_alone()
     {
         await using var context = await ContextAsync(section: Section);
         var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
@@ -274,8 +277,11 @@ public partial class CompactExecutorTests : IDisposable
         var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
         var waited = _timeProvider.GetUtcNow() - started;
 
-        result.Should().Be(new CompactResult(1, 0, 0, 0));
-        _log.Should().Contain("empty trash");
+        result.Moved.Should().Be(1);
+
+        // Nothing says the scan finished, so the trash is left alone and the note says why.
+        result.TrashNote.Should().Contain("never seen");
+        _log.Should().NotContain("empty trash");
 
         // It waited for the scan to start for the whole start window, and not for the finish window.
         waited.Should().BeGreaterThanOrEqualTo(CompactExecutor.ScanStartTimeout);
@@ -397,6 +403,9 @@ public partial class CompactExecutorTests : IDisposable
         _planner
             .PlanAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns<Task<CompactPlan>>(_ => throw new InvalidOperationException("the run re-planned"));
+
+        _refreshing.Enqueue(true);
+        _refreshing.Enqueue(false);
 
         var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
 
@@ -962,7 +971,7 @@ public partial class CompactExecutorTests : IDisposable
             {
                 SongId = song.Id,
                 Path = path,
-                Size = 30_000_000,
+                Size = new FileInfo(path).Length,
                 Codec = "flac",
                 Container = "flac",
                 BitrateKbps = 1000,
@@ -1044,6 +1053,48 @@ public partial class CompactExecutorTests : IDisposable
                     new Dictionary<string, string>(StringComparer.Ordinal) { ["TITLE"] = request.Song.Title }));
         }
     }
+}
+
+/// <summary>The real disk, except that listing a folder can be made to fail the way an unreadable share does.</summary>
+internal sealed class FaultyDisk(IDiskOperations inner) : IDiskOperations
+{
+    /// <summary>The folder whose listing fails, or <see langword="null"/>.</summary>
+    public string? ThrowFor { get; set; }
+
+    public bool FileExists(string path) => inner.FileExists(path);
+
+    public bool DirectoryExists(string path) => inner.DirectoryExists(path);
+
+    public void CreateDirectory(string path) => inner.CreateDirectory(path);
+
+    public void CreateEmptyFile(string path) => inner.CreateEmptyFile(path);
+
+    public long GetFileSize(string path) => inner.GetFileSize(path);
+
+    public void MoveFile(string source, string target) => inner.MoveFile(source, target);
+
+    public void CopyFile(string source, string target) => inner.CopyFile(source, target);
+
+    public bool TryCreateHardLink(string source, string target) => inner.TryCreateHardLink(source, target);
+
+    public void WriteAllBytes(string path, byte[] bytes) => inner.WriteAllBytes(path, bytes);
+
+    public void DeleteFile(string path) => inner.DeleteFile(path);
+
+    public void SetUnixFileMode(string path, UnixFileMode mode) => inner.SetUnixFileMode(path, mode);
+
+    public bool AreSameFile(string first, string second) => inner.AreSameFile(first, second);
+
+    public IEnumerable<string> EnumerateFiles(string directory) =>
+        ThrowFor is not null && string.Equals(directory, ThrowFor, StringComparison.Ordinal)
+            ? throw new UnauthorizedAccessException("Access to the path is denied.")
+            : inner.EnumerateFiles(directory);
+
+    public DateTime GetLastWriteTimeUtc(string path) => inner.GetLastWriteTimeUtc(path);
+
+    public void SetLastWriteTimeUtc(string path, DateTime utc) => inner.SetLastWriteTimeUtc(path, utc);
+
+    public void DeleteEmptyDirectory(string path) => inner.DeleteEmptyDirectory(path);
 }
 
 /// <summary>Runs the compaction executor's tests after the parallel ones, alone.</summary>

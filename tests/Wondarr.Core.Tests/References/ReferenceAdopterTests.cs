@@ -76,14 +76,14 @@ public sealed class ReferenceAdopterTests : IDisposable
 
         var adopting = adopter.AdoptAsync(reference.Id, null, CancellationToken.None);
 
-        await Task.Delay(200, CancellationToken.None);
-
-        adopting.IsCompleted.Should().BeFalse("the adopter waits for the song's file lock");
+        // While the lock is held the adopter has not got as far as the organizer.
+        var waiting = async () => await adopting.WaitAsync(TimeSpan.FromMilliseconds(300));
+        await waiting.Should().ThrowAsync<TimeoutException>("the adopter waits for the song's file lock");
         _organizer.Requests.Should().BeEmpty();
 
         await held.DisposeAsync();
 
-        (await adopting).Should().Be(new ReferenceAdoptResult(1, 0, 0));
+        (await adopting.WaitAsync(TimeSpan.FromSeconds(30))).Should().Be(new ReferenceAdoptResult(1, 0, 0));
         _organizer.Requests.Should().ContainSingle();
     }
 

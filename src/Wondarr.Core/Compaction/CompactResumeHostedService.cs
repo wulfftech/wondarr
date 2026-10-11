@@ -58,7 +58,7 @@ public sealed partial class CompactResumeHostedService : IHostedService
             foreach (var libraryId in libraries)
             {
                 var body = JsonSerializer.Serialize(
-                    new { name = CompactLibraryCommandHandler.CommandName, libraryId },
+                    new { name = CompactLibraryCommandHandler.CommandName, libraryId, resumeOnly = true },
                     BodyJson);
 
                 await commands

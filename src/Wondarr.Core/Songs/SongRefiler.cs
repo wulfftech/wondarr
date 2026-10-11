@@ -109,6 +109,18 @@ public sealed partial class SongRefiler : ISongRefiler
     /// <inheritdoc />
     public async Task<SongRefileResult> RefileAsync(long songId, CancellationToken cancellationToken)
     {
+        // The per-song file guard, taken before anything is read: an import or a compaction can never
+        // act on this song's file while it is being re-filed, and what is read is what the lock protects.
+        await using var guard = await _songFileLock
+            .AcquireAsync(songId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await RefileLockedAsync(songId, mayRepeat: true, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The re-file itself, with the song's file lock held.</summary>
+    private async Task<SongRefileResult> RefileLockedAsync(long songId, bool mayRepeat, CancellationToken cancellationToken)
+    {
         // The song is loaded exactly as the import loads it: the album context decides the folder and
         // the tags, and the credits are what the tag writer writes.
         var song = await _database.Songs
@@ -138,12 +150,6 @@ public sealed partial class SongRefiler : ISongRefiler
         {
             return new SongRefileResult(SongRefileOutcome.Refused, "the song has no library or album context.");
         }
-
-        // The per-song file guard, held for the whole move: an import or a compaction can never act on
-        // this song's file while it is being re-filed.
-        await using var _ = await _songFileLock
-            .AcquireAsync(song.Id, cancellationToken)
-            .ConfigureAwait(false);
 
         if (await _database.CompactMoves
                 .AsNoTracking()
@@ -307,12 +313,19 @@ public sealed partial class SongRefiler : ISongRefiler
 
             var fileId = file.Id;
 
-            await _database.SongFiles
-                .Where(candidate => candidate.Id == fileId)
-                .ExecuteUpdateAsync(
-                    update => update.SetProperty(candidate => candidate.Path, finalPath),
-                    CancellationToken.None)
-                .ConfigureAwait(false);
+            try
+            {
+                await _database.SongFiles
+                    .Where(candidate => candidate.Id == fileId)
+                    .ExecuteUpdateAsync(
+                        update => update.SetProperty(candidate => candidate.Path, finalPath),
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception repair) when (repair is not OperationCanceledException)
+            {
+                LogRefileFailed(_logger, song.Id, repair.Message);
+            }
 
             return new SongRefileResult(
                 SongRefileOutcome.Failed,
@@ -323,7 +336,13 @@ public sealed partial class SongRefiler : ISongRefiler
         {
             _updater.RequestFolder(library.Id, Path.GetDirectoryName(finalPath) ?? library.RootPath);
 
-            return new SongRefileResult(SongRefileOutcome.AlreadyThere);
+            return await RepeatIfChoiceChangedAsync(
+                    song.Id,
+                    album.AlbumKey,
+                    mayRepeat,
+                    new SongRefileResult(SongRefileOutcome.AlreadyThere),
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         await CleanUpFolderAsync(library, fromPath, cancellationToken).ConfigureAwait(false);
@@ -332,7 +351,43 @@ public sealed partial class SongRefiler : ISongRefiler
         _updater.RequestFolder(library.Id, Path.GetDirectoryName(fromPath) ?? library.RootPath);
         _updater.RequestFolder(library.Id, Path.GetDirectoryName(finalPath) ?? library.RootPath);
 
-        return new SongRefileResult(SongRefileOutcome.Refiled);
+        return await RepeatIfChoiceChangedAsync(
+                song.Id,
+                album.AlbumKey,
+                mayRepeat,
+                new SongRefileResult(SongRefileOutcome.Refiled),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The user may have chosen another album while the file was moving. When the context no longer
+    /// holds the album this move used, the file is re-filed once more for the one it holds now.
+    /// </summary>
+    private async Task<SongRefileResult> RepeatIfChoiceChangedAsync(
+        long songId,
+        string usedAlbumKey,
+        bool mayRepeat,
+        SongRefileResult done,
+        CancellationToken cancellationToken)
+    {
+        if (!mayRepeat)
+        {
+            return done;
+        }
+
+        _database.ChangeTracker.Clear();
+
+        var current = await _database.AlbumContexts
+            .AsNoTracking()
+            .Where(candidate => candidate.SongId == songId)
+            .Select(candidate => candidate.AlbumKey)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return current is not null && !string.Equals(current, usedAlbumKey, StringComparison.Ordinal)
+            ? await RefileLockedAsync(songId, mayRepeat: false, cancellationToken).ConfigureAwait(false)
+            : done;
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -143,16 +144,22 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
 
     private readonly WondarrDbContext _database;
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
+    private readonly WondarrPaths _paths;
 
     /// <summary>Initialises a new instance of the <see cref="ReferenceLibraryService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
-    public ReferenceLibraryService(WondarrDbContext database, IOptionsMonitor<ImportOptions> importOptions)
+    public ReferenceLibraryService(
+        WondarrDbContext database,
+        IOptionsMonitor<ImportOptions> importOptions,
+        WondarrPaths paths)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(importOptions);
+        ArgumentNullException.ThrowIfNull(paths);
 
         _database = database;
         _importOptions = importOptions;
+        _paths = paths;
     }
 
     /// <inheritdoc />
@@ -412,10 +419,10 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
 
         // The recycle bin's cleanup deletes files older than N days anywhere under it, so a reference
         // library (the user's own collection) must never overlap it: be it, hold it or sit inside it.
-        var bin = _importOptions.CurrentValue.RecycleBinPath;
+        // The bin that is really used: the configured one made absolute, or <config>/recycle.
+        var bin = _importOptions.CurrentValue.ResolveRecycleBinPath(_paths);
 
-        if (!string.IsNullOrWhiteSpace(bin)
-            && (PathRules.IsInside(bin, rootPath) || PathRules.IsInside(rootPath, bin)))
+        if (PathRules.IsInside(bin, rootPath) || PathRules.IsInside(rootPath, bin))
         {
             throw new ReferenceLibraryValidationException(
                 "rootPath",

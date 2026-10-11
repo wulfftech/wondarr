@@ -43,6 +43,9 @@ public sealed class CompactStartupTests : IDisposable
         using var body = JsonDocument.Parse((string)arguments[1]!);
         body.RootElement.GetProperty("libraryId").GetInt64().Should().Be(SeedData.DefaultLibraryId);
         body.RootElement.GetProperty("name").GetString().Should().Be("CompactLibrary");
+
+        // A restart may only finish or give up what was left; it never applies a fresh plan.
+        body.RootElement.GetProperty("resumeOnly").GetBoolean().Should().BeTrue();
     }
 
     [Fact]
@@ -102,6 +105,34 @@ public sealed class CompactStartupTests : IDisposable
         var cleared = await new CompactMoveHealthCheck(context).CheckAsync(CancellationToken.None);
 
         cleared.Type.Should().Be(HealthCheckResult.Ok);
+    }
+
+    [Fact]
+    public async Task The_health_check_warns_about_a_given_up_file_that_still_sits_in_staging()
+    {
+        await using var context = await ContextAsync();
+        context.CompactMoves.Add(new CompactMoveRecord
+        {
+            LibraryId = SeedData.DefaultLibraryId,
+            SongId = 1,
+            FromPath = "/music/a.flac",
+            FinalPath = "/music/.wondarr-compact/1/a.flac",
+            State = CompactMoveState.GivenUp,
+        });
+        context.CompactMoves.Add(new CompactMoveRecord
+        {
+            LibraryId = SeedData.DefaultLibraryId,
+            SongId = 2,
+            FromPath = "/music/b.flac",
+            FinalPath = "/music/b.flac",
+            State = CompactMoveState.GivenUp,
+        });
+        await context.SaveChangesAsync();
+
+        var warning = await new CompactMoveHealthCheck(context).CheckAsync(CancellationToken.None);
+
+        warning.Type.Should().Be(HealthCheckResult.Warning);
+        warning.Message.Should().Contain("Music (1 file)").And.Contain("given up");
     }
 
     public void Dispose()
