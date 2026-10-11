@@ -21,6 +21,7 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ### Fixed
 - **The login cookie is `Secure` behind a TLS-terminating proxy.** It is marked `Secure` when the request is HTTPS or the first `X-Forwarded-Proto` value is `https`.
+- **No "Overriding HTTP_PORTS '8080'" warning at every start.** The image clears the .NET base image's `ASPNETCORE_HTTP_PORTS`; Wondarr binds the port from `server.port` and never used it.
 
 ## [0.1.1] — 2026-10-11
 

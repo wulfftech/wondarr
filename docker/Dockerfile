@@ -189,7 +189,11 @@ RUN chmod 0755 \
 # (svc-wondarr/timeout-kill) is 8500 too. Inside that, the .NET host's ShutdownTimeout is 8 s
 # (Program.cs): slskd gets SIGTERM and up to 4 s to exit, then at most 2 s after the kill, and an
 # import in flight has the rest.
+# The aspnet base image sets ASPNETCORE_HTTP_PORTS=8080. Wondarr binds the port from config.yml
+# (server.port, 1077 by default) with UseUrls, so the variable is never used, and Kestrel would log at
+# every start that URLS overrides it; clear it.
 ENV WONDARR_CONFIG_DIR=/config \
+    ASPNETCORE_HTTP_PORTS= \
     PUID=1000 \
     PGID=1000 \
     UMASK=002 \
