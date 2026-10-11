@@ -29,11 +29,19 @@ internal sealed class FakeProcess : ILaunchedProcess
     /// <summary>When set, the process ignores SIGTERM, as a hung slskd would; only a kill ends it.</summary>
     public bool IgnoresStopRequest { get; set; }
 
+    /// <summary>When set, <see cref="RequestStop"/> throws it, as a missing libc would.</summary>
+    public Exception? RequestStopFailure { get; set; }
+
     public event Action<string>? OutputLine;
 
     public void RequestStop()
     {
         StopRequestCount++;
+
+        if (RequestStopFailure is not null)
+        {
+            throw RequestStopFailure;
+        }
 
         if (!IgnoresStopRequest)
         {
@@ -105,12 +113,15 @@ internal sealed class FakeProcessLauncher : IProcessLauncher
 internal sealed class FakeProcessInspector : IProcessInspector
 {
     /// <summary>The live processes by pid, with the executable each runs.</summary>
-    public Dictionary<int, string> Processes { get; } = [];
+    public Dictionary<int, string?> Processes { get; } = [];
 
     /// <summary>The pids that were killed.</summary>
     public List<int> Killed { get; } = [];
 
     public string? GetExecutable(int processId) => Processes.TryGetValue(processId, out var executable) ? executable : null;
+
+    /// <summary>A process whose entry is <see langword="null"/> exists but cannot be identified.</summary>
+    public bool IsRunning(int processId) => Processes.ContainsKey(processId);
 
     public Task<bool> KillTreeAsync(int processId, TimeSpan timeout, CancellationToken cancellationToken)
     {

@@ -53,6 +53,9 @@ public interface IProcessInspector
     /// <summary>The executable path of the live process <paramref name="processId"/>, or <see langword="null"/> when there is none (or it cannot be read).</summary>
     string? GetExecutable(int processId);
 
+    /// <summary>Whether a process with this id exists, whether or not its executable can be read.</summary>
+    bool IsRunning(int processId);
+
     /// <summary>Kills the process and its children, and waits up to <paramref name="timeout"/> for it to exit.</summary>
     /// <returns>Whether the process is gone.</returns>
     Task<bool> KillTreeAsync(int processId, TimeSpan timeout, CancellationToken cancellationToken);

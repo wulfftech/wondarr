@@ -258,6 +258,18 @@ public sealed class IndexerSourceProviderTests
     }
 
     [Fact]
+    public async Task A_spent_budget_is_reported_as_the_budget_even_when_the_client_wraps_the_cancellation()
+    {
+        var indexer = new FakeIndexerClient { HangWrapped = indexerId => indexerId == 2 };
+        var provider = Provider(indexer, out _, indexerCount: 2, budget: TimeSpan.FromSeconds(1));
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        result.Message.Should().Contain("stopped after 1 s");
+        result.Message.Should().NotContain("failed", "the budget ran out, the indexer did not fail");
+    }
+
+    [Fact]
     public async Task A_failing_indexer_is_named_in_the_message_and_the_search_goes_on()
     {
         var indexer = new FakeIndexerClient { Fail = indexerId => indexerId == 1 };
@@ -419,6 +431,9 @@ public sealed class IndexerSourceProviderTests
 
         public Func<long, bool> Fail { get; init; } = _ => false;
 
+        /// <summary>Hung indexers whose client wraps the cancellation in an <see cref="IndexerException"/> when the budget fires.</summary>
+        public Func<long, bool> HangWrapped { get; init; } = _ => false;
+
         /// <summary>Indexers whose HTTP client times out: a <see cref="TaskCanceledException"/> with the caller's token untouched.</summary>
         public Func<long, bool> TimeOut { get; init; } = _ => false;
 
@@ -440,6 +455,18 @@ public sealed class IndexerSourceProviderTests
             if (Hang(indexer.Id))
             {
                 await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            if (HangWrapped(indexer.Id))
+            {
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, cancellationToken);
+                }
+                catch (OperationCanceledException exception)
+                {
+                    throw new IndexerException("The indexer could not be reached.", exception);
+                }
             }
 
             if (Fail(indexer.Id))

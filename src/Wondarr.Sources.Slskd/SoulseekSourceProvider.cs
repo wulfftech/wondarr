@@ -149,9 +149,17 @@ public sealed partial class SoulseekSourceProvider : ISourceProvider
             {
                 throw;
             }
+            catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
+            {
+                // slskd's own 15 s or 10 s request timeout: a failed query, and a slskd that is not
+                // answering will not answer the song's other queries either - each would cost another
+                // timeout. Keep what the earlier queries found and move on.
+                firstError ??= exception.Message;
+                LogQueryFailed(_logger, query, exception);
+                break;
+            }
             catch (Exception exception)
             {
-                // A request that timed out (slskd's own 15 s or 10 s) is a failed query like any other.
                 firstError ??= exception.Message;
                 LogQueryFailed(_logger, query, exception);
                 continue;

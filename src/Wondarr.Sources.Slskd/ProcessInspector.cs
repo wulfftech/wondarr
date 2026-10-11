@@ -36,6 +36,21 @@ public sealed class ProcessInspector : IProcessInspector
     }
 
     /// <inheritdoc />
+    public bool IsRunning(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+
+            return !process.HasExited;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<bool> KillTreeAsync(int processId, TimeSpan timeout, CancellationToken cancellationToken)
     {
         try

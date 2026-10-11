@@ -216,7 +216,7 @@ public class SoulseekSourceProviderTests
     }
 
     [Fact]
-    public async Task A_request_timeout_fails_that_query_and_the_next_one_still_runs()
+    public async Task A_request_timeout_fails_that_query_and_skips_the_songs_remaining_queries()
     {
         // slskd's own 15 s request timeout: a TaskCanceledException while the caller's token is untouched.
         var runner = new FakeRunner(query => query == FirstQuery
@@ -225,7 +225,21 @@ public class SoulseekSourceProviderTests
 
         var result = await Provider(runner).SearchAsync(Request(), CancellationToken.None);
 
-        runner.Queries.Should().Equal(FirstQuery, SecondQuery, ThirdQuery);
+        runner.Queries.Should().Equal(FirstQuery);
+        result.Message.Should().Be("Soulseek search failed: slskd did not answer the search request in time.");
+    }
+
+    [Fact]
+    public async Task A_timeout_after_a_good_query_keeps_what_that_query_found()
+    {
+        var runner = new FakeRunner(query => query == SecondQuery
+            ? throw new TimeoutException("slskd did not answer the search request in time.")
+            : [Response("peer1", AudioPath)]);
+
+        var result = await Provider(runner).SearchAsync(Request(), CancellationToken.None);
+
+        runner.Queries.Should().Equal(FirstQuery, SecondQuery);
+        result.Queries.Should().Equal(FirstQuery);
         result.Candidates.Should().NotBeEmpty();
     }
 
@@ -238,7 +252,8 @@ public class SoulseekSourceProviderTests
 
         var result = await Provider(runner).SearchAsync(Request(), CancellationToken.None);
 
-        result.Queries.Should().Equal(SecondQuery, ThirdQuery);
+        runner.Queries.Should().Equal(FirstQuery);
+        result.Queries.Should().BeEmpty();
     }
 
     [Fact]
