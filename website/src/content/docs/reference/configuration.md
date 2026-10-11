@@ -38,7 +38,7 @@ The usual settings are in **Settings → Soulseek**; see [Soulseek](/wondarr/sou
 | `username`, `password` | none | The Soulseek account. |
 | `listen_port` | `50300` | 1024 to 65535. |
 | `share_library` | `true` | Share your library. |
-| `shared_folders` | `/data/music` | Folders to share. Not `/`, `/config` or anything inside it: that would publish the API key and passwords. The same goes for `downloads_dir`, `youtube.downloads_dir` and library roots. |
+| `shared_folders` | `/data/music` | Folders to share. Not `/`, `/config` or anything inside it: that would publish the API key and passwords. The same goes for `downloads_dir` and library roots; a folder that contains `/config` can't be shared either. `youtube.downloads_dir` is not refused, but Health shows an error if it points there. |
 | `upload_slots` | `10` | Concurrent uploads. |
 | `upload_speed_limit_kib` | `2000` | KiB/s; `0` is unlimited. |
 | `distributed_network` | `true` | Join the distributed network. |
