@@ -22,7 +22,7 @@ Bundling is the default from Phase 0 (owner decision): one container, one settin
 - `PUID`, `PGID`, `UMASK`, `TZ`; non-root by default; s6-overlay init like hotio/LinuxServer images.
 - HTTP on **port 1077** (owner decision; no *arr-family app uses it); Soulseek listen port **50300/tcp** exposed for the bundled slskd (forward it on the router for best results); `URL base` setting; `/ping` (unauthenticated readiness) and `/api/v1/health`; container `HEALTHCHECK` on `/ping`.
 - Remote path mappings per download client and a Plex path mapping.
-- Multi-arch images (amd64, arm64) on GHCR on every tag: `:latest`, `:develop`, semver; Unraid Community Applications XML template in the repo.
+- Multi-arch images (amd64, arm64) on GHCR on every tag: `:latest`, `:develop`, semver; Unraid Community Applications XML template in the repo. The release workflow pushes an image by digest under a `sha-*` tag only; the tags people follow (`:<version>`, `:<major>.<minor>`, `:latest`, `:develop`) are applied afterwards by a `promote` job that needs the native amd64 and arm64 smoke runs **and** the backend and frontend test suites (`ci.yml`, called by `release.yml`), so a red image never moves `:0.1`. `:latest` follows the highest stable release only: a backport tag or a prerelease leaves it alone. Every GitHub Action is pinned by commit SHA (Dependabot's weekly `github-actions` update proposes the bumps), and `packages: write` is granted only to the jobs that push.
 
 #### Image contents (Phase 0)
 
@@ -33,7 +33,7 @@ One image, `linux/amd64` + `linux/arm64`, built framework-dependent on `mcr.micr
 | Wondarr (API + React UI in `wwwroot`) | `$VERSION` | `/app` |
 | s6-overlay | 3.2.3.2 (arch + noarch) | `/` (`/init`, `/etc/s6-overlay`) |
 | slskd (AGPL-3.0, unmodified, licence alongside) | 0.26.0 | `/opt/slskd` |
-| ffmpeg / ffprobe (static, `mwader/static-ffmpeg`) | 9.0.2 | `/usr/local/bin` |
+| ffmpeg / ffprobe (static, `mwader/static-ffmpeg`) | 9.0.2, pinned `@sha256:7d9bdaaf887f7e6ce6151f67325c344074b5ff1fb75316011c3376503e449a7b` (the multi-arch index) | `/usr/local/bin` |
 | fpcalc (static chromaprint) | 1.6.1 | `/usr/local/bin/fpcalc` |
 | Deno | 2.9.7 | `/usr/local/bin/deno` |
 
@@ -76,5 +76,33 @@ A backup is a zip holding `wondarr.db` — a consistent copy made with SQLite's 
 
 A restore is never applied in place. `POST /api/v1/system/backup/restore/{id}` or `/restore/upload` (one file field, 512 MB limit) validates the archive — it must contain `wondarr.db` and `config.yml` at its top level, `wondarr.db` must open read-only, pass `PRAGMA integrity_check` and carry `__EFMigrationsHistory`; entries are only ever read by their exact names, so a hostile entry name cannot escape the archive — and writes the two files into `/config/restore/`. The endpoint answers `{ restartRequired: true }` and stops the app a second later, so the response reaches the client; s6 starts it again.
 
-On the next start, before the database is opened and before `config.yml` is touched, a staged restore is applied: the live `wondarr.db` (with its `-wal`/`-shm`) and `config.yml` are moved aside as `*.pre-restore` (replacing older ones), the staged files take their places, and the restore folder is deleted. If anything fails half-way, the `*.pre-restore` files are moved back and the restore folder is left for the user to inspect — the install is never left without a database and without its pre-restore copy. The restored `config.yml` carries the backup's API key; that is intended (a restore into a fresh instance brings its key with it). The slskd folder is not part of a backup: it is rebuilt from `config.yml` on the next start.
+On the next start, before the database is opened and before `config.yml` is touched, a staged restore is applied. Order matters:
+
+1. A journal file, `/config/restore.journal`, is written.
+2. The live database is checkpointed (`PRAGMA wal_checkpoint(TRUNCATE)`), so the file set aside is complete on its own and no `-wal` file has to travel with it. (A file that is not a SQLite database is left untouched; a leftover `-wal` or `-shm` still moves aside with it.)
+3. The live `wondarr.db` and `config.yml` are moved aside as `*.pre-restore`. **The last three sets are kept**: `*.pre-restore` is the newest, then `*.pre-restore.1` and `*.pre-restore.2`; the oldest is deleted only once the restore has succeeded.
+4. The staged files take their places, the restore folder is deleted and the journal is removed.
+
+If anything fails half-way, every move is replayed backwards (the older sets shift back too) and the restore folder is left for the user to inspect — the install is never left without a database and without its pre-restore copy. If the process dies instead, the next start finds the journal and **finishes** the restore when the database has already been swapped in (the staged `config.yml` is still intact and the user asked for this restore; a rollback would have to undo the swap and the rotation of the older sets), starts it over when nothing was swapped in yet, and rolls back — puts the `*.pre-restore` files back — only when the live database is gone and nothing staged can replace it. A default `config.yml` with a new API key is therefore never generated over a half-applied restore.
+
+The restored `config.yml` carries the backup's API key; that is intended (a restore into a fresh instance brings its key with it). The slskd folder is not part of a backup: it is rebuilt from `config.yml` on the next start.
+
+#### Undoing a restore
+
+Stop the container, then in `/config` swap the files back. The set aside is a complete database (the WAL was checkpointed into it), so there is no `-wal` file to rename:
+
+```
+mv wondarr.db wondarr.db.restored && mv config.yml config.yml.restored
+mv wondarr.db.pre-restore wondarr.db && mv config.yml.pre-restore config.yml
+```
+
+Use `*.pre-restore.1` or `.2` instead to go back two or three restores. Start the container again. If a stray `wondarr.db-wal` or `wondarr.db-shm` from the restored database is left next to the files, delete it first. Do this before another restore: the next one shifts the sets along and, after three, drops the oldest.
+
+#### Backups that protect an upgrade, and a database from a newer Wondarr
+
+- **Before migrating.** When the database exists and EF reports pending migrations, startup first writes a normal backup zip, `scheduled/wondarr_pre-<previous version>_<timestamp>.zip`, through the backup service; the usual retention (`backup.retention_days`) clears it out later. The previous version is read from `PRAGMA user_version` (stored as `major*1 000 000 + minor*1 000 + patch`, prerelease suffix dropped; the database file carries it through a backup and a restore) and is `unknown` the first time, because nothing recorded it before. A **failed backup stops the migration**: nothing is migrated, the app logs why at Critical level and does not start. A database with no tables needs no backup. After migrating, the running version is recorded.
+- **A newer schema.** Staging a restore refuses a backup whose `__EFMigrationsHistory` holds migrations this build does not know, naming the newest and saying the backup comes from a newer Wondarr. The database health check reports an **error** ("this database was written by a newer Wondarr") when the live database has unknown migrations, for example after moving production from `:0.2` back to `:0.1`.
+- **Concurrency and leftovers.** Creating a backup and staging a restore are serialised in the process, temporary files carry GUID names, and an existing zip is never overwritten (a second backup in the same second gets a `_1` suffix). At start, `restore-upload-*.tmp`, `restore-database-*.tmp`, `restore-config-*.tmp` and `*.zip.tmp` files older than an hour (and `backup-database-*.tmp` in the backup folders) are deleted. The database entry of an uploaded backup is extracted at most `backup.max_restore_database_bytes` (default 4 GiB, the 512 MB upload limit scaled for compression); past that the restore is refused. `config.yml` is capped at 16 MB.
+- **Housekeeping's `VACUUM`** runs only when no queue item is `Importing` or `Completed` (a finished download waiting for its import); otherwise it is skipped and logged as "imports in progress". The app's connections set SQLite's `busy_timeout` to 60 s (Microsoft.Data.Sqlite leaves the pragma at 0 and retries busy statements itself for its 30 s command timeout).
+
 

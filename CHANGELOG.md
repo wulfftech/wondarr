@@ -4,6 +4,20 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+#### Added
+- **An automatic backup before an upgrade migrates your database.** When a new version has database changes to apply, Wondarr first writes a backup (`wondarr_pre-<previous version>_<time>.zip`, in the scheduled backups, cleared out by the usual retention). If that backup fails, nothing is migrated and Wondarr does not start, so a failed upgrade can always be rolled back.
+- **Restores keep the last three sets of replaced files** (`*.pre-restore`, `.pre-restore.1`, `.pre-restore.2`), and a restore that is interrupted part-way is finished at the next start instead of leaving a fresh `config.yml` with a new API key. How to undo a restore is in the deployment guide.
+- **`backup.max_restore_database_bytes`** (default 4 GiB): the most a restore will extract from an uploaded backup's database.
+
+#### Changed
+- **Housekeeping's `VACUUM` waits for a quiet moment.** It is skipped, and logged as "imports in progress", while a download is waiting to be imported or an import is running. The app's SQLite connections now wait up to 60 seconds for a lock.
+- **Releases publish a tested image.** The image is pushed under a `sha-*` tag only; `:<version>`, `:<major>.<minor>`, `:latest` and `:develop` move after the tests and the amd64 and arm64 smoke runs pass, and `:latest` follows only the highest stable release. The ffmpeg image is pinned by digest and every GitHub Action by commit.
+
+#### Fixed
+- **A backup from a newer Wondarr is refused** at restore time, naming the newest unknown migration, and Health shows an error when the live database was written by a newer Wondarr.
+- **Two backups at once can no longer tear each other.** Backups and restore staging are serialised, temporary files are uniquely named, an existing backup is never overwritten, and leftover temporary files older than an hour are deleted at start.
+- **A restore sets the database aside complete.** The write-ahead log is folded into the database first, so renaming `wondarr.db.pre-restore` back loses nothing.
+
 ## [0.1.0] — 2026-10-10
 
 The first public release: every phase of the plan (0–8) is in. Install: `docker pull ghcr.io/wulfftech/wondarr:0.1.0` (linux/amd64, linux/arm64); documentation at https://wulfftech.github.io/wondarr/.
