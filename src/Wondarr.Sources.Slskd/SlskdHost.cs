@@ -936,18 +936,18 @@ public sealed partial class SlskdHost : BackgroundService
                 secrets = await store.GetOrCreateAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            var yaml = _renderer.Render(options, secrets, WebhookUrl());
+            var yaml = _renderer.Render(options, secrets, WebhookUrl(), _paths);
 
             // A unique name per write: two concurrent settings changes must not write the same
             // temporary file.
             var temporary = $"{ConfigPath}.{Guid.NewGuid():N}.tmp";
 
-            await File.WriteAllTextAsync(temporary, yaml, Utf8WithoutBom, cancellationToken).ConfigureAwait(false);
-
-            // The file holds the Soulseek password and the API key: readable by the app user only.
-            if (!OperatingSystem.IsWindows())
+            // The file holds the Soulseek password and the API key: created readable by the app user
+            // only, whatever UMASK is, so it is never world-readable even for a moment.
+            await using (var stream = OwnerOnlyFile.Create(temporary, FileMode.CreateNew))
+            await using (var writer = new StreamWriter(stream, Utf8WithoutBom))
             {
-                File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                await writer.WriteAsync(yaml.AsMemory(), cancellationToken).ConfigureAwait(false);
             }
 
             File.Move(temporary, ConfigPath, overwrite: true);
@@ -994,7 +994,7 @@ public sealed partial class SlskdHost : BackgroundService
 
         if (options.ShareLibrary)
         {
-            foreach (var folder in options.SharedFolders)
+            foreach (var folder in SlskdConfigRenderer.SharedFolders(options, _paths))
             {
                 try
                 {

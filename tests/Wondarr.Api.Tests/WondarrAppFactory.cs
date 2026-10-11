@@ -54,6 +54,12 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
     /// <summary>The temporary config directory (config.yml, wondarr.db, logs).</summary>
     public string ConfigDir { get; }
 
+    /// <summary>
+    /// A sibling of the config directory standing in for <c>/data</c>: downloads and libraries live
+    /// there, because no folder setting may name the config directory or anything inside it.
+    /// </summary>
+    public string DataDir => ConfigDir + "-data";
+
     private bool _disposing;
 
     /// <summary>The API key this instance is configured with.</summary>
@@ -119,11 +125,20 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
     /// </summary>
     private void DeleteConfigDir()
     {
-        for (var attempt = 0; attempt < 20 && Directory.Exists(ConfigDir); attempt++)
+        for (var attempt = 0; attempt < 20 && (Directory.Exists(ConfigDir) || Directory.Exists(DataDir)); attempt++)
         {
             try
             {
-                Directory.Delete(ConfigDir, recursive: true);
+                if (Directory.Exists(DataDir))
+                {
+                    Directory.Delete(DataDir, recursive: true);
+                }
+
+                if (Directory.Exists(ConfigDir))
+                {
+                    Directory.Delete(ConfigDir, recursive: true);
+                }
+
                 return;
             }
             catch (IOException)
@@ -155,7 +170,7 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
 
         // The Soulseek storage health checks probe these directories for real, so they point into the
         // temporary config directory: a test run must not depend on, or create, /data.
-        var downloads = Path.Combine(ConfigDir, "downloads", "slskd");
+        var downloads = Path.Combine(DataDir, "downloads", "slskd");
 
         // The download-folder check reports a missing folder rather than creating one, so the fixture
         // stands in for the host, which creates it at start-up.

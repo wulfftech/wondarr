@@ -267,7 +267,7 @@ public sealed class ReferenceLibraryApiTests
         using var client = Authenticated(factory);
 
         // A real, empty folder: the handler the queue wakes walks it for real.
-        var root = Path.Combine(factory.ConfigDir, "reference");
+        var root = Path.Combine(factory.DataDir, "reference");
         Directory.CreateDirectory(root);
 
         var id = await AddLibraryAsync(client, "Music", root, "reference");

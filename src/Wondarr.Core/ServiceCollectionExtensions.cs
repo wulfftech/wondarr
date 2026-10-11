@@ -72,6 +72,7 @@ public static class ServiceCollectionExtensions
         // DatabaseHealthCheck needs the scoped DbContext; the folder checks only need the paths.
         services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
         services.AddScoped<IHealthCheck, RecycleBinHealthCheck>();
+        services.AddScoped<IHealthCheck, ProtectedPathsHealthCheck>();
         services.AddScoped<IHealthCheck, CompactMoveHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
