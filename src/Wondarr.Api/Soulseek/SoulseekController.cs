@@ -85,8 +85,7 @@ public sealed class SoulseekController : ControllerBase
 
         return Ok(new SoulseekSettingsUpdateResponseResource(
             SoulseekSettingsResource.From(_settings.Get()),
-            result.RestartsSlskd,
-            result.RestartsWondarr));
+            result.RestartsSlskd));
     }
 
     /// <summary>

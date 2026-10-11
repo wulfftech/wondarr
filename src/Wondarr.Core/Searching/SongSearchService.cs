@@ -282,7 +282,7 @@ public sealed partial class SongSearchService : ISongSearchService
             return await RunAsync(song, trigger, grab, run.Id, sources, queries, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
         {
             // Whatever took the search away, the run must not be left open: unfinished runs are what
             // the backoff and the history read. The finish itself ignores the cancelled token.
@@ -359,8 +359,9 @@ public sealed partial class SongSearchService : ISongSearchService
 
             return new SongSearchResult(run.Id, outcome, decisions, queueItemId, message);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, cancellationToken))
         {
+            // A provider's own timeout lands here too: it is a failed judgement, not a cancelled one.
             await FinishQuietlyAsync(run.Id, SearchOutcome.Failed, sources, queries, exception.Message).ConfigureAwait(false);
             throw;
         }
@@ -991,7 +992,7 @@ public sealed partial class SongSearchService : ISongSearchService
         {
             handle = await provider.GrabAsync(candidate, item.Destination, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
         {
             // The item is already in the queue: leaving it Queued would make it look like a live
             // download, so it is failed with the cancelled token on purpose.

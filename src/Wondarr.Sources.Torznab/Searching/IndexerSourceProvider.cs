@@ -279,11 +279,19 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             {
                 return await _clients.GetClient(indexer).SearchAsync(indexer, query, budget).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested
+                && budget.IsCancellationRequested
+                && (exception is OperationCanceledException || exception.InnerException is OperationCanceledException))
             {
+                // Whichever way the client reported it (the cancellation itself, or wrapped in an
+                // IndexerException by a conversion that ran as the budget fired).
+                // The search's time budget ran out before this indexer answered: say so, an empty
+                // answer with no trace would look like "nothing found".
+                LogIndexerBudgetSpent(_logger, indexer.Name);
                 return [];
             }
-            catch (Exception exception) when (exception is IndexerException or HttpRequestException or XmlException)
+            catch (Exception exception) when (exception is IndexerException or HttpRequestException or XmlException
+                || (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested))
             {
                 LogIndexerFailed(_logger, indexer.Name, exception);
                 state.AddError(indexer.Name);
@@ -331,7 +339,8 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                         listings[index] = await ReadContainerAsync(indexer, release, token).ConfigureAwait(false);
                     }
                     catch (Exception exception) when (exception is IndexerException or HttpRequestException
-                        or TorrentMetainfoException or XmlException or InvalidDataException)
+                        or TorrentMetainfoException or XmlException or InvalidDataException
+                        || (exception is OperationCanceledException && !token.IsCancellationRequested))
                     {
                         LogContainerFailed(_logger, release.IndexerName, exception);
                         state.AddUnreadable();
@@ -442,6 +451,9 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Indexer {Indexer} failed a search")]
     private static partial void LogIndexerFailed(ILogger logger, string indexer, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Indexer} did not answer before the search's time budget ran out")]
+    private static partial void LogIndexerBudgetSpent(ILogger logger, string indexer);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "A release from {Indexer} could not be read")]
     private static partial void LogContainerFailed(ILogger logger, string indexer, Exception exception);

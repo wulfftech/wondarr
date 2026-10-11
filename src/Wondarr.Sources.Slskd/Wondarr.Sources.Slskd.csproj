@@ -2,6 +2,9 @@
 
   <PropertyGroup>
     <RootNamespace>Wondarr.Sources.Slskd</RootNamespace>
+
+    <!-- Only for the LibraryImport of libc kill(2), which sends slskd its SIGTERM. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

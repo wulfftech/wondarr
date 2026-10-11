@@ -31,6 +31,9 @@ public interface ISlskdClient
 /// <inheritdoc />
 public sealed class SlskdClient : ISlskdClient
 {
+    /// <summary>How long one call to slskd's application API gets before it counts as unanswered.</summary>
+    public static readonly TimeSpan PollTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>Header slskd authenticates API calls with.</summary>
     public const string ApiKeyHeader = "X-API-Key";
 
