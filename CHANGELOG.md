@@ -4,6 +4,18 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+#### Changed
+- **Switching between the bundled slskd and your own takes effect at once.** Saving **Settings → Soulseek → Connection** with a different mode stops the bundled slskd (or starts it) without restarting Wondarr, and the API no longer answers `restartsWondarr`.
+- **Stopping Wondarr fits in Docker's default 10 seconds.** The container's process manager and the .NET host are given a budget that adds up to less than 10 s (`S6_SERVICES_GRACETIME` 8.5 s, `S6_KILL_GRACETIME` 1 s, host shutdown 8 s), and slskd is asked to stop (SIGTERM, up to 5 s) before it is killed, so it can log out and save its transfers.
+
+#### Fixed
+- **A slow slskd no longer stops Wondarr.** In external mode one poll that took more than 5 seconds ended the whole app, which then crash-looped; it is now reported as "slskd did not answer within 5 s". In bundled mode a slow poll silently ended the supervisor, and after the first minute one failed poll killed a healthy slskd; now a restart needs 3 failed polls in a row ("slskd not answering (n/3)").
+- **A search provider that times out fails one query, not the whole batch.** Soulseek, YouTube Music, Torznab, Newznab, Gazelle and Prowlarr timeouts are failed queries; a Missing or Upgrade search carries on with the next song, a timeout during a grab is a failed grab rather than a cancelled run, and a slow Prowlarr search is logged instead of coming back empty without a trace. yt-dlp exiting with code 101 is a failed download, not a cancellation.
+- **A restart no longer resets the Soulseek search allowance.** The 30-per-4-minutes window is kept in `/config/slskd/search-budget.json` and reloaded at start.
+- **A slskd left running by a crashed Wondarr is cleaned up.** Wondarr keeps slskd's pid in `/config/slskd/slskd.pid` and kills a leftover slskd (never any other process) before starting a new one.
+- **A cancelled Soulseek search is stopped before it is deleted**, and its place in the search allowance is held until slskd says it is gone.
+- **A process whose output pipe stays open after a kill can no longer hang a download** (the drain is capped at 5 seconds).
+
 ## [0.1.0] — 2026-10-10
 
 The first public release: every phase of the plan (0–8) is in. Install: `docker pull ghcr.io/wulfftech/wondarr:0.1.0` (linux/amd64, linux/arm64); documentation at https://wulfftech.github.io/wondarr/.
