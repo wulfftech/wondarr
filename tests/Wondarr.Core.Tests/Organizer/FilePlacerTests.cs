@@ -2,6 +2,7 @@ using Wondarr.Core.Configuration;
 using Wondarr.Core.Organizer;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Organizer;
@@ -414,13 +415,88 @@ public class FilePlacerTests : IDisposable
         Directory.Exists(_temp.Full("library/recycle")).Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_refused_time_stamp_after_the_recycle_does_not_fail_the_placement()
+    {
+        // The library files belong to another uid, so the move into the bin works and the stamp does
+        // not. The upgrade must still go through, with the old file reported in the bin.
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var source = _temp.CreateFile("downloads/track.mp3", "new");
+
+        var result = await Placer(new FaultyDisk { FailStamp = true }).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move, replaced),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.RecycledPath.Should().Be(_temp.Full("recycle/Artist/Album/track.mp3"));
+        File.ReadAllText(result.RecycledPath!).Should().Be("old");
+        File.ReadAllText(result.FinalPath!).Should().Be("new");
+    }
+
+    [Fact]
+    public async Task A_recycle_that_throws_after_the_move_is_not_reported_as_untouched()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var source = _temp.CreateFile("downloads/track.mp3", "new");
+
+        // A bin that moves the file and then fails: the old file has left its path.
+        var bin = Substitute.For<IRecycleBin>();
+        bin.RecycleAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<string>>(_ =>
+            {
+                Directory.CreateDirectory(RecycleRoot);
+                File.Move(replaced, Path.Combine(RecycleRoot, "track.mp3"));
+
+                throw new IOException("Simulated a failure after the move.");
+            });
+
+        var placer = new FilePlacer(
+            new DiskOperations(),
+            bin,
+            new TestOptionsMonitor<ImportOptions>(_options),
+            NullLogger<FilePlacer>.Instance);
+
+        var result = await placer.PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move, replaced),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("no longer at that path").And.NotContain("untouched");
+        File.ReadAllText(source).Should().Be("new", "the source stays for a later attempt");
+    }
+
+    [Fact]
+    public async Task Keeps_the_replaced_file_in_the_bin_when_the_new_file_landed_but_the_download_stayed()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var source = _temp.CreateFile("downloads/track.mp3", "new");
+
+        // A cross-device move: the copy lands, the download cannot be removed. The new file is in the
+        // library, so the old one must not be put back beside it as an untracked copy.
+        var disk = new FaultyDisk
+        {
+            FailMoveTarget = target => target.StartsWith(Library, StringComparison.Ordinal),
+            FailDelete = path => string.Equals(path, source, StringComparison.Ordinal),
+        };
+
+        var result = await Placer(disk).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move, replaced),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().Be(replaced);
+        File.ReadAllText(result.FinalPath!).Should().Be("new");
+        result.RecycledPath.Should().Be(_temp.Full("recycle/Artist/Album/track.mp3"));
+        File.ReadAllText(result.RecycledPath!).Should().Be("old");
+    }
+
     private string RecycleRoot => _temp.Full("recycle");
 
     /// <summary>
     /// A disk that can be told to fail one call, so the placer's fallbacks and its rollback are
     /// reachable from a test. Everything else is the real file system.
     /// </summary>
-    private sealed class FaultyDisk : IDiskOperations
+    internal sealed class FaultyDisk : IDiskOperations
     {
         private readonly DiskOperations _inner = new();
         private bool _moveFailed;
@@ -433,6 +509,9 @@ public class FilePlacerTests : IDisposable
 
         /// <summary>Fails every delete whose path this matches.</summary>
         public Func<string, bool>? FailDelete { get; init; }
+
+        /// <summary>Fails every attempt to set a file's time, as a file owned by another uid does.</summary>
+        public bool FailStamp { get; init; }
 
         public bool FileExists(string path) => _inner.FileExists(path);
 
@@ -489,7 +568,15 @@ public class FilePlacerTests : IDisposable
 
         public DateTime GetLastWriteTimeUtc(string path) => _inner.GetLastWriteTimeUtc(path);
 
-        public void SetLastWriteTimeUtc(string path, DateTime utc) => _inner.SetLastWriteTimeUtc(path, utc);
+        public void SetLastWriteTimeUtc(string path, DateTime utc)
+        {
+            if (FailStamp)
+            {
+                throw new UnauthorizedAccessException($"Simulated a refused time stamp on '{path}'.");
+            }
+
+            _inner.SetLastWriteTimeUtc(path, utc);
+        }
 
         public void DeleteEmptyDirectory(string path) => _inner.DeleteEmptyDirectory(path);
     }
