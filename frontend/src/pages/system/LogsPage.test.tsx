@@ -59,6 +59,10 @@ function install(truncated = false): void {
       return jsonResponse(HEALTH_ENTRIES);
     }
 
+    if (url.includes('/api/v1/system/download-token')) {
+      return jsonResponse({ token: 'tok-123', expiresInSeconds: 60 });
+    }
+
     if (url.includes('/api/v1/log/file')) {
       return jsonResponse(FILES);
     }
@@ -108,11 +112,18 @@ describe('LogsPage', () => {
 
     renderApp();
 
-    const link = await screen.findByRole('link', { name: 'wondarr-20261007.json' });
-    expect(link).toHaveAttribute(
-      'href',
-      expect.stringContaining('/api/v1/log/file/wondarr-20261007.json?apikey=test-api-key'),
-    );
+    const user = userEvent.setup();
+    const clicked: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this.href);
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'wondarr-20261007.json' }));
+
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    expect(clicked[0]).toContain('/api/v1/log/file/wondarr-20261007.json?token=tok-123');
+    expect(clicked[0]).not.toContain('apikey');
+    click.mockRestore();
   });
 
   it('says when only the newest part of the log was searched', async () => {

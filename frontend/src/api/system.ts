@@ -17,8 +17,8 @@ import { COMMANDS_QUERY_KEY, type CommandStatusName } from './songs';
 /**
  * The System section's own data: the backups, the app log and the recent commands. Every download
  * URL is built through {@link apiOrigin} so it follows the URL base. A plain link cannot carry a
- * header and the API does not take the login cookie, so the key travels as `?apikey=` (the request
- * log records paths without their query string).
+ * header, so a download first fetches a short-lived token for its one path (`useDownload`) and the
+ * link carries `?token=`. The API key never appears in a URL the UI builds.
  */
 
 export type BackupResource = components['schemas']['BackupResource'];
@@ -186,14 +186,53 @@ export function useUploadRestore(): UseMutationResult<RestoreResource, Error, Fi
   });
 }
 
-/** The URL that downloads one backup, through the URL base, with the key a plain link needs. */
-export function backupDownloadUrl(config: AppConfig, id: string): string {
-  return `${apiOrigin(config)}/api/v1/system/backup/${encodeURIComponent(id)}/download?apikey=${encodeURIComponent(config.apiKey)}`;
+/** One file the UI can download: the API path (decoded, without the URL base) and the name to save it as. */
+export interface DownloadTarget {
+  path: string;
+  name: string;
 }
 
-/** The URL that downloads one log file, through the URL base. */
-export function logFileDownloadUrl(config: AppConfig, filename: string): string {
-  return `${apiOrigin(config)}/api/v1/log/file/${encodeURIComponent(filename)}?apikey=${encodeURIComponent(config.apiKey)}`;
+/** The backup download endpoint for one backup. */
+export function backupDownloadTarget(id: string): DownloadTarget {
+  return { path: `/api/v1/system/backup/${id}/download`, name: id };
+}
+
+/** The download endpoint for one log file. */
+export function logFileDownloadTarget(filename: string): DownloadTarget {
+  return { path: `/api/v1/log/file/${filename}`, name: filename };
+}
+
+/** The URL a download link follows: the path through the URL base, with a one-use token and never the key. */
+export function downloadUrl(config: AppConfig, path: string, token: string): string {
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+
+  return `${apiOrigin(config)}${encoded}?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Downloads a file. A plain link cannot carry the key header, so this asks the API for a token that
+ * is good for that one path for 60 seconds, then follows a link carrying it.
+ */
+export function useDownload(): UseMutationResult<void, Error, DownloadTarget> {
+  const client = useApiClient();
+  const config = useAppConfig();
+
+  return useMutation({
+    mutationFn: async (target: DownloadTarget): Promise<void> => {
+      const { data, response } = await client.POST('/api/v1/system/download-token', { body: { path: target.path } });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The download could not be started.');
+      }
+
+      const link = document.createElement('a');
+      link.href = downloadUrl(config, target.path, data.token);
+      link.download = target.name;
+      document.body.append(link);
+      link.click();
+      link.remove();
+    },
+  });
 }
 
 /** The log entries, newest first, filtered and paged. */
