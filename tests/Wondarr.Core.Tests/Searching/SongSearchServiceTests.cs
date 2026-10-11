@@ -724,7 +724,7 @@ private static async Task<Exception?> AttemptAsync(ISongSearchService search, lo
 }
 
 /// <summary>Seeds a run, a candidate and one active queue item for the song.</summary>
-private static async Task SeedActiveQueueItemAsync(SearchTestHost host, long songId)
+internal static async Task SeedActiveQueueItemAsync(SearchTestHost host, long songId)
     {
         await using var context = host.Database.CreateContext(host.Time);
 

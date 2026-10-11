@@ -364,9 +364,10 @@ public sealed class IndexerSourceGrabTests : IDisposable
     [Theory]
     [InlineData(TorrentStatus.Checking)]
     [InlineData(TorrentStatus.Moving)]
-    [InlineData(TorrentStatus.FetchingMetadata)]
     [InlineData(TorrentStatus.Error)]
-    public async Task Cancel_keeps_a_torrent_while_the_client_is_checking_moving_fetching_metadata_or_failing(TorrentStatus status)
+    [InlineData(TorrentStatus.Completed)]
+    [InlineData(TorrentStatus.Unknown)]
+    public async Task Cancel_keeps_a_torrent_in_any_state_that_is_not_on_the_removable_list(TorrentStatus status)
     {
         _indexer.Download = new IndexerDownload(AlbumTorrent(), null);
         var provider = Provider(DownloadProtocol.Torrent);
@@ -379,6 +380,37 @@ public sealed class IndexerSourceGrabTests : IDisposable
         torrent.Removed.Should().BeFalse("what the client reports in this state cannot be trusted");
         torrent.Files[2].Priority.Should().Be(0, "only this song's file is switched off");
         torrent.Files.Count(file => file.Priority > 0).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(TorrentStatus.Stopped)]
+    [InlineData(TorrentStatus.Queued)]
+    [InlineData(TorrentStatus.Downloading)]
+    [InlineData(TorrentStatus.Stalled)]
+    public async Task Cancel_removes_an_untouched_torrent_in_each_removable_state(TorrentStatus status)
+    {
+        _indexer.Download = new IndexerDownload(AlbumTorrent(), null);
+        var provider = Provider(DownloadProtocol.Torrent);
+        var handle = await provider.GrabAsync(TorrentCandidate(fileIndex: 2), "wondarr/one", CancellationToken.None);
+        _torrents.Single().Status = status;
+
+        await provider.CancelAsync(handle, CancellationToken.None);
+
+        _torrents.Removals.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Cancel_removes_a_magnet_still_fetching_its_metadata_without_deleting_files()
+    {
+        var provider = Provider(DownloadProtocol.Torrent);
+        const string magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Discovery";
+        var candidate = TorrentCandidate(fileIndex: null);
+        candidate = candidate with { Release = candidate.Release! with { DownloadUrl = magnet, MagnetUrl = magnet, Files = null, FileIndex = null } };
+        var handle = await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        await provider.CancelAsync(handle, CancellationToken.None);
+
+        _torrents.Removals.Should().ContainSingle().Which.DeleteFiles.Should().BeFalse();
     }
 
     [Fact]
@@ -500,6 +532,23 @@ public sealed class IndexerSourceGrabTests : IDisposable
         var result = await provider.GetStatusAsync(handle, CancellationToken.None);
 
         result.State.Should().Be(DownloadState.RemotelyQueued);
+    }
+
+    [Fact]
+    public async Task A_file_is_never_linked_or_copied_while_the_client_is_moving_it()
+    {
+        _indexer.Download = new IndexerDownload(AlbumTorrent(), null);
+        var provider = Provider(DownloadProtocol.Torrent);
+        var handle = await provider.GrabAsync(TorrentCandidate(fileIndex: 2), "wondarr/one", CancellationToken.None);
+        var torrent = _torrents.Single();
+        WriteFile(Path.Combine(SavePath, Album, "03 - Digital Love.flac"), "half moved");
+        torrent.Files[2] = torrent.Files[2] with { Progress = 1 };
+        torrent.Status = TorrentStatus.Moving;
+
+        var result = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        result.State.Should().Be(DownloadState.RemotelyQueued);
+        Directory.Exists(Path.Combine(StagingRoot, "wondarr", "one")).Should().BeFalse("nothing was staged");
     }
 
     [Fact]
@@ -686,6 +735,71 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         status.State.Should().Be(DownloadState.Failed);
         _usenet.Single().Removed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_finished_folder_that_is_not_visible_fails_the_item_but_keeps_the_job()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+        _usenet.Single().Complete(Path.Combine(_root, "not-mapped"));
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.Message.Should().Contain("not visible");
+        _usenet.Single().Removed.Should().BeFalse("the user can fix the mapping, and the download is finished");
+    }
+
+    [Fact]
+    public async Task A_song_that_is_not_in_the_downloaded_post_fails_the_item_and_deletes_the_job()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", "other");
+        WriteFile(Path.Combine(folder, "99 - Something Else.flac"), "x");
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        _usenet.Single().Removed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_job_whose_files_cannot_be_listed_is_not_reused()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var bundled = UsenetCandidate("03 - Digital Love.flac") is var candidate
+            ? candidate with { Release = candidate.Release! with { AlsoWanted = ["05 - Crescendolls.flac"] } }
+            : null!;
+        var first = await provider.GrabAsync(bundled, "wondarr/one", CancellationToken.None);
+        await SeedQueueItemAsync(SourceTypes.Newznab, ContainerGrab.Deserialize(first.Value));
+        _usenet.FailGetFiles = true;
+
+        await provider.GrabAsync(UsenetCandidate("05 - Crescendolls.flac"), "wondarr/two", CancellationToken.None);
+
+        _usenet.Count.Should().Be(2, "a fresh job was added");
+    }
+
+    [Fact]
+    public async Task A_failed_job_is_never_reused()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var bundled = UsenetCandidate("03 - Digital Love.flac") is var candidate
+            ? candidate with { Release = candidate.Release! with { AlsoWanted = ["05 - Crescendolls.flac"] } }
+            : null!;
+        var first = await provider.GrabAsync(bundled, "wondarr/one", CancellationToken.None);
+        await SeedQueueItemAsync(SourceTypes.Newznab, ContainerGrab.Deserialize(first.Value));
+        _usenet.Single().Status = UsenetStatus.Failed;
+
+        await provider.GrabAsync(UsenetCandidate("05 - Crescendolls.flac"), "wondarr/two", CancellationToken.None);
+
+        _usenet.Count.Should().Be(2);
     }
 
     [Fact]
@@ -1054,6 +1168,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
         /// <summary>Makes every resume fail the way a refused call does.</summary>
         public bool FailResume { get; set; }
 
+        /// <summary>Makes listing a job's files fail once the first job is in.</summary>
+        public bool FailGetFiles { get; set; }
+
         public Task<string> AddAsync(DownloadClient client, UsenetAddRequest request, CancellationToken cancellationToken)
         {
             var job = new FakeJob($"SABnzbd_nzo_{Count + 1}") { AddedPaused = request.Paused, Paused = request.Paused };
@@ -1064,7 +1181,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
         }
 
         public Task<IReadOnlyList<UsenetFileInfo>> GetFilesAsync(DownloadClient client, string jobId, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<UsenetFileInfo>>([.. Find(jobId)!.Files]);
+            FailGetFiles
+                ? throw new DownloadClientException("SABnzbd did not answer.")
+                : Task.FromResult<IReadOnlyList<UsenetFileInfo>>([.. Find(jobId)!.Files]);
 
         public Task DeleteFileAsync(DownloadClient client, string jobId, string fileId, CancellationToken cancellationToken)
         {

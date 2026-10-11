@@ -126,7 +126,7 @@ public sealed partial class QBittorrentProxy
             (_, slot) => string.Equals(slot.Key, key, StringComparison.Ordinal) ? slot : new SessionSlot(key, new QBittorrentSession())).Session;
     }
 
-    /// <summary>Forgets a client row's session, for a row that was deleted.</summary>
+    /// <summary>Forgets a client row's session; <see cref="SessionEvictor"/> calls it when the row is deleted.</summary>
     /// <param name="rowId">The row's id.</param>
     public void Evict(long rowId) => _sessions.TryRemove(rowId, out _);
 

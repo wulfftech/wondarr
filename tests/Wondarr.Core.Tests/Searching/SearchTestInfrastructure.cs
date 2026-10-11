@@ -402,6 +402,9 @@ internal sealed class FakeSourceProvider : ISourceProvider
     /// <summary>Every grab the source was asked for, in order.</summary>
     public List<GrabbedCandidate> Grabs { get; } = [];
 
+    /// <summary>Runs inside every grab, before it answers; lets a test change the world mid-grab.</summary>
+    public Action<Candidate>? OnGrab { get; set; }
+
     /// <summary>The queries a search reports.</summary>
     public List<string> Queries { get; } = ["aphex twin alpha"];
 
@@ -476,6 +479,7 @@ internal sealed class FakeSourceProvider : ISourceProvider
     public Task<GrabHandle> GrabAsync(Candidate candidate, string destination, CancellationToken cancellationToken)
     {
         Grabs.Add(new GrabbedCandidate(candidate, destination));
+        OnGrab?.Invoke(candidate);
 
         if (TimingOutKeys.Contains(candidate.BlocklistKey))
         {

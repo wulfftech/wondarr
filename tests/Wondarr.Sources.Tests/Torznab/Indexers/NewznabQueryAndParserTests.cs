@@ -373,6 +373,26 @@ public sealed class RssParserTests
     }
 
     [Fact]
+    public void An_item_without_a_guid_gets_an_id_that_is_a_hash_of_its_link_never_the_link()
+    {
+        const string feed = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
+            <item><title>No Guid</title><link>https://indexer.example/dl/1?apikey=SECRET-KEY-VALUE</link>
+            <enclosure url="https://indexer.example/dl/1?apikey=SECRET-KEY-VALUE" length="1" type="application/x-bittorrent" /></item>
+            <item><title>Neither</title></item>
+            </channel></rss>
+            """;
+
+        var releases = new TorznabRssParser(new SecretRegistry(), NullLogger.Instance)
+            .Parse(feed, Indexer, Wondarr.Core.Sources.DownloadProtocol.Torrent);
+
+        releases[0].ReleaseId.Should().StartWith("url-").And.NotContain("SECRET-KEY-VALUE").And.NotContain("indexer.example");
+        releases[0].DownloadUrl.Should().Contain("SECRET-KEY-VALUE", "the link itself is still what is downloaded");
+        releases[1].ReleaseId.Should().Be("Neither");
+    }
+
+    [Fact]
     public void An_error_answer_becomes_an_indexer_exception()
     {
         var parser = new TorznabRssParser(new SecretRegistry(), NullLogger.Instance);

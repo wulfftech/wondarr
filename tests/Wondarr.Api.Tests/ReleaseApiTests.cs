@@ -132,6 +132,31 @@ public sealed class ReleaseApiTests
     }
 
     [Fact]
+    public async Task Grabbing_a_release_whose_link_was_cleared_is_gone_and_says_to_search_again()
+    {
+        const string goneName = "Daft Punk - Get Lucky (gone).flac";
+        var gone = Good() with
+        {
+            BlocklistKey = "peer:gone.flac",
+            DisplayName = goneName,
+            RemotePath = $"@@peer\\Music\\{goneName}",
+            Release = new ContainerRelease { IndexerId = 1, IndexerName = "Indexer", Title = "Daft Punk - Get Lucky", ReleaseId = "guid-gone" },
+        };
+        using var factory = Factory(gone);
+        using var client = Authenticated(factory);
+        var songId = await QueueApiTests.SeedSongAsync(factory, "Get Lucky");
+        using var search = await client.GetAsync(new Uri($"{ReleaseEndpoint}?songId={songId}", UriKind.Relative));
+        var candidateId = ByName((await ReadJsonAsync(search)).GetProperty("releases"), goneName).GetProperty("candidateId").GetInt64();
+
+        using var response = await client.PostAsync(
+            new Uri(ReleaseEndpoint, UriKind.Relative),
+            Json($"{{\"candidateId\": {candidateId}}}"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Gone);
+        (await ReadJsonAsync(response)).GetProperty("detail").GetString().Should().Contain("search again");
+    }
+
+    [Fact]
     public async Task Grabbing_an_unknown_candidate_is_a_not_found()
     {
         using var factory = Factory();
@@ -173,14 +198,14 @@ public sealed class ReleaseApiTests
             release.GetProperty("displayName").GetString() == displayName);
 
     /// <summary>A factory whose only source is a scripted one, so no test reaches the network.</summary>
-    private static WondarrAppFactory Factory()
+    private static WondarrAppFactory Factory(Candidate? extra = null)
     {
         var source = Substitute.For<ISourceProvider>();
         source.SourceType.Returns(SourceTypes.Soulseek);
         source.GetAvailabilityAsync(Arg.Any<CancellationToken>()).Returns((true, (string?)null));
         source.SearchAsync(Arg.Any<SongSearchRequest>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new SourceSearchResult(
-                [Good(), WrongLength()],
+                extra is null ? [Good(), WrongLength()] : [Good(), WrongLength(), extra],
                 ["Daft Punk Get Lucky"])));
         source.GrabAsync(Arg.Any<Candidate>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new GrabHandle(SourceTypes.Soulseek, "{\"transferId\": 1}")));

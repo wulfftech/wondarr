@@ -54,6 +54,9 @@ public sealed class GrabFailedException : Exception
         : base(message, innerException)
     {
     }
+
+    /// <summary>Gets a value indicating whether the candidate's download link was cleared or has expired, so only a new search can get it.</summary>
+    public bool LinkGone { get; init; }
 }
 
 /// <summary>
@@ -842,6 +845,14 @@ public sealed partial class SongSearchService : ISongSearchService
                 continue;
             }
 
+            // A container whose link was cleared or is past its day cannot be fetched: that is no failure
+            // of the candidate and spends none of the budget. If nothing else is grabbable the run ends
+            // with null and the song's own backoff searches again.
+            if (LinkIsGone(candidate))
+            {
+                continue;
+            }
+
             try
             {
                 return await GrabCandidateAsync(candidate.Id, attempt, cancellationToken).ConfigureAwait(false);
@@ -940,10 +951,9 @@ public sealed partial class SongSearchService : ISongSearchService
 
         // A container's download links are kept for a day (R-082). A candidate whose links were cleared
         // — grabbed, failed, rejected, or past that day — cannot be fetched again.
-        if (candidate.Release is { } stored
-            && (!stored.HasLink() || _timeProvider.GetUtcNow().UtcDateTime - record.CreatedAt > ContainerRelease.LinkRetention))
+        if (LinkIsGone(record, candidate))
         {
-            throw new GrabFailedException(LinkGoneMessage);
+            throw new GrabFailedException(LinkGoneMessage) { LinkGone = true };
         }
 
         // The other wanted songs in the same container are found before the grab, so the client
@@ -1124,6 +1134,12 @@ public sealed partial class SongSearchService : ISongSearchService
             {
                 _database.Entry(record).State = EntityState.Detached;
             }
+            else if (exception is AlreadyDownloadingException && _database.Entry(record).State != EntityState.Detached)
+            {
+                // The saved record will never be grabbed through this path, and it holds the link.
+                ClearLinks(record);
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             LogBundleFailed(_logger, song.Song.Id, grabbed.SongId, exception.Message);
         }
@@ -1150,6 +1166,23 @@ public sealed partial class SongSearchService : ISongSearchService
             LogFailWriteFailed(_logger, item.Id, exception);
         }
     }
+
+    /// <summary>Whether a stored container candidate has lost its download link or outlived <see cref="ContainerRelease.LinkRetention"/>.</summary>
+    private bool LinkIsGone(CandidateRecord record)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Candidate>(record.Normalised, Json) is { } candidate && LinkIsGone(record, candidate);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private bool LinkIsGone(CandidateRecord record, Candidate candidate) =>
+        candidate.Release is { } release
+        && (!release.HasLink() || _timeProvider.GetUtcNow().UtcDateTime - record.CreatedAt > ContainerRelease.LinkRetention);
 
     /// <summary>Removes the download links from a stored candidate; a snapshot that cannot be read is left as it is.</summary>
     private static void ClearLinks(CandidateRecord record)

@@ -203,7 +203,7 @@ public sealed class ProwlarrAndGazelleTests
         var search = client.SearchAsync(GazelleRow(), new ReleaseQuery("Daft Punk", "Discovery", null), CancellationToken.None);
 
         await WaitUntilAsync(() => handler.Requests.Count == 5);
-        await Task.Delay(100);
+        await YieldAsync();
         handler.Requests.Should().HaveCount(5, "the sixth request waits for the window");
         search.IsCompleted.Should().BeFalse();
 
@@ -214,7 +214,7 @@ public sealed class ProwlarrAndGazelleTests
     }
 
     [Fact]
-    public async Task Gazelle_goes_through_a_client_with_no_retry_handler_so_a_502_costs_one_turn_per_request()
+    public async Task Gazelle_has_no_hidden_retry_handler_so_its_own_retries_are_the_only_extra_requests()
     {
         // The real registration: the "indexer" client retries 5xx twice outside the limiter, Gazelle's own does not.
         var handler = new HeaderHandler(_ => new HttpResponseMessage(HttpStatusCode.BadGateway));
@@ -227,22 +227,104 @@ public sealed class ProwlarrAndGazelleTests
         var client = new GazelleClient(provider.GetRequiredService<IHttpClientFactory>(), new SecretRegistry(), time, NullLogger<GazelleClient>.Instance);
         var settings = GazelleSettings.Read(Json($$"""{"url":"https://redacted.example","apiKey":"{{GazelleKey}}"}"""));
 
-        for (var call = 0; call < 5; call++)
-        {
-            var failed = async () => await client.IndexAsync(5, settings, CancellationToken.None);
-            await failed.Should().ThrowAsync<IndexerException>();
-        }
+        var first = async () => await client.IndexAsync(5, settings, CancellationToken.None);
+        await first.Should().ThrowAsync<IndexerException>();
 
-        handler.Requests.Should().HaveCount(5, "each 502 was one request, never retried behind the limiter's back");
+        handler.Requests.Should().HaveCount(3, "one try and Gazelle's own two retries, nothing behind its back");
 
-        // The sixth waits for the window: every request on the wire took a turn.
-        var sixth = client.IndexAsync(5, settings, CancellationToken.None);
-        await Task.Delay(100);
+        // Three more attempts: the 4th and 5th go out, the 6th waits for the window.
+        var second = client.IndexAsync(5, settings, CancellationToken.None);
+        await YieldAsync();
         handler.Requests.Should().HaveCount(5);
+        second.IsCompleted.Should().BeFalse();
+
         time.Advance(TimeSpan.FromSeconds(10));
-        var sixthFailed = async () => await sixth;
-        await sixthFailed.Should().ThrowAsync<IndexerException>();
+        var secondFailed = async () => await second;
+        await secondFailed.Should().ThrowAsync<IndexerException>();
         handler.Requests.Should().HaveCount(6);
+    }
+
+    [Fact]
+    public async Task A_502_then_a_502_then_a_200_succeeds_and_every_attempt_took_a_limiter_turn()
+    {
+        var attempts = 0;
+        var handler = new HeaderHandler(_ => ++attempts < 3 ? new HttpResponseMessage(HttpStatusCode.BadGateway) : Fixture("gazelle-index.json"));
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var client = Gazelle(handler, time);
+        var settings = GazelleSettings.Read(Json($$"""{"url":"https://redacted.example","apiKey":"{{GazelleKey}}"}"""));
+
+        await client.IndexAsync(5, settings, CancellationToken.None);
+
+        handler.Requests.Should().HaveCount(3);
+
+        // 3 turns used: two more requests go out, the next one has to wait for the window.
+        await client.IndexAsync(5, settings, CancellationToken.None);
+        await client.IndexAsync(5, settings, CancellationToken.None);
+        handler.Requests.Should().HaveCount(5);
+        var sixth = client.IndexAsync(5, settings, CancellationToken.None);
+        await YieldAsync();
+        handler.Requests.Should().HaveCount(5);
+        sixth.IsCompleted.Should().BeFalse();
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        await sixth;
+        handler.Requests.Should().HaveCount(6);
+    }
+
+    [Fact]
+    public async Task A_429_with_retry_after_keeps_the_row_quiet_until_then_and_is_reported_as_a_rate_limit()
+    {
+        var throttled = true;
+        var handler = new HeaderHandler(_ =>
+        {
+            if (!throttled)
+            {
+                return Fixture("gazelle-index.json");
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(30));
+            return response;
+        });
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var client = Gazelle(handler, time);
+        var settings = GazelleSettings.Read(Json($$"""{"url":"https://redacted.example","apiKey":"{{GazelleKey}}"}"""));
+
+        var limited = async () => await client.IndexAsync(5, settings, CancellationToken.None);
+        (await limited.Should().ThrowAsync<IndexerException>()).Which.Message.Should().Contain("rate limit");
+        throttled = false;
+
+        var next = client.IndexAsync(5, settings, CancellationToken.None);
+        await YieldAsync();
+        handler.Requests.Should().HaveCount(1, "the row is quiet for the Retry-After");
+        next.IsCompleted.Should().BeFalse();
+
+        time.Advance(TimeSpan.FromSeconds(29));
+        await YieldAsync();
+        handler.Requests.Should().HaveCount(1);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        await next;
+        handler.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_429_without_retry_after_waits_ten_seconds()
+    {
+        var calls = 0;
+        var handler = new HeaderHandler(_ => ++calls == 1 ? new HttpResponseMessage(HttpStatusCode.TooManyRequests) : Fixture("gazelle-index.json"));
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var client = Gazelle(handler, time);
+        var settings = GazelleSettings.Read(Json($$"""{"url":"https://redacted.example","apiKey":"{{GazelleKey}}"}"""));
+
+        var limited = async () => await client.IndexAsync(5, settings, CancellationToken.None);
+        await limited.Should().ThrowAsync<IndexerException>();
+        var next = client.IndexAsync(5, settings, CancellationToken.None);
+        await YieldAsync();
+        next.IsCompleted.Should().BeFalse();
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        await next;
     }
 
     [Fact]
@@ -395,6 +477,15 @@ public sealed class ProwlarrAndGazelleTests
     {
         using var document = JsonDocument.Parse(text);
         return document.RootElement.Clone();
+    }
+
+    /// <summary>Lets already-scheduled continuations run; bounded, so it cannot hang.</summary>
+    private static async Task YieldAsync()
+    {
+        for (var turn = 0; turn < 100; turn++)
+        {
+            await Task.Yield();
+        }
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)

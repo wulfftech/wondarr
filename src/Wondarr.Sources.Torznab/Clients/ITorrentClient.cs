@@ -90,6 +90,9 @@ public enum TorrentStatus
 
     /// <summary>The client reports the torrent as failed.</summary>
     Error,
+
+    /// <summary>The client reported a state Wondarr does not know; it is followed as a download but never treated as safe to remove.</summary>
+    Unknown,
 }
 
 /// <summary>One torrent as the client sees it. The paths are already mapped to Wondarr's view.</summary>
