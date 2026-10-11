@@ -319,7 +319,7 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
     /// Writes the document over the target atomically: a unique temporary file beside it, then a
     /// move. The newline is forced to LF so the file is identical on every platform.
     /// </summary>
-    private static void Write(string path, YamlStream document)
+    internal static void Write(string path, YamlStream document)
     {
         var builder = new StringBuilder();
         using (var writer = new StringWriter(builder, CultureInfo.InvariantCulture))
@@ -339,25 +339,7 @@ public sealed partial class ConfigFileWriter : IConfigFileWriter
             // The file holds the API key and the Soulseek password, so on Unix it is created
             // owner-only from the first byte rather than being chmod-ed after the write: a
             // world-readable moment is enough for another local process to read the secrets.
-            if (OperatingSystem.IsWindows())
-            {
-                File.WriteAllText(temporary, yaml, Utf8WithoutBom);
-            }
-            else
-            {
-                var options = new FileStreamOptions
-                {
-                    Mode = FileMode.CreateNew,
-                    Access = FileAccess.Write,
-                    Share = FileShare.None,
-                    UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
-                };
-
-                using var stream = new FileStream(temporary, options);
-                using var writer = new StreamWriter(stream, Utf8WithoutBom);
-
-                writer.Write(yaml);
-            }
+            OwnerOnlyFile.WriteAllText(temporary, yaml, Utf8WithoutBom, FileMode.CreateNew);
 
             File.Move(temporary, path, overwrite: true);
         }
