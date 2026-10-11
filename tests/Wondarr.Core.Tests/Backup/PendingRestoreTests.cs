@@ -44,6 +44,29 @@ public sealed class PendingRestoreTests : IDisposable
     }
 
     [Fact]
+    public void The_files_a_restore_sets_aside_are_made_0600()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Write(_paths.DatabaseFile, "the old database");
+        Write(_paths.ConfigFile, "the old config");
+        File.SetUnixFileMode(_paths.DatabaseFile, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        File.SetUnixFileMode(_paths.ConfigFile, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        Stage("the new database", "the new config");
+
+        PendingRestore.ApplyIfStaged(_paths, out _).Should().BeTrue();
+
+        foreach (var file in new[] { _paths.DatabaseFile, _paths.ConfigFile })
+        {
+            File.GetUnixFileMode(file + PendingRestore.PreRestoreSuffix)
+                .Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite, file);
+        }
+    }
+
+    [Fact]
     public void A_fresh_install_without_a_staged_restore_is_left_alone()
     {
         Write(_paths.DatabaseFile, "the old database");

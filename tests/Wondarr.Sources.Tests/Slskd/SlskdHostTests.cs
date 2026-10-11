@@ -87,6 +87,7 @@ public class SlskdHostTests
         [
             harness.Paths.ConfigDir,
             Path.Combine(harness.Paths.ConfigDir, "backups"),
+            Path.GetDirectoryName(harness.Paths.ConfigDir)!,
             music,
         ];
 

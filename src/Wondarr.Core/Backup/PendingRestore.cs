@@ -339,6 +339,9 @@ public static class PendingRestore
 
         File.Move(live, first);
         moves.Add((live, first));
+
+        // The set-aside copy holds the same secrets as the live file did, and may predate 0600.
+        OwnerOnlyFile.Tighten(first);
     }
 
     private static string GenerationPath(string first, int generation) =>

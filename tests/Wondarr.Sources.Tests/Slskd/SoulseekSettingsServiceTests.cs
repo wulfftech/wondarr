@@ -389,6 +389,24 @@ public sealed class SoulseekSettingsServiceTests
     }
 
     [Fact]
+    public async Task A_shared_folder_that_contains_the_data_directory_is_refused_but_a_download_folder_may()
+    {
+        var parent = Path.GetDirectoryName(DataDirectory.ConfigDir)!;
+
+        var shared = await Service(new SoulseekOptions())
+            .UpdateAsync(new SoulseekSettingsUpdate(SharedFolders: [parent]), CancellationToken.None);
+
+        shared.Success.Should().BeFalse();
+        shared.Errors.Should().ContainSingle().Which.Should().StartWith("soulseek.shared_folders:").And.Contain("contains Wondarr's data directory");
+
+        // Only sharing publishes what is below; a download folder above the data directory is just a folder.
+        var downloads = await Service(new SoulseekOptions())
+            .UpdateAsync(new SoulseekSettingsUpdate(DownloadsDir: parent), CancellationToken.None);
+
+        downloads.Success.Should().BeTrue(string.Join("; ", downloads.Errors));
+    }
+
+    [Fact]
     public async Task A_shared_folder_that_is_the_file_system_root_is_refused()
     {
         var root = Path.GetPathRoot(DataDirectory.ConfigDir)!;
