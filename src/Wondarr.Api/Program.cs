@@ -42,6 +42,10 @@ builder.Services.AddWondarrYouTube();
 builder.Services.AddWondarrYouTubeSettings(builder.Configuration);
 builder.Services.AddWondarrTorznab();
 
+// Docker stops a container after 10 s by default and s6-overlay needs its own share of that (see
+// docker/Dockerfile), so the host gets 8 s: slskd's SIGTERM wait and an import in flight must fit in it.
+builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(8));
+
 // Every sink is behind the secret registry, so nothing logged can leak the API key.
 builder.Host.UseSerilog((_, services, loggerConfiguration) => LoggingSetup.Configure(
     loggerConfiguration,

@@ -1,9 +1,10 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Wondarr.Sources.Slskd;
 
 /// <inheritdoc />
-public sealed class ProcessLauncher : IProcessLauncher
+public sealed partial class ProcessLauncher : IProcessLauncher
 {
     /// <inheritdoc />
     public ILaunchedProcess Launch(ProcessLaunchRequest request)
@@ -35,6 +36,11 @@ public sealed class ProcessLauncher : IProcessLauncher
         return new LaunchedProcess(new Process { StartInfo = startInfo });
     }
 
+    private const int SigTerm = 15;
+
+    [LibraryImport("libc", EntryPoint = "kill", SetLastError = true)]
+    private static partial int SendSignal(int processId, int signal);
+
     /// <summary>The real <see cref="Process"/>, wrapped so the supervisor never touches it directly.</summary>
     private sealed class LaunchedProcess : ILaunchedProcess
     {
@@ -61,6 +67,17 @@ public sealed class ProcessLauncher : IProcessLauncher
 
         public Task WaitForExitAsync(CancellationToken cancellationToken) =>
             _process.WaitForExitAsync(cancellationToken);
+
+        public void RequestStop()
+        {
+            if (OperatingSystem.IsWindows() || _process.HasExited)
+            {
+                return;
+            }
+
+            // The result is ignored: a process that is already gone is the outcome that was asked for.
+            _ = SendSignal(_process.Id, SigTerm);
+        }
 
         public void Kill(bool entireProcessTree)
         {

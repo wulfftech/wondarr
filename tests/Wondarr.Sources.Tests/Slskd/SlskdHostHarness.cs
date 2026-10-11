@@ -48,6 +48,7 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
 
         Time = new FakeTimeProvider();
         Launcher = new FakeProcessLauncher(Time);
+        Inspector = new FakeProcessInspector();
         Status = new SlskdStatus();
 
         CurrentOptions = Options;
@@ -61,9 +62,11 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
         });
 
         Client = Substitute.For<ISlskdClient>();
-        Client.GetApplicationStateAsync(Arg.Any<CancellationToken>()).Returns(_ => Reachable
-            ? Task.FromResult(ApplicationState)
-            : Task.FromException<SlskdApplicationState>(new HttpRequestException("slskd is not answering")));
+        Client.GetApplicationStateAsync(Arg.Any<CancellationToken>()).Returns(_ => PollTimesOut
+            ? Task.FromException<SlskdApplicationState>(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"))
+            : Reachable
+                ? Task.FromResult(ApplicationState)
+                : Task.FromException<SlskdApplicationState>(new HttpRequestException("slskd is not answering")));
 
         Logs = new RecordingLoggerProvider();
         _loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(Logs));
@@ -86,6 +89,7 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
         Host = new SlskdHost(
             _provider.GetRequiredService<IServiceScopeFactory>(),
             Launcher,
+            Inspector,
             new SlskdConfigRenderer(),
             Monitor,
             serverMonitor,
@@ -112,6 +116,8 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
     public FakeTimeProvider Time { get; }
 
     public FakeProcessLauncher Launcher { get; }
+
+    public FakeProcessInspector Inspector { get; }
 
     public SlskdStatus Status { get; }
 
@@ -140,6 +146,9 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
 
     /// <summary>Whether the substituted slskd answers its API.</summary>
     public bool Reachable { get; set; } = true;
+
+    /// <summary>Whether the substituted slskd's answer is an <c>HttpClient</c> timeout (a <see cref="TaskCanceledException"/>).</summary>
+    public bool PollTimesOut { get; set; }
 
     /// <summary>What slskd reports while it is reachable.</summary>
     public SlskdApplicationState ApplicationState { get; set; } = new()

@@ -368,9 +368,117 @@ public class SoulseekSearchBudgetTests
         return await acquisition;
     }
 
-    private static SoulseekSearchBudget Budget(TimeProvider time, SoulseekSearchOptions? search = null) =>
+    [Fact]
+    public async Task A_restarted_budget_is_seeded_from_the_persisted_submissions()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "wondarr-budget-" + Guid.NewGuid().ToString("N"), SoulseekSearchHistory.FileName);
+        var time = new FakeTimeProvider(Start);
+
+        try
+        {
+            var first = Budget(time, history: History(path));
+
+            for (var i = 0; i < 30; i++)
+            {
+                await using var lease = await AcquireAsync(time, first, i == 0 ? TimeSpan.Zero : Spacing);
+            }
+
+            File.Exists(path).Should().BeTrue("every submission is written down");
+
+            // Wondarr restarts (or crash-loops): a new budget over the same file, the clock still at +145 s.
+            var second = Budget(time, history: History(path));
+
+            second.Snapshot().SubmittedInWindow.Should().Be(30, "the window survives the restart");
+
+            // The 31st waits for the first to leave the window, exactly as it would have without the restart.
+            var acquisition = second.AcquireAsync(CancellationToken.None);
+            acquisition.IsCompleted.Should().BeFalse();
+
+            time.Advance(Window - TimeSpan.FromSeconds(145));
+            acquisition.IsCompleted.Should().BeFalse("a submission exactly one window old still counts");
+
+            time.Advance(TimeSpan.FromMilliseconds(1));
+            await using var lease31 = await acquisition;
+        }
+        finally
+        {
+            DeleteDirectoryOf(path);
+        }
+    }
+
+    [Fact]
+    public async Task The_spacing_between_submissions_carries_over_a_restart()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "wondarr-budget-" + Guid.NewGuid().ToString("N"), SoulseekSearchHistory.FileName);
+        var time = new FakeTimeProvider(Start);
+
+        try
+        {
+            var first = Budget(time, history: History(path));
+            await using (await AcquireAsync(time, first, TimeSpan.Zero))
+            {
+            }
+
+            time.Advance(TimeSpan.FromSeconds(2));
+
+            var second = Budget(time, history: History(path));
+            var acquisition = second.AcquireAsync(CancellationToken.None);
+            acquisition.IsCompleted.Should().BeFalse("only 2 s have passed since the last submission");
+
+            time.Advance(TimeSpan.FromSeconds(3));
+            await using var lease = await acquisition;
+        }
+        finally
+        {
+            DeleteDirectoryOf(path);
+        }
+    }
+
+    [Fact]
+    public void Submissions_older_than_the_window_and_a_corrupt_file_seed_nothing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "wondarr-budget-" + Guid.NewGuid().ToString("N"), SoulseekSearchHistory.FileName);
+        var time = new FakeTimeProvider(Start);
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var stale = Start - TimeSpan.FromMinutes(10);
+            File.WriteAllText(path, $$"""{"submissions":["{{stale:O}}"]}""");
+
+            Budget(time, history: History(path)).Snapshot().SubmittedInWindow.Should().Be(0);
+
+            File.WriteAllText(path, "this is not json");
+
+            Budget(time, history: History(path)).Snapshot().SubmittedInWindow.Should().Be(0);
+        }
+        finally
+        {
+            DeleteDirectoryOf(path);
+        }
+    }
+
+    private static SoulseekSearchHistory History(string path) => new(path, NullLogger<SoulseekSearchHistory>.Instance);
+
+    private static void DeleteDirectoryOf(string path)
+    {
+        try
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+        catch (IOException)
+        {
+            // A leftover temp directory is not a test failure.
+        }
+    }
+
+    private static SoulseekSearchBudget Budget(
+        TimeProvider time,
+        SoulseekSearchOptions? search = null,
+        SoulseekSearchHistory? history = null) =>
         new(
             SlskdTestData.Monitor(new SoulseekOptions { Search = search ?? new SoulseekSearchOptions() }),
             time,
-            NullLogger<SoulseekSearchBudget>.Instance);
+            NullLogger<SoulseekSearchBudget>.Instance,
+            history);
 }

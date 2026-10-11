@@ -32,8 +32,30 @@ public interface ILaunchedProcess : IDisposable
     /// </summary>
     event Action<string>? OutputLine;
 
+    /// <summary>
+    /// Asks the process to stop (SIGTERM), so it can log out and flush its state. Where the platform
+    /// has no such signal, or the process is gone, this does nothing; the caller still kills the tree
+    /// if the process has not exited in time.
+    /// </summary>
+    void RequestStop();
+
     /// <summary>Kills the process, optionally together with the children it started.</summary>
     void Kill(bool entireProcessTree);
+}
+
+/// <summary>
+/// Looks at, and kills, processes Wondarr did not just start: the seam the orphan check is tested
+/// through. A process is only ever identified by its executable, so a recycled process id that now
+/// belongs to something else is left alone.
+/// </summary>
+public interface IProcessInspector
+{
+    /// <summary>The executable path of the live process <paramref name="processId"/>, or <see langword="null"/> when there is none (or it cannot be read).</summary>
+    string? GetExecutable(int processId);
+
+    /// <summary>Kills the process and its children, and waits up to <paramref name="timeout"/> for it to exit.</summary>
+    /// <returns>Whether the process is gone.</returns>
+    Task<bool> KillTreeAsync(int processId, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
 /// <summary>

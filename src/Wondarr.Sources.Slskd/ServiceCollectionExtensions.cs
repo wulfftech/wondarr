@@ -49,7 +49,7 @@ public static class ServiceCollectionExtensions
         // No retry policy: the supervisor decides whether an unreachable slskd is restarted, and a
         // retry loop here would hide that from it. Redirects are not followed: a redirect to
         // another host must never carry the API key.
-        services.AddHttpClient<ISlskdClient, SlskdClient>(client => client.Timeout = TimeSpan.FromSeconds(5))
+        services.AddHttpClient<ISlskdClient, SlskdClient>(client => client.Timeout = SlskdClient.PollTimeout)
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
         // Each call is small (the bundled slskd is on loopback; an external one is the user's own
@@ -72,6 +72,10 @@ public static class ServiceCollectionExtensions
 
         // The budget is process-wide — one slskd account, one 30-per-4-minutes allowance — and the
         // runner is a singleton that resolves the typed client per run from a scope of its own.
+        // Its submission times are kept in a file, so a restart does not give a fresh window (R-026).
+        services.AddSingleton<SoulseekSearchHistory>(provider => new SoulseekSearchHistory(
+            provider.GetRequiredService<WondarrPaths>(),
+            provider.GetRequiredService<ILogger<SoulseekSearchHistory>>()));
         services.AddSingleton<ISoulseekSearchBudget, SoulseekSearchBudget>();
         services.AddSingleton<ISlskdSearchRunner, SlskdSearchRunner>();
 
@@ -92,6 +96,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHandle<SlskdDownloadCompletedEvent>, SlskdDownloadCompletedHandler>();
 
         services.AddSingleton<IProcessLauncher, ProcessLauncher>();
+        services.AddSingleton<IProcessInspector, ProcessInspector>();
         services.AddSingleton<SlskdStatus>();
         services.AddSingleton<IHealthCheck, SlskdHealthCheck>();
         services.AddSingleton<IHealthCheck, SlskdDownloadFolderHealthCheck>();
