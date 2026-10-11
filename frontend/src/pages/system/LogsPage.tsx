@@ -1,9 +1,8 @@
 import { Alert, Anchor, Badge, Card, Code, Group, Select, Stack, Table, Text, TextInput, Title } from '@mantine/core';
 import type { MantineColor } from '@mantine/core';
 import { useEffect, useState } from 'react';
-import { useAppConfig } from '../../api/context';
 import { firstPage, type Paging } from '../../api/paging';
-import { logFileDownloadUrl, useLogFiles, useLogs, type LogResource } from '../../api/system';
+import { logFileDownloadTarget, useDownload, useLogFiles, useLogs, type LogResource } from '../../api/system';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 import { PagedTable, type PagedColumn } from '../../components/PagedTable';
 import { initCaps } from '../../components/text';
@@ -69,7 +68,7 @@ function logColumns(): PagedColumn<LogResource>[] {
 
 /** System → Logs: the app's own log (slskd's output included), newest first, and the files to download. */
 export function LogsPage() {
-  const config = useAppConfig();
+  const download = useDownload();
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [level, setLevel] = useState('Information');
   const [text, setText] = useState('');
@@ -133,6 +132,7 @@ export function LogsPage() {
       <Card withBorder padding="md">
         <Stack gap="sm">
           <Title order={4}>Log files</Title>
+          {download.error !== null && <ErrorState message={download.error.message} />}
           {files.isPending && <LoadingState />}
           {files.error !== null && <ErrorState message={files.error.message} />}
           {files.data !== undefined && files.data.length === 0 && <EmptyState message="No log files yet." />}
@@ -142,7 +142,11 @@ export function LogsPage() {
                 {files.data.map((file) => (
                   <Table.Tr key={file.filename}>
                     <Table.Td>
-                      <Anchor href={logFileDownloadUrl(config, file.filename)} download={file.filename}>
+                      <Anchor
+                        component="button"
+                        type="button"
+                        onClick={() => download.mutate(logFileDownloadTarget(file.filename))}
+                      >
                         {file.filename}
                       </Anchor>
                     </Table.Td>

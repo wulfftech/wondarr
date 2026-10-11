@@ -1,4 +1,6 @@
 using Wondarr.Core.Authentication;
+using Wondarr.Core.Configuration;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -44,7 +46,19 @@ public sealed class AuthUserController : ControllerBase
                 $"password must be at least {MinPasswordLength} characters");
         }
 
+        // The browser that makes the change usually holds a Forms cookie as well as the key. Read it
+        // before the change, while it is still valid, so it can be re-issued with the new stamp.
+        var session = await HttpContext.AuthenticateAsync(nameof(AuthenticationMethod.Forms)).ConfigureAwait(false);
+
         await _credentials.SetAsync(resource.Username, resource.Password, cancellationToken).ConfigureAwait(false);
+
+        if (session.Succeeded)
+        {
+            await HttpContext.SignInAsync(
+                nameof(AuthenticationMethod.Forms),
+                await FormsSession.CreatePrincipalAsync(resource.Username, _credentials, cancellationToken).ConfigureAwait(false),
+                session.Properties).ConfigureAwait(false);
+        }
 
         return NoContent();
     }

@@ -137,6 +137,32 @@ public class CredentialStoreTests
     }
 
     [Fact]
+    public async Task The_stamp_is_null_until_a_login_exists_and_changes_with_every_write()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var store = new CredentialStore(new SettingsRepository(context));
+
+        (await store.GetStampAsync(CancellationToken.None)).Should().BeNull();
+
+        await store.SetAsync("admin", Password, CancellationToken.None);
+        var first = await store.GetStampAsync(CancellationToken.None);
+
+        (await store.GetStampAsync(CancellationToken.None)).Should().Be(first, "reading does not change it");
+        first.Should().NotBeNullOrEmpty().And.NotContain(Password);
+
+        await store.SetAsync("admin", Password, CancellationToken.None);
+        (await store.GetStampAsync(CancellationToken.None)).Should().NotBe(first, "the salt is new, so the hash is");
+
+        var second = await store.GetStampAsync(CancellationToken.None);
+        await store.SetAsync("someone-else", Password, CancellationToken.None);
+        (await store.GetStampAsync(CancellationToken.None)).Should().NotBe(second);
+    }
+
+    [Fact]
     public async Task Rejects_an_unknown_username_even_with_the_right_password()
     {
         using var database = new SqliteTestDatabase();
