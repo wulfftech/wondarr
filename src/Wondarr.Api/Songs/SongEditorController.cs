@@ -113,6 +113,20 @@ public sealed class SongEditorController : ControllerBase
 
             return problem;
         }
+        catch (SongsCompactingException exception)
+        {
+            var problem = Problem(
+                title: "Compaction in progress",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status409Conflict);
+
+            if (problem.Value is ProblemDetails details)
+            {
+                details.Extensions["songIds"] = exception.SongIds.Take(MaxListedIds).ToList();
+            }
+
+            return problem;
+        }
         catch (ArgumentException exception)
         {
             return Invalid(exception);

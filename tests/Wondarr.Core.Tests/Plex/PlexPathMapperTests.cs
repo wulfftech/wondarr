@@ -112,6 +112,44 @@ public class PlexPathMapperTests
         PlexPathMapper.ToServerPath(library, "/data/music/Song.flac").Should().Be(@"D:\Song.flac");
     }
 
+    [Fact]
+    public void Maps_a_Plex_folder_back_onto_the_library_root()
+    {
+        var library = Library("/data/music", "/Music");
+
+        PlexPathMapper.ToLocalPath(library, "/Music").Should().Be("/data/music");
+        PlexPathMapper.ToLocalPath(library, "/Music/").Should().Be("/data/music");
+        PlexPathMapper.ToLocalPath(library, "/Music/Artist/Album")
+            .Should().Be("/data/music" + Path.DirectorySeparatorChar + "Artist" + Path.DirectorySeparatorChar + "Album");
+    }
+
+    [Fact]
+    public void A_folder_outside_the_Plex_root_does_not_map_back()
+    {
+        var library = Library("/data/music", "/Music");
+
+        PlexPathMapper.ToLocalPath(library, "/Music2/Artist").Should().BeNull("it merely starts with the root's name");
+        PlexPathMapper.ToLocalPath(library, "/Other").Should().BeNull();
+    }
+
+    [Fact]
+    public void Maps_a_Windows_Plex_folder_back_with_case_ignored()
+    {
+        var library = Library("/data/music", @"D:\Music");
+
+        PlexPathMapper.ToLocalPath(library, @"d:\music\Artist")
+            .Should().Be("/data/music" + Path.DirectorySeparatorChar + "Artist");
+    }
+
+    [Fact]
+    public void Without_a_Plex_root_the_two_sides_share_their_paths()
+    {
+        var library = Library("/data/music", null);
+
+        PlexPathMapper.ToLocalPath(library, "/data/music/Artist").Should().Be("/data/music/Artist");
+        PlexPathMapper.ToLocalPath(library, "/elsewhere").Should().BeNull();
+    }
+
     private static Library Library(string rootPath, string? plexLibraryPath) =>
         new() { Name = "Music", RootPath = rootPath, PlexLibraryPath = plexLibraryPath };
 }

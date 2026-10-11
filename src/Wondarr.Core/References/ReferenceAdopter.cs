@@ -48,6 +48,7 @@ public sealed partial class ReferenceAdopter(
     WondarrDbContext database,
     ILibraryOrganizer organizer,
     IEventAggregator events,
+    ISongFileLock songFileLock,
     TimeProvider timeProvider,
     ILogger<ReferenceAdopter> logger) : IReferenceAdopter
 {
@@ -119,6 +120,14 @@ public sealed partial class ReferenceAdopter(
             cancellationToken.ThrowIfCancellationRequested();
 
             var absolutePath = ReferenceOwnership.AbsolutePath(library.RootPath, row.RelativePath);
+
+            // The per-song file guard, held from the ownership check to the record: an import, a
+            // compaction or another adoption can never act on this song's file in between. The
+            // reference library's gate is taken before this lock and released after it, never the
+            // other way round.
+            await using var guard = await songFileLock
+                .AcquireAsync(row.SongId!.Value, cancellationToken)
+                .ConfigureAwait(false);
 
             // The song is loaded exactly as the import loads it: the album context decides the folder
             // and the tags, and the credits are what the tag writer writes.
