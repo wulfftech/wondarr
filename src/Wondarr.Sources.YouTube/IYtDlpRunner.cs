@@ -11,8 +11,8 @@ public interface IYtDlpRunner
     /// <param name="destinationDir">The per-grab folder the queue item names.</param>
     /// <param name="cancellationToken">Cancels the wait and the run.</param>
     /// <returns>The completed file's path and extension.</returns>
-    /// <exception cref="YtDlpException">The run failed; the kind carries the classification.</exception>
-    /// <exception cref="OperationCanceledException">The token was cancelled, or yt-dlp exited 101.</exception>
+    /// <exception cref="YtDlpException">The run failed (an exit code of 101 included); the kind carries the classification.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
     Task<YtDlpDownload> DownloadAsync(string videoId, string destinationDir, CancellationToken cancellationToken);
 
     /// <summary>Probes a video's formats (<c>yt-dlp -F</c>): the health probe's check.</summary>
@@ -20,6 +20,6 @@ public interface IYtDlpRunner
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <returns>The probe's stdout and whether a JS runtime was available.</returns>
     /// <exception cref="YtDlpException">The probe failed; the kind carries the classification.</exception>
-    /// <exception cref="OperationCanceledException">The token was cancelled, or yt-dlp exited 101.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
     Task<YtDlpFormats> ProbeFormatsAsync(string videoId, CancellationToken cancellationToken);
 }

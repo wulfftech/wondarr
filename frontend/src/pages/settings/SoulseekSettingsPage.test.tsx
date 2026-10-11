@@ -223,10 +223,8 @@ describe('SoulseekSettingsPage', () => {
     expect(JSON.parse((await test?.body) ?? '{}')).toEqual({ url: 'http://slskd:5030', apiKey: null });
   });
 
-  it('switching to my own slskd saves the mode and says Wondarr has to restart', async () => {
-    install({}, () =>
-      jsonResponse({ settings: { ...SETTINGS, mode: 'external' }, restartsSlskd: false, restartsWondarr: true }),
-    );
+  it('switching to my own slskd saves the mode and needs no restart', async () => {
+    install({}, () => jsonResponse({ settings: { ...SETTINGS, mode: 'external' }, restartsSlskd: false }));
     const user = userEvent.setup();
 
     renderApp();
@@ -237,7 +235,9 @@ describe('SoulseekSettingsPage', () => {
     await user.type(screen.getByLabelText('API key'), 'a-key-of-sixteen-chars');
     await user.click(screen.getByRole('button', { name: 'Save connection' }));
 
-    expect(await screen.findByTestId('soulseek-restart-notice')).toBeInTheDocument();
+    await waitFor(() => expect(sent().some((request) => request.method === 'PUT')).toBe(true));
+    expect(screen.queryByTestId('soulseek-restart-notice')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Restart Wondarr/i)).not.toBeInTheDocument();
     const put = sent().find((request) => request.method === 'PUT');
     expect(JSON.parse((await put?.body) ?? '{}')).toEqual({
       mode: 'external',

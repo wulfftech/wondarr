@@ -397,6 +397,11 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         {
             throw new IndexerException("The tracker could not be reached.", exception);
         }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The client's own timeout: a failed request, not a stopped caller.
+            throw new IndexerException("The tracker did not answer in time.", exception);
+        }
     }
 
     /// <summary>

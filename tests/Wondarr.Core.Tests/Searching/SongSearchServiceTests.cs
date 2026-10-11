@@ -257,6 +257,48 @@ public sealed class SongSearchServiceTests
     }
 
     [Fact]
+    public async Task A_timeout_during_a_grab_is_a_failed_grab_and_the_next_candidate_is_tried()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+
+        var best = SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac");
+        var second = SearchTestHost.Candidate(
+            "Music\\Aphex Twin\\Alpha.mp3",
+            qualityId: 29,
+            sizeBytes: 8_000_000,
+            extension: "mp3",
+            freeSlot: false,
+            speed: 100_000);
+
+        host.Provider.Candidates.Add(best);
+        host.Provider.Candidates.Add(second);
+        host.Provider.TimingOutKeys.Add(best.BlocklistKey);
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        result.Outcome.Should().Be(SearchOutcome.Grabbed, "a timeout is a failed grab, not a cancelled run");
+
+        var items = await host.Context.QueueItems.AsNoTracking().OrderBy(item => item.Id).ToListAsync(Token);
+        items[0].State.Should().Be(QueueItemState.Failed);
+    }
+
+    [Fact]
+    public async Task A_provider_timeout_during_the_search_fails_the_run_instead_of_cancelling_it()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync("Slow");
+        host.Provider.TimingOutTitles.Add("Slow");
+
+        var act = () => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        await act.Should().ThrowAsync<TaskCanceledException>();
+
+        var run = await host.Context.SearchRuns.AsNoTracking().SingleAsync(Token);
+        run.Outcome.Should().Be(SearchOutcome.Failed);
+    }
+
+    [Fact]
     public async Task Blocklisted_keys_for_this_song_and_for_no_song_are_rejected_and_another_songs_are_not()
     {
         await using var host = await SearchTestHost.CreateAsync();
@@ -386,8 +428,12 @@ public async Task A_cancelled_search_finishes_the_run_as_cancelled()
     var songId = await host.SeedSongAsync();
     host.Provider.SearchFailure = new OperationCanceledException("The search was stopped.");
 
+    // The caller's own token is what makes it a cancellation; a bare OperationCanceledException is a timeout.
+    using var caller = new CancellationTokenSource();
+    host.Provider.CallerToCancel = caller;
+
     await Assert.ThrowsAsync<OperationCanceledException>(
-        () => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
+        () => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, caller.Token));
 
     var run = await host.Runs.GetLatestAsync(songId, Token);
 
@@ -540,8 +586,12 @@ public async Task A_grab_cancelled_by_the_peer_leaves_the_item_failed_and_not_qu
     var search = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
     var candidateId = (await host.Runs.GetCandidatesAsync(search.SearchRunId, Token)).Single().Id;
 
+    // The caller (a shutdown, a stopped command) cancels while the peer is being asked.
+    using var caller = new CancellationTokenSource();
+    host.Provider.CallerToCancel = caller;
+
     await Assert.ThrowsAsync<OperationCanceledException>(
-        () => host.Search.GrabCandidateAsync(candidateId, 1, Token));
+        () => host.Search.GrabCandidateAsync(candidateId, 1, caller.Token));
 
     await using var context = host.Database.CreateContext(host.Time);
     var items = await context.QueueItems.AsNoTracking().ToListAsync(Token);

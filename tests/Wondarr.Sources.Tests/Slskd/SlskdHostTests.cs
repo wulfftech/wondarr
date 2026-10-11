@@ -136,7 +136,7 @@ public class SlskdHostTests
             harness.Host.ApplySettingsAsync(next, CancellationToken.None));
 
         harness.Launcher.Count.Should().Be(2);
-        harness.Launcher.Launches[0].Process.KillCount.Should().Be(1);
+        harness.Launcher.Launches[0].Process.StopRequestCount.Should().Be(1, "slskd is asked to stop first");
         harness.Launcher.Launches[0].Process.HasExited.Should().BeTrue();
 
         (await harness.ReadConfigAsync()).Should().Contain("username: wondarr-soulseek");
@@ -238,11 +238,364 @@ public class SlskdHostTests
         await harness.StopAsync();
 
         var child = harness.Launcher.Latest;
-        child.KillCount.Should().Be(1);
-        child.LastKillWasTreeWide.Should().BeTrue();
+        child.StopRequestCount.Should().Be(1);
+        child.KillCount.Should().Be(0, "a slskd that exits on SIGTERM is not killed");
         child.HasExited.Should().BeTrue();
         harness.Status.Current.State.Should().Be(SlskdState.Stopped);
     }
+
+    [Fact]
+    public async Task One_timed_out_poll_after_the_first_minute_does_not_restart_slskd()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        // Well past the 60 s start-up window, with slskd answering throughout.
+        var started = harness.Time.GetUtcNow();
+        await harness.AdvanceUntilAsync(
+            () => harness.Time.GetUtcNow() - started >= TimeSpan.FromSeconds(95),
+            TimeSpan.FromSeconds(1),
+            120,
+            "the start-up window to be long past");
+
+        harness.PollTimesOut = true;
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.LastError == "slskd not answering (1/3)",
+            TimeSpan.FromSeconds(1),
+            60,
+            "the timed-out poll to be counted");
+
+        // A timeout is a failed poll, not the host stopping, and one miss does not kill a healthy slskd.
+        harness.Host.ExecuteTask!.IsCompleted.Should().BeFalse("a timeout must not end the supervisor");
+        harness.Launcher.Count.Should().Be(1);
+        harness.Launcher.Latest.StopRequestCount.Should().Be(0);
+        harness.Launcher.Latest.KillCount.Should().Be(0);
+        harness.Status.Current.IsReachable.Should().BeFalse();
+
+        // It answers again: the count starts over.
+        harness.PollTimesOut = false;
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.IsReachable && harness.Status.Current.LastError is null,
+            TimeSpan.FromSeconds(1),
+            60,
+            "slskd to be seen answering again");
+
+        harness.Launcher.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Three_failed_polls_in_a_row_restart_slskd_and_an_answer_in_between_resets_the_count()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        var started = harness.Time.GetUtcNow();
+        await harness.AdvanceUntilAsync(
+            () => harness.Time.GetUtcNow() - started >= TimeSpan.FromSeconds(65),
+            TimeSpan.FromSeconds(1),
+            120,
+            "the start-up window to be past");
+
+        // Two misses, then an answer: not three in a row.
+        harness.Reachable = false;
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.LastError == "slskd not answering (2/3)",
+            TimeSpan.FromSeconds(1),
+            120,
+            "two failed polls");
+        harness.Reachable = true;
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.IsReachable && harness.Status.Current.LastError is null,
+            TimeSpan.FromSeconds(1),
+            60,
+            "the answer in between");
+        harness.Launcher.Count.Should().Be(1);
+
+        // The count starts again from one.
+        harness.Reachable = false;
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.LastError == "slskd not answering (1/3)",
+            TimeSpan.FromSeconds(1),
+            120,
+            "the count to start again");
+        harness.Launcher.Count.Should().Be(1);
+
+        await harness.AdvanceUntilAsync(
+            () => harness.Status.Current.State == SlskdState.Crashed,
+            TimeSpan.FromSeconds(1),
+            120,
+            "the third miss in a row");
+        harness.Status.Current.LastError.Should().Contain("3 failed polls in a row");
+
+        harness.Reachable = true;
+        await harness.AdvanceUntilAsync(
+            () => harness.Launcher.Count == 2,
+            TimeSpan.FromSeconds(1),
+            60,
+            "the restart");
+        harness.Launcher.Launches[0].Process.StopRequestCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_slskd_that_ignores_sigterm_is_killed_after_four_seconds()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        var child = harness.Launcher.Latest;
+        child.IgnoresStopRequest = true;
+
+        var stopStarted = harness.Time.GetUtcNow();
+        var stopping = harness.StopAsync();
+        await SlskdHostHarness.AwaitAsync(() => child.StopRequestCount == 1, "SIGTERM to be sent");
+
+        stopping.IsCompleted.Should().BeFalse();
+        child.KillCount.Should().Be(0, "slskd gets its grace first");
+
+        await harness.AdvanceUntilAsync(() => stopping.IsCompleted, TimeSpan.FromSeconds(1), 20, "the stop to finish");
+        (harness.Time.GetUtcNow() - stopStarted).Should().BeLessThan(TimeSpan.FromSeconds(6));
+        await stopping;
+
+        child.KillCount.Should().Be(1);
+        child.LastKillWasTreeWide.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Switching_to_external_stops_the_bundled_slskd_at_once_and_back_starts_it_again()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        var first = harness.Launcher.Latest;
+
+        // No fake time passes: the switch is not debounced.
+        harness.RaiseOptionsChanged(WithMode(harness.Options, SoulseekMode.External));
+        await SlskdHostHarness.AwaitAsync(() => first.HasExited, "the bundled slskd to be stopped");
+
+        first.StopRequestCount.Should().Be(1, "through SIGTERM, as a settings restart does");
+        harness.Launcher.Count.Should().Be(1);
+
+        // Until the monitor's first poll the status says what is going on, not the bundled Running.
+        await SlskdHostHarness.AwaitAsync(() => harness.Status.Current.State == SlskdState.External, "the neutral status");
+        harness.Status.Current.ProcessId.Should().BeNull();
+        harness.Status.Current.LastError.Should().Be("switching to external slskd");
+
+        // The supervisor stays out of the status now; it is the monitor's.
+        var statusAfterSwitch = harness.Status.Current;
+        harness.Time.Advance(TimeSpan.FromMinutes(2));
+        await YieldAsync();
+        harness.Status.Current.Should().Be(statusAfterSwitch);
+        harness.Launcher.Count.Should().Be(1, "no replacement is started in external mode");
+
+        // And back: the supervisor loop starts slskd again, with no restart of Wondarr.
+        harness.RaiseOptionsChanged(WithMode(harness.Options, SoulseekMode.Bundled));
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 2, "the bundled slskd to start again");
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "the new slskd to answer");
+    }
+
+    [Fact]
+    public async Task Starting_in_external_mode_and_switching_to_bundled_starts_the_supervisor_loop()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Mode = SoulseekMode.External, Username = null, Password = null });
+
+        await harness.StartAsync();
+        await YieldAsync();
+
+        harness.Launcher.Count.Should().Be(0);
+        harness.Status.Current.State.Should().Be(SlskdState.NotConfigured, "the monitor owns the status in external mode");
+
+        harness.RaiseOptionsChanged(WithMode(harness.Options, SoulseekMode.Bundled));
+
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "the bundled slskd to start");
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to answer");
+    }
+
+    [Fact]
+    public async Task A_leftover_slskd_from_a_stale_pid_file_is_killed_before_the_new_one_starts()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        Directory.CreateDirectory(harness.Paths.SlskdDir);
+        var pidFile = Path.Combine(harness.Paths.SlskdDir, SlskdHost.PidFileName);
+        await File.WriteAllTextAsync(pidFile, "4242");
+        harness.Inspector.Processes[4242] = Path.GetFullPath(harness.Options.BinaryPath);
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
+
+        harness.Inspector.Killed.Should().Equal(4242);
+        (await File.ReadAllTextAsync(pidFile)).Should().Be(harness.Launcher.Latest.Id.ToString());
+
+        // A clean stop removes the file.
+        await harness.StopAsync();
+        File.Exists(pidFile).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_sigterm_that_cannot_be_sent_still_ends_in_a_tree_kill()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        var child = harness.Launcher.Latest;
+        child.RequestStopFailure = new DllNotFoundException("libc");
+        child.IgnoresStopRequest = true;
+
+        await harness.StopAsync();
+
+        child.StopRequestCount.Should().Be(1);
+        child.KillCount.Should().Be(1, "no signal was sent, so the kill is what stops it");
+        child.LastKillWasTreeWide.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_host_whose_shutdown_token_is_already_cancelled_kills_without_waiting()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to start");
+
+        var child = harness.Launcher.Latest;
+        child.IgnoresStopRequest = true;
+
+        using var expired = new CancellationTokenSource();
+        await expired.CancelAsync();
+
+        // No fake time passes: out of time means straight to the kill.
+        await harness.Host.StopAsync(expired.Token);
+
+        child.StopRequestCount.Should().Be(0, "no grace is spent when the budget is gone");
+        child.KillCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_stale_pid_that_runs_a_different_slskd_binary_is_left_alone()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        Directory.CreateDirectory(harness.Paths.SlskdDir);
+        await File.WriteAllTextAsync(Path.Combine(harness.Paths.SlskdDir, SlskdHost.PidFileName), "4444");
+        harness.Inspector.Processes[4444] = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "somebody-elses", "slskd"));
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
+
+        harness.Inspector.Killed.Should().BeEmpty("it is not the binary Wondarr is configured to run");
+    }
+
+    [Fact]
+    public async Task A_bare_slskd_name_is_accepted_when_the_path_cannot_be_read()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        Directory.CreateDirectory(harness.Paths.SlskdDir);
+        await File.WriteAllTextAsync(Path.Combine(harness.Paths.SlskdDir, SlskdHost.PidFileName), "4545");
+        harness.Inspector.Processes[4545] = "slskd";
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
+
+        harness.Inspector.Killed.Should().Equal(4545);
+    }
+
+    [Fact]
+    public async Task A_live_pid_that_cannot_be_identified_is_left_alone_and_the_pid_file_is_kept()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        Directory.CreateDirectory(harness.Paths.SlskdDir);
+        var pidFile = Path.Combine(harness.Paths.SlskdDir, SlskdHost.PidFileName);
+        await File.WriteAllTextAsync(pidFile, "4646");
+        harness.Inspector.Processes[4646] = null;
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
+
+        harness.Inspector.Killed.Should().BeEmpty();
+        harness.Inspector.Processes.Should().ContainKey(4646);
+        harness.Logs.For(typeof(SlskdHost).FullName!).Should().Contain(record =>
+            record.Level == LogLevel.Warning && record.Message.Contains("4646"));
+    }
+
+    [Fact]
+    public async Task A_pid_that_is_not_slskd_is_left_alone()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        Directory.CreateDirectory(harness.Paths.SlskdDir);
+        var pidFile = Path.Combine(harness.Paths.SlskdDir, SlskdHost.PidFileName);
+        await File.WriteAllTextAsync(pidFile, "4343");
+        harness.Inspector.Processes[4343] = "/usr/bin/dotnet";
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
+
+        harness.Inspector.Killed.Should().BeEmpty("the pid was reused by something that is not ours");
+        harness.Inspector.Processes.Should().ContainKey(4343);
+        (await File.ReadAllTextAsync(pidFile)).Should().Be(harness.Launcher.Latest.Id.ToString());
+    }
+
+    [Fact]
+    public async Task A_stale_pid_with_no_process_is_just_dropped()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        Directory.CreateDirectory(harness.Paths.SlskdDir);
+        await File.WriteAllTextAsync(Path.Combine(harness.Paths.SlskdDir, SlskdHost.PidFileName), "999999");
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
+
+        harness.Inspector.Killed.Should().BeEmpty();
+    }
+
+    /// <summary>Lets the supervisor's continuations run, without sleeping, before a "nothing happened" check.</summary>
+    private static async Task YieldAsync()
+    {
+        for (var index = 0; index < 100; index++)
+        {
+            await Task.Yield();
+        }
+    }
+
+    private static SoulseekOptions WithMode(SoulseekOptions source, SoulseekMode mode) => new()
+    {
+        Mode = mode,
+        Username = source.Username,
+        Password = source.Password,
+        BinaryPath = source.BinaryPath,
+        DownloadsDir = source.DownloadsDir,
+        IncompleteDir = source.IncompleteDir,
+        SharedFolders = [.. source.SharedFolders],
+        External = new SoulseekExternalOptions { Url = "http://slskd.example:5030", ApiKey = "external-key-0123456789abcdef" },
+    };
 
     /// <summary>A copy of <paramref name="source"/> with a Soulseek account configured.</summary>
     private static SoulseekOptions WithCredentials(SoulseekOptions source)
@@ -284,7 +637,7 @@ public class SlskdHostTests
             "the debounced restart");
 
         (await harness.ReadConfigAsync()).Should().Contain("username: wondarr-soulseek");
-        harness.Launcher.Launches[0].Process.KillCount.Should().Be(1);
+        harness.Launcher.Launches[0].Process.StopRequestCount.Should().Be(1, "slskd is asked to stop first");
     }
 
     [Fact]
@@ -348,7 +701,7 @@ public class SlskdHostTests
             // tries again (and fails again), rather than the host stopping in a restart loop.
             var firstAttemptAt = status.LastCheckedAt;
             harness.Time.Advance(TimeSpan.FromSeconds(4));
-            await Task.Delay(50);
+            await YieldAsync();
             harness.Status.Current.LastCheckedAt.Should().Be(firstAttemptAt, "the backoff has not elapsed yet");
 
             // Under load the host may register its backoff timer only after the clock was advanced,
@@ -530,7 +883,7 @@ public class SlskdHostTests
             "the pending settings to be re-applied");
 
         (await harness.ReadConfigAsync()).Should().Contain("username: wondarr-soulseek");
-        harness.Launcher.Launches[0].Process.KillCount.Should().Be(1);
+        harness.Launcher.Launches[0].Process.StopRequestCount.Should().Be(1, "slskd is asked to stop first");
 
         await SlskdHostHarness.AwaitAsync(
             () => harness.Status.Current.State == SlskdState.Running,

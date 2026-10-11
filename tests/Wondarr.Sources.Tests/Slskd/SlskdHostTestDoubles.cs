@@ -23,7 +23,31 @@ internal sealed class FakeProcess : ILaunchedProcess
     /// <summary>Whether the last kill was asked to take the whole process tree with it.</summary>
     public bool LastKillWasTreeWide { get; private set; }
 
+    /// <summary>How many times the supervisor asked this process to stop (SIGTERM).</summary>
+    public int StopRequestCount { get; private set; }
+
+    /// <summary>When set, the process ignores SIGTERM, as a hung slskd would; only a kill ends it.</summary>
+    public bool IgnoresStopRequest { get; set; }
+
+    /// <summary>When set, <see cref="RequestStop"/> throws it, as a missing libc would.</summary>
+    public Exception? RequestStopFailure { get; set; }
+
     public event Action<string>? OutputLine;
+
+    public void RequestStop()
+    {
+        StopRequestCount++;
+
+        if (RequestStopFailure is not null)
+        {
+            throw RequestStopFailure;
+        }
+
+        if (!IgnoresStopRequest)
+        {
+            ExitWith(143);
+        }
+    }
 
     /// <summary>Prints a line, as slskd would.</summary>
     public void Emit(string line) => OutputLine?.Invoke(line);
@@ -82,6 +106,29 @@ internal sealed class FakeProcessLauncher : IProcessLauncher
         Launches.Add(new LaunchRecord(request, process, _timeProvider.GetUtcNow()));
 
         return process;
+    }
+}
+
+/// <summary>Processes that exist outside the supervisor's own children: what a stale pid file can point at.</summary>
+internal sealed class FakeProcessInspector : IProcessInspector
+{
+    /// <summary>The live processes by pid, with the executable each runs.</summary>
+    public Dictionary<int, string?> Processes { get; } = [];
+
+    /// <summary>The pids that were killed.</summary>
+    public List<int> Killed { get; } = [];
+
+    public string? GetExecutable(int processId) => Processes.TryGetValue(processId, out var executable) ? executable : null;
+
+    /// <summary>A process whose entry is <see langword="null"/> exists but cannot be identified.</summary>
+    public bool IsRunning(int processId) => Processes.ContainsKey(processId);
+
+    public Task<bool> KillTreeAsync(int processId, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        Killed.Add(processId);
+        Processes.Remove(processId);
+
+        return Task.FromResult(true);
     }
 }
 

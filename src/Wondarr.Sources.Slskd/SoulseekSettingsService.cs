@@ -23,7 +23,7 @@ namespace Wondarr.Sources.Slskd;
 /// camelCase names of the fields the environment sets through <c>APP__SOULSEEK__…</c>. The
 /// environment wins over the file, so the UI shows these as read-only.
 /// </param>
-/// <param name="Mode"><c>bundled</c> or <c>external</c>; a change takes effect when Wondarr restarts.</param>
+/// <param name="Mode"><c>bundled</c> or <c>external</c>; a change takes effect at once.</param>
 /// <param name="ExternalUrl">The user's own slskd, in external mode.</param>
 /// <param name="ExternalApiKeySet">Whether an API key for it is stored. Never the key itself.</param>
 /// <param name="ExternalWebUsername">The web login for slskd's YAML options API, if stored.</param>
@@ -94,12 +94,10 @@ public sealed record SoulseekSettingsUpdate(
 /// Whether the change is one the supervisor will restart slskd for. Informational: the supervisor
 /// decides for itself, this is what the UI tells the user.
 /// </param>
-/// <param name="RestartsWondarr">Whether the change (a new mode) takes effect only when Wondarr restarts.</param>
 public sealed record SoulseekSettingsUpdateResult(
     bool Success,
     IReadOnlyList<string> Errors,
-    bool RestartsSlskd,
-    bool RestartsWondarr = false);
+    bool RestartsSlskd);
 
 /// <summary>
 /// Reads and writes the <c>soulseek</c> section of <c>config.yml</c> for the settings page.
@@ -306,7 +304,6 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
         var restarts = candidate.Mode == SoulseekMode.Bundled
             && current.Mode == SoulseekMode.Bundled
             && SlskdRestartPolicy.RequiresRestart(current, candidate);
-        var restartsWondarr = candidate.Mode != current.Mode;
 
         if (changes.Count > 0)
         {
@@ -317,7 +314,7 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
             LogUpdated(_logger, keys);
         }
 
-        return new SoulseekSettingsUpdateResult(true, [], restarts, restartsWondarr);
+        return new SoulseekSettingsUpdateResult(true, [], restarts);
     }
 
     /// <summary>
