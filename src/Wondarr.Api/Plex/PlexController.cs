@@ -1,3 +1,4 @@
+using Wondarr.Core.Notifications;
 using Wondarr.Core.Plex;
 using Microsoft.AspNetCore.Mvc;
 
@@ -156,11 +157,17 @@ public sealed class PlexController : ControllerBase
     {
         try
         {
-            await _plex.SelectServerAsync(resource.ServerUrl, cancellationToken).ConfigureAwait(false);
+            await _plex.SelectServerAsync(resource.ServerUrl, resource.Token, cancellationToken).ConfigureAwait(false);
 
             var state = await _plex.GetStateAsync(cancellationToken).ConfigureAwait(false);
 
             return Ok(PlexStateResource.From(state));
+        }
+        catch (SecretReentryException exception)
+        {
+            ModelState.AddModelError(exception.Field, exception.Message);
+
+            return ValidationProblem(ModelState);
         }
         catch (ArgumentException exception)
         {

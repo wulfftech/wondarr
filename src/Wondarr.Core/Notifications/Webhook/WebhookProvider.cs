@@ -61,7 +61,7 @@ public sealed partial class WebhookProvider : INotificationProvider
     /// <inheritdoc />
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
-        new("url", "URL", "url", Required: true, HelpText: "Where the JSON body is sent."),
+        new("url", "URL", "url", Required: true, HelpText: "Where the JSON body is sent.", Target: true),
         new(
             "method",
             "Method",

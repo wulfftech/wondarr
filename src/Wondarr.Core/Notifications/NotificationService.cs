@@ -136,10 +136,12 @@ public sealed partial class NotificationService : INotificationService
 
         var provider = await ValidateAsync(draft, excludingId: id, cancellationToken).ConfigureAwait(false);
 
+        var settings = MergeSettings(draft.Settings, notification.Settings, provider.Fields);
+
         notification.Name = draft.Name.Trim();
         notification.Type = provider.Implementation;
         notification.Enabled = draft.Enabled;
-        notification.Settings = NotificationSecrets.Merge(draft.Settings, notification.Settings, provider.Fields);
+        notification.Settings = settings;
         notification.Events = JsonSerializer.Serialize(draft.Events);
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -282,9 +284,25 @@ public sealed partial class NotificationService : INotificationService
             return draft.Settings;
         }
 
-        var merged = NotificationSecrets.Merge(draft.Settings, stored.Settings, provider.Fields);
+        var merged = MergeSettings(draft.Settings, stored.Settings, provider.Fields);
 
         return NotificationSecrets.Read(merged);
+    }
+
+    /// <summary>
+    /// Keeps the stored secrets a masked draft stands for, for the target they were saved for. A
+    /// secret whose address changed is refused as a validation failure on that secret's field.
+    /// </summary>
+    private static string MergeSettings(JsonElement incoming, string stored, IReadOnlyList<NotificationField> fields)
+    {
+        try
+        {
+            return NotificationSecrets.Merge(incoming, stored, fields);
+        }
+        catch (SecretReentryException exception)
+        {
+            throw new NotificationValidationException(exception.Field, exception.Message);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Saved notification {Id} ({Type})")]

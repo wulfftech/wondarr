@@ -126,6 +126,9 @@ public sealed partial class BackupService : IBackupService
 
         try
         {
+            // SQLite would create the copy with the umask's mode, and it holds every stored secret.
+            OwnerOnlyFile.EnsureExists(temporaryDatabase);
+
             // The online backup API is the only consistent way to copy a WAL database: it reads
             // through SQLite, so the copy includes the writes that are still in the write-ahead log.
             // The temporary copy is not pooled, so the file can be deleted as soon as it is closed.
@@ -146,7 +149,7 @@ public sealed partial class BackupService : IBackupService
                 source.BackupDatabase(destination);
             }
 
-            using (var archive = new ZipArchive(File.Create(temporaryZip), ZipArchiveMode.Create))
+            using (var archive = new ZipArchive(OwnerOnlyFile.Create(temporaryZip), ZipArchiveMode.Create))
             {
                 await WriteEntryAsync(archive, DatabaseEntryName, temporaryDatabase, cancellationToken)
                     .ConfigureAwait(false);
@@ -336,7 +339,7 @@ public sealed partial class BackupService : IBackupService
 
         try
         {
-            await using (var buffer = File.Create(temporaryZip))
+            await using (var buffer = OwnerOnlyFile.Create(temporaryZip))
             {
                 await zip.CopyToAsync(buffer, CopyBufferSize, cancellationToken).ConfigureAwait(false);
             }
@@ -461,7 +464,7 @@ public sealed partial class BackupService : IBackupService
         long total = 0;
 
         await using (var source = entry.Open())
-        await using (var target = File.Create(destination))
+        await using (var target = OwnerOnlyFile.Create(destination))
         {
             int read;
 

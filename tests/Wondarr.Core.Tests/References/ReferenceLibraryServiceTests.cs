@@ -346,6 +346,61 @@ public class ReferenceLibraryServiceTests : IDisposable
         await add.Should().ThrowAsync<ReferenceLibraryValidationException>();
     }
 
+    // Owner question 5: a reference library may not be the file system root, Wondarr's data directory
+    // or anything inside it. The recycle bin is moved out of the way so its own rule does not answer first.
+    [Theory]
+    [InlineData("config")]
+    [InlineData("inside")]
+    [InlineData("root")]
+    public async Task A_root_that_is_the_data_directory_or_inside_it_or_the_file_system_root_is_refused(string which)
+    {
+        await using var context = await ContextAsync();
+        var root = which switch
+        {
+            "config" => ConfigDir,
+            "inside" => Path.Combine(ConfigDir, "backups"),
+            _ => Path.GetPathRoot(ConfigDir)!,
+        };
+        var input = new ReferenceLibraryInput("Mine", root, ReferenceLibraryMode.Reference, null, true);
+
+        var add = async () => await Service(context, recycleBin: Path.GetFullPath("/elsewhere-bin")).AddAsync(input, CancellationToken.None);
+
+        var exception = await add.Should().ThrowAsync<ReferenceLibraryValidationException>();
+        exception.Which.Field.Should().Be("rootPath");
+
+        // A root above the recycle bin is also refused by the bin's own rule, which answers first.
+        if (which != "root")
+        {
+            exception.Which.Detail.Should().StartWith("rootPath ").And.Contain("Wondarr keeps its API key");
+        }
+    }
+
+    [Fact]
+    public async Task A_library_already_inside_the_data_directory_stays_editable_until_its_root_moves()
+    {
+        await using var context = await ContextAsync();
+        var inside = Path.Combine(ConfigDir, "old-collection");
+        var bin = Path.GetFullPath("/elsewhere-bin");
+
+        context.ReferenceLibraries.Add(new ReferenceLibrary { Name = "Old", RootPath = inside, Mode = ReferenceLibraryMode.Reference, Enabled = true });
+        await context.SaveChangesAsync();
+        var id = (await context.ReferenceLibraries.SingleAsync()).Id;
+
+        var renamed = await Service(context, bin).UpdateAsync(
+            id,
+            new ReferenceLibraryInput("Renamed", inside, ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        renamed!.Library.Name.Should().Be("Renamed");
+
+        var moved = async () => await Service(context, bin).UpdateAsync(
+            id,
+            new ReferenceLibraryInput("Renamed", Path.Combine(ConfigDir, "another"), ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        await moved.Should().ThrowAsync<ReferenceLibraryValidationException>();
+    }
+
     // --- Helpers --------------------------------------------------------------------------------
 
     private static readonly string ConfigDir = Path.GetFullPath("/wondarr-test-config");

@@ -59,6 +59,7 @@ public sealed record IndexerInputResource(
 /// <param name="Options">The choices of a select, or <see langword="null"/>.</param>
 /// <param name="Secret">Whether the value is masked on read.</param>
 /// <param name="Advanced">Whether the control belongs in the advanced section.</param>
+/// <param name="Target">Whether the value says where secrets are sent; changing it means a masked secret must be typed again.</param>
 public sealed record IndexerFieldResource(
     string Name,
     string Label,
@@ -67,7 +68,8 @@ public sealed record IndexerFieldResource(
     string? HelpText,
     IReadOnlyList<string>? Options,
     bool Secret,
-    bool Advanced);
+    bool Advanced,
+    bool Target);
 
 /// <summary>
 /// One registered indexer type and the form it wants. <see cref="Protocol"/> is the type's fixed
@@ -95,7 +97,7 @@ internal static class IndexerResourceMapper
 
         var settings = NotificationSecrets.Masked(
             NotificationSecrets.Read(indexer.Settings),
-            type?.Fields ?? []);
+            type?.Fields);
 
         return new IndexerResource(
             indexer.Id,

@@ -81,7 +81,8 @@ public sealed class ImportListController : ControllerBase
                     field.HelpText,
                     field.Options,
                     field.Secret,
-                    field.Advanced))]))
+                    field.Advanced,
+                    field.Target))]))
             .ToList());
 
     /// <summary>Creates a synced list. Nothing is read until it is synced.</summary>

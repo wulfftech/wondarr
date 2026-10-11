@@ -122,6 +122,7 @@ public sealed class LibraryService : ILibraryService
         if (!PathRules.AreEqual(stored.RootPath, library.RootPath))
         {
             errors.AddRange(RecycleBinErrors(library.RootPath));
+            errors.AddRange(ProtectedRootErrors(library.RootPath));
         }
 
         if (!PathRules.AreEqual(stored.RootPath, library.RootPath)
@@ -201,6 +202,7 @@ public sealed class LibraryService : ILibraryService
         var errors = await ValidateAsync(library, new Library(), cancellationToken).ConfigureAwait(false);
         errors.AddRange(await RootOverlapErrorsAsync(library.RootPath, excludeId: null, cancellationToken).ConfigureAwait(false));
         errors.AddRange(RecycleBinErrors(library.RootPath));
+        errors.AddRange(ProtectedRootErrors(library.RootPath));
 
         if (errors.Count > 0)
         {
@@ -338,6 +340,23 @@ public sealed class LibraryService : ILibraryService
             {
                 errors.Add(("rootPath", $"rootPath overlaps the reference library '{reference.Name}'."));
             }
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// A root that is the file system root, Wondarr's data directory or inside it is refused: that
+    /// directory holds the API key, the passwords and the database, and a library there would have
+    /// its files organised, shared and deleted among them.
+    /// </summary>
+    private List<(string Property, string Message)> ProtectedRootErrors(string rootPath)
+    {
+        var errors = new List<(string Property, string Message)>();
+
+        if (_paths is not null && ProtectedPaths.Reason(rootPath, _paths) is { } reason)
+        {
+            errors.Add(("rootPath", $"rootPath {reason}, where Wondarr keeps its API key, passwords and database."));
         }
 
         return errors;

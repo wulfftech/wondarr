@@ -1,3 +1,4 @@
+using Wondarr.Core.Configuration;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -14,6 +15,22 @@ namespace Wondarr.Sources.Slskd;
 /// </remarks>
 public sealed class SlskdConfigRenderer
 {
+    /// <summary>
+    /// The folders to hand to slskd: the configured ones, minus any that would share Wondarr's own
+    /// data directory (see <see cref="ProtectedPaths"/>). A configuration that already holds one still
+    /// loads; the health check names it.
+    /// </summary>
+    /// <param name="options">The Soulseek settings.</param>
+    /// <param name="dataPaths">Where the data directory is, or <see langword="null"/> to withhold nothing.</param>
+    public static IEnumerable<string> SharedFolders(SoulseekOptions options, WondarrPaths? dataPaths)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        return dataPaths is null
+            ? options.SharedFolders
+            : options.SharedFolders.Where(folder => ProtectedPaths.Reason(folder, dataPaths, includeParents: true) is null);
+    }
+
     /// <summary>Address slskd binds; loopback only, because Wondarr proxies everything.</summary>
     public const string LoopbackAddress = "127.0.0.1";
 
@@ -56,7 +73,12 @@ public sealed class SlskdConfigRenderer
     /// Where slskd should call Wondarr when a file finishes, or <c>null</c> to render no webhook
     /// integration at all (completion is still detected by polling).
     /// </param>
-    public string Render(SoulseekOptions options, SlskdRuntimeSecrets secrets, string? webhookUrl)
+    /// <param name="dataPaths">
+    /// Where Wondarr's data directory is. A shared folder that is the file system root, that directory
+    /// or inside it is left out, because slskd would publish the API key and the passwords. Without it,
+    /// every shared folder is rendered.
+    /// </param>
+    public string Render(SoulseekOptions options, SlskdRuntimeSecrets secrets, string? webhookUrl, WondarrPaths? dataPaths = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(secrets);
@@ -106,7 +128,7 @@ public sealed class SlskdConfigRenderer
             },
             Shares = new SlskdShares
             {
-                Directories = options.ShareLibrary ? [.. options.SharedFolders] : [],
+                Directories = options.ShareLibrary ? [.. SharedFolders(options, dataPaths)] : [],
             },
             Transfers = new SlskdTransfers
             {

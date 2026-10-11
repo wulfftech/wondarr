@@ -39,7 +39,7 @@ import { useLibraries, useQualityProfiles, readEnum, ValidationError } from '../
 import { useCommand, type CommandStatusName, type ImportListResource } from '../../api/songs';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 import { formatDuration } from '../../components/SongCells';
-import { initialValues, SettingsField, wireValue } from '../../components/SchemaFields';
+import { initialValues, SettingsField, targetOf, wireValue } from '../../components/SchemaFields';
 
 /**
  * Settings → Import lists (ARCHITECTURE §5.8): the sources Wondarr watches — a playlist, an uploaded
@@ -159,6 +159,9 @@ function ImportListForm({
   const isCsv = provider.type === 'csv';
 
   const serverFields = save.error instanceof ValidationError ? save.error.fields : {};
+
+  // A secret is reused only for the address it was saved for: once the address differs it is typed again.
+  const reenter = targetOf(provider.fields, values) !== targetOf(provider.fields, initial.values);
   const general = Object.entries(serverFields).filter(
     ([field]) =>
       field !== 'name' &&
@@ -264,6 +267,7 @@ function ImportListForm({
               field={field}
               value={values[field.name]}
               masked={masked.has(field.name)}
+              reenter={reenter}
               error={serverFields[field.name]}
               onChange={(next) => setValue(field, next)}
             />
@@ -280,6 +284,7 @@ function ImportListForm({
                 field={field}
                 value={values[field.name]}
                 masked={masked.has(field.name)}
+                reenter={reenter}
                 error={serverFields[field.name]}
                 onChange={(next) => setValue(field, next)}
               />

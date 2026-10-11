@@ -378,6 +378,31 @@ public sealed class PlexApiTests
         queryBody!.ToJsonString().Should().NotContain("X-Plex-Token");
     }
 
+    // R-038: the stored account token goes only to an address it belongs to.
+    [Fact]
+    public async Task Selecting_an_address_plex_tv_does_not_list_needs_the_token_in_the_request()
+    {
+        var server = ServerClient();
+        using var factory = Factory(Tv(), server);
+        using var api = new Session(factory);
+        await SignInAsync(api);
+
+        var (refused, body) = await api.PutAsync($"{Endpoint}/server", new { serverUrl = "https://attacker.example:32400" });
+
+        refused.Should().Be(HttpStatusCode.BadRequest);
+        body!["errors"]!["token"]![0]!.GetValue<string>().Should().Be("Enter the Plex token again: the address changed.");
+        await server.DidNotReceive().GetIdentityAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        api.AssertNoSecret(Token, ServerToken);
+
+        var (accepted, _) = await api.PutAsync(
+            $"{Endpoint}/server",
+            new { serverUrl = "https://proxy.example/plex", token = "token-for-the-proxy" });
+
+        accepted.Should().Be(HttpStatusCode.OK);
+        await server.Received().GetIdentityAsync(Arg.Any<Uri>(), "token-for-the-proxy", Arg.Any<CancellationToken>());
+        api.AssertNoSecret("token-for-the-proxy");
+    }
+
     [Fact]
     public async Task An_unreachable_server_is_a_bad_gateway_carrying_plexs_reason()
     {

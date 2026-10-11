@@ -505,6 +505,22 @@ public sealed partial class ImportListService : IImportListService
         return counts;
     }
 
+    /// <summary>
+    /// Keeps the stored secrets a masked draft stands for, for the target they were saved for. A
+    /// secret whose address changed is refused as a validation failure on that secret's field.
+    /// </summary>
+    private static string MergeSettings(JsonElement incoming, string? stored, IReadOnlyList<NotificationField> fields)
+    {
+        try
+        {
+            return NotificationSecrets.Merge(incoming, stored, fields);
+        }
+        catch (SecretReentryException exception)
+        {
+            throw new ImportListValidationException(exception.Field, exception.Message);
+        }
+    }
+
     private async Task ApplyAsync(
         ImportList list,
         ImportListDraft draft,
@@ -527,7 +543,7 @@ public sealed partial class ImportListService : IImportListService
         var settingsJson = draft.Settings.ValueKind switch
         {
             JsonValueKind.Undefined or JsonValueKind.Null => storedSettings ?? "{}",
-            JsonValueKind.Object => NotificationSecrets.Merge(draft.Settings, storedSettings, provider.Fields),
+            JsonValueKind.Object => MergeSettings(draft.Settings, storedSettings, provider.Fields),
             _ => throw new ImportListValidationException("settings", "settings must be a JSON object."),
         };
 

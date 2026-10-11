@@ -29,7 +29,8 @@ usermod -o -u "$PUID" wondarr
 
 mkdir -p /config /config/logs /config/slskd
 # Re-own only what does not already match, so a changed PUID/PGID also covers wondarr.db and
-# config.yml from an earlier run, without rewriting every file on each start.
-find /config -xdev \( ! -user wondarr -o ! -group wondarr \) -exec chown wondarr:wondarr {} +
+# config.yml from an earlier run, without rewriting every file on each start. chown -h re-owns a
+# symlink itself and never follows it: root must not chown whatever a link under /config points at.
+find /config -xdev \( ! -user wondarr -o ! -group wondarr \) -exec chown -h wondarr:wondarr {} +
 
 echo "init-wondarr-user: wondarr now runs as uid $(id -u wondarr), gid $(id -g wondarr)"

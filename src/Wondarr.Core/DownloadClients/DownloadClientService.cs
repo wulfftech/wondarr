@@ -200,12 +200,14 @@ public sealed partial class DownloadClientService : IDownloadClientService
 
         var type = Validate(draft);
 
+        var settings = MergeSettings(draft.Settings, client.Settings, type.Fields);
+
         client.Name = draft.Name.Trim();
         client.Type = type.Type;
         client.Protocol = type.Protocol;
         client.Enabled = draft.Enabled;
         client.Priority = draft.Priority;
-        client.Settings = NotificationSecrets.Merge(draft.Settings, client.Settings, type.Fields);
+        client.Settings = settings;
 
         RegisterSecrets(client);
 
@@ -336,9 +338,25 @@ public sealed partial class DownloadClientService : IDownloadClientService
             return draft.Settings;
         }
 
-        var merged = NotificationSecrets.Merge(draft.Settings, stored.Settings, type.Fields);
+        var merged = MergeSettings(draft.Settings, stored.Settings, type.Fields);
 
         return NotificationSecrets.Read(merged);
+    }
+
+    /// <summary>
+    /// Keeps the stored secrets a masked draft stands for, for the target they were saved for. A
+    /// secret whose address changed is refused as a validation failure on that secret's field.
+    /// </summary>
+    private static string MergeSettings(JsonElement incoming, string stored, IReadOnlyList<NotificationField> fields)
+    {
+        try
+        {
+            return NotificationSecrets.Merge(incoming, stored, fields);
+        }
+        catch (SecretReentryException exception)
+        {
+            throw new DownloadClientValidationException(exception.Field, exception.Message);
+        }
     }
 
     /// <summary>Tells the log pipeline about every secret value the row stores, so it can redact them.</summary>

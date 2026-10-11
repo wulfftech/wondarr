@@ -116,6 +116,10 @@ internal sealed class PlexConnectionHarness : IDisposable
     public Task<PlexConnectionSettings?> ReadSettingsAsync() =>
         NewRepository().GetAsync<PlexConnectionSettings>(PlexConnectionService.SettingKey, CancellationToken.None);
 
+    /// <summary>Stores settings as they are, for a test that needs a state the service would not write.</summary>
+    public Task WriteSettingsAsync(PlexConnectionSettings settings) =>
+        NewRepository().SetAsync(PlexConnectionService.SettingKey, settings, CancellationToken.None);
+
     public void Dispose()
     {
         foreach (var context in _contexts)
