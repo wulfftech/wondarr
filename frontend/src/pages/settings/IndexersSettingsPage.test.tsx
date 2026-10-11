@@ -162,6 +162,51 @@ describe('IndexersSettingsPage', () => {
     expect(await lastRequest('PUT', '/api/v1/indexer/1')).toMatchObject({ settings: { apiKey: '********' } });
   });
 
+  it('marks the stored key as required once the address changes, and not for a new path on the same host', async () => {
+    const user = userEvent.setup();
+    install();
+    renderApp();
+
+    await user.click(within(await row('Prowlarr torrents')).getByRole('button', { name: 'Edit' }));
+    const dialog = screen.getByRole('dialog');
+    const url = within(dialog).getByLabelText(/^URL/);
+
+    expect(within(dialog).getByLabelText('API key')).toBeInTheDocument();
+
+    await user.clear(url);
+    await user.type(url, 'http://PROWLARR:9696/other/path');
+    expect(within(dialog).getByLabelText('API key')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Enter it again: the address changed.')).not.toBeInTheDocument();
+
+    await user.clear(url);
+    await user.type(url, 'http://attacker.example/');
+    expect(within(dialog).getByLabelText('API key *')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Enter it again: the address changed\./)).toBeInTheDocument();
+  });
+
+  it('shows the refusal on the key field when the server will not reuse the stored key', async () => {
+    const user = userEvent.setup();
+    install({
+      test: () =>
+        jsonResponse(
+          {
+            title: 'One or more validation errors occurred.',
+            status: 400,
+            errors: { apiKey: ['Enter the API key again: the address changed.'] },
+          },
+          400,
+        ),
+    });
+    renderApp();
+
+    await user.click(within(await row('Prowlarr torrents')).getByRole('button', { name: 'Edit' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Test' }));
+
+    // Once on the key field, once in the test line.
+    expect(await within(dialog).findAllByText('Enter the API key again: the address changed.')).toHaveLength(2);
+  });
+
   it('shows the test result: connected, or the indexer error', async () => {
     const user = userEvent.setup();
     let success = true;

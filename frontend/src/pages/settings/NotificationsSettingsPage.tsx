@@ -32,7 +32,7 @@ import {
 } from '../../api/notifications';
 import { ValidationError } from '../../api/profiles';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
-import { initialValues, SettingsField, wireValue } from '../../components/SchemaFields';
+import { initialValues, SettingsField, targetOf, wireValue } from '../../components/SchemaFields';
 
 /**
  * Settings → Notifications (ARCHITECTURE §5.7): the endpoints Wondarr tells when something happens,
@@ -84,6 +84,9 @@ function NotificationForm({
 
   const serverFields = save.error instanceof ValidationError ? save.error.fields : {};
   const testFields = test.error instanceof ValidationError ? test.error.fields : {};
+
+  // A secret is reused only for the address it was saved for: once the address differs it is typed again.
+  const reenter = targetOf(schema.fields, values) !== targetOf(schema.fields, initial.values);
   const general = Object.entries(serverFields).filter(
     ([field]) => field !== 'name' && field !== 'settings' && !schema.fields.some((one) => one.name === field),
   );
@@ -163,7 +166,8 @@ function NotificationForm({
           field={field}
           value={values[field.name]}
           masked={masked.has(field.name)}
-          error={serverFields[field.name]}
+          reenter={reenter}
+          error={serverFields[field.name] ?? testFields[field.name]}
           onChange={(next) => setValue(field, next)}
         />
       ))}
@@ -178,7 +182,8 @@ function NotificationForm({
                 field={field}
                 value={values[field.name]}
                 masked={masked.has(field.name)}
-                error={serverFields[field.name]}
+                reenter={reenter}
+                error={serverFields[field.name] ?? testFields[field.name]}
                 onChange={(next) => setValue(field, next)}
               />
             ))}

@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { useApiClient } from './context';
 import { ApiError } from './errors';
+import { validationFields } from './profiles';
 import type { components } from './schema';
 
 /** The bundled slskd's account, sharing and transfer settings, and what it is doing right now. */
@@ -220,10 +221,13 @@ export function useTestSoulseekConnection(): UseMutationResult<
 
   return useMutation({
     mutationFn: async (body: SoulseekConnectionTestResource): Promise<SoulseekConnectionTestResultResource> => {
-      const { data, response } = await client.POST('/api/v1/soulseek/test', { body });
+      const { data, error, response } = await client.POST('/api/v1/soulseek/test', { body });
 
       if (!response.ok || data === undefined) {
-        throw new ApiError(response.status, 'The connection test could not run.');
+        // A refused key (the stored one is not sent to another address) is a validation problem: say what it says.
+        const field = Object.values(validationFields(error))[0];
+
+        throw new ApiError(response.status, field ?? 'The connection test could not run.');
       }
 
       return data;

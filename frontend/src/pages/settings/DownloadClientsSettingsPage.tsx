@@ -30,7 +30,7 @@ import {
 } from '../../api/downloadClients';
 import { ValidationError } from '../../api/profiles';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
-import { initialValues, SettingsField, wireValue, type PairLabels } from '../../components/SchemaFields';
+import { initialValues, SettingsField, targetOf, wireValue, type PairLabels } from '../../components/SchemaFields';
 import { initCaps } from '../../components/text';
 
 /**
@@ -90,6 +90,10 @@ function DownloadClientForm({
   const [tested, setTested] = useState<{ success: boolean; error: string | null } | null>(null);
 
   const fields = save.error instanceof ValidationError ? save.error.fields : {};
+  const testFields = test.error instanceof ValidationError ? test.error.fields : {};
+
+  // A secret is reused only for the address it was saved for: once the address differs it is typed again.
+  const reenter = targetOf(schema.fields, values) !== targetOf(schema.fields, initial.values);
 
   const input = (id: number | undefined): DownloadClientInput => {
     const settings: Record<string, unknown> = {};
@@ -112,7 +116,11 @@ function DownloadClientForm({
     setTested(null);
     test.mutate(input(client === null ? undefined : Number(client.id)), {
       onSuccess: (result) => setTested({ success: result.success, error: result.error ?? null }),
-      onError: (error) => setTested({ success: false, error: error.message }),
+      onError: (error) =>
+        setTested({
+          success: false,
+          error: error instanceof ValidationError ? (Object.values(error.fields)[0] ?? error.message) : error.message,
+        }),
     });
   };
 
@@ -135,7 +143,8 @@ function DownloadClientForm({
       field={entry}
       value={values[entry.name]}
       masked={masked.has(entry.name)}
-      error={fields[entry.name]}
+      reenter={reenter}
+      error={fields[entry.name] ?? testFields[entry.name]}
       pairLabels={entry.name === 'remotePathMappings' ? MAPPING_LABELS : undefined}
       onChange={(next) => setValues((current) => ({ ...current, [entry.name]: next }))}
     />

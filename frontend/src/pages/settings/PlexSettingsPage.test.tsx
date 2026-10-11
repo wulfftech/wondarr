@@ -335,6 +335,49 @@ describe('PlexSettingsPage server', () => {
     });
   });
 
+  it('asks for a token when the address is not one plex.tv lists, and sends it with the retry', async () => {
+    let refuse = true;
+    install({
+      state: () => jsonResponse(PLEX_STATE_SIGNED_IN_UNSELECTED),
+      server: () =>
+        refuse
+          ? jsonResponse(
+              {
+                title: 'One or more validation errors occurred.',
+                status: 400,
+                errors: { token: ['Enter the Plex token again: the address changed.'] },
+              },
+              400,
+            )
+          : jsonResponse(PLEX_STATE_SIGNED_IN),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('No server selected');
+    await user.type(screen.getByLabelText('Server URL'), 'https://proxy.example.com/plex');
+    await user.click(screen.getByRole('button', { name: 'Use this server' }));
+
+    expect(await screen.findByText('Enter the Plex token again: the address changed.')).toBeInTheDocument();
+
+    refuse = false;
+    await user.type(screen.getByLabelText(/^Plex token/), 'token-for-the-proxy');
+    await user.click(screen.getByRole('button', { name: 'Use this server' }));
+
+    await waitFor(async () => {
+      const puts = sent().filter((request) => request.method === 'PUT' && request.url.includes('/api/v1/plex/server'));
+
+      // The first try carried no token; the retry carries the one the user typed.
+      expect(puts).toHaveLength(2);
+      expect(JSON.parse(await puts[0].body)).toEqual({ serverUrl: 'https://proxy.example.com/plex' });
+      expect(JSON.parse(await puts[1].body)).toEqual({
+        serverUrl: 'https://proxy.example.com/plex',
+        token: 'token-for-the-proxy',
+      });
+    });
+  });
+
   it('reports a connection test in one line', async () => {
     install({ state: () => jsonResponse(PLEX_STATE_SIGNED_IN) });
     const user = userEvent.setup();
