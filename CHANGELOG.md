@@ -4,6 +4,15 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+#### Changed
+- **Choosing a song's album now moves its file.** In Change album, a managed file is moved to the folder the naming template renders for the new album and retagged, with its lyrics and cover, and Plex is asked to scan the old and new folders. The dialog says "The file will be moved to the new album's folder" and follows the move until it finishes. `PUT /api/v1/song/{id}/albumcontext` returns the new `refileCommandId` (nothing is queued for a song with no file or only a reference file, which are never touched). While a Compact run has the song the choice is refused with a 409.
+- **Compact empties Plex's trash only when that is safe.** It leaves the trash alone, logs why and says so in the run's result when the scan was not seen to finish, when Plex's own "empty trash automatically" (`autoEmptyTrash`) is on, or when a folder of the Plex section cannot be confirmed present (missing, empty like an unmounted share, or not under any library or reference library root). Before, it emptied after a 10 minute timeout whatever Plex was doing.
+
+#### Fixed
+- **A compaction that fails can no longer block its library, and one that is cut short is finished.** A move that keeps failing is retried three times and then given up on: its file goes back where it came from (or stays, named in the log and the result) and the song points at it. A move whose song was deleted sends its staged file to the recycle bin. A song with a move in flight cannot be deleted (409). After a restart, Wondarr queues Compact for every library with unfinished moves, and a **Compaction** health warning names the library until they are done. Database writes after a file has moved are no longer cancelled by a shutdown, a file an interrupted run had already placed is found and recorded, and a placement that reports an error after putting the file down is recorded as placed.
+- **Choosing an album during a compaction is no longer overwritten.** The choice is refused until the run finishes, and a run never applies its plan over an album you pinned after it was made.
+- **"Adopt now" beside a scan no longer copies every file twice.** It takes the same per-library gate as the scan, and adoption holds each song's file lock while it files the copy.
+
 ## [0.1.0] — 2026-10-10
 
 The first public release: every phase of the plan (0–8) is in. Install: `docker pull ghcr.io/wulfftech/wondarr:0.1.0` (linux/amd64, linux/arm64); documentation at https://wulfftech.github.io/wondarr/.
