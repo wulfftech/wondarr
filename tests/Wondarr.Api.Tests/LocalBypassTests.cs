@@ -25,6 +25,11 @@ public sealed class LocalBypassTests : IDisposable
     [InlineData("X-Forwarded-Proto")]
     [InlineData("Via")]
     [InlineData("X-Original-For")]
+    [InlineData("X-Original-Proto")]
+    [InlineData("X-Original-Host")]
+    [InlineData("X-Forwarded-Prefix")]
+    [InlineData("CF-Connecting-IP")]
+    [InlineData("True-Client-IP")]
     public async Task Initialize_json_is_refused_when_a_private_address_request_carries_a_proxy_header(string header)
     {
         using var factory = Create();

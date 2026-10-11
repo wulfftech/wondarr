@@ -22,6 +22,7 @@ public sealed class LocalCallerRulesTests
     [InlineData("172.18.0.2")]
     [InlineData("[::1]")]
     [InlineData("[fd00::1]")]
+    [InlineData("[::ffff:192.168.1.1]")]
     [InlineData("mediaserver")]
     [InlineData("MediaServer")]
     [InlineData("nas.local")]
@@ -45,6 +46,10 @@ public sealed class LocalCallerRulesTests
     [InlineData("[2001:4860:4860::8888]")]
     [InlineData("1.2.3")]
     [InlineData("8")]
+    [InlineData("0x08080808")]
+    [InlineData("3dprinter")]
+    [InlineData("nas.lan.")]
+    [InlineData("[::ffff:8.8.8.8]")]
     [InlineData("com.")]
     [InlineData("other.example.com")]
     [InlineData("home.example.org")]
@@ -52,6 +57,10 @@ public sealed class LocalCallerRulesTests
     [InlineData("nas.example.com.evil.net")]
     public void A_public_or_unknown_host_is_not_local(string host) =>
         LocalCallerRules.IsLocalHost(host, Allowed).Should().BeFalse();
+
+    [Fact]
+    public void A_port_only_host_is_not_local() =>
+        LocalCallerRules.IsLocalCaller(ContextFor("192.168.1.20", ":5000"), new ServerOptions()).Should().BeFalse();
 
     [Fact]
     public void A_missing_host_is_not_local() =>
@@ -65,6 +74,11 @@ public sealed class LocalCallerRulesTests
     [InlineData("X-Forwarded-Proto")]
     [InlineData("Via")]
     [InlineData("X-Original-For")]
+    [InlineData("X-Original-Proto")]
+    [InlineData("X-Original-Host")]
+    [InlineData("X-Forwarded-Prefix")]
+    [InlineData("CF-Connecting-IP")]
+    [InlineData("True-Client-IP")]
     public void Each_proxy_header_makes_a_private_address_request_non_local(string header)
     {
         var context = ContextFor("192.168.1.20", "nas.lan");

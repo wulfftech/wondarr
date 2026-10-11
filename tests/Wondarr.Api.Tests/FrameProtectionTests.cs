@@ -42,6 +42,17 @@ public sealed class FrameProtectionTests : IDisposable
     }
 
     [Fact]
+    public async Task The_header_carries_the_normalised_origin()
+    {
+        using var factory = Create(("Server:FrameAncestors:0", "HTTPS://Dash.Example.LAN:443"));
+        using var client = factory.CreateClient(LocalAddress);
+
+        using var response = await client.GetAsync(new Uri("/", UriKind.Relative));
+
+        response.Headers.GetValues("Content-Security-Policy").Should().Equal("frame-ancestors 'self' https://dash.example.lan");
+    }
+
+    [Fact]
     public async Task The_login_page_is_protected_too()
     {
         using var factory = Create();
