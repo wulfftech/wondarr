@@ -89,6 +89,14 @@ Each fix comes with the test the review says is missing. The questions for each 
   - Q4: secrets stay masked for unregistered types (M-17);
   - Q5: `/` and the data directory are refused as shared, download and library folders (M-17).
 
+**Tranche 4 (2026-10-11):**
+- **Q25, cancelling a torrent song:** Wondarr records which torrents it added (M-18).
+  - A torrent it did not add is never removed and never has a file switched off.
+  - Its own torrent is removed, with data, only when nothing has downloaded and qBittorrent is not checking or moving it.
+- **Q26, the usenet job:** the code stays as it is. The job is deleted once its files are moved into staging. DECISIONS build session 8 #5 is corrected.
+- **Q27, minimum seeders:** Prowlarr gets the same filter as Torznab (M-18).
+- **R-082, passkeys in download links:** a link is kept only while a grab could still use it, then cleared, with a 24 h housekeeping backstop (M-18).
+
 **Not planned.** Two findings already reached by known backlog items are left there:
 
 - The Mirror delete with no busy check is the known "single song delete vs in-flight downloads" problem. Tranche 5 adds the guard on the Mirror caller only.
