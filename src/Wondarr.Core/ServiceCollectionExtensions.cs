@@ -72,6 +72,7 @@ public static class ServiceCollectionExtensions
         // DatabaseHealthCheck needs the scoped DbContext; the folder checks only need the paths.
         services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
         services.AddScoped<IHealthCheck, RecycleBinHealthCheck>();
+        services.AddScoped<IHealthCheck, CompactMoveHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
 
@@ -184,6 +185,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();
         services.AddScoped<ICommandHandler, CompactLibraryCommandHandler>();
         services.AddScoped<ICommandHandler, MoveSongsCommandHandler>();
+        services.AddScoped<ISongRefiler, SongRefiler>();
+        services.AddScoped<ICommandHandler, RefileSongCommandHandler>();
 
         // The weekly Backup task: one scheduled backup, then the retention pass.
         services.AddScoped<IBackupService, BackupService>();
@@ -322,6 +325,10 @@ public static class ServiceCollectionExtensions
         // Registered here rather than in AddWondarrPersistence so it starts after the migration
         // hosted service (hosted services start in registration order) and the command table exists.
         services.AddHostedService<CommandExecutor>();
+
+        // After the executor, which orphans the commands the last process left behind: what this queues
+        // for a compaction that a restart interrupted must not be orphaned in turn.
+        services.AddHostedService<CompactResumeHostedService>();
 
         return services;
     }

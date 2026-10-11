@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -21,9 +20,6 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
 {
     /// <summary>The name the <c>ReferenceLibraryScan</c> scheduled task queues.</summary>
     public const string CommandName = "ReferenceLibraryScan";
-
-    /// <summary>One gate per reference library, shared by every run of this command in the process.</summary>
-    private static readonly ConcurrentDictionary<long, SemaphoreSlim> Gates = new();
 
     /// <summary>The command bodies are camelCase, like every other JSON this app exchanges.</summary>
     private static readonly JsonSerializerOptions BodyJson = new()
@@ -61,7 +57,9 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
 
             // Two scans of one library never overlap (a scheduled scan of every library and a manual
             // scan of this one, say): the second waits here until the first has finished with it.
-            var gate = Gates.GetOrAdd(libraryId, _ => new SemaphoreSlim(1, 1));
+            // "Adopt now" takes the same gate (ReferenceLibraryGates), so it cannot run beside this
+            // scan's own adoption step either.
+            var gate = ReferenceLibraryGates.For(libraryId);
 
             await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 

@@ -36,11 +36,15 @@ Every song is tagged with exactly one album. The **Album policy** decides which 
 
 ### Sticky albums and your own choice
 
-An album assignment is sticky: adding a song never moves the songs already filed. To choose a song's album yourself, open its actions menu on the **Library** page and pick **Change album…**. Your choice is pinned, so the Compact task keeps it.
+An album assignment is sticky: adding a song never moves the songs already filed. To choose a song's album yourself, open its actions menu on the **Library** page and pick **Change album…**. Your choice is pinned, so the Compact task keeps it. A file Wondarr manages is moved to the new album's folder and retagged straight away (the dialog says so and follows the move); a file in a reference library is never touched. While a Compact run has the song, the choice, and deleting the song, are refused until it finishes.
 
 ## Compact library
 
-**Compact library…** (on the library's settings tab) re-plans every song's album under the current policy, as if the library were built today. It first shows a dry run: each song, where it is now and where it would go. Songs you placed on an album yourself are kept. If you confirm, files move to their new album folders and Plex is told to forget the old albums first, because Plex never reconsiders an album on a rescan. This scans the linked Plex library, and folders it empties are cleaned up. Run it only when you want the change; nothing compacts on its own.
+**Compact library…** (on the library's settings tab) re-plans every song's album under the current policy, as if the library were built today. It first shows a dry run: each song, where it is now and where it would go. Songs you placed on an album yourself are kept. If you confirm, files move to their new album folders and Plex is told to forget the old albums first, because Plex never reconsiders an album on a rescan. This scans the linked Plex library, and folders it empties are cleaned up. Run it only when you want the change; nothing starts a new compaction on its own.
+
+If Wondarr stops in the middle of a compaction, it finishes what was left when it starts again, but never plans anything new: files that were parked while Plex forgot them go back. A move that keeps failing is tried three times and then given up on, so one bad file never blocks the library; its file is put back where it was, or, if that is not possible, left where it is and named in the task's result, and **System → Status** shows a *Compaction* warning until you deal with it.
+
+Plex's trash is emptied only when every folder of the section is reachable and Plex has finished scanning; if Plex empties its own trash after every scan, or a folder looks unmounted, Wondarr leaves it alone and the task's result says so. Until you empty the trash in Plex, the moved songs show as unavailable there.
 
 ## Several libraries
 
