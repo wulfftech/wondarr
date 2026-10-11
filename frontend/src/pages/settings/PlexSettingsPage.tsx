@@ -299,7 +299,11 @@ function ServerCard({ state }: { state: PlexStateResource }) {
   const signOut = useSignOutPlex();
   const [selected, setSelected] = useState<string | null>(state.serverUrl);
   const [customUrl, setCustomUrl] = useState('');
+  const [serverToken, setServerToken] = useState('');
   const [confirming, setConfirming] = useState(false);
+
+  // The server refuses to send the stored token to an address plex.tv does not list, and says so.
+  const needsToken = select.error !== null && select.error.message.includes('Plex token');
 
   // A URL typed by hand wins over the picked connection; using one clears the other.
   const url = customUrl.trim() === '' ? selected : customUrl.trim();
@@ -309,13 +313,18 @@ function ServerCard({ state }: { state: PlexStateResource }) {
       return;
     }
 
-    select.mutate(url, {
-      onSuccess: (next) =>
-        notifications.show({
-          message: next.serverName === null ? 'Server selected' : `Server selected: ${next.serverName}`,
-          color: 'green',
-        }),
-    });
+    select.mutate(
+      { serverUrl: url, token: serverToken.trim() },
+      {
+        onSuccess: (next) => {
+          setServerToken('');
+          notifications.show({
+            message: next.serverName === null ? 'Server selected' : `Server selected: ${next.serverName}`,
+            color: 'green',
+          });
+        },
+      },
+    );
   };
 
   return (
@@ -379,6 +388,15 @@ function ServerCard({ state }: { state: PlexStateResource }) {
             setSelected(null);
           }}
         />
+
+        {needsToken && (
+          <PasswordInput
+            label="Plex token *"
+            description="plex.tv does not list this address for your account, so the token Wondarr stored is not sent to it. Enter a token for that server."
+            value={serverToken}
+            onChange={(event) => setServerToken(event.currentTarget.value)}
+          />
+        )}
 
         {select.error !== null && (
           <Alert color="red" icon={<CircleAlert size={16} />}>

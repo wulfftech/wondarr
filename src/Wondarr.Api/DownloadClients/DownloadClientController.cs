@@ -74,7 +74,8 @@ public sealed class DownloadClientController : ControllerBase
                     field.HelpText,
                     field.Options,
                     field.Secret,
-                    field.Advanced))]))
+                    field.Advanced,
+                    field.Target))]))
             .ToList());
 
     /// <summary>Adds a download client.</summary>

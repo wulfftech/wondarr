@@ -582,6 +582,87 @@ public class LibraryServiceTests
         (await service.GetAllAsync(CancellationToken.None)).Should().ContainSingle();
     }
 
+    // Owner question 5: a library root may not be the file system root, Wondarr's data directory or
+    // anything inside it.
+    [Theory]
+    [InlineData("")]
+    [InlineData("backups")]
+    [InlineData("logs/../slskd")]
+    public async Task A_new_library_root_that_is_the_data_directory_or_inside_it_is_refused(string relative)
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var service = new LibraryService(context, paths: DataDirectory);
+        var library = SeededLibrary();
+        library.Id = 0;
+        library.Name = "Archive";
+        library.IsDefault = false;
+        library.RootPath = Path.Combine(DataDirectory.ConfigDir, relative);
+
+        var create = async () => await service.CreateAsync(library, CancellationToken.None);
+
+        var exception = await create.Should().ThrowAsync<ProfileValidationException>();
+        exception.Which.Errors.Should().ContainSingle(error => error.Property == "rootPath")
+            .Which.Message.Should().StartWith("rootPath ").And.Contain("data directory");
+    }
+
+    [Fact]
+    public async Task A_new_library_root_that_is_the_file_system_root_is_refused()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var service = new LibraryService(context, paths: DataDirectory);
+        var library = SeededLibrary();
+        library.Id = 0;
+        library.Name = "Everything";
+        library.IsDefault = false;
+        library.RootPath = Path.GetPathRoot(DataDirectory.ConfigDir)!;
+
+        var create = async () => await service.CreateAsync(library, CancellationToken.None);
+
+        (await create.Should().ThrowAsync<ProfileValidationException>())
+            .Which.Errors.Should().Contain(error => error.Property == "rootPath" && error.Message.Contains("root of the file system"));
+    }
+
+    [Fact]
+    public async Task Moving_a_library_root_into_the_data_directory_is_refused_but_a_rename_of_an_old_one_is_not()
+    {
+        using var database = new SqliteTestDatabase();
+        var timeProvider = new FakeTimeProvider();
+        await database.MigrateAsync(timeProvider);
+
+        await using var context = database.CreateContext(timeProvider);
+        var service = new LibraryService(context, paths: DataDirectory);
+
+        var moved = SeededLibrary();
+        moved.RootPath = Path.Combine(DataDirectory.ConfigDir, "music");
+
+        var move = async () => await service.UpdateAsync(moved, CancellationToken.None);
+
+        (await move.Should().ThrowAsync<ProfileValidationException>())
+            .Which.Errors.Should().Contain(error => error.Property == "rootPath");
+
+        // A library that was already there from before the rule stays editable while its root is not moved.
+        var stored = await context.Libraries.SingleAsync();
+        stored.RootPath = Path.Combine(DataDirectory.ConfigDir, "music");
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var renamed = SeededLibrary();
+        renamed.RootPath = Path.Combine(DataDirectory.ConfigDir, "music");
+        renamed.Name = "Renamed";
+
+        (await service.UpdateAsync(renamed, CancellationToken.None)).Name.Should().Be("Renamed");
+    }
+
+    private static readonly Wondarr.Core.Configuration.WondarrPaths DataDirectory = new(Path.Combine(Path.GetTempPath(), "wondarr-test-config"));
+
     /// <summary>The seeded library with its stored values, ready to be edited.</summary>
     private static Library SeededLibrary()
     {

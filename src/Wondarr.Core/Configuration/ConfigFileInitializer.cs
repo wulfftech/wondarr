@@ -1,4 +1,3 @@
-using System.Text;
 using Microsoft.Extensions.Configuration;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
@@ -25,6 +24,10 @@ public static class ConfigFileInitializer
         ArgumentNullException.ThrowIfNull(configuration);
 
         Directory.CreateDirectory(paths.ConfigDir);
+
+        // Before any hosted service can open SQLite (they start in registration order, and the migration
+        // is not first): a database created by an earlier opener would get the umask's mode.
+        SecretFileModes.PrepareDatabase(paths.DatabaseFile);
 
         if (!File.Exists(paths.ConfigFile))
         {
@@ -110,9 +113,7 @@ public static class ConfigFileInitializer
         return stream;
     }
 
-    private static void Save(YamlStream stream, string path)
-    {
-        using var writer = new StreamWriter(path, append: false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        stream.Save(writer, assignAnchors: false);
-    }
+    // The same atomic, owner-only write the settings pages use: the file holds the API key, and a
+    // crash half-way must not leave a truncated config.yml for the next start to choke on.
+    private static void Save(YamlStream stream, string path) => ConfigFileWriter.Write(path, stream);
 }

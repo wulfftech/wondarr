@@ -1,4 +1,5 @@
 using Wondarr.Core.Logging;
+using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +27,18 @@ public sealed record PlexConnectionSettings
 
     /// <summary>The token to use against the selected server. A secret, like <see cref="Token"/>.</summary>
     public string? ServerToken { get; init; }
+
+    /// <summary>
+    /// Whether <see cref="ServerUrl"/> was an address plex.tv lists for the account, so the account token may
+    /// be used against it. <see langword="false"/> when a request supplied its own token for an unlisted
+    /// address; <see langword="null"/> on settings saved before this flag existed.
+    /// </summary>
+    /// <remarks>
+    /// A missing flag counts as listed until the next time plex.tv's list is fetched, which settles it by
+    /// matching <see cref="ServerUrl"/> against that list: before the flag, the UI only offered listed servers,
+    /// so an existing install's URL is nearly always listed and must keep working without a re-select.
+    /// </remarks>
+    public bool? ServerListed { get; init; }
 }
 
 /// <summary>What the UI is told about the Plex connection. Carries no token.</summary>
@@ -83,11 +96,17 @@ public interface IPlexConnectionService
     /// <param name="cancellationToken">Cancels the request.</param>
     Task<IReadOnlyList<PlexServer>> GetServersAsync(CancellationToken cancellationToken);
 
-    /// <summary>Selects a server, and remembers how to talk to it.</summary>
+    /// <summary>
+    /// Selects a server, and remembers how to talk to it. The stored token goes only to an address it
+    /// belongs to: one plex.tv lists for the account. Any other address needs a token in the request,
+    /// every time, even when it is the server already selected.
+    /// </summary>
     /// <param name="serverUrl">The server URL, absolute and http or https.</param>
+    /// <param name="suppliedToken">A token for that server, required when the address is neither the selected one nor listed by plex.tv.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The server's identity, read from the server itself.</returns>
-    Task<PlexIdentity> SelectServerAsync(string serverUrl, CancellationToken cancellationToken);
+    /// <exception cref="Notifications.SecretReentryException">The address is new and the request carries no token.</exception>
+    Task<PlexIdentity> SelectServerAsync(string serverUrl, string? suppliedToken, CancellationToken cancellationToken);
 
     /// <summary>
     /// Selects one of the account's servers by trying every connection plex.tv lists for it — local
@@ -132,6 +151,9 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
 
     /// <summary>What every method that needs a token says when there is none.</summary>
     public const string NotSignedIn = "Not signed in to Plex";
+
+    /// <summary>What a call says when the selected address is not one plex.tv lists and no token was given for it.</summary>
+    public const string SelectAgain = "Select the Plex server again or enter its token";
 
     /// <summary>What the methods that need a server say when none was selected.</summary>
     public const string NoServerSelected = "No Plex server selected";
@@ -258,12 +280,22 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
             .GetServersAsync(token, settings.ClientIdentifier, cancellationToken)
             .ConfigureAwait(false);
 
+        // Settings saved before ServerListed existed are settled here, the first time the list is in hand.
+        if (settings.ServerListed is null && TryReadServerUrl(settings, out var selected))
+        {
+            await SaveAsync(settings with { ServerListed = IsTrustedAddress(selected, servers) }, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         // The per-server access tokens are for calling the server, not for showing in a list.
         return [.. servers.Select(server => server with { AccessToken = null })];
     }
 
     /// <inheritdoc />
-    public async Task<PlexIdentity> SelectServerAsync(string serverUrl, CancellationToken cancellationToken)
+    public async Task<PlexIdentity> SelectServerAsync(
+        string serverUrl,
+        string? suppliedToken,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serverUrl);
 
@@ -295,13 +327,32 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
             throw new InvalidOperationException(NotSignedIn);
         }
 
-        var identity = await _server.GetIdentityAsync(server, token, cancellationToken).ConfigureAwait(false);
-
-        var resource = await FindServerAsync(identity.MachineIdentifier, token, settings, cancellationToken)
+        var servers = await _tv
+            .GetServersAsync(token, settings.ClientIdentifier, cancellationToken)
             .ConfigureAwait(false);
 
-        // A server can hand out its own token, which is what to use against it from then on.
-        var serverToken = resource?.AccessToken ?? token;
+        // The account's tokens are sent only to an address they belong to: the selected server, or a
+        // connection plex.tv lists for the account. Anywhere else the request must bring a token.
+        var trusted = IsTrustedAddress(server, servers);
+
+        if (!trusted)
+        {
+            if (string.IsNullOrEmpty(suppliedToken))
+            {
+                throw new SecretReentryException("token", "Plex token");
+            }
+
+            token = suppliedToken;
+        }
+
+        var identity = await _server.GetIdentityAsync(server, token, cancellationToken).ConfigureAwait(false);
+
+        var resource = servers.FirstOrDefault(candidate =>
+            string.Equals(candidate.MachineIdentifier, identity.MachineIdentifier, StringComparison.OrdinalIgnoreCase));
+
+        // A server can hand out its own token, which is what to use against it from then on. An
+        // address plex.tv does not list could be answering as any server, so it never gets one.
+        var serverToken = trusted ? resource?.AccessToken ?? token : token;
         var name = resource?.Name ?? identity.MachineIdentifier;
 
         await SaveAsync(
@@ -311,6 +362,7 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
                 MachineIdentifier = identity.MachineIdentifier,
                 ServerName = name,
                 ServerToken = serverToken,
+                ServerListed = trusted,
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -369,7 +421,7 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
             {
                 LogConnectionChosen(_logger, server.Name, ordered[index].Uri, ordered.Count);
 
-                return await SelectServerAsync(ordered[index].Uri, cancellationToken).ConfigureAwait(false);
+                return await SelectServerAsync(ordered[index].Uri, null, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -437,7 +489,10 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
                 return new PlexTestResult(false, null, null, 0, NoServerSelected);
             }
 
-            var token = TokenFor(settings)!;
+            if (TokenFor(settings) is not { } token)
+            {
+                return new PlexTestResult(false, null, null, 0, SelectAgain);
+            }
 
             var identity = await _server.GetIdentityAsync(server, token, cancellationToken).ConfigureAwait(false);
             var sections = await _server.GetSectionsAsync(server, token, cancellationToken).ConfigureAwait(false);
@@ -464,7 +519,7 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
 
         if (string.IsNullOrEmpty(token))
         {
-            throw new InvalidOperationException(NotSignedIn);
+            throw new InvalidOperationException(string.IsNullOrEmpty(settings.Token) ? NotSignedIn : SelectAgain);
         }
 
         if (!TryReadServerUrl(settings, out var server))
@@ -484,7 +539,15 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
     {
         var settings = await LoadAsync(cancellationToken).ConfigureAwait(false);
 
-        await SaveAsync(settings with { Token = null, ServerToken = null }, cancellationToken).ConfigureAwait(false);
+        // A server selected with a token of the caller's own for an address plex.tv never listed must not
+        // outlive the sign-out: the next sign-in would otherwise hand the account token to it.
+        var unlisted = settings.ServerListed == false;
+
+        await SaveAsync(
+            unlisted
+                ? settings with { Token = null, ServerToken = null, ServerUrl = null, MachineIdentifier = null, ServerName = null, ServerListed = null }
+                : settings with { Token = null, ServerToken = null },
+            cancellationToken).ConfigureAwait(false);
 
         LogSignedOut(_logger);
     }
@@ -555,24 +618,34 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
         _secrets.Register(settings.ServerToken);
     }
 
-    /// <summary>The resource whose machine identifier matches, when plex.tv recognises it.</summary>
-    private async Task<PlexServer?> FindServerAsync(
-        string machineIdentifier,
-        string token,
-        PlexConnectionSettings settings,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Whether the stored token may be sent to <paramref name="candidate"/>: only a connection plex.tv
+    /// lists for the account. The server already selected is not enough, because a request that carried
+    /// its own token can have selected an address plex.tv never listed. Compared by scheme, host and
+    /// port; a path prefix stays on the same host.
+    /// </summary>
+    private static bool IsTrustedAddress(Uri candidate, IReadOnlyList<PlexServer> servers)
     {
-        var servers = await _tv
-            .GetServersAsync(token, settings.ClientIdentifier, cancellationToken)
-            .ConfigureAwait(false);
+        var wanted = NotificationSecrets.UrlTarget(candidate.AbsoluteUri);
 
-        return servers.FirstOrDefault(server =>
-            string.Equals(server.MachineIdentifier, machineIdentifier, StringComparison.OrdinalIgnoreCase));
+        return servers.Any(server => server.Connections.Any(connection =>
+            string.Equals(NotificationSecrets.UrlTarget(connection.Uri), wanted, StringComparison.Ordinal)));
     }
 
-    /// <summary>The token to call the selected server with: its own when plex.tv gave one.</summary>
-    private static string? TokenFor(PlexConnectionSettings settings) =>
-        string.IsNullOrEmpty(settings.ServerToken) ? settings.Token : settings.ServerToken;
+    /// <summary>
+    /// The token to call the selected server with: its own when plex.tv gave one. The account token is the
+    /// fallback only for an address plex.tv lists; for any other it is never used, so a token-less call
+    /// reports <see langword="null"/> instead of sending the account token to an address it was not given for.
+    /// </summary>
+    private static string? TokenFor(PlexConnectionSettings settings)
+    {
+        if (!string.IsNullOrEmpty(settings.ServerToken))
+        {
+            return settings.ServerToken;
+        }
+
+        return settings.ServerListed == false ? null : settings.Token;
+    }
 
     /// <summary>
     /// The URL to remember: scheme, host and port plus the path a reverse proxy needs, with the

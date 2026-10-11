@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { useApiClient } from './context';
 import { ApiError } from './errors';
+import { validationFields } from './profiles';
 import type { components } from './schema';
 
 /**
@@ -54,7 +55,11 @@ function problemText(body: unknown, member: 'detail' | 'title'): string | null {
  * own words, which the controller guarantees hold no token — and its `title` as the fallback.
  */
 function plexProblem(status: number, body: unknown, fallback: string): ApiError {
-  return new ApiError(status, problemText(body, 'detail') ?? problemText(body, 'title') ?? fallback);
+  // A refused field (the token an unlisted address needs) is a validation problem: its message is in
+  // `errors`, and its `title` only says that something was invalid.
+  const field = Object.values(validationFields(body))[0];
+
+  return new ApiError(status, problemText(body, 'detail') ?? field ?? problemText(body, 'title') ?? fallback);
 }
 
 /** What the UI shows about the connection: whether there is a sign-in, and which server it reaches. */
@@ -176,15 +181,22 @@ export function usePlexServers(enabled: boolean): UseQueryResult<PlexServerResou
   });
 }
 
+/** A server address to select, and the token an address plex.tv does not list needs with it. */
+export interface PlexServerSelection {
+  serverUrl: string;
+  /** Sent only when the user typed one: the stored token is never sent to an address it does not belong to. */
+  token?: string;
+}
+
 /** Selects the server Wondarr talks to and confirms it is reachable. */
-export function useSelectPlexServer(): UseMutationResult<PlexStateResource, Error, string> {
+export function useSelectPlexServer(): UseMutationResult<PlexStateResource, Error, PlexServerSelection> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (serverUrl: string): Promise<PlexStateResource> => {
+    mutationFn: async ({ serverUrl, token }: PlexServerSelection): Promise<PlexStateResource> => {
       const { data, error, response } = await client.PUT('/api/v1/plex/server', {
-        body: { serverUrl },
+        body: token === undefined || token === '' ? { serverUrl } : { serverUrl, token },
       });
 
       if (!response.ok || data === undefined) {

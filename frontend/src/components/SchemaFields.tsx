@@ -89,6 +89,43 @@ export function initialValues(
   return { values, masked };
 }
 
+/** A URL as scheme, host and port, lower-cased, so two spellings of one server compare equal. */
+// Shared with the Soulseek connection card, which compares one address, so the fast-refresh export rule does not apply.
+// eslint-disable-next-line react-refresh/only-export-components
+export function urlTarget(raw: string): string {
+  const text = raw.trim();
+
+  try {
+    const url = new URL(text);
+
+    return `${url.protocol}//${url.hostname}:${url.port === '' ? (url.protocol === 'https:' ? '443' : '80') : url.port}`.toLowerCase();
+  } catch {
+    return text.toLowerCase();
+  }
+}
+
+/**
+ * Where the form's settings point: what the server compares to decide whether a stored secret may be
+ * reused. A path or URL base is not part of it, because it stays on the same host.
+ */
+// Shared with the pages that render a provider's form, so the fast-refresh export rule does not apply.
+// eslint-disable-next-line react-refresh/only-export-components
+export function targetOf(fields: NotificationFieldResource[], values: Record<string, unknown>): string {
+  // The server decides which fields are the target and sends the flag; a secret that is itself the address has none.
+  return fields
+    .filter((field) => field.target && !field.secret)
+    .map((field) => {
+      const raw = values[field.name];
+
+      if (field.type === 'checkbox') {
+        return raw === true ? 'ssl' : 'plain';
+      }
+
+      return urlTarget(typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '');
+    })
+    .join('|');
+}
+
 /** One settings value as the provider reads it: the types the JSON body carries, not the form's. */
 // eslint-disable-next-line react-refresh/only-export-components
 export function wireValue(field: NotificationFieldResource, value: unknown, masked: boolean): unknown {
@@ -198,6 +235,7 @@ export function SettingsField({
   field,
   value,
   masked,
+  reenter = false,
   error,
   pairLabels,
   onChange,
@@ -205,12 +243,17 @@ export function SettingsField({
   field: NotificationFieldResource;
   value: unknown;
   masked: boolean;
+  /** The saved address changed, so a masked secret must be typed again: the server will not reuse it. */
+  reenter?: boolean;
   error?: string;
   pairLabels?: PairLabels;
   onChange: (value: unknown) => void;
 }) {
-  const label = field.required ? `${field.label} *` : field.label;
-  const description = field.helpText ?? undefined;
+  const mustReenter = field.secret && masked && reenter;
+  const label = field.required || mustReenter ? `${field.label} *` : field.label;
+  const description = mustReenter
+    ? `Enter it again: the address changed. ${field.helpText ?? ''}`.trim()
+    : (field.helpText ?? undefined);
 
   // A secret is always a password input, whatever the type says: the value is never shown, and the
   // mask is what the empty field stands for. Discord's webhook URL is a secret *and* a URL.
@@ -219,7 +262,7 @@ export function SettingsField({
       <PasswordInput
         label={label}
         description={description}
-        placeholder={masked ? SECRET_MASK : undefined}
+        placeholder={masked && !mustReenter ? SECRET_MASK : undefined}
         value={typeof value === 'string' ? value : ''}
         error={error}
         onChange={(event) => onChange(event.currentTarget.value)}

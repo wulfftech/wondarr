@@ -31,9 +31,9 @@ public sealed class QBittorrentClientType : IDownloadClientType
     /// <inheritdoc />
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
-        new("host", "Host", "text", true, "The host qBittorrent's Web UI listens on, for example 192.168.1.2"),
-        new("port", "Port", "number", false, $"The port the Web UI listens on; the default is {QBittorrentSettings.DefaultPort}"),
-        new("useSsl", "Use SSL", "checkbox", false, "Whether the Web UI is served over HTTPS"),
+        new("host", "Host", "text", true, "The host qBittorrent's Web UI listens on, for example 192.168.1.2", Target: true),
+        new("port", "Port", "number", false, $"The port the Web UI listens on; the default is {QBittorrentSettings.DefaultPort}", Target: true),
+        new("useSsl", "Use SSL", "checkbox", false, "Whether the Web UI is served over HTTPS", Target: true),
         new("urlBase", "URL base", "text", false, "The Web UI's URL base, when qBittorrent serves it under one", Advanced: true),
         new("username", "Username", "text", false, "The Web UI username; empty when qBittorrent needs no login"),
         new("password", "Password", "password", false, "The Web UI password", Secret: true),

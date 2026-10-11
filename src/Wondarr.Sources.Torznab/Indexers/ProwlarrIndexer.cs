@@ -70,7 +70,7 @@ public sealed class ProwlarrIndexerType : IIndexerType
     /// <inheritdoc />
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
-        new("url", "URL", "text", Required: true, HelpText: "Prowlarr's address, for example http://prowlarr:9696"),
+        new("url", "URL", "text", Required: true, HelpText: "Prowlarr's address, for example http://prowlarr:9696", Target: true),
         new("apiKey", "API key", "password", Required: true, Secret: true, HelpText: "Prowlarr's API key (Settings → General)."),
         new("indexerIds", "Indexer ids", "text", Required: false, HelpText: "The Prowlarr indexers to ask, comma-separated; empty asks them all."),
         new("categories", "Categories", "text", Required: false, HelpText: "The newznab category ids to search, comma-separated; 3000 is music."),

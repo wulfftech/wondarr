@@ -12,6 +12,7 @@ import {
   Title,
 } from '@mantine/core';
 import { useState } from 'react';
+import { urlTarget } from '../../components/SchemaFields';
 import {
   useTestSoulseekConnection,
   useUpdateSoulseekSettings,
@@ -33,6 +34,9 @@ export function SoulseekConnectionCard({ settings }: { settings: SoulseekSetting
   const [url, setUrl] = useState(settings.externalUrl ?? '');
   const [apiKey, setApiKey] = useState('');
   const [rescan, setRescan] = useState(settings.externalRescanShares);
+
+  // The stored key is reused only for the address it was saved for: once the address differs it is typed again.
+  const reenter = settings.externalApiKeySet && urlTarget(url) !== urlTarget(settings.externalUrl ?? '');
 
   const save = () => {
     update.mutate(
@@ -82,9 +86,12 @@ export function SoulseekConnectionCard({ settings }: { settings: SoulseekSetting
               disabled={locked.has('externalUrl')}
             />
             <PasswordInput
-              label="API key"
+              label={reenter ? 'API key *' : 'API key'}
+              description={reenter ? 'Enter it again: the address changed.' : undefined}
               placeholder={
-                settings.externalApiKeySet ? 'Stored — type to replace' : 'From slskd: web.authentication.api_keys'
+                settings.externalApiKeySet && !reenter
+                  ? 'Stored — type to replace'
+                  : 'From slskd: web.authentication.api_keys'
               }
               value={apiKey}
               onChange={(event) => setApiKey(event.currentTarget.value)}

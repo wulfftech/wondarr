@@ -62,7 +62,7 @@ public sealed class GazelleIndexerType : IIndexerType
     /// <inheritdoc />
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
-        new("url", "URL", "text", Required: true, HelpText: "The tracker's address, for example https://redacted.sh"),
+        new("url", "URL", "text", Required: true, HelpText: "The tracker's address, for example https://redacted.sh", Target: true),
         new("apiKey", "API key", "password", Required: true, Secret: true, HelpText: "Your API key from the tracker's settings (it needs the torrents scope)."),
         new("useFreeleechTokens", "Use freeleech tokens", "checkbox", Required: false, Advanced: true, HelpText: "Spend a token on each download that is not freeleech already."),
     ];

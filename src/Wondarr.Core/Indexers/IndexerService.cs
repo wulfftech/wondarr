@@ -184,13 +184,15 @@ public sealed partial class IndexerService : IIndexerService
 
         var (type, protocol) = await ValidateAsync(draft, cancellationToken).ConfigureAwait(false);
 
+        var settings = MergeSettings(draft.Settings, indexer.Settings, type.Fields);
+
         indexer.Name = draft.Name.Trim();
         indexer.Type = type.Type;
         indexer.Protocol = protocol;
         indexer.Enabled = draft.Enabled;
         indexer.Priority = draft.Priority;
         indexer.DownloadClientId = draft.DownloadClientId;
-        indexer.Settings = NotificationSecrets.Merge(draft.Settings, indexer.Settings, type.Fields);
+        indexer.Settings = settings;
 
         RegisterSecrets(indexer);
 
@@ -325,9 +327,25 @@ public sealed partial class IndexerService : IIndexerService
             return draft.Settings;
         }
 
-        var merged = NotificationSecrets.Merge(draft.Settings, stored.Settings, type.Fields);
+        var merged = MergeSettings(draft.Settings, stored.Settings, type.Fields);
 
         return NotificationSecrets.Read(merged);
+    }
+
+    /// <summary>
+    /// Keeps the stored secrets a masked draft stands for, for the target they were saved for. A
+    /// secret whose address changed is refused as a validation failure on that secret's field.
+    /// </summary>
+    private static string MergeSettings(JsonElement incoming, string stored, IReadOnlyList<NotificationField> fields)
+    {
+        try
+        {
+            return NotificationSecrets.Merge(incoming, stored, fields);
+        }
+        catch (SecretReentryException exception)
+        {
+            throw new IndexerValidationException(exception.Field, exception.Message);
+        }
     }
 
     /// <summary>Tells the log pipeline about every secret value the row stores, so it can redact them.</summary>

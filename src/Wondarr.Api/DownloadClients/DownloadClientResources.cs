@@ -53,6 +53,7 @@ public sealed record DownloadClientInputResource(
 /// <param name="Options">The choices of a select, or <see langword="null"/>.</param>
 /// <param name="Secret">Whether the value is masked on read.</param>
 /// <param name="Advanced">Whether the control belongs in the advanced section.</param>
+/// <param name="Target">Whether the value says where secrets are sent; changing it means a masked secret must be typed again.</param>
 public sealed record DownloadClientFieldResource(
     string Name,
     string Label,
@@ -61,7 +62,8 @@ public sealed record DownloadClientFieldResource(
     string? HelpText,
     IReadOnlyList<string>? Options,
     bool Secret,
-    bool Advanced);
+    bool Advanced,
+    bool Target);
 
 /// <summary>One registered download client type and the form it wants.</summary>
 /// <param name="Type">The client type's name.</param>
@@ -84,7 +86,7 @@ internal static class DownloadClientResourceMapper
 
         var settings = NotificationSecrets.Masked(
             NotificationSecrets.Read(client.Settings),
-            type?.Fields ?? []);
+            type?.Fields);
 
         return new DownloadClientResource(
             client.Id,

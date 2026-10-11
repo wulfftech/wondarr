@@ -432,6 +432,25 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
                     "); choose another folder."));
         }
 
+        // Wondarr's own data directory (and the file system root) holds the API key and the database.
+        // Only a folder being set is refused: a library already there from before this rule stays editable.
+        var storedRoot = id is { } storedId
+            ? await _database.ReferenceLibraries
+                .AsNoTracking()
+                .Where(library => library.Id == storedId)
+                .Select(library => library.RootPath)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false)
+            : null;
+
+        if ((storedRoot is null || !PathRules.AreEqual(storedRoot, rootPath))
+            && ProtectedPaths.Reason(rootPath, _paths) is { } reason)
+        {
+            throw new ReferenceLibraryValidationException(
+                "rootPath",
+                string.Concat("rootPath ", reason, ", where Wondarr keeps its API key, passwords and database."));
+        }
+
         var managed = await _database.Libraries
             .AsNoTracking()
             .Select(library => new { library.Name, library.RootPath })

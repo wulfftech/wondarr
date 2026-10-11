@@ -199,7 +199,7 @@ public static class ImportListResourceExtensions
             list.QualityProfileId,
             list.LibraryId,
             list.LastSyncMessage,
-            provider is null ? JsonNode.Parse(settings.GetRawText()) : NotificationSecrets.Masked(settings, provider.Fields),
+            NotificationSecrets.Masked(settings, provider?.Fields),
             !string.IsNullOrEmpty(list.SourceText),
             list.PlexPlaylist,
             list.M3uExport,
