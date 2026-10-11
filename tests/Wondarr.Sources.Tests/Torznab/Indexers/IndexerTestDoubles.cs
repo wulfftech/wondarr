@@ -232,3 +232,44 @@ internal static class TorznabTest
         return parameters;
     }
 }
+
+/// <summary>
+/// A clock that jumps to a timer's due time the moment the timer is made, so the rate limit's
+/// waits pass at once (a test that checks the waits themselves uses a <c>FakeTimeProvider</c>).
+/// </summary>
+internal sealed class SkippingTime : TimeProvider
+{
+    private readonly Lock _gate = new();
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+
+    public override DateTimeOffset GetUtcNow()
+    {
+        lock (_gate)
+        {
+            return _now;
+        }
+    }
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        lock (_gate)
+        {
+            _now += dueTime > TimeSpan.Zero ? dueTime : TimeSpan.Zero;
+        }
+
+        ThreadPool.QueueUserWorkItem(_ => callback(state));
+
+        return new NoTimer();
+    }
+
+    private sealed class NoTimer : ITimer
+    {
+        public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+}
