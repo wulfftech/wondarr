@@ -58,7 +58,7 @@ public sealed partial class IndexerSourceProvider
             List<string> wanted = [.. filePath is null ? [] : new[] { filePath }, .. release.AlsoWanted ?? []];
 
             var grab = _protocol == DownloadProtocol.Torrent
-                ? await GrabTorrentAsync(indexer, client, release, filePath, wanted, staging, cancellationToken).ConfigureAwait(false)
+                ? await GrabTorrentAsync(services, indexer, client, release, filePath, wanted, staging, cancellationToken).ConfigureAwait(false)
                 : await GrabUsenetAsync(services, indexer, client, release, filePath, wanted, staging, cancellationToken).ConfigureAwait(false);
 
             return new GrabHandle(SourceType, grab.Serialize());
@@ -162,6 +162,7 @@ public sealed partial class IndexerSourceProvider
     }
 
     private async Task<ContainerGrab> GrabTorrentAsync(
+        IServiceProvider services,
         Indexer indexer,
         DownloadClient client,
         ContainerRelease release,
@@ -172,16 +173,31 @@ public sealed partial class IndexerSourceProvider
     {
         var hash = release.InfoHash;
 
-        // In the client already: a bundle partner's grab, or an earlier grab of this release. Only
-        // the wanted files are switched on; nothing else of the torrent is touched.
+        // Bundle partners already in flight for this release or torrent. Their handles know the hash
+        // even when the indexer never gives one (Gazelle), so a partner's grab does not download the
+        // .torrent a second time, and they say whether Wondarr added the torrent.
+        var partners = await ActiveGrabsAsync(
+            services,
+            other => other.ClientId == client.Id
+                && other.InfoHash is not null
+                && ((hash is not null && string.Equals(other.InfoHash, hash, StringComparison.OrdinalIgnoreCase))
+                    || (other.IndexerId == indexer.Id && string.Equals(other.ReleaseId, release.ReleaseId, StringComparison.Ordinal))),
+            cancellationToken).ConfigureAwait(false);
+
+        hash ??= partners.FirstOrDefault()?.InfoHash;
+
+        // In the client already: a bundle partner's grab, an earlier grab of this release, or the
+        // user's own torrent. Only the wanted files are switched on; nothing else of it is touched.
         if (hash is not null && await _torrents.GetAsync(client, hash, cancellationToken).ConfigureAwait(false) is not null)
         {
+            var owned = AddedByPartner(partners, hash);
+
             if (wanted.Count > 0)
             {
-                await SelectAsync(client, hash, wanted, exclusive: false, cancellationToken).ConfigureAwait(false);
+                await SelectAsync(client, hash, wanted, exclusive: false, owned, cancellationToken).ConfigureAwait(false);
             }
 
-            return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, hash, null, filePath, staging, release.Song);
+            return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, hash, null, filePath, staging, release.Song, owned);
         }
 
         byte[]? torrentFile = null;
@@ -201,17 +217,26 @@ public sealed partial class IndexerSourceProvider
             magnet ??= link;
         }
 
+        bool added;
+
         if (torrentFile is not null)
         {
             hash = TorrentMetainfo.Parse(torrentFile).InfoHash;
+            added = await AddIfMissingAsync(client, new TorrentAddRequest(hash, torrentFile, null), cancellationToken).ConfigureAwait(false);
 
-            if (await _torrents.GetAsync(client, hash, cancellationToken).ConfigureAwait(false) is null)
+            // A .torrent is added stopped: every file but the wanted ones goes to priority 0, then it
+            // starts. A torrent that was already there (a partner's, or the user's own, whose hash
+            // only the download could tell) keeps its other files: they are only ever raised.
+            try
             {
-                await _torrents.AddAsync(client, new TorrentAddRequest(hash, torrentFile, null), cancellationToken).ConfigureAwait(false);
+                await SelectAsync(client, hash, wanted, exclusive: added, owned: added || AddedByPartner(partners, hash), cancellationToken).ConfigureAwait(false);
             }
-
-            // A .torrent is added stopped: every file but the wanted ones goes to priority 0, then it starts.
-            await SelectAsync(client, hash, wanted, exclusive: true, cancellationToken).ConfigureAwait(false);
+            catch (Exception exception) when (added && exception is DownloadClientException or OperationCanceledException)
+            {
+                // Nothing has downloaded yet, so the torrent Wondarr has just added goes again.
+                await RemoveJustAddedAsync(client, hash, exception).ConfigureAwait(false);
+                throw;
+            }
         }
         else if (magnet is not null)
         {
@@ -220,24 +245,54 @@ public sealed partial class IndexerSourceProvider
 
             // A magnet runs until its metadata arrives (stopCondition=MetadataReceived); the files are
             // chosen on the first status poll that sees it stopped with metadata.
-            if (await _torrents.GetAsync(client, hash, cancellationToken).ConfigureAwait(false) is null)
-            {
-                await _torrents.AddAsync(client, new TorrentAddRequest(hash, null, magnet), cancellationToken).ConfigureAwait(false);
-            }
+            added = await AddIfMissingAsync(client, new TorrentAddRequest(hash, null, magnet), cancellationToken).ConfigureAwait(false);
         }
         else
         {
             throw new DownloadClientException($"'{release.Title}' has neither a .torrent nor a magnet link.");
         }
 
-        return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, hash, null, filePath, staging, release.Song);
+        return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, hash, null, filePath, staging, release.Song, added || AddedByPartner(partners, hash));
+    }
+
+    /// <summary>Whether an in-flight grab of the same torrent in the same client recorded that Wondarr added it.</summary>
+    private static bool AddedByPartner(List<ContainerGrab> partners, string hash) =>
+        partners.Any(other => other.AddedByWondarr && string.Equals(other.InfoHash, hash, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Adds the torrent unless the client has it; true when it was added just now.</summary>
+    private async Task<bool> AddIfMissingAsync(DownloadClient client, TorrentAddRequest request, CancellationToken cancellationToken)
+    {
+        if (await _torrents.GetAsync(client, request.InfoHash, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            return false;
+        }
+
+        await _torrents.AddAsync(client, request, cancellationToken).ConfigureAwait(false);
+
+        return true;
+    }
+
+    /// <summary>Removes a torrent this grab has just added and could not set up; it has no data yet.</summary>
+    private async Task RemoveJustAddedAsync(DownloadClient client, string hash, Exception cause)
+    {
+        try
+        {
+            await _torrents.RemoveAsync(client, hash, deleteFiles: false, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (DownloadClientException exception)
+        {
+            LogTorrentCleanupFailed(_logger, hash, cause is OperationCanceledException, exception);
+        }
     }
 
     /// <summary>
-    /// Switches the wanted files on and starts the torrent; with <paramref name="exclusive"/>, every
-    /// other file is switched off first (a torrent Wondarr has just added).
+    /// Switches the wanted files on and starts the torrent. With <paramref name="exclusive"/> (a torrent
+    /// Wondarr has just added) every other file is switched off first; otherwise the selection only
+    /// raises the wanted files to priority 1 and never lowers another file. A torrent Wondarr did not
+    /// add (<paramref name="owned"/> false) is only resumed when it is stopped and a wanted file still
+    /// needs data.
     /// </summary>
-    private async Task SelectAsync(DownloadClient client, string hash, IReadOnlyList<string> wanted, bool exclusive, CancellationToken cancellationToken)
+    private async Task SelectAsync(DownloadClient client, string hash, IReadOnlyList<string> wanted, bool exclusive, bool owned, CancellationToken cancellationToken)
     {
         var files = await WaitForFilesAsync(client, hash, cancellationToken).ConfigureAwait(false);
         var selected = files.Where(file => wanted.Any(path => SamePath(file.Path, path))).ToList();
@@ -257,14 +312,32 @@ public sealed partial class IndexerSourceProvider
             }
         }
 
+        // Only the files that are off are raised: a file the client has at a higher priority stays there.
         var off = selected.Where(file => file.Priority == 0).Select(file => file.Index).ToList();
 
-        if (off.Count > 0 || exclusive)
+        if (off.Count > 0)
         {
-            await _torrents.SetFilePriorityAsync(client, hash, [.. selected.Select(file => file.Index)], 1, cancellationToken).ConfigureAwait(false);
+            await _torrents.SetFilePriorityAsync(client, hash, off, 1, cancellationToken).ConfigureAwait(false);
         }
 
-        await _torrents.StartAsync(client, hash, cancellationToken).ConfigureAwait(false);
+        if (owned)
+        {
+            await _torrents.StartAsync(client, hash, cancellationToken).ConfigureAwait(false);
+        }
+        else if (selected.Any(file => file.Progress < 1))
+        {
+            await ResumeForeignAsync(client, hash, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Starts a torrent Wondarr did not add, when it is stopped and a wanted file needs data; says so in the log.</summary>
+    private async Task ResumeForeignAsync(DownloadClient client, string hash, CancellationToken cancellationToken)
+    {
+        if (await _torrents.GetAsync(client, hash, cancellationToken).ConfigureAwait(false) is { Status: TorrentStatus.Stopped })
+        {
+            await _torrents.StartAsync(client, hash, cancellationToken).ConfigureAwait(false);
+            LogForeignResumed(_logger, hash);
+        }
     }
 
     /// <summary>The torrent's files, waiting a little for a torrent the client has only just been given.</summary>
@@ -324,7 +397,21 @@ public sealed partial class IndexerSourceProvider
 
         if (file.Progress >= 1)
         {
-            var staged = Stage(Path.Combine(info.SavePath, ToLocal(file.Path)), grab.StagingDir, link: true);
+            // While the torrent is incomplete the client may keep its files in the "keep incomplete
+            // torrents in" folder, and moves them to the save path when the whole torrent is done (R-017).
+            var source = FindFinishedFile(info, file);
+
+            if (source is null && info.Status != TorrentStatus.Completed && !_disk.FileExists(StagedPath(grab, file)))
+            {
+                return new DownloadStatus(
+                    DownloadState.RemotelyQueued,
+                    1,
+                    file.Size,
+                    file.Size,
+                    Message: info.Status == TorrentStatus.Moving ? "The client is moving the finished files" : "Waiting for the client to finish the torrent");
+            }
+
+            var staged = Stage(source ?? Path.Combine(info.SavePath, ToLocal(file.Path)), grab.StagingDir, link: true);
 
             return new DownloadStatus(DownloadState.Completed, 1, file.Size, file.Size, CompletedPath: staged);
         }
@@ -340,6 +427,38 @@ public sealed partial class IndexerSourceProvider
             _ => new DownloadStatus(DownloadState.RemotelyQueued, file.Progress, bytes, file.Size, Message: "Queued in the download client"),
         };
     }
+
+    /// <summary>
+    /// Where a 100 % file is on disk: below the incomplete folder (the client's <c>download_path</c>, else
+    /// the folder above its <c>content_path</c>) while the torrent is incomplete, then below the save
+    /// path, which is where a completed torrent keeps it. Null when it is in neither.
+    /// </summary>
+    private string? FindFinishedFile(TorrentInfo info, TorrentFileInfo file)
+    {
+        var relative = ToLocal(file.Path);
+        var roots = new List<string>(2);
+
+        if (info.Status != TorrentStatus.Completed)
+        {
+            if (!string.IsNullOrEmpty(info.DownloadPath))
+            {
+                roots.Add(info.DownloadPath);
+            }
+            else if (!string.IsNullOrEmpty(info.ContentPath)
+                && Path.GetDirectoryName(info.ContentPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) is { Length: > 0 } parent)
+            {
+                roots.Add(parent);
+            }
+        }
+
+        roots.Add(info.SavePath);
+
+        return roots.Select(root => Path.Combine(root, relative)).FirstOrDefault(_disk.FileExists);
+    }
+
+    /// <summary>Where an earlier poll would have staged the file.</summary>
+    private static string StagedPath(ContainerGrab grab, TorrentFileInfo file) =>
+        Path.Combine(grab.StagingDir, Path.GetFileName(ToLocal(file.Path)));
 
     /// <summary>
     /// A magnet's file, found by the matcher once the metadata is there. The first poll that sees the
@@ -366,25 +485,42 @@ public sealed partial class IndexerSourceProvider
             return null;
         }
 
-        if (info.Status == TorrentStatus.Stopped && files.All(entry => entry.Priority > 0))
+        if (grab.AddedByWondarr && info.Status == TorrentStatus.Stopped && files.All(entry => entry.Priority > 0))
         {
-            await SelectAsync(client, info.InfoHash, [file.Path], exclusive: true, cancellationToken).ConfigureAwait(false);
+            // Wondarr's own magnet, stopped by the stop condition with every file still wanted.
+            await SelectAsync(client, info.InfoHash, [file.Path], exclusive: true, owned: true, cancellationToken).ConfigureAwait(false);
         }
-        else if (file.Priority == 0)
+        else
         {
-            await _torrents.SetFilePriorityAsync(client, info.InfoHash, [file.Index], 1, cancellationToken).ConfigureAwait(false);
+            // Anything else only ever has this song's file raised (a torrent Wondarr did not add keeps
+            // the rest as it was).
+            if (file.Priority == 0)
+            {
+                await _torrents.SetFilePriorityAsync(client, info.InfoHash, [file.Index], 1, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!grab.AddedByWondarr && info.Status == TorrentStatus.Stopped && file.Progress < 1)
+            {
+                await _torrents.StartAsync(client, info.InfoHash, cancellationToken).ConfigureAwait(false);
+                LogForeignResumed(_logger, info.InfoHash);
+            }
         }
 
         return file;
     }
 
     /// <summary>
-    /// Switches this song's file off, and removes the torrent — with its data — only when no other
-    /// queue item uses it and nothing of it has downloaded (DECISIONS build session 8 #5, #6).
+    /// A torrent Wondarr did not add is left exactly as it is. One it added is removed — with its data,
+    /// which is none — only when no other queue item uses it, every file reports progress 0 and the
+    /// client is not checking, moving, fetching metadata or reporting an error (the progress it reports
+    /// then is not to be trusted); otherwise only this song's file is switched off (DECISIONS build
+    /// session 8 #5, #6; R-016).
     /// </summary>
     private async Task CancelTorrentAsync(DownloadClient client, ContainerGrab grab, bool shared, CancellationToken cancellationToken)
     {
-        if (grab.InfoHash is not { } hash || await _torrents.GetAsync(client, hash, cancellationToken).ConfigureAwait(false) is not { } info)
+        if (!grab.AddedByWondarr
+            || grab.InfoHash is not { } hash
+            || await _torrents.GetAsync(client, hash, cancellationToken).ConfigureAwait(false) is not { } info)
         {
             return;
         }
@@ -404,7 +540,13 @@ public sealed partial class IndexerSourceProvider
             await _torrents.SetFilePriorityAsync(client, hash, [mine.Index], 0, cancellationToken).ConfigureAwait(false);
         }
 
-        if (!shared && info.Progress <= 0 && files.All(file => file.Progress <= 0))
+        var removable = !shared
+            && info.HasMetadata
+            && info.Status is not (TorrentStatus.Checking or TorrentStatus.Moving or TorrentStatus.FetchingMetadata or TorrentStatus.Error)
+            && info.Progress <= 0
+            && files.All(file => file.Progress <= 0);
+
+        if (removable)
         {
             await _torrents.RemoveAsync(client, hash, deleteFiles: true, cancellationToken).ConfigureAwait(false);
         }
@@ -421,11 +563,23 @@ public sealed partial class IndexerSourceProvider
         CancellationToken cancellationToken)
     {
         // A bundle partner (or an earlier grab of the same post) already put the job in the client.
-        var existing = await JobOfReleaseAsync(services, release.ReleaseId, client.Id, cancellationToken).ConfigureAwait(false);
+        // It is reused only while it still holds this song's file: a job trimmed for another song has
+        // lost it (R-078).
+        var partners = await ActiveGrabsAsync(
+            services,
+            other => other.ClientId == client.Id
+                && other.JobId is not null
+                && string.Equals(other.ReleaseId, release.ReleaseId, StringComparison.Ordinal),
+            cancellationToken).ConfigureAwait(false);
 
-        if (existing is not null && await _usenet.GetAsync(client, existing, cancellationToken).ConfigureAwait(false) is not null)
+        foreach (var existing in partners.Select(other => other.JobId!).Distinct(StringComparer.Ordinal))
         {
-            return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, null, existing, filePath, staging, release.Song);
+            if (await _usenet.GetAsync(client, existing, cancellationToken).ConfigureAwait(false) is { } job
+                && await HoldsWantedAsync(client, job, wanted, cancellationToken).ConfigureAwait(false))
+            {
+                // Only Wondarr's own queue items name a job here, so it is Wondarr's job.
+                return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, null, existing, filePath, staging, release.Song, AddedByWondarr: true);
+            }
         }
 
         var download = await _clients.GetClient(indexer)
@@ -437,17 +591,59 @@ public sealed partial class IndexerSourceProvider
 
         try
         {
-            await TrimAsync(client, jobId, wanted, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await TrimAsync(client, jobId, wanted, cancellationToken).ConfigureAwait(false);
+            }
+            catch (DownloadClientException exception)
+            {
+                // Trimming is opportunistic: the post downloads whole instead.
+                LogTrimFailed(_logger, release.Title, exception);
+            }
+
+            await _usenet.ResumeAsync(client, jobId, cancellationToken).ConfigureAwait(false);
         }
-        catch (DownloadClientException exception)
+        catch (Exception exception) when (exception is DownloadClientException or OperationCanceledException)
         {
-            // Trimming is opportunistic: the post downloads whole instead.
-            LogTrimFailed(_logger, release.Title, exception);
+            // The job Wondarr has just added would sit paused for ever; no other item knows it yet.
+            await RemoveJobAsync(client, jobId, CancellationToken.None).ConfigureAwait(false);
+            throw;
         }
 
-        await _usenet.ResumeAsync(client, jobId, cancellationToken).ConfigureAwait(false);
+        return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, null, jobId, filePath, staging, release.Song, AddedByWondarr: true);
+    }
 
-        return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, null, jobId, filePath, staging, release.Song);
+    /// <summary>
+    /// Whether a job in the client still has the wanted files: they are in its queue listing, or the
+    /// job is finished and they are in its folder. A job with no named file wanted (an obfuscated post)
+    /// was never trimmed. A file a running job has already finished leaves the listing, so that job is
+    /// not reused either: a second copy of the post costs a download, a missing file costs the song.
+    /// </summary>
+    private async Task<bool> HoldsWantedAsync(DownloadClient client, UsenetJobInfo job, List<string> wanted, CancellationToken cancellationToken)
+    {
+        var names = wanted.Select(Path.GetFileName).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (names.Count == 0)
+        {
+            return true;
+        }
+
+        var listed = await _usenet.GetFilesAsync(client, job.JobId, cancellationToken).ConfigureAwait(false);
+        names.ExceptWith(listed.Select(file => Path.GetFileName(file.FileName)));
+
+        if (names.Count == 0)
+        {
+            return true;
+        }
+
+        if (job.Status == UsenetStatus.Completed && job.StoragePath is { } folder && _disk.DirectoryExists(folder))
+        {
+            var present = _disk.EnumerateFiles(folder).Select(Path.GetFileName).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return names.All(present.Contains);
+        }
+
+        return false;
     }
 
     /// <summary>Deletes the audio files no wanted song needs, when the post is clean (DECISIONS build session 8 #10).</summary>
@@ -503,7 +699,7 @@ public sealed partial class IndexerSourceProvider
         switch (job.Status)
         {
             case UsenetStatus.Failed:
-                return Failed(job.FailMessage ?? "The download client reports the download as failed.");
+                return await FailedJobAsync(services, client, grab, jobId, job.FailMessage ?? "The download client reports the download as failed.", cancellationToken).ConfigureAwait(false);
 
             case UsenetStatus.Completed:
                 break;
@@ -530,7 +726,13 @@ public sealed partial class IndexerSourceProvider
 
         if (job.StoragePath is not { } folder || !_disk.DirectoryExists(folder))
         {
-            return Failed($"The finished folder ({job.StoragePath ?? "none reported"}) is not visible here; check the client's remote path mappings.");
+            return await FailedJobAsync(
+                services,
+                client,
+                grab,
+                jobId,
+                $"The finished folder ({job.StoragePath ?? "none reported"}) is not visible here; check the client's remote path mappings.",
+                cancellationToken).ConfigureAwait(false);
         }
 
         var files = _disk.EnumerateFiles(folder).ToList();
@@ -540,7 +742,7 @@ public sealed partial class IndexerSourceProvider
 
         if (source is null)
         {
-            return Failed("The song is not in the downloaded post.");
+            return await FailedJobAsync(services, client, grab, jobId, "The song is not in the downloaded post.", cancellationToken).ConfigureAwait(false);
         }
 
         var staged = Stage(source, grab.StagingDir, link: false);
@@ -551,6 +753,27 @@ public sealed partial class IndexerSourceProvider
         }
 
         return new DownloadStatus(DownloadState.Completed, 1, _disk.GetFileSize(staged), CompletedPath: staged);
+    }
+
+    /// <summary>
+    /// A failed item leaves nothing behind (R-081): its job goes from the client, history included,
+    /// once no other queue item uses it — the same rule as for a finished job. The job is Wondarr's own:
+    /// only a handle Wondarr wrote names it.
+    /// </summary>
+    private async Task<DownloadStatus> FailedJobAsync(
+        IServiceProvider services,
+        DownloadClient client,
+        ContainerGrab grab,
+        string jobId,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        if (!await IsSharedAsync(services, grab, cancellationToken).ConfigureAwait(false))
+        {
+            await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false);
+        }
+
+        return Failed(message);
     }
 
     /// <summary>An unpacked post's file for the song, by the matcher over the files' paths below the job folder.</summary>
@@ -626,35 +849,23 @@ public sealed partial class IndexerSourceProvider
             return false;
         }
 
-        foreach (var other in await ActiveGrabsAsync(services, key, cancellationToken).ConfigureAwait(false))
-        {
-            if (other.ClientId == grab.ClientId
+        var others = await ActiveGrabsAsync(
+            services,
+            other => other.ClientId == grab.ClientId
                 && !string.Equals(other.StagingDir, grab.StagingDir, StringComparison.Ordinal)
-                && (grab.InfoHash is not null ? other.InfoHash == grab.InfoHash : other.JobId == grab.JobId))
-            {
-                return true;
-            }
-        }
+                && (grab.InfoHash is not null ? other.InfoHash == grab.InfoHash : other.JobId == grab.JobId),
+            cancellationToken).ConfigureAwait(false);
 
-        return false;
+        return others.Count > 0;
     }
 
-    /// <summary>The job an in-flight grab of the same post has in the same client, if any.</summary>
-    private async Task<string?> JobOfReleaseAsync(IServiceProvider services, string releaseId, long clientId, CancellationToken cancellationToken)
-    {
-        foreach (var other in await ActiveGrabsAsync(services, releaseId, cancellationToken).ConfigureAwait(false))
-        {
-            if (other.ClientId == clientId && other.ReleaseId == releaseId && other.JobId is { } jobId)
-            {
-                return jobId;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>This source's grabs still in flight whose handle mentions <paramref name="key"/>.</summary>
-    private async Task<List<ContainerGrab>> ActiveGrabsAsync(IServiceProvider services, string key, CancellationToken cancellationToken)
+    /// <summary>
+    /// This source's grabs still in flight that satisfy <paramref name="match"/>. The handles are read
+    /// back and compared on their values: a guid with <c>&amp;</c> or <c>+</c> is escaped in the
+    /// serialised JSON, so a substring search over it would never find it (R-079). The queue holds few
+    /// items in flight, so the filter runs in memory.
+    /// </summary>
+    private async Task<List<ContainerGrab>> ActiveGrabsAsync(IServiceProvider services, Func<ContainerGrab, bool> match, CancellationToken cancellationToken)
     {
         var database = services.GetRequiredService<WondarrDbContext>();
         var sourceType = SourceType;
@@ -665,24 +876,24 @@ public sealed partial class IndexerSourceProvider
                 && (item.State == QueueItemState.Queued
                     || item.State == QueueItemState.RemotelyQueued
                     || item.State == QueueItemState.Downloading)
-                && item.Handle != null
-                && item.Handle.Contains(key))
+                && item.Handle != null)
             .Select(item => item.Handle)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return [.. handles.Select(ContainerGrab.TryDeserialize).OfType<ContainerGrab>()];
+        return [.. handles.Select(ContainerGrab.TryDeserialize).OfType<ContainerGrab>().Where(match)];
     }
 
     /// <summary>
-    /// The release as the indexer client wants it back for a download; only the links and the names
-    /// matter there.
+    /// The release as the indexer client wants it back for a grab; only the links and the names matter
+    /// there. A Gazelle link gets its freeleech token here and nowhere else (R-006): the stored link
+    /// and the search-time download never carry it.
     /// </summary>
     private IndexerRelease ToIndexerRelease(ContainerRelease release, Indexer indexer) =>
         new(
             release.Title,
             release.ReleaseId,
-            release.DownloadUrl,
+            release.DownloadUrl is { } url && string.Equals(indexer.Type, "gazelle", StringComparison.Ordinal) ? GazelleClient.ForGrab(indexer, url) : release.DownloadUrl,
             release.MagnetUrl,
             release.InfoHash,
             release.Size,
@@ -715,6 +926,12 @@ public sealed partial class IndexerSourceProvider
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Trimming the usenet post {Title} failed; it downloads whole")]
     private static partial void LogTrimFailed(ILogger logger, string title, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Resumed the stopped torrent {InfoHash}, which Wondarr did not add, because a wanted file still needs data")]
+    private static partial void LogForeignResumed(ILogger logger, string infoHash);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The torrent {InfoHash} Wondarr had just added could not be removed after its setup failed (cancelled: {Cancelled})")]
+    private static partial void LogTorrentCleanupFailed(ILogger logger, string infoHash, bool cancelled, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The usenet job {JobId} could not be removed from the client")]
     private static partial void LogJobRemoveFailed(ILogger logger, string jobId, Exception exception);

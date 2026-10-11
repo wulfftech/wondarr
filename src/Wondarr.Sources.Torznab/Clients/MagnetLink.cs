@@ -2,7 +2,7 @@ namespace Wondarr.Sources.Torznab.Clients;
 
 /// <summary>
 /// Reads the infohash out of a magnet link. Only v1 hashes are supported: <c>urn:btih:</c> with 40
-/// hex characters or 32 base32 characters; <c>urn:btmh:</c> (BitTorrent v2) is refused.
+/// hex characters or 32 base32 characters; <c>urn:btmh:</c> (BitTorrent v2) entries are skipped, so a hybrid magnet gives its v1 hash.
 /// </summary>
 public static class MagnetLink
 {
@@ -44,8 +44,9 @@ public static class MagnetLink
 
             if (!urn.StartsWith(UrnPrefix, StringComparison.OrdinalIgnoreCase))
             {
-                // urn:btmh: (BitTorrent v2) and anything else: not supported.
-                return false;
+                // urn:btmh: (BitTorrent v2) and anything else: skipped; a hybrid magnet lists its
+                // v1 hash in another xt.
+                continue;
             }
 
             var hash = urn[UrnPrefix.Length..];
@@ -62,6 +63,7 @@ public static class MagnetLink
                 return true;
             }
 
+            // A malformed btih: the first one decides, as before.
             return false;
         }
 

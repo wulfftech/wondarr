@@ -101,6 +101,7 @@ public enum TorrentStatus
 /// <param name="ContentPath">The torrent's content path as Wondarr sees it.</param>
 /// <param name="HasMetadata">Whether the files are known yet; false while a magnet's metadata is fetching.</param>
 /// <param name="Error">Why the torrent failed, or <see langword="null"/>.</param>
+/// <param name="DownloadPath">Where an incomplete torrent's files are while the client's "keep incomplete torrents in" folder is on, as Wondarr sees it; <see langword="null"/> or empty otherwise.</param>
 public sealed record TorrentInfo(
     string InfoHash,
     string Name,
@@ -109,7 +110,8 @@ public sealed record TorrentInfo(
     string SavePath,
     string ContentPath,
     bool HasMetadata,
-    string? Error);
+    string? Error,
+    string? DownloadPath = null);
 
 /// <summary>One file of a torrent.</summary>
 /// <param name="Index">The file's index in the client's list; what the priority call names it by.</param>
