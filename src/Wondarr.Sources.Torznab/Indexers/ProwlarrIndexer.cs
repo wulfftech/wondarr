@@ -184,6 +184,11 @@ public sealed partial class ProwlarrSearchClient : IIndexerClient
         {
             throw new IndexerException("Prowlarr could not be reached.", exception);
         }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The client's own timeout: a failed search the caller hears about, not an empty one.
+            throw new IndexerException("Prowlarr did not answer in time.", exception);
+        }
 
         using (response)
         {

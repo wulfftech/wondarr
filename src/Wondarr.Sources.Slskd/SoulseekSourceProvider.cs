@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Searching;
 
 namespace Wondarr.Sources.Slskd;
 
@@ -144,9 +145,18 @@ public sealed partial class SoulseekSourceProvider : ISourceProvider
                 // sequence would be refused too. Keep what the earlier queries found.
                 return new SourceSearchResult(candidates, submitted, "slskd refused a search (too many in flight)");
             }
-            catch (OperationCanceledException)
+            catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
             {
                 throw;
+            }
+            catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
+            {
+                // slskd's own 15 s or 10 s request timeout: a failed query, and a slskd that is not
+                // answering will not answer the song's other queries either - each would cost another
+                // timeout. Keep what the earlier queries found and move on.
+                firstError ??= exception.Message;
+                LogQueryFailed(_logger, query, exception);
+                break;
             }
             catch (Exception exception)
             {
