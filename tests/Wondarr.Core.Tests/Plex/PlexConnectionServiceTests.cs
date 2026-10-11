@@ -451,6 +451,92 @@ public class PlexConnectionServiceTests
     }
 
     [Fact]
+    public async Task An_unlisted_server_selected_with_its_own_token_never_gets_the_account_token_after_a_sign_out_and_sign_in()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubIdentity(harness);
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", [ListedConnection]),
+            ]));
+        var service = harness.CreateService();
+
+        await service.SelectServerAsync("http://evil.example:32400", "caller-own-token", CancellationToken.None);
+        await service.SignOutAsync(CancellationToken.None);
+
+        // The unlisted selection does not survive the sign-out ...
+        var settings = (await harness.ReadSettingsAsync())!;
+        settings.ServerUrl.Should().BeNull();
+        settings.ServerToken.Should().BeNull();
+
+        // ... so the next owner sign-in has nothing to send the account token to.
+        await SignInAsync(harness);
+        (await service.GetServerContextAsync(CancellationToken.None)).Should().BeNull();
+        (await service.TestAsync(CancellationToken.None)).Ok.Should().BeFalse();
+        await harness.Server.DidNotReceive().GetIdentityAsync(Arg.Is<Uri>(uri => uri.Host == "evil.example"), UserToken, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_unlisted_server_without_a_server_token_gets_no_token_at_all()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubIdentity(harness);
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([]));
+        var service = harness.CreateService();
+
+        await service.SelectServerAsync("http://evil.example:32400", "caller-own-token", CancellationToken.None);
+        await harness.WriteSettingsAsync((await harness.ReadSettingsAsync())! with { ServerToken = null });
+
+        (await service.GetServerContextAsync(CancellationToken.None)).Should().BeNull();
+        (await service.TestAsync(CancellationToken.None)).Error.Should().Be(PlexConnectionService.SelectAgain);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetMusicSectionsAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_listed_server_keeps_working_across_a_sign_out_and_sign_in()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SelectServerAsync(harness);
+        var service = harness.CreateService();
+
+        await service.SignOutAsync(CancellationToken.None);
+        await SignInAsync(harness);
+
+        var context = await service.GetServerContextAsync(CancellationToken.None);
+
+        context.Should().NotBeNull();
+        context!.Value.Server.Should().Be(new Uri("https://plex.example:32400"));
+        context.Value.Token.Should().Be(UserToken);
+    }
+
+    [Fact]
+    public async Task Settings_without_the_flag_count_as_listed_until_the_list_says_otherwise()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SelectServerAsync(harness);
+        var service = harness.CreateService();
+
+        // An install from before the flag: nothing recorded, the URL is on plex.tv's list.
+        await harness.WriteSettingsAsync((await harness.ReadSettingsAsync())! with { ServerListed = null, ServerToken = null });
+        (await service.GetServerContextAsync(CancellationToken.None)).Should().NotBeNull();
+
+        await service.GetServersAsync(CancellationToken.None);
+        (await harness.ReadSettingsAsync())!.ServerListed.Should().BeTrue();
+
+        // The same legacy URL, but plex.tv no longer lists it: the next list fetch settles it as unlisted.
+        await harness.WriteSettingsAsync((await harness.ReadSettingsAsync())! with { ServerListed = null });
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([]));
+        await service.GetServersAsync(CancellationToken.None);
+
+        (await harness.ReadSettingsAsync())!.ServerListed.Should().BeFalse();
+        (await service.GetServerContextAsync(CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task ConnectServer_keeps_the_first_local_connection_that_answers_as_that_server()
     {
         using var harness = new PlexConnectionHarness();
