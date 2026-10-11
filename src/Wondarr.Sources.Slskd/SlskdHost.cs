@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Wondarr.Core.Configuration;
+using Wondarr.Core.Searching;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -39,8 +40,30 @@ public sealed partial class SlskdHost : BackgroundService
     /// <summary>How long a settings change settles before it is applied.</summary>
     public static readonly TimeSpan SettingsDebounce = TimeSpan.FromSeconds(2);
 
-    /// <summary>How long a killed process gets to exit before the supervisor stops waiting.</summary>
-    public static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// How long slskd gets to exit after SIGTERM, to log out and flush its transfer state, before its
+    /// process tree is killed.
+    /// </summary>
+    public static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long a killed process gets to exit before the supervisor stops waiting. Together with
+    /// <see cref="GracefulStopTimeout"/> this is the worst case of one stop: 7 s of the 8 s the host
+    /// gives a shutdown (<c>docs/architecture/DEPLOYMENT.md</c>).
+    /// </summary>
+    public static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>How long a leftover slskd from a crashed Wondarr gets to die before the new one starts anyway.</summary>
+    public static readonly TimeSpan OrphanKillTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How many polls in a row must fail, after slskd has been seen running, before it is restarted.
+    /// One slow answer is not a dead slskd.
+    /// </summary>
+    public const int FailedPollLimit = 3;
+
+    /// <summary>Name of the file that holds the pid of the slskd Wondarr started, inside the slskd directory.</summary>
+    public const string PidFileName = "slskd.pid";
 
     /// <summary>Uptime after which the restart backoff starts from the beginning again.</summary>
     public static readonly TimeSpan BackoffResetUptime = TimeSpan.FromMinutes(5);
@@ -58,6 +81,7 @@ public sealed partial class SlskdHost : BackgroundService
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IProcessLauncher _launcher;
+    private readonly IProcessInspector _inspector;
     private readonly SlskdConfigRenderer _renderer;
     private readonly IOptionsMonitor<SoulseekOptions> _options;
     private readonly IOptionsMonitor<ServerOptions> _serverOptions;
@@ -85,11 +109,18 @@ public sealed partial class SlskdHost : BackgroundService
     private CancellationToken _stoppingToken;
     private int _backoffIndex;
     private int _settingsRevision;
+    private int _modeSeen;
+
+    // Completed by every settings change so an idle supervisor (external mode, or no binary) looks
+    // again; replaced once it has been seen. Captured before the mode is read, so a change that lands
+    // in between is never lost.
+    private TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Initialises a new instance of the <see cref="SlskdHost"/> class.</summary>
     public SlskdHost(
         IServiceScopeFactory scopeFactory,
         IProcessLauncher launcher,
+        IProcessInspector inspector,
         SlskdConfigRenderer renderer,
         IOptionsMonitor<SoulseekOptions> options,
         IOptionsMonitor<ServerOptions> serverOptions,
@@ -100,6 +131,7 @@ public sealed partial class SlskdHost : BackgroundService
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(launcher);
+        ArgumentNullException.ThrowIfNull(inspector);
         ArgumentNullException.ThrowIfNull(renderer);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(serverOptions);
@@ -110,6 +142,7 @@ public sealed partial class SlskdHost : BackgroundService
 
         _scopeFactory = scopeFactory;
         _launcher = launcher;
+        _inspector = inspector;
         _renderer = renderer;
         _options = options;
         _serverOptions = serverOptions;
@@ -123,91 +156,136 @@ public sealed partial class SlskdHost : BackgroundService
     /// <summary>The rendered configuration file's path.</summary>
     public string ConfigPath => Path.Combine(_paths.SlskdDir, ConfigFileName);
 
+    private string PidPath => Path.Combine(_paths.SlskdDir, PidFileName);
+
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _stoppingToken = stoppingToken;
 
-        var options = _options.CurrentValue;
-
-        if (options.Mode == SoulseekMode.External)
-        {
-            // The external monitor owns the status in external mode; nothing here describes a
-            // process of ours.
-            return;
-        }
-
-        if (!File.Exists(options.BinaryPath))
-        {
-            // Normal on a Windows dev box, where the Linux slskd binary is not present.
-            LogBinaryMissing(_logger, options.BinaryPath);
-            _status.Set(new SlskdStatusSnapshot(
-                SlskdState.BinaryMissing,
-                LastError: $"slskd binary not found at {options.BinaryPath}; the Soulseek source is unavailable",
-                LastCheckedAt: Now));
-            return;
-        }
-
+        // Subscribed first and for the life of the service: the mode can change at any time, and a
+        // supervisor that is idle (external mode, no binary) has to hear about it.
+        _modeSeen = (int)_options.CurrentValue.Mode;
         using var subscription = _options.OnChange(OnSettingsChanged);
 
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                var generation = await EnsureChildAsync(stoppingToken).ConfigureAwait(false);
-                var startedAt = Now;
+                var wake = Volatile.Read(ref _wake).Task;
+                var options = _options.CurrentValue;
 
-                if (generation is not null)
+                if (options.Mode == SoulseekMode.External)
                 {
-                    if (await MonitorAsync(generation.Value, stoppingToken).ConfigureAwait(false) == MonitorOutcome.Replaced)
-                    {
-                        // A settings change replaced the process; watch the replacement.
-                        continue;
-                    }
-
-                    // The crash path takes the lifecycle gate like every other start/stop, and only stops
-                    // the process it was watching: an ApplySettingsAsync that ran between the crash and
-                    // here may already have started a replacement, which must not be killed.
-                    bool replacedMeanwhile;
-                    await _lifecycle.WaitAsync(stoppingToken).ConfigureAwait(false);
-                    try
-                    {
-                        replacedMeanwhile = CurrentGeneration != generation.Value;
-                        if (!replacedMeanwhile)
-                        {
-                            await StopChildAsync(stoppingToken).ConfigureAwait(false);
-                        }
-                    }
-                    finally
-                    {
-                        _lifecycle.Release();
-                    }
-
-                    if (replacedMeanwhile)
-                    {
-                        continue;
-                    }
+                    // The external monitor owns the status in external mode; nothing here describes a
+                    // process of ours. Wait for the mode to change back.
+                    await IdleAsync(wake, stoppingToken).ConfigureAwait(false);
+                    continue;
                 }
 
-                // Either a child crashed, or none could be started because its directories could not
-                // be prepared. Both are waited out and retried: an unwritable /data must not stop the
-                // host (BackgroundServiceExceptionBehavior.StopHost), least of all in a restart loop.
-
-                if (Now - startedAt >= BackoffResetUptime)
+                if (!File.Exists(options.BinaryPath))
                 {
-                    _backoffIndex = 0;
+                    // Normal on a Windows dev box, where the Linux slskd binary is not present.
+                    LogBinaryMissing(_logger, options.BinaryPath);
+                    _status.Set(new SlskdStatusSnapshot(
+                        SlskdState.BinaryMissing,
+                        LastError: $"slskd binary not found at {options.BinaryPath}; the Soulseek source is unavailable",
+                        LastCheckedAt: Now));
+
+                    await IdleAsync(wake, stoppingToken).ConfigureAwait(false);
+                    continue;
                 }
 
-                var delay = NextBackoff();
-                LogRestartScheduled(_logger, delay.TotalSeconds);
+                try
+                {
+                    await SuperviseOnceAsync(stoppingToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, stoppingToken))
+                {
+                    // Anything unforeseen (a launch that throws, a timeout nobody classified) is a
+                    // crash like any other: report it, wait out the backoff, try again. It must never
+                    // end the supervisor or the host.
+                    LogSupervisorFailed(_logger, exception);
+                    SetCrashed($"The slskd supervisor failed: {exception.Message}");
 
-                await Task.Delay(delay, _timeProvider, stoppingToken).ConfigureAwait(false);
+                    await Task.Delay(NextBackoff(), _timeProvider, stoppingToken).ConfigureAwait(false);
+                }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // The host is shutting down; StopAsync kills the child.
+            // The host is shutting down; StopAsync stops the child.
         }
+    }
+
+    /// <summary>Waits for a settings change, then arms the next wait.</summary>
+    private async Task IdleAsync(Task wake, CancellationToken cancellationToken)
+    {
+        await wake.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        Interlocked.Exchange(ref _wake, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+    }
+
+    /// <summary>
+    /// One pass of supervision: make sure a child runs, watch it until it is replaced or dies, and
+    /// wait out the restart backoff after a crash. Returns when the child was replaced (by a settings
+    /// restart or a mode switch), so the caller looks at the mode again.
+    /// </summary>
+    private async Task SuperviseOnceAsync(CancellationToken stoppingToken)
+    {
+        var generation = await EnsureChildAsync(stoppingToken).ConfigureAwait(false);
+        var startedAt = Now;
+
+        if (_options.CurrentValue.Mode == SoulseekMode.External)
+        {
+            return;
+        }
+
+        if (generation is not null)
+        {
+            if (await MonitorAsync(generation.Value, stoppingToken).ConfigureAwait(false) == MonitorOutcome.Replaced)
+            {
+                // A settings change replaced the process, or the mode changed; the caller decides.
+                return;
+            }
+
+            // The crash path takes the lifecycle gate like every other start/stop, and only stops
+            // the process it was watching: an ApplySettingsAsync that ran between the crash and
+            // here may already have started a replacement, which must not be killed.
+            bool replacedMeanwhile;
+            await _lifecycle.WaitAsync(stoppingToken).ConfigureAwait(false);
+            try
+            {
+                replacedMeanwhile = CurrentGeneration != generation.Value;
+                if (!replacedMeanwhile)
+                {
+                    await StopChildAsync(stoppingToken).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _lifecycle.Release();
+            }
+
+            if (replacedMeanwhile)
+            {
+                return;
+            }
+        }
+
+        // Either a child crashed, or none could be started because its directories could not
+        // be prepared. Both are waited out and retried: an unwritable /data must not stop the
+        // host (BackgroundServiceExceptionBehavior.StopHost), least of all in a restart loop.
+
+        if (Now - startedAt >= BackoffResetUptime)
+        {
+            _backoffIndex = 0;
+        }
+
+        var delay = NextBackoff();
+        LogRestartScheduled(_logger, delay.TotalSeconds);
+
+        await Task.Delay(delay, _timeProvider, stoppingToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -245,6 +323,40 @@ public sealed partial class SlskdHost : BackgroundService
     public async Task ApplySettingsAsync(SoulseekOptions next, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(next);
+
+        if (next.Mode == SoulseekMode.External)
+        {
+            // Switching to the user's own slskd: ours is stopped at once, through the same gate a
+            // settings restart uses, and the external monitor takes over the status. No slskd.yml is
+            // rendered for a slskd that is not ours.
+            await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                if (next.Mode == SoulseekMode.External && Child is not null)
+                {
+                    LogModeSwitchedToExternal(_logger);
+                    await StopChildAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                Volatile.Write(ref _runningOptions, null);
+                Volatile.Write(ref _settingsWriteError, null);
+            }
+            finally
+            {
+                _lifecycle.Release();
+            }
+
+            return;
+        }
+
+        if (Volatile.Read(ref _runningOptions) is null && Child is null)
+        {
+            // Nothing of ours is running (an idle supervisor, or start-up not reached yet): the next
+            // launch renders the new settings. Writing the file here as well would race the launch,
+            // which writes it under the lifecycle gate.
+            return;
+        }
 
         var failure = await TryWriteConfigAsync(next, cancellationToken).ConfigureAwait(false);
 
@@ -320,6 +432,12 @@ public sealed partial class SlskdHost : BackgroundService
 
         try
         {
+            if (_options.CurrentValue.Mode == SoulseekMode.External)
+            {
+                // Switched to the user's own slskd while this caller waited for the gate.
+                return null;
+            }
+
             return Child is null
                 ? await StartChildAsync(_options.CurrentValue, cancellationToken).ConfigureAwait(false)
                 : CurrentGeneration;
@@ -330,10 +448,16 @@ public sealed partial class SlskdHost : BackgroundService
         }
     }
 
-    /// <summary>Watches one child process until it is replaced or exits. Assumes the gate is free.</summary>
+    /// <summary>
+    /// Watches one child process until it is replaced or exits. Assumes the gate is free.
+    /// <see cref="StartupTimeout"/> applies only until slskd has answered once; after that a restart
+    /// needs <see cref="FailedPollLimit"/> failed polls in a row, and any answer resets the count.
+    /// </summary>
     private async Task<MonitorOutcome> MonitorAsync(long generation, CancellationToken cancellationToken)
     {
         var startingDeadline = Now + StartupTimeout;
+        var seenRunning = false;
+        var failedPolls = 0;
 
         while (true)
         {
@@ -354,6 +478,9 @@ public sealed partial class SlskdHost : BackgroundService
 
             if (await PollAsync(cancellationToken).ConfigureAwait(false))
             {
+                seenRunning = true;
+                failedPolls = 0;
+
                 // A settings change whose configuration could not be written is still pending: the
                 // child is running the settings it was started with, so this cycle re-applies them.
                 if (Volatile.Read(ref _settingsWriteError) is not null)
@@ -370,13 +497,44 @@ public sealed partial class SlskdHost : BackgroundService
                 continue;
             }
 
-            if (Now >= startingDeadline)
+            if (ChildFor(generation) is null)
             {
-                SetCrashed("slskd did not answer its API within 60 seconds of starting");
+                // Replaced or stopped while the poll was in flight (a mode switch, say): its failure
+                // says nothing about the process now running.
+                return MonitorOutcome.Replaced;
+            }
+
+            if (!seenRunning)
+            {
+                if (Now >= startingDeadline)
+                {
+                    SetCrashed("slskd did not answer its API within 60 seconds of starting");
+
+                    return MonitorOutcome.Crashed;
+                }
+
+                await Task.Delay(StartupPollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            // It has answered before, so a failed poll is a hiccup until it repeats.
+            failedPolls++;
+
+            if (failedPolls >= FailedPollLimit)
+            {
+                SetCrashed($"slskd stopped answering its API ({FailedPollLimit} failed polls in a row)");
 
                 return MonitorOutcome.Crashed;
             }
 
+            var notAnswering = string.Create(
+                CultureInfo.InvariantCulture,
+                $"slskd not answering ({failedPolls}/{FailedPollLimit})");
+
+            PublishIfBundled(snapshot => snapshot with { LastError = notAnswering });
+
+            // The next look comes soon: three misses in a row are what decides, and waiting out the
+            // normal interval between them would leave a dead slskd unattended for minutes.
             await Task.Delay(StartupPollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -395,7 +553,7 @@ public sealed partial class SlskdHost : BackgroundService
             var client = scope.ServiceProvider.GetRequiredService<ISlskdClient>();
             var state = await client.GetApplicationStateAsync(cancellationToken).ConfigureAwait(false);
 
-            _status.Update(snapshot => snapshot with
+            PublishIfBundled(snapshot => snapshot with
             {
                 State = SlskdState.Running,
                 IsReachable = true,
@@ -421,9 +579,21 @@ public sealed partial class SlskdHost : BackgroundService
 
             return true;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _status.Update(snapshot => snapshot with
+            // The client's own 5 s timeout: a failed poll, never a shutdown.
+            PublishIfBundled(snapshot => snapshot with
+            {
+                IsReachable = false,
+                LastError = $"slskd did not answer within {SlskdClient.PollTimeout.TotalSeconds:0} s",
+                LastCheckedAt = now,
+            });
+
+            return false;
+        }
+        catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, cancellationToken))
+        {
+            PublishIfBundled(snapshot => snapshot with
             {
                 IsReachable = false,
                 LastError = exception.Message,
@@ -433,6 +603,14 @@ public sealed partial class SlskdHost : BackgroundService
             return false;
         }
     }
+
+    /// <summary>
+    /// Publishes a snapshot, but only while bundled mode is the active one: after a switch to the
+    /// user's own slskd the external monitor owns the status, and a poll that was in flight must not
+    /// overwrite it.
+    /// </summary>
+    private void PublishIfBundled(Func<SlskdStatusSnapshot, SlskdStatusSnapshot> update) =>
+        _status.Update(snapshot => _options.CurrentValue.Mode == SoulseekMode.Bundled ? update(snapshot) : snapshot);
 
     /// <summary>
     /// Writes the configuration and launches the child, or reports why it could not be prepared.
@@ -452,7 +630,13 @@ public sealed partial class SlskdHost : BackgroundService
             return null;
         }
 
+        // A slskd left behind by a Wondarr that crashed would hold the ports and answer our polls
+        // with the same API key; it goes before the replacement starts.
+        await KillOrphanAsync(cancellationToken).ConfigureAwait(false);
+
         var child = _launcher.Launch(BuildRequest(options));
+
+        WritePidFile(child.Id);
 
         long generation;
         lock (_processGate)
@@ -480,7 +664,11 @@ public sealed partial class SlskdHost : BackgroundService
         return generation;
     }
 
-    /// <summary>Kills the child process tree and forgets it, waiting up to <see cref="StopTimeout"/>.</summary>
+    /// <summary>
+    /// Stops the child and forgets it: SIGTERM first, so slskd can log out and flush its state, and
+    /// only when it has not exited within <see cref="GracefulStopTimeout"/> the whole process tree is
+    /// killed (waiting up to <see cref="StopTimeout"/> for that).
+    /// </summary>
     private async Task StopChildAsync(CancellationToken cancellationToken)
     {
         ILaunchedProcess? child;
@@ -500,13 +688,28 @@ public sealed partial class SlskdHost : BackgroundService
 
         try
         {
-            child.Kill(entireProcessTree: true);
+            var exited = child.HasExited;
 
-            await Task
-                .WhenAny(
-                    child.WaitForExitAsync(cancellationToken),
-                    Task.Delay(StopTimeout, _timeProvider, cancellationToken))
-                .ConfigureAwait(false);
+            if (!exited)
+            {
+                child.RequestStop();
+                exited = await WaitForExitAsync(child, GracefulStopTimeout, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!exited)
+            {
+                LogTermTimedOut(_logger, GracefulStopTimeout.TotalSeconds);
+
+                child.Kill(entireProcessTree: true);
+                exited = await WaitForExitAsync(child, StopTimeout, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (exited)
+            {
+                // A clean stop. A process that would not die keeps its pid file, so the next start
+                // looks for it.
+                DeletePidFile();
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -515,6 +718,102 @@ public sealed partial class SlskdHost : BackgroundService
         finally
         {
             child.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Waits for <paramref name="child"/> to exit, for at most <paramref name="timeout"/>. A cancelled
+    /// <paramref name="cancellationToken"/> ends the wait too (the caller then goes on to kill), so
+    /// it reports "not exited" rather than throwing.
+    /// </summary>
+    private async Task<bool> WaitForExitAsync(ILaunchedProcess child, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        var exit = child.WaitForExitAsync(wait.Token);
+        var delay = Task.Delay(timeout, _timeProvider, wait.Token);
+
+        try
+        {
+            await Task.WhenAny(exit, delay).ConfigureAwait(false);
+        }
+        finally
+        {
+            await wait.CancelAsync().ConfigureAwait(false);
+        }
+
+        return child.HasExited;
+    }
+
+    /// <summary>
+    /// Kills a slskd that an earlier run of Wondarr left behind, found through the pid file. Only a
+    /// process whose executable is called slskd is touched: a pid that has since been reused by
+    /// something else is left alone. Failures are logged, never thrown — the new slskd is started either way.
+    /// </summary>
+    private async Task KillOrphanAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!File.Exists(PidPath))
+            {
+                return;
+            }
+
+            var text = await File.ReadAllTextAsync(PidPath, cancellationToken).ConfigureAwait(false);
+
+            if (int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var processId)
+                && processId > 0
+                && processId != Environment.ProcessId
+                && _inspector.GetExecutable(processId) is { } executable)
+            {
+                if (!string.Equals(Path.GetFileNameWithoutExtension(executable), "slskd", StringComparison.OrdinalIgnoreCase))
+                {
+                    LogPidNotSlskd(_logger, processId);
+                }
+                else
+                {
+                    LogKillingOrphan(_logger, processId);
+
+                    if (!await _inspector.KillTreeAsync(processId, OrphanKillTimeout, cancellationToken).ConfigureAwait(false))
+                    {
+                        LogOrphanSurvived(_logger, processId);
+
+                        // Kept: the next start tries again.
+                        return;
+                    }
+                }
+            }
+
+            // Stale (no such process), not ours to kill, or dead now.
+            DeletePidFile();
+        }
+        catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, cancellationToken))
+        {
+            LogOrphanCheckFailed(_logger, exception.Message);
+        }
+    }
+
+    private void WritePidFile(int processId)
+    {
+        try
+        {
+            File.WriteAllText(PidPath, processId.ToString(CultureInfo.InvariantCulture), Utf8WithoutBom);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            LogPidWriteFailed(_logger, exception.Message);
+        }
+    }
+
+    private void DeletePidFile()
+    {
+        try
+        {
+            File.Delete(PidPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            LogPidWriteFailed(_logger, exception.Message);
         }
     }
 
@@ -684,14 +983,24 @@ public sealed partial class SlskdHost : BackgroundService
     {
         var revision = Interlocked.Increment(ref _settingsRevision);
 
-        _ = ApplyAfterDebounceAsync(next, revision);
+        // A new mode is applied at once; everything else settles first, so a burst of edits restarts
+        // slskd once.
+        var modeChanged = Interlocked.Exchange(ref _modeSeen, (int)next.Mode) != (int)next.Mode;
+
+        // Wakes an idle supervisor (external -> bundled); a busy one ignores it.
+        Volatile.Read(ref _wake).TrySetResult();
+
+        _ = ApplyAfterDebounceAsync(next, revision, modeChanged);
     }
 
-    private async Task ApplyAfterDebounceAsync(SoulseekOptions next, int revision)
+    private async Task ApplyAfterDebounceAsync(SoulseekOptions next, int revision, bool immediately)
     {
         try
         {
-            await Task.Delay(SettingsDebounce, _timeProvider, _stoppingToken).ConfigureAwait(false);
+            if (!immediately)
+            {
+                await Task.Delay(SettingsDebounce, _timeProvider, _stoppingToken).ConfigureAwait(false);
+            }
 
             // A newer change arrived while this one was settling; that one applies instead.
             if (Volatile.Read(ref _settingsRevision) != revision)
@@ -789,6 +1098,30 @@ public sealed partial class SlskdHost : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not apply the Soulseek settings: {Reason}")]
     private static partial void LogSettingsApplyFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Soulseek mode switched to external; stopping the bundled slskd")]
+    private static partial void LogModeSwitchedToExternal(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The slskd supervisor hit an unexpected error")]
+    private static partial void LogSupervisorFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "slskd did not exit within {Seconds} s of SIGTERM; killing its process tree")]
+    private static partial void LogTermTimedOut(ILogger logger, double seconds);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Killing slskd (pid {ProcessId}) left over from an earlier run of Wondarr")]
+    private static partial void LogKillingOrphan(ILogger logger, int processId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The leftover slskd (pid {ProcessId}) did not exit; starting a new one anyway")]
+    private static partial void LogOrphanSurvived(ILogger logger, int processId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "The slskd pid file names process {ProcessId}, which is not slskd; leaving it alone")]
+    private static partial void LogPidNotSlskd(ILogger logger, int processId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not check for a leftover slskd: {Reason}")]
+    private static partial void LogOrphanCheckFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not write the slskd pid file: {Reason}")]
+    private static partial void LogPidWriteFailed(ILogger logger, string reason);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not kill the slskd process: {Reason}")]
     private static partial void LogKillFailed(ILogger logger, string reason);

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Searching;
 
 namespace Wondarr.Sources.Slskd;
 
@@ -61,7 +62,7 @@ public sealed partial class SlskdExternalMonitor : BackgroundService
         if (_options.CurrentValue.Mode == SoulseekMode.External)
         {
             // Until the first poll answers, say what is happening rather than "not configured".
-            _status.Update(snapshot => snapshot with
+            Publish(snapshot => snapshot with
             {
                 State = SlskdState.External,
                 IsReachable = false,
@@ -70,36 +71,67 @@ public sealed partial class SlskdExternalMonitor : BackgroundService
             });
         }
 
+        // Nothing in one pass may end this loop: an exception out of a BackgroundService stops the
+        // whole app (the host's default), and the monitor only watches.
         while (!stoppingToken.IsCancellationRequested)
         {
-            var changed = Volatile.Read(ref _changed).Task;
-
-            if (_options.CurrentValue.Mode == SoulseekMode.External)
+            try
             {
-                await PollAsync(stoppingToken).ConfigureAwait(false);
+                var changed = Volatile.Read(ref _changed).Task;
+
+                if (_options.CurrentValue.Mode == SoulseekMode.External)
+                {
+                    await PollAsync(stoppingToken).ConfigureAwait(false);
+                }
+
+                using (var wait = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
+                {
+                    var delay = Task.Delay(PollInterval, _timeProvider, wait.Token);
+                    await Task.WhenAny(delay, changed).ConfigureAwait(false);
+                    await wait.CancelAsync().ConfigureAwait(false);
+                }
+
+                if (stoppingToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (changed.IsCompleted)
+                {
+                    // Seen: the next change completes a fresh task.
+                    Interlocked.Exchange(
+                        ref _changed,
+                        new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+                }
             }
-
-            using (var wait = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
+            catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, stoppingToken))
             {
-                var delay = Task.Delay(PollInterval, _timeProvider, wait.Token);
-                await Task.WhenAny(delay, changed).ConfigureAwait(false);
-                await wait.CancelAsync().ConfigureAwait(false);
+                LogLoopFailed(_logger, exception);
+
+                try
+                {
+                    await Task.Delay(PollInterval, _timeProvider, stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
             }
-
-            if (stoppingToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
+                // The caller's token: the host is stopping.
                 return;
-            }
-
-            if (changed.IsCompleted)
-            {
-                // Seen: the next change completes a fresh task.
-                Interlocked.Exchange(
-                    ref _changed,
-                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
             }
         }
     }
+
+    /// <summary>
+    /// Publishes a snapshot, but only while external mode is the active one. The mode can change
+    /// while a poll is in flight; the supervisor owns the status then, and a late answer from the
+    /// user's slskd must not overwrite it.
+    /// </summary>
+    private void Publish(Func<SlskdStatusSnapshot, SlskdStatusSnapshot> update) =>
+        _status.Update(snapshot => _options.CurrentValue.Mode == SoulseekMode.External ? update(snapshot) : snapshot);
 
     /// <summary>
     /// Reads the user's slskd's application state and publishes it. Failures are published, never
@@ -117,9 +149,10 @@ public sealed partial class SlskdExternalMonitor : BackgroundService
             var client = scope.ServiceProvider.GetRequiredService<ISlskdClient>();
             var state = await client.GetApplicationStateAsync(cancellationToken).ConfigureAwait(false);
 
-            _status.Update(snapshot => snapshot with
+            Publish(snapshot => snapshot with
             {
                 State = SlskdState.External,
+                ProcessId = null,
                 IsReachable = true,
                 IsLoggedIn = state.Server.IsLoggedIn,
                 Version = string.IsNullOrWhiteSpace(state.Version.Current) ? snapshot.Version : state.Version.Current,
@@ -134,24 +167,43 @@ public sealed partial class SlskdExternalMonitor : BackgroundService
         catch (HttpRequestException exception)
             when (exception.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
-            _status.Update(snapshot => snapshot with
+            Publish(snapshot => snapshot with
             {
                 State = SlskdState.External,
+                ProcessId = null,
                 IsReachable = false,
                 LastError = "slskd refused the API key",
                 LastCheckedAt = now,
             });
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The client's own timeout surfaces as a cancellation; the caller did not cancel, so
+            // slskd simply did not answer.
+            var host = ExternalHost(options);
+
+            LogUnreachable(_logger, host);
+
+            Publish(snapshot => snapshot with
+            {
+                State = SlskdState.External,
+                ProcessId = null,
+                IsReachable = false,
+                LastError = $"slskd did not answer within {SlskdClient.PollTimeout.TotalSeconds:0} s",
+                LastCheckedAt = now,
+            });
+        }
+        catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, cancellationToken))
         {
             // The host only — never the full URL (it can carry a path) and never the key.
             var host = ExternalHost(options);
 
             LogUnreachable(_logger, host);
 
-            _status.Update(snapshot => snapshot with
+            Publish(snapshot => snapshot with
             {
                 State = SlskdState.External,
+                ProcessId = null,
                 IsReachable = false,
                 LastError = $"slskd at {host} is not reachable",
                 LastCheckedAt = now,
@@ -164,6 +216,9 @@ public sealed partial class SlskdExternalMonitor : BackgroundService
         Uri.TryCreate(options.External.Url, UriKind.Absolute, out var url) && !string.IsNullOrEmpty(url.Host)
             ? url.Host
             : "(unknown)";
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The slskd monitor hit an unexpected error and carries on")]
+    private static partial void LogLoopFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "slskd at {Host} is not reachable")]
     private static partial void LogUnreachable(ILogger logger, string host);

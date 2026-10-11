@@ -187,6 +187,71 @@ public class SlskdExternalMonitorTests
         await monitor.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task A_poll_timeout_reports_unreachable_and_the_monitor_keeps_polling()
+    {
+        // HttpClient reports its own 5 s timeout as a TaskCanceledException; the monitor's token is untouched.
+        var calls = 0;
+        var (monitor, status, _, _, time) = Monitor(() => Interlocked.Increment(ref calls) == 1
+            ? Task.FromException<SlskdApplicationState>(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"))
+            : Task.FromResult(LoggedIn));
+
+        await monitor.StartAsync(CancellationToken.None);
+        await UntilAsync(() => status.Current.LastError == "slskd did not answer within 5 s");
+
+        status.Current.IsReachable.Should().BeFalse();
+        monitor.ExecuteTask!.IsCompleted.Should().BeFalse("a timeout must not end the service, or the app with it");
+
+        // The next scheduled poll answers, so the monitor is still alive.
+        time.Advance(SlskdExternalMonitor.PollInterval);
+        await UntilAsync(() => status.Current.IsReachable);
+
+        await monitor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_during_a_poll_is_a_clean_stop()
+    {
+        var hanging = new TaskCompletionSource<SlskdApplicationState>();
+        var started = 0;
+        var (monitor, status, client, _, _) = Monitor(() => hanging.Task);
+        client.GetApplicationStateAsync(Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            Interlocked.Exchange(ref started, 1);
+            return hanging.Task.WaitAsync(call.Arg<CancellationToken>());
+        });
+
+        await monitor.StartAsync(CancellationToken.None);
+        await UntilAsync(() => Volatile.Read(ref started) == 1);
+
+        await monitor.StopAsync(CancellationToken.None);
+
+        monitor.ExecuteTask!.IsCompletedSuccessfully.Should().BeTrue("a stopping host is not a failed poll");
+        status.Current.LastError.Should().Be("checking slskd at slskd.example", "a stop is not reported as unreachable");
+    }
+
+    [Fact]
+    public async Task A_late_answer_after_a_switch_to_bundled_does_not_overwrite_the_status()
+    {
+        var firstPoll = new TaskCompletionSource<SlskdApplicationState>();
+        var (monitor, status, _, _, _) = Monitor(() => firstPoll.Task);
+        var bundled = new SoulseekOptions();
+
+        await monitor.StartAsync(CancellationToken.None);
+        await UntilAsync(() => status.Current.State == SlskdState.External);
+
+        // The supervisor takes over the status when the mode flips; the in-flight poll then answers.
+        Options.Set(bundled);
+        status.Set(new SlskdStatusSnapshot(SlskdState.Starting, ProcessId: 77));
+        firstPoll.SetResult(LoggedIn);
+
+        await Task.Yield();
+        await monitor.StopAsync(CancellationToken.None);
+
+        status.Current.State.Should().Be(SlskdState.Starting);
+        status.Current.ProcessId.Should().Be(77);
+    }
+
     private FakeOptionsMonitor<SoulseekOptions> Options { get; } = new(new SoulseekOptions());
 
     private (SlskdExternalMonitor Monitor, SlskdStatus Status, ISlskdClient Client, CapturingLogger Logger, FakeTimeProvider Time) Monitor(
