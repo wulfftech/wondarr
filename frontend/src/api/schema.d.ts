@@ -6410,7 +6410,6 @@ export interface components {
         SoulseekSettingsUpdateResponseResource: {
             settings: components["schemas"]["SoulseekSettingsResource"];
             restartsSlskd: boolean;
-            restartsWondarr: boolean;
         };
         SoulseekSharingResource: {
             enabled: boolean;
