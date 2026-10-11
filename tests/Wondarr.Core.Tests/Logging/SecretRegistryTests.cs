@@ -38,6 +38,40 @@ public class SecretRegistryTests
     }
 
     [Fact]
+    public void Redacts_the_json_escaped_form_of_a_secret_with_a_quote_and_a_backslash()
+    {
+        const string secret = "pa\\ss\"word";
+        var registry = new SecretRegistry();
+        registry.Register(secret);
+
+        // As the JSON log writes it: \ becomes \\ and " becomes \".
+        registry.Redact("{\"Exception\":\"login failed for pa\\\\ss\\\"word\"}")
+            .Should().Be("{\"Exception\":\"login failed for (removed)\"}");
+
+        registry.Redact("raw form pa\\ss\"word").Should().Be("raw form (removed)");
+    }
+
+    [Fact]
+    public void Redacts_a_secret_with_a_quote_and_a_backslash_in_a_rendered_json_event()
+    {
+        const string secret = "pa\\ss\"word";
+        var registry = new SecretRegistry();
+        registry.Register(secret);
+
+        var logEvent = new Serilog.Events.LogEvent(
+            DateTimeOffset.UtcNow,
+            Serilog.Events.LogEventLevel.Error,
+            null,
+            new Serilog.Parsing.MessageTemplateParser().Parse("Login failed for {Password}"),
+            [new Serilog.Events.LogEventProperty("Password", new Serilog.Events.ScalarValue(secret))]);
+
+        using var output = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+        new RedactingTextFormatter(new Serilog.Formatting.Json.JsonFormatter(), registry).Format(logEvent, output);
+
+        output.ToString().Should().NotContain("ss\\\"word").And.NotContain("pa\\\\ss");
+    }
+
+    [Fact]
     public void Replaces_a_longer_secret_before_a_shorter_one_registered_later()
     {
         var registry = new SecretRegistry();

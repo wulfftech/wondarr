@@ -45,11 +45,67 @@ public sealed class SecretRegistry : ISecretRegistry
 
         lock (_gate)
         {
-            if (_secrets.Add(secret))
+            // The JSON log writes the text already escaped, where a quote or a backslash in the
+            // secret no longer matches its raw form, so the escaped form is registered with it.
+            var added = _secrets.Add(secret);
+
+            var escaped = JsonEscape(secret);
+
+            if (escaped != secret)
+            {
+                added |= _secrets.Add(escaped);
+            }
+
+            if (added)
             {
                 _snapshot = [.. _secrets.OrderByDescending(value => value.Length)];
             }
         }
+    }
+
+    /// <summary>
+    /// The secret as Serilog's JSON formatter writes it: <c>"</c> and <c>\</c> backslash-escaped and
+    /// control characters as escapes. Everything else is written as it is.
+    /// </summary>
+    private static string JsonEscape(string secret)
+    {
+        var builder = new System.Text.StringBuilder(secret.Length + 8);
+
+        foreach (var character in secret)
+        {
+            switch (character)
+            {
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\\':
+                    builder.Append("\\\\");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                case '\b':
+                    builder.Append("\\b");
+                    break;
+                case '\f':
+                    builder.Append("\\f");
+                    break;
+                case < ' ':
+                    builder.Append("\\u").Append(((int)character).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+                    break;
+                default:
+                    builder.Append(character);
+                    break;
+            }
+        }
+
+        return builder.ToString();
     }
 
     public string Redact(string text)
