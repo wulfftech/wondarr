@@ -1,4 +1,7 @@
 using Wondarr.Core.Configuration;
+using Wondarr.Core.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -48,14 +51,20 @@ public sealed class RecycleBin : IRecycleBin
     private readonly WondarrPaths _paths;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RecycleBin> _logger;
+    private readonly IServiceScopeFactory? _scopes;
 
-    /// <summary>Creates the recycle bin over the resolved import options.</summary>
+    /// <summary>
+    /// Creates the recycle bin over the resolved import options. <paramref name="scopes"/> lets the
+    /// cleanup pass read the library and reference-library roots it must never walk; without it
+    /// (a bare unit test) no root is known and only the marker guards the pass.
+    /// </summary>
     public RecycleBin(
         IDiskOperations disk,
         IOptionsMonitor<ImportOptions> options,
         WondarrPaths paths,
         TimeProvider timeProvider,
-        ILogger<RecycleBin> logger)
+        ILogger<RecycleBin> logger,
+        IServiceScopeFactory? scopes = null)
     {
         ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(options);
@@ -68,6 +77,7 @@ public sealed class RecycleBin : IRecycleBin
         _paths = paths;
         _timeProvider = timeProvider;
         _logger = logger;
+        _scopes = scopes;
     }
 
     /// <summary>The recycle bin directory in use, re-read so a settings change is picked up.</summary>
@@ -132,7 +142,19 @@ public sealed class RecycleBin : IRecycleBin
 
         // From here the cleanup clock runs, not from when the file was last downloaded (Lidarr does
         // the same): a file recycled from a decade-old collection is not due for deletion today.
-        _disk.SetLastWriteTimeUtc(recycled, _timeProvider.GetUtcNow().UtcDateTime);
+        // The file has already moved, so a stamp that fails (a file owned by another uid, or a mount
+        // that refuses utimensat) must not turn the recycle into a failure: the caller would report
+        // the old file as untouched while it sits in the bin. Stamping before the move would not
+        // help the cross-device copy, whose copy gets its own time anyway, so the stamp stays here
+        // and is best-effort.
+        try
+        {
+            _disk.SetLastWriteTimeUtc(recycled, _timeProvider.GetUtcNow().UtcDateTime);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            RecycleBinLog.StampFailed(_logger, recycled, exception.Message);
+        }
 
         RecycleBinLog.Recycled(_logger, path, recycled);
 
@@ -140,20 +162,20 @@ public sealed class RecycleBin : IRecycleBin
     }
 
     /// <inheritdoc />
-    public Task<int> CleanupAsync(CancellationToken cancellationToken)
+    public async Task<int> CleanupAsync(CancellationToken cancellationToken)
     {
         var days = _options.CurrentValue.RecycleBinCleanupDays;
 
         if (days <= 0)
         {
-            return Task.FromResult(0);
+            return 0;
         }
 
         var root = Root;
 
         if (!_disk.DirectoryExists(root))
         {
-            return Task.FromResult(0);
+            return 0;
         }
 
         // Not a bin we wrote: leave every file in it alone. This is the guard that makes a stray
@@ -161,8 +183,23 @@ public sealed class RecycleBin : IRecycleBin
         if (!_disk.FileExists(Path.Combine(root, MarkerFileName)))
         {
             RecycleBinLog.NotAMarkedBin(_logger, root);
-            return Task.FromResult(0);
+            return 0;
         }
+
+        var protectedRoots = await LoadProtectedRootsAsync(cancellationToken).ConfigureAwait(false);
+
+        // A bin that sits inside a library or reference root is somebody's collection, not recycled
+        // files: a marker written there by an old configuration does not make it ours.
+        var holder = protectedRoots.FirstOrDefault(libraryRoot => PathRules.IsInside(libraryRoot, root));
+
+        if (holder is not null)
+        {
+            RecycleBinLog.BinInsideLibrary(_logger, root, holder);
+            return 0;
+        }
+
+        // A root inside the bin (or the bin holding one) is skipped directory by directory.
+        var skipped = protectedRoots.Where(libraryRoot => PathRules.IsInside(root, libraryRoot)).ToList();
 
         var cutoff = _timeProvider.GetUtcNow().UtcDateTime.AddDays(-days);
         var deleted = 0;
@@ -171,6 +208,11 @@ public sealed class RecycleBin : IRecycleBin
         foreach (var file in _disk.EnumerateFiles(root))
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (skipped.Any(libraryRoot => PathRules.IsInside(libraryRoot, file)))
+            {
+                continue;
+            }
 
             // Belt and braces: only a file strictly below the bin is ever deleted from here — never
             // the bin root itself, never its marker, and never anything the walk was led to outside
@@ -227,7 +269,59 @@ public sealed class RecycleBin : IRecycleBin
             RecycleBinLog.Cleaned(_logger, deleted, days);
         }
 
-        return Task.FromResult(deleted);
+        return deleted;
+    }
+
+    /// <summary>
+    /// The roots of every library and reference library, as full paths. Empty when the bin was built
+    /// without a scope factory.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> LoadProtectedRootsAsync(CancellationToken cancellationToken)
+    {
+        if (_scopes is null)
+        {
+            return [];
+        }
+
+        var scope = _scopes.CreateAsyncScope();
+
+        await using (scope.ConfigureAwait(false))
+        {
+            var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+            var libraries = await database.Libraries
+                .AsNoTracking()
+                .Select(library => library.RootPath)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var references = await database.ReferenceLibraries
+                .AsNoTracking()
+                .Select(library => library.RootPath)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var roots = new List<string>();
+
+            foreach (var path in libraries.Concat(references))
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    roots.Add(Path.GetFullPath(path));
+                }
+                catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    // Not a path at all: it cannot be inside the bin.
+                }
+            }
+
+            return roots;
+        }
     }
 
     /// <summary>
@@ -305,6 +399,18 @@ internal static partial class RecycleBinLog
     /// <summary>One expired file could not be removed; the pass carried on with the rest.</summary>
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the recycled file {Path}: {Reason}")]
     internal static partial void DeleteFailed(ILogger logger, string path, string reason);
+
+    /// <summary>Stamping the cleanup clock on a recycled file failed; the file is in the bin regardless.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Recycled {Path} but could not set its time: {Reason}. Cleanup will use the file's own time, which may be old")]
+    internal static partial void StampFailed(ILogger logger, string path, string reason);
+
+    /// <summary>The configured bin sits inside a library or reference root, so cleanup did nothing.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "The recycle bin {Path} is inside the library root {Root}, so cleanup left it untouched")]
+    internal static partial void BinInsideLibrary(ILogger logger, string path, string root);
 
     /// <summary>The configured directory is not a bin Wondarr wrote, so nothing in it was touched.</summary>
     [LoggerMessage(
