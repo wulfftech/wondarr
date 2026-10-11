@@ -153,6 +153,8 @@ The scheduler must survive restarts (state in DB), run jobs with concurrency lim
 
 Conventions mirror the *arrs: `X-Api-Key` header (also `?apikey=`), JSON, `/api/v1`, pagination via `page`/`pageSize`/`sortKey`/`sortDirection`, and a `/api/v1/system/status` endpoint that dashboards (Homarr/Homepage) and Notifiarr-style tools can probe.
 
+**Web UI authentication.** The UI uses a Forms cookie (`auth: forms`, the default). Under `auth_required: disabledForLocalAddresses` a request skips the login only when `LocalCallerRules` calls it local: no proxy header (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Via`, `X-Original-For`), a loopback/link-local/private socket address, and a LAN-style `Host` (a local IP literal, `localhost`/`*.localhost`, a single-label name, `.local`/`.lan`/`.home.arpa`/`.internal`, or an entry of `server.allowed_hosts`). First-login setup applies the same rule. The cookie ticket carries a stamp of the stored credentials, so changing the username or password ends every other session; `POST /login` and `/login/setup` are rate limited (10 a minute per address, two password checks at once); HTML responses carry `frame-ancestors 'self'` plus `server.frame_ancestors`. Backup and log file downloads from the UI use a 60 s, single-path HMAC token (`POST /api/v1/system/download-token`, `?token=`) so the key is never in a URL the UI builds.
+
 ```
 GET    /api/v1/system/status | /health | /system/task
 GET    /api/v1/log?page=&pageSize=&level=&filter=   (the app's own log, newest first; `X-Wondarr-Log-Truncated: true` when the scan stopped at its 10 MB bound)
