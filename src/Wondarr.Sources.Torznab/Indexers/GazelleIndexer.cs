@@ -419,39 +419,72 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         return document;
     }
 
-    /// <summary>Sends one request with the API key, after waiting for the row's rate limit.</summary>
+    /// <summary>The most times a request is retried after a 502, 503, 504 or a timeout.</summary>
+    private const int MaxRetries = 2;
+
+    /// <summary>How long a 429 without a <c>Retry-After</c> keeps a row quiet.</summary>
+    private static readonly TimeSpan DefaultRateLimitWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Sends one request with the API key. Every attempt, a retry after a 502, 503, 504 or a timeout
+    /// included, waits for the row's rate limit first, so each request on the wire takes a turn
+    /// (R-024). A 429 keeps the row quiet until its <c>Retry-After</c> and is reported as a rate limit.
+    /// </summary>
     private async Task<HttpResponseMessage> SendAsync(long rowId, GazelleSettings settings, Uri url, CancellationToken cancellationToken)
     {
         _secrets.Register(settings.ApiKey);
-        await WaitForTurnAsync(rowId, cancellationToken).ConfigureAwait(false);
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.TryAddWithoutValidation("Authorization", settings.ApiKey);
+        for (var attempt = 0; ; attempt++)
+        {
+            await WaitForTurnAsync(rowId, cancellationToken).ConfigureAwait(false);
 
-        try
-        {
-            return await _clients.CreateClient(HttpClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
-        }
-        catch (HttpRequestException exception)
-        {
-            throw new IndexerException("The tracker could not be reached.", exception);
-        }
-        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            // The client's own timeout: a failed request, not a stopped caller.
-            throw new IndexerException("The tracker did not answer in time.", exception);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("Authorization", settings.ApiKey);
+
+            HttpResponseMessage response;
+
+            try
+            {
+                response = await _clients.CreateClient(HttpClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+            catch (HttpRequestException exception)
+            {
+                throw new IndexerException("The tracker could not be reached.", exception);
+            }
+            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The client's own timeout: a failed request, not a stopped caller.
+                if (attempt < MaxRetries)
+                {
+                    continue;
+                }
+
+                throw new IndexerException("The tracker did not answer in time.", exception);
+            }
+
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var wait = response.Headers.RetryAfter is { } after
+                    ? after.Delta ?? (after.Date is { } date ? date - _time.GetUtcNow() : DefaultRateLimitWait)
+                    : DefaultRateLimitWait;
+                response.Dispose();
+                PushOut(rowId, wait > TimeSpan.Zero ? wait : DefaultRateLimitWait);
+
+                throw new IndexerException("The tracker is rate limiting requests; try again in a few seconds.");
+            }
+
+            if (attempt < MaxRetries && response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout)
+            {
+                response.Dispose();
+                continue;
+            }
+
+            return response;
         }
     }
 
-    /// <summary>
-    /// At most <see cref="RequestsPerWindow"/> requests per row in any <see cref="Window"/>: a request
-    /// that would be one too many waits until the oldest one leaves the window. Each row waits on its
-    /// own turn, so one tracker's wait never holds up another's.
-    /// </summary>
-    private async Task WaitForTurnAsync(long rowId, CancellationToken cancellationToken)
+    private RowLimit GetRow(long rowId)
     {
-        RowLimit row;
-
         lock (_rowsGate)
         {
             if (!_rows.TryGetValue(rowId, out var found))
@@ -460,8 +493,35 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
                 _rows[rowId] = found;
             }
 
-            row = found;
+            return found;
         }
+    }
+
+    /// <summary>Keeps a row from sending anything for <paramref name="wait"/>.</summary>
+    private void PushOut(long rowId, TimeSpan wait)
+    {
+        var row = GetRow(rowId);
+
+        lock (row)
+        {
+            var until = _time.GetUtcNow() + wait;
+
+            if (until > row.BlockedUntil)
+            {
+                row.BlockedUntil = until;
+            }
+        }
+    }
+
+    /// <summary>
+    /// At most <see cref="RequestsPerWindow"/> requests per row in any <see cref="Window"/>: a request
+    /// that would be one too many waits until the oldest one leaves the window, and none is sent while a
+    /// 429's <c>Retry-After</c> lasts. Each row waits on its own turn, so one tracker's wait never holds
+    /// up another's.
+    /// </summary>
+    private async Task WaitForTurnAsync(long rowId, CancellationToken cancellationToken)
+    {
+        var row = GetRow(rowId);
 
         await row.Turn.WaitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -472,6 +532,19 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
             while (true)
             {
                 var now = _time.GetUtcNow();
+
+                DateTimeOffset blocked;
+
+                lock (row)
+                {
+                    blocked = row.BlockedUntil;
+                }
+
+                if (blocked > now)
+                {
+                    await Task.Delay(blocked - now, _time, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
 
                 while (sent.Count > 0 && now - sent.Peek() >= Window)
                 {
@@ -499,6 +572,9 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         public SemaphoreSlim Turn { get; } = new(1, 1);
 
         public Queue<DateTimeOffset> Sent { get; } = new();
+
+        /// <summary>No request is sent before this instant (a 429's <c>Retry-After</c>).</summary>
+        public DateTimeOffset BlockedUntil { get; set; }
     }
 
     private static string? Text(JsonElement element, string name) =>

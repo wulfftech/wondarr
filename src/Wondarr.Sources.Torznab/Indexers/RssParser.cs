@@ -175,10 +175,16 @@ public abstract partial class RssParser
     /// <param name="item">The RSS item.</param>
     protected virtual string GetTitle(XElement item) => item.Element("title")?.Value ?? "Unknown";
 
-    /// <summary>The item's guid, or its download URL or title when it has none.</summary>
+    /// <summary>
+    /// The item's guid, or a hash of its download URL, or its title, when it has none. The URL itself is
+    /// never the id: it can carry an API key or a passkey, and the id is stored and logged.
+    /// </summary>
     /// <param name="item">The RSS item.</param>
     protected virtual string GetReleaseId(XElement item) =>
-        item.Element("guid")?.Value ?? GetDownloadUrl(item) ?? GetTitle(item);
+        item.Element("guid")?.Value
+            ?? (GetDownloadUrl(item) is { } url
+                ? "url-" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(url)))[..16]
+                : GetTitle(item));
 
     /// <summary>The enclosure's URL, or the item's link when there is no enclosure.</summary>
     /// <param name="item">The RSS item.</param>

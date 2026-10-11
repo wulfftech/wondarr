@@ -39,7 +39,7 @@ public sealed class QBittorrentClientTests
     [InlineData("moving", TorrentStatus.Moving)]
     [InlineData("error", TorrentStatus.Error)]
     [InlineData("missingFiles", TorrentStatus.Error)]
-    [InlineData("somethingNewInApi6", TorrentStatus.Downloading)]
+    [InlineData("somethingNewInApi6", TorrentStatus.Unknown)]
     public void Every_state_name_of_both_generations_maps_to_its_status(string state, TorrentStatus expected)
     {
         QBittorrentClient.MapState(state, hasMetadata: true).Should().Be(expected);
@@ -178,7 +178,7 @@ public sealed class QBittorrentClientTests
     }
 
     [Fact]
-    public async Task An_unknown_state_is_logged_once_and_treated_as_downloading()
+    public async Task An_unknown_state_is_logged_once_and_reported_as_unknown()
     {
         var harness = new QBittorrentHarness();
         harness.Fake.AddTorrent(QBittorrentHarness.InfoHash, "brandNewState");
@@ -186,7 +186,7 @@ public sealed class QBittorrentClientTests
         var first = await harness.Client.GetAsync(QBittorrentHarness.Row(), QBittorrentHarness.InfoHash, CancellationToken.None);
         var second = await harness.Client.GetAsync(QBittorrentHarness.Row(), QBittorrentHarness.InfoHash, CancellationToken.None);
 
-        first!.Status.Should().Be(TorrentStatus.Downloading);
-        second!.Status.Should().Be(TorrentStatus.Downloading);
+        first!.Status.Should().Be(TorrentStatus.Unknown);
+        second!.Status.Should().Be(TorrentStatus.Unknown);
     }
 }

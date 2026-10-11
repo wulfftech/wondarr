@@ -399,16 +399,19 @@ public sealed partial class IndexerSourceProvider
         {
             // While the torrent is incomplete the client may keep its files in the "keep incomplete
             // torrents in" folder, and moves them to the save path when the whole torrent is done (R-017).
+            var alreadyStaged = _disk.FileExists(StagedPath(grab, file));
+
+            // Never link or copy a file while the client is moving it.
+            if (info.Status == TorrentStatus.Moving && !alreadyStaged)
+            {
+                return new DownloadStatus(DownloadState.RemotelyQueued, 1, file.Size, file.Size, Message: "The client is moving the finished files");
+            }
+
             var source = FindFinishedFile(info, file);
 
-            if (source is null && info.Status != TorrentStatus.Completed && !_disk.FileExists(StagedPath(grab, file)))
+            if (source is null && info.Status != TorrentStatus.Completed && !alreadyStaged)
             {
-                return new DownloadStatus(
-                    DownloadState.RemotelyQueued,
-                    1,
-                    file.Size,
-                    file.Size,
-                    Message: info.Status == TorrentStatus.Moving ? "The client is moving the finished files" : "Waiting for the client to finish the torrent");
+                return new DownloadStatus(DownloadState.RemotelyQueued, 1, file.Size, file.Size, Message: "Waiting for the client to finish the torrent");
             }
 
             var staged = Stage(source ?? Path.Combine(info.SavePath, ToLocal(file.Path)), grab.StagingDir, link: true);
@@ -420,7 +423,7 @@ public sealed partial class IndexerSourceProvider
 
         return info.Status switch
         {
-            TorrentStatus.Downloading => new DownloadStatus(DownloadState.Downloading, file.Progress, bytes, file.Size),
+            TorrentStatus.Downloading or TorrentStatus.Unknown => new DownloadStatus(DownloadState.Downloading, file.Progress, bytes, file.Size),
             TorrentStatus.Stalled => new DownloadStatus(DownloadState.RemotelyQueued, file.Progress, bytes, file.Size, Message: "Waiting for peers"),
             TorrentStatus.Stopped => new DownloadStatus(DownloadState.RemotelyQueued, file.Progress, bytes, file.Size, Message: "Stopped in the download client"),
             TorrentStatus.Checking => new DownloadStatus(DownloadState.RemotelyQueued, file.Progress, bytes, file.Size, Message: "Checking"),
@@ -540,9 +543,18 @@ public sealed partial class IndexerSourceProvider
             await _torrents.SetFilePriorityAsync(client, hash, [mine.Index], 0, cancellationToken).ConfigureAwait(false);
         }
 
+        // A magnet still fetching its metadata has no data and no files to look at.
+        if (!shared && info.Status == TorrentStatus.FetchingMetadata)
+        {
+            await _torrents.RemoveAsync(client, hash, deleteFiles: false, cancellationToken).ConfigureAwait(false);
+
+            return;
+        }
+
+        // An allow-list: any other state, a state Wondarr does not know included, is not trusted.
         var removable = !shared
             && info.HasMetadata
-            && info.Status is not (TorrentStatus.Checking or TorrentStatus.Moving or TorrentStatus.FetchingMetadata or TorrentStatus.Error)
+            && info.Status is TorrentStatus.Stopped or TorrentStatus.Queued or TorrentStatus.Downloading or TorrentStatus.Stalled
             && info.Progress <= 0
             && files.All(file => file.Progress <= 0);
 
@@ -621,6 +633,12 @@ public sealed partial class IndexerSourceProvider
     /// </summary>
     private async Task<bool> HoldsWantedAsync(DownloadClient client, UsenetJobInfo job, List<string> wanted, CancellationToken cancellationToken)
     {
+        // A failed job is never reused; a job whose files cannot be listed is treated as not holding them.
+        if (job.Status == UsenetStatus.Failed)
+        {
+            return false;
+        }
+
         var names = wanted.Select(Path.GetFileName).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         if (names.Count == 0)
@@ -628,7 +646,17 @@ public sealed partial class IndexerSourceProvider
             return true;
         }
 
-        var listed = await _usenet.GetFilesAsync(client, job.JobId, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<UsenetFileInfo> listed;
+
+        try
+        {
+            listed = await _usenet.GetFilesAsync(client, job.JobId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DownloadClientException)
+        {
+            return false;
+        }
+
         names.ExceptWith(listed.Select(file => Path.GetFileName(file.FileName)));
 
         if (names.Count == 0)
@@ -726,13 +754,8 @@ public sealed partial class IndexerSourceProvider
 
         if (job.StoragePath is not { } folder || !_disk.DirectoryExists(folder))
         {
-            return await FailedJobAsync(
-                services,
-                client,
-                grab,
-                jobId,
-                $"The finished folder ({job.StoragePath ?? "none reported"}) is not visible here; check the client's remote path mappings.",
-                cancellationToken).ConfigureAwait(false);
+            // A path mapping problem the user can fix: the item fails, but the finished download stays.
+            return Failed($"The finished folder ({job.StoragePath ?? "none reported"}) is not visible here; check the client's remote path mappings.");
         }
 
         var files = _disk.EnumerateFiles(folder).ToList();
@@ -756,9 +779,10 @@ public sealed partial class IndexerSourceProvider
     }
 
     /// <summary>
-    /// A failed item leaves nothing behind (R-081): its job goes from the client, history included,
-    /// once no other queue item uses it — the same rule as for a finished job. The job is Wondarr's own:
-    /// only a handle Wondarr wrote names it.
+    /// A failed item whose job cannot be recovered (the client reports it failed, or the song is not in
+    /// the post) leaves nothing behind (R-081): its job goes from the client, history included, once no
+    /// other queue item uses it — the same rule as for a finished job. The job is Wondarr's own: only a
+    /// handle Wondarr wrote names it. A finished job whose folder Wondarr cannot see is kept.
     /// </summary>
     private async Task<DownloadStatus> FailedJobAsync(
         IServiceProvider services,

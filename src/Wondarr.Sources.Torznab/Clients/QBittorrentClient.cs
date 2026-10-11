@@ -156,7 +156,7 @@ public sealed partial class QBittorrentClient : ITorrentClient
         "checkingDL" or "checkingUP" or "checkingResumeData" or "allocating" => TorrentStatus.Checking,
         "moving" => TorrentStatus.Moving,
         "error" or "missingFiles" => TorrentStatus.Error,
-        _ => TorrentStatus.Downloading,
+        _ => TorrentStatus.Unknown,
     };
 
     private static bool IsKnownState(string state) => state is
@@ -206,6 +206,6 @@ public sealed partial class QBittorrentClient : ITorrentClient
         return files.Count > 0;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent reported the unknown torrent state {State}; treating it as downloading")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent reported the unknown torrent state {State}; treating it as downloading, but never as removable")]
     private static partial void LogUnknownState(ILogger logger, string state);
 }

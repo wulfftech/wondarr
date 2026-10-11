@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.DownloadClients;
+using Wondarr.Core.Messaging;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Torznab.Clients;
@@ -99,6 +100,7 @@ public static class ServiceCollectionExtensions
         // The proxy owns one session (cookie and version) per client row, so it is a singleton; the
         // client and the type over it are stateless.
         services.AddSingleton<QBittorrentProxy>();
+        services.AddSingleton<IHandle<DownloadClientDeletedEvent>, SessionEvictor>();
         services.AddSingleton<ITorrentClient, QBittorrentClient>();
         services.AddSingleton<IDownloadClientType, QBittorrentClientType>();
 

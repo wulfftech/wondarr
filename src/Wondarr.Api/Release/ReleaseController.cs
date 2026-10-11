@@ -105,6 +105,14 @@ public sealed class ReleaseController : ControllerBase
                 detail: "Song is already downloading",
                 statusCode: StatusCodes.Status409Conflict);
         }
+        catch (GrabFailedException exception) when (exception.LinkGone)
+        {
+            // The release's link is no longer kept (R-082); only a new search can get a fresh one.
+            return Problem(
+                title: "The release is no longer available to grab",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status410Gone);
+        }
         catch (GrabFailedException exception)
         {
             return Problem(

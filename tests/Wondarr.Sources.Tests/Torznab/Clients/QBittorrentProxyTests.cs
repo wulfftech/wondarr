@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
 using Wondarr.Sources.Torznab.Clients;
 using FluentAssertions;
 using Xunit;
@@ -62,6 +63,26 @@ public sealed class QBittorrentProxyTests
         proxy.Evict(1);
 
         proxy.SessionCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Deleting_a_client_evicts_its_session()
+    {
+        var harness = new QBittorrentHarness();
+        var kept = harness.Proxy.Session(QBittorrentProxy.SessionKey(1, "{}"));
+        harness.Proxy.Session(QBittorrentProxy.SessionKey(2, "{}"));
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(harness.Proxy);
+        services.AddSingleton<Wondarr.Core.Messaging.IHandle<Wondarr.Core.DownloadClients.DownloadClientDeletedEvent>, SessionEvictor>();
+        services.AddSingleton<Wondarr.Core.Messaging.IEventAggregator, Wondarr.Core.Messaging.EventAggregator>();
+        await using var provider = services.BuildServiceProvider();
+
+        await provider.GetRequiredService<Wondarr.Core.Messaging.IEventAggregator>()
+            .PublishAsync(new Wondarr.Core.DownloadClients.DownloadClientDeletedEvent(2), CancellationToken.None);
+
+        harness.Proxy.SessionCount.Should().Be(1);
+        harness.Proxy.Session(QBittorrentProxy.SessionKey(1, "{}")).Should().BeSameAs(kept);
     }
 
     [Fact]
