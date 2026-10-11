@@ -4,7 +4,9 @@ using System.Text;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.Profiles;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Tagging;
 
 namespace Wondarr.Core.Decisions;
 
@@ -261,6 +263,7 @@ public sealed class DecisionEngine
         AddTitleRejection(context, candidate, similarity, rejections);
         AddArtistRejection(context, candidate, similarity, rejections);
         AddSizeRejection(context, candidate, quality, rejections);
+        AddUntaggableRejection(context, candidate, rejections);
 
         if (candidate.SourceType == SourceTypes.Torznab && candidate.Availability.Seeders is 0)
         {
@@ -476,6 +479,42 @@ public sealed class DecisionEngine
         !string.IsNullOrWhiteSpace(candidate.Parsed.Title)
             ? candidate.Parsed.Title
             : CandidateTitleMatcher.ExtractTitle(candidate.RemotePath) ?? candidate.DisplayName;
+
+    /// <summary>
+    /// A container the tag writer cannot write to is turned away here, unless the library's output
+    /// policy converts that kind of source to one it can (a lossless rule that turns an APE into a
+    /// FLAC). The import converts before it tags, so a converted file never reaches the writer in its
+    /// original container. A tagging failure is never blocklisted, so without this rule the same best
+    /// candidate would be grabbed, downloaded and failed again on every backoff (R-049).
+    /// </summary>
+    private static void AddUntaggableRejection(
+        DecisionContext context,
+        Candidate candidate,
+        List<Rejection> rejections)
+    {
+        // Not audio at all is the NotAudio rule's to say; this rule is about audio Wondarr cannot tag.
+        if (candidate.Extension is null
+            || !AudioExtensions.Contains(candidate.Extension)
+            || TagWriter.CanTag(candidate.Extension))
+        {
+            return;
+        }
+
+        var rule = context.OutputPolicy?.RuleFor(candidate.SourceType, IsLossless(context, candidate.QualityId));
+
+        if (rule is not null && rule.Codec != OutputCodec.Keep)
+        {
+            return;
+        }
+
+        rejections.Add(new Rejection(
+            RejectionReason.UntaggableFormat,
+            string.Concat(
+                "Cannot tag ",
+                DescribeExtension(candidate.Extension),
+                " files: Wondarr writes tags to MP3, FLAC, Opus, Ogg, M4A, AAC, WAV and AIFF only, ",
+                "and the library has no conversion rule that turns this into one of them.")));
+    }
 
     private static void AddSizeRejection(
         DecisionContext context,

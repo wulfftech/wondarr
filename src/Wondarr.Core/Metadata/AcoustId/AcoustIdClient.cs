@@ -141,17 +141,20 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
     private readonly IOptionsMonitor<AcoustIdOptions> _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<AcoustIdClient> _logger;
+    private readonly AcoustIdKeyState? _keyState;
 
     /// <summary>Initialises a new instance of the <see cref="AcoustIdClient"/> class.</summary>
     /// <param name="http">The typed client, already carrying the base URL, the User-Agent and the spacing handler.</param>
     /// <param name="options">The client key, base URL and score thresholds.</param>
     /// <param name="timeProvider">The clock the retry waits run on; tests drive it with <c>FakeTimeProvider</c>.</param>
     /// <param name="logger">Logs retries at Debug and throttling at Warning; never logs a key or a fingerprint.</param>
+    /// <param name="keyState">Told whether the configured key is accepted, for the Health check and the import's bounded wait.</param>
     public AcoustIdClient(
         HttpClient http,
         IOptionsMonitor<AcoustIdOptions> options,
         TimeProvider timeProvider,
-        ILogger<AcoustIdClient> logger)
+        ILogger<AcoustIdClient> logger,
+        AcoustIdKeyState? keyState = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(options);
@@ -162,6 +165,7 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
         _options = options;
         _timeProvider = timeProvider;
         _logger = logger;
+        _keyState = keyState;
     }
 
     /// <inheritdoc />
@@ -180,7 +184,23 @@ public sealed partial class AcoustIdClient : IAcoustIdClient
             return new AcoustIdLookupResult(AcoustIdStatus.NotConfigured, [], null);
         }
 
-        return await LookupWithKeyAsync(clientKey, fingerprint, durationSeconds, cancellationToken).ConfigureAwait(false);
+        var result = await LookupWithKeyAsync(clientKey, fingerprint, durationSeconds, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Only a lookup with the configured key says anything about it: a probe of a key being typed
+        // into the settings page (CheckKeyAsync) does not.
+        switch (result.Status)
+        {
+            case AcoustIdStatus.InvalidKey:
+                _keyState?.Rejected(clientKey);
+                break;
+
+            case AcoustIdStatus.Ok or AcoustIdStatus.InvalidFingerprint:
+                _keyState?.Accepted();
+                break;
+        }
+
+        return result;
     }
 
     /// <inheritdoc />

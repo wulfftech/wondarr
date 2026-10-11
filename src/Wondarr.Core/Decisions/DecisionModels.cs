@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.Profiles;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Decisions;
@@ -58,6 +59,13 @@ public enum RejectionReason
 
     /// <summary>The candidate's own track title is too far from the song's (the title floor, MATCHING_ENGINE §6.2).</summary>
     TitleMismatch,
+
+    /// <summary>
+    /// The container is one Wondarr cannot write tags to (APE, WavPack, WMA) and no conversion rule of
+    /// the song's library turns it into one it can. Importing it would fail at the tag writer on every
+    /// attempt (code review 2026-10-10, R-049).
+    /// </summary>
+    UntaggableFormat,
 }
 
 /// <summary>Maps <see cref="RejectionReason"/> onto the camel-case wire name the API returns.</summary>
@@ -169,6 +177,13 @@ public sealed record DecisionContext
 
     /// <summary>The source's tier, 1 (preferred) to 3.</summary>
     public int SourceTier { get; init; } = 1;
+
+    /// <summary>
+    /// The output policy of the library the song files into. A container the tag writer cannot handle
+    /// is accepted when this policy converts that kind of source to one it can; <see langword="null"/>
+    /// means no conversion is known, so such a container is rejected.
+    /// </summary>
+    public LibraryOutputPolicy? OutputPolicy { get; init; }
 
     /// <summary>Overrides the profile's duration tolerance when set.</summary>
     public int? DurationToleranceMs { get; init; }

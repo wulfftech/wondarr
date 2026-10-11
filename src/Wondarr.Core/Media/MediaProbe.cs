@@ -9,7 +9,11 @@ namespace Wondarr.Core.Media;
 /// <param name="Decodable">Whether ffprobe found audio and ffmpeg decoded all of it.</param>
 /// <param name="Info">What was measured, or <c>null</c> when the file is not decodable.</param>
 /// <param name="Error">The line that explains a failure, or <c>null</c> when there is none.</param>
-public sealed record MediaProbeResult(bool Decodable, MediaInfo? Info, string? Error);
+/// <param name="TimedOut">
+/// Whether the failure is a tool that ran out of time. That says nothing about the file (a long FLAC
+/// on a loaded NAS), so the verdict on it is "ask again later", never a rejection.
+/// </param>
+public sealed record MediaProbeResult(bool Decodable, MediaInfo? Info, string? Error, bool TimedOut = false);
 
 /// <summary>Measures a downloaded file.</summary>
 public interface IMediaProbe
@@ -32,7 +36,9 @@ public sealed partial class MediaProbe : IMediaProbe
     private static readonly string[] ProbeArguments =
         ["-v", "error", "-print_format", "json", "-show_format", "-show_streams"];
 
-    private static readonly string[] DecodeArguments = ["-v", "error", "-xerror", "-i"];
+    // -nostdin: ffmpeg must never read a terminal it may have inherited (a prompt would block until
+    // the timeout kills it).
+    private static readonly string[] DecodeArguments = ["-nostdin", "-v", "error", "-xerror", "-i"];
 
     private readonly IProcessRunner _runner;
     private readonly IOptionsMonitor<MediaToolsOptions> _options;
@@ -66,7 +72,7 @@ public sealed partial class MediaProbe : IMediaProbe
 
         if (probe.TimedOut)
         {
-            return Failed(FirstErrorLine(probe.StandardError) ?? "ffprobe timed out");
+            return new MediaProbeResult(false, null, FirstErrorLine(probe.StandardError) ?? "ffprobe timed out", TimedOut: true);
         }
 
         if (probe.ExitCode != 0)
@@ -96,7 +102,7 @@ public sealed partial class MediaProbe : IMediaProbe
 
         if (decode.TimedOut)
         {
-            return Failed(FirstErrorLine(decode.StandardError) ?? "ffmpeg timed out");
+            return new MediaProbeResult(false, null, FirstErrorLine(decode.StandardError) ?? "ffmpeg timed out", TimedOut: true);
         }
 
         return decode.ExitCode == 0
