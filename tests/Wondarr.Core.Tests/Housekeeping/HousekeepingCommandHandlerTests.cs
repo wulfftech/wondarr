@@ -12,6 +12,8 @@ using Wondarr.Core.Housekeeping;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Sources;
+using Wondarr.Core.Tests.Searching;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Housekeeping;
@@ -117,6 +119,64 @@ public class HousekeepingCommandHandlerTests
     }
 
     [Fact]
+    public async Task Download_links_older_than_a_day_are_cleared_from_stored_candidates_and_nothing_else_is_touched()
+    {
+        await using var host = await HousekeepingHost.CreateAsync();
+        var songs = await host.AddSongsAsync(1);
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) } };
+
+        string WithLinks(string key) => JsonSerializer.Serialize(
+            SearchTestHost.Candidate("Music\\" + key + ".flac") with
+            {
+                Release = new ContainerRelease
+                {
+                    IndexerId = 1,
+                    IndexerName = "Indexer",
+                    Title = "Release " + key,
+                    ReleaseId = "guid-" + key,
+                    DownloadUrl = "https://tracker.example/dl?passkey=PASSKEY-" + key,
+                    MagnetUrl = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&tr=https://tracker.example/a?passkey=PASSKEY-" + key,
+                },
+            },
+            json);
+
+        await host.SeedAsync(context =>
+        {
+            var run = new SearchRun { SongId = songs[0], Trigger = SearchTrigger.Automatic, StartedAt = host.Now.AddHours(-1), Outcome = SearchOutcome.NoResults };
+            context.SearchRuns.Add(run);
+
+            foreach (var key in (string[])["old", "recent", "plain", "broken"])
+            {
+                var record = Candidate(run, songs[0], key);
+                record.Normalised = key switch
+                {
+                    "plain" => "{}",
+                    "broken" => "not json at all PASSKEY-broken",
+                    _ => WithLinks(key),
+                };
+                context.Candidates.Add(record);
+            }
+        });
+
+        // Stamp the creation times the way a day-old and an hour-old row would have them.
+        await host.SeedAsync(context =>
+        {
+            context.Database.ExecuteSqlRaw("UPDATE candidate SET created_at = {0} WHERE remote_path IN ('old', 'plain', 'broken')", host.Now.AddHours(-30));
+            context.Database.ExecuteSqlRaw("UPDATE candidate SET created_at = {0} WHERE remote_path = 'recent'", host.Now.AddHours(-1));
+        });
+
+        var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        message.Should().Contain("download links 1");
+        var rows = (await host.ReadAsync(context => context.Candidates.ToListAsync())).ToDictionary(row => row.RemotePath);
+        rows["old"].Normalised.Should().NotContain("PASSKEY").And.Contain("Release old", "the rest of the candidate stays");
+        JsonSerializer.Deserialize<Candidate>(rows["old"].Normalised, json)!.Release!.DownloadUrl.Should().BeNull();
+        rows["recent"].Normalised.Should().Contain("PASSKEY-recent", "it is still within the window");
+        rows["plain"].Normalised.Should().Be("{}");
+        rows["broken"].Normalised.Should().Be("not json at all PASSKEY-broken");
+    }
+
+    [Fact]
     public async Task A_run_named_only_by_a_source_ref_search_run_id_is_kept()
     {
         await using var host = await HousekeepingHost.CreateAsync();
@@ -208,7 +268,7 @@ public class HousekeepingCommandHandlerTests
         var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
 
         await host.RecycleBin.Received(1).CleanupAsync(Arg.Any<CancellationToken>());
-        message.Should().Be("commands 0, search runs 0 (candidates 0), blocklist 0, recycle bin 5 files, checkpointed");
+        message.Should().Be("commands 0, search runs 0 (candidates 0), download links 0, blocklist 0, recycle bin 5 files, checkpointed");
     }
 
     [Fact]

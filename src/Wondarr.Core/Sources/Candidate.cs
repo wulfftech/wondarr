@@ -173,6 +173,9 @@ public sealed record Candidate
     /// is the file's path inside the container (the release title while the file list is unknown).
     /// </summary>
     public ContainerRelease? Release { get; init; }
+
+    /// <summary>The candidate without its release's download links (see <see cref="ContainerRelease.DownloadUrl"/>).</summary>
+    public Candidate WithoutLinks() => Release is { } release ? this with { Release = release.WithoutLinks() } : this;
 }
 
 /// <summary>
@@ -193,11 +196,24 @@ public sealed record ContainerRelease
     /// <summary>The indexer's id for the release, its <c>guid</c> (a usenet blocklist key).</summary>
     public required string ReleaseId { get; init; }
 
-    /// <summary>The <c>.torrent</c> or NZB link, when there is one.</summary>
+    /// <summary>How long a stored candidate keeps its download links (R-082), and so how long it can be grabbed.</summary>
+    public static readonly TimeSpan LinkRetention = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// The <c>.torrent</c> or NZB link, when there is one. It can carry a passkey or an API key, so it
+    /// is stored (in <c>candidate.normalised</c>) only while the candidate can still be grabbed, and is
+    /// cleared once it is grabbed, rejected, failed or older than <see cref="LinkRetention"/>.
+    /// </summary>
     public string? DownloadUrl { get; init; }
 
-    /// <summary>The magnet link, when there is one.</summary>
+    /// <summary>The magnet link, when there is one; kept and cleared like <see cref="DownloadUrl"/>.</summary>
     public string? MagnetUrl { get; init; }
+
+    /// <summary>Whether the release still has a link to download it from.</summary>
+    public bool HasLink() => !string.IsNullOrWhiteSpace(DownloadUrl) || !string.IsNullOrWhiteSpace(MagnetUrl);
+
+    /// <summary>The release without its download links.</summary>
+    public ContainerRelease WithoutLinks() => this with { DownloadUrl = null, MagnetUrl = null };
 
     /// <summary>Torrents: the info-hash, lower-case hex, when known.</summary>
     public string? InfoHash { get; init; }
