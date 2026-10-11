@@ -4,6 +4,16 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Security
+- **A stored secret is sent only to the address it was saved for.** A test or an update that names another host while leaving the secret masked used to send the stored indexer key, download client password, notification credential, slskd API key or Plex token to that host. Now the request must carry the secret itself and is refused with `400` ("Enter the API key again: the address changed.") on that field; the settings forms mark the field as required once you change the address. A different path or URL base on the same host still reuses the secret. For Plex, the stored token goes only to the selected server or an address plex.tv lists for your account; any other address needs a Plex token typed in.
+- **Settings of an indexer type, download client, notification or import list that is no longer available are masked** by key name (`key`, `token`, `password`, `secret`, `passkey`, `cookie`, `auth`) instead of coming back raw.
+- **Every file that holds a secret is owner-only (`0600`) on Linux, whatever `UMASK` is:** `config.yml` (the first-run file is now written atomically), backups and the files a restore stages, `slskd.yml` and the database with its `-wal` and `-shm`. Files from earlier versions are tightened at the first start, which logs how many it changed, and stale `slskd.yml.*.tmp` files are deleted.
+- **Log redaction covers a secret that contains `"` or `\`** in the JSON log.
+- **The init script re-owns files under `/config` with `chown -h`,** so a symlink there can no longer make root change the owner of whatever it points at.
+
+### Changed
+- **A shared folder, a downloads folder or a library root can no longer be `/`, `/config` or inside it.** Sharing `/config` would have published the API key on Soulseek. A value you save is refused with `400`; a configuration that already has one keeps loading, Health shows an error naming the setting, and the shared folder is left out of what slskd is told to share.
+
 ## [0.1.1] — 2026-10-11
 
 Fixes from a full code review of 0.1.0 (`docs/reviews/CODE_REVIEW_2026-10-10.md`): files that move are always recorded, compaction can no longer get stuck, a slow slskd or indexer no longer stops the app or a search batch, and the release workflow publishes an image only after its tests and smoke checks pass. Update by pulling `:0.1` (or `:0.1.1`).
