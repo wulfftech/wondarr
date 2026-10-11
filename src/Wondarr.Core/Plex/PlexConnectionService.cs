@@ -1,4 +1,5 @@
 using Wondarr.Core.Logging;
+using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
 using Microsoft.Extensions.Logging;
 
@@ -83,11 +84,17 @@ public interface IPlexConnectionService
     /// <param name="cancellationToken">Cancels the request.</param>
     Task<IReadOnlyList<PlexServer>> GetServersAsync(CancellationToken cancellationToken);
 
-    /// <summary>Selects a server, and remembers how to talk to it.</summary>
+    /// <summary>
+    /// Selects a server, and remembers how to talk to it. The stored token goes only to an address it
+    /// belongs to: the one already selected, or one plex.tv lists for the account. Any other address
+    /// needs a token in the request.
+    /// </summary>
     /// <param name="serverUrl">The server URL, absolute and http or https.</param>
+    /// <param name="suppliedToken">A token for that server, required when the address is neither the selected one nor listed by plex.tv.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The server's identity, read from the server itself.</returns>
-    Task<PlexIdentity> SelectServerAsync(string serverUrl, CancellationToken cancellationToken);
+    /// <exception cref="Notifications.SecretReentryException">The address is new and the request carries no token.</exception>
+    Task<PlexIdentity> SelectServerAsync(string serverUrl, string? suppliedToken, CancellationToken cancellationToken);
 
     /// <summary>
     /// Selects one of the account's servers by trying every connection plex.tv lists for it — local
@@ -263,7 +270,10 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
     }
 
     /// <inheritdoc />
-    public async Task<PlexIdentity> SelectServerAsync(string serverUrl, CancellationToken cancellationToken)
+    public async Task<PlexIdentity> SelectServerAsync(
+        string serverUrl,
+        string? suppliedToken,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serverUrl);
 
@@ -295,13 +305,32 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
             throw new InvalidOperationException(NotSignedIn);
         }
 
-        var identity = await _server.GetIdentityAsync(server, token, cancellationToken).ConfigureAwait(false);
-
-        var resource = await FindServerAsync(identity.MachineIdentifier, token, settings, cancellationToken)
+        var servers = await _tv
+            .GetServersAsync(token, settings.ClientIdentifier, cancellationToken)
             .ConfigureAwait(false);
 
-        // A server can hand out its own token, which is what to use against it from then on.
-        var serverToken = resource?.AccessToken ?? token;
+        // The account's tokens are sent only to an address they belong to: the selected server, or a
+        // connection plex.tv lists for the account. Anywhere else the request must bring a token.
+        var trusted = IsTrustedAddress(server, settings.ServerUrl, servers);
+
+        if (!trusted)
+        {
+            if (string.IsNullOrEmpty(suppliedToken))
+            {
+                throw new SecretReentryException("token", "Plex token");
+            }
+
+            token = suppliedToken;
+        }
+
+        var identity = await _server.GetIdentityAsync(server, token, cancellationToken).ConfigureAwait(false);
+
+        var resource = servers.FirstOrDefault(candidate =>
+            string.Equals(candidate.MachineIdentifier, identity.MachineIdentifier, StringComparison.OrdinalIgnoreCase));
+
+        // A server can hand out its own token, which is what to use against it from then on. An
+        // address plex.tv does not list could be answering as any server, so it never gets one.
+        var serverToken = trusted ? resource?.AccessToken ?? token : token;
         var name = resource?.Name ?? identity.MachineIdentifier;
 
         await SaveAsync(
@@ -369,7 +398,7 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
             {
                 LogConnectionChosen(_logger, server.Name, ordered[index].Uri, ordered.Count);
 
-                return await SelectServerAsync(ordered[index].Uri, cancellationToken).ConfigureAwait(false);
+                return await SelectServerAsync(ordered[index].Uri, null, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -555,19 +584,19 @@ public sealed partial class PlexConnectionService : IPlexConnectionService
         _secrets.Register(settings.ServerToken);
     }
 
-    /// <summary>The resource whose machine identifier matches, when plex.tv recognises it.</summary>
-    private async Task<PlexServer?> FindServerAsync(
-        string machineIdentifier,
-        string token,
-        PlexConnectionSettings settings,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Whether the stored token may be sent to <paramref name="candidate"/>: it is the server already
+    /// selected, or one of the connections plex.tv lists for the account. Compared by scheme, host and
+    /// port; a path prefix stays on the same host.
+    /// </summary>
+    private static bool IsTrustedAddress(Uri candidate, string? selectedUrl, IReadOnlyList<PlexServer> servers)
     {
-        var servers = await _tv
-            .GetServersAsync(token, settings.ClientIdentifier, cancellationToken)
-            .ConfigureAwait(false);
+        var wanted = NotificationSecrets.UrlTarget(candidate.AbsoluteUri);
 
-        return servers.FirstOrDefault(server =>
-            string.Equals(server.MachineIdentifier, machineIdentifier, StringComparison.OrdinalIgnoreCase));
+        return (!string.IsNullOrEmpty(selectedUrl)
+                && string.Equals(NotificationSecrets.UrlTarget(selectedUrl), wanted, StringComparison.Ordinal))
+            || servers.Any(server => server.Connections.Any(connection =>
+                string.Equals(NotificationSecrets.UrlTarget(connection.Uri), wanted, StringComparison.Ordinal)));
     }
 
     /// <summary>The token to call the selected server with: its own when plex.tv gave one.</summary>

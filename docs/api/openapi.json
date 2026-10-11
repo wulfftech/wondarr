@@ -8121,6 +8121,12 @@
         "properties": {
           "serverUrl": {
             "type": "string"
+          },
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

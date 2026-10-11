@@ -118,6 +118,85 @@ public sealed class NotificationServiceTests : IDisposable
         NotificationSecrets.Read(row.Settings).GetProperty("password").GetString().Should().Be("champagne-supernova");
     }
 
+    // R-038: a stored secret is reused only for the address it was saved for.
+    [Fact]
+    public async Task An_update_to_a_new_host_with_the_masked_secret_is_refused()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.UpdateAsync(created.Id, Draft(url: "http://attacker.example/hook", password: NotificationSecrets.Mask), Token));
+
+        failure.Field.Should().Be("password");
+        failure.Detail.Should().Be("Enter the Password again: the address changed.");
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).GetProperty("url").GetString().Should().Be("http://hooks.local/webhook");
+    }
+
+    [Fact]
+    public async Task A_test_to_a_new_host_with_the_masked_secret_is_refused_and_sends_nothing()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.TestAsync(
+                Draft(url: "http://attacker.example/hook", password: NotificationSecrets.Mask) with { Id = created.Id },
+                Token));
+
+        failure.Field.Should().Be("password");
+        _provider.Sent.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_test_to_the_same_host_still_reuses_the_stored_secret()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        // Another path, scheme-less case and the explicit default port are the same target.
+        var result = await _service.TestAsync(
+            Draft(url: "http://HOOKS.local:80/other/path", password: NotificationSecrets.Mask) with { Id = created.Id },
+            Token);
+
+        result.Success.Should().BeTrue();
+        _provider.SentSettings.Single().GetProperty("password").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_new_host_with_the_secret_supplied_works()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        await _service.UpdateAsync(created.Id, Draft(url: "http://new.example/hook", password: "supernova"), Token);
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
+        var stored = NotificationSecrets.Read(row.Settings);
+
+        stored.GetProperty("url").GetString().Should().Be("http://new.example/hook");
+        stored.GetProperty("password").GetString().Should().Be("supernova");
+    }
+
+    [Fact]
+    public void The_target_is_the_scheme_host_and_port_and_a_secret_url_is_never_part_of_it()
+    {
+        var plain = NotificationSecrets.Read("""{"url":"https://Example.com:443/a?b=c","password":"x"}""");
+        var other = NotificationSecrets.Read("""{"url":"https://example.com/z","password":"y"}""");
+        var elsewhere = NotificationSecrets.Read("""{"url":"https://example.com:8443/a","password":"x"}""");
+
+        string Target(System.Text.Json.JsonElement settings, IReadOnlyList<NotificationField> fields) =>
+            NotificationSecrets.TargetOf((System.Text.Json.Nodes.JsonObject)System.Text.Json.Nodes.JsonNode.Parse(settings.GetRawText())!, fields);
+
+        Target(plain, _provider.Fields).Should().Be(Target(other, _provider.Fields));
+        Target(plain, _provider.Fields).Should().NotBe(Target(elsewhere, _provider.Fields));
+
+        // A Discord-style field whose value is the secret URL has no target to compare.
+        IReadOnlyList<NotificationField> discord = [new("url", "Webhook URL", "url", Required: true, Secret: true)];
+        Target(plain, discord).Should().Be(Target(elsewhere, discord));
+    }
+
     [Fact]
     public async Task An_empty_secret_is_not_masked()
     {
@@ -199,6 +278,9 @@ public sealed class NotificationServiceTests : IDisposable
         /// <summary>What this provider was sent, in order.</summary>
         public IReadOnlyList<NotificationMessage> Sent => _sent;
 
+        /// <summary>The settings each send arrived with.</summary>
+        public List<JsonElement> SentSettings { get; } = [];
+
         public IReadOnlyList<string> Validate(JsonElement settings)
         {
             var url = settings.TryGetProperty("url", out var value) ? value.GetString() : null;
@@ -214,6 +296,7 @@ public sealed class NotificationServiceTests : IDisposable
             CancellationToken cancellationToken)
         {
             _sent.Add(message);
+            SentSettings.Add(settings.Clone());
 
             if (Throw is { } failure)
             {

@@ -216,6 +216,48 @@ public sealed class SoulseekApiTests : IDisposable
             .Which.Children.Should().BeEmpty();
     }
 
+    // Owner question 5: sharing the data directory would publish the API key and the passwords.
+    [Fact]
+    public async Task Sharing_the_data_directory_is_a_400_and_nothing_is_written()
+    {
+        using var client = Client();
+
+        using var response = await client.PutAsJsonAsync(
+            new Uri(SettingsEndpoint, UriKind.Relative),
+            new { sharedFolders = new List<string> { "/data/music", _factory.ConfigDir } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var body = await response.Content.ReadAsStringAsync();
+
+        body.Should().Contain("soulseek.shared_folders: sharing ").And.Contain("would publish Wondarr");
+        ConfigFile().Should().NotContain("shared_folders");
+    }
+
+    // R-038: the stored slskd key is sent only to the address it was saved for.
+    [Fact]
+    public async Task A_connection_test_aimed_at_another_host_without_the_key_is_a_400_and_sends_nothing()
+    {
+        using var client = Client();
+
+        using var configured = await client.PutAsJsonAsync(
+            new Uri(SettingsEndpoint, UriKind.Relative),
+            new { mode = "external", externalUrl = "http://slskd.invalid:5030", externalApiKey = "external-key-0123456789" });
+
+        configured.StatusCode.Should().Be(HttpStatusCode.OK, await configured.Content.ReadAsStringAsync());
+
+        using var response = await client.PostAsJsonAsync(
+            new Uri("/api/v1/soulseek/test", UriKind.Relative),
+            new { url = "http://attacker.invalid:5030", apiKey = string.Empty });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var body = await response.Content.ReadAsStringAsync();
+
+        body.Should().Contain("Enter the API key again: the address changed.");
+        body.Should().NotContain("external-key-0123456789");
+    }
+
     public void Dispose() => _factory.Dispose();
 
     /// <summary>What the settings really wrote: the file is the source of truth, not the response.</summary>

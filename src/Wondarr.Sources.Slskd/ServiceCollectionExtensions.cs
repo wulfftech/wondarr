@@ -85,6 +85,7 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IOptionsMonitor<SoulseekOptions>>(),
             provider.GetRequiredService<IConfigFileWriter>(),
             provider.GetRequiredService<IValidateOptions<SoulseekOptions>>(),
+            provider.GetRequiredService<WondarrPaths>(),
             Environment.GetEnvironmentVariables(),
             provider.GetRequiredService<ILogger<SoulseekSettingsService>>()));
 

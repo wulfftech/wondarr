@@ -84,7 +84,7 @@ internal static class DownloadClientResourceMapper
 
         var settings = NotificationSecrets.Masked(
             NotificationSecrets.Read(client.Settings),
-            type?.Fields ?? []);
+            type?.Fields);
 
         return new DownloadClientResource(
             client.Id,

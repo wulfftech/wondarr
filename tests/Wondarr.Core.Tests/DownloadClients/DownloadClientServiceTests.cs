@@ -98,6 +98,66 @@ public sealed class DownloadClientServiceTests : IDisposable
         _qbittorrent.Tested[0].GetProperty("password").GetString().Should().Be("wonderwall");
     }
 
+    // R-038: a stored secret is reused only for the address it was saved for.
+    [Fact]
+    public async Task A_test_to_a_new_host_with_the_masked_password_is_refused_and_connects_nowhere()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<DownloadClientValidationException>(
+            () => _service.TestAsync(
+                Draft(url: "http://attacker.example:8080", password: NotificationSecrets.Mask, id: created.Id),
+                Token));
+
+        failure.Field.Should().Be("password");
+        failure.Detail.Should().Be("Enter the Password again: the address changed.");
+        _qbittorrent.Tested.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_update_to_a_new_host_with_the_masked_password_is_refused()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<DownloadClientValidationException>(
+            () => _service.UpdateAsync(
+                created.Id,
+                Draft(url: "http://attacker.example:8080", password: NotificationSecrets.Mask),
+                Token));
+
+        failure.Field.Should().Be("password");
+    }
+
+    [Fact]
+    public async Task A_test_to_the_same_host_still_reuses_the_password()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var result = await _service.TestAsync(
+            Draft(url: "http://DOWNLOADS.local:8080/qbt", password: NotificationSecrets.Mask, id: created.Id),
+            Token);
+
+        result.Success.Should().BeTrue();
+        _qbittorrent.Tested[0].GetProperty("password").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_new_host_with_the_password_supplied_works()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        (await _service.TestAsync(
+            Draft(url: "http://new.example:8080", password: "supernova", id: created.Id),
+            Token)).Success.Should().BeTrue();
+
+        await _service.UpdateAsync(created.Id, Draft(url: "http://new.example:8080", password: "supernova"), Token);
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.DownloadClients.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).GetProperty("password").GetString().Should().Be("supernova");
+    }
+
     [Fact]
     public async Task A_type_that_throws_is_a_failed_test_never_an_error()
     {

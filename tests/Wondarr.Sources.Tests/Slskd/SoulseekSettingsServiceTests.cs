@@ -292,14 +292,153 @@ public sealed class SoulseekSettingsServiceTests
     public async Task An_empty_api_key_clears_it_and_a_missing_one_keeps_it()
     {
         var writer = new RecordingWriter();
-        var service = Service(new SoulseekOptions { External = new SoulseekExternalOptions { ApiKey = "external-key-0123456789" } }, writer: writer);
+        var service = Service(new SoulseekOptions { External = new SoulseekExternalOptions { Url = "http://slskd:5030", ApiKey = "external-key-0123456789" } }, writer: writer);
 
-        (await service.UpdateAsync(new SoulseekSettingsUpdate(ExternalUrl: "http://slskd:5030"), CancellationToken.None)).Success.Should().BeTrue();
+        (await service.UpdateAsync(new SoulseekSettingsUpdate(ExternalWebUsername: "admin"), CancellationToken.None)).Success.Should().BeTrue();
         writer.Calls.Single().Values.Should().NotContainKey("external:api_key");
 
         (await service.UpdateAsync(new SoulseekSettingsUpdate(ExternalApiKey: string.Empty), CancellationToken.None)).Success.Should().BeTrue();
         writer.Calls.Last().Values.Should().Contain("external:api_key", null);
     }
+
+    // R-038: a stored key or web password goes only to the address it was saved for.
+    [Fact]
+    public async Task Pointing_at_another_slskd_without_the_api_key_is_refused()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(External(), writer: writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(ExternalUrl: "http://attacker:5030"), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Should()
+            .StartWith("external:api_key:").And.Contain("Enter the API key again: the address changed.");
+        writer.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Pointing_at_another_slskd_without_the_web_password_is_refused()
+    {
+        var options = External();
+        options.External.WebPassword = "web-password-0123";
+        var writer = new RecordingWriter();
+
+        var result = await Service(options, writer: writer).UpdateAsync(
+            new SoulseekSettingsUpdate(ExternalUrl: "http://other:5030", ExternalApiKey: "another-key-0123456789"),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Should().StartWith("external:web_password:");
+        writer.Calls.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("http://SLSKD:5030/")]
+    [InlineData("http://slskd:5030/slskd")]
+    public async Task The_same_slskd_keeps_the_stored_key(string url)
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(External(), writer: writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(ExternalUrl: url), CancellationToken.None);
+
+        result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+        writer.Calls.Should().ContainSingle().Which.Values.Should().NotContainKey("external:api_key");
+    }
+
+    [Fact]
+    public async Task Another_slskd_with_its_own_key_is_accepted()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(External(), writer: writer).UpdateAsync(
+            new SoulseekSettingsUpdate(ExternalUrl: "http://other:5030", ExternalApiKey: "another-key-0123456789"),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+        writer.Calls.Should().ContainSingle().Which.Values.Should().Contain("external:api_key", "another-key-0123456789");
+    }
+
+    // Owner question 5: nothing may share, download into or otherwise point at the data directory.
+    [Fact]
+    public async Task A_shared_folder_that_is_the_data_directory_is_refused()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(new SoulseekOptions(), writer: writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(SharedFolders: [DataDirectory.ConfigDir]), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Should()
+            .StartWith("soulseek.shared_folders: sharing ").And.Contain("would publish Wondarr's API key and passwords");
+        writer.Calls.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("backups")]
+    [InlineData("slskd/../logs")]
+    public async Task A_shared_folder_inside_the_data_directory_is_refused(string relative)
+    {
+        var result = await Service(new SoulseekOptions())
+            .UpdateAsync(
+                new SoulseekSettingsUpdate(SharedFolders: ["/data/music", Path.Combine(DataDirectory.ConfigDir, relative)]),
+                CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Should().StartWith("soulseek.shared_folders:");
+    }
+
+    [Fact]
+    public async Task A_shared_folder_that_is_the_file_system_root_is_refused()
+    {
+        var root = Path.GetPathRoot(DataDirectory.ConfigDir)!;
+
+        var result = await Service(new SoulseekOptions())
+            .UpdateAsync(new SoulseekSettingsUpdate(SharedFolders: [root]), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Should().StartWith("soulseek.shared_folders:");
+    }
+
+    [Fact]
+    public async Task A_sibling_of_the_data_directory_is_not_inside_it()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(new SoulseekOptions(), writer: writer).UpdateAsync(
+            new SoulseekSettingsUpdate(SharedFolders: [DataDirectory.ConfigDir + "-music", "/data/music/"]),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+    }
+
+    [Fact]
+    public async Task A_downloads_dir_inside_the_data_directory_is_refused()
+    {
+        var writer = new RecordingWriter();
+
+        var result = await Service(new SoulseekOptions(), writer: writer).UpdateAsync(
+            new SoulseekSettingsUpdate(DownloadsDir: Path.Combine(DataDirectory.ConfigDir, "downloads")),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Should().StartWith("soulseek.downloads_dir:");
+        writer.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_configuration_that_already_holds_such_a_path_still_saves_other_changes()
+    {
+        var options = new SoulseekOptions { SharedFolders = [DataDirectory.ConfigDir], DownloadsDir = DataDirectory.ConfigDir };
+        var writer = new RecordingWriter();
+
+        var result = await Service(options, writer: writer)
+            .UpdateAsync(new SoulseekSettingsUpdate(UploadSlots: 5), CancellationToken.None);
+
+        result.Success.Should().BeTrue(string.Join("; ", result.Errors));
+    }
+
+    private static readonly WondarrPaths DataDirectory = new(Path.Combine(Path.GetTempPath(), "wondarr-test-config"));
 
     private static SoulseekSettingsService Service(
         SoulseekOptions options,
@@ -310,6 +449,7 @@ public sealed class SoulseekSettingsServiceTests
             SlskdTestData.Monitor(options),
             writer ?? new RecordingWriter(),
             new SoulseekOptionsValidator(),
+            DataDirectory,
             environment ?? new Hashtable(),
             logger ?? NullLogger<SoulseekSettingsService>.Instance);
 
