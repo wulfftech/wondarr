@@ -203,7 +203,16 @@ public sealed partial class ImportService : IImportService
 
         try
         {
-            return await ImportCoreAsync(item, cancellationToken).ConfigureAwait(false);
+            var outcome = await ImportCoreAsync(item, cancellationToken).ConfigureAwait(false);
+
+            // Every outcome but a deferral decides the item for good (or hands it back untouched), so
+            // whatever was counted against a rejected AcoustID key for it is no longer needed.
+            if (outcome != ImportOutcome.Deferred)
+            {
+                _keyState.ForgetDeferrals(item.Id);
+            }
+
+            return outcome;
         }
         catch (OperationCanceledException)
         {
@@ -215,6 +224,7 @@ public sealed partial class ImportService : IImportService
             // halfway through is a bug to look at, not evidence that the download is wrong. The
             // caller still gets an outcome — recording the failure is not allowed to throw either.
             LogImportFailed(_logger, item.Id, exception);
+            _keyState.ForgetDeferrals(item.Id);
 
             return await FailSafelyAsync(item.Id, exception.Message, cancellationToken).ConfigureAwait(false);
         }
@@ -429,6 +439,10 @@ public sealed partial class ImportService : IImportService
                     // it: a deferral brings the item back to a file that exists, and a rejection
                     // deletes the file that is really there (R-013).
                     item.DownloadPath = importPath;
+
+                    // Saved at once, with no token: the Opus original is gone, and a row that still
+                    // names it would send a restart or a failure to a file that does not exist.
+                    await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -463,8 +477,32 @@ public sealed partial class ImportService : IImportService
             // a file that does not decode is left as it is, and the verifier fails it as today.
             var probed = await _probe.ProbeAsync(downloadPath, cancellationToken).ConfigureAwait(false);
 
+            // A probe that ran out of time has not looked at the file: going on would skip the
+            // conversion rule and the fake-lossless check and import (or refuse) the file unseen.
+            // The item goes back to the queue with its download path kept.
+            if (probed.TimedOut)
+            {
+                return await DeferAsync(
+                        item,
+                        $"Could not check the file in time: {probed.Error ?? "a media tool timed out"}",
+                        now,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             if (probed.Decodable && probed.Info is { } info)
             {
+                var rule = policy.RuleFor(item.SourceType, info.IsLossless);
+
+                // A rule that keeps the file leaves the container as it is: if the tag writer cannot
+                // handle it, say so before spending a spectral analysis on it.
+                if ((rule.Codec == OutputCodec.Keep || LibraryOutputPolicy.SameCodec(rule, info.Codec))
+                    && !TagWriter.CanTag(extension))
+                {
+                    return await RejectUntaggableAsync(item, song, extension, MeasuredQuality.FromMediaInfo(info), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 // A lossless container from a lossy source is refused before anything converts it
                 // (ADR-0006; DECISIONS build session 10 #2). Inconclusive and Genuine carry on.
                 if (info.IsLossless && _importOptions.CurrentValue.FakeLosslessCheck == FakeLosslessCheck.Reject)
@@ -494,8 +532,6 @@ public sealed partial class ImportService : IImportService
 
                     LogSpectralVerdict(_logger, item.Id, verdict.Outcome, verdict.CutoffHz);
                 }
-
-                var rule = policy.RuleFor(item.SourceType, info.IsLossless);
 
                 // A file the rule keeps sets no source quality: the verifier measures it, and what
                 // it measures is what was downloaded. Only a converted file needs the probe's answer
@@ -560,17 +596,7 @@ public sealed partial class ImportService : IImportService
         // for a candidate that was named something else, or a manual grab.
         if (!TagWriter.CanTag(extension))
         {
-            LogExtensionRefused(_logger, item.Id, extension);
-
-            return await RejectAsync(
-                    item,
-                    song,
-                    $"Cannot tag .{extension} files: Wondarr writes tags to MP3, FLAC, Opus, Ogg, M4A, AAC, WAV and AIFF only, "
-                    + "and the library has no conversion rule that turns this into one of them",
-                    null,
-                    null,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            return await RejectUntaggableAsync(item, song, extension, null, cancellationToken).ConfigureAwait(false);
         }
 
         // --- Verify -----------------------------------------------------------------------------
@@ -811,6 +837,24 @@ public sealed partial class ImportService : IImportService
 
             await DiscardAlbumAlignmentAsync(album, writeToken).ConfigureAwait(false);
 
+            // The old file went to the bin and could not be put back: the song's row would name a
+            // path with nothing at it. Point it at the bin copy instead, and say so loudly.
+            if (placement.RecycledPath is { } stranded
+                && song.File is { } strandedFile
+                && strandedFile.SourceType != SourceTypes.Reference
+                && !File.Exists(strandedFile.Path))
+            {
+                var strandedFileId = strandedFile.Id;
+                var vanished = strandedFile.Path;
+
+                await _database.SongFiles
+                    .Where(candidate => candidate.Id == strandedFileId)
+                    .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, stranded), CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                LogRowPointedAtRecycleBin(_logger, item.Id, vanished, stranded);
+            }
+
             await FailAsync(
                     item,
                     placement.Error ?? "The file could not be placed in the library.",
@@ -1000,6 +1044,48 @@ public sealed partial class ImportService : IImportService
         {
             await _database.Entry(album).ReloadAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>Refuses a file whose container the tag writer cannot handle.</summary>
+    private Task<ImportOutcome> RejectUntaggableAsync(
+        QueueItem item,
+        Song song,
+        string extension,
+        long? qualityId,
+        CancellationToken cancellationToken)
+    {
+        LogExtensionRefused(_logger, item.Id, extension);
+
+        return RejectAsync(
+            item,
+            song,
+            $"Cannot tag .{extension} files: Wondarr writes tags to MP3, FLAC, Opus, Ogg, M4A, AAC, WAV and AIFF only, "
+            + "and the library has no conversion rule that turns this into one of them",
+            null,
+            qualityId,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Puts the item back to <see cref="QueueItemState.Completed"/> to be tried again after the usual
+    /// delay: "we could not look" is not evidence about the file. The download path is kept.
+    /// </summary>
+    private async Task<ImportOutcome> DeferAsync(
+        QueueItem item,
+        string reason,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        item.State = QueueItemState.Completed;
+        item.StateChangedAt = now;
+        item.NextCheckAt = now + DeferralDelay;
+        item.Message = reason;
+        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await PublishQueueItemAsync(item, cancellationToken).ConfigureAwait(false);
+
+        LogDeferred(_logger, item.Id, reason);
+
+        return ImportOutcome.Deferred;
     }
 
     /// <summary>Loads the song with everything the import needs.</summary>
@@ -1637,6 +1723,11 @@ public sealed partial class ImportService : IImportService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Queue item {QueueItemId} could not be placed: {Reason}")]
     private static partial void LogPlacementFailed(ILogger logger, long queueItemId, string reason);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Queue item {QueueItemId}: the replaced file {Vanished} is in the recycle bin and could not be put back; the song's file row now points at {Recycled}")]
+    private static partial void LogRowPointedAtRecycleBin(ILogger logger, long queueItemId, string vanished, string recycled);
 
     [LoggerMessage(
         Level = LogLevel.Warning,

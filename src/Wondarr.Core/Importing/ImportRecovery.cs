@@ -7,6 +7,7 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
+using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Importing;
 
@@ -26,9 +27,6 @@ namespace Wondarr.Core.Importing;
 /// </remarks>
 internal static partial class ImportRecovery
 {
-    /// <summary>The highest collision suffix the placer tries; the same bound is searched here.</summary>
-    private const int MaxCollisionSuffix = 9;
-
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -72,6 +70,14 @@ internal static partial class ImportRecovery
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == item.Candidate.QualityId, cancellationToken)
             .ConfigureAwait(false);
+
+        // A reference file is the user's own and is never touched, recovery included.
+        if (song?.File is { SourceType: SourceTypes.Reference })
+        {
+            NoDestination(logger, item.Id);
+
+            return null;
+        }
 
         if (song?.AlbumContext is not { } album || library is null || quality is null)
         {
@@ -140,7 +146,8 @@ internal static partial class ImportRecovery
                 continue;
             }
 
-            for (var suffix = 1; suffix <= MaxCollisionSuffix; suffix++)
+            // The placer's own bound: it numbers a clash (2), (3) … up to the same limit.
+            for (var suffix = 1; suffix <= FilePlacer.MaxCollisionSuffix; suffix++)
             {
                 var candidate = suffix == 1
                     ? target
@@ -154,6 +161,12 @@ internal static partial class ImportRecovery
                     && !(song.File is { } held && PathRules.AreEqual(held.Path, candidate))
                     && File.GetLastWriteTimeUtc(candidate) >= since)
                 {
+                    // A file another song already owns is that song's, however new it is.
+                    if (await IsOwnedByAnotherSongAsync(database, song.Id, candidate, cancellationToken).ConfigureAwait(false))
+                    {
+                        continue;
+                    }
+
                     matches.Add(candidate);
                 }
             }
@@ -170,6 +183,26 @@ internal static partial class ImportRecovery
         }
 
         return null;
+    }
+
+    /// <summary>Whether some other song's file row already points at <paramref name="path"/>.</summary>
+    private static async Task<bool> IsOwnedByAnotherSongAsync(
+        WondarrDbContext database,
+        long songId,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var name = Path.GetFileName(path);
+
+        // Narrowed in SQL by the file name; the comparison itself is the platform's path comparison.
+        var candidates = await database.SongFiles
+            .AsNoTracking()
+            .Where(file => file.SongId != songId && file.Path.EndsWith(name))
+            .Select(file => file.Path)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return candidates.Any(other => PathRules.AreEqual(other, path));
     }
 
     /// <summary>
@@ -217,9 +250,11 @@ internal static partial class ImportRecovery
         file.Channels = media.Channels;
         file.DurationMs = media.DurationMs;
 
-        // What the download was ranked as when it was grabbed; the measurement behind the real figure
-        // went with the process that stopped.
-        file.QualityId = item.Candidate.QualityId;
+        // Measured from the file that is there, as the import does. A YouTube grab is ranked as the
+        // Opus stream it was whatever the library's rule turned it into (ADR-0008).
+        file.QualityId = item.SourceType == SourceTypes.YouTube
+            ? SeedData.Opus160QualityId
+            : MeasuredQuality.FromMediaInfo(media);
         file.AcoustId = null;
         file.FingerprintVerified = false;
         file.SourceType = item.SourceType;

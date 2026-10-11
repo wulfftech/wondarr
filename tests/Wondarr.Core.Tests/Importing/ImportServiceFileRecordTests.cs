@@ -198,6 +198,85 @@ public class ImportServiceFileRecordTests
         item.Message.Should().Contain("Cannot tag .ape files");
         host.TagWriter.Writes.Should().BeEmpty();
         host.Verifier.Requests.Should().BeEmpty();
+        host.Spectral.Requests.Should().BeEmpty("a file that cannot be tagged is refused before it is analysed");
+    }
+
+    [Fact]
+    public async Task A_probe_that_times_out_defers_the_import_and_keeps_the_download()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Probe.Result = new MediaProbeResult(false, null, "ffprobe timed out", TimedOut: true);
+
+        var seed = await host.SeedAsync();
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Deferred);
+
+        var item = await host.Context.QueueItems.AsNoTracking().SingleAsync();
+        item.State.Should().Be(QueueItemState.Completed);
+        item.NextCheckAt.Should().NotBeNull();
+        item.DownloadPath.Should().Be(seed.DownloadPath);
+        File.Exists(seed.DownloadPath).Should().BeTrue();
+
+        host.Transcoder.Requests.Should().BeEmpty();
+        host.Verifier.Requests.Should().BeEmpty();
+        (await host.Context.Blocklist.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Points_the_song_row_at_the_recycle_bin_when_the_old_file_could_not_be_put_back()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        var recycled = host.LibraryRoot + "/../recycle/Daft Punk/old.mp3";
+        host.Placer.StrandedRecycledPath = recycled;
+
+        var held = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = held;
+            options.CurrentFileQualityId = 29;
+        });
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Failed);
+
+        var file = await host.Context.SongFiles.AsNoTracking().SingleAsync();
+        file.Path.Should().Be(recycled, "the old path has nothing at it any more");
+    }
+
+    [Fact]
+    public async Task The_new_download_path_is_saved_even_when_the_import_then_fails()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.OnVerifyAsync = _ => throw new InvalidOperationException("something unforeseen");
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.SourceType = SourceTypes.YouTube;
+            options.DownloadName = "dQw4w9WgXcQ.opus";
+            options.RemotePath = "dQw4w9WgXcQ";
+        });
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Failed);
+
+        // The failure path reloads the item: only a row saved right after the transcode survives it.
+        var item = await host.Context.QueueItems.AsNoTracking().SingleAsync();
+        item.DownloadPath.Should().Be(Path.Combine(seed.DownloadDirectory, "dQw4w9WgXcQ.m4a"));
+    }
+
+    [Fact]
+    public async Task A_decided_item_forgets_its_key_deferral_count()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = Deferred(keyRejected: true);
+
+        var seed = await host.SeedAsync();
+
+        (await host.FreshImport().ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Deferred);
+        host.KeyState.TrackedItemCount.Should().Be(1);
+
+        host.Verifier.Result = FakeDownloadVerifier.Passed();
+
+        (await host.FreshImport().ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+        host.KeyState.TrackedItemCount.Should().Be(0);
     }
 
     [Fact]

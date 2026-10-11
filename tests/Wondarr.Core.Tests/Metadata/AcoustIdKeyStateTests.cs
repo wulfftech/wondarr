@@ -82,6 +82,23 @@ public sealed class AcoustIdKeyStateTests
         state.CountDeferral(2).Should().Be(1, "a key that works again starts every wait over");
     }
 
+    [Fact]
+    public void A_different_key_being_refused_clears_the_old_keys_counts()
+    {
+        var state = new AcoustIdKeyState();
+
+        state.Rejected("first");
+        state.CountDeferral(1);
+        state.CountDeferral(1);
+
+        state.Rejected("first");
+        state.CountDeferral(1).Should().Be(3, "the same key refused again keeps counting");
+
+        state.Rejected("second");
+        state.TrackedItemCount.Should().Be(0);
+        state.CountDeferral(1).Should().Be(1);
+    }
+
     private static (AcoustIdClient Client, AcoustIdKeyHealthCheck Check, AcoustIdKeyState State) Create(
         AcoustIdOptions options,
         string body) => Create(options, new ScriptedHandler(body));

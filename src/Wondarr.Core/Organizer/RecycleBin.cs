@@ -149,14 +149,23 @@ public sealed class RecycleBin : IRecycleBin
         // and is best-effort.
         try
         {
-            _disk.SetLastWriteTimeUtc(recycled, _timeProvider.GetUtcNow().UtcDateTime);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            RecycleBinLog.StampFailed(_logger, recycled, exception.Message);
-        }
+            try
+            {
+                _disk.SetLastWriteTimeUtc(recycled, _timeProvider.GetUtcNow().UtcDateTime);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                RecycleBinLog.StampFailed(_logger, recycled, exception.Message);
+            }
 
-        RecycleBinLog.Recycled(_logger, path, recycled);
+            RecycleBinLog.Recycled(_logger, path, recycled);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Anything that goes wrong now happens to a file that is already in the bin: the caller
+            // must be told where it is, not left to think the old file is untouched.
+            throw new RecycleMovedException(recycled, exception);
+        }
 
         return Task.FromResult(recycled);
     }
@@ -383,6 +392,25 @@ public sealed class RecycleBin : IRecycleBin
 
         throw new IOException($"Cannot recycle to '{destination}': every name up to ({MaxClashSuffix}) is taken.");
     }
+}
+
+/// <summary>
+/// Thrown when something fails after a file has already been moved into the recycle bin. It carries
+/// where the file is, so the placer can put it back, or report the path so a caller can record it.
+/// </summary>
+public sealed class RecycleMovedException : IOException
+{
+    /// <summary>Initialises a new instance of the <see cref="RecycleMovedException"/> class.</summary>
+    /// <param name="recycledPath">Where the file now is.</param>
+    /// <param name="innerException">What failed after the move.</param>
+    public RecycleMovedException(string recycledPath, Exception innerException)
+        : base($"The file was moved to '{recycledPath}', but a later step failed: {innerException?.Message}", innerException)
+    {
+        RecycledPath = recycledPath;
+    }
+
+    /// <summary>Gets where the file is in the bin.</summary>
+    public string RecycledPath { get; }
 }
 
 /// <summary>What the recycle bin writes to the log. Source-generated, so a disabled log costs nothing.</summary>

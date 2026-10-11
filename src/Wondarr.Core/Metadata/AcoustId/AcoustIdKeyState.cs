@@ -33,7 +33,20 @@ public sealed class AcoustIdKeyState
 
     /// <summary>Remembers that AcoustID refused <paramref name="clientKey"/>.</summary>
     /// <param name="clientKey">The key that was refused.</param>
-    public void Rejected(string clientKey) => Volatile.Write(ref _rejectedKeyHash, Hash(clientKey));
+    public void Rejected(string clientKey)
+    {
+        var hash = Hash(clientKey);
+        var previous = Interlocked.Exchange(ref _rejectedKeyHash, hash);
+
+        // A different key was refused than before: the counts belong to the old key's wait.
+        if (previous is not null && !string.Equals(previous, hash, StringComparison.Ordinal))
+        {
+            _deferrals.Clear();
+        }
+    }
+
+    /// <summary>How many items have a deferral count; for the tests, which prove the counts are pruned.</summary>
+    internal int TrackedItemCount => _deferrals.Count;
 
     /// <summary>Remembers that AcoustID accepted a lookup, which clears the error and the deferral counts.</summary>
     public void Accepted()

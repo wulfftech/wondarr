@@ -273,6 +273,13 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
             // source could not be removed): it is where it is, so the rows must say so.
             LogPlacedDespiteError(_logger, song.Id, landed, placement.Error ?? string.Empty);
             finalPath = landed;
+
+            // A copy that landed while the old file could not be removed leaves the old copy behind,
+            // untracked: name it, so it can be cleaned up by hand.
+            if (fromPath is not null && _disk.FileExists(fromPath) && !PathRules.AreEqual(fromPath, landed))
+            {
+                LogOrphanedOldCopy(_logger, song.Id, landed, fromPath);
+            }
         }
         else
         {
@@ -446,6 +453,9 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
         long ToLibraryId,
         string? From,
         string? To);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Moved song {SongId} to {Path}, but the old copy {OldPath} could not be removed and is now an untracked orphan")]
+    private static partial void LogOrphanedOldCopy(ILogger logger, long songId, string path, string oldPath);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Moved song {SongId} to {Path} but the placement reported an error ({Error}); recording it as placed")]
     private static partial void LogPlacedDespiteError(ILogger logger, long songId, string path, string error);

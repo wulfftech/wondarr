@@ -300,6 +300,54 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
+    public async Task Does_not_record_a_file_another_song_already_owns()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var first = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+        var other = await host.SeedAsync(options => options.WithAlbum = true);
+
+        // A recent file at the first song's destination that the other song's row points at.
+        var landed = await host.LandFileAsync(first, "flac");
+        File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(1));
+        await host.AddSongFileAsync(other.SongId, landed);
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        (await host.ItemAsync(first.QueueItemId)).State.Should().Be(QueueItemState.Completed);
+        (await host.SongFileAsync(first.SongId)).Should().BeNull("the file is not this song's");
+        (await host.SongFileAsync(other.SongId))!.Path.Should().Be(landed);
+    }
+
+    [Fact]
+    public async Task Ranks_a_recovered_file_by_what_the_probe_measures_not_what_the_candidate_claimed()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var info = new MediaInfo("mp3", "mp3", 320, 44_100, null, 2, 369_000, false, 9_000_000);
+        host.Probe.Result = new MediaProbeResult(true, info, null);
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        var landed = await host.LandFileAsync(seed, "flac");
+        File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(1));
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        var file = await host.SongFileAsync(seed.SongId);
+        file!.QualityId.Should().Be(MeasuredQuality.FromMediaInfo(info));
+        file.QualityId.Should().NotBe(36, "36 is only what the candidate was thought to be");
+    }
+
+    [Fact]
     public async Task Resets_an_importing_item_when_the_download_is_gone_but_nothing_landed()
     {
         await using var host = await QueueTestHost.CreateAsync();
@@ -381,6 +429,9 @@ internal sealed class QueueTestHost : IAsyncDisposable
 
     /// <summary>The fake clock the tracker and the database read; it starts at 2026-09-29T12:00Z.</summary>
     public FakeTimeProvider Time { get; }
+
+    /// <summary>The probe the restart check measures a landed file with.</summary>
+    public FakeMediaProbe Probe { get; private init; } = null!;
 
     /// <summary>The default library's root, inside the test's own temp folder.</summary>
     public string LibraryRoot { get; private init; } = string.Empty;
@@ -474,7 +525,8 @@ internal sealed class QueueTestHost : IAsyncDisposable
         services.AddSingleton<IImportService>(import);
         services.AddSingleton<ISongSearchService>(searchService);
         services.AddSingleton<IEventAggregator>(events);
-        services.AddSingleton<IMediaProbe>(new FakeMediaProbe());
+        var probe = new FakeMediaProbe();
+        services.AddSingleton<IMediaProbe>(probe);
         services.AddDbContext<WondarrDbContext>(builder => builder
             .UseSqlite($"Data Source={database.FilePath}")
             .UseSnakeCaseNamingConvention());
@@ -487,6 +539,7 @@ internal sealed class QueueTestHost : IAsyncDisposable
         var host = new QueueTestHost(database, services.BuildServiceProvider(), time, downloads)
         {
             LibraryRoot = libraryRoot,
+            Probe = probe,
             Options = options,
             Search = search,
             Source = source,
@@ -659,6 +712,27 @@ internal sealed class QueueTestHost : IAsyncDisposable
         await File.WriteAllBytesAsync(path, new byte[64]);
 
         return path;
+    }
+
+    /// <summary>Gives a song a file row at <paramref name="path"/>, as if it owned that file.</summary>
+    /// <param name="songId">The song's id.</param>
+    /// <param name="path">The file the song owns.</param>
+    public async Task AddSongFileAsync(long songId, string path)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = path,
+            Codec = "flac",
+            Container = "flac",
+            QualityId = 36,
+            SourceType = SourceTypes.Soulseek,
+            ImportedAt = Time.GetUtcNow().UtcDateTime,
+        });
+
+        await context.SaveChangesAsync();
     }
 
     /// <summary>The song's file row, or <see langword="null"/> when it has none.</summary>

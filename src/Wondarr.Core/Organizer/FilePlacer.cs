@@ -60,7 +60,7 @@ public interface IFilePlacer
 public sealed class FilePlacer : IFilePlacer
 {
     /// <summary>How many collision suffixes to try before giving up.</summary>
-    private const int MaxCollisionSuffix = 99;
+    internal const int MaxCollisionSuffix = 99;
 
     private readonly IDiskOperations _disk;
     private readonly IRecycleBin _recycleBin;
@@ -130,6 +130,17 @@ public sealed class FilePlacer : IFilePlacer
                 recycled = await _recycleBin
                     .RecycleAsync(replaces, root, cancellationToken)
                     .ConfigureAwait(false);
+            }
+            catch (RecycleMovedException moved)
+            {
+                // The old file is in the bin and the bin said where: put it back, or, when that is
+                // not possible, report the bin path so the caller can point its record at it.
+                var stillRecycled = RollBack(moved.RecycledPath, replaces);
+
+                return Failed(
+                    $"Could not recycle '{replaces}': {moved.Message}"
+                    + (stillRecycled is null ? " The old file was put back." : " The old file is in the recycle bin."),
+                    stillRecycled);
             }
             catch (Exception exception) when (exception is IOException
                 or UnauthorizedAccessException
