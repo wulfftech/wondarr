@@ -29,6 +29,9 @@ public static class LoginRateLimiting
     /// <summary>The message the login page shows after a 429.</summary>
     public const string TooManyAttemptsMessage = "Too many sign-in attempts. Wait a minute and try again.";
 
+    /// <summary>The message after a 429 from the concurrency cap rather than the per-address window.</summary>
+    public const string BusyMessage = "Wondarr is busy checking other sign-ins. Try again in a few seconds.";
+
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     /// <summary>Registers the limiters and the 429 response.</summary>
@@ -42,7 +45,7 @@ public static class LoginRateLimiting
             options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
                 PartitionedRateLimiter.Create<HttpContext, string>(context => IsLoginPost(context.Request)
                     ? RateLimitPartition.GetFixedWindowLimiter(
-                        context.GetRemoteIp()?.ToString() ?? "unknown",
+                        PartitionKey(context.GetRemoteIp()),
                         _ => new FixedWindowRateLimiterOptions
                         {
                             PermitLimit = AttemptsPerMinute,
@@ -60,17 +63,40 @@ public static class LoginRateLimiting
         });
     }
 
+    // Routing ignores case and a trailing slash, so the limiter must too: every request that can reach
+    // either action is limited.
     private static bool IsLoginPost(HttpRequest request) =>
-        HttpMethods.IsPost(request.Method) &&
-        (request.Path.Equals("/login", StringComparison.OrdinalIgnoreCase) ||
-            request.Path.Equals("/login/setup", StringComparison.OrdinalIgnoreCase));
+        HttpMethods.IsPost(request.Method) && Normalise(request.Path) is "/login" or "/login/setup";
+
+    private static string Normalise(PathString path) =>
+        (path.Value ?? string.Empty).TrimEnd('/').ToLowerInvariant();
+
+    /// <summary>One window per IPv4 address, and per /64 for IPv6 (a client usually holds a whole /64).</summary>
+    private static string PartitionKey(IPAddress? address)
+    {
+        if (address is null)
+        {
+            return "unknown";
+        }
+
+        if (address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6 || address.IsIPv4MappedToIPv6)
+        {
+            return address.ToString();
+        }
+
+        var bytes = address.GetAddressBytes();
+        Array.Clear(bytes, 8, 8);
+
+        return new IPAddress(bytes) + "/64";
+    }
 
     private static async ValueTask WriteRejectionAsync(OnRejectedContext rejection, CancellationToken cancellationToken)
     {
         var context = rejection.HttpContext;
-        var retryAfter = rejection.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retry)
-            ? (int)Math.Ceiling(retry.TotalSeconds)
-            : 5;
+
+        // Only the per-address window knows when it resets; the concurrency cap does not, and clears in seconds.
+        var windowRejected = rejection.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retry);
+        var retryAfter = windowRejected ? (int)Math.Ceiling(retry.TotalSeconds) : 5;
 
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         context.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
@@ -87,7 +113,7 @@ public static class LoginRateLimiting
                 false,
                 setup ? LoginPage.Variant.Create : LoginPage.Variant.SignIn,
                 IsLocalUrl(returnUrl) ? returnUrl : null,
-                TooManyAttemptsMessage),
+                windowRejected ? TooManyAttemptsMessage : BusyMessage),
             cancellationToken).ConfigureAwait(false);
     }
 

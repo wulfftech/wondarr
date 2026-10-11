@@ -32,7 +32,11 @@ public sealed class FrameProtectionMiddleware
 
             if (contentType is not null && contentType.StartsWith("text/html", StringComparison.OrdinalIgnoreCase))
             {
-                var ancestors = _serverOptions.CurrentValue.FrameAncestors;
+                // Validated at start-up; the normalised origin is what goes into the header, never the raw text.
+                var ancestors = _serverOptions.CurrentValue.FrameAncestors
+                    .Select(entry => Uri.TryCreate(entry, UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : null)
+                    .OfType<string>()
+                    .ToList();
 
                 context.Response.Headers.ContentSecurityPolicy = ancestors.Count == 0
                     ? "frame-ancestors 'self'"

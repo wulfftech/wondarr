@@ -202,7 +202,7 @@ export function logFileDownloadTarget(filename: string): DownloadTarget {
   return { path: `/api/v1/log/file/${filename}`, name: filename };
 }
 
-/** The URL a download link follows: the path through the URL base, with a one-use token and never the key. */
+/** The URL a download link follows: the path through the URL base, with a short-lived token (60 s) and never the key. */
 export function downloadUrl(config: AppConfig, path: string, token: string): string {
   const encoded = path.split('/').map(encodeURIComponent).join('/');
 

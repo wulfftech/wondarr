@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using Wondarr.Api.Authentication;
 using Wondarr.Api.Extensions;
+using Wondarr.Core.Authentication;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Wondarr.Api.Tests;
@@ -126,24 +128,105 @@ public sealed class LoginSessionTests : IDisposable
         refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
     }
 
+    [Theory]
+    [InlineData("/login/")]
+    [InlineData("/LOGIN")]
+    [InlineData("/Login/")]
+    public async Task The_throttle_also_covers_a_trailing_slash_and_a_mixed_case_path(string path)
+    {
+        using var factory = Create();
+        await SetCredentialsAsync(factory, Username, Password);
+        using var client = factory.CreateClient(RemoteAddress);
+
+        for (var attempt = 1; attempt <= LoginRateLimiting.AttemptsPerMinute; attempt++)
+        {
+            using var accepted = await client.PostAsync(new Uri(path, UriKind.Relative), LoginForm(Username, "wrong password"));
+            accepted.StatusCode.Should().Be(HttpStatusCode.Found, $"attempt {attempt} is within the limit");
+        }
+
+        using var refused = await client.PostAsync(new Uri(path, UriKind.Relative), LoginForm(Username, "wrong password"));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
     [Fact]
-    public async Task Too_many_logins_at_once_from_different_addresses_are_refused_rather_than_queued()
+    public async Task The_variants_of_the_path_share_one_window()
+    {
+        using var factory = Create();
+        await SetCredentialsAsync(factory, Username, Password);
+        using var client = factory.CreateClient(RemoteAddress);
+
+        for (var attempt = 0; attempt < LoginRateLimiting.AttemptsPerMinute; attempt++)
+        {
+            using var accepted = await client.PostAsync(
+                new Uri(attempt % 2 == 0 ? "/login" : "/login/", UriKind.Relative),
+                LoginForm(Username, "wrong password"));
+            accepted.StatusCode.Should().Be(HttpStatusCode.Found);
+        }
+
+        using var refused = await client.PostAsync(new Uri("/LOGIN", UriKind.Relative), LoginForm(Username, "wrong password"));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task An_ipv6_client_is_limited_per_slash_64()
     {
         using var factory = Create();
         await SetCredentialsAsync(factory, Username, Password);
 
-        var attempts = Enumerable.Range(1, 40).Select(async index =>
+        for (var attempt = 0; attempt < LoginRateLimiting.AttemptsPerMinute; attempt++)
         {
-            using var client = factory.CreateClient($"8.8.{index}.1");
-            using var response = await client.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, "wrong password"));
+            using var client = factory.CreateClient($"2001:db8:1:2::{attempt + 1:x}");
+            using var accepted = await client.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, "wrong password"));
+            accepted.StatusCode.Should().Be(HttpStatusCode.Found);
+        }
 
-            return response.StatusCode;
-        });
+        using var sameNetwork = factory.CreateClient("2001:db8:1:2:ffff::1");
+        using var refused = await sameNetwork.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, "wrong password"));
+        refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
 
-        var results = await Task.WhenAll(attempts);
+        using var otherNetwork = factory.CreateClient("2001:db8:1:3::1");
+        using var fine = await otherNetwork.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, "wrong password"));
+        fine.StatusCode.Should().Be(HttpStatusCode.Found);
+    }
 
-        results.Should().Contain(HttpStatusCode.TooManyRequests, "no more than two logins hash at once");
-        results.Should().Contain(HttpStatusCode.Found);
+    [Fact]
+    public async Task A_third_login_while_two_are_checking_is_refused_and_the_first_two_finish()
+    {
+        var gate = new PasswordCheckGate();
+        using var factory = new WondarrAppFactory(
+            configureServices: services =>
+            {
+                var original = services.Single(descriptor => descriptor.ServiceType == typeof(ICredentialStore));
+                services.Remove(original);
+                services.AddScoped<ICredentialStore>(provider =>
+                    new GatedCredentialStore(ActivatorUtilities.CreateInstance<CredentialStore>(provider), gate));
+            });
+        _factories.Add(factory);
+        await SetCredentialsAsync(factory, Username, Password);
+
+        using var first = factory.CreateClient("8.8.1.1");
+        using var second = factory.CreateClient("8.8.1.2");
+        using var third = factory.CreateClient("8.8.1.3");
+        var firstLogin = first.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, Password));
+        var secondLogin = second.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, Password));
+
+        await gate.TwoEntered.WaitAsync(TimeSpan.FromSeconds(30));
+
+        using var refused = await third.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, Password));
+
+        refused.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        refused.Headers.Contains("Retry-After").Should().BeTrue();
+        (await refused.Content.ReadAsStringAsync()).Should().Contain(LoginRateLimiting.BusyMessage);
+
+        gate.Release();
+
+        using var firstDone = await firstLogin;
+        using var secondDone = await secondLogin;
+        firstDone.StatusCode.Should().Be(HttpStatusCode.Found);
+        secondDone.StatusCode.Should().Be(HttpStatusCode.Found);
+        firstDone.Headers.Contains("Set-Cookie").Should().BeTrue();
     }
 
     [Fact]
@@ -255,5 +338,49 @@ public sealed class LoginSessionTests : IDisposable
         using var response = await client.SendAsync(request);
 
         return response.StatusCode;
+    }
+
+    /// <summary>Holds password checks open until released, and says when two are in progress.</summary>
+    private sealed class PasswordCheckGate
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _twoEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _entered;
+
+        public Task TwoEntered => _twoEntered.Task;
+
+        public async Task EnterAsync()
+        {
+            if (Interlocked.Increment(ref _entered) == LoginRateLimiting.ConcurrentHashes)
+            {
+                _twoEntered.TrySetResult();
+            }
+
+            await _release.Task;
+        }
+
+        public void Release() => _release.TrySetResult();
+    }
+
+    private sealed class GatedCredentialStore(ICredentialStore inner, PasswordCheckGate gate) : ICredentialStore
+    {
+        public Task<bool> IsConfiguredAsync(CancellationToken cancellationToken) => inner.IsConfiguredAsync(cancellationToken);
+
+        public Task<string?> GetUsernameAsync(CancellationToken cancellationToken) => inner.GetUsernameAsync(cancellationToken);
+
+        public Task<string?> GetStampAsync(CancellationToken cancellationToken) => inner.GetStampAsync(cancellationToken);
+
+        public Task SetAsync(string username, string password, CancellationToken cancellationToken) =>
+            inner.SetAsync(username, password, cancellationToken);
+
+        public Task<bool> TrySetInitialAsync(string username, string password, CancellationToken cancellationToken) =>
+            inner.TrySetInitialAsync(username, password, cancellationToken);
+
+        public async Task<bool> VerifyAsync(string username, string password, CancellationToken cancellationToken)
+        {
+            await gate.EnterAsync();
+
+            return await inner.VerifyAsync(username, password, cancellationToken);
+        }
     }
 }

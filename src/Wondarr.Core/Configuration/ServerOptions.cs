@@ -111,6 +111,10 @@ public sealed class ServerOptionsValidator : IValidateOptions<ServerOptions>
             {
                 failures.Add($"server.allowed_hosts: '{host}' must be a DNS name such as nas.example.com, or *. followed by one");
             }
+            else if (dnsName != host && !dnsName.Contains('.', StringComparison.Ordinal))
+            {
+                failures.Add($"server.allowed_hosts: '{host}' is too broad: a wildcard needs at least two labels after '*.', such as *.example.com, or it would match a whole top-level domain");
+            }
         }
 
         foreach (var origin in options.FrameAncestors ?? [])
@@ -126,7 +130,10 @@ public sealed class ServerOptionsValidator : IValidateOptions<ServerOptions>
 
     private static bool IsOrigin(string? value)
     {
-        if (string.IsNullOrEmpty(value) || value.EndsWith('/') || !Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        if (string.IsNullOrEmpty(value) ||
+            value.EndsWith('/') ||
+            value.Any(character => char.IsWhiteSpace(character) || char.IsControl(character) || character is ';' or ',' or '\'' or '"') ||
+            !Uri.TryCreate(value, UriKind.Absolute, out var uri))
         {
             return false;
         }

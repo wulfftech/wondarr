@@ -77,6 +77,14 @@ public class ServerOptionsBindingTests
     }
 
     [Fact]
+    public void A_top_level_wildcard_says_why_it_is_refused()
+    {
+        var result = new ServerOptionsValidator().Validate(null, new ServerOptions { AllowedHosts = ["*.com"] });
+
+        result.Failures.Should().ContainSingle().Which.Should().Contain("too broad");
+    }
+
+    [Fact]
     public void Allowed_hosts_and_frame_ancestors_are_empty_by_default_and_bound_from_lists()
     {
         using var empty = new TemporaryConfigDirectory();
@@ -117,6 +125,8 @@ public class ServerOptionsBindingTests
     [InlineData("nas..example.com")]
     [InlineData("nas.example.com/")]
     [InlineData("a*.example.com")]
+    [InlineData("*.com")]
+    [InlineData("*.lan")]
     public void An_invalid_allowed_host_fails_with_the_yaml_key(string entry)
     {
         var result = new ServerOptionsValidator().Validate(null, new ServerOptions { AllowedHosts = [entry] });
@@ -145,6 +155,11 @@ public class ServerOptionsBindingTests
     [InlineData("https://dash.example.lan?x=1")]
     [InlineData("https://user@dash.example.lan")]
     [InlineData("'none'")]
+    [InlineData("https://a.lan; script-src *")]
+    [InlineData("https://a.lan https://b.lan")]
+    [InlineData("https://a.lan,https://b.lan")]
+    [InlineData("https://a.lan\"")]
+    [InlineData("https://a.lan\n")]
     public void An_invalid_frame_ancestor_fails_with_the_yaml_key(string entry)
     {
         var result = new ServerOptionsValidator().Validate(null, new ServerOptions { FrameAncestors = [entry] });

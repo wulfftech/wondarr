@@ -28,15 +28,19 @@ This page lists the keys you are likely to change, not every internal one.
 | `auth_required` | `disabledForLocalAddresses` | Or `enabled`. With the default, a caller skips the login only when it is local: see the rule below. |
 | `api_key` | generated | 32 lowercase hexadecimal characters. |
 | `allowed_hosts` | empty | A list of extra host names that count as local for the rule below: an exact name (`wondarr.example.com`) or `*.suffix` (`*.home.example.org`). Read from `config.yml` only, and a change applies without a restart. |
-| `frame_ancestors` | empty | A list of origins, such as `https://dash.example.lan`, that may show the web UI in a frame (a dashboard that embeds it). Without any, only Wondarr itself may. |
+| `frame_ancestors` | empty | A list of origins, such as `https://dash.example.lan`, that may show the web UI in a frame (a dashboard that embeds it). No path, spaces or `;`. Without any, only Wondarr itself may. |
 
 ### Who counts as local
 
 With `auth_required: disabledForLocalAddresses`, a request skips the login only when all of these hold:
 
-1. It carries none of the headers a reverse proxy adds: `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Via` or `X-Original-For`.
+1. It carries none of the headers a reverse proxy adds: `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Via`, `X-Original-For`, `X-Original-Proto`, `X-Original-Host`, `X-Forwarded-Prefix`, `CF-Connecting-IP` or `True-Client-IP`.
 2. It comes from a loopback, link-local or private address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
-3. The address in its `Host` header looks local: a local IP address, `localhost` or `*.localhost`, a name with no dot (such as `mediaserver`), a name ending in `.local`, `.lan`, `.home.arpa` or `.internal`, or a name in `allowed_hosts`. A public IP address or a public name does not count, so a web page that tricks your browser into reaching Wondarr under its own name still needs a login.
+3. The address in its `Host` header looks local: a local IP address, `localhost` or `*.localhost`, a name with no dot that does not start with a digit (such as `mediaserver`), a name ending in `.local`, `.lan`, `.home.arpa` or `.internal`, or a name in `allowed_hosts`. A public IP address or a public name does not count, so a web page that tricks your browser into reaching Wondarr under its own name still needs a login.
+
+A wildcard in `allowed_hosts` needs at least two labels after `*.` (`*.example.com`, not `*.com`). A name with a trailing dot (`nas.lan.`) is not treated as local.
+
+Failed sign-ins are limited to 10 a minute per address (per /64 for IPv6). Behind a reverse proxy every visitor shares the proxy's address unless the proxy's forwarded headers are processed, so someone hammering the login page can lock the owner out of signing in for up to a minute.
 
 A request that fails the rule is not refused: it gets the login page, as with `auth_required: enabled`. If you reach Wondarr by a public name from inside your network and want to skip the login, add that name to `allowed_hosts`.
 

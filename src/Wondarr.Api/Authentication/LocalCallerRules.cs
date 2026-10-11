@@ -30,6 +30,11 @@ public static class LocalCallerRules
         "X-Forwarded-Proto",
         "Via",
         "X-Original-For",
+        "X-Original-Proto",
+        "X-Original-Host",
+        "X-Forwarded-Prefix",
+        "CF-Connecting-IP",
+        "True-Client-IP",
     ];
 
     private static readonly string[] LanSuffixes = [".local", ".lan", ".home.arpa", ".internal"];
@@ -59,6 +64,9 @@ public static class LocalCallerRules
     /// machine: a local IP literal, <c>localhost</c> or <c>*.localhost</c>, a single-label name, a
     /// name under <c>.local</c>, <c>.lan</c>, <c>.home.arpa</c> or <c>.internal</c>, or a name in
     /// <paramref name="allowedHosts"/> (exact, or <c>*.suffix</c>). A missing host is not local.
+    /// A single-label name that starts with a digit is not local either, which excludes numeric
+    /// spellings of an address such as <c>0x08080808</c>. A trailing dot (<c>nas.lan.</c>) fails
+    /// closed: the name no longer matches a suffix or counts as single-label.
     /// </summary>
     public static bool IsLocalHost(string? host, IEnumerable<string>? allowedHosts)
     {
@@ -87,8 +95,8 @@ public static class LocalCallerRules
             return true;
         }
 
-        // A bare number is not a machine name; browsers read it as an address.
-        if (!name.Contains('.', StringComparison.Ordinal) && !name.All(char.IsAsciiDigit))
+        // A leading digit is a number in some spelling, not a machine name; browsers read it as an address.
+        if (!name.Contains('.', StringComparison.Ordinal) && !char.IsAsciiDigit(name[0]))
         {
             return true;
         }
