@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.DownloadClients;
+using Wondarr.Core.Messaging;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Torznab.Clients;
@@ -66,6 +67,19 @@ public static class ServiceCollectionExtensions
                 ShouldRetryAfterHeader = true,
             }));
 
+        // Gazelle has its own client with no retry handler (R-024): its limiter counts one turn per
+        // request sent, so a retry hidden in the handler would send requests the limiter never saw.
+        // A failed request surfaces at once; the next search is the retry.
+        services.AddHttpClient(GazelleClient.HttpClientName, client =>
+            {
+                client.Timeout = IndexerHttp.RequestTimeout;
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(IndexerHttp.UserAgent);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+            });
+
         services.AddSingleton<NewznabCapabilitiesReader>();
         services.AddSingleton<TorznabIndexerClient>();
         services.AddSingleton<NewznabIndexerClient>();
@@ -86,6 +100,7 @@ public static class ServiceCollectionExtensions
         // The proxy owns one session (cookie and version) per client row, so it is a singleton; the
         // client and the type over it are stateless.
         services.AddSingleton<QBittorrentProxy>();
+        services.AddSingleton<IHandle<DownloadClientDeletedEvent>, SessionEvictor>();
         services.AddSingleton<ITorrentClient, QBittorrentClient>();
         services.AddSingleton<IDownloadClientType, QBittorrentClientType>();
 

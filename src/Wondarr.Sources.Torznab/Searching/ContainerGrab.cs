@@ -21,6 +21,11 @@ namespace Wondarr.Sources.Torznab.Searching;
 /// </param>
 /// <param name="StagingDir">The grab's own folder the finished file is linked or moved into.</param>
 /// <param name="Song">The song as the matcher needs it, for a container whose file list was unknown.</param>
+/// <param name="AddedByWondarr">
+/// Whether Wondarr added the torrent (or the usenet job) in this grab or in a bundled partner's grab, so
+/// it may switch the other files off and remove it on a cancel. A handle saved before this field existed
+/// reads as false: the safe default, a container Wondarr did not add is never changed or removed.
+/// </param>
 public sealed record ContainerGrab(
     long ClientId,
     long IndexerId,
@@ -29,7 +34,8 @@ public sealed record ContainerGrab(
     string? JobId,
     string? FilePath,
     string StagingDir,
-    ContainerMatchRequest? Song)
+    ContainerMatchRequest? Song,
+    bool AddedByWondarr = false)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {

@@ -7,12 +7,14 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Logging;
 using Wondarr.Core.DownloadClients;
 using Wondarr.Core.Indexers;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Sources;
+using Wondarr.Sources.Tests.Torznab.Indexers;
 using Wondarr.Sources.Tests.Torznab.Parsing;
 using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
@@ -323,6 +325,35 @@ public sealed class IndexerSourceProviderTests
         available.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_gazelle_search_never_requests_a_link_with_usetoken_not_even_for_releases_beyond_the_file_list_limit()
+    {
+        // Six releases: the five best-seeded get file lists, the sixth is downloaded to read its files.
+        var handler = new RecordingHandler(request =>
+        {
+            var query = request.RequestUri!.Query;
+
+            return query.Contains("action=browse", StringComparison.Ordinal) ? TorznabFixtures.Response("gazelle-browse.json")
+                : query.Contains("action=torrent", StringComparison.Ordinal) ? TorznabFixtures.Response("gazelle-torrent.json")
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(AlbumTorrent("Daft Punk - Discovery (2001) [MP3 320]")) };
+        });
+        var gazelle = new GazelleClient(new StaticHttpClientFactory(handler), new SecretRegistry(), new SkippingTime(), NullLogger<GazelleClient>.Instance);
+        var provider = Provider(
+            gazelle,
+            out _,
+            indexerType: "gazelle",
+            indexerSettings: """{"url":"https://redacted.example","apiKey":"gazelle-secret-key","useFreeleechTokens":true}""");
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        GazelleClient.FileListsPerSearch.Should().BeLessThan(6);
+        handler.Requests.Should().Contain(
+            request => request.Query.Contains("action=download&id=706", StringComparison.Ordinal),
+            "the sixth release is read by downloading its .torrent");
+        handler.Requests.Should().NotContain(request => request.Query.Contains("usetoken", StringComparison.Ordinal));
+        result.Candidates.Should().NotBeEmpty();
+    }
+
     private static SongSearchRequest Request() =>
         new(1, "Digital Love", "Daft Punk", ["Daft Punk"], "Discovery", DurationMs, VersionFlags.None)
         {
@@ -334,18 +365,21 @@ public sealed class IndexerSourceProviderTests
     private static long QualityId(string name) => SeedData.Qualities.Single(quality => quality.Name == name).Id;
 
     private static IndexerSourceProvider Provider(
-        FakeIndexerClient client,
+        IIndexerClient client,
         out Rows rows,
         int indexerCount = 1,
         DownloadProtocol protocol = DownloadProtocol.Torrent,
-        TimeSpan? budget = null)
+        TimeSpan? budget = null,
+        string? indexerType = null,
+        string? indexerSettings = null)
     {
         rows = new Rows(
             [.. Enumerable.Range(1, indexerCount).Select(id => new Indexer
             {
                 Id = id,
                 Name = $"Indexer {id}",
-                Type = protocol == DownloadProtocol.Torrent ? "torznab" : "newznab",
+                Type = indexerType ?? (protocol == DownloadProtocol.Torrent ? "torznab" : "newznab"),
+                Settings = indexerSettings ?? "{}",
                 Protocol = protocol,
                 Priority = 25,
             })],

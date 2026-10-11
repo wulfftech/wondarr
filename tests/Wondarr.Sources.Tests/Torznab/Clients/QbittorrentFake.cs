@@ -204,6 +204,9 @@ public sealed class FakeTorrent
     /// <summary>Gets or sets the content path as the client sees it.</summary>
     public string ContentPath { get; set; } = "/downloads/Some Release";
 
+    /// <summary>Gets or sets where the incomplete torrent's files are ("keep incomplete torrents in"); null when the client reports none.</summary>
+    public string? DownloadPath { get; set; }
+
     /// <summary>Gets or sets whether the files are known; null when this client does not report it.</summary>
     public bool? HasMetadata { get; set; }
 
@@ -444,6 +447,11 @@ public sealed class QbittorrentFake : HttpMessageHandler
         if (torrent.HasMetadata is { } hasMetadata)
         {
             entry["has_metadata"] = hasMetadata;
+        }
+
+        if (torrent.DownloadPath is not null)
+        {
+            entry["download_path"] = torrent.DownloadPath;
         }
 
         return Json(HttpStatusCode.OK, new[] { entry });

@@ -13,6 +13,16 @@ Wondarr uses qBittorrent as its torrent client. It does not download whole torre
 
 Other wanted songs by the same artist that Wondarr finds in the same torrent are selected in the same grab.
 
+## Torrents Wondarr did not add
+
+Wondarr changes only torrents it added itself, or that a song it grabbed at the same time added for it. If the release is already in qBittorrent (you added it, or an earlier grab left it), Wondarr only raises the wanted file to priority 1. It never switches another file off, never changes a higher priority you set, and never removes the torrent, not even when you cancel the download in Wondarr. If that torrent is stopped and the wanted file still needs data, Wondarr starts it and says so in the log.
+
+When Wondarr cancels a download of a torrent it added, it removes the torrent with its (empty) data only if no other song uses it, every file is at 0 %, and qBittorrent is not checking, moving, fetching metadata or reporting an error. Otherwise it only switches that song's file off.
+
+## "Keep incomplete torrents in"
+
+With this qBittorrent option on, a file that has reached 100 % stays in the incomplete folder until the whole torrent is done, then qBittorrent moves everything to the save path. Wondarr looks for the finished file in the incomplete folder while the torrent is incomplete, and in the save path once it is complete. A file that is not found yet while the torrent is incomplete or moving is a wait, not a failure.
+
 ## One `/data` mount
 
 The staging folder is `import.container_staging_path` in `config.yml`, default `/data/downloads/containers`. Hard links only work inside one filesystem, so qBittorrent's download folder must be on the same mount as that staging folder. The usual layout is a single `/data` mounted into both containers:

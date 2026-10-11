@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Logging;
+using Wondarr.Core.Messaging;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -96,6 +97,10 @@ public interface IDownloadClientService
     Task<ProviderTestResult> TestAsync(DownloadClientDraft draft, CancellationToken cancellationToken);
 }
 
+/// <summary>Published after a download client row is deleted, so what holds state for it (a login session) lets go.</summary>
+/// <param name="ClientId">The deleted row's id.</param>
+public sealed record DownloadClientDeletedEvent(long ClientId) : IEvent;
+
 /// <summary>
 /// The rules a download client is stored under: the type exists, the name is not blank, and the type
 /// accepts the settings. Deleting one an indexer names is refused with the indexers' names.
@@ -106,17 +111,20 @@ public sealed partial class DownloadClientService : IDownloadClientService
     private readonly IReadOnlyList<IDownloadClientType> _types;
     private readonly ISecretRegistry _secrets;
     private readonly ILogger<DownloadClientService> _logger;
+    private readonly IEventAggregator? _events;
 
     /// <summary>Initialises a new instance of the <see cref="DownloadClientService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="types">Every registered download client type.</param>
     /// <param name="secrets">Where secret settings are registered so the log pipeline can redact them.</param>
     /// <param name="logger">The log sink.</param>
+    /// <param name="events">Where <see cref="DownloadClientDeletedEvent"/> is published; none in a bare container.</param>
     public DownloadClientService(
         WondarrDbContext database,
         IEnumerable<IDownloadClientType> types,
         ISecretRegistry secrets,
-        ILogger<DownloadClientService> logger)
+        ILogger<DownloadClientService> logger,
+        IEventAggregator? events = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(types);
@@ -127,6 +135,7 @@ public sealed partial class DownloadClientService : IDownloadClientService
         _types = [.. types];
         _secrets = secrets;
         _logger = logger;
+        _events = events;
     }
 
     /// <inheritdoc />
@@ -261,6 +270,11 @@ public sealed partial class DownloadClientService : IDownloadClientService
         }
 
         LogDeleted(_logger, id);
+
+        if (_events is not null)
+        {
+            await _events.PublishAsync(new DownloadClientDeletedEvent(id), cancellationToken).ConfigureAwait(false);
+        }
 
         return true;
     }

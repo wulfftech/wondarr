@@ -500,6 +500,7 @@ public async Task A_container_grab_takes_the_other_wanted_songs_of_the_same_arti
             IndexerName = "Indexer",
             Title = "Aphex Twin - Selected Ambient Works [FLAC]",
             ReleaseId = "guid-1",
+            DownloadUrl = "https://tracker.example/download/1",
             InfoHash = "0123456789abcdef0123456789abcdef01234567",
             FileIndex = 0,
             Files = files,
@@ -723,7 +724,7 @@ private static async Task<Exception?> AttemptAsync(ISongSearchService search, lo
 }
 
 /// <summary>Seeds a run, a candidate and one active queue item for the song.</summary>
-private static async Task SeedActiveQueueItemAsync(SearchTestHost host, long songId)
+internal static async Task SeedActiveQueueItemAsync(SearchTestHost host, long songId)
     {
         await using var context = host.Database.CreateContext(host.Time);
 
