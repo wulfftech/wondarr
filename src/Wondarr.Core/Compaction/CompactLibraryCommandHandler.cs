@@ -35,7 +35,7 @@ public sealed partial class CompactLibraryCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var libraryId = ReadLibraryId(context.Body);
+        var (libraryId, resumeOnly) = ReadBody(context.Body);
 
         // One scope for the library lookup and the run: the run reads the library again through the
         // same context, and it must be the one the user is looking at.
@@ -60,12 +60,12 @@ public sealed partial class CompactLibraryCommandHandler(
 
         var executor = scope.ServiceProvider.GetRequiredService<ICompactExecutor>();
         var result = await executor
-            .RunAsync(libraryId, context.ReportProgressAsync, cancellationToken)
+            .RunAsync(libraryId, context.ReportProgressAsync, cancellationToken, resumeOnly)
             .ConfigureAwait(false);
 
         LogCompacted(logger, libraryId);
 
-        return string.Concat(
+        var message = string.Concat(
             "Compacted ",
             library.Name,
             ": ",
@@ -75,10 +75,34 @@ public sealed partial class CompactLibraryCommandHandler(
             " album changes without files, ",
             result.Failed.ToString(CultureInfo.InvariantCulture),
             " failed");
+
+        if (result.GivenUp > 0)
+        {
+            message = string.Concat(
+                message,
+                ", ",
+                result.GivenUp.ToString(CultureInfo.InvariantCulture),
+                " given up on");
+        }
+
+        if (result.Stranded is { Count: > 0 } stranded)
+        {
+            message = string.Concat(message, ". Files left where they are: ", string.Join("; ", stranded));
+        }
+
+        if (result.TrashNote is not null)
+        {
+            message = string.Concat(message, ". ", result.TrashNote);
+        }
+
+        return message;
     }
 
-    /// <summary>The library a compact body names. Unlike the adopt body, a body without one is a mistake.</summary>
-    private static long ReadLibraryId(string? body)
+    /// <summary>
+    /// The library a compact body names (unlike the adopt body, a body without one is a mistake), and
+    /// whether the run may only resume the rows an earlier run left.
+    /// </summary>
+    private static (long LibraryId, bool ResumeOnly) ReadBody(string? body)
     {
         if (string.IsNullOrWhiteSpace(body))
         {
@@ -98,7 +122,7 @@ public sealed partial class CompactLibraryCommandHandler(
 
         if (parsed?.LibraryId is { } id and > 0)
         {
-            return id;
+            return (id, parsed.ResumeOnly == true);
         }
 
         throw new ArgumentException("The CompactLibrary command body must name a libraryId.");
@@ -107,7 +131,8 @@ public sealed partial class CompactLibraryCommandHandler(
     /// <summary>The body of a Compact library run: which library to compact.</summary>
     /// <param name="Name">The command name, echoed by the API for readability.</param>
     /// <param name="LibraryId">The library to compact.</param>
-    private sealed record CompactLibraryBody(string? Name, long? LibraryId);
+    /// <param name="ResumeOnly">Only finish or give up the rows an earlier run left; never plan anew.</param>
+    private sealed record CompactLibraryBody(string? Name, long? LibraryId, bool? ResumeOnly);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Compacted library {LibraryId} through the CompactLibrary command")]
     private static partial void LogCompacted(ILogger logger, long libraryId);

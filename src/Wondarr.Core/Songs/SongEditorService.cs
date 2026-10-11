@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Persistence;
@@ -258,6 +259,22 @@ public sealed class SongEditorService : ISongEditorService
         if (busy.Count > 0)
         {
             throw new SongsBusyException([.. busy.Order()]);
+        }
+
+        // A song whose file a compaction has parked in staging is refused too, as the library mover
+        // refuses it: deleting it would leave the file in the hidden folder with nothing pointing at it.
+        var compacting = await _database.CompactMoves
+            .AsNoTracking()
+            .Where(CompactMoveRules.IsUnfinished)
+            .Where(row => ids.Contains(row.SongId))
+            .Select(row => row.SongId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (compacting.Count > 0)
+        {
+            throw new SongsCompactingException([.. compacting.Order()]);
         }
 
         // One SaveChanges is one transaction: every song goes, or none does. As with a single

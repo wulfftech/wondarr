@@ -185,6 +185,31 @@ public sealed class SongEditorServiceTests : IDisposable
         (await context.QueueItems.CountAsync(item => item.SongId == done.Id)).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Deleting_a_song_with_a_move_in_flight_is_refused_and_nothing_is_deleted()
+    {
+        await using var context = await ContextAsync();
+        var moving = await SongSeed.AddAsync(context, "Moving");
+        var idle = await SongSeed.AddAsync(context, "Idle");
+        context.CompactMoves.Add(new CompactMoveRecord
+        {
+            LibraryId = SeedData.DefaultLibraryId,
+            SongId = moving.Id,
+            FromPath = "/music/a.flac",
+            StagedPath = "/music/.wondarr-compact/1/a.flac",
+            State = CompactMoveState.Staged,
+        });
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        var editor = SongSeed.Editor(context, Substitute.For<ICommandQueue>());
+
+        var act = () => editor.DeleteAsync([moving.Id, idle.Id], CancellationToken.None);
+
+        (await act.Should().ThrowAsync<SongsCompactingException>()).Which.SongIds.Should().Equal(moving.Id);
+        context.ChangeTracker.Clear();
+        (await context.Songs.CountAsync()).Should().Be(2);
+    }
+
     public void Dispose()
     {
         _database.Dispose();

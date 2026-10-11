@@ -31,7 +31,7 @@ namespace Wondarr.Core.Tests.Compaction;
 /// writer's and the placer's own tests being repeated here.
 /// </summary>
 [Collection(CompactExecutorTests.Serial)]
-public class CompactExecutorTests : IDisposable
+public partial class CompactExecutorTests : IDisposable
 {
     /// <summary>
     /// The pumped runs move a fake clock against real timers and a real database; with the rest of the
@@ -64,10 +64,17 @@ public class CompactExecutorTests : IDisposable
     /// <summary>What the Plex section reports for <c>refreshing</c>, in order, one poll at a time.</summary>
     private readonly Queue<bool> _refreshing = new();
 
+    /// <summary>What Plex's <c>autoEmptyTrash</c> preference reads; <see langword="null"/> is "not listed".</summary>
+    private string? _autoEmptyTrash = "0";
+
+    /// <summary>The folders the fake Plex section lists, as Plex sees them.</summary>
+    private List<string> _locations = ["/music"];
+
     private readonly string _root;
     private readonly string _bin;
     private readonly string _config;
     private readonly CompactExecutor _executor;
+    private readonly FaultyDisk _faulty;
 
     private Func<long, CancellationToken, Task<CompactPlan>> _planHandler = (_, _) => Task.FromResult(EmptyPlan);
 
@@ -107,6 +114,15 @@ public class CompactExecutorTests : IDisposable
             });
 
         _plex
+            .GetPreferenceAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<string?>(_autoEmptyTrash));
+
+        _plex
+            .GetSectionsAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<IReadOnlyList<PlexSection>>(
+                [new PlexSection(Section, "Music", "artist", false, [.. _locations])]));
+
+        _plex
             .EmptyTrashAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
@@ -125,11 +141,13 @@ public class CompactExecutorTests : IDisposable
             _timeProvider,
             NullLogger<RecycleBin>.Instance);
 
+        _faulty = new FaultyDisk(_disk);
+
         _executor = new CompactExecutor(
             _database.CreateContext(_timeProvider),
             _planner,
             _organizer,
-            _disk,
+            _faulty,
             recycleBin,
             _connection,
             _plex,
@@ -247,7 +265,7 @@ public class CompactExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_scan_that_never_reports_itself_is_not_waited_for_forever()
+    public async Task A_scan_that_never_reports_itself_is_not_waited_for_forever_and_leaves_the_trash_alone()
     {
         await using var context = await ContextAsync(section: Section);
         var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
@@ -259,8 +277,11 @@ public class CompactExecutorTests : IDisposable
         var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
         var waited = _timeProvider.GetUtcNow() - started;
 
-        result.Should().Be(new CompactResult(1, 0, 0, 0));
-        _log.Should().Contain("empty trash");
+        result.Moved.Should().Be(1);
+
+        // Nothing says the scan finished, so the trash is left alone and the note says why.
+        result.TrashNote.Should().Contain("never seen");
+        _log.Should().NotContain("empty trash");
 
         // It waited for the scan to start for the whole start window, and not for the finish window.
         waited.Should().BeGreaterThanOrEqualTo(CompactExecutor.ScanStartTimeout);
@@ -382,6 +403,9 @@ public class CompactExecutorTests : IDisposable
         _planner
             .PlanAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns<Task<CompactPlan>>(_ => throw new InvalidOperationException("the run re-planned"));
+
+        _refreshing.Enqueue(true);
+        _refreshing.Enqueue(false);
 
         var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
 
@@ -709,9 +733,9 @@ public class CompactExecutorTests : IDisposable
     /// <see cref="TimeProvider"/> timers, which fire only when the clock moves, so a bare await of the
     /// run would wait forever for a scan that a fake Plex never finishes.
     /// </summary>
-    private async Task<CompactResult> RunPumpedAsync(long libraryId)
+    private async Task<CompactResult> RunPumpedAsync(long libraryId, CancellationToken cancellationToken = default)
     {
-        var run = _executor.RunAsync(libraryId, null, CancellationToken.None);
+        var run = _executor.RunAsync(libraryId, null, cancellationToken);
         var guard = Stopwatch.StartNew();
 
         while (!run.IsCompleted)
@@ -724,7 +748,7 @@ public class CompactExecutorTests : IDisposable
             }
 
             _timeProvider.Advance(CompactExecutor.ScanPollInterval);
-            await Task.WhenAny(run, Task.Delay(5));
+            await Task.WhenAny(run, Task.Delay(5, CancellationToken.None));
         }
 
         return await run;
@@ -947,7 +971,7 @@ public class CompactExecutorTests : IDisposable
             {
                 SongId = song.Id,
                 Path = path,
-                Size = 30_000_000,
+                Size = new FileInfo(path).Length,
                 Codec = "flac",
                 Container = "flac",
                 BitrateKbps = 1000,
@@ -978,6 +1002,15 @@ public class CompactExecutorTests : IDisposable
         /// <summary>Every request the executor made, in order.</summary>
         public List<OrganizeRequest> Requests { get; } = [];
 
+        /// <summary>
+        /// When set, the file is placed but the result says it failed (a chmod after the move), the way
+        /// the real placer reports it.
+        /// </summary>
+        public string? ErrorAfterMove { get; set; }
+
+        /// <summary>Called right after the file has been moved, before the result is returned.</summary>
+        public Action? AfterMove { get; set; }
+
         /// <inheritdoc />
         public Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
         {
@@ -998,6 +1031,18 @@ public class CompactExecutorTests : IDisposable
 
             disk.CreateDirectory(directory);
             disk.MoveFile(request.SourcePath, target);
+            AfterMove?.Invoke();
+
+            if (ErrorAfterMove is not null)
+            {
+                return Task.FromResult(
+                    new OrganizeResult(
+                        OrganizeFailure.Placement,
+                        ErrorAfterMove,
+                        target,
+                        null,
+                        new Dictionary<string, string>(StringComparer.Ordinal)));
+            }
 
             return Task.FromResult(
                 new OrganizeResult(
@@ -1008,6 +1053,48 @@ public class CompactExecutorTests : IDisposable
                     new Dictionary<string, string>(StringComparer.Ordinal) { ["TITLE"] = request.Song.Title }));
         }
     }
+}
+
+/// <summary>The real disk, except that listing a folder can be made to fail the way an unreadable share does.</summary>
+internal sealed class FaultyDisk(IDiskOperations inner) : IDiskOperations
+{
+    /// <summary>The folder whose listing fails, or <see langword="null"/>.</summary>
+    public string? ThrowFor { get; set; }
+
+    public bool FileExists(string path) => inner.FileExists(path);
+
+    public bool DirectoryExists(string path) => inner.DirectoryExists(path);
+
+    public void CreateDirectory(string path) => inner.CreateDirectory(path);
+
+    public void CreateEmptyFile(string path) => inner.CreateEmptyFile(path);
+
+    public long GetFileSize(string path) => inner.GetFileSize(path);
+
+    public void MoveFile(string source, string target) => inner.MoveFile(source, target);
+
+    public void CopyFile(string source, string target) => inner.CopyFile(source, target);
+
+    public bool TryCreateHardLink(string source, string target) => inner.TryCreateHardLink(source, target);
+
+    public void WriteAllBytes(string path, byte[] bytes) => inner.WriteAllBytes(path, bytes);
+
+    public void DeleteFile(string path) => inner.DeleteFile(path);
+
+    public void SetUnixFileMode(string path, UnixFileMode mode) => inner.SetUnixFileMode(path, mode);
+
+    public bool AreSameFile(string first, string second) => inner.AreSameFile(first, second);
+
+    public IEnumerable<string> EnumerateFiles(string directory) =>
+        ThrowFor is not null && string.Equals(directory, ThrowFor, StringComparison.Ordinal)
+            ? throw new UnauthorizedAccessException("Access to the path is denied.")
+            : inner.EnumerateFiles(directory);
+
+    public DateTime GetLastWriteTimeUtc(string path) => inner.GetLastWriteTimeUtc(path);
+
+    public void SetLastWriteTimeUtc(string path, DateTime utc) => inner.SetLastWriteTimeUtc(path, utc);
+
+    public void DeleteEmptyDirectory(string path) => inner.DeleteEmptyDirectory(path);
 }
 
 /// <summary>Runs the compaction executor's tests after the parallel ones, alone.</summary>

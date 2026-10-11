@@ -1,7 +1,10 @@
+using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.References;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Tests.Organizer;
 using Wondarr.Core.Tests.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -280,9 +283,78 @@ public class ReferenceLibraryServiceTests : IDisposable
         (await Service(context).DeleteAsync(987654, CancellationToken.None)).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("/data/bin", true)]
+    [InlineData("/data/bin/", true)]
+    [InlineData("/data/bin/collection", true)]
+    [InlineData("/data", true)]
+    [InlineData("/data/bin2", false)]
+    [InlineData("/other/music", false)]
+    public async Task A_root_that_is_holds_or_sits_inside_the_recycle_bin_is_refused(string root, bool refused)
+    {
+        await using var context = await ContextAsync();
+        var bin = Path.GetFullPath("/data/bin");
+        var input = new ReferenceLibraryInput("Mine", Path.GetFullPath(root), ReferenceLibraryMode.Reference, null, true);
+
+        var add = async () => await Service(context, bin).AddAsync(input, CancellationToken.None);
+
+        if (refused)
+        {
+            (await add.Should().ThrowAsync<ReferenceLibraryValidationException>())
+                .Which.Detail.Should().Contain("overlaps the recycle bin").And.Contain(bin);
+
+            // An update is refused the same way.
+            var other = await Service(context).AddAsync(
+                input with { Name = "Other", RootPath = Path.GetFullPath("/other/elsewhere") },
+                CancellationToken.None);
+            var update = async () => await Service(context, bin).UpdateAsync(other.Library.Id, input, CancellationToken.None);
+
+            await update.Should().ThrowAsync<ReferenceLibraryValidationException>();
+        }
+        else
+        {
+            await add.Should().NotThrowAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_root_inside_the_default_recycle_bin_is_refused()
+    {
+        await using var context = await ContextAsync();
+        var inside = Path.Combine(ConfigDir, "recycle", "collection");
+        var input = new ReferenceLibraryInput("Mine", inside, ReferenceLibraryMode.Reference, null, true);
+
+        var add = async () => await Service(context).AddAsync(input, CancellationToken.None);
+
+        (await add.Should().ThrowAsync<ReferenceLibraryValidationException>())
+            .Which.Detail.Should().Contain("overlaps the recycle bin").And.Contain(Path.Combine(ConfigDir, "recycle"));
+    }
+
+    [Fact]
+    public async Task A_relative_recycle_bin_path_is_compared_as_the_absolute_path_it_resolves_to()
+    {
+        await using var context = await ContextAsync();
+        var input = new ReferenceLibraryInput(
+            "Mine",
+            Path.Combine(Path.GetFullPath("relative-bin"), "collection"),
+            ReferenceLibraryMode.Reference,
+            null,
+            true);
+
+        var add = async () => await Service(context, "relative-bin").AddAsync(input, CancellationToken.None);
+
+        await add.Should().ThrowAsync<ReferenceLibraryValidationException>();
+    }
+
     // --- Helpers --------------------------------------------------------------------------------
 
-    private static ReferenceLibraryService Service(WondarrDbContext context) => new(context);
+    private static readonly string ConfigDir = Path.GetFullPath("/wondarr-test-config");
+
+    private static ReferenceLibraryService Service(WondarrDbContext context, string? recycleBin = null) =>
+        new(
+            context,
+            new TestOptionsMonitor<ImportOptions>(new ImportOptions { RecycleBinPath = recycleBin }),
+            new WondarrPaths(ConfigDir));
 
     private static SongFile WithSourceRef(SongFile file, string sourceRef)
     {
