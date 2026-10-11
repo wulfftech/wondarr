@@ -127,6 +127,38 @@ public class YouTubeSourceProviderTests
     }
 
     [Fact]
+    public async Task An_innertube_timeout_fails_that_query_and_the_next_one_still_runs()
+    {
+        // HttpClient reports its 20 s timeout as a TaskCanceledException while the caller's token is untouched.
+        var search = new StubInnertubeClient()
+            .Fail(InnertubeSearchFilter.Songs, new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"))
+            .Respond(InnertubeSearchFilter.Videos, Shelf("CCHdMIEGaaM", "Alpha", ["convar HUN"], 248_000));
+
+        var provider = Build(search: search, isrcs: NoIsrcs, options: new YouTubeOptions { Enabled = true, AllowVideos = true });
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        search.Requests.Should().HaveCount(2);
+        result.Candidates.Should().ContainSingle().Which.RemotePath.Should().Be("CCHdMIEGaaM");
+    }
+
+    [Fact]
+    public async Task A_cancelled_caller_still_stops_the_search()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var search = new StubInnertubeClient()
+            .Fail(InnertubeSearchFilter.Songs, new TaskCanceledException("cancelled", null, cancellation.Token));
+
+        var provider = Build(search: search, isrcs: NoIsrcs);
+
+        var act = () => provider.SearchAsync(Request(), cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task A_disabled_source_answers_no_candidates_with_the_reason()
     {
         var provider = Build(options: new YouTubeOptions { Enabled = false });
@@ -216,13 +248,20 @@ public class YouTubeSourceProviderTests
 /// <summary>Serves one scripted response per filter, in order; records every request.</summary>
 internal sealed class StubInnertubeClient : IInnertubeClient
 {
-    private readonly Queue<(InnertubeSearchFilter Filter, InnertubeSearchResult Result)> _responses = new();
+    private readonly Queue<(InnertubeSearchFilter Filter, InnertubeSearchResult? Result, Exception? Failure)> _responses = new();
 
     public List<InnertubeSearchRequest> Requests { get; } = [];
 
     public StubInnertubeClient Respond(InnertubeSearchFilter filter, InnertubeSearchResult result)
     {
-        _responses.Enqueue((filter, result));
+        _responses.Enqueue((filter, result, null));
+        return this;
+    }
+
+    /// <summary>Scripts the next search to fail with <paramref name="failure"/>.</summary>
+    public StubInnertubeClient Fail(InnertubeSearchFilter filter, Exception failure)
+    {
+        _responses.Enqueue((filter, null, failure));
         return this;
     }
 
@@ -235,7 +274,9 @@ internal sealed class StubInnertubeClient : IInnertubeClient
             throw new InvalidOperationException($"Nothing was scripted for '{request.Query}'.");
         }
 
-        return Task.FromResult(_responses.Dequeue().Result);
+        var (_, result, failure) = _responses.Dequeue();
+
+        return failure is not null ? Task.FromException<InnertubeSearchResult>(failure) : Task.FromResult(result!);
     }
 
     public Task<IReadOnlyList<InnertubePlaylistRow>> BrowsePlaylistAsync(string playlistId, CancellationToken cancellationToken) =>

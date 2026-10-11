@@ -96,7 +96,7 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
     /// <param name="cancellationToken">Cancels the wait and the run.</param>
     /// <returns>The completed file's path and extension.</returns>
     /// <exception cref="YtDlpException">The run failed; the kind carries the classification.</exception>
-    /// <exception cref="OperationCanceledException">The token was cancelled, or yt-dlp exited 101.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
     public async Task<YtDlpDownload> DownloadAsync(
         string videoId,
         string destinationDir,
@@ -143,7 +143,7 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <returns>The probe's stdout and whether a JS runtime was available.</returns>
     /// <exception cref="YtDlpException">The probe failed; the kind carries the classification.</exception>
-    /// <exception cref="OperationCanceledException">The token was cancelled, or yt-dlp exited 101.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
     public async Task<YtDlpFormats> ProbeFormatsAsync(string videoId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
@@ -194,7 +194,12 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
         if (result.ExitCode == 101)
         {
-            throw new OperationCanceledException($"yt-dlp cancelled the formats probe of '{videoId}'.");
+            // Exit 101 is yt-dlp's own "stopped on a break rule", not the caller's cancellation: a
+            // caller that cancelled is told by its token, and treating this as one would end a whole batch.
+            throw new YtDlpException(
+                videoId,
+                YtDlpErrorKind.Unknown,
+                $"yt-dlp stopped the formats probe of '{videoId}' (exit code 101).");
         }
 
         if (result.ExitCode != 0)
@@ -276,7 +281,11 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
         if (result.ExitCode == 101)
         {
-            throw new OperationCanceledException($"yt-dlp cancelled the download of '{videoId}'.");
+            // See ProbeFormatsAsync: exit 101 is a failed run, never the caller's cancellation.
+            throw new YtDlpException(
+                videoId,
+                YtDlpErrorKind.Unknown,
+                $"yt-dlp stopped the download of '{videoId}' (exit code 101).");
         }
 
         if (result.ExitCode == 0)

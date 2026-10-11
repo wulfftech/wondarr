@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using Wondarr.Core.Searching;
 
 namespace Wondarr.Sources.Torznab.Indexers;
 
@@ -67,9 +68,9 @@ public static class IndexerHttp
                     .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                     .ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, cancellationToken))
             {
-                // The transport's own message names the host, so only the fact is carried across.
+                // A timeout is a failed request too. The transport's own message names the host, so only the fact is carried across.
                 throw new IndexerException("The indexer could not be reached.", exception);
             }
 

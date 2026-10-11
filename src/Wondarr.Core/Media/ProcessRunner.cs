@@ -57,6 +57,9 @@ public sealed class MediaToolMissingException : Exception
 /// </summary>
 public sealed partial class ProcessRunner : IProcessRunner
 {
+    /// <summary>How long a pipe gets to close once the process is gone, before its output is given up on.</summary>
+    internal static readonly TimeSpan DefaultDrainTimeout = TimeSpan.FromSeconds(5);
+
     private readonly ILogger<ProcessRunner> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="ProcessRunner"/> class.</summary>
@@ -65,6 +68,13 @@ public sealed partial class ProcessRunner : IProcessRunner
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
+
+    /// <summary>
+    /// Gets how long to wait for a pipe to close after the process has exited or been killed. A
+    /// grandchild that escaped the tree kill keeps the pipe open, and would otherwise hold the caller
+    /// for good.
+    /// </summary>
+    internal TimeSpan DrainTimeout { get; init; } = DefaultDrainTimeout;
 
     /// <inheritdoc />
     public async Task<ProcessResult> RunAsync(
@@ -116,8 +126,8 @@ public sealed partial class ProcessRunner : IProcessRunner
         {
             KillTree(process);
 
-            var killedOutput = await DrainAsync(standardOutput).ConfigureAwait(false);
-            var killedError = await DrainAsync(standardError).ConfigureAwait(false);
+            var killedOutput = await DrainAsync(standardOutput, DrainTimeout, fileName).ConfigureAwait(false);
+            var killedError = await DrainAsync(standardError, DrainTimeout, fileName).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -126,8 +136,8 @@ public sealed partial class ProcessRunner : IProcessRunner
             return new ProcessResult(-1, killedOutput, killedError, TimedOut: true);
         }
 
-        var output = await DrainAsync(standardOutput).ConfigureAwait(false);
-        var error = await DrainAsync(standardError).ConfigureAwait(false);
+        var output = await DrainAsync(standardOutput, DrainTimeout, fileName).ConfigureAwait(false);
+        var error = await DrainAsync(standardError, DrainTimeout, fileName).ConfigureAwait(false);
 
         if (process.ExitCode != 0)
         {
@@ -140,6 +150,9 @@ public sealed partial class ProcessRunner : IProcessRunner
     // Debug on purpose: a tool's stderr can be long, and Information is for the import decision.
     [LoggerMessage(Level = LogLevel.Debug, Message = "'{Tool}' exited {ExitCode}. Stderr: {StandardError}")]
     private static partial void LogExited(ILogger logger, string tool, int exitCode, string standardError);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "'{Tool}' left a pipe open for more than {Timeout}; its remaining output is dropped.")]
+    private static partial void LogDrainTimedOut(ILogger logger, string tool, TimeSpan timeout);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "'{Tool}' was killed after {Timeout}.")]
     private static partial void LogTimedOut(ILogger logger, string tool, TimeSpan timeout);
@@ -161,12 +174,22 @@ public sealed partial class ProcessRunner : IProcessRunner
         }
     }
 
-    /// <summary>Waits for a pipe to close, treating a stream disposed by the kill as empty.</summary>
-    private static async Task<string> DrainAsync(Task<string> read)
+    /// <summary>
+    /// Waits for a pipe to close, treating a stream disposed by the kill as empty, and giving up
+    /// (with no output) when it stays open past <paramref name="timeout"/>.
+    /// </summary>
+    private async Task<string> DrainAsync(Task<string> read, TimeSpan timeout, string tool)
     {
         try
         {
-            return await read.ConfigureAwait(false);
+            return await read.WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Something that outlived the tool (a grandchild that escaped the tree kill) still holds the pipe.
+            LogDrainTimedOut(_logger, tool, timeout);
+
+            return string.Empty;
         }
         catch (IOException)
         {

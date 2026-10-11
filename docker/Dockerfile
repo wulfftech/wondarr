@@ -181,6 +181,14 @@ RUN chmod 0755 \
       /etc/s6-overlay/scripts/init-wondarr-user \
       /etc/s6-overlay/s6-rc.d/svc-wondarr/run
 
+# Shutdown budget: `docker stop` waits 10 s (Docker's default) before it SIGKILLs the container, and
+# the whole of that has to be Wondarr's. s6-overlay v3 (README, "Customizing s6-overlay's behaviour"):
+# S6_SERVICES_GRACETIME is how long, at shutdown, it waits for services to die (default 3000 ms) and
+# S6_KILL_GRACETIME how long it waits at the very end, after TERM to what is left, before the final
+# KILL (default 3000 ms). 8500 + 1000 = 9.5 s, under Docker's 10 s. The service's own timeout-kill
+# (svc-wondarr/timeout-kill) is 8500 too. Inside that, the .NET host's ShutdownTimeout is 8 s
+# (Program.cs): slskd gets SIGTERM and up to 4 s to exit, then at most 2 s after the kill, and an
+# import in flight has the rest.
 ENV WONDARR_CONFIG_DIR=/config \
     PUID=1000 \
     PGID=1000 \
@@ -188,6 +196,8 @@ ENV WONDARR_CONFIG_DIR=/config \
     TZ=Etc/UTC \
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
     S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0 \
+    S6_SERVICES_GRACETIME=8500 \
+    S6_KILL_GRACETIME=1000 \
     DOTNET_BUNDLE_EXTRACT_BASE_DIR=/config/slskd/.net
 
 VOLUME ["/config", "/data"]

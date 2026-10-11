@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Searching;
 
 namespace Wondarr.Sources.YouTube;
 
@@ -255,12 +256,13 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
         {
             return (await _search.SearchAsync(request, cancellationToken).ConfigureAwait(false), null);
         }
-        catch (OperationCanceledException)
+        catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
         {
             throw;
         }
         catch (Exception exception)
         {
+            // InnerTube's own 20 s timeout lands here: a failed query, not a stopped caller.
             LogQueryFailed(_logger, request.Query, exception);
             return (null, exception.Message);
         }

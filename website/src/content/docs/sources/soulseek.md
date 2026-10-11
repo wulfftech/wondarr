@@ -91,7 +91,7 @@ In **Settings → Soulseek → Connection**, choose **My own slskd** and fill in
 - **API key**: an API key from your slskd (`web.authentication.api_keys`). The box reads "Stored — type to replace" once saved, and the key is never shown again.
 - **Ask slskd to rescan its shares after each import**: off by default. Your slskd decides what it shares.
 
-Press **Test**, then **Save connection**. Switching mode takes effect when Wondarr restarts.
+Press **Test**, then **Save connection**. Switching mode takes effect straight away: Wondarr stops (or starts) its bundled slskd and uses the one you chose, with no restart.
 
 The same in `config.yml`, or as environment variables:
 
