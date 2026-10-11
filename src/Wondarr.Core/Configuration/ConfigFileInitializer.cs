@@ -25,6 +25,10 @@ public static class ConfigFileInitializer
 
         Directory.CreateDirectory(paths.ConfigDir);
 
+        // Before any hosted service can open SQLite (they start in registration order, and the migration
+        // is not first): a database created by an earlier opener would get the umask's mode.
+        SecretFileModes.PrepareDatabase(paths.DatabaseFile);
+
         if (!File.Exists(paths.ConfigFile))
         {
             Save(BuildDefault(GenerateApiKey()), paths.ConfigFile);

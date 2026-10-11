@@ -28,7 +28,7 @@ public sealed class SlskdConfigRenderer
 
         return dataPaths is null
             ? options.SharedFolders
-            : options.SharedFolders.Where(folder => ProtectedPaths.Reason(folder, dataPaths) is null);
+            : options.SharedFolders.Where(folder => ProtectedPaths.Reason(folder, dataPaths, includeParents: true) is null);
     }
 
     /// <summary>Address slskd binds; loopback only, because Wondarr proxies everything.</summary>

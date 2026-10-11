@@ -22,7 +22,11 @@ public static class ProtectedPaths
     /// </summary>
     /// <param name="path">The configured path.</param>
     /// <param name="paths">Where Wondarr's data directory is.</param>
-    public static string? Reason(string? path, WondarrPaths paths)
+    /// <param name="includeParents">
+    /// Also refuse a folder that contains the data directory (sharing <c>/data</c> when the data
+    /// directory is <c>/data/config</c> shares it too). For shared folders only.
+    /// </param>
+    public static string? Reason(string? path, WondarrPaths paths, bool includeParents = false)
     {
         ArgumentNullException.ThrowIfNull(paths);
 
@@ -47,7 +51,12 @@ public static class ProtectedPaths
                 return "is Wondarr's data directory";
             }
 
-            return PathRules.IsInside(paths.ConfigDir, full) ? "is inside Wondarr's data directory" : null;
+            if (PathRules.IsInside(paths.ConfigDir, full))
+            {
+                return "is inside Wondarr's data directory";
+            }
+
+            return includeParents && PathRules.IsInside(full, paths.ConfigDir) ? "contains Wondarr's data directory" : null;
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -67,7 +76,7 @@ public static class ProtectedPaths
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
-        if (Reason(path, paths) is not { } reason)
+        if (Reason(path, paths, includeParents: sharing) is not { } reason)
         {
             return null;
         }

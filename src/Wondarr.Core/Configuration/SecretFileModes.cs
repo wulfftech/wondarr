@@ -23,14 +23,27 @@ public static partial class SecretFileModes
             return;
         }
 
-        var directory = Path.GetDirectoryName(databaseFile);
-
-        if (!string.IsNullOrEmpty(directory))
+        // A failure here must not stop start-up: the pass in TightenExisting reports what it cannot change.
+        try
         {
-            Directory.CreateDirectory(directory);
-        }
+            var directory = Path.GetDirectoryName(databaseFile);
 
-        OwnerOnlyFile.EnsureExists(databaseFile);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            OwnerOnlyFile.EnsureExists(databaseFile);
+
+            foreach (var file in new[] { databaseFile, databaseFile + "-wal", databaseFile + "-shm" })
+            {
+                OwnerOnlyFile.Tighten(file);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // Left to the hosted service's second attempt.
+        }
     }
 
     /// <summary>
@@ -53,15 +66,23 @@ public static partial class SecretFileModes
 
         var changed = 0;
 
-        foreach (var file in SecretFiles(paths))
+        // Start-up must never fail over a mode: an unreadable folder or a file that vanishes is skipped.
+        try
         {
-            if (OwnerOnlyFile.Tighten(file))
+            foreach (var file in SecretFiles(paths))
             {
-                changed++;
+                if (OwnerOnlyFile.Tighten(file))
+                {
+                    changed++;
+                }
             }
-        }
 
-        SweepStaleSlskdTemporaries(paths);
+            SweepStaleSlskdTemporaries(paths);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            LogFailed(logger, exception.Message);
+        }
 
         if (changed > 0)
         {
@@ -71,6 +92,8 @@ public static partial class SecretFileModes
         return changed;
     }
 
+    private static readonly EnumerationOptions Everything = new() { IgnoreInaccessible = true, RecurseSubdirectories = true };
+
     private static IEnumerable<string> SecretFiles(WondarrPaths paths)
     {
         yield return paths.ConfigFile;
@@ -79,12 +102,24 @@ public static partial class SecretFileModes
         yield return paths.DatabaseFile + "-shm";
         yield return Path.Combine(paths.SlskdDir, "slskd.yml");
 
+        // What a restore set aside: wondarr.db*.pre-restore* and config.yml.pre-restore* (three generations).
+        if (Directory.Exists(paths.ConfigDir))
+        {
+            foreach (var pattern in new[] { Path.GetFileName(paths.DatabaseFile) + "*.pre-restore*", Path.GetFileName(paths.ConfigFile) + ".pre-restore*" })
+            {
+                foreach (var file in Directory.EnumerateFiles(paths.ConfigDir, pattern))
+                {
+                    yield return file;
+                }
+            }
+        }
+
         if (!Directory.Exists(paths.BackupsDir))
         {
             yield break;
         }
 
-        foreach (var zip in Directory.EnumerateFiles(paths.BackupsDir, "*.zip", SearchOption.AllDirectories))
+        foreach (var zip in Directory.EnumerateFiles(paths.BackupsDir, "*.zip", Everything))
         {
             yield return zip;
         }
@@ -101,7 +136,7 @@ public static partial class SecretFileModes
             return;
         }
 
-        foreach (var file in Directory.EnumerateFiles(paths.SlskdDir, "slskd.yml.*.tmp"))
+        foreach (var file in Directory.EnumerateFiles(paths.SlskdDir, "slskd.yml.*.tmp", new EnumerationOptions { IgnoreInaccessible = true }))
         {
             try
             {
@@ -113,6 +148,9 @@ public static partial class SecretFileModes
             }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not make every file holding secrets owner-only: {Reason}")]
+    private static partial void LogFailed(ILogger logger, string reason);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Made {Count} file(s) holding secrets readable by the app user only")]
     private static partial void LogTightened(ILogger logger, int count);

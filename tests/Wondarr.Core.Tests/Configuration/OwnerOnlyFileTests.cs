@@ -35,6 +35,27 @@ public sealed class OwnerOnlyFileTests
     }
 
     [Fact]
+    public void A_file_is_already_0600_the_moment_it_is_opened_before_anything_is_written()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var directory = new TemporaryConfigDirectory();
+        var path = Path.Combine(directory.Paths.ConfigDir, "secret.bin");
+
+        using (new Umask(0))
+        {
+            using var stream = OwnerOnlyFile.Create(path, FileMode.CreateNew);
+
+            // Nothing has been written, and the mode is already final: there was never a wider one.
+            stream.Length.Should().Be(0);
+            File.GetUnixFileMode(path).Should().Be(OwnerOnly);
+        }
+    }
+
+    [Fact]
     public void The_first_run_config_yml_is_0600_under_umask_002()
     {
         if (OperatingSystem.IsWindows())
@@ -51,6 +72,9 @@ public sealed class OwnerOnlyFileTests
         }
 
         File.GetUnixFileMode(directory.Paths.ConfigFile).Should().Be(OwnerOnly);
+
+        // The database is created empty and owner-only here, before any hosted service can open it.
+        File.GetUnixFileMode(directory.Paths.DatabaseFile).Should().Be(OwnerOnly);
         Directory.GetFiles(directory.Paths.ConfigDir, "*.tmp").Should().BeEmpty("the first write is atomic, through a temporary file that is moved into place");
     }
 
@@ -97,6 +121,9 @@ public sealed class OwnerOnlyFileTests
             paths.DatabaseFile + "-shm",
             Path.Combine(paths.SlskdDir, "slskd.yml"),
             zip,
+            paths.ConfigFile + ".pre-restore",
+            paths.DatabaseFile + ".pre-restore.1",
+            paths.DatabaseFile + "-wal.pre-restore.2",
         ];
 
         foreach (var file in secretFiles.Append(logLine))
