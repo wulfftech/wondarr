@@ -65,7 +65,7 @@ public sealed class SecretRegistry : ISecretRegistry
 
     /// <summary>
     /// The secret as Serilog's JSON formatter writes it: <c>"</c> and <c>\</c> backslash-escaped and
-    /// control characters as escapes. Everything else is written as it is.
+    /// control characters as Serilog's JsonValueFormatter escapes them (\n, \r, \f, \t, else \u plus four uppercase hex digits). Everything else is written as it is.
     /// </summary>
     private static string JsonEscape(string secret)
     {
@@ -90,14 +90,11 @@ public sealed class SecretRegistry : ISecretRegistry
                 case '\t':
                     builder.Append("\\t");
                     break;
-                case '\b':
-                    builder.Append("\\b");
-                    break;
                 case '\f':
                     builder.Append("\\f");
                     break;
                 case < ' ':
-                    builder.Append("\\u").Append(((int)character).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+                    builder.Append("\\u").Append(((int)character).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
                     break;
                 default:
                     builder.Append(character);
