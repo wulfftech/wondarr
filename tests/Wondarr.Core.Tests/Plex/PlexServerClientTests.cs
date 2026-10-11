@@ -97,6 +97,27 @@ public class PlexServerClientTests
         (await client.IsRefreshingAsync(Server, Token, "99", CancellationToken.None)).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("""{"MediaContainer":{"Setting":[{"id":"autoEmptyTrash","type":"bool","value":false},{"id":"x","value":"y"}]}}""", "false")]
+    [InlineData("""{"MediaContainer":{"Setting":[{"id":"autoEmptyTrash","type":"bool","value":true}]}}""", "true")]
+    [InlineData("""{"MediaContainer":{"Setting":[{"id":"autoEmptyTrash","type":"bool","value":1}]}}""", "1")]
+    [InlineData("""{"MediaContainer":{"Setting":[{"id":"autoEmptyTrash","type":"bool","value":"0"}]}}""", "0")]
+    [InlineData("""{"MediaContainer":{"Setting":[{"id":"somethingElse","value":"1"}]}}""", null)]
+    [InlineData("""{"MediaContainer":{"Setting":[{"id":"autoEmptyTrash"}]}}""", null)]
+    [InlineData("""{"MediaContainer":{}}""", null)]
+    public async Task GetPreference_reads_a_setting_from_the_prefs_list(string body, string? expected)
+    {
+        var handler = new StubHttpMessageHandler(_ => PlexFixtures.Body(body));
+
+        var value = await CreateClient(handler).GetPreferenceAsync(Server, Token, "autoEmptyTrash", CancellationToken.None);
+
+        value.Should().Be(expected);
+
+        var request = handler.Requests.Should().ContainSingle().Subject;
+        request.Method.Should().Be(HttpMethod.Get);
+        request.RequestUri!.AbsoluteUri.Should().Be("https://plex.example:32400/:/prefs");
+    }
+
     [Fact]
     public async Task A_server_url_with_a_path_prefix_keeps_it()
     {

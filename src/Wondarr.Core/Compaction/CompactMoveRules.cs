@@ -10,6 +10,12 @@ namespace Wondarr.Core.Compaction;
 public static class CompactMoveRules
 {
     /// <summary>
+    /// How many times a move may fail before the next run gives up on it: its file goes back to where
+    /// it came from, and the library is no longer held up by it.
+    /// </summary>
+    public const int MaxAttempts = 3;
+
+    /// <summary>
     /// Whether a row is unfinished: it is planned or staged, or it failed while its file is still
     /// parked in the staging folder under the row's <c>staged_path</c> (the next run resumes those).
     /// </summary>

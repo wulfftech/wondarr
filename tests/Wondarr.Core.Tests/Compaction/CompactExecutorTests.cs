@@ -31,7 +31,7 @@ namespace Wondarr.Core.Tests.Compaction;
 /// writer's and the placer's own tests being repeated here.
 /// </summary>
 [Collection(CompactExecutorTests.Serial)]
-public class CompactExecutorTests : IDisposable
+public partial class CompactExecutorTests : IDisposable
 {
     /// <summary>
     /// The pumped runs move a fake clock against real timers and a real database; with the rest of the
@@ -63,6 +63,12 @@ public class CompactExecutorTests : IDisposable
 
     /// <summary>What the Plex section reports for <c>refreshing</c>, in order, one poll at a time.</summary>
     private readonly Queue<bool> _refreshing = new();
+
+    /// <summary>What Plex's <c>autoEmptyTrash</c> preference reads; <see langword="null"/> is "not listed".</summary>
+    private string? _autoEmptyTrash = "0";
+
+    /// <summary>The folders the fake Plex section lists, as Plex sees them.</summary>
+    private List<string> _locations = ["/music"];
 
     private readonly string _root;
     private readonly string _bin;
@@ -105,6 +111,15 @@ public class CompactExecutorTests : IDisposable
                 _log.Add("refreshing");
                 return Task.FromResult(_refreshing.Count > 0 && _refreshing.Dequeue());
             });
+
+        _plex
+            .GetPreferenceAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<string?>(_autoEmptyTrash));
+
+        _plex
+            .GetSectionsAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<IReadOnlyList<PlexSection>>(
+                [new PlexSection(Section, "Music", "artist", false, [.. _locations])]));
 
         _plex
             .EmptyTrashAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -709,9 +724,9 @@ public class CompactExecutorTests : IDisposable
     /// <see cref="TimeProvider"/> timers, which fire only when the clock moves, so a bare await of the
     /// run would wait forever for a scan that a fake Plex never finishes.
     /// </summary>
-    private async Task<CompactResult> RunPumpedAsync(long libraryId)
+    private async Task<CompactResult> RunPumpedAsync(long libraryId, CancellationToken cancellationToken = default)
     {
-        var run = _executor.RunAsync(libraryId, null, CancellationToken.None);
+        var run = _executor.RunAsync(libraryId, null, cancellationToken);
         var guard = Stopwatch.StartNew();
 
         while (!run.IsCompleted)
@@ -724,7 +739,7 @@ public class CompactExecutorTests : IDisposable
             }
 
             _timeProvider.Advance(CompactExecutor.ScanPollInterval);
-            await Task.WhenAny(run, Task.Delay(5));
+            await Task.WhenAny(run, Task.Delay(5, CancellationToken.None));
         }
 
         return await run;
@@ -978,6 +993,15 @@ public class CompactExecutorTests : IDisposable
         /// <summary>Every request the executor made, in order.</summary>
         public List<OrganizeRequest> Requests { get; } = [];
 
+        /// <summary>
+        /// When set, the file is placed but the result says it failed (a chmod after the move), the way
+        /// the real placer reports it.
+        /// </summary>
+        public string? ErrorAfterMove { get; set; }
+
+        /// <summary>Called right after the file has been moved, before the result is returned.</summary>
+        public Action? AfterMove { get; set; }
+
         /// <inheritdoc />
         public Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
         {
@@ -998,6 +1022,18 @@ public class CompactExecutorTests : IDisposable
 
             disk.CreateDirectory(directory);
             disk.MoveFile(request.SourcePath, target);
+            AfterMove?.Invoke();
+
+            if (ErrorAfterMove is not null)
+            {
+                return Task.FromResult(
+                    new OrganizeResult(
+                        OrganizeFailure.Placement,
+                        ErrorAfterMove,
+                        target,
+                        null,
+                        new Dictionary<string, string>(StringComparer.Ordinal)));
+            }
 
             return Task.FromResult(
                 new OrganizeResult(
