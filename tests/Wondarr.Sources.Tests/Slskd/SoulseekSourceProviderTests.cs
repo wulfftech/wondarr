@@ -216,6 +216,32 @@ public class SoulseekSourceProviderTests
     }
 
     [Fact]
+    public async Task A_request_timeout_fails_that_query_and_the_next_one_still_runs()
+    {
+        // slskd's own 15 s request timeout: a TaskCanceledException while the caller's token is untouched.
+        var runner = new FakeRunner(query => query == FirstQuery
+            ? throw new TimeoutException("slskd did not answer the search request in time.")
+            : [Response("peer1", AudioPath)]);
+
+        var result = await Provider(runner).SearchAsync(Request(), CancellationToken.None);
+
+        runner.Queries.Should().Equal(FirstQuery, SecondQuery, ThirdQuery);
+        result.Candidates.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_raw_httpclient_timeout_from_the_runner_is_a_failed_query_too()
+    {
+        var runner = new FakeRunner(query => query == FirstQuery
+            ? throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout")
+            : [Response("peer1", AudioPath)]);
+
+        var result = await Provider(runner).SearchAsync(Request(), CancellationToken.None);
+
+        result.Queries.Should().Equal(SecondQuery, ThirdQuery);
+    }
+
+    [Fact]
     public async Task Propagates_a_cancelled_search()
     {
         using var cancellation = new CancellationTokenSource();

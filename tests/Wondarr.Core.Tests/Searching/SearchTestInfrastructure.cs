@@ -414,11 +414,23 @@ internal sealed class FakeSourceProvider : ISourceProvider
     /// <summary>Candidates whose key is in here cancel the grab, as a shutdown or a stopped grab would.</summary>
     public HashSet<string> CancellingKeys { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// When set, a search or grab that throws <see cref="OperationCanceledException"/> cancels this source
+    /// first, so the exception is the caller's own cancellation and not a timeout.
+    /// </summary>
+    public CancellationTokenSource? CallerToCancel { get; set; }
+
     /// <summary>Thrown by the next search when set; cleared after it is thrown once.</summary>
     public Exception? SearchFailure { get; set; }
 
     /// <summary>Titles whose search throws; every other title searches normally.</summary>
     public HashSet<string> FailingTitles { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Titles whose search times out the way an <c>HttpClient</c> does: a <see cref="TaskCanceledException"/> while the caller's token is untouched.</summary>
+    public HashSet<string> TimingOutTitles { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Candidates whose key is in here time out on grab, with the caller's token untouched.</summary>
+    public HashSet<string> TimingOutKeys { get; } = new(StringComparer.Ordinal);
 
     /// <summary>The last pool verdict the search asked for, or null when it asked for none.</summary>
     public bool? PoolVerdict { get; private set; }
@@ -441,7 +453,13 @@ internal sealed class FakeSourceProvider : ISourceProvider
         if (SearchFailure is { } failure)
         {
             SearchFailure = null;
+            CallerToCancel?.Cancel();
             throw failure;
+        }
+
+        if (TimingOutTitles.Contains(request.Title))
+        {
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout");
         }
 
         if (FailingTitles.Contains(request.Title))
@@ -459,8 +477,14 @@ internal sealed class FakeSourceProvider : ISourceProvider
     {
         Grabs.Add(new GrabbedCandidate(candidate, destination));
 
+        if (TimingOutKeys.Contains(candidate.BlocklistKey))
+        {
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout");
+        }
+
         if (CancellingKeys.Contains(candidate.BlocklistKey))
         {
+            CallerToCancel?.Cancel();
             throw new OperationCanceledException("The grab was stopped.");
         }
 

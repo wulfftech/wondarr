@@ -117,6 +117,39 @@ public sealed class MissingSearchCommandHandlerTests
     }
 
     [Fact]
+    public async Task Missing_search_goes_on_after_one_songs_provider_timeout()
+    {
+        await using var host = await SearchTestHost.CreateAsync(options => options.MissingBatchSize = 3);
+        await host.SeedSongAsync("Alpha");
+        await host.SeedSongAsync("Slow");
+        await host.SeedSongAsync("Gamma");
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        host.Provider.TimingOutTitles.Add("Slow");
+
+        // A provider's own timeout is a TaskCanceledException while the batch's token is untouched.
+        var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Select(request => request.Title).Should().Equal("Alpha", "Slow", "Gamma");
+        message.Should().Be("3 songs: 1 grabbed, 1 without an acceptable result, 1 skipped");
+    }
+
+    [Fact]
+    public async Task Missing_search_still_stops_when_its_own_token_is_cancelled()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        await host.SeedSongAsync("Alpha");
+        host.Provider.TimingOutTitles.Add("Alpha");
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var act = () => Handler(host).ExecuteAsync(Context([]), cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task Missing_search_never_picks_a_song_a_reference_file_identifies()
     {
         await using var host = await SearchTestHost.CreateAsync();

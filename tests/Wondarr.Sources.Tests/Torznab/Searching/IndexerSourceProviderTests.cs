@@ -270,6 +270,19 @@ public sealed class IndexerSourceProviderTests
         result.Message.Should().Be("Torrents: failed: Indexer 1");
     }
 
+    [Fact]
+    public async Task An_indexer_that_times_out_is_a_failed_indexer_not_a_silent_empty_answer()
+    {
+        var indexer = new FakeIndexerClient { TimeOut = indexerId => indexerId == 1 };
+        var provider = Provider(indexer, out _);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        result.Candidates.Should().BeEmpty();
+        result.Queries.Should().HaveCount(3);
+        result.Message.Should().Be("Torrents: failed: Indexer 1");
+    }
+
     [Theory]
     [InlineData(false, true, "Torrents: no enabled torrent indexer")]
     [InlineData(true, false, "Torrents: no enabled torrent download client")]
@@ -406,6 +419,9 @@ public sealed class IndexerSourceProviderTests
 
         public Func<long, bool> Fail { get; init; } = _ => false;
 
+        /// <summary>Indexers whose HTTP client times out: a <see cref="TaskCanceledException"/> with the caller's token untouched.</summary>
+        public Func<long, bool> TimeOut { get; init; } = _ => false;
+
         public ConcurrentQueue<ReleaseQuery> QueryLog { get; } = new();
 
         public List<ReleaseQuery> Queries => [.. QueryLog];
@@ -429,6 +445,11 @@ public sealed class IndexerSourceProviderTests
             if (Fail(indexer.Id))
             {
                 throw new IndexerException("The indexer answered 500.");
+            }
+
+            if (TimeOut(indexer.Id))
+            {
+                throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout");
             }
 
             return [.. Answer(query).Select(release => release with { IndexerId = indexer.Id, IndexerName = indexer.Name })];

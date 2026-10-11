@@ -132,13 +132,15 @@ public class YtDlpRunnerTests
     }
 
     [Fact]
-    public async Task Rethrows_exit_101_as_cancellation()
+    public async Task Reports_exit_101_as_a_failed_download_not_a_cancellation()
     {
         var runner = new FakeProcessRunner().Enqueue(101, "yt-dlp: cancelled");
 
         var act = () => Build(runner).DownloadAsync("abc123", "/grabs/queue-1", CancellationToken.None);
 
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        var exception = await act.Should().ThrowAsync<YtDlpException>();
+        exception.Which.Kind.Should().Be(YtDlpErrorKind.Unknown);
+        exception.Which.Should().NotBeAssignableTo<OperationCanceledException>();
     }
 
     [Fact]
@@ -265,5 +267,16 @@ public class YtDlpRunnerTests
 
         var exception = await act.Should().ThrowAsync<YtDlpException>();
         exception.Which.Kind.Should().Be(YtDlpErrorKind.BotCheck);
+    }
+
+    [Fact]
+    public async Task Reports_exit_101_of_a_formats_probe_as_a_failure_not_a_cancellation()
+    {
+        var runner = new FakeProcessRunner().Enqueue(101, "yt-dlp: stopped");
+
+        var act = () => Build(runner).ProbeFormatsAsync("abc123", CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<YtDlpException>();
+        exception.Which.Kind.Should().Be(YtDlpErrorKind.Unknown);
     }
 }

@@ -45,6 +45,24 @@ public sealed class ProcessRunnerTests
     }
 
     [Fact]
+    public async Task Gives_up_on_a_pipe_a_leftover_grandchild_keeps_open()
+    {
+        // The shell exits at once; the backgrounded grandchild outlives it and keeps the inherited
+        // stdout pipe open, so reading to the end of the pipe would take as long as the grandchild runs.
+        var (fileName, arguments) = OperatingSystem.IsWindows()
+            ? ("cmd", new[] { "/c", "start /b ping -n 30 127.0.0.1" })
+            : ("sh", new[] { "-c", "sleep 30 &" });
+
+        var runner = new ProcessRunner(NullLogger<ProcessRunner>.Instance) { DrainTimeout = TimeSpan.FromMilliseconds(300) };
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await runner.RunAsync(fileName, arguments, TimeSpan.FromSeconds(60), CancellationToken.None);
+
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(15), "the drain is bounded, not as long as the grandchild");
+        result.TimedOut.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Throws_when_the_wait_is_cancelled()
     {
         using var cancellation = new CancellationTokenSource();

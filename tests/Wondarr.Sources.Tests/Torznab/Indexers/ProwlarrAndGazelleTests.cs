@@ -211,6 +211,58 @@ public sealed class ProwlarrAndGazelleTests
         handler.Requests.Single().Headers["Authorization"].Should().Be(GazelleKey);
     }
 
+    [Fact]
+    public async Task A_prowlarr_timeout_is_an_indexer_failure_but_a_cancelled_caller_still_cancels()
+    {
+        var client = Prowlarr(new TimingOutHandler());
+
+        // HttpClient reports its own timeout as a TaskCanceledException while the caller's token is untouched.
+        var timeout = async () => await client.SearchAsync(ProwlarrRow(DownloadProtocol.Torrent), new ReleaseQuery("Daft Punk", "Discovery", null), CancellationToken.None);
+        (await timeout.Should().ThrowAsync<IndexerException>()).Which.Message.Should().Contain("did not answer in time");
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        var cancelled = async () => await client.SearchAsync(ProwlarrRow(DownloadProtocol.Torrent), new ReleaseQuery("Daft Punk", "Discovery", null), cancellation.Token);
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task A_gazelle_timeout_is_an_indexer_failure_but_a_cancelled_caller_still_cancels()
+    {
+        var client = Gazelle(new TimingOutHandler());
+
+        var timeout = async () => await client.SearchAsync(GazelleRow(), new ReleaseQuery("Daft Punk", "Discovery", 2001), CancellationToken.None);
+        (await timeout.Should().ThrowAsync<IndexerException>()).Which.Message.Should().Contain("did not answer in time");
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        var cancelled = async () => await client.SearchAsync(GazelleRow(), new ReleaseQuery("Daft Punk", "Discovery", 2001), cancellation.Token);
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task The_shared_indexer_http_helper_turns_a_timeout_into_an_indexer_failure()
+    {
+        using var http = new HttpClient(new TimingOutHandler());
+
+        var timeout = async () => await IndexerHttp.GetAsync(http, new Uri("https://indexer.example/api"), CancellationToken.None);
+        await timeout.Should().ThrowAsync<IndexerException>();
+
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        var cancelled = async () => await IndexerHttp.GetAsync(http, new Uri("https://indexer.example/api"), cancellation.Token);
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    /// <summary>Answers every request the way <c>HttpClient.Timeout</c> does: a <see cref="TaskCanceledException"/> with the caller's token untouched, unless it was cancelled.</summary>
+    private sealed class TimingOutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            cancellationToken.IsCancellationRequested
+                ? Task.FromCanceled<HttpResponseMessage>(cancellationToken)
+                : Task.FromException<HttpResponseMessage>(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"));
+    }
+
     private static ProwlarrSearchClient Prowlarr(HttpMessageHandler handler) =>
         new(new StaticHttpClientFactory(handler), new SecretRegistry(), NullLogger<ProwlarrSearchClient>.Instance);
 
