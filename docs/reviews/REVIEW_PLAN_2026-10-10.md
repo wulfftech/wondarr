@@ -67,6 +67,15 @@ Each fix comes with the test the review says is missing. The questions for each 
 - **Q35, switching slskd mode:** the switch takes effect immediately, with no restart (M-14).
 - **Q34, decided by me:** the "≤ 3 concurrent downloads" line in DEPLOYMENT.md means Wondarr's download slots; the doc is corrected to say so.
 
+**Tranche 7 (2026-10-11):**
+- **Q30, backups and upgrades:**
+  - a database backup is written automatically before migrations, and a failed backup stops the upgrade;
+  - a restore keeps 3 set-aside generations (M-15).
+- **Q32, flaky-test re-runs:** they become policy, tightened. The re-run must account for every failure, theory cases included, and each flaky test goes to the backlog (M-15; DECISIONS entry at merge).
+- **Q28, crediting ytmusicapi:** no. The InnerTube client stays recorded as protocol facts; no attribution is added.
+- **Q31, VACUUM:** it is skipped while imports are running or queued, and writers wait up to 60 s for the lock (M-15).
+- **Q29, the Sockseek "bracket check" citation:** no action. It credits a behaviour that was re-implemented, not copied, which ADR-0002 allows.
+
 **Not planned.** Two findings already reached by known backlog items are left there:
 
 - The Mirror delete with no busy check is the known "single song delete vs in-flight downloads" problem. Tranche 5 adds the guard on the Mirror caller only.
