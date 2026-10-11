@@ -93,13 +93,13 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
                         break;
                 }
             }
-            catch (OperationCanceledException)
+            catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
             {
                 throw;
             }
             catch (Exception exception)
             {
-                // One song's failure must not stop the batch.
+                // One song's failure must not stop the batch; a provider's own timeout is one too.
                 skipped++;
                 LogSongFailed(_logger, songId, exception);
             }

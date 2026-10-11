@@ -36,6 +36,13 @@ public sealed partial class SlskdSearchRunner : ISlskdSearchRunner
     /// <summary>How long the delete gets before it is abandoned.</summary>
     public static readonly TimeSpan DeleteTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// How long a cancelled search is re-polled for after the delete before the budget lease is
+    /// released anyway. The lease is what keeps a third search from starting while slskd is still
+    /// running the cancelled one.
+    /// </summary>
+    public static readonly TimeSpan GoneTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>How long a stopped search gets to report itself complete before we read it anyway.</summary>
     public static readonly TimeSpan StopGrace = TimeSpan.FromSeconds(2);
 
@@ -99,6 +106,7 @@ public sealed partial class SlskdSearchRunner : ISlskdSearchRunner
         SlskdSearch? state = null;
         IReadOnlyList<SlskdSearchResponse> responses = [];
         var stoppedByWallClock = false;
+        var finished = false;
         var pollInterval = TimeSpan.FromMilliseconds(search.PollIntervalMs);
         var wallClock = TimeSpan.FromSeconds(search.WallClockSeconds);
 
@@ -147,6 +155,13 @@ public sealed partial class SlskdSearchRunner : ISlskdSearchRunner
                 using var read = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readTimeout.Token);
                 responses = await api.GetResponsesAsync(id, read.Token).ConfigureAwait(false);
             }
+
+            finished = true;
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // slskd's own request timeout (or the read timeout): a failed search, not a stopped caller.
+            throw new TimeoutException("slskd did not answer the search request in time.", exception);
         }
         finally
         {
@@ -154,7 +169,16 @@ public sealed partial class SlskdSearchRunner : ISlskdSearchRunner
             // search must not be left behind on slskd.
             if (startAttempted)
             {
-                await DeleteAsync(api, id).ConfigureAwait(false);
+                if (finished || stoppedByWallClock)
+                {
+                    await DeleteAsync(api, id).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Cut short (cancelled, or a call failed) while slskd may still be running it:
+                    // stop it, delete it, and keep the budget lease until slskd says it is gone.
+                    await StopDeleteAndWaitAsync(api, id, pollInterval).ConfigureAwait(false);
+                }
             }
         }
 
@@ -219,21 +243,69 @@ public sealed partial class SlskdSearchRunner : ISlskdSearchRunner
     }
 
     /// <summary>
+    /// Stops a search that was cut short, deletes it, and re-polls until slskd no longer has it —
+    /// at most <see cref="GoneTimeout"/>. The caller's lease is released after this returns, so a
+    /// failed delete delays the next search by the cap and no more. Every call has a token of its
+    /// own: the caller's may already be cancelled.
+    /// </summary>
+    private async Task StopDeleteAndWaitAsync(ISlskdSearchApi api, Guid id, TimeSpan pollInterval)
+    {
+        using (var stopTimeout = new CancellationTokenSource(DeleteTimeout, _timeProvider))
+        {
+            try
+            {
+                await api.StopAsync(id, stopTimeout.Token).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                LogCutShortStopFailed(_logger, id, exception);
+            }
+        }
+
+        var deleted = await DeleteAsync(api, id).ConfigureAwait(false);
+
+        using var cap = new CancellationTokenSource(GoneTimeout, _timeProvider);
+
+        try
+        {
+            while (true)
+            {
+                var state = await api.GetAsync(id, cap.Token).ConfigureAwait(false);
+
+                if (state is null)
+                {
+                    return;
+                }
+
+                await Task.Delay(pollInterval, _timeProvider, cap.Token).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or HttpRequestException)
+        {
+            LogStillThere(_logger, id, deleted);
+        }
+    }
+
+    /// <summary>
     /// Deletes the search with a token of its own: the caller's token may already be cancelled, and
     /// a failed delete must not fail the run that is unwinding past it.
     /// </summary>
-    private async Task DeleteAsync(ISlskdSearchApi api, Guid id)
+    private async Task<bool> DeleteAsync(ISlskdSearchApi api, Guid id)
     {
         using var timeout = new CancellationTokenSource(DeleteTimeout, _timeProvider);
 
         try
         {
             await api.DeleteAsync(id, timeout.Token).ConfigureAwait(false);
+
+            return true;
         }
         catch (Exception exception)
         {
             // A search that cannot be deleted is a leak, not a failed run: log it and carry on.
             LogDeleteFailed(_logger, id, exception);
+
+            return false;
         }
     }
 
@@ -251,6 +323,12 @@ public sealed partial class SlskdSearchRunner : ISlskdSearchRunner
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not stop the Soulseek search {SearchId}; reading what it found so far")]
     private static partial void LogStopFailed(ILogger logger, Guid searchId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The cancelled Soulseek search {SearchId} was still on slskd at the end of the wait (delete succeeded: {Deleted}); releasing the search budget anyway")]
+    private static partial void LogStillThere(ILogger logger, Guid searchId, bool deleted);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not stop the cut-short Soulseek search {SearchId}; deleting it anyway")]
+    private static partial void LogCutShortStopFailed(ILogger logger, Guid searchId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the Soulseek search {SearchId} from slskd; it may still be running")]
     private static partial void LogDeleteFailed(ILogger logger, Guid searchId, Exception exception);

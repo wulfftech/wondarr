@@ -106,13 +106,19 @@ public class SlskdSearchRunnerTests
         var callerWasCancelled = false;
         var deleteTokenWasCancelled = true;
 
+        var deleted = false;
+
         api.StartAsync(Arg.Any<SlskdSearchRequest>(), Arg.Any<CancellationToken>()).Returns(InProgress());
-        api.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(InProgress());
+
+        // slskd still has the search until the delete has gone through.
+        api.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<SlskdSearch?>(deleted ? null : InProgress()));
         api.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 deleteTokenWasCancelled = call.Arg<CancellationToken>().IsCancellationRequested;
                 callerWasCancelled = cancellation.IsCancellationRequested;
+                deleted = true;
                 budget.Deleted();
                 return Task.CompletedTask;
             });
@@ -126,7 +132,104 @@ public class SlskdSearchRunnerTests
 
         callerWasCancelled.Should().BeTrue();
         deleteTokenWasCancelled.Should().BeFalse("the delete must not inherit the caller's cancelled token");
+        await api.Received(1).StopAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         budget.Events.Should().Equal("acquire", "delete", "release");
+    }
+
+    [Fact]
+    public async Task Holds_the_budget_lease_after_a_cancel_until_slskd_reports_the_search_gone()
+    {
+        var time = new FakeTimeProvider(Start);
+        var api = Substitute.For<ISlskdSearchApi>();
+        var budget = new RecordingBudget();
+        using var provider = Provider(api);
+        using var cancellation = new CancellationTokenSource();
+
+        var deleted = false;
+        var pollsAfterDelete = 0;
+
+        api.StartAsync(Arg.Any<SlskdSearchRequest>(), Arg.Any<CancellationToken>()).Returns(InProgress());
+
+        // After the delete, slskd still lists the search for two more reads.
+        api.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult<SlskdSearch?>(!deleted || ++pollsAfterDelete <= 2 ? InProgress() : null));
+        api.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                deleted = true;
+                budget.Deleted();
+                return Task.CompletedTask;
+            });
+
+        var run = Runner(provider, time, budget).RunAsync(SearchText, cancellation.Token);
+        time.Advance(Poll);
+        await cancellation.CancelAsync();
+
+        for (var step = 0; step < 200 && !run.IsCompleted; step++)
+        {
+            budget.Events.Should().NotContain("release", "the lease is held while slskd still lists the search");
+            time.Advance(Poll);
+            await Task.Yield();
+        }
+
+        await FluentActions.Awaiting(() => run).Should().ThrowAsync<OperationCanceledException>();
+        pollsAfterDelete.Should().Be(3);
+        budget.Events.Should().Equal("acquire", "delete", "release");
+    }
+
+    [Fact]
+    public async Task Releases_the_lease_after_the_cap_when_the_cancelled_search_cannot_be_deleted()
+    {
+        var time = new FakeTimeProvider(Start);
+        var api = Substitute.For<ISlskdSearchApi>();
+        var budget = new RecordingBudget();
+        using var provider = Provider(api);
+        using var cancellation = new CancellationTokenSource();
+
+        api.StartAsync(Arg.Any<SlskdSearchRequest>(), Arg.Any<CancellationToken>()).Returns(InProgress());
+        api.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult<SlskdSearch?>(InProgress()));
+        api.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                budget.Deleted();
+                return Task.FromException(new HttpRequestException("slskd is gone"));
+            });
+
+        var run = Runner(provider, time, budget).RunAsync(SearchText, cancellation.Token);
+        time.Advance(Poll);
+        await cancellation.CancelAsync();
+
+        await SlskdHostHarness.AwaitAsync(() => budget.Events.Contains("delete"), "the failed delete");
+        budget.Events.Should().NotContain("release", "the search may still be running on slskd");
+
+        for (var step = 0; step < 200 && !run.IsCompleted; step++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Yield();
+        }
+
+        await FluentActions.Awaiting(() => run).Should().ThrowAsync<OperationCanceledException>();
+        budget.Events.Should().Equal("acquire", "delete", "release");
+    }
+
+    [Fact]
+    public async Task A_request_timeout_is_a_timeout_not_a_cancellation()
+    {
+        var time = new FakeTimeProvider(Start);
+        var api = Substitute.For<ISlskdSearchApi>();
+        var budget = new RecordingBudget();
+        using var provider = Provider(api);
+
+        // HttpClient reports its own timeout as a TaskCanceledException while the caller's token is untouched.
+        api.StartAsync(Arg.Any<SlskdSearchRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<SlskdSearch>(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout")));
+        RecordsDelete(api, budget);
+
+        var run = Runner(provider, time, budget).RunAsync(SearchText, CancellationToken.None);
+
+        var thrown = await FluentActions.Awaiting(() => run).Should().ThrowAsync<TimeoutException>();
+        thrown.And.InnerException.Should().BeOfType<TaskCanceledException>();
+        await api.Received(1).DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

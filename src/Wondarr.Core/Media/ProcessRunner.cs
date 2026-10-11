@@ -57,6 +57,9 @@ public sealed class MediaToolMissingException : Exception
 /// </summary>
 public sealed partial class ProcessRunner : IProcessRunner
 {
+    /// <summary>How long a pipe gets to close once the process is gone, before its output is given up on.</summary>
+    internal static readonly TimeSpan DefaultDrainTimeout = TimeSpan.FromSeconds(5);
+
     private readonly ILogger<ProcessRunner> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="ProcessRunner"/> class.</summary>
@@ -65,6 +68,13 @@ public sealed partial class ProcessRunner : IProcessRunner
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
+
+    /// <summary>
+    /// Gets how long to wait for a pipe to close after the process has exited or been killed. A
+    /// grandchild that escaped the tree kill keeps the pipe open, and would otherwise hold the caller
+    /// for good.
+    /// </summary>
+    internal TimeSpan DrainTimeout { get; init; } = DefaultDrainTimeout;
 
     /// <inheritdoc />
     public async Task<ProcessResult> RunAsync(
@@ -116,8 +126,8 @@ public sealed partial class ProcessRunner : IProcessRunner
         {
             KillTree(process);
 
-            var killedOutput = await DrainAsync(standardOutput).ConfigureAwait(false);
-            var killedError = await DrainAsync(standardError).ConfigureAwait(false);
+            var killedOutput = await DrainAsync(standardOutput, DrainTimeout).ConfigureAwait(false);
+            var killedError = await DrainAsync(standardError, DrainTimeout).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -126,8 +136,8 @@ public sealed partial class ProcessRunner : IProcessRunner
             return new ProcessResult(-1, killedOutput, killedError, TimedOut: true);
         }
 
-        var output = await DrainAsync(standardOutput).ConfigureAwait(false);
-        var error = await DrainAsync(standardError).ConfigureAwait(false);
+        var output = await DrainAsync(standardOutput, DrainTimeout).ConfigureAwait(false);
+        var error = await DrainAsync(standardError, DrainTimeout).ConfigureAwait(false);
 
         if (process.ExitCode != 0)
         {
@@ -161,12 +171,19 @@ public sealed partial class ProcessRunner : IProcessRunner
         }
     }
 
-    /// <summary>Waits for a pipe to close, treating a stream disposed by the kill as empty.</summary>
-    private static async Task<string> DrainAsync(Task<string> read)
+    /// <summary>
+    /// Waits for a pipe to close, treating a stream disposed by the kill as empty, and giving up
+    /// (with no output) when it stays open past <paramref name="timeout"/>.
+    /// </summary>
+    private static async Task<string> DrainAsync(Task<string> read, TimeSpan timeout)
     {
         try
         {
-            return await read.ConfigureAwait(false);
+            return await read.WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return string.Empty;
         }
         catch (IOException)
         {
