@@ -2,10 +2,12 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Configuration;
+using Wondarr.Core.Persistence;
 
 namespace Wondarr.Core.Backup;
 
@@ -27,6 +29,17 @@ public sealed partial class BackupService : IBackupService
     private const string TimestampFormat = "yyyy.MM.dd_HH.mm.ss";
     private const int TimestampLength = 19;
     private const int CopyBufferSize = 81920;
+    private const string TemporaryDatabasePrefix = "backup-database-";
+
+    /// <summary>The most a staged <c>config.yml</c> may extract to; a real one is a few kilobytes.</summary>
+    private const long MaxConfigBytes = 16L * 1024 * 1024;
+
+    /// <summary>How old a leftover temporary file must be before the start-up sweep deletes it.</summary>
+    private static readonly TimeSpan TemporaryFileAge = TimeSpan.FromHours(1);
+
+    // One backup or staging at a time per process (R-052): the temporary names are unique, but two
+    // overlapping restores would still pair one backup's database with the other's config.yml.
+    private static readonly SemaphoreSlim Gate = new(1, 1);
 
     private static readonly string Version = ResolveVersion();
 
@@ -57,37 +70,69 @@ public sealed partial class BackupService : IBackupService
         _logger = logger;
     }
 
+    /// <summary>The running app's version, as it is recorded in backup names and in the database.</summary>
+    public static string CurrentVersion => Version;
+
     /// <summary>The folder the backups live in: <c>backup.folder</c>, or the default under the configuration directory.</summary>
     private string Folder => string.IsNullOrWhiteSpace(_options.Value.Folder)
         ? _paths.BackupsDir
         : Path.GetFullPath(_options.Value.Folder);
 
     /// <inheritdoc />
-    public async Task<BackupItem> CreateAsync(BackupType type, CancellationToken cancellationToken)
+    public Task<BackupItem> CreateAsync(BackupType type, CancellationToken cancellationToken) =>
+        CreateCoreAsync(type, $"wondarr_backup_v{Version}", cancellationToken);
+
+    /// <inheritdoc />
+    public Task<BackupItem> CreatePreMigrationAsync(string previousVersion, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(previousVersion);
+
+        var safe = string.Concat(previousVersion.Select(static c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' ? c : '_'));
+
+        // A scheduled backup, so the usual retention clears it out in time.
+        return CreateCoreAsync(BackupType.Scheduled, $"wondarr_pre-{safe}", cancellationToken);
+    }
+
+    private async Task<BackupItem> CreateCoreAsync(BackupType type, string namePrefix, CancellationToken cancellationToken)
+    {
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            return await CreateLockedAsync(type, namePrefix, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    private async Task<BackupItem> CreateLockedAsync(BackupType type, string namePrefix, CancellationToken cancellationToken)
     {
         var directory = DirectoryOf(type);
         Directory.CreateDirectory(directory);
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var name = $"wondarr_backup_v{Version}_{now.ToString(TimestampFormat, CultureInfo.InvariantCulture)}.zip";
-        var target = Path.Combine(directory, name);
+        var stem = $"{namePrefix}_{now.ToString(TimestampFormat, CultureInfo.InvariantCulture)}";
 
         // Both halves are built under temporary names in the destination folder, so a crash never
-        // leaves a half-written zip under its final name.
-        var temporaryZip = target + ".tmp";
-        var temporaryDatabase = Path.Combine(directory, "wondarr.db.tmp");
+        // leaves a half-written zip under its final name. The names are unique, so nothing else
+        // can be writing to them.
+        var unique = Guid.NewGuid().ToString("N");
+        var temporaryZip = Path.Combine(directory, $"{stem}.{unique}.zip.tmp");
+        var temporaryDatabase = Path.Combine(directory, $"{TemporaryDatabasePrefix}{unique}.tmp");
 
         try
         {
-            if (File.Exists(temporaryDatabase))
-            {
-                File.Delete(temporaryDatabase);
-            }
-
             // The online backup API is the only consistent way to copy a WAL database: it reads
             // through SQLite, so the copy includes the writes that are still in the write-ahead log.
             // The temporary copy is not pooled, so the file can be deleted as soon as it is closed.
-            using (var source = new SqliteConnection($"Data Source={_paths.DatabaseFile}"))
+            using (var source = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = _paths.DatabaseFile,
+                Pooling = false,
+                DefaultTimeout = DatabaseTimeouts.BusySeconds,
+            }.ToString()))
             using (var destination = new SqliteConnection(new SqliteConnectionStringBuilder
             {
                 DataSource = temporaryDatabase,
@@ -107,7 +152,23 @@ public sealed partial class BackupService : IBackupService
                     .ConfigureAwait(false);
             }
 
-            File.Move(temporaryZip, target, overwrite: true);
+            // Never overwrites: a second backup in the same second gets a numeric suffix.
+            var name = stem + ".zip";
+            var target = Path.Combine(directory, name);
+
+            for (var suffix = 1; ; suffix++)
+            {
+                try
+                {
+                    File.Move(temporaryZip, target, overwrite: false);
+                    break;
+                }
+                catch (IOException) when (File.Exists(target))
+                {
+                    name = $"{stem}_{suffix}.zip";
+                    target = Path.Combine(directory, name);
+                }
+            }
 
             LogCreated(_logger, type, target);
 
@@ -118,6 +179,59 @@ public sealed partial class BackupService : IBackupService
             DeleteIfExists(temporaryDatabase);
             DeleteIfExists(temporaryZip);
         }
+    }
+
+    /// <inheritdoc />
+    public int SweepTemporaryFiles()
+    {
+        var cutoff = _timeProvider.GetUtcNow().UtcDateTime - TemporaryFileAge;
+        var swept = 0;
+
+        var targets = new List<(string Directory, string Pattern)>
+        {
+            (_paths.ConfigDir, "restore-upload-*.tmp"),
+            (_paths.ConfigDir, "restore-database-*.tmp"),
+            (_paths.ConfigDir, "restore-config-*.tmp"),
+        };
+
+        foreach (var (_, directory) in TypeDirectories())
+        {
+            targets.Add((directory, "*.zip.tmp"));
+            targets.Add((directory, $"{TemporaryDatabasePrefix}*.tmp"));
+        }
+
+        foreach (var (directory, pattern) in targets)
+        {
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(directory, pattern))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(file) >= cutoff)
+                    {
+                        continue;
+                    }
+
+                    File.Delete(file);
+                    swept++;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    LogSweepFailed(_logger, file, exception.Message);
+                }
+            }
+        }
+
+        if (swept > 0)
+        {
+            LogSwept(_logger, swept);
+        }
+
+        return swept;
     }
 
     /// <inheritdoc />
@@ -241,7 +355,13 @@ public sealed partial class BackupService : IBackupService
                         $"the archive must contain '{DatabaseEntryName}' and '{ConfigEntryName}' at its top level");
                 }
 
-                database.ExtractToFile(temporaryDatabase, overwrite: true);
+                var cap = _options.Value.MaxRestoreDatabaseBytes;
+
+                if (!await ExtractCappedAsync(database, temporaryDatabase, cap, cancellationToken).ConfigureAwait(false))
+                {
+                    return StagedRestoreResult.Failed(
+                        $"the database in the archive is larger than the {cap} byte limit (backup.max_restore_database_bytes)");
+                }
 
                 var validation = await ValidateDatabaseAsync(temporaryDatabase, cancellationToken).ConfigureAwait(false);
 
@@ -250,7 +370,31 @@ public sealed partial class BackupService : IBackupService
                     return StagedRestoreResult.Failed(validation);
                 }
 
-                Stage(config, temporaryDatabase);
+                var temporaryConfig = Path.Combine(_paths.ConfigDir, $"restore-config-{Guid.NewGuid():N}.tmp");
+
+                try
+                {
+                    if (!await ExtractCappedAsync(config, temporaryConfig, MaxConfigBytes, cancellationToken).ConfigureAwait(false))
+                    {
+                        return StagedRestoreResult.Failed(
+                            $"config.yml in the archive is larger than {MaxConfigBytes} bytes");
+                    }
+
+                    await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+                    try
+                    {
+                        Stage(temporaryConfig, temporaryDatabase);
+                    }
+                    finally
+                    {
+                        Gate.Release();
+                    }
+                }
+                finally
+                {
+                    DeleteIfExists(temporaryConfig);
+                }
             }
         }
         catch (Exception exception) when (exception is InvalidDataException or IOException or SqliteException)
@@ -285,7 +429,7 @@ public sealed partial class BackupService : IBackupService
     /// Writes the two staged files into <c>&lt;ConfigDir&gt;/restore/</c>, replacing any earlier
     /// staged restore.
     /// </summary>
-    private void Stage(ZipArchiveEntry config, string temporaryDatabase)
+    private void Stage(string temporaryConfig, string temporaryDatabase)
     {
         var restoreDirectory = Path.Combine(_paths.ConfigDir, "restore");
 
@@ -297,7 +441,48 @@ public sealed partial class BackupService : IBackupService
         Directory.CreateDirectory(restoreDirectory);
 
         File.Move(temporaryDatabase, Path.Combine(restoreDirectory, DatabaseEntryName));
-        config.ExtractToFile(Path.Combine(restoreDirectory, ConfigEntryName), overwrite: true);
+        File.Move(temporaryConfig, Path.Combine(restoreDirectory, ConfigEntryName));
+    }
+
+    /// <summary>
+    /// Copies an archive entry to a file, counting the bytes actually produced rather than trusting
+    /// the size the archive declares, and stops at <paramref name="cap"/>.
+    /// </summary>
+    /// <returns><see langword="false"/> when the entry holds more than <paramref name="cap"/> bytes (the partial file is deleted).</returns>
+    private static async Task<bool> ExtractCappedAsync(
+        ZipArchiveEntry entry,
+        string destination,
+        long cap,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[CopyBufferSize];
+        long total = 0;
+
+        await using (var source = entry.Open())
+        await using (var target = File.Create(destination))
+        {
+            int read;
+
+            while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                total += read;
+
+                if (total > cap)
+                {
+                    break;
+                }
+
+                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (total <= cap)
+        {
+            return true;
+        }
+
+        DeleteIfExists(destination);
+        return false;
     }
 
     /// <summary>
@@ -336,6 +521,32 @@ public sealed partial class BackupService : IBackupService
             if (count == 0)
             {
                 return "the database in the archive has no __EFMigrationsHistory table, so it is not a Wondarr backup";
+            }
+        }
+
+        // A backup from a newer Wondarr would start, then fail on every query that touches a column
+        // this build has never heard of (R-039).
+        using (var history = connection.CreateCommand())
+        {
+            // The snake_case convention renames the history columns too, so read positionally.
+            history.CommandText = "SELECT * FROM \"__EFMigrationsHistory\";";
+
+            string? newest = null;
+            using var reader = await history.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var id = reader.GetString(0);
+
+                if (!KnownMigrations.Ids.Contains(id) && (newest is null || string.CompareOrdinal(id, newest) > 0))
+                {
+                    newest = id;
+                }
+            }
+
+            if (newest is not null)
+            {
+                return $"this backup comes from a newer Wondarr: it contains the migration '{newest}', which this version does not know";
             }
         }
 
@@ -399,6 +610,13 @@ public sealed partial class BackupService : IBackupService
     {
         var stem = Path.GetFileNameWithoutExtension(name);
 
+        // A backup made in the same second as another carries a numeric suffix (..._1).
+        var suffixed = CollisionSuffix().Match(stem);
+        if (suffixed.Success)
+        {
+            stem = suffixed.Groups["stem"].Value;
+        }
+
         return stem.Length >= TimestampLength
             && DateTime.TryParseExact(
                 stem[^TimestampLength..],
@@ -449,6 +667,15 @@ public sealed partial class BackupService : IBackupService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Created a {Type} backup at {Path}")]
     private static partial void LogCreated(ILogger logger, BackupType type, string path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Swept {Count} leftover temporary backup and restore files")]
+    private static partial void LogSwept(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the leftover temporary file {Path}: {Reason}")]
+    private static partial void LogSweepFailed(ILogger logger, string path, string reason);
+
+    [GeneratedRegex(@"^(?<stem>.*\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2})_\d+$")]
+    private static partial Regex CollisionSuffix();
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Deleted {Count} scheduled backups older than {RetentionDays} days")]
     private static partial void LogCleanedUp(ILogger logger, int count, int retentionDays);

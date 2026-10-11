@@ -45,7 +45,7 @@ public sealed class BackupServiceTests : IDisposable
         Execute("PRAGMA journal_mode=WAL;");
         Execute("PRAGMA wal_autocheckpoint=0;");
         Execute("CREATE TABLE __EFMigrationsHistory (MigrationId TEXT NOT NULL, ProductVersion TEXT NOT NULL);");
-        Execute("INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('20260101000000_Initial', '1.0.0');");
+        Execute("INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('20260928040822_InitialCreate', '1.0.0');");
         Execute("CREATE TABLE marker (value TEXT);");
 
         File.WriteAllText(_paths.ConfigFile, "server:\n  api_key: test\n");
@@ -285,6 +285,123 @@ public sealed class BackupServiceTests : IDisposable
             .GetFiles().Should().HaveCount(2);
     }
 
+    [Fact]
+    public async Task A_pre_migration_backup_is_named_after_the_previous_version_and_lands_in_the_scheduled_folder()
+    {
+        var backup = await _backups.CreatePreMigrationAsync("0.1.0", CancellationToken.None);
+
+        backup.Name.Should().Be("wondarr_pre-0.1.0_2026.01.02_03.04.05.zip");
+        backup.Type.Should().Be(BackupType.Scheduled);
+        File.Exists(Path.Combine(_paths.BackupsDir, "scheduled", backup.Name)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_backup_never_overwrites_one_made_in_the_same_second()
+    {
+        var first = await _backups.CreateAsync(BackupType.Manual, CancellationToken.None);
+        var second = await _backups.CreateAsync(BackupType.Manual, CancellationToken.None);
+
+        second.Name.Should().NotBe(first.Name);
+        second.Name.Should().EndWith("_1.zip");
+
+        var all = await _backups.GetAllAsync(CancellationToken.None);
+        all.Should().HaveCount(2);
+        all.Should().OnlyContain(item => item.Time == _time.GetUtcNow().UtcDateTime, "the suffix does not hide the timestamp");
+    }
+
+    [Fact]
+    public async Task Concurrent_backups_produce_two_intact_zips()
+    {
+        Execute($"INSERT INTO marker (value) VALUES ('{LastWrite}');");
+
+        var results = await Task.WhenAll(
+            _backups.CreateAsync(BackupType.Manual, CancellationToken.None),
+            _backups.CreateAsync(BackupType.Manual, CancellationToken.None));
+
+        results.Select(item => item.Name).Should().OnlyHaveUniqueItems();
+
+        foreach (var backup in results)
+        {
+            (await ReadMarkerAsync(backup)).Should().Be(LastWrite);
+        }
+
+        Directory.GetFiles(Path.Combine(_paths.BackupsDir, "manual"), "*.tmp").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Staging_refuses_a_backup_from_a_newer_wondarr_and_names_its_newest_migration()
+    {
+        Execute("INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('29990101000000_FromTheFuture', '99.0.0');");
+        Execute("INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('29980101000000_AlsoFromTheFuture', '99.0.0');");
+        var backup = await _backups.CreateAsync(BackupType.Manual, CancellationToken.None);
+
+        var result = await _backups.StageRestoreAsync(backup.Id, CancellationToken.None);
+
+        result.Staged.Should().BeFalse();
+        result.Reason.Should().Contain("29990101000000_FromTheFuture").And.Contain("newer Wondarr");
+        Directory.Exists(Path.Combine(_paths.ConfigDir, PendingRestore.RestoreFolderName)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Staging_refuses_a_database_entry_that_extracts_past_the_cap()
+    {
+        var backup = await _backups.CreateAsync(BackupType.Manual, CancellationToken.None);
+        var capped = new BackupService(
+            _paths,
+            Options.Create(new BackupOptions { MaxRestoreDatabaseBytes = 2048 }),
+            _time,
+            NullLogger<BackupService>.Instance);
+
+        var result = await capped.StageRestoreAsync(backup.Id, CancellationToken.None);
+
+        result.Staged.Should().BeFalse();
+        result.Reason.Should().Contain("larger than");
+        Directory.Exists(Path.Combine(_paths.ConfigDir, PendingRestore.RestoreFolderName)).Should().BeFalse();
+        Directory.GetFiles(_paths.ConfigDir, "restore-*.tmp").Should().BeEmpty("the partial extraction is deleted");
+    }
+
+    [Fact]
+    public void The_sweep_deletes_old_temporary_files_and_leaves_recent_ones()
+    {
+        var manual = Path.Combine(_paths.BackupsDir, "manual");
+        Directory.CreateDirectory(manual);
+        Directory.CreateDirectory(Path.Combine(_paths.BackupsDir, "scheduled"));
+
+        var old = _time.GetUtcNow().UtcDateTime.AddHours(-2);
+        var recent = _time.GetUtcNow().UtcDateTime.AddMinutes(-10);
+        var oldFiles = new[]
+        {
+            Path.Combine(_paths.ConfigDir, "restore-upload-aaa.tmp"),
+            Path.Combine(_paths.ConfigDir, "restore-database-bbb.tmp"),
+            Path.Combine(manual, "wondarr_backup_v1_2026.01.01_00.00.00.zip.tmp"),
+            Path.Combine(manual, "backup-database-ccc.tmp"),
+        };
+        var recentFile = Path.Combine(_paths.ConfigDir, "restore-upload-ddd.tmp");
+        var keepers = new[]
+        {
+            Path.Combine(_paths.ConfigDir, "restore-notes.txt"),
+            Path.Combine(manual, "wondarr_backup_v1_2026.01.01_00.00.00.zip"),
+        };
+
+        foreach (var file in oldFiles.Concat(keepers).Append(recentFile))
+        {
+            File.WriteAllText(file, "x");
+        }
+
+        foreach (var file in oldFiles.Concat(keepers))
+        {
+            File.SetLastWriteTimeUtc(file, old);
+        }
+
+        File.SetLastWriteTimeUtc(recentFile, recent);
+
+        _backups.SweepTemporaryFiles().Should().Be(4);
+
+        oldFiles.Should().OnlyContain(file => !File.Exists(file));
+        File.Exists(recentFile).Should().BeTrue("it may belong to an upload in progress");
+        keepers.Should().OnlyContain(file => File.Exists(file));
+    }
+
     public void Dispose()
     {
         _database.Dispose();
@@ -317,7 +434,7 @@ public sealed class BackupServiceTests : IDisposable
             archive.GetEntry(BackupService.DatabaseEntryName)!.ExtractToFile(extracted, overwrite: true);
         }
 
-        using var connection = new SqliteConnection($"Data Source={extracted}");
+        using var connection = new SqliteConnection($"Data Source={extracted};Pooling=False");
         await connection.OpenAsync(CancellationToken.None);
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT value FROM marker;";
