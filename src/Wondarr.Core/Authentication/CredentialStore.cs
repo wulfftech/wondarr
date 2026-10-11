@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using Wondarr.Core.Persistence;
 
 namespace Wondarr.Core.Authentication;
@@ -29,6 +30,22 @@ public sealed class CredentialStore : ICredentialStore
     /// <inheritdoc />
     public async Task<string?> GetUsernameAsync(CancellationToken cancellationToken) =>
         (await GetStoredAsync(cancellationToken).ConfigureAwait(false))?.Username;
+
+    /// <inheritdoc />
+    public async Task<string?> GetStampAsync(CancellationToken cancellationToken)
+    {
+        var stored = await GetStoredAsync(cancellationToken).ConfigureAwait(false);
+
+        if (stored is null)
+        {
+            return null;
+        }
+
+        // The hash is salted afresh on every write, so even the same password again gives a new stamp.
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes($"{stored.Username}\n{stored.Hash}"));
+
+        return Convert.ToHexString(digest.AsSpan(0, 16));
+    }
 
     /// <inheritdoc />
     public async Task SetAsync(string username, string password, CancellationToken cancellationToken)
