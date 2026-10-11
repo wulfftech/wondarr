@@ -65,7 +65,7 @@ public sealed partial class CompactLibraryCommandHandler(
 
         LogCompacted(logger, libraryId);
 
-        return string.Concat(
+        var message = string.Concat(
             "Compacted ",
             library.Name,
             ": ",
@@ -75,6 +75,27 @@ public sealed partial class CompactLibraryCommandHandler(
             " album changes without files, ",
             result.Failed.ToString(CultureInfo.InvariantCulture),
             " failed");
+
+        if (result.GivenUp > 0)
+        {
+            message = string.Concat(
+                message,
+                ", ",
+                result.GivenUp.ToString(CultureInfo.InvariantCulture),
+                " given up on");
+        }
+
+        if (result.Stranded is { Count: > 0 } stranded)
+        {
+            message = string.Concat(message, ". Files left where they are: ", string.Join("; ", stranded));
+        }
+
+        if (result.TrashNote is not null)
+        {
+            message = string.Concat(message, ". ", result.TrashNote);
+        }
+
+        return message;
     }
 
     /// <summary>The library a compact body names. Unlike the adopt body, a body without one is a mistake.</summary>

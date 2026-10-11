@@ -1,4 +1,5 @@
 using Wondarr.Core.Domain;
+using Wondarr.Core.Organizer;
 
 namespace Wondarr.Core.Plex;
 
@@ -84,6 +85,75 @@ public static class PlexPathMapper
 
         // A bare drive root ("D:\") already ends with the separator.
         return plexRoot.EndsWith(separator) ? plexRoot + relative : plexRoot + separator + relative;
+    }
+
+    /// <summary>
+    /// The reverse of <see cref="ToServerPath"/>: maps a folder the Plex server reports back to the
+    /// path Wondarr sees it at.
+    /// </summary>
+    /// <param name="library">The library whose Plex root the path may sit under.</param>
+    /// <param name="serverPath">The path as the Plex server reports it.</param>
+    /// <returns>
+    /// The path in Wondarr's file system, or <see langword="null"/> when the path is not under the
+    /// library's Plex root (or, without a Plex root, not under the library's own root).
+    /// </returns>
+    public static string? ToLocalPath(Library library, string serverPath)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        ArgumentException.ThrowIfNullOrWhiteSpace(serverPath);
+
+        var configured = library.PlexLibraryPath;
+
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            // Without a Plex root the two sides share their paths.
+            return !string.IsNullOrEmpty(library.RootPath) && PathRules.IsInside(library.RootPath, serverPath)
+                ? serverPath
+                : null;
+        }
+
+        var plexRoot = WithoutTrailingSeparators(configured.Trim());
+        var normalized = serverPath.Trim();
+        var trimmed = normalized.TrimEnd('/', '\\');
+
+        if (trimmed.Length == 0)
+        {
+            trimmed = normalized;
+        }
+
+        // Windows paths are case-insensitive, and so are the ones a Windows Plex server reports.
+        var comparison = IsWindowsPath(plexRoot) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        if (!trimmed.StartsWith(plexRoot, comparison))
+        {
+            return null;
+        }
+
+        var remainder = trimmed[plexRoot.Length..];
+
+        if (remainder.Length == 0)
+        {
+            return library.RootPath;
+        }
+
+        // "…/music2" merely starts with "…/music" and is a different folder.
+        if (!plexRoot.EndsWith('/') && !plexRoot.EndsWith('\\') && remainder[0] != '/' && remainder[0] != '\\')
+        {
+            return null;
+        }
+
+        var relative = remainder.TrimStart('/', '\\');
+
+        if (relative.Length == 0)
+        {
+            return library.RootPath;
+        }
+
+        // Only a Windows Plex server writes its folders with backslashes; on any other a backslash is
+        // part of a name.
+        var slashed = IsWindowsPath(plexRoot) ? relative.Replace('\\', '/') : relative;
+
+        return Path.Combine(library.RootPath ?? string.Empty, slashed.Replace('/', Path.DirectorySeparatorChar));
     }
 
     /// <summary>

@@ -317,6 +317,9 @@ public sealed class PlaylistWriterTests : IDisposable
         public Task<bool> IsRefreshingAsync(Uri server, string token, string sectionKey, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<string?> GetPreferenceAsync(Uri server, string token, string settingId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         private void Append(IReadOnlyList<string> ratingKeys)
         {
             foreach (var key in ratingKeys)

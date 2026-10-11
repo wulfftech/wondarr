@@ -66,4 +66,11 @@ public sealed class CompactMoveRecord : EntityBase
 
     /// <summary>Gets or sets why the move failed, or <see langword="null"/>.</summary>
     public string? Message { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many times the move has failed. A move that has failed
+    /// <c>CompactMoveRules.MaxAttempts</c> times is given up on: its file goes back to where it came
+    /// from (or stays where it is, named in the log) instead of blocking the library for good.
+    /// </summary>
+    public int Attempts { get; set; }
 }
