@@ -53,6 +53,55 @@ public class SlskdHostTests
         Directory.Exists(harness.Options.SharedFolders[0]).Should().BeTrue();
     }
 
+    // R-054: slskd.yml holds the Soulseek password and slskd's API key.
+    [Fact]
+    public async Task The_rendered_slskd_yml_is_0600_under_umask_002_and_leaves_no_temporary_file()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+
+        using (new Umask(0x2))
+        {
+            await harness.StartAsync();
+            await SlskdHostHarness.AwaitAsync(
+                () => harness.Status.Current.State == SlskdState.Running,
+                "slskd to reach the running state");
+        }
+
+        File.GetUnixFileMode(harness.ConfigPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        Directory.GetFiles(harness.Paths.SlskdDir, "slskd.yml.*.tmp").Should().BeEmpty();
+    }
+
+    // Owner question 5: a configuration that already shares the data directory keeps loading, but
+    // slskd is never told to share it.
+    [Fact]
+    public async Task A_shared_folder_that_is_the_data_directory_or_inside_it_is_not_passed_to_slskd()
+    {
+        await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
+        var music = harness.Options.SharedFolders[0];
+        harness.Options.SharedFolders =
+        [
+            harness.Paths.ConfigDir,
+            Path.Combine(harness.Paths.ConfigDir, "backups"),
+            music,
+        ];
+
+        await harness.StartAsync();
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Status.Current.State == SlskdState.Running,
+            "slskd to reach the running state");
+
+        var yaml = await harness.ReadConfigAsync();
+
+        yaml.Should().Contain("music");
+        yaml.Should().NotContain("backups");
+        SlskdConfigRenderer.SharedFolders(harness.Options, harness.Paths).Should().Equal(music);
+    }
+
     [Fact]
     public async Task An_unexpected_exit_is_restarted_after_five_seconds_and_the_next_one_after_fifteen()
     {
