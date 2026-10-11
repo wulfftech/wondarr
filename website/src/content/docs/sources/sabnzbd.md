@@ -10,7 +10,9 @@ SABnzbd is Wondarr's usenet client. It works with a [Newznab or Prowlarr indexer
 1. The job is added to SABnzbd paused. If every file in the post is a plain audio file or a `.par2` file, Wondarr removes the audio files that no wanted song matches, so only the wanted track is downloaded. If anything else is in the post (a RAR set, obfuscated file names), the whole post is downloaded: a trimmed RAR set cannot be repaired.
 2. SABnzbd verifies, repairs and unpacks it as it normally does.
 3. Wondarr moves the wanted song's file out of SABnzbd's complete folder into its staging folder (`import.container_staging_path`, default `/data/downloads/containers`) and imports it.
-4. Once every song taken from the job is imported or failed, Wondarr deletes the job from SABnzbd's history together with its files.
+4. Once the wanted file is moved into staging and no other song still waiting on the job needs it, Wondarr deletes the job from SABnzbd's history together with its files. That happens before the import, not after it. A song that fails (SABnzbd reports the download as failed, or the file is not in the post) deletes its job the same way, and so does a job Wondarr added but could not resume.
+
+A job that was trimmed for one song is not reused for another song whose file the trim removed: Wondarr adds a fresh job instead.
 
 A post larger than `search.max_container_size_mb` (default 1500) is rejected.
 
