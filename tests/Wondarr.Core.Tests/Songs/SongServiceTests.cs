@@ -9,6 +9,7 @@ using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
+using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -420,7 +421,7 @@ public class SongServiceTests : IDisposable
         _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
             .Returns(identity with { ReleaseOptions = [Single("s-a", "Get Lucky"), Album("r1", "Random Access Memories")] });
 
-        var moved = await service.SetAlbumContextAsync(added[0].Song.Id, "r1", CancellationToken.None);
+        var moved = (await service.SetAlbumContextAsync(added[0].Song.Id, "r1", CancellationToken.None))?.Song;
 
         moved!.AlbumContext!.AlbumKey.Should().Be("r1");
         moved.AlbumContext.Kind.Should().Be(AlbumContextKind.Album);
@@ -447,7 +448,7 @@ public class SongServiceTests : IDisposable
 
         _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>()).Returns(identity);
 
-        var moved = await service.SetAlbumContextAsync(added[0].Song.Id, "singles", CancellationToken.None);
+        var moved = (await service.SetAlbumContextAsync(added[0].Song.Id, "singles", CancellationToken.None))?.Song;
 
         moved!.AlbumContext!.Kind.Should().Be(AlbumContextKind.PseudoSingles);
         moved.AlbumContext.AlbumTitle.Should().Be("Singles");
@@ -469,7 +470,7 @@ public class SongServiceTests : IDisposable
 
         _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>()).Returns(identity);
 
-        var moved = await service.SetAlbumContextAsync(added[0].Song.Id, "singles", CancellationToken.None);
+        var moved = (await service.SetAlbumContextAsync(added[0].Song.Id, "singles", CancellationToken.None))?.Song;
 
         moved!.AlbumContext!.Pinned.Should().BeTrue();
         (await FindSongAsync(context, "m-a")).AlbumContext!.Pinned.Should().BeTrue();
@@ -530,6 +531,160 @@ public class SongServiceTests : IDisposable
         await unknownKey.Should().ThrowAsync<ArgumentException>();
 
         (await service.SetAlbumContextAsync(12345, "singles", CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_song_with_a_move_in_flight_cannot_be_deleted()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var service = NewService(context);
+        var added = await service.AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", Single("s-a", "Get Lucky"))],
+            new SongAddOptions(),
+            CancellationToken.None);
+        var songId = added[0].Song.Id;
+        await AddMoveAsync(context, songId, CompactMoveState.Staged, stagedPath: "/music/.wondarr-compact/1/a.flac");
+
+        var delete = async () => await service.DeleteAsync(songId, CancellationToken.None);
+
+        (await delete.Should().ThrowAsync<SongsCompactingException>())
+            .Which.Message.Should().Be("Compaction is moving this song; try again when it finishes");
+        context.ChangeTracker.Clear();
+        (await context.Songs.CountAsync()).Should().Be(1);
+
+        // Once the move is finished, the song can go.
+        await context.CompactMoves.ExecuteUpdateAsync(update => update
+            .SetProperty(row => row.State, CompactMoveState.Placed)
+            .SetProperty(row => row.StagedPath, (string?)null));
+
+        (await service.DeleteAsync(songId, CancellationToken.None)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Choosing_an_album_while_the_song_is_being_moved_is_refused_and_changes_nothing()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var service = NewService(context);
+        var identity = Identity("m-a", "Get Lucky", Single("s-a", "Get Lucky"), Album("r1", "Random Access Memories"));
+        var added = await service.AddIdentitiesAsync([identity], new SongAddOptions(), CancellationToken.None);
+        var songId = added[0].Song.Id;
+        await AddMoveAsync(context, songId, CompactMoveState.Planned);
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>()).Returns(identity);
+
+        var choose = async () => await service.SetAlbumContextAsync(songId, "r1", CancellationToken.None);
+
+        (await choose.Should().ThrowAsync<SongsCompactingException>())
+            .Which.Message.Should().Be("Compaction is moving this song; try again when it finishes");
+        context.ChangeTracker.Clear();
+
+        var song = await FindSongAsync(context, "m-a");
+        song.AlbumContext!.AlbumKey.Should().NotBe("r1");
+        song.AlbumContext.Pinned.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Choosing_an_album_queues_a_refile_for_a_managed_file()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var (commands, _) = Queue(searchOnAdd: false);
+        commands
+            .EnqueueAsync("RefileSong", Arg.Any<string?>(), CommandTrigger.Manual, Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new CommandRecord { Id = 42, Name = "RefileSong", Body = call.ArgAt<string?>(1) }));
+
+        var service = NewService(context, commands);
+        var identity = Identity("m-a", "Get Lucky", Single("s-a", "Get Lucky"), Album("r1", "Random Access Memories"));
+        var added = await service.AddIdentitiesAsync([identity], new SongAddOptions(), CancellationToken.None);
+        var songId = added[0].Song.Id;
+        await AddFileAsync(context, songId, SourceTypes.Soulseek);
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>()).Returns(identity);
+
+        var changed = await service.SetAlbumContextAsync(songId, "r1", CancellationToken.None);
+
+        changed!.RefileCommandId.Should().Be(42);
+        changed.Song.AlbumContext!.AlbumKey.Should().Be("r1");
+
+        var body = (string)commands.ReceivedCalls()
+            .Single(call => call.GetMethodInfo().Name == nameof(ICommandQueue.EnqueueAsync)
+                && (string)call.GetArguments()[0]! == "RefileSong")
+            .GetArguments()[1]!;
+        ReadsSongId(body).Should().Be(songId);
+    }
+
+    [Theory]
+    [InlineData("reference")]
+    [InlineData(null)]
+    public async Task Choosing_an_album_for_a_reference_file_or_no_file_queues_nothing(string? sourceType)
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var (commands, _) = Queue(searchOnAdd: false);
+        var service = NewService(context, commands);
+        var identity = Identity("m-a", "Get Lucky", Single("s-a", "Get Lucky"), Album("r1", "Random Access Memories"));
+        var added = await service.AddIdentitiesAsync([identity], new SongAddOptions(), CancellationToken.None);
+        var songId = added[0].Song.Id;
+
+        if (sourceType is not null)
+        {
+            await AddFileAsync(context, songId, sourceType);
+        }
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>()).Returns(identity);
+
+        var changed = await service.SetAlbumContextAsync(songId, "r1", CancellationToken.None);
+
+        changed!.RefileCommandId.Should().BeNull();
+        changed.Song.AlbumContext!.AlbumKey.Should().Be("r1", "only the database changes");
+        await commands.DidNotReceive()
+            .EnqueueAsync("RefileSong", Arg.Any<string?>(), Arg.Any<CommandTrigger>(), Arg.Any<CancellationToken>());
+    }
+
+    private static async Task AddMoveAsync(
+        WondarrDbContext context,
+        long songId,
+        CompactMoveState state,
+        string? stagedPath = null)
+    {
+        context.CompactMoves.Add(new CompactMoveRecord
+        {
+            LibraryId = SeedData.DefaultLibraryId,
+            SongId = songId,
+            FromPath = "/music/a.flac",
+            StagedPath = stagedPath,
+            State = state,
+        });
+
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+    }
+
+    private static async Task AddFileAsync(WondarrDbContext context, long songId, string sourceType)
+    {
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = "/music/Daft Punk/Get Lucky/01 - Get Lucky.flac",
+            Size = 30_000_000,
+            Codec = "flac",
+            Container = "flac",
+            BitrateKbps = 1000,
+            SampleRate = 44_100,
+            BitDepth = 16,
+            Channels = 2,
+            DurationMs = 369_000,
+            QualityId = 36,
+            SourceType = sourceType,
+            ImportedAt = new DateTime(2026, 9, 29, 12, 0, 0, DateTimeKind.Utc),
+        });
+
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
     }
 
     [Fact]

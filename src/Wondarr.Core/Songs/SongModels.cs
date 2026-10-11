@@ -60,6 +60,14 @@ public enum SongAddOutcome
 /// <param name="Song">The new song, or the row the identity already belonged to.</param>
 public sealed record SongAddResult(SongIdentity Identity, SongAddOutcome Outcome, Song Song);
 
+/// <summary>The result of choosing a song's album.</summary>
+/// <param name="Song">The song, with its new album context.</param>
+/// <param name="RefileCommandId">
+/// The command that moves and retags the song's managed file for the new album, or
+/// <see langword="null"/> when nothing was queued (no file, only a reference file, or the same album).
+/// </param>
+public sealed record AlbumContextChange(Song Song, long? RefileCommandId);
+
 /// <summary>No provider knows the id the caller asked to add.</summary>
 public sealed class SongNotFoundException : Exception
 {

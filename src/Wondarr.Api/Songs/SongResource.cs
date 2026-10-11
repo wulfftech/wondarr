@@ -29,6 +29,10 @@ namespace Wondarr.Api.Songs;
 /// <param name="AlbumContext">The album the song is filed under, or <see langword="null"/> until assigned.</param>
 /// <param name="File">The file the song holds, or <see langword="null"/> while it has none.</param>
 /// <param name="Tags">The song's tags (trimmed, lower-case); empty when it has none.</param>
+/// <param name="RefileCommandId">
+/// Only on the reply to choosing an album: the command that moves and retags the song's file for the
+/// new album, or <see langword="null"/> when no file needed to move.
+/// </param>
 public sealed record SongResource(
     long Id,
     string Title,
@@ -49,7 +53,8 @@ public sealed record SongResource(
     long? QualityId,
     SongAlbumContextResource? AlbumContext,
     SongFileResource? File = null,
-    IReadOnlyList<string>? Tags = null)
+    IReadOnlyList<string>? Tags = null,
+    long? RefileCommandId = null)
 {
     /// <summary>Gets the song's tags; never <see langword="null"/>.</summary>
     public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];

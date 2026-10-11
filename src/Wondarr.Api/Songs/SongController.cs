@@ -273,8 +273,20 @@ public sealed class SongController : ControllerBase
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>200 when it was deleted, 404 when the id is unknown.</returns>
     [HttpDelete("{id:long}")]
-    public async Task<IActionResult> DeleteSong(long id, CancellationToken cancellationToken) =>
-        await _songs.DeleteAsync(id, cancellationToken).ConfigureAwait(false) ? Ok() : NotFound();
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteSong(long id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _songs.DeleteAsync(id, cancellationToken).ConfigureAwait(false) ? Ok() : NotFound();
+        }
+        catch (SongsCompactingException exception)
+        {
+            return CompactingProblem(exception);
+        }
+    }
 
     /// <summary>Searches for songs without adding them, for the add dialog.</summary>
     /// <param name="resource">The term to look up.</param>
@@ -377,13 +389,20 @@ public sealed class SongController : ControllerBase
         return Ok(resources);
     }
 
-    /// <summary>Moves one song to another album context, overriding the album policy.</summary>
+    /// <summary>
+    /// Moves one song to another album context, overriding the album policy. A managed file follows the
+    /// album: <c>refileCommandId</c> names the command that moves and retags it.
+    /// </summary>
     /// <param name="id">The song id.</param>
     /// <param name="resource">The album key to move the song to.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     [HttpPut("{id:long}/albumcontext")]
     [Consumes("application/json")]
     [Produces("application/json")]
+    [ProducesResponseType(typeof(SongResource), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SongResource>> SetAlbumContext(
         long id,
         [FromBody] SongAlbumContextUpdateResource resource,
@@ -401,11 +420,11 @@ public sealed class SongController : ControllerBase
 
         try
         {
-            var moved = await _songs
+            var changed = await _songs
                 .SetAlbumContextAsync(id, resource.AlbumKey, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (moved is null)
+            if (changed is null)
             {
                 return NotFound();
             }
@@ -413,7 +432,13 @@ public sealed class SongController : ControllerBase
             // The assignment is written against the row alone; the resource needs the loaded song.
             var song = await _songs.GetAsync(id, cancellationToken).ConfigureAwait(false);
 
-            return song is null ? NotFound() : Ok(song.ToResource());
+            return song is null
+                ? NotFound()
+                : Ok(song.ToResource() with { RefileCommandId = changed.RefileCommandId });
+        }
+        catch (SongsCompactingException exception)
+        {
+            return CompactingProblem(exception);
         }
         catch (ArgumentException exception)
         {
@@ -423,6 +448,13 @@ public sealed class SongController : ControllerBase
                 statusCode: StatusCodes.Status400BadRequest);
         }
     }
+
+    /// <summary>The 409 for a song a Compact run has in flight.</summary>
+    private ObjectResult CompactingProblem(SongsCompactingException exception) =>
+        Problem(
+            title: "Compaction in progress",
+            detail: exception.Message,
+            statusCode: StatusCodes.Status409Conflict);
 
     /// <summary>The id of the song the candidate already is, or <see langword="null"/>.</summary>
     private static long? ExistingId(SongCandidate candidate, IReadOnlyDictionary<string, long> existing)

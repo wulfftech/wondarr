@@ -6,9 +6,10 @@ import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiProvider } from '../../api/ApiProvider';
 import type { SongResource } from '../../api/songs';
-import { HEALTH_ENTRIES, LIBRARIES, LIBRARY_SONGS, SYSTEM_STATUS } from '../../test/fixtures';
+import { ALBUM_OPTIONS, HEALTH_ENTRIES, LIBRARIES, LIBRARY_SONGS, SYSTEM_STATUS } from '../../test/fixtures';
 import { createTestConfig, installFetch, jsonResponse, type FetchMock } from '../../test/helpers';
 import { theme } from '../../theme/theme';
+import { ChangeAlbumModal } from './ChangeAlbumModal';
 import { ConvertSongModal } from './ConvertSongModal';
 import { MoveSongModal } from './MoveSongModal';
 
@@ -102,6 +103,7 @@ async function lastBody(method: string): Promise<{ url: string; body: unknown } 
 interface RouteTable {
   libraries?: () => Response;
   commands?: () => Response;
+  albumChoice?: () => Response;
 }
 
 function install(routes: RouteTable = {}): FetchMock {
@@ -116,6 +118,14 @@ function install(routes: RouteTable = {}): FetchMock {
 
     if (url.includes('/api/v1/library')) {
       return (routes.libraries ?? (() => jsonResponse(LIBRARIES)))();
+    }
+
+    if (/\/api\/v1\/song\/\d+\/albumcontexts$/.test(url)) {
+      return jsonResponse(ALBUM_OPTIONS);
+    }
+
+    if (/\/api\/v1\/song\/\d+\/albumcontext$/.test(url)) {
+      return (routes.albumChoice ?? (() => jsonResponse(SONG)))();
     }
 
     if (url.includes('/api/v1/song/convert/preview')) {
@@ -153,7 +163,90 @@ function renderModal(ui: ReactElement): void {
   );
 }
 
+/** "Get Lucky" with the file it holds, of the given source. */
+function songWithFile(sourceType: string): SongResource {
+  return {
+    ...SONG,
+    file: {
+      path: '/data/music/Daft Punk/Single/Get Lucky.flac',
+      codec: 'flac',
+      container: 'flac',
+      size: 30_000_000,
+      sourceType,
+    },
+  } as unknown as SongResource;
+}
+
 describe('SongActionModals', () => {
+  it('tells the user a managed file will move, and follows the re-file command until it finishes', async () => {
+    const onClose = vi.fn();
+    install({
+      albumChoice: () => jsonResponse({ ...SONG, refileCommandId: 31 }),
+      commands: () => jsonResponse(commandOf(31, 'Moved song 12 to its new album folder')),
+    });
+    const user = userEvent.setup();
+
+    renderModal(<ChangeAlbumModal song={songWithFile('soulseek')} opened onClose={onClose} />);
+
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).getByText("The file will be moved to the new album's folder.")).toBeInTheDocument();
+
+    await user.click(await within(dialog).findByRole('radio', { name: /^Singles/ }));
+
+    expect(await within(dialog).findByText("The file was moved to the new album's folder.")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await waitFor(async () => {
+      const put = await lastBody('PUT');
+
+      expect(put?.url).toContain('/api/v1/song/12/albumcontext');
+      expect(put?.body).toEqual({ albumKey: 'singles' });
+    });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('says nothing about moving a reference file and closes at once when no re-file was queued', async () => {
+    const onClose = vi.fn();
+    install({ albumChoice: () => jsonResponse({ ...SONG, refileCommandId: null }) });
+    const user = userEvent.setup();
+
+    renderModal(<ChangeAlbumModal song={songWithFile('reference')} opened onClose={onClose} />);
+
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).queryByText(/will be moved/)).not.toBeInTheDocument();
+
+    await user.click(await within(dialog).findByRole('radio', { name: /^Singles/ }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('shows why the re-file failed', async () => {
+    install({
+      albumChoice: () => jsonResponse({ ...SONG, refileCommandId: 32 }),
+      commands: () =>
+        jsonResponse({
+          ...commandOf(32, ''),
+          status: 'failed',
+          result: 'unsuccessful',
+          exception: 'the song is being imported.',
+        }),
+    });
+    const user = userEvent.setup();
+
+    renderModal(<ChangeAlbumModal song={songWithFile('soulseek')} opened onClose={() => {}} />);
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(await within(dialog).findByRole('radio', { name: /^Singles/ }));
+
+    expect(await within(dialog).findByText('the song is being imported.')).toBeInTheDocument();
+  });
+
   it('moves the song to the library that was picked and shows what the command reported', async () => {
     install({ libraries: () => jsonResponse([LIBRARIES[0], SECOND_LIBRARY]) });
     const user = userEvent.setup();
