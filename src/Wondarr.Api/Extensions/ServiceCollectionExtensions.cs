@@ -60,6 +60,8 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddAppAuthentication();
+        services.AddSingleton<DownloadTokenService>();
+        services.AddLoginRateLimiting();
 
         AddSignalREvents(services);
 
