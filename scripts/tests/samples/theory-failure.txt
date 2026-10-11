@@ -1,0 +1,9 @@
+[xUnit.net 00:00:09.12]     Wondarr.Core.Tests.Organizer.NamingTests.Renders_tokens(template: "{Artist} - {Title}", expected: "A - B") [FAIL]
+  Failed Wondarr.Core.Tests.Organizer.NamingTests.Renders_tokens(template: "{Artist} - {Title}", expected: "A - B") [4 ms]
+  Error Message:
+   Expected result to be "A - B", but found "A - B ".
+  Stack Trace:
+     at Wondarr.Core.Tests.Organizer.NamingTests.Renders_tokens(String template, String expected) in NamingTests.cs:line 41
+Failed!  - Failed:     1, Passed:  1833, Skipped:     3, Total:  1837, Duration: 1 m 29 s - Wondarr.Core.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   360, Skipped:     0, Total:   360, Duration: 1 m 10 s - Wondarr.Api.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   412, Skipped:     0, Total:   412, Duration: 23 s - Wondarr.Sources.Tests.dll (net10.0)

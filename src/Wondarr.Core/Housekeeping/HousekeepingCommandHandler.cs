@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -342,6 +343,22 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
                 return $"{state}, vacuum skipped (commands running)";
             }
 
+            // And not while the import pipeline is at work: a VACUUM holds the exclusive lock long
+            // enough for an import's writes to run out their busy timeout. Completed means the
+            // download is done and an import is queued for it.
+            var importsInProgress = await database.QueueItems
+                .AnyAsync(
+                    item => item.State == QueueItemState.Importing || item.State == QueueItemState.Completed,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (importsInProgress)
+            {
+                LogVacuumSkippedForImports();
+
+                return $"{state}, vacuum skipped (imports in progress)";
+            }
+
             try
             {
                 await ExecuteAsync(connection, "VACUUM;", cancellationToken).ConfigureAwait(false);
@@ -385,6 +402,9 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Housekeeping step '{Step}' failed")]
     private partial void LogStepFailed(string step, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Housekeeping vacuum skipped: imports in progress")]
+    private partial void LogVacuumSkippedForImports();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Housekeeping skipped the vacuum, the database is busy: {Reason}")]
     private partial void LogVacuumSkipped(string reason);
