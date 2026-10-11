@@ -76,6 +76,19 @@ Each fix comes with the test the review says is missing. The questions for each 
 - **Q31, VACUUM:** it is skipped while imports are running or queued, and writers wait up to 60 s for the lock (M-15).
 - **Q29, the Sockseek "bracket check" citation:** no action. It credits a behaviour that was re-implemented, not copied, which ADR-0002 allows.
 
+**Tranche 3 (2026-10-11):**
+- **Q1, the default login rule:** keep `disabledForLocalAddresses` as the default, and harden it (M-16):
+  - the bypass refuses any request that carries a proxy header;
+  - it requires a LAN-style `Host`: a local IP, `localhost`, a single-label name, or `.local`/`.lan`/`.home.arpa`/`.internal`, plus a `server.allowed_hosts` list;
+  - any other request is asked to log in.
+- **Frame protection (R-059):** blocked by default with CSP `frame-ancestors 'self'`. A `server.frame_ancestors` list lets named dashboards embed Wondarr (M-16).
+- **Q6, file modes:** every file that holds secrets is owner-only (0600) whatever `UMASK` is: `config.yml`, backups, `slskd.yml`, and the database with its `-wal` and `-shm` (M-17).
+- **Defaults taken:**
+  - Q2: download links use a short-lived signed token instead of `?apikey=` (M-16);
+  - Q3: a stored secret is sent only to the host it was saved for (M-17);
+  - Q4: secrets stay masked for unregistered types (M-17);
+  - Q5: `/` and the data directory are refused as shared, download and library folders (M-17).
+
 **Not planned.** Two findings already reached by known backlog items are left there:
 
 - The Mirror delete with no busy check is the known "single song delete vs in-flight downloads" problem. Tranche 5 adds the guard on the Mirror caller only.
