@@ -74,6 +74,25 @@ public sealed class PreMigrationBackupTests : IDisposable
     }
 
     [Fact]
+    public async Task A_backup_that_hangs_is_given_up_on_and_the_migration_is_refused()
+    {
+        UseThePhase0Database();
+        var before = await ReadHistoryAsync();
+        var backups = Substitute.For<IBackupService>();
+        backups.CreatePreMigrationAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                await Task.Delay(Timeout.Infinite, call.Arg<CancellationToken>());
+                return default(BackupItem)!;
+            });
+
+        var act = () => MigrateAsync(backups, TimeSpan.FromMilliseconds(200));
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("did not finish");
+        (await ReadHistoryAsync()).Should().Equal(before);
+    }
+
+    [Fact]
     public async Task Without_a_backup_service_an_existing_database_is_not_migrated()
     {
         UseThePhase0Database();
@@ -176,10 +195,10 @@ public sealed class PreMigrationBackupTests : IDisposable
                 .Options,
             _time);
 
-    private async Task MigrateAsync(IBackupService? backups)
+    private async Task MigrateAsync(IBackupService? backups, TimeSpan? backupTimeout = null)
     {
         await using var context = CreateContext();
-        await new DatabaseMigrator(context, NullLogger<DatabaseMigrator>.Instance, backups).MigrateAsync(CancellationToken.None);
+        await new DatabaseMigrator(context, NullLogger<DatabaseMigrator>.Instance, backups, backupTimeout).MigrateAsync(CancellationToken.None);
     }
 
     private void UseThePhase0Database() =>

@@ -74,6 +74,8 @@ public sealed partial class BackupService : IBackupService
     public static string CurrentVersion => Version;
 
     /// <summary>The folder the backups live in: <c>backup.folder</c>, or the default under the configuration directory.</summary>
+    public string BackupFolder => Folder;
+
     private string Folder => string.IsNullOrWhiteSpace(_options.Value.Folder)
         ? _paths.BackupsDir
         : Path.GetFullPath(_options.Value.Folder);

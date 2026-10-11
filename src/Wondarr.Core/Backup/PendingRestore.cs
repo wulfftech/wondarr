@@ -72,6 +72,9 @@ public static class PendingRestore
 
         try
         {
+            // A .discard left by an earlier crashed attempt is stale: the restore is being started again.
+            DeleteDiscards(paths);
+
             File.WriteAllText(journal, "applying a staged restore; delete this file only if no restore is in progress\n");
 
             // Fold the write-ahead log into the database, so the file set aside is complete by
@@ -91,26 +94,39 @@ public static class PendingRestore
             Install(stagedDatabase, paths.DatabaseFile, moves);
             Install(stagedConfig, paths.ConfigFile, moves);
 
-            // Everything is in place: the staged copy is the install's database now, so the
-            // folder it came from can go, and so can the generation that fell off the end.
-            Directory.Delete(restoreDirectory, recursive: true);
-
-            foreach (var file in discarded)
-            {
-                File.Delete(file);
-            }
-
-            File.Delete(journal);
+            // Everything is in place: the staged copy is the install's database now.
         }
         catch (Exception exception)
         {
-            RollBack(moves);
+            // The journal stays unless the rollback put everything back: a rollback that itself
+            // failed must leave the next start something to recover from.
+            if (RollBack(moves))
+            {
+                DeleteQuietly(journal);
+            }
 
             // The restore folder is left exactly as it was, so the user can inspect what failed.
-            DeleteQuietly(journal);
             message = $"a staged restore could not be applied and was rolled back: {exception.Message}";
             return false;
         }
+
+        // Tidying up after an applied restore must never be reported as a rollback, so none of it
+        // is inside the try above: a locked leftover is only a leftover.
+        try
+        {
+            Directory.Delete(restoreDirectory, recursive: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // An empty restore folder is ignored by the next start.
+        }
+
+        foreach (var file in discarded)
+        {
+            DeleteQuietly(file);
+        }
+
+        DeleteQuietly(journal);
 
         message = "restored the database and config.yml from a staged backup (the previous files are kept as *.pre-restore)";
         return true;
@@ -144,8 +160,19 @@ public static class PendingRestore
 
         if (databaseStaged && configStaged)
         {
-            // Nothing was swapped in. The normal path below starts the restore again.
-            DeleteQuietly(journal);
+            // Nothing was swapped in. The crashed attempt may have set the live database or config
+            // aside, though: put those back first, so starting over (or failing again) never
+            // strands the live files under .pre-restore. The journal stays until the restore completes.
+            try
+            {
+                PutBack(paths);
+                DeleteDiscards(paths);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return $"an interrupted restore could not be undone before starting again and was left as it was (rolled back): {exception.Message}";
+            }
+
             return null;
         }
 
@@ -171,15 +198,7 @@ public static class PendingRestore
             }
 
             // The live database is missing and nothing staged can replace it: put the old files back.
-            foreach (var live in LiveFiles(paths))
-            {
-                var aside = live + PreRestoreSuffix;
-
-                if (!File.Exists(live) && File.Exists(aside))
-                {
-                    File.Move(aside, live);
-                }
-            }
+            PutBack(paths);
 
             DeleteQuietly(journal);
             return "an earlier restore was interrupted before it could finish; the previous files were put back (rolled back)";
@@ -188,6 +207,44 @@ public static class PendingRestore
         {
             // The journal stays, so the next start tries again.
             return $"an interrupted restore could not be completed and was left as it was (rolled back): {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Undoes the set-aside of a crashed attempt for the database and the config: a live file that
+    /// is missing while its <c>.pre-restore</c> exists comes back, and the older generations shift
+    /// down again (the parked <c>.discard</c> returns as <c>.2</c>). The <c>-wal</c> and <c>-shm</c>
+    /// files stay where they are: the database was checkpointed before it was set aside.
+    /// </summary>
+    private static void PutBack(WondarrPaths paths)
+    {
+        foreach (var live in new[] { paths.DatabaseFile, paths.ConfigFile })
+        {
+            var first = live + PreRestoreSuffix;
+
+            if (File.Exists(live) || !File.Exists(first))
+            {
+                continue;
+            }
+
+            File.Move(first, live);
+
+            for (var generation = 1; generation < Generations; generation++)
+            {
+                var older = GenerationPath(first, generation);
+
+                if (File.Exists(older))
+                {
+                    File.Move(older, GenerationPath(first, generation - 1), overwrite: true);
+                }
+            }
+
+            var parked = GenerationPath(first, Generations - 1) + DiscardSuffix;
+
+            if (File.Exists(parked))
+            {
+                File.Move(parked, GenerationPath(first, Generations - 1), overwrite: true);
+            }
         }
     }
 
@@ -294,7 +351,7 @@ public static class PendingRestore
         moves.Add((staged, live));
     }
 
-    /// <summary>Deletes the <c>.discard</c> files a finished restore leaves behind.</summary>
+    /// <summary>Deletes the <c>.discard</c> files a finished or abandoned attempt leaves behind.</summary>
     private static void DeleteDiscards(WondarrPaths paths)
     {
         foreach (var live in LiveFiles(paths))
@@ -310,7 +367,7 @@ public static class PendingRestore
     /// ordering is what matters, and the database is either live or still sitting under its
     /// <c>*.pre-restore</c> name.
     /// </summary>
-    private static void RollBack(List<(string From, string To)> moves)
+    private static bool RollBack(List<(string From, string To)> moves)
     {
         try
         {
@@ -323,10 +380,13 @@ public static class PendingRestore
                     File.Move(to, from, overwrite: true);
                 }
             }
+
+            return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             // Nothing more can be done here; the message the caller logs says the restore failed.
+            return false;
         }
     }
 
