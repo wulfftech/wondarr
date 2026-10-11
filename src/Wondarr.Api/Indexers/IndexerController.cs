@@ -70,7 +70,8 @@ public sealed class IndexerController : ControllerBase
                     field.HelpText,
                     field.Options,
                     field.Secret,
-                    field.Advanced))]))
+                    field.Advanced,
+                    field.Target))]))
             .ToList());
 
     /// <summary>Adds an indexer.</summary>

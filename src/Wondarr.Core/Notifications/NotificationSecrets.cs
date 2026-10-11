@@ -28,8 +28,6 @@ public static class NotificationSecrets
         return SecretWords.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>The settings keys that say where a request goes.</summary>
-    private static readonly string[] TargetNames = ["url", "host", "port", "useSsl"];
 
     /// <summary>
     /// Copies <paramref name="settings"/> with every secret field that has a value replaced by
@@ -124,8 +122,9 @@ public static class NotificationSecrets
     }
 
     /// <summary>
-    /// The normalised place the settings send to: scheme, host and port of a <c>url</c> setting, or the
-    /// <c>host</c>, <c>port</c> and <c>useSsl</c> settings a form splits it into, lower-cased. A URL
+    /// The normalised place the settings send to: the fields the provider flags
+    /// <see cref="NotificationField.Target"/> (a URL, or the host, port and SSL flag a form splits it
+    /// into), a URL reduced to scheme, host and port, everything lower-cased. A URL
     /// base or path is not part of it, because it stays on the same host. A field that is itself a
     /// secret (a Discord webhook URL) is never part of the target. Two settings objects with the same
     /// target may share a stored secret.
@@ -139,21 +138,13 @@ public static class NotificationSecrets
 
         var parts = new List<string>();
 
-        foreach (var name in TargetNames)
+        foreach (var field in fields.Where(field => field.Target && !field.Secret))
         {
-            if (fields.Any(field => field.Secret && string.Equals(field.Name, name, StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
+            var raw = TextOf(settings[field.Name]);
 
-            var raw = TextOf(settings[name]);
-
-            parts.Add(name switch
-            {
-                "url" => UrlTarget(raw),
-                "useSsl" => string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) ? "ssl" : "plain",
-                _ => raw.Trim().ToLowerInvariant(),
-            });
+            parts.Add(field.Type == "checkbox"
+                ? string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) ? "ssl" : "plain"
+                : UrlTarget(raw));
         }
 
         return string.Join('|', parts);

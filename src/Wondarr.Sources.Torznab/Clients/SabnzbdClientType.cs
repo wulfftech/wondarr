@@ -32,9 +32,9 @@ public sealed class SabnzbdClientType : IDownloadClientType
     /// <inheritdoc />
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
-        new("host", "Host", "text", true, "The host SABnzbd listens on, for example 192.168.1.2"),
-        new("port", "Port", "number", false, $"The port SABnzbd listens on; the default is {SabnzbdSettings.DefaultPort}"),
-        new("useSsl", "Use SSL", "checkbox", false, "Whether SABnzbd is served over HTTPS"),
+        new("host", "Host", "text", true, "The host SABnzbd listens on, for example 192.168.1.2", Target: true),
+        new("port", "Port", "number", false, $"The port SABnzbd listens on; the default is {SabnzbdSettings.DefaultPort}", Target: true),
+        new("useSsl", "Use SSL", "checkbox", false, "Whether SABnzbd is served over HTTPS", Target: true),
         new("urlBase", "URL base", "text", false, "SABnzbd's URL base, for example /sabnzbd", Advanced: true),
         new("apiKey", "API key", "password", true, "SABnzbd's API key (Config → General)", Secret: true),
         new("category", "Category", "text", false, $"The category Wondarr's jobs are filed under; create it in SABnzbd first. The default is {SabnzbdSettings.DefaultCategory}"),

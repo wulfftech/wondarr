@@ -846,6 +846,7 @@ function schemaField(
     options: string[] | null;
     secret: boolean;
     advanced: boolean;
+    target: boolean;
   }> = {},
 ) {
   return {
@@ -857,6 +858,8 @@ function schemaField(
     options: extra.options ?? null,
     secret: extra.secret ?? false,
     advanced: extra.advanced ?? false,
+    // The server flags the address fields; in these fixtures that is the one called url.
+    target: extra.target ?? (name === 'url' && !extra.secret),
   };
 }
 

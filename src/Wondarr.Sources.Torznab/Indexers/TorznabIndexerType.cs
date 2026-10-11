@@ -31,7 +31,7 @@ public sealed class TorznabIndexerType : IIndexerType
     /// <inheritdoc />
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
-        new("url", "URL", "text", Required: true, HelpText: "The indexer's Torznab endpoint, for example Prowlarr's or Jackett's per-indexer URL."),
+        new("url", "URL", "text", Required: true, HelpText: "The indexer's Torznab endpoint, for example Prowlarr's or Jackett's per-indexer URL.", Target: true),
         new("apiPath", "API path", "text", Required: false, Advanced: true, HelpText: "The path the Torznab API lives under; /api unless the indexer says otherwise."),
         new("apiKey", "API key", "password", Required: false, Secret: true, HelpText: "The key the indexer expects in the apikey parameter."),
         new("categories", "Categories", "text", Required: false, HelpText: "The newznab category ids to search, comma-separated; 3000 is music."),

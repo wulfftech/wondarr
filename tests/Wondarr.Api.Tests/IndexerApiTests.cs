@@ -477,7 +477,7 @@ public sealed class IndexerApiTests
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("url", "Base URL", "url", Required: true),
+            new("url", "Base URL", "url", Required: true, Target: true),
             new("apiKey", "API Key", "password", Required: false, Secret: true),
         ];
 
@@ -508,7 +508,7 @@ public sealed class IndexerApiTests
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("url", "Prowlarr URL", "url", Required: true),
+            new("url", "Prowlarr URL", "url", Required: true, Target: true),
         ];
 
         public IReadOnlyList<string> Validate(JsonElement settings) => [];
@@ -526,7 +526,7 @@ public sealed class IndexerApiTests
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("url", "URL", "url", Required: true),
+            new("url", "URL", "url", Required: true, Target: true),
         ];
 
         public IReadOnlyList<string> Validate(JsonElement settings) => [];
@@ -544,7 +544,7 @@ public sealed class IndexerApiTests
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("url", "URL", "url", Required: true),
+            new("url", "URL", "url", Required: true, Target: true),
         ];
 
         public IReadOnlyList<string> Validate(JsonElement settings) => [];

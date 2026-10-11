@@ -5338,6 +5338,7 @@ export interface components {
             options: null | string[];
             secret: boolean;
             advanced: boolean;
+            target: boolean;
         };
         DownloadClientInputResource: {
             name: null | string;
@@ -5532,6 +5533,7 @@ export interface components {
             options: null | string[];
             secret: boolean;
             advanced: boolean;
+            target: boolean;
         };
         IndexerInputResource: {
             name: null | string;
@@ -5711,6 +5713,7 @@ export interface components {
             options: null | string[];
             secret: boolean;
             advanced: boolean;
+            target: boolean;
         };
         NotificationInputResource: {
             name: null | string;
