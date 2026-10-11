@@ -249,7 +249,7 @@ public sealed class SoulseekSettingsServiceTests
     }
 
     [Fact]
-    public async Task Switching_to_external_writes_the_nested_keys_and_says_wondarr_restarts()
+    public async Task Switching_to_external_writes_the_nested_keys_and_restarts_nothing()
     {
         var writer = new RecordingWriter();
 
@@ -258,7 +258,6 @@ public sealed class SoulseekSettingsServiceTests
             CancellationToken.None);
 
         result.Success.Should().BeTrue(string.Join("; ", result.Errors));
-        result.RestartsWondarr.Should().BeTrue();
         result.RestartsSlskd.Should().BeFalse();
         writer.Calls.Should().ContainSingle().Which.Values.Should()
             .Contain("mode", "external").And.Contain("external:url", "http://slskd:5030").And.ContainKey("external:api_key");

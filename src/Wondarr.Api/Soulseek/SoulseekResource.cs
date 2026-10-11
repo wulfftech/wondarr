@@ -121,8 +121,7 @@ public sealed record SoulseekSettingsUpdateResource(
 /// <summary>What a successful settings change returns: the stored settings and whether slskd restarts.</summary>
 /// <param name="Settings">The settings as they are now stored.</param>
 /// <param name="RestartsSlskd">Whether the change is one the supervisor restarts slskd for.</param>
-/// <param name="RestartsWondarr">Whether the change (a new mode) takes effect only when Wondarr restarts.</param>
-public sealed record SoulseekSettingsUpdateResponseResource(SoulseekSettingsResource Settings, bool RestartsSlskd, bool RestartsWondarr);
+public sealed record SoulseekSettingsUpdateResponseResource(SoulseekSettingsResource Settings, bool RestartsSlskd);
 
 /// <summary>A connection test against a user's own slskd. A missing key means the stored one.</summary>
 /// <param name="Url">The slskd URL to try.</param>

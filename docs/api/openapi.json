@@ -11037,8 +11037,7 @@
       "SoulseekSettingsUpdateResponseResource": {
         "required": [
           "settings",
-          "restartsSlskd",
-          "restartsWondarr"
+          "restartsSlskd"
         ],
         "type": "object",
         "properties": {
@@ -11046,9 +11045,6 @@
             "$ref": "#/components/schemas/SoulseekSettingsResource"
           },
           "restartsSlskd": {
-            "type": "boolean"
-          },
-          "restartsWondarr": {
             "type": "boolean"
           }
         }

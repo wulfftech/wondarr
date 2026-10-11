@@ -33,7 +33,6 @@ export function SoulseekConnectionCard({ settings }: { settings: SoulseekSetting
   const [url, setUrl] = useState(settings.externalUrl ?? '');
   const [apiKey, setApiKey] = useState('');
   const [rescan, setRescan] = useState(settings.externalRescanShares);
-  const [restartNeeded, setRestartNeeded] = useState(false);
 
   const save = () => {
     update.mutate(
@@ -45,9 +44,8 @@ export function SoulseekConnectionCard({ settings }: { settings: SoulseekSetting
         externalRescanShares: mode === 'external' ? rescan : undefined,
       },
       {
-        onSuccess: (result) => {
+        onSuccess: () => {
           setApiKey('');
-          setRestartNeeded(result.restartsWondarr);
         },
       },
     );
@@ -112,11 +110,6 @@ export function SoulseekConnectionCard({ settings }: { settings: SoulseekSetting
         {update.error !== null && (
           <Alert color="red" title="The connection could not be saved">
             {update.error.message}
-          </Alert>
-        )}
-        {restartNeeded && (
-          <Alert color="blue" data-testid="soulseek-restart-notice">
-            Saved. Restart Wondarr to switch to {mode === 'external' ? 'your own slskd' : 'the bundled slskd'}.
           </Alert>
         )}
 
