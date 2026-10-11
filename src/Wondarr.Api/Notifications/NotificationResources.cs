@@ -49,6 +49,7 @@ public sealed record NotificationInputResource(
 /// <param name="Options">The choices of a select, or <see langword="null"/>.</param>
 /// <param name="Secret">Whether the value is masked on read.</param>
 /// <param name="Advanced">Whether the control belongs in the advanced section.</param>
+/// <param name="Target">Whether the value says where secrets are sent; changing it means a masked secret must be typed again.</param>
 public sealed record NotificationFieldResource(
     string Name,
     string Label,
@@ -57,7 +58,8 @@ public sealed record NotificationFieldResource(
     string? HelpText,
     IReadOnlyList<string>? Options,
     bool Secret,
-    bool Advanced);
+    bool Advanced,
+    bool Target);
 
 /// <summary>One registered provider and the form it wants.</summary>
 /// <param name="Implementation">The provider's implementation name.</param>

@@ -89,13 +89,6 @@ export function initialValues(
   return { values, masked };
 }
 
-/**
- * The settings that say where a request goes, by the names the server uses (R-038): a URL, or the
- * host, port and SSL flag a form splits it into. A secret field that is itself the address (a
- * Discord webhook URL) is never part of it.
- */
-const TARGET_NAMES = ['url', 'host', 'port', 'useSsl'];
-
 /** A URL as scheme, host and port, lower-cased, so two spellings of one server compare equal. */
 // Shared with the Soulseek connection card, which compares one address, so the fast-refresh export rule does not apply.
 // eslint-disable-next-line react-refresh/only-export-components
@@ -118,16 +111,17 @@ export function urlTarget(raw: string): string {
 // Shared with the pages that render a provider's form, so the fast-refresh export rule does not apply.
 // eslint-disable-next-line react-refresh/only-export-components
 export function targetOf(fields: NotificationFieldResource[], values: Record<string, unknown>): string {
-  return TARGET_NAMES.filter((name) => !fields.some((field) => field.secret && field.name === name))
-    .map((name) => {
-      const raw = values[name];
-      const text = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '';
+  // The server decides which fields are the target and sends the flag; a secret that is itself the address has none.
+  return fields
+    .filter((field) => field.target && !field.secret)
+    .map((field) => {
+      const raw = values[field.name];
 
-      if (name === 'url') {
-        return urlTarget(text);
+      if (field.type === 'checkbox') {
+        return raw === true ? 'ssl' : 'plain';
       }
 
-      return name === 'useSsl' ? (raw === true ? 'ssl' : 'plain') : text.trim().toLowerCase();
+      return urlTarget(typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '');
     })
     .join('|');
 }

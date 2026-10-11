@@ -31,7 +31,7 @@ public sealed class NewznabIndexerType : IIndexerType
     /// <inheritdoc />
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
-        new("url", "URL", "text", Required: true, HelpText: "The indexer's Newznab endpoint."),
+        new("url", "URL", "text", Required: true, HelpText: "The indexer's Newznab endpoint.", Target: true),
         new("apiPath", "API path", "text", Required: false, Advanced: true, HelpText: "The path the Newznab API lives under; /api unless the indexer says otherwise."),
         new("apiKey", "API key", "password", Required: false, Secret: true, HelpText: "The key the indexer expects in the apikey parameter."),
         new("categories", "Categories", "text", Required: false, HelpText: "The newznab category ids to search, comma-separated; 3000 is music."),

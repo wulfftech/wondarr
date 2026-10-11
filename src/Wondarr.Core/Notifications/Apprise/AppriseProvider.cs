@@ -63,7 +63,8 @@ public sealed partial class AppriseProvider : INotificationProvider
             "Apprise Server URL",
             "url",
             Required: true,
-            HelpText: "The Apprise API server, including http(s):// and the port."),
+            HelpText: "The Apprise API server, including http(s):// and the port.",
+            Target: true),
         new(
             "configurationKey",
             "Configuration Key",

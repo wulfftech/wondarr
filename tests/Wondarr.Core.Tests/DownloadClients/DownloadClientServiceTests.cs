@@ -256,7 +256,7 @@ public sealed class DownloadClientServiceTests : IDisposable
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("url", "URL", "url", Required: true),
+            new("url", "URL", "url", Required: true, Target: true),
             new("password", "Password", "password", Required: false, Secret: true),
         ];
 

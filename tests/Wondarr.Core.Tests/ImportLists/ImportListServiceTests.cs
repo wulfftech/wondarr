@@ -463,7 +463,7 @@ public sealed class ImportListServiceTests : IDisposable
         public string DisplayName => "Fake";
 
         public IReadOnlyList<NotificationField> Fields { get; } =
-            [new("url", "URL", "url", false), new("apiKey", "API key", "password", false, Secret: true)];
+            [new("url", "URL", "url", false, Target: true), new("apiKey", "API key", "password", false, Secret: true)];
 
         public IReadOnlyList<string> Validate(JsonElement settings, string? sourceText) => [];
 

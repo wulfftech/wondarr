@@ -5819,7 +5819,8 @@
           "helpText",
           "options",
           "secret",
-          "advanced"
+          "advanced",
+          "target"
         ],
         "type": "object",
         "properties": {
@@ -5854,6 +5855,9 @@
             "type": "boolean"
           },
           "advanced": {
+            "type": "boolean"
+          },
+          "target": {
             "type": "boolean"
           }
         }
@@ -6639,7 +6643,8 @@
           "helpText",
           "options",
           "secret",
-          "advanced"
+          "advanced",
+          "target"
         ],
         "type": "object",
         "properties": {
@@ -6674,6 +6679,9 @@
             "type": "boolean"
           },
           "advanced": {
+            "type": "boolean"
+          },
+          "target": {
             "type": "boolean"
           }
         }
@@ -7480,7 +7488,8 @@
           "helpText",
           "options",
           "secret",
-          "advanced"
+          "advanced",
+          "target"
         ],
         "type": "object",
         "properties": {
@@ -7515,6 +7524,9 @@
             "type": "boolean"
           },
           "advanced": {
+            "type": "boolean"
+          },
+          "target": {
             "type": "boolean"
           }
         }

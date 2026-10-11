@@ -15,9 +15,9 @@ public sealed class NotificationSecretsTests
     /// <summary>The fields of a client that splits its address into host, port and SSL, as qBittorrent does.</summary>
     private static readonly IReadOnlyList<NotificationField> SplitFields =
     [
-        new("host", "Host", "text", Required: true),
-        new("port", "Port", "number", Required: false),
-        new("useSsl", "Use SSL", "checkbox", Required: false),
+        new("host", "Host", "text", Required: true, Target: true),
+        new("port", "Port", "number", Required: false, Target: true),
+        new("useSsl", "Use SSL", "checkbox", Required: false, Target: true),
         new("urlBase", "URL base", "text", Required: false),
         new("username", "Username", "text", Required: false),
         new("password", "Password", "password", Required: false, Secret: true),

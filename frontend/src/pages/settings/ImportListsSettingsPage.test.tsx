@@ -33,6 +33,7 @@ const IMPORT_LIST_SCHEMA = [
         options: null,
         secret: false,
         advanced: false,
+        target: false,
       },
     ],
   },
@@ -49,6 +50,7 @@ const IMPORT_LIST_SCHEMA = [
         options: null,
         secret: false,
         advanced: false,
+        target: false,
       },
       {
         name: 'artistColumn',
@@ -59,6 +61,7 @@ const IMPORT_LIST_SCHEMA = [
         options: null,
         secret: false,
         advanced: false,
+        target: false,
       },
     ],
   },

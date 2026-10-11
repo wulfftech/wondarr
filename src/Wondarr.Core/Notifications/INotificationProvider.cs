@@ -39,6 +39,7 @@ public interface INotificationProvider
 /// <param name="Options">The choices of a <c>select</c>, or <see langword="null"/>.</param>
 /// <param name="Secret">Whether the value is masked on read and kept when the update sends the mask back.</param>
 /// <param name="Advanced">Whether the control belongs in the form's advanced section.</param>
+/// <param name="Target">Whether the value says where the secrets are sent (a URL, or a host, port or SSL flag). A stored secret is reused only while the target is unchanged.</param>
 public sealed record NotificationField(
     string Name,
     string Label,
@@ -47,4 +48,5 @@ public sealed record NotificationField(
     string? HelpText = null,
     IReadOnlyList<string>? Options = null,
     bool Secret = false,
-    bool Advanced = false);
+    bool Advanced = false,
+    bool Target = false);
