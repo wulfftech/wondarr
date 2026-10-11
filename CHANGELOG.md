@@ -4,6 +4,12 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-10-11
+
+Fixes from a full code review of 0.1.0 (`docs/reviews/CODE_REVIEW_2026-10-10.md`): files that move are always recorded, compaction can no longer get stuck, a slow slskd or indexer no longer stops the app or a search batch, and the release workflow publishes an image only after its tests and smoke checks pass. Update by pulling `:0.1` (or `:0.1.1`).
+
+**Upgrading from 0.1.0:** the first start applies one database migration and, before it, writes a backup to `/config/backups/scheduled/` (named `wondarr_pre-unknown_…zip` this once, since 0.1.0 did not record its version). Leave about twice the database's size free in `/config`; if the backup cannot be written, Wondarr stops before changing anything and says why in the log.
+
 ### Added
 - **An automatic backup before an upgrade migrates your database.** When a new version has database changes to apply, Wondarr first writes a backup (`wondarr_pre-<previous version>_<time>.zip`, in the scheduled backups, cleared out by the usual retention). If that backup fails, nothing is migrated and Wondarr does not start, so a failed upgrade can always be rolled back.
 - **Restores keep the last three sets of replaced files** (`*.pre-restore`, `.pre-restore.1`, `.pre-restore.2`), and a restore that is interrupted part-way is finished at the next start instead of leaving a fresh `config.yml` with a new API key. How to undo a restore is in the deployment guide.
