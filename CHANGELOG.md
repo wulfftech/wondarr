@@ -4,6 +4,16 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Security
+- **The "no login for local addresses" default is harder to abuse.** Under `auth_required: disabledForLocalAddresses` a request skips the login only if it carries none of the proxy headers (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Via`, `X-Original-For`), comes from a private address, and names a local-looking `Host` (an IP address, `localhost`, a name with no dot, or one ending in `.local`, `.lan`, `.home.arpa` or `.internal`). A reverse proxy that sends only `X-Real-IP` or `Forwarded` no longer hands the API key to the internet, and a web page that rebinds its own name to your LAN address can no longer read `/initialize.json`. First-login setup uses the same rule. A request that fails it simply needs a login. New `server.allowed_hosts` in `config.yml` lists extra names (exact, or `*.suffix`) that count as local.
+- **Changing the username or password signs every other browser out.** The session cookie now carries a stamp of the stored credentials; the browser that made the change stays signed in. Cookies issued by an earlier version end once, so everyone signs in again after this update.
+- **Sign-in is throttled.** `POST /login` and `POST /login/setup` allow 10 attempts a minute per address and run at most two password checks at once; past either limit the answer is `429` with `Retry-After`, and the login page says "Too many sign-in attempts. Wait a minute and try again."
+- **Backups and log files download without the API key in the address.** The UI fetches a token that is good for one path and 60 seconds (`POST /api/v1/system/download-token`) and links with `?token=`. `?apikey=` still works for scripts.
+- **The web UI cannot be framed by other sites.** HTML responses carry `Content-Security-Policy: frame-ancestors 'self'` (and `X-Frame-Options: SAMEORIGIN`). Add the origin of a dashboard that embeds Wondarr to the new `server.frame_ancestors` list.
+
+### Fixed
+- **The login cookie is `Secure` behind a TLS-terminating proxy.** It is marked `Secure` when the request is HTTPS or the first `X-Forwarded-Proto` value is `https`.
+
 ## [0.1.1] — 2026-10-11
 
 Fixes from a full code review of 0.1.0 (`docs/reviews/CODE_REVIEW_2026-10-10.md`): files that move are always recorded, compaction can no longer get stuck, a slow slskd or indexer no longer stops the app or a search batch, and the release workflow publishes an image only after its tests and smoke checks pass. Update by pulling `:0.1` (or `:0.1.1`).
