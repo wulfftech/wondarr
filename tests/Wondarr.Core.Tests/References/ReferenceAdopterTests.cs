@@ -51,6 +51,42 @@ public sealed class ReferenceAdopterTests : IDisposable
 
     private string LibraryRoot => Path.Combine(_temp, "library");
 
+    [Fact]
+    public async Task A_song_whose_file_is_locked_by_another_task_is_adopted_only_after_the_lock_is_released()
+    {
+        await using var context = await ContextAsync();
+        var (target, reference) = await LibrariesAsync(context, ReferenceLibraryMode.Adopt);
+        var artist = await ArtistAsync(context);
+        var song = await SongAsync(context, artist.Id, target.Id);
+        var row = await ReferenceFileAsync(context, reference.Id, song.Id);
+        await SongFileAsync(context, song.Id, AbsolutePath(row.RelativePath), SourceTypes.Reference);
+        context.ChangeTracker.Clear();
+
+        // An import (or a compaction, or another adoption) holds the song's file.
+        var songFileLock = new SongFileLock();
+        var held = await songFileLock.AcquireAsync(song.Id, CancellationToken.None);
+
+        var adopter = new ReferenceAdopter(
+            context,
+            _organizer,
+            _events,
+            songFileLock,
+            _time,
+            NullLogger<ReferenceAdopter>.Instance);
+
+        var adopting = adopter.AdoptAsync(reference.Id, null, CancellationToken.None);
+
+        // While the lock is held the adopter has not got as far as the organizer.
+        var waiting = async () => await adopting.WaitAsync(TimeSpan.FromMilliseconds(300));
+        await waiting.Should().ThrowAsync<TimeoutException>("the adopter waits for the song's file lock");
+        _organizer.Requests.Should().BeEmpty();
+
+        await held.DisposeAsync();
+
+        (await adopting.WaitAsync(TimeSpan.FromSeconds(30))).Should().Be(new ReferenceAdoptResult(1, 0, 0));
+        _organizer.Requests.Should().ContainSingle();
+    }
+
     // --- The file ------------------------------------------------------------------------------
 
     [Fact]
@@ -457,7 +493,7 @@ public sealed class ReferenceAdopterTests : IDisposable
     }
 
     private ReferenceAdopter Adopter(WondarrDbContext context) =>
-        new(context, _organizer, _events, _time, NullLogger<ReferenceAdopter>.Instance);
+        new(context, _organizer, _events, new SongFileLock(), _time, NullLogger<ReferenceAdopter>.Instance);
 
     private static ReferenceAdoptCommandHandler Handler(ServiceProvider provider) =>
         new(

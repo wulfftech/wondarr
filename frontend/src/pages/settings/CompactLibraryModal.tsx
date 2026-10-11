@@ -24,7 +24,9 @@ import { ErrorState, LoadingState } from '../../components/DataState';
 const EXPLANATION =
   "Re-plans every song's album under this library's album policy, as if the library were built today. " +
   'Songs you placed on an album yourself are kept. Files move to their new album folders; Plex is told ' +
-  'to forget the old albums first.';
+  'to forget the old albums first. ' +
+  "Plex's trash is emptied only when every folder of the section is reachable; otherwise moved songs " +
+  'show as unavailable in Plex until you empty its trash.';
 
 /** How an album reads in a move: its title, and its artist when that is not the song's own. */
 function albumText(album: CompactAlbumResource): string {

@@ -49,6 +49,17 @@ public interface IPlexServerClient
     Task<bool> IsRefreshingAsync(Uri server, string token, string sectionKey, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Reads one server preference from <c>GET /:/prefs</c>, which lists <c>Setting</c> elements with an
+    /// <c>id</c>, a <c>type</c> and a <c>value</c> (python-plexapi's <c>settings.py</c>).
+    /// </summary>
+    /// <param name="server">The server URL.</param>
+    /// <param name="token">The token to send.</param>
+    /// <param name="settingId">The preference id, for example <c>autoEmptyTrash</c>.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The raw value as text, or <see langword="null"/> when the server does not list the setting.</returns>
+    Task<string?> GetPreferenceAsync(Uri server, string token, string settingId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Finds a section's tracks by title, with the files each one is made of — enough to find the
     /// rating key of the track a file is (<c>GET /library/sections/{key}/all?type=10&amp;title=</c>).
     /// </summary>
@@ -228,6 +239,53 @@ public sealed class PlexServerClient : IPlexServerClient
         return sections
             .FirstOrDefault(section => string.Equals(section.Key, sectionKey, StringComparison.Ordinal))
             ?.Refreshing ?? false;
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> GetPreferenceAsync(
+        Uri server,
+        string token,
+        string settingId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(settingId);
+
+        // The leading "./" keeps the colon from reading as a URI scheme.
+        var request = await NewRequestAsync(HttpMethod.Get, server, "./:/prefs", token, cancellationToken)
+            .ConfigureAwait(false);
+
+        using (request)
+        {
+            var body = await SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+            using var document = PlexHttp.Parse(body, request, Subject);
+            var container = PlexJson.Child(document.RootElement, "MediaContainer") ?? document.RootElement;
+
+            foreach (var setting in PlexJson.Items(PlexJson.Child(container, "Setting")))
+            {
+                if (!string.Equals(PlexJson.Text(setting, "id"), settingId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                // The value is a string, a number or a bool, depending on the setting's type.
+                if (!setting.TryGetProperty("value", out var value))
+                {
+                    return null;
+                }
+
+                return value.ValueKind switch
+                {
+                    JsonValueKind.String => value.GetString(),
+                    JsonValueKind.Number => value.GetRawText(),
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    _ => null,
+                };
+            }
+
+            return null;
+        }
     }
 
     /// <summary>

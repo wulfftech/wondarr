@@ -11,6 +11,8 @@ using Wondarr.Core.Organizer;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
+using Wondarr.Core.Sources;
+using Wondarr.Core.Compaction;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -81,6 +83,7 @@ public interface ISongService
     /// <param name="id">The song id.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns><see langword="true"/> when a song was deleted.</returns>
+    /// <exception cref="SongsCompactingException">A Compact run has the song's file in flight.</exception>
     Task<bool> DeleteAsync(long id, CancellationToken cancellationToken);
 
     /// <summary>Reads the releases a song could be filed under, for the album picker.</summary>
@@ -93,9 +96,13 @@ public interface ISongService
     /// <param name="songId">The song id.</param>
     /// <param name="albumKey">One of the song's release option keys, or the literal <c>singles</c>.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>The updated song, or <see langword="null"/> when the id is unknown.</returns>
+    /// <returns>
+    /// The updated song and the id of the command that will re-file its managed file, or
+    /// <see langword="null"/> when the id is unknown.
+    /// </returns>
     /// <exception cref="ArgumentException">The key is not one of the song's release options.</exception>
-    Task<Song?> SetAlbumContextAsync(long songId, string albumKey, CancellationToken cancellationToken);
+    /// <exception cref="SongsCompactingException">A Compact run has the song's file in flight.</exception>
+    Task<AlbumContextChange?> SetAlbumContextAsync(long songId, string albumKey, CancellationToken cancellationToken);
 
     /// <summary>
     /// Re-plans every song of a library under its album policy as if none were placed yet, and returns
@@ -424,6 +431,13 @@ public sealed partial class SongService : ISongService
             return false;
         }
 
+        // A song whose file a compaction has parked in staging would lose the only thing that points
+        // at it; the mover refuses such a song the same way.
+        if (await HasUnfinishedMoveAsync(id, cancellationToken).ConfigureAwait(false))
+        {
+            throw new SongsCompactingException([id]);
+        }
+
         // The credits, the album context and the file row cascade in the database; the artists stay.
         _database.Songs.Remove(song);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -455,13 +469,17 @@ public sealed partial class SongService : ISongService
     }
 
     /// <inheritdoc />
-    public async Task<Song?> SetAlbumContextAsync(long songId, string albumKey, CancellationToken cancellationToken)
+    public async Task<AlbumContextChange?> SetAlbumContextAsync(
+        long songId,
+        string albumKey,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(albumKey);
 
         var song = await _database.Songs
             .Include(candidate => candidate.PrimaryArtist)
             .Include(candidate => candidate.AlbumContext)
+            .Include(candidate => candidate.File)
             .FirstOrDefaultAsync(candidate => candidate.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -469,6 +487,15 @@ public sealed partial class SongService : ISongService
         {
             return null;
         }
+
+        // A compaction that has this song staged would apply its own plan over the choice, and the
+        // song would stay pinned to the wrong album.
+        if (await HasUnfinishedMoveAsync(songId, cancellationToken).ConfigureAwait(false))
+        {
+            throw new SongsCompactingException([songId]);
+        }
+
+        var previousKey = song.AlbumContext?.AlbumKey;
 
         var identity = await _resolver
             .GetIdentityAsync(song.MbRecordingId, song.DeezerId, cancellationToken)
@@ -520,8 +547,44 @@ public sealed partial class SongService : ISongService
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return song;
+        // A managed file follows the album it is filed under: it moves to the folder the naming
+        // template renders for the new album and is retagged. A reference file is the user's own and a
+        // song without a file has nothing to move, so for those only the database changed.
+        long? refileCommandId = null;
+
+        if (song.File is { } file
+            && !string.Equals(file.SourceType, SourceTypes.Reference, StringComparison.Ordinal)
+            && !string.Equals(previousKey, context.AlbumKey, StringComparison.Ordinal))
+        {
+            try
+            {
+                var command = await _commands
+                    .EnqueueAsync(
+                        RefileSongCommandHandler.CommandName,
+                        RefileSongCommandHandler.BodyFor(song.Id),
+                        CommandTrigger.Manual,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                refileCommandId = command.Id;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The choice is saved; the file stays where it is and a later Compact files it.
+                LogRefileNotQueued(_logger, song.Id, exception.Message);
+            }
+        }
+
+        return new AlbumContextChange(song, refileCommandId);
     }
+
+    /// <summary>Whether a Compact run still has a move in flight for the song.</summary>
+    private async Task<bool> HasUnfinishedMoveAsync(long songId, CancellationToken cancellationToken) =>
+        await _database.CompactMoves
+            .AsNoTracking()
+            .Where(CompactMoveRules.IsUnfinished)
+            .AnyAsync(row => row.SongId == songId, cancellationToken)
+            .ConfigureAwait(false);
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ReplannedSong>> ReplanLibraryAsync(
@@ -1467,6 +1530,9 @@ public sealed partial class SongService : ISongService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Queueing {Command} for {Count} added songs failed; the scheduled MissingSearch is the fallback")]
     private static partial void LogSearchOnAddFailed(ILogger logger, string command, int count, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Queueing a re-file of song {SongId} after its album was chosen failed: {Reason}")]
+    private static partial void LogRefileNotQueued(ILogger logger, long songId, string reason);
 
     /// <summary>An album the library holds, as the policy engine reads it, plus the covers to reuse.</summary>
     private sealed record LibraryAlbums(

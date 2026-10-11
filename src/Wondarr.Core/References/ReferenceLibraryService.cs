@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
 
@@ -140,14 +143,23 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
     };
 
     private readonly WondarrDbContext _database;
+    private readonly IOptionsMonitor<ImportOptions> _importOptions;
+    private readonly WondarrPaths _paths;
 
     /// <summary>Initialises a new instance of the <see cref="ReferenceLibraryService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
-    public ReferenceLibraryService(WondarrDbContext database)
+    public ReferenceLibraryService(
+        WondarrDbContext database,
+        IOptionsMonitor<ImportOptions> importOptions,
+        WondarrPaths paths)
     {
         ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(importOptions);
+        ArgumentNullException.ThrowIfNull(paths);
 
         _database = database;
+        _importOptions = importOptions;
+        _paths = paths;
     }
 
     /// <inheritdoc />
@@ -403,6 +415,21 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {
             throw new ReferenceLibraryValidationException("rootPath", "rootPath is not a usable path.");
+        }
+
+        // The recycle bin's cleanup deletes files older than N days anywhere under it, so a reference
+        // library (the user's own collection) must never overlap it: be it, hold it or sit inside it.
+        // The bin that is really used: the configured one made absolute, or <config>/recycle.
+        var bin = _importOptions.CurrentValue.ResolveRecycleBinPath(_paths);
+
+        if (PathRules.IsInside(bin, rootPath) || PathRules.IsInside(rootPath, bin))
+        {
+            throw new ReferenceLibraryValidationException(
+                "rootPath",
+                string.Concat(
+                    "The reference library's folder overlaps the recycle bin (",
+                    bin,
+                    "); choose another folder."));
         }
 
         var managed = await _database.Libraries
