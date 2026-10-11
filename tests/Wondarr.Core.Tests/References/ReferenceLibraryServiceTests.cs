@@ -1,3 +1,4 @@
+using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -316,10 +317,44 @@ public class ReferenceLibraryServiceTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task A_root_inside_the_default_recycle_bin_is_refused()
+    {
+        await using var context = await ContextAsync();
+        var inside = Path.Combine(ConfigDir, "recycle", "collection");
+        var input = new ReferenceLibraryInput("Mine", inside, ReferenceLibraryMode.Reference, null, true);
+
+        var add = async () => await Service(context).AddAsync(input, CancellationToken.None);
+
+        (await add.Should().ThrowAsync<ReferenceLibraryValidationException>())
+            .Which.Detail.Should().Contain("overlaps the recycle bin").And.Contain(Path.Combine(ConfigDir, "recycle"));
+    }
+
+    [Fact]
+    public async Task A_relative_recycle_bin_path_is_compared_as_the_absolute_path_it_resolves_to()
+    {
+        await using var context = await ContextAsync();
+        var input = new ReferenceLibraryInput(
+            "Mine",
+            Path.Combine(Path.GetFullPath("relative-bin"), "collection"),
+            ReferenceLibraryMode.Reference,
+            null,
+            true);
+
+        var add = async () => await Service(context, "relative-bin").AddAsync(input, CancellationToken.None);
+
+        await add.Should().ThrowAsync<ReferenceLibraryValidationException>();
+    }
+
     // --- Helpers --------------------------------------------------------------------------------
 
+    private static readonly string ConfigDir = Path.GetFullPath("/wondarr-test-config");
+
     private static ReferenceLibraryService Service(WondarrDbContext context, string? recycleBin = null) =>
-        new(context, new TestOptionsMonitor<ImportOptions>(new ImportOptions { RecycleBinPath = recycleBin }));
+        new(
+            context,
+            new TestOptionsMonitor<ImportOptions>(new ImportOptions { RecycleBinPath = recycleBin }),
+            new WondarrPaths(ConfigDir));
 
     private static SongFile WithSourceRef(SongFile file, string sourceRef)
     {

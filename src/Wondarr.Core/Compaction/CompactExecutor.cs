@@ -43,10 +43,18 @@ public interface ICompactExecutor
     /// <param name="libraryId">The library to compact.</param>
     /// <param name="progress">Called with a one-line progress message, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">Cancels the run between steps.</param>
+    /// <param name="resumeOnly">
+    /// Only finish or give up the rows an earlier run left; never plan anew. The start-up path asks for
+    /// this, so a restart can never apply a plan nobody confirmed.
+    /// </param>
     /// <returns>How the run's moves ended.</returns>
     /// <exception cref="KeyNotFoundException">The library does not exist.</exception>
     /// <exception cref="InvalidOperationException">A compaction of this library is already running.</exception>
-    Task<CompactResult> RunAsync(long libraryId, Func<string, Task>? progress, CancellationToken cancellationToken);
+    Task<CompactResult> RunAsync(
+        long libraryId,
+        Func<string, Task>? progress,
+        CancellationToken cancellationToken,
+        bool resumeOnly = false);
 }
 
 /// <summary>
@@ -177,7 +185,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
     public async Task<CompactResult> RunAsync(
         long libraryId,
         Func<string, Task>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool resumeOnly = false)
     {
         var gate = Gates.GetOrAdd(libraryId, _ => new SemaphoreSlim(1, 1));
 
@@ -189,7 +198,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
         try
         {
-            return await RunLockedAsync(libraryId, progress, cancellationToken).ConfigureAwait(false);
+            return await RunLockedAsync(libraryId, progress, resumeOnly, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -201,6 +210,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     private async Task<CompactResult> RunLockedAsync(
         long libraryId,
         Func<string, Task>? progress,
+        bool resumeOnly,
         CancellationToken cancellationToken)
     {
         var library = await _database.Libraries
@@ -305,16 +315,25 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
             LogResuming(_logger, libraryId, resumed);
         }
+        else if (resumeOnly)
+        {
+            // A restart finishes or gives up what was left; it never plans anew.
+            return new CompactResult(0, 0, failed, 0, givenUp, stranded.Count == 0 ? null : stranded);
+        }
         else
         {
             // The rows of the last run are spent — placed, given up on, or failed with their file where
             // it was — so the plan replaces them. A failed row must not block every later compaction:
             // its message was logged when it failed, and its file never left its folder (or is recorded
             // at the path it was placed at).
-            var spent = await _database.CompactMoves
-                .Where(row => row.LibraryId == libraryId && !kept.Contains(row.Id))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
+            var spent = (await _database.CompactMoves
+                    .Where(row => row.LibraryId == libraryId && !kept.Contains(row.Id))
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false))
+                // A given-up row whose file still sits in the staging folder stays, so the health
+                // check keeps warning about it until the file is dealt with.
+                .Where(row => !IsStranded(row))
+                .ToList();
 
             var dropped = spent.Count(row => row.State == CompactMoveState.Failed);
 
@@ -435,7 +454,10 @@ public sealed partial class CompactExecutor : ICompactExecutor
                 // The staged file is not in staging. A run that was stopped between placing the file
                 // and recording it left it at its new path (or at a "(n)" variant of it), so look
                 // there before calling the move failed; nothing is deleted either way.
-                if (await RecordPlacedFileAsync(library, row, cancellationToken).ConfigureAwait(false))
+                var (recorded, reason) = await RecordPlacedFileAsync(library, row, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (recorded)
                 {
                     moved++;
                 }
@@ -446,7 +468,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
                             CompactMoveState.Failed,
                             staged: null,
                             final: null,
-                            message: "the staged file is no longer in the staging folder")
+                            message: reason ?? "the staged file is no longer in the staging folder")
                         .ConfigureAwait(false);
 
                     failed++;
@@ -492,6 +514,12 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// </summary>
     private Move? ParkedMoveOf(Library library, CompactMoveRecord row)
     {
+        // A closed row is never resumed or given up on again.
+        if (row.State == CompactMoveState.GivenUp)
+        {
+            return null;
+        }
+
         if (row.State is CompactMoveState.Planned or CompactMoveState.Staged)
         {
             return Move.Of(row);
@@ -528,6 +556,13 @@ public sealed partial class CompactExecutor : ICompactExecutor
         return null;
     }
 
+    /// <summary>Whether a given-up row's file is still in the staging folder.</summary>
+    private bool IsStranded(CompactMoveRecord row) =>
+        row.State == CompactMoveState.GivenUp
+        && row.FinalPath is not null
+        && row.FinalPath.Contains(StagingFolderName, StringComparison.Ordinal)
+        && _disk.FileExists(row.FinalPath);
+
     /// <summary>
     /// A move whose song was deleted: its staged file (and the lyrics beside it) goes to the recycle bin
     /// and the row is closed with a reason that names the file. The song cannot be re-filed, and nothing
@@ -536,6 +571,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <returns><see langword="false"/> when the recycle bin refused the file, which stays where it is.</returns>
     private async Task<bool> DropOrphanAsync(Library library, Move row)
     {
+        await using var guard = await _songFileLock.AcquireAsync(row.SongId, CancellationToken.None).ConfigureAwait(false);
+
         var staged = StagedFileOf(library, row);
 
         if (staged is null)
@@ -603,11 +640,29 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// </summary>
     private async Task GiveUpAsync(Library library, Move row, int attempts, List<string> stranded)
     {
+        // The per-song file guard: an import cannot replace the song's file between the check of where
+        // it points and the update below.
+        await using var guard = await _songFileLock.AcquireAsync(row.SongId, CancellationToken.None).ConfigureAwait(false);
+
         var staged = StagedFileOf(library, row);
         var from = row.FromPath;
         var restored = false;
 
-        if (staged is not null && from is not null && !_disk.FileExists(from))
+        // Only a song that still points at this move's file (its old path or its staged path) is touched.
+        // One that points elsewhere has moved on (an import replaced its file): the parked file is left
+        // alone and named, and the song's file row is not changed.
+        var current = await _database.SongFiles
+            .AsNoTracking()
+            .Where(file => file.SongId == row.SongId)
+            .Select(file => file.Path)
+            .FirstOrDefaultAsync(CancellationToken.None)
+            .ConfigureAwait(false);
+
+        var ours = current is null
+            || (from is not null && PathRules.AreEqual(current, from))
+            || (staged is not null && PathRules.AreEqual(current, staged));
+
+        if (ours && staged is not null && from is not null && !_disk.FileExists(from))
         {
             try
             {
@@ -638,11 +693,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
         }
         else
         {
-            // The song's file row says where the file is, wherever that turned out to be.
-            await _database.SongFiles
-                .Where(file => file.SongId == row.SongId)
-                .ExecuteUpdateAsync(update => update.SetProperty(file => file.Path, at), CancellationToken.None)
-                .ConfigureAwait(false);
+            if (ours && current is not null && !PathRules.AreEqual(current, at))
+            {
+                // The song's file row says where the file is, wherever that turned out to be.
+                await _database.SongFiles
+                    .Where(file => file.SongId == row.SongId)
+                    .ExecuteUpdateAsync(update => update.SetProperty(file => file.Path, at), CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
 
             if (restored)
             {
@@ -660,7 +718,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
                 message = string.Concat(
                     "gave up after ",
                     attempts.ToString(CultureInfo.InvariantCulture),
-                    " attempts: the file could not be moved back and is left at ",
+                    ours
+                        ? " attempts: the file could not be moved back and is left at "
+                        : " attempts: the song has a different file now, so the parked file is left at ",
                     at);
 
                 stranded.Add(at);
@@ -669,7 +729,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
         LogGaveUp(_logger, row.Id, message);
 
-        await SetStateAsync(row.Id, CompactMoveState.Failed, staged: null, final: at, message).ConfigureAwait(false);
+        await SetStateAsync(row.Id, CompactMoveState.GivenUp, staged: null, final: at, message).ConfigureAwait(false);
     }
 
     /// <summary>Puts the sidecars of a staged file back beside the audio file's old path; one that cannot go stays in staging.</summary>
@@ -698,21 +758,20 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <summary>
     /// A Staged row whose file is no longer in staging may have been placed by a run that stopped before
     /// it could record that. This looks for the file at the row's <c>ToPath</c> and its <c>(n)</c>
-    /// collision variants, and when one is there and no other song owns it, records the move as placed.
+    /// collision variants. A candidate counts only when no other song owns it and its size is close to
+    /// the song file's recorded size (tags and a cover change it a little); exactly one such candidate is
+    /// recorded as placed. None, or more than one, fails the row and names the candidates: it never picks
+    /// blindly.
     /// </summary>
-    /// <returns><see langword="true"/> when the file was found and the move is recorded.</returns>
-    private async Task<bool> RecordPlacedFileAsync(Library library, Move row, CancellationToken cancellationToken)
+    /// <returns>Whether the file was found and recorded, and the reason when not.</returns>
+    private async Task<(bool Recorded, string? Message)> RecordPlacedFileAsync(
+        Library library,
+        Move row,
+        CancellationToken cancellationToken)
     {
         if (row.ToPath is null)
         {
-            return false;
-        }
-
-        var found = await FindPlacedFileAsync(row, cancellationToken).ConfigureAwait(false);
-
-        if (found is null)
-        {
-            return false;
+            return (false, null);
         }
 
         var song = await LoadSongAsync(row.SongId, cancellationToken).ConfigureAwait(false);
@@ -721,7 +780,16 @@ public sealed partial class CompactExecutor : ICompactExecutor
         {
             _database.ChangeTracker.Clear();
 
-            return false;
+            return (false, null);
+        }
+
+        var (found, message) = await FindPlacedFileAsync(row, file.Size, cancellationToken).ConfigureAwait(false);
+
+        if (found is null)
+        {
+            _database.ChangeTracker.Clear();
+
+            return (false, message);
         }
 
         try
@@ -750,17 +818,23 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
             LogRecordFailed(_logger, row.Id, exception);
 
-            return false;
+            return (false, null);
         }
 
         LogFoundPlaced(_logger, row.Id, found);
         _updater.RequestFolder(library.Id, Path.GetDirectoryName(found) ?? library.RootPath);
 
-        return true;
+        return (true, null);
     }
 
-    /// <summary>The first of the row's <c>ToPath</c> and its <c>(2)</c>…<c>(99)</c> variants that exists and belongs to no song's file.</summary>
-    private async Task<string?> FindPlacedFileAsync(Move row, CancellationToken cancellationToken)
+    /// <summary>
+    /// The one of the row's <c>ToPath</c> and its <c>(2)</c>…<c>(99)</c> variants that exists, belongs to
+    /// no other song's file, and has about the size the song's file was recorded with.
+    /// </summary>
+    private async Task<(string? Found, string? Message)> FindPlacedFileAsync(
+        Move row,
+        long expectedSize,
+        CancellationToken cancellationToken)
     {
         var target = row.ToPath!;
         var directory = Path.GetDirectoryName(target) ?? string.Empty;
@@ -773,6 +847,12 @@ public sealed partial class CompactExecutor : ICompactExecutor
         {
             candidates.Add(Path.Combine(directory, string.Concat(name, " (", suffix.ToString(CultureInfo.InvariantCulture), ")", extension)));
         }
+
+        var existing = new List<string>();
+        var matching = new List<string>();
+
+        // Tags and a cover make the file a little bigger or smaller than it was recorded: 5 %, at least 1.5 MiB.
+        var tolerance = Math.Max(expectedSize / 20, 1_572_864);
 
         foreach (var candidate in candidates)
         {
@@ -787,13 +867,36 @@ public sealed partial class CompactExecutor : ICompactExecutor
                 .AnyAsync(file => file.Path == candidate && file.SongId != row.SongId, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (!owned)
+            if (owned)
             {
-                return candidate;
+                continue;
+            }
+
+            existing.Add(candidate);
+
+            if (Math.Abs(_disk.GetFileSize(candidate) - expectedSize) <= tolerance)
+            {
+                matching.Add(candidate);
             }
         }
 
-        return null;
+        if (matching.Count == 1)
+        {
+            return (matching[0], null);
+        }
+
+        if (existing.Count == 0)
+        {
+            return (null, null);
+        }
+
+        return (
+            null,
+            string.Concat(
+                matching.Count == 0
+                    ? "the staged file is gone, and none of these files at its target looks like it: "
+                    : "the staged file is gone, and more than one file at its target looks like it: ",
+                string.Join("; ", existing)));
     }
 
     /// <summary>
@@ -1073,16 +1176,24 @@ public sealed partial class CompactExecutor : ICompactExecutor
                     .ConfigureAwait(false);
             }
 
-            var finished = await WaitForScanAsync(server.Server, server.Token, section, cancellationToken)
+            var outcome = await WaitForScanAsync(server.Server, server.Token, section, cancellationToken)
                 .ConfigureAwait(false);
 
-            var reason = finished
-                ? await WhyNotEmptyTrashAsync(library, server.Server, server.Token, section, cancellationToken)
-                    .ConfigureAwait(false)
-                : string.Concat(
+            var reason = outcome switch
+            {
+                ScanOutcome.Finished => await WhyNotEmptyTrashAsync(
+                        library,
+                        server.Server,
+                        server.Token,
+                        section,
+                        cancellationToken)
+                    .ConfigureAwait(false),
+                ScanOutcome.StillRunning => string.Concat(
                     "the scan of the old folders was not seen to finish within ",
                     ScanFinishTimeout.TotalMinutes.ToString("0", CultureInfo.InvariantCulture),
-                    " minutes");
+                    " minutes"),
+                _ => "Plex was never seen scanning the old folders, so it cannot be told that the scan finished",
+            };
 
             if (reason is not null)
             {
@@ -1113,19 +1224,22 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// Waits out the section's scan: first for the scan to be seen to start — a scan small enough to
     /// finish between two polls never shows up, and that is fine — then for it to finish.
     /// </summary>
-    /// <returns><see langword="false"/> when the scan was still running at the end of the wait.</returns>
-    private async Task<bool> WaitForScanAsync(
+    /// <returns>Whether the scan was seen to finish, was still running at the end, or was never seen at all.</returns>
+    private async Task<ScanOutcome> WaitForScanAsync(
         Uri server,
         string token,
         string section,
         CancellationToken cancellationToken)
     {
         var deadline = _time.GetUtcNow() + ScanStartTimeout;
+        var seen = false;
 
         while (_time.GetUtcNow() < deadline)
         {
             if (await _plex.IsRefreshingAsync(server, token, section, cancellationToken).ConfigureAwait(false))
             {
+                seen = true;
+
                 break;
             }
 
@@ -1138,7 +1252,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
         {
             if (!await _plex.IsRefreshingAsync(server, token, section, cancellationToken).ConfigureAwait(false))
             {
-                return true;
+                // A scan that never showed up may have finished between two polls, or never started.
+                return seen ? ScanOutcome.Finished : ScanOutcome.NeverSeen;
             }
 
             await Task.Delay(ScanPollInterval, _time, cancellationToken).ConfigureAwait(false);
@@ -1148,7 +1263,20 @@ public sealed partial class CompactExecutor : ICompactExecutor
         // reconsidered, so the caller leaves the trash alone; the user can empty it in Plex later.
         LogScanNotFinished(_logger, section, ScanFinishTimeout.TotalMinutes);
 
-        return false;
+        return ScanOutcome.StillRunning;
+    }
+
+    /// <summary>How the wait for the section's scan ended.</summary>
+    private enum ScanOutcome
+    {
+        /// <summary>The scan was seen running and then seen finished.</summary>
+        Finished,
+
+        /// <summary>The scan was still running when the wait ran out.</summary>
+        StillRunning,
+
+        /// <summary>The scan was never seen running, so nothing says it ever finished.</summary>
+        NeverSeen,
     }
 
     /// <summary>The run-result wording of a reason the trash was left alone.</summary>
@@ -1239,8 +1367,27 @@ public sealed partial class CompactExecutor : ICompactExecutor
                     " is not under any library or reference library root Wondarr knows, so it cannot be confirmed present");
             }
 
-            // An unmounted mount point exists but is empty, so existing is not enough.
-            if (!_disk.DirectoryExists(local) || !_disk.EnumerateFiles(local).Any())
+            // An unmounted mount point exists but is empty, so existing is not enough. A folder that
+            // cannot even be read cannot be confirmed either.
+            bool present;
+
+            try
+            {
+                present = _disk.DirectoryExists(local) && _disk.EnumerateFiles(local).Any();
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+            {
+                return string.Concat(
+                    "the section's folder ",
+                    location,
+                    " (",
+                    local,
+                    ") could not be read (",
+                    exception.Message,
+                    ")");
+            }
+
+            if (!present)
             {
                 return string.Concat(
                     "the section's folder ",

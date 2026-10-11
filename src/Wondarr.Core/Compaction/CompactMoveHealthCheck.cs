@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Wondarr.Core.Domain;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Persistence;
 using HealthReport = Wondarr.Core.HealthCheck.HealthCheck;
@@ -38,34 +39,59 @@ public sealed class CompactMoveHealthCheck : IHealthCheck
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        if (unfinished.Count == 0)
+        var strandedRows = await _database.CompactMoves
+            .AsNoTracking()
+            .Where(row => row.State == CompactMoveState.GivenUp
+                && row.FinalPath != null
+                && row.FinalPath.Contains(CompactExecutor.StagingFolderName))
+            .GroupBy(row => row.LibraryId)
+            .Select(group => new { LibraryId = group.Key, Count = group.Count() })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (unfinished.Count == 0 && strandedRows.Count == 0)
         {
             return new HealthReport(Name, HealthCheckResult.Ok, "No compaction is waiting to be finished", null);
         }
 
-        var ids = unfinished.Select(entry => entry.LibraryId).ToList();
+        var ids = unfinished.Concat(strandedRows).Select(entry => entry.LibraryId).Distinct().ToList();
         var names = await _database.Libraries
             .AsNoTracking()
             .Where(library => ids.Contains(library.Id))
             .ToDictionaryAsync(library => library.Id, library => library.Name, cancellationToken)
             .ConfigureAwait(false);
 
-        var described = unfinished
-            .OrderBy(entry => entry.LibraryId)
-            .Select(entry => string.Concat(
-                names.TryGetValue(entry.LibraryId, out var name)
-                    ? name
-                    : "library " + entry.LibraryId.ToString(CultureInfo.InvariantCulture),
-                " (",
-                entry.Count.ToString(CultureInfo.InvariantCulture),
-                entry.Count == 1 ? " file)" : " files)"));
+        string Describe(IEnumerable<(long LibraryId, int Count)> entries) => string.Join(
+            ", ",
+            entries
+                .OrderBy(entry => entry.LibraryId)
+                .Select(entry => string.Concat(
+                    names.TryGetValue(entry.LibraryId, out var name)
+                        ? name
+                        : "library " + entry.LibraryId.ToString(CultureInfo.InvariantCulture),
+                    " (",
+                    entry.Count.ToString(CultureInfo.InvariantCulture),
+                    entry.Count == 1 ? " file)" : " files)")));
 
-        return new HealthReport(
-            Name,
-            HealthCheckResult.Warning,
-            "A compaction left files in the hidden .wondarr-compact folder of "
-            + string.Join(", ", described)
-            + ". Their songs are missing from Plex until Compact library finishes the move.",
-            null);
+        var message = string.Empty;
+
+        if (unfinished.Count > 0)
+        {
+            message = "A compaction left files in the hidden .wondarr-compact folder of "
+                + Describe(unfinished.Select(entry => (entry.LibraryId, entry.Count)))
+                + ". Their songs are missing from Plex until Compact library finishes the move.";
+        }
+
+        if (strandedRows.Count > 0)
+        {
+            message = string.Concat(
+                message,
+                message.Length > 0 ? " " : string.Empty,
+                "Moves that could not be finished were given up on, and their files still sit in the hidden .wondarr-compact folder of ",
+                Describe(strandedRows.Select(entry => (entry.LibraryId, entry.Count))),
+                ". Move them back by hand (the Compaction result and the log name each file).");
+        }
+
+        return new HealthReport(Name, HealthCheckResult.Warning, message, null);
     }
 }

@@ -173,6 +173,65 @@ public sealed class SongRefilerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_song_is_read_only_after_its_file_lock_is_held()
+    {
+        await using var context = await ContextAsync();
+        var (song, from) = await SeedAsync(context, SourceTypes.Soulseek);
+        await ChooseAlbumAsync(context, song, "r1", "Random Access Memories");
+
+        var songFileLock = new SongFileLock();
+        var held = await songFileLock.AcquireAsync(song, CancellationToken.None);
+        var refiler = new SongRefiler(
+            context,
+            _organizer,
+            _disk,
+            Substitute.For<IRecycleBin>(),
+            _updater,
+            songFileLock,
+            NullLogger<SongRefiler>.Instance);
+
+        var refiling = refiler.RefileAsync(song, CancellationToken.None);
+
+        // While another task holds the song, the refiler has not read it or touched the file.
+        var waiting = async () => await refiling.WaitAsync(TimeSpan.FromMilliseconds(300));
+        await waiting.Should().ThrowAsync<TimeoutException>();
+        _organizer.Requests.Should().BeEmpty();
+        File.Exists(from).Should().BeTrue();
+
+        await held.DisposeAsync();
+
+        (await refiling.WaitAsync(TimeSpan.FromSeconds(30))).Outcome.Should().Be(SongRefileOutcome.Refiled);
+    }
+
+    [Fact]
+    public async Task An_album_chosen_while_the_file_moves_is_followed_by_one_more_re_file()
+    {
+        await using var context = await ContextAsync();
+        var (song, _) = await SeedAsync(context, SourceTypes.Soulseek);
+        await ChooseAlbumAsync(context, song, "r1", "Random Access Memories");
+
+        // While the first move runs, the user picks another album.
+        _organizer.OnOrganize = () =>
+        {
+            using var other = _database.CreateContext(_time);
+            var album = other.AlbumContexts.Single(candidate => candidate.SongId == song);
+            album.AlbumKey = "r2";
+            album.AlbumTitle = "Discovery";
+            other.SaveChanges();
+        };
+
+        var result = await Refiler(context).RefileAsync(song, CancellationToken.None);
+
+        result.Outcome.Should().Be(SongRefileOutcome.Refiled);
+        _organizer.Requests.Should().HaveCount(2);
+        _organizer.Requests[1].Album.AlbumTitle.Should().Be("Discovery");
+
+        await using var fresh = _database.CreateContext(_time);
+        (await fresh.SongFiles.AsNoTracking().SingleAsync()).Path
+            .Should().Be(Path.Combine(_root, "Daft Punk", "Discovery", "01 - Track 1.flac"));
+    }
+
+    [Fact]
     public async Task The_command_handler_refiles_the_song_its_body_names_and_fails_the_command_on_a_refusal()
     {
         await using var context = await ContextAsync();
@@ -321,6 +380,9 @@ public sealed class SongRefilerTests : IDisposable
 
         public bool Fail { get; set; }
 
+        /// <summary>Called as the organizer starts, before it moves anything.</summary>
+        public Action? OnOrganize { get; set; }
+
         public string? ErrorAfterMove { get; set; }
 
         public Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
@@ -328,6 +390,8 @@ public sealed class SongRefilerTests : IDisposable
             ArgumentNullException.ThrowIfNull(request);
 
             Requests.Add(request);
+            OnOrganize?.Invoke();
+            OnOrganize = null;
 
             if (Fail)
             {

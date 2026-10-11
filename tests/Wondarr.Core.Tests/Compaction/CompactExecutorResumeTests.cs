@@ -70,7 +70,7 @@ public partial class CompactExecutorTests
         File.ReadAllText(Path.ChangeExtension(from, ".lrc")).Should().Be("the words");
 
         var row = await context.CompactMoves.SingleAsync();
-        row.State.Should().Be(CompactMoveState.Failed);
+        row.State.Should().Be(CompactMoveState.GivenUp);
         row.StagedPath.Should().BeNull();
         row.Message.Should().Contain("gave up").And.Contain(from);
         (await context.SongFiles.SingleAsync()).Path.Should().Be(from);
@@ -461,6 +461,225 @@ public partial class CompactExecutorTests
 
         message.Should().StartWith("Compacted Music: 1 files moved");
         message.Should().Contain("Plex's trash was not emptied").And.Contain("autoEmptyTrash");
+    }
+
+    // --- A stranded file stays given up -------------------------------------------------------------
+
+    [Fact]
+    public async Task A_stranded_file_is_not_given_up_on_again_on_the_next_run()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        var staged = Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+        await FailForGoodAsync(context);
+        await File.WriteAllTextAsync(from, "someone else's file");
+
+        var first = await RunPumpedAsync(SeedData.DefaultLibraryId);
+        context.ChangeTracker.Clear();
+
+        first.GivenUp.Should().Be(1);
+        first.Stranded.Should().Equal(staged);
+
+        var second = await RunPumpedAsync(SeedData.DefaultLibraryId);
+        context.ChangeTracker.Clear();
+
+        second.GivenUp.Should().Be(0);
+        second.Stranded.Should().BeNull();
+        second.Resumed.Should().Be(0);
+        File.Exists(staged).Should().BeTrue();
+        (await context.SongFiles.SingleAsync()).Path.Should().Be(staged);
+
+        var row = await context.CompactMoves.SingleAsync();
+        row.State.Should().Be(CompactMoveState.GivenUp);
+        row.FinalPath.Should().Be(staged);
+    }
+
+    [Fact]
+    public async Task A_file_an_import_put_in_place_of_a_stranded_one_stays_the_songs_file()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        var staged = Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+        await FailForGoodAsync(context);
+        await File.WriteAllTextAsync(from, "someone else's file");
+
+        await RunPumpedAsync(SeedData.DefaultLibraryId);
+        context.ChangeTracker.Clear();
+
+        // An import then files its own copy and repoints the song at it.
+        var imported = Path.Combine(_root, "Daft Punk", "Random Access Memories", "imported.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(imported)!);
+        await File.WriteAllTextAsync(imported, "the import");
+        await context.SongFiles.ExecuteUpdateAsync(update => update.SetProperty(file => file.Path, imported));
+
+        var again = await RunPumpedAsync(SeedData.DefaultLibraryId);
+        context.ChangeTracker.Clear();
+
+        again.GivenUp.Should().Be(0);
+        (await context.SongFiles.SingleAsync()).Path.Should().Be(imported);
+        File.Exists(staged).Should().BeTrue("the parked file is left alone");
+    }
+
+    [Fact]
+    public async Task Giving_up_on_a_song_that_points_at_another_file_leaves_the_parked_file_and_the_row_alone()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        var staged = Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+        await FailForGoodAsync(context);
+
+        // An import replaced the song's file while the parked one waited.
+        var imported = Path.Combine(_root, "Daft Punk", "Random Access Memories", "imported.flac");
+        Directory.CreateDirectory(Path.GetDirectoryName(imported)!);
+        await File.WriteAllTextAsync(imported, "the import");
+        await context.SongFiles.ExecuteUpdateAsync(update => update.SetProperty(file => file.Path, imported));
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+        context.ChangeTracker.Clear();
+
+        result.GivenUp.Should().Be(1);
+        result.Stranded.Should().Equal(staged);
+        File.Exists(staged).Should().BeTrue();
+        File.Exists(from).Should().BeFalse("nothing is put back for a song that has moved on");
+        (await context.SongFiles.SingleAsync()).Path.Should().Be(imported);
+        (await context.CompactMoves.SingleAsync()).Message.Should().Contain("different file");
+    }
+
+    // --- The variant search never picks blindly -----------------------------------------------------
+
+    [Fact]
+    public async Task A_foreign_file_at_the_target_is_not_adopted_when_ours_sits_at_a_collision_variant()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var staged = Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+
+        // An untracked 4 MiB file of the user's sits at the planned name; ours took "(2)".
+        var folder = Path.Combine(_root, "Daft Punk", "Random Access Memories");
+        var foreign = Path.Combine(folder, "01 - Track 1.flac");
+        var ours = Path.Combine(folder, "01 - Track 1 (2).flac");
+        Directory.CreateDirectory(folder);
+        await File.WriteAllBytesAsync(foreign, new byte[4 * 1024 * 1024]);
+        File.Move(staged, ours);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+        context.ChangeTracker.Clear();
+
+        result.Moved.Should().Be(1);
+        (await context.SongFiles.SingleAsync()).Path.Should().Be(ours);
+    }
+
+    [Fact]
+    public async Task Two_candidates_that_look_alike_fail_the_row_and_are_named()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var staged = Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+
+        var folder = Path.Combine(_root, "Daft Punk", "Random Access Memories");
+        var first = Path.Combine(folder, "01 - Track 1.flac");
+        var second = Path.Combine(folder, "01 - Track 1 (2).flac");
+        Directory.CreateDirectory(folder);
+        await File.WriteAllTextAsync(first, "the audio bytes");
+        File.Move(staged, second);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+        context.ChangeTracker.Clear();
+
+        result.Failed.Should().Be(1);
+
+        var row = await context.CompactMoves.SingleAsync();
+        row.State.Should().Be(CompactMoveState.Failed);
+        row.Message.Should().Contain(first).And.Contain(second);
+        (await context.SongFiles.SingleAsync()).Path.Should().NotBe(first).And.NotBe(second);
+    }
+
+    // --- Resume only (the start-up path) ------------------------------------------------------------
+
+    [Fact]
+    public async Task A_resume_only_run_never_plans_but_still_gives_up_a_row_past_the_cap()
+    {
+        await using var context = await ContextAsync(section: null);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+        await FailForGoodAsync(context);
+
+        _planner
+            .PlanAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns<Task<CompactPlan>>(_ => throw new InvalidOperationException("the run planned"));
+
+        var result = await _executor.RunAsync(SeedData.DefaultLibraryId, null, CancellationToken.None, resumeOnly: true);
+
+        result.GivenUp.Should().Be(1);
+        File.Exists(from).Should().BeTrue();
+        await _planner.DidNotReceive().PlanAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_resume_only_run_with_nothing_to_resume_does_nothing()
+    {
+        await using var context = await ContextAsync(section: Section);
+        await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+
+        var result = await _executor.RunAsync(SeedData.DefaultLibraryId, null, CancellationToken.None, resumeOnly: true);
+
+        result.Should().Be(new CompactResult(0, 0, 0, 0));
+        await _planner.DidNotReceive().PlanAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+        _log.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_command_handler_passes_the_resume_only_flag_on()
+    {
+        await using var context = await ContextAsync(section: null);
+        await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+
+        var command = new Wondarr.Core.Jobs.CommandContext(
+            1,
+            $"{{\"name\":\"CompactLibrary\",\"libraryId\":{SeedData.DefaultLibraryId},\"resumeOnly\":true}}",
+            Wondarr.Core.Jobs.CommandTrigger.Scheduled,
+            _ => Task.CompletedTask);
+
+        await Handler().ExecuteAsync(command, CancellationToken.None);
+
+        await _planner.DidNotReceive().PlanAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+    }
+
+    // --- An unreadable folder is a reason, not a crash ----------------------------------------------
+
+    [Fact]
+    public async Task A_section_folder_that_cannot_be_listed_leaves_the_trash_alone_with_a_reason()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var share = Path.Combine(Path.GetDirectoryName(_root)!, "share");
+        Directory.CreateDirectory(share);
+        await File.WriteAllTextAsync(Path.Combine(share, "a.flac"), "audio");
+
+        context.ReferenceLibraries.Add(new ReferenceLibrary { Name = "Share", RootPath = share });
+        await context.SaveChangesAsync();
+
+        _locations = ["/music", share];
+        _faulty.ThrowFor = share;
+        _refreshing.Enqueue(true);
+        _refreshing.Enqueue(false);
+        Plan(context, [song]);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Moved.Should().Be(1);
+        result.TrashNote.Should().Contain("could not be read");
+        _log.Should().NotContain("empty trash");
     }
 
     /// <summary>Marks the one carried row as having failed for good: past the retry cap, with its file in staging.</summary>

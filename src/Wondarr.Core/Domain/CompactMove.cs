@@ -16,6 +16,13 @@ public enum CompactMoveState
 
     /// <summary>The move stopped; <see cref="CompactMove.Message"/> says why, and the next run retries it when it can.</summary>
     Failed,
+
+    /// <summary>
+    /// The move kept failing (or its file could not be put back) and was closed for good. Its
+    /// <see cref="CompactMove.FinalPath"/> is where the file is; a closed row is never resumed or given up
+    /// on again, and the health check warns while that file still sits in the staging folder.
+    /// </summary>
+    GivenUp,
 }
 
 /// <summary>

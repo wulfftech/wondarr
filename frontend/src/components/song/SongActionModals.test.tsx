@@ -225,6 +225,36 @@ describe('SongActionModals', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  it('keeps following a re-file that is still running after the dialog is closed', async () => {
+    const onClose = vi.fn();
+    let polls = 0;
+    install({
+      albumChoice: () => jsonResponse({ ...SONG, refileCommandId: 33 }),
+      commands: () => {
+        polls += 1;
+
+        return jsonResponse(
+          polls < 2
+            ? { ...commandOf(33, ''), status: 'started', result: 'unknown', ended: null }
+            : commandOf(33, 'Moved song 12 to its new album folder'),
+        );
+      },
+    });
+    const user = userEvent.setup();
+
+    renderModal(<ChangeAlbumModal song={songWithFile('soulseek')} opened onClose={onClose} />);
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(await within(dialog).findByRole('radio', { name: /^Singles/ }));
+    await user.click(await within(dialog).findByRole('button', { name: 'Close and let it finish' }));
+
+    expect(onClose).toHaveBeenCalled();
+
+    // The command is still polled with the dialog closed, until it has finished.
+    await waitFor(() => expect(polls).toBeGreaterThanOrEqual(2), { timeout: 8000 });
+  }, 15000);
+
   it('shows why the re-file failed', async () => {
     install({
       albumChoice: () => jsonResponse({ ...SONG, refileCommandId: 32 }),

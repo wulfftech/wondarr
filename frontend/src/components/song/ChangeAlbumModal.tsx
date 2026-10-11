@@ -45,6 +45,7 @@ export function ChangeAlbumModal({
   const setAlbum = useSetAlbum();
   const queryClient = useQueryClient();
   const [commandId, setCommandId] = useState<number | null>(null);
+  const [abandonedId, setAbandonedId] = useState<number | null>(null);
   const command = useCommand(commandId, { poll: true });
   const isPhone = useMediaQuery('(max-width: 48em)');
   const [filter, setFilter] = useState('');
@@ -90,14 +91,21 @@ export function ChangeAlbumModal({
     );
   };
 
+  // A move still running when the dialog is closed keeps being followed (this component stays mounted),
+  // so the song refreshes when it finishes; the dialog then opens on the picker again, not on that move.
   const close = () => {
-    setCommandId(null);
+    if (commandId !== null && !finished) {
+      setAbandonedId(commandId);
+    } else {
+      setCommandId(null);
+    }
+
     onClose();
   };
 
   return (
     <Modal opened={opened} onClose={close} title="Change album" size="min(900px, 100%)" fullScreen={isPhone}>
-      {commandId !== null ? (
+      {commandId !== null && commandId !== abandonedId ? (
         <Stack gap="md">
           {!finished && (
             <Group gap="sm">
