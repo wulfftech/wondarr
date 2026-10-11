@@ -119,6 +119,19 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
     /// <summary>How many requests a row may send in <see cref="Window"/>.</summary>
     public const int RequestsPerWindow = 5;
 
+    /// <summary>
+    /// The named <see cref="HttpClient"/> Gazelle requests go through: registered without the indexer
+    /// client's retry handler, so every request on the wire took a turn of the limiter.
+    /// </summary>
+    public const string HttpClientName = "indexer-gazelle";
+
+    /// <summary>
+    /// What marks a download link as one a freeleech token may be spent on. It is a URL fragment, which
+    /// is never sent: the link itself carries no <c>usetoken</c>, so reading a container at search time
+    /// cannot spend a token (R-006). <see cref="ForGrab"/> turns it into the parameter.
+    /// </summary>
+    public const string TokenMark = "#token-spendable";
+
     /// <summary>The tracker's rate-limit window.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromSeconds(10);
 
@@ -211,6 +224,9 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         var settings = GazelleSettings.Read(NotificationSecrets.Read(indexer.Settings));
         var url = release.DownloadUrl ?? throw new IndexerException("The release has no download URL.");
 
+        // The mark never goes on the wire; a grab has already turned it into usetoken=1 where wanted.
+        url = url.EndsWith(TokenMark, StringComparison.Ordinal) ? url[..^TokenMark.Length] : url;
+
         using var response = await SendAsync(indexer.Id, settings, new Uri(url), cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
@@ -228,6 +244,28 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
         }
 
         return new IndexerDownload(content, null);
+    }
+
+    /// <summary>
+    /// The link a grab downloads: a link marked with <see cref="TokenMark"/> gets <c>usetoken=1</c> when
+    /// the row's "Use freeleech tokens" setting is on; every other link is returned as it is. Orpheus
+    /// fails a download with <c>usetoken=0</c>, so the parameter is only ever sent as 1.
+    /// </summary>
+    /// <param name="indexer">The indexer row the release came from.</param>
+    /// <param name="downloadUrl">The release's download link.</param>
+    public static string ForGrab(Indexer indexer, string downloadUrl)
+    {
+        ArgumentNullException.ThrowIfNull(indexer);
+        ArgumentNullException.ThrowIfNull(downloadUrl);
+
+        if (!downloadUrl.EndsWith(TokenMark, StringComparison.Ordinal))
+        {
+            return downloadUrl;
+        }
+
+        var bare = downloadUrl[..^TokenMark.Length];
+
+        return GazelleSettings.Read(NotificationSecrets.Read(indexer.Settings)).UseFreeleechTokens ? bare + "&usetoken=1" : bare;
     }
 
     /// <summary>The connection test: <c>ajax.php?action=index</c> answers success.</summary>
@@ -287,10 +325,11 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
 
                 var download = $"{settings.Url}/ajax.php?action=download&id={torrentId}";
 
-                // Orpheus fails a download with usetoken=0, so the parameter is only ever sent as 1.
-                if (settings.UseFreeleechTokens && !freeleech && Flag(torrent, "canUseToken"))
+                // A token can be spent on this one. The mark is not a parameter: only a grab turns it
+                // into usetoken=1 (ForGrab), a search reads the container without it.
+                if (!freeleech && Flag(torrent, "canUseToken"))
                 {
-                    download += "&usetoken=1";
+                    download += TokenMark;
                 }
 
                 var seeders = Integer(torrent, "seeders");
@@ -391,7 +430,7 @@ public sealed partial class GazelleClient : IIndexerClient, IDisposable
 
         try
         {
-            return await _clients.CreateClient(IndexerHttp.ClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
+            return await _clients.CreateClient(HttpClientName).SendAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (HttpRequestException exception)
         {

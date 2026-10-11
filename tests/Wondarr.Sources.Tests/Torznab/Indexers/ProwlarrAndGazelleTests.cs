@@ -2,11 +2,13 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Sources;
+using Wondarr.Sources.Torznab;
 using Wondarr.Sources.Torznab.Indexers;
 using Xunit;
 
@@ -61,6 +63,40 @@ public sealed class ProwlarrAndGazelleTests
     }
 
     [Theory]
+    [InlineData(null, 2)]
+    [InlineData(10, 1)]
+    [InlineData(43, 0)]
+    public async Task Prowlarr_skips_torrents_with_fewer_seeders_than_the_row_s_minimum(int? minimum, int expected)
+    {
+        var client = Prowlarr(new HeaderHandler(_ => Fixture("prowlarr-search.json")));
+
+        var torrents = await client.SearchAsync(ProwlarrRow(DownloadProtocol.Torrent, minimumSeeders: minimum), new ReleaseQuery("Daft Punk", "Discovery", null), CancellationToken.None);
+
+        torrents.Should().HaveCount(expected, "the fixture's torrents have 42 and 7 seeders; the default minimum is 1");
+    }
+
+    [Fact]
+    public async Task Prowlarr_does_not_filter_usenet_results_by_the_minimum_seeders()
+    {
+        var client = Prowlarr(new HeaderHandler(_ => Fixture("prowlarr-search.json")));
+
+        var usenet = await client.SearchAsync(ProwlarrRow(DownloadProtocol.Usenet, minimumSeeders: 100), new ReleaseQuery("Daft Punk", "Discovery", null), CancellationToken.None);
+
+        usenet.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Prowlarr_offers_the_same_minimum_seeders_field_as_torznab()
+    {
+        var prowlarr = new ProwlarrIndexerType(new StaticHttpClientFactory(new HeaderHandler(_ => Fixture("prowlarr-search.json"))), new SecretRegistry());
+        var torznab = new TorznabIndexerType(TorznabTest.CapsHandler());
+
+        prowlarr.Fields.Single(field => field.Name == "minimumSeeders")
+            .Should().BeEquivalentTo(torznab.Fields.Single(field => field.Name == "minimumSeeders"));
+        ProwlarrSettings.Read(Json("""{"url":"http://prowlarr:9696","apiKey":"k"}""")).MinimumSeeders.Should().Be(IndexerEndpoint.DefaultMinimumSeeders);
+    }
+
+    [Theory]
     [InlineData(HttpStatusCode.OK, true, null)]
     [InlineData(HttpStatusCode.Unauthorized, false, "Prowlarr refused the API key.")]
     public async Task Prowlarr_s_test_reads_the_system_status(HttpStatusCode status, bool success, string? error)
@@ -94,7 +130,7 @@ public sealed class ProwlarrAndGazelleTests
         first.Peers.Should().Be(42);
         first.Size.Should().Be(412_345_678);
         first.InfoUrl.Should().Be("https://redacted.example/torrents.php?id=72&torrentid=701");
-        first.DownloadUrl.Should().Be("https://redacted.example/ajax.php?action=download&id=701");
+        first.DownloadUrl.Should().Be("https://redacted.example/ajax.php?action=download&id=701" + GazelleClient.TokenMark);
         first.DownloadVolumeFactor.Should().Be(1);
         releases.Single(release => release.ReleaseId == "gazelle-702").DownloadVolumeFactor.Should().Be(0);
         releases.Single(release => release.ReleaseId == "gazelle-704").Title.Should().Be("Daft Punk - Discovery & Other Things (2001) [MP3 V0 (VBR)] [CD]");
@@ -118,16 +154,42 @@ public sealed class ProwlarrAndGazelleTests
     }
 
     [Fact]
-    public async Task Gazelle_spends_a_token_only_when_asked_and_not_on_freeleech()
+    public async Task A_gazelle_search_never_puts_usetoken_in_a_release_link_and_marks_only_where_a_token_can_be_spent()
     {
         var releases = await Gazelle(GazelleServer()).SearchAsync(
             GazelleRow(useTokens: true),
             new ReleaseQuery("Daft Punk", "Discovery", null),
             CancellationToken.None);
 
-        releases.Single(release => release.ReleaseId == "gazelle-701").DownloadUrl.Should().EndWith("&usetoken=1");
-        releases.Single(release => release.ReleaseId == "gazelle-702").DownloadUrl.Should().NotContain("usetoken", "it is freeleech already");
-        releases.Single(release => release.ReleaseId == "gazelle-704").DownloadUrl.Should().NotContain("usetoken", "no token can be used on it");
+        releases.Select(release => release.DownloadUrl).Should().NotContain(url => url!.Contains("usetoken", StringComparison.Ordinal));
+        releases.Single(release => release.ReleaseId == "gazelle-701").DownloadUrl.Should().EndWith(GazelleClient.TokenMark);
+        releases.Single(release => release.ReleaseId == "gazelle-702").DownloadUrl.Should().NotContain("#", "it is freeleech already");
+        releases.Single(release => release.ReleaseId == "gazelle-704").DownloadUrl.Should().NotContain("#", "no token can be used on it");
+    }
+
+    [Theory]
+    [InlineData(true, "https://redacted.example/ajax.php?action=download&id=701&usetoken=1")]
+    [InlineData(false, "https://redacted.example/ajax.php?action=download&id=701")]
+    public void A_marked_link_gets_usetoken_only_on_the_grab_path_and_only_when_the_row_says_so(bool useTokens, string expected)
+    {
+        var marked = "https://redacted.example/ajax.php?action=download&id=701" + GazelleClient.TokenMark;
+
+        GazelleClient.ForGrab(GazelleRow(useTokens), marked).Should().Be(expected);
+        GazelleClient.ForGrab(GazelleRow(useTokens), "https://redacted.example/ajax.php?action=download&id=702")
+            .Should().Be("https://redacted.example/ajax.php?action=download&id=702", "a link no token can be spent on is left as it is");
+    }
+
+    [Fact]
+    public async Task Downloading_a_marked_link_at_search_time_never_sends_the_mark_or_a_token()
+    {
+        var handler = new HeaderHandler(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([(byte)'d', (byte)'e']) });
+        var client = Gazelle(handler);
+        var release = new IndexerRelease(
+            "t", "gazelle-701", "https://redacted.example/ajax.php?action=download&id=701" + GazelleClient.TokenMark, null, null, null, null, null, null, null, [], 1, null, DownloadProtocol.Torrent, 5, "Redacted", null);
+
+        await client.DownloadAsync(GazelleRow(useTokens: true), release, CancellationToken.None);
+
+        handler.Requests.Single().Uri.ToString().Should().NotContain("usetoken").And.NotContain("#");
     }
 
     [Fact]
@@ -148,6 +210,38 @@ public sealed class ProwlarrAndGazelleTests
         time.Advance(TimeSpan.FromSeconds(10));
         await search;
 
+        handler.Requests.Should().HaveCount(6);
+    }
+
+    [Fact]
+    public async Task Gazelle_goes_through_a_client_with_no_retry_handler_so_a_502_costs_one_turn_per_request()
+    {
+        // The real registration: the "indexer" client retries 5xx twice outside the limiter, Gazelle's own does not.
+        var handler = new HeaderHandler(_ => new HttpResponseMessage(HttpStatusCode.BadGateway));
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddWondarrTorznab();
+        services.AddHttpClient(GazelleClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => handler);
+        using var provider = services.BuildServiceProvider();
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var client = new GazelleClient(provider.GetRequiredService<IHttpClientFactory>(), new SecretRegistry(), time, NullLogger<GazelleClient>.Instance);
+        var settings = GazelleSettings.Read(Json($$"""{"url":"https://redacted.example","apiKey":"{{GazelleKey}}"}"""));
+
+        for (var call = 0; call < 5; call++)
+        {
+            var failed = async () => await client.IndexAsync(5, settings, CancellationToken.None);
+            await failed.Should().ThrowAsync<IndexerException>();
+        }
+
+        handler.Requests.Should().HaveCount(5, "each 502 was one request, never retried behind the limiter's back");
+
+        // The sixth waits for the window: every request on the wire took a turn.
+        var sixth = client.IndexAsync(5, settings, CancellationToken.None);
+        await Task.Delay(100);
+        handler.Requests.Should().HaveCount(5);
+        time.Advance(TimeSpan.FromSeconds(10));
+        var sixthFailed = async () => await sixth;
+        await sixthFailed.Should().ThrowAsync<IndexerException>();
         handler.Requests.Should().HaveCount(6);
     }
 
@@ -269,13 +363,13 @@ public sealed class ProwlarrAndGazelleTests
     private static GazelleClient Gazelle(HttpMessageHandler handler, TimeProvider? time = null) =>
         new(new StaticHttpClientFactory(handler), new SecretRegistry(), time ?? new SkippingTime(), NullLogger<GazelleClient>.Instance);
 
-    private static Indexer ProwlarrRow(DownloadProtocol protocol, string indexerIds = "") => new()
+    private static Indexer ProwlarrRow(DownloadProtocol protocol, string indexerIds = "", int? minimumSeeders = null) => new()
     {
         Id = 9,
         Name = "Prowlarr",
         Type = "prowlarr",
         Protocol = protocol,
-        Settings = $$"""{"url":"http://prowlarr:9696","apiKey":"{{ProwlarrKey}}","indexerIds":"{{indexerIds}}","categories":"3000,3040"}""",
+        Settings = $$"""{"url":"http://prowlarr:9696","apiKey":"{{ProwlarrKey}}","indexerIds":"{{indexerIds}}","categories":"3000,3040"{{(minimumSeeders is { } minimum ? $",\"minimumSeeders\":{minimum}" : string.Empty)}}}""",
     };
 
     private static Indexer GazelleRow(bool useTokens = false) => new()
@@ -308,47 +402,6 @@ public sealed class ProwlarrAndGazelleTests
         for (var attempt = 0; attempt < 200 && !condition(); attempt++)
         {
             await Task.Delay(10);
-        }
-    }
-
-    /// <summary>
-    /// A clock that jumps to a timer's due time the moment the timer is made, so the rate limit's
-    /// waits pass at once (the rate-limit test itself uses a <see cref="FakeTimeProvider"/>).
-    /// </summary>
-    private sealed class SkippingTime : TimeProvider
-    {
-        private readonly Lock _gate = new();
-        private DateTimeOffset _now = DateTimeOffset.UtcNow;
-
-        public override DateTimeOffset GetUtcNow()
-        {
-            lock (_gate)
-            {
-                return _now;
-            }
-        }
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            lock (_gate)
-            {
-                _now += dueTime > TimeSpan.Zero ? dueTime : TimeSpan.Zero;
-            }
-
-            ThreadPool.QueueUserWorkItem(_ => callback(state));
-
-            return new NoTimer();
-        }
-
-        private sealed class NoTimer : ITimer
-        {
-            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
-
-            public void Dispose()
-            {
-            }
-
-            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
     }
 

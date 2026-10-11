@@ -66,6 +66,19 @@ public static class ServiceCollectionExtensions
                 ShouldRetryAfterHeader = true,
             }));
 
+        // Gazelle has its own client with no retry handler (R-024): its limiter counts one turn per
+        // request sent, so a retry hidden in the handler would send requests the limiter never saw.
+        // A failed request surfaces at once; the next search is the retry.
+        services.AddHttpClient(GazelleClient.HttpClientName, client =>
+            {
+                client.Timeout = IndexerHttp.RequestTimeout;
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(IndexerHttp.UserAgent);
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+            });
+
         services.AddSingleton<NewznabCapabilitiesReader>();
         services.AddSingleton<TorznabIndexerClient>();
         services.AddSingleton<NewznabIndexerClient>();
