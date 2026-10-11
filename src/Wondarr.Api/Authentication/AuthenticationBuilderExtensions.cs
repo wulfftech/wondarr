@@ -44,6 +44,8 @@ public static class AuthenticationBuilderExtensions
                 options.ExpireTimeSpan = TimeSpan.FromDays(7);
                 options.SlidingExpiration = true;
                 options.ReturnUrlParameter = "returnUrl";
+                options.CookieManager = new SecureAwareCookieManager();
+                options.Events.OnValidatePrincipal = FormsSession.ValidateAsync;
             });
 
         return services.AddAuthentication()
@@ -54,6 +56,7 @@ public static class AuthenticationBuilderExtensions
             {
                 options.HeaderName = "X-Api-Key";
                 options.QueryName = "apikey";
+                options.AcceptDownloadToken = true;
             })
             .AddApiKey("SignalR", options =>
             {

@@ -99,6 +99,8 @@ app.UseSerilogRequestLogging(options =>
     options.IncludeQueryInRequestPath = false;
 });
 app.UsePathBase(new PathString(urlBase));
+app.UseMiddleware<FrameProtectionMiddleware>();
+app.UseRateLimiter();
 app.UseWondarrFrontend();
 app.UseRouting();
 app.UseAuthentication();

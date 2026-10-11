@@ -29,6 +29,12 @@ public sealed class ApiKeyAuthenticationOptions : AuthenticationSchemeOptions
 
     /// <summary>Query parameter the key is read from.</summary>
     public string QueryName { get; set; } = "apikey";
+
+    /// <summary>
+    /// Whether a <c>?token=</c> minted by <see cref="DownloadTokenService"/> authenticates a GET of
+    /// the one path it was minted for, in place of the key.
+    /// </summary>
+    public bool AcceptDownloadToken { get; set; }
 }
 
 /// <summary>
@@ -40,20 +46,33 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
     private const string BearerPrefix = "Bearer ";
 
     private readonly IOptionsMonitor<ServerOptions> _serverOptions;
+    private readonly DownloadTokenService _downloadTokens;
 
     /// <summary>Initialises a new instance of the <see cref="ApiKeyAuthenticationHandler"/> class.</summary>
     public ApiKeyAuthenticationHandler(
         IOptionsMonitor<ApiKeyAuthenticationOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
-        IOptionsMonitor<ServerOptions> serverOptions)
-        : base(options, logger, encoder) => _serverOptions = serverOptions;
+        IOptionsMonitor<ServerOptions> serverOptions,
+        DownloadTokenService downloadTokens)
+        : base(options, logger, encoder)
+    {
+        _serverOptions = serverOptions;
+        _downloadTokens = downloadTokens;
+    }
 
     /// <inheritdoc />
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var providedApiKey = ParseApiKey();
         var configuredApiKey = _serverOptions.CurrentValue.ApiKey;
+
+        if (string.IsNullOrWhiteSpace(providedApiKey) && HasValidDownloadToken())
+        {
+            var tokenIdentity = new ClaimsIdentity([new Claim("DownloadToken", "true")], Options.AuthenticationType);
+
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(tokenIdentity), Options.Scheme)));
+        }
 
         if (string.IsNullOrWhiteSpace(providedApiKey) || string.IsNullOrWhiteSpace(configuredApiKey))
         {
@@ -102,6 +121,16 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<ApiKeyAu
             Response.StatusCode = statusCode;
         }
     }
+
+    /// <summary>
+    /// A <c>?token=</c> counts only on a GET, only where the scheme takes tokens, and only for the
+    /// exact path it was minted for. The path is the request path without the URL base.
+    /// </summary>
+    private bool HasValidDownloadToken() =>
+        Options.AcceptDownloadToken &&
+        HttpMethods.IsGet(Request.Method) &&
+        Request.Query.TryGetValue(DownloadTokenService.QueryName, out var token) &&
+        _downloadTokens.IsValid(token.FirstOrDefault(), Request.Path.Value ?? string.Empty);
 
     private string? ParseApiKey()
     {
