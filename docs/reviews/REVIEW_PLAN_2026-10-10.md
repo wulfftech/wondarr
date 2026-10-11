@@ -62,6 +62,11 @@ Each fix comes with the test the review says is missing. The questions for each 
   - Q18: `RecoverAsync` checks whether the file already landed (M-12).
   - Q10: sidecar matching by file stem stays as it is.
 
+**Tranche 2 (2026-10-11):**
+- **Q33, how long a stop may take:** 10 s, Docker's default. Raise the s6 grace and .NET's shutdown timeout to fit inside it; no compose change (M-14).
+- **Q35, switching slskd mode:** the switch takes effect immediately, with no restart (M-14).
+- **Q34, decided by me:** the "≤ 3 concurrent downloads" line in DEPLOYMENT.md means Wondarr's download slots; the doc is corrected to say so.
+
 **Not planned.** Two findings already reached by known backlog items are left there:
 
 - The Mirror delete with no busy check is the known "single song delete vs in-flight downloads" problem. Tranche 5 adds the guard on the Mirror caller only.
