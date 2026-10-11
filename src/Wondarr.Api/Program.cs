@@ -71,6 +71,12 @@ else if (restoreMessage is not null)
     ProgramLog.RestoreFailed(app.Logger, restoreMessage);
 }
 
+// What an interrupted upload, restore or backup left behind (R-057).
+using (var sweepScope = app.Services.CreateScope())
+{
+    sweepScope.ServiceProvider.GetRequiredService<IBackupService>().SweepTemporaryFiles();
+}
+
 LoggingSetup.RegisterServerApiKey(
     app.Services.GetRequiredService<ISecretRegistry>(),
     app.Services.GetRequiredService<IOptionsMonitor<ServerOptions>>());

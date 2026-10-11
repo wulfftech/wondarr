@@ -71,8 +71,9 @@ RUN apt-get update \
 
 COPY scripts/fetch-slskd.sh /usr/local/bin/fetch-slskd.sh
 
-COPY --from=mwader/static-ffmpeg:9.0.2 /ffmpeg /tools/ffmpeg/ffmpeg
-COPY --from=mwader/static-ffmpeg:9.0.2 /ffprobe /tools/ffprobe/ffprobe
+# ffmpeg and ffprobe come from a tag-and-digest pin: a re-pushed tag cannot change what is copied (digest: docs/architecture/DEPLOYMENT.md).
+COPY --from=mwader/static-ffmpeg:9.0.2@sha256:7d9bdaaf887f7e6ce6151f67325c344074b5ff1fb75316011c3376503e449a7b /ffmpeg /tools/ffmpeg/ffmpeg
+COPY --from=mwader/static-ffmpeg:9.0.2@sha256:7d9bdaaf887f7e6ce6151f67325c344074b5ff1fb75316011c3376503e449a7b /ffprobe /tools/ffprobe/ffprobe
 
 RUN set -eux; \
     chmod 0755 /usr/local/bin/fetch-slskd.sh; \

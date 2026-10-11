@@ -23,4 +23,5 @@ export PATH="${shim_dir}:$PATH"
 # box the Windows HOME is D:\Code (the global .gitconfig lives there), so point WSL's HOME at it.
 export HOME=/mnt/d/Code
 
-exec bash "$(dirname "$0")/safe-merge.sh" "$@"
+# No exec: the shell must survive the merge so the EXIT trap above removes the shim directory.
+bash "$(dirname "$0")/safe-merge.sh" "$@"
