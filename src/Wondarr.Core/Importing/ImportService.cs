@@ -9,6 +9,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
@@ -85,7 +86,9 @@ public sealed partial class ImportService : IImportService
 
     /// <summary>
     /// The only extensions the import will write. Anything else — <c>.webm</c> above all (ADR-0006) —
-    /// is refused before a single byte of the file is touched.
+    /// is refused before a single byte of the file is touched. A name on this list is further refused
+    /// when it is still a container the tag writer cannot handle once the library's conversion rule
+    /// has run (<see cref="TagWriter.CanTag"/>).
     /// </summary>
     private static readonly HashSet<string> ImportableExtensions = new(StringComparer.Ordinal)
     {
@@ -115,6 +118,7 @@ public sealed partial class ImportService : IImportService
     private readonly TimeProvider _timeProvider;
     private readonly ISongFileLock _songFileLock;
     private readonly ILogger<ImportService> _logger;
+    private readonly AcoustIdKeyState _keyState;
 
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the song and the file are written through it.</param>
@@ -131,6 +135,7 @@ public sealed partial class ImportService : IImportService
     /// <param name="timeProvider">The clock every timestamp comes from.</param>
     /// <param name="songFileLock">The per-song lock the compaction's stage step also takes.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="keyState">Counts how long imports have waited on a rejected AcoustID key.</param>
     public ImportService(
         WondarrDbContext database,
         IDownloadVerifier verifier,
@@ -145,7 +150,8 @@ public sealed partial class ImportService : IImportService
         IOptionsMonitor<SearchOptions> options,
         TimeProvider timeProvider,
         ISongFileLock songFileLock,
-        ILogger<ImportService> logger)
+        ILogger<ImportService> logger,
+        AcoustIdKeyState? keyState = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(verifier);
@@ -176,6 +182,7 @@ public sealed partial class ImportService : IImportService
         _timeProvider = timeProvider;
         _songFileLock = songFileLock;
         _logger = logger;
+        _keyState = keyState ?? new AcoustIdKeyState();
     }
 
     /// <inheritdoc />
@@ -417,6 +424,11 @@ public sealed partial class ImportService : IImportService
                     // again. A delete that cannot run is the transcode's failure, not the import's:
                     // both files on disk would make the next attempt hit an existing destination.
                     File.Delete(downloadPath);
+
+                    // The transcoded file is the download from here on, as the Ogg rename above does
+                    // it: a deferral brings the item back to a file that exists, and a rejection
+                    // deletes the file that is really there (R-013).
+                    item.DownloadPath = importPath;
                 }
                 catch (OperationCanceledException)
                 {
@@ -540,6 +552,27 @@ public sealed partial class ImportService : IImportService
             }
         }
 
+        // --- Taggable -----------------------------------------------------------------------------
+        // Whatever the conversion left us with has to be a container the tag writer can write to.
+        // APE, WavPack and WMA are accepted as downloads, but only a conversion rule can save them:
+        // a tagging failure is never blocklisted, so letting one through would re-grab the same file
+        // for ever (R-049). The decision engine turns these away before the grab; this is the net
+        // for a candidate that was named something else, or a manual grab.
+        if (!TagWriter.CanTag(extension))
+        {
+            LogExtensionRefused(_logger, item.Id, extension);
+
+            return await RejectAsync(
+                    item,
+                    song,
+                    $"Cannot tag .{extension} files: Wondarr writes tags to MP3, FLAC, Opus, Ogg, M4A, AAC, WAV and AIFF only, "
+                    + "and the library has no conversion rule that turns this into one of them",
+                    null,
+                    null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         // --- Verify -----------------------------------------------------------------------------
         var credits = song.Artists
             .OrderBy(credit => credit.Position)
@@ -559,6 +592,27 @@ public sealed partial class ImportService : IImportService
                     sourceQualityId),
                 cancellationToken)
             .ConfigureAwait(false);
+
+        if (verification.Outcome == VerificationOutcome.Deferred
+            && verification.KeyRejected
+            && _keyState.CountDeferral(item.Id) > AcoustIdKeyState.MaxKeyDeferrals)
+        {
+            // A rejected key does not mend itself. The file is good and is not blocklisted, and the
+            // message names the key, not the file; the Health page carries the same error.
+            _keyState.ForgetDeferrals(item.Id);
+
+            await FailAsync(
+                    item,
+                    "AcoustID rejected the client key, so the download could not be confirmed. Fix the key in "
+                    + "Settings → General → Metadata services, then search for the song again",
+                    null,
+                    null,
+                    allowNextAttempt: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return ImportOutcome.Failed;
+        }
 
         if (verification.Outcome == VerificationOutcome.Deferred)
         {
@@ -717,6 +771,8 @@ public sealed partial class ImportService : IImportService
             // peer's: no blocklist entry and no next candidate (every other file would hit the same
             // problem — seen live on 2026-09-29, where a year-only date burned every good candidate).
             // The song stays wanted and the next missing search tries again.
+            await DiscardAlbumAlignmentAsync(album, cancellationToken).ConfigureAwait(false);
+
             await FailAsync(
                     item,
                     $"Tagging failed: {placement.Error}",
@@ -729,11 +785,31 @@ public sealed partial class ImportService : IImportService
             return ImportOutcome.Failed;
         }
 
-        if (!placement.Success || placement.FinalPath is null)
+        string finalPath;
+
+        if (placement.Success && placement.FinalPath is not null)
+        {
+            finalPath = placement.FinalPath;
+        }
+        else if (placement.FinalPath is { } landed && File.Exists(landed))
+        {
+            // The file reached the library and a later step failed (a chmod, or a copy whose source
+            // could not be removed): it is where it is, so the row must say so. Failing the item here
+            // would separate the file from its record, and the next candidate would land beside it.
+            LogPlacedDespiteError(_logger, item.Id, landed, placement.Error ?? string.Empty);
+            finalPath = landed;
+        }
+        else
         {
             // A placement failure is a configuration problem, not the file's fault: no blocklist entry
             // and no next candidate — the next one would land in the same unwritable folder.
             LogPlacementFailed(_logger, item.Id, placement.Error ?? "the placer gave no final path");
+
+            // A replaced file may have been recycled and not come back: that failure is recorded
+            // with no token, like every write after a move.
+            var writeToken = placement.RecycledPath is null ? cancellationToken : CancellationToken.None;
+
+            await DiscardAlbumAlignmentAsync(album, writeToken).ConfigureAwait(false);
 
             await FailAsync(
                     item,
@@ -741,7 +817,7 @@ public sealed partial class ImportService : IImportService
                     placement.FinalPath,
                     placement.RecycledPath,
                     allowNextAttempt: false,
-                    cancellationToken)
+                    writeToken)
                 .ConfigureAwait(false);
 
             return ImportOutcome.Failed;
@@ -752,9 +828,18 @@ public sealed partial class ImportService : IImportService
         var previousPath = song.File?.Path;
         var file = song.File ?? new SongFile { SongId = song.Id };
 
+        // An upgrade that renamed the file takes the old file's lyrics sidecars with it, as the
+        // converter does (R-050). A reference file is the user's own and keeps its neighbours.
+        if (upgraded && previousPath is not null && song.File!.SourceType != SourceTypes.Reference)
+        {
+            FileConverter.MoveSidecars(previousPath, finalPath);
+        }
+
+        // The file is in the library: from here every database write runs with no token, so a
+        // shutdown cannot separate the file from its record (R-012).
         try
         {
-            file.Path = placement.FinalPath;
+            file.Path = finalPath;
             file.Size = media.SizeBytes;
             file.Codec = media.Codec;
             file.Container = media.Container;
@@ -787,7 +872,7 @@ public sealed partial class ImportService : IImportService
 
             // Only now is the learned recording id written onto the song, and it is checked once more:
             // the file is going into the library, so it is allowed to teach the song its identity.
-            await ApplyRecordingIdAsync(song, learnedMbId, cancellationToken).ConfigureAwait(false);
+            await ApplyRecordingIdAsync(song, learnedMbId, CancellationToken.None).ConfigureAwait(false);
 
             _database.History.Add(new HistoryItem
             {
@@ -797,7 +882,7 @@ public sealed partial class ImportService : IImportService
                 QualityId = measured,
                 Data = JsonSerializer.Serialize(
                     new ImportHistoryData(
-                        placement.FinalPath,
+                        finalPath,
                         previousPath,
                         placement.RecycledPath,
                         verification.Reason,
@@ -809,7 +894,7 @@ public sealed partial class ImportService : IImportService
                     Json),
             });
 
-            await RecordPeerAsync(item, delivered: true, now, cancellationToken).ConfigureAwait(false);
+            await RecordPeerAsync(item, delivered: true, now, CancellationToken.None).ConfigureAwait(false);
 
             item.State = QueueItemState.Imported;
             item.StateChangedAt = now;
@@ -820,11 +905,7 @@ public sealed partial class ImportService : IImportService
             // The record step: the file row, the learned MBID, the history and the peer's reputation
             // commit with the item, in one save. Nothing here is committed on its own — a half-written
             // import is worse than a failed one.
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
+            await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -834,8 +915,8 @@ public sealed partial class ImportService : IImportService
 
             return await FailSafelyAsync(
                     item.Id,
-                    $"Imported to {placement.FinalPath} but recording it failed: {exception.Message}",
-                    cancellationToken)
+                    $"Imported to {finalPath} but recording it failed: {exception.Message}",
+                    CancellationToken.None)
                 .ConfigureAwait(false);
         }
 
@@ -856,7 +937,7 @@ public sealed partial class ImportService : IImportService
             .PublishAsync(new SongImportedEvent(song.Id, file.Id, upgraded), cancellationToken)
             .ConfigureAwait(false);
 
-        LogImported(_logger, item.Id, song.Id, placement.FinalPath, measuredName, upgraded);
+        LogImported(_logger, item.Id, song.Id, finalPath, measuredName, upgraded);
 
         return upgraded ? ImportOutcome.Upgraded : ImportOutcome.Imported;
     }
@@ -906,6 +987,19 @@ public sealed partial class ImportService : IImportService
         LogDeferred(_logger, item.Id, CompactionWaitMessage);
 
         return ImportOutcome.Deferred;
+    }
+
+    /// <summary>
+    /// Drops the album-context alignment the organizer made in memory before it tagged and placed
+    /// the file. The organizer edits the tracked entity first, and the failure path saves the same
+    /// context, so a file that never reached the library must not re-file the song (R-047).
+    /// </summary>
+    private async Task DiscardAlbumAlignmentAsync(AlbumContext album, CancellationToken cancellationToken)
+    {
+        if (_database.Entry(album).State == EntityState.Modified)
+        {
+            await _database.Entry(album).ReloadAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Loads the song with everything the import needs.</summary>
@@ -1543,6 +1637,11 @@ public sealed partial class ImportService : IImportService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Queue item {QueueItemId} could not be placed: {Reason}")]
     private static partial void LogPlacementFailed(ILogger logger, long queueItemId, string reason);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Queue item {QueueItemId}: the file reached {Path} but the placement reported an error ({Error}); recording it as placed")]
+    private static partial void LogPlacedDespiteError(ILogger logger, long queueItemId, string path, string error);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Queue item {QueueItemId} cannot be imported: the download has a .{Extension} extension")]
     private static partial void LogExtensionRefused(ILogger logger, long queueItemId, string extension);

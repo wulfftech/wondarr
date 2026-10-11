@@ -8,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
@@ -390,7 +391,9 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
 
     /// <summary>
     /// Puts items a previous process left mid-import back to <c>Completed</c>, so the next cycle hands
-    /// them to the import again. Placing a file is idempotent up to the move, so this is safe.
+    /// them to the import again. An item whose file had already landed in the library is recorded
+    /// instead (<see cref="ImportRecovery"/>): resetting it would send the next candidate to land beside
+    /// an untracked copy. When the check cannot tell, the item is reset, as it always was.
     /// </summary>
     /// <param name="cancellationToken">Cancels the recovery.</param>
     internal async Task RecoverAsync(CancellationToken cancellationToken)
@@ -400,6 +403,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         var stuck = await database.QueueItems
+            .Include(entry => entry.Candidate)
             .Where(entry => entry.State == QueueItemState.Importing)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -409,8 +413,32 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
             return;
         }
 
+        var probe = scope.ServiceProvider.GetService<IMediaProbe>();
+        var recorded = 0;
+
         foreach (var item in stuck)
         {
+            // The file may already be where the import was taking it. Anything that goes wrong in
+            // looking is "unsure", and an unsure item is reset like any other.
+            try
+            {
+                if (probe is not null
+                    && await ImportRecovery.FindLandedFileAsync(database, item, _logger, cancellationToken)
+                        .ConfigureAwait(false) is { } landed
+                    && await ImportRecovery.RecordLandedFileAsync(database, probe, item, landed, now, cancellationToken)
+                        .ConfigureAwait(false))
+                {
+                    recorded++;
+                    LogRecoveredLandedFile(_logger, item.Id, landed);
+
+                    continue;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogRecoveryCheckFailed(_logger, item.Id, exception);
+            }
+
             item.State = QueueItemState.Completed;
             item.StateChangedAt = now;
             item.NextCheckAt = null;
@@ -427,7 +455,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
 
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        LogRecovered(_logger, stuck.Count);
+        LogRecovered(_logger, stuck.Count - recorded);
     }
 
     /// <summary>Hands one finished download to the import service, in a scope of its own.</summary>
@@ -762,6 +790,14 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Put {Count} item(s) left mid-import by a previous run back to Completed")]
     private static partial void LogRecovered(ILogger logger, int count);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Queue item {QueueItemId} was importing when the process stopped, and its file had already landed at {Path}; recorded it")]
+    private static partial void LogRecoveredLandedFile(ILogger logger, long queueItemId, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not check whether queue item {QueueItemId} had already landed; resetting it")]
+    private static partial void LogRecoveryCheckFailed(ILogger logger, long queueItemId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The startup recovery of interrupted imports failed")]
     private static partial void LogRecoveryFailed(ILogger logger, Exception exception);

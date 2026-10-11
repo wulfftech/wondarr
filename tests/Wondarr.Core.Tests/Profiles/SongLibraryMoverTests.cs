@@ -36,6 +36,7 @@ public class SongLibraryMoverTests : IDisposable
     private readonly FakeTimeProvider _timeProvider = new() { AutoAdvanceAmount = TimeSpan.FromSeconds(2) };
     private readonly IDiskOperations _disk = new DiskOperations();
     private readonly IPlexLibraryUpdater _updater = Substitute.For<IPlexLibraryUpdater>();
+    private readonly SongFileLock _songFileLock = new();
     private readonly MovingOrganizer _organizer;
     private readonly string _root;
     private readonly string _root2;
@@ -70,8 +71,73 @@ public class SongLibraryMoverTests : IDisposable
             _disk,
             recycleBin,
             _updater,
-            new SongFileLock(),
+            _songFileLock,
             NullLogger<SongLibraryMover>.Instance);
+    }
+
+    [Fact]
+    public async Task A_placement_that_moved_the_file_but_reported_an_error_is_recorded_as_moved()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        _organizer.LandedWithError = "chmod failed";
+
+        var result = await _mover.MoveAsync(songId, 2, CancellationToken.None);
+
+        result.Should().Be(SongMoveResult.Moved);
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        var file = await fresh.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId);
+        file.Path.Should().StartWith(_root2, "the row says where the file is");
+        File.Exists(file.Path).Should().BeTrue();
+        (await fresh.Songs.AsNoTracking().SingleAsync(candidate => candidate.Id == songId)).LibraryId.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_shutdown_between_the_move_and_the_save_still_records_the_new_path()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+
+        using var shutdown = new CancellationTokenSource();
+        _organizer.AfterMove = shutdown.Cancel;
+
+        try
+        {
+            await _mover.MoveAsync(songId, 2, shutdown.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // The tidy-up of the old folder may notice the shutdown; the record may not.
+        }
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId))
+            .Path.Should().StartWith(_root2);
+    }
+
+    [Fact]
+    public async Task The_song_is_read_again_inside_the_lock()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+
+        await using var held = await _songFileLock.AcquireAsync(songId, CancellationToken.None);
+
+        var moving = _mover.MoveAsync(songId, 2, CancellationToken.None);
+
+        // Somebody else files the song into the target library while the mover waits.
+        await using (var other = _database.CreateContext(_timeProvider))
+        {
+            await other.Songs
+                .Where(candidate => candidate.Id == songId)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.LibraryId, 2L));
+        }
+
+        await held.DisposeAsync();
+
+        (await moving).Should().Be(SongMoveResult.AlreadyThere);
+        _organizer.Requests.Should().BeEmpty();
     }
 
     [Fact]
@@ -420,6 +486,12 @@ public class SongLibraryMoverTests : IDisposable
         /// <summary>Every request the mover made, in order.</summary>
         public List<OrganizeRequest> Requests { get; } = [];
 
+        /// <summary>When set, the file moves and the result still reports this placement error.</summary>
+        public string? LandedWithError { get; set; }
+
+        /// <summary>Run right after the file has moved, before the result is returned.</summary>
+        public Action? AfterMove { get; set; }
+
         /// <inheritdoc />
         public Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
         {
@@ -439,6 +511,14 @@ public class SongLibraryMoverTests : IDisposable
 
             disk.CreateDirectory(directory);
             disk.MoveFile(request.SourcePath, target);
+
+            AfterMove?.Invoke();
+
+            if (LandedWithError is { } error)
+            {
+                return Task.FromResult(
+                    new OrganizeResult(OrganizeFailure.Placement, error, target, null, new Dictionary<string, string>()));
+            }
 
             return Task.FromResult(
                 new OrganizeResult(

@@ -38,7 +38,7 @@ public sealed class ImportServiceReplayGainTests
         await host.SetLibraryReplayGainAsync(on);
         var seed = await host.SeedAsync(options =>
         {
-            options.CurrentFilePath = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+            options.CurrentFilePath = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
             options.CurrentFileQualityId = 29;
         });
         await host.Context.SongFiles.ExecuteUpdateAsync(update => update
