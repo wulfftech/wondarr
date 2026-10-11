@@ -41,7 +41,7 @@ public sealed class ImportServiceTests
         request.RelativePathWithoutExtension.Should().Be(ImportTestHost.DaftPunkRelativePath);
         request.Extension.Should().Be("flac");
         request.Mode.Should().Be(TransferMode.Move);
-        request.LibraryRoot.Should().Be("/data/music");
+        request.LibraryRoot.Should().Be(host.LibraryRoot);
         request.ReplacesPath.Should().BeNull();
         request.SourcePath.Should().Be(seed.DownloadPath);
 
@@ -54,7 +54,7 @@ public sealed class ImportServiceTests
 
         var file = await host.Context.SongFiles.SingleAsync();
         file.SongId.Should().Be(seed.SongId);
-        file.Path.Should().Be("/data/music/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
         file.Size.Should().Be(30_000_000);
         file.Codec.Should().Be("flac");
         file.Container.Should().Be("flac");
@@ -111,7 +111,7 @@ public sealed class ImportServiceTests
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var held = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+        var held = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
         var seed = await host.SeedAsync(options =>
         {
             options.CurrentFilePath = held;
@@ -126,7 +126,7 @@ public sealed class ImportServiceTests
 
         var file = await host.Context.SongFiles.SingleAsync();
         file.Id.Should().Be(seed.SongFileId);
-        file.Path.Should().Be("/data/music/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
         file.QualityId.Should().Be(36);
         file.Codec.Should().Be("flac");
 
@@ -144,7 +144,7 @@ public sealed class ImportServiceTests
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var held = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+        var held = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
         var seed = await host.SeedAsync(options =>
         {
             options.CurrentFilePath = held;
@@ -176,7 +176,7 @@ public sealed class ImportServiceTests
 
         var seed = await host.SeedAsync(options =>
         {
-            options.CurrentFilePath = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+            options.CurrentFilePath = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
             options.CurrentFileQualityId = 29;
             options.Trigger = SearchTrigger.Manual;
         });
@@ -190,7 +190,7 @@ public sealed class ImportServiceTests
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var held = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac";
+        var held = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.flac";
         var seed = await host.SeedAsync(options =>
         {
             options.CurrentFilePath = held;
@@ -227,7 +227,7 @@ public sealed class ImportServiceTests
         var file = await host.Context.SongFiles.SingleAsync();
         file.Id.Should().Be(seed.SongFileId);
         file.SourceType.Should().Be(SourceTypes.Soulseek);
-        file.Path.Should().Be("/data/music/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public sealed class ImportServiceTests
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var held = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac";
+        var held = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.flac";
         var seed = await host.SeedAsync(options =>
         {
             options.CurrentFilePath = held;
@@ -691,7 +691,7 @@ public sealed class ImportServiceTests
 
         // A song_file row appears for the song behind the import's back, so its own insert collides
         // with the one-file-per-song index when the record step saves.
-        host.Placer.OnPlaceAsync = _ => host.InsertSongFileBehindAsync(seed!.SongId, "/data/music/other.flac");
+        host.Placer.OnPlaceAsync = _ => host.InsertSongFileBehindAsync(seed!.SongId, host.LibraryRoot + "/other.flac");
 
         seed = await host.SeedAsync();
 
@@ -701,7 +701,7 @@ public sealed class ImportServiceTests
 
         var item = await host.Context.QueueItems.SingleAsync(entry => entry.Id == seed.QueueItemId);
         item.State.Should().Be(QueueItemState.Failed);
-        item.Message.Should().StartWith("Imported to /data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+        item.Message.Should().StartWith("Imported to " + host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
         item.Message.Should().Contain("but recording it failed:");
 
         // The unsuccessful import never announced itself as one.

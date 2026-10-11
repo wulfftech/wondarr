@@ -65,7 +65,7 @@ public class ImportServiceTranscodeTests
         file.QualityId.Should().Be(SeedData.Opus160QualityId);
         file.SourceType.Should().Be(SourceTypes.YouTube);
         file.BitrateKbps.Should().Be(1000, "the probe's measured bitrate is still recorded");
-        file.Path.Should().Be("/data/music/" + ImportTestHost.DaftPunkRelativePath + ".m4a");
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".m4a");
     }
 
     [Fact]
@@ -290,9 +290,9 @@ public class ImportServiceTranscodeTests
             {
                 LibraryId = SeedData.DefaultLibraryId,
                 SongId = seed.SongId,
-                FromPath = "/data/music/held.mp3",
-                StagedPath = "/data/music/held.mp3.staged",
-                ToPath = "/data/music/held.mp3",
+                FromPath = host.LibraryRoot + "/held.mp3",
+                StagedPath = host.LibraryRoot + "/held.mp3.staged",
+                ToPath = host.LibraryRoot + "/held.mp3",
                 Proposed = "{}",
                 State = CompactMoveState.Staged,
             });

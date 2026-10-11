@@ -111,6 +111,16 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
     /// <inheritdoc />
     public async Task<SongMoveResult> MoveAsync(long songId, long targetLibraryId, CancellationToken cancellationToken)
     {
+        // The per-song file guard, held for the whole move: an import or a compaction can never act
+        // on this song's file while it is changing libraries. It is taken before the song is read, so
+        // the copy decided from is the one nothing else can change (R-072).
+        await using var _ = await _songFileLock
+            .AcquireAsync(songId, cancellationToken)
+            .ConfigureAwait(false);
+
+        // A context reused across songs would hand back its earlier, stale copy of this one.
+        _database.ChangeTracker.Clear();
+
         // The song is loaded exactly as the import loads it: the album context decides the folder and
         // the tags, and the credits are what the tag writer writes.
         var song = await _database.Songs
@@ -143,12 +153,6 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
         var fromLibrary = await _database.Libraries
             .AsNoTracking()
             .FirstOrDefaultAsync(library => library.Id == song.LibraryId, cancellationToken)
-            .ConfigureAwait(false);
-
-        // The per-song file guard, held for the whole move: an import or a compaction can never act
-        // on this song's file while it is changing libraries.
-        await using var _ = await _songFileLock
-            .AcquireAsync(song.Id, cancellationToken)
             .ConfigureAwait(false);
 
         if (await _database.CompactMoves
@@ -257,7 +261,20 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
             return new SongMoveResult(SongMoveOutcome.Failed, exception.Message);
         }
 
-        if (!placement.Success || placement.FinalPath is null)
+        string finalPath;
+
+        if (placement.Success && placement.FinalPath is not null)
+        {
+            finalPath = placement.FinalPath;
+        }
+        else if (placement.FinalPath is { } landed && _disk.FileExists(landed))
+        {
+            // The file reached the target library and a later step failed (a chmod, or a copy whose
+            // source could not be removed): it is where it is, so the rows must say so.
+            LogPlacedDespiteError(_logger, song.Id, landed, placement.Error ?? string.Empty);
+            finalPath = landed;
+        }
+        else
         {
             LogMoveFailed(_logger, song.Id, targetLibraryId, placement.Error ?? "the organizer gave no final path");
 
@@ -265,8 +282,6 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
             return new SongMoveResult(SongMoveOutcome.Failed, placement.Error ?? "the organizer gave no final path");
         }
-
-        var finalPath = placement.FinalPath;
 
         // The sidecars travel with their file, under the placed file's own name.
         foreach (var (sidecar, beside, targetTaken) in SongFileRules.SidecarMoves(_disk, file.Path, finalPath))
@@ -303,9 +318,11 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
             WriteHistory(song.Id, fromLibrary?.Id, targetLibraryId, fromPath, finalPath);
 
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            // The file has moved: the record is written with no token, so a shutdown cannot separate
+            // the file from its row (R-012).
+            await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception)
         {
             // The file is in the target library already; only the bookkeeping failed. The least the
             // rows must say is where the file is and which library it belongs to, written on their own
@@ -317,11 +334,11 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
             var movedSongId = song.Id;
             await _database.SongFiles
                 .Where(candidate => candidate.Id == fileId)
-                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, finalPath), cancellationToken)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, finalPath), CancellationToken.None)
                 .ConfigureAwait(false);
             await _database.Songs
                 .Where(candidate => candidate.Id == movedSongId)
-                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.LibraryId, targetLibraryId), cancellationToken)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.LibraryId, targetLibraryId), CancellationToken.None)
                 .ConfigureAwait(false);
 
             return new SongMoveResult(
@@ -429,6 +446,9 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
         long ToLibraryId,
         string? From,
         string? To);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Moved song {SongId} to {Path} but the placement reported an error ({Error}); recording it as placed")]
+    private static partial void LogPlacedDespiteError(ILogger logger, long songId, string path, string error);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Moving song {SongId} to library {LibraryId} failed: {Message}")]
     private static partial void LogMoveFailed(ILogger logger, long songId, long libraryId, string message);
