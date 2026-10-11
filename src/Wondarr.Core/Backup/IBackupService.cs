@@ -15,6 +15,23 @@ public interface IBackupService
     /// <returns>The new backup's descriptor.</returns>
     Task<BackupItem> CreateAsync(BackupType type, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Creates the backup that protects an upgrade: a scheduled-type zip named after the version
+    /// that last ran the database (<c>wondarr_pre-&lt;version&gt;_&lt;timestamp&gt;.zip</c>), so the usual
+    /// retention clears it out in time.
+    /// </summary>
+    /// <param name="previousVersion">The version that last ran the database, or <c>unknown</c>.</param>
+    /// <param name="cancellationToken">Cancelled when the host stops.</param>
+    /// <returns>The new backup's descriptor.</returns>
+    Task<BackupItem> CreatePreMigrationAsync(string previousVersion, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes <c>restore-upload-*.tmp</c>, <c>restore-database-*.tmp</c> and <c>*.zip.tmp</c> files
+    /// more than an hour old: what an interrupted upload, restore or backup leaves behind.
+    /// </summary>
+    /// <returns>How many files were deleted.</returns>
+    int SweepTemporaryFiles();
+
     /// <summary>Lists every backup, newest first.</summary>
     /// <param name="cancellationToken">Cancelled when the host stops.</param>
     /// <returns>Every <c>.zip</c> under <c>scheduled/</c> and <c>manual/</c>, newest first.</returns>

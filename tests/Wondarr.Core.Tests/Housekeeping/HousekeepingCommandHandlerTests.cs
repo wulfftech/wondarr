@@ -269,6 +269,60 @@ public class HousekeepingCommandHandlerTests
     }
 
     [Theory]
+    [InlineData(QueueItemState.Importing)]
+    [InlineData(QueueItemState.Completed)]
+    public async Task The_vacuum_skips_while_an_import_is_running_or_queued(QueueItemState state)
+    {
+        await using var host = await HousekeepingHost.CreateAsync(shouldVacuum: (_, _) => true);
+        await SeedQueueItemAsync(host, state);
+
+        var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        message.Should().EndWith("checkpointed, vacuum skipped (imports in progress)");
+    }
+
+    [Fact]
+    public async Task The_vacuum_still_runs_when_the_only_queue_items_are_finished()
+    {
+        await using var host = await HousekeepingHost.CreateAsync(shouldVacuum: (_, _) => true);
+        await SeedQueueItemAsync(host, QueueItemState.Imported);
+
+        var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        message.Should().EndWith("vacuumed");
+    }
+
+    private static async Task SeedQueueItemAsync(HousekeepingHost host, QueueItemState state)
+    {
+        var songs = await host.AddSongsAsync(1);
+        var run = new SearchRun { SongId = songs[0], Trigger = SearchTrigger.Automatic, StartedAt = host.Now };
+        await host.SeedAsync(context => context.SearchRuns.Add(run));
+
+        var candidate = new CandidateRecord
+        {
+            SearchRunId = run.Id,
+            SongId = songs[0],
+            SourceType = "soulseek",
+            BlocklistKey = "peer\u001fMusic\\file.flac",
+            DisplayName = "file.flac",
+            RemotePath = "Music\\file.flac",
+            Provider = "peer",
+        };
+        await host.SeedAsync(context => context.Candidates.Add(candidate));
+
+        await host.SeedAsync(context => context.QueueItems.Add(new QueueItem
+        {
+            SongId = songs[0],
+            CandidateId = candidate.Id,
+            SearchRunId = run.Id,
+            SourceType = "soulseek",
+            Destination = "wondarr/1",
+            State = state,
+            Attempt = 1,
+        }));
+    }
+
+    [Theory]
     [InlineData(10_000, 999, false)]
     [InlineData(10_000, 1_000, false)]
     [InlineData(10_000, 2_500, false)]
