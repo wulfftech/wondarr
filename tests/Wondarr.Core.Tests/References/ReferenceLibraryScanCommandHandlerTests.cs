@@ -22,6 +22,7 @@ public sealed class ReferenceLibraryScanCommandHandlerTests : IDisposable
     private readonly SqliteTestDatabase _database = new();
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero));
     private readonly IReferenceScanner _scanner = Substitute.For<IReferenceScanner>();
+    private readonly IReferenceAdopter _adopter = Substitute.For<IReferenceAdopter>();
     private readonly ServiceProvider _provider;
 
     public ReferenceLibraryScanCommandHandlerTests()
@@ -32,6 +33,8 @@ public sealed class ReferenceLibraryScanCommandHandlerTests : IDisposable
             .UseSqlite($"Data Source={_database.FilePath}")
             .UseSnakeCaseNamingConvention());
         services.AddSingleton(_scanner);
+        services.AddSingleton(_adopter);
+        services.AddSingleton(Substitute.For<IReferenceIdentifier>());
 
         _provider = services.BuildServiceProvider();
 
@@ -134,6 +137,51 @@ public sealed class ReferenceLibraryScanCommandHandlerTests : IDisposable
         overlapped.Should().BeFalse("two scans of one library never run at once");
         ScannedIds().Should().Equal(first, first);
         summaries.Should().OnlyContain(summary => !summary.Contains("unavailable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Adopt_now_beside_a_scan_that_adopts_does_not_run_at_the_same_time()
+    {
+        var (first, _, _) = await AddLibrariesAsync(enabled: [true, false, false]);
+
+        await using (var database = _database.CreateContext(_time))
+        {
+            await database.ReferenceLibraries
+                .Where(library => library.Id == first)
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(library => library.Mode, ReferenceLibraryMode.Adopt)
+                    .SetProperty(library => library.LibraryId, SeedData.DefaultLibraryId));
+        }
+
+        var running = 0;
+        var overlapped = false;
+
+        _adopter
+            .AdoptAsync(Arg.Any<long>(), Arg.Any<Func<string, Task>?>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                if (Interlocked.Increment(ref running) > 1)
+                {
+                    overlapped = true;
+                }
+
+                await Task.Delay(150);
+                Interlocked.Decrement(ref running);
+
+                return new ReferenceAdoptResult(1, 0, 0);
+            });
+
+        // "Scan now" (which adopts as its last step) and "Adopt now", clicked together.
+        var scan = Handler.ExecuteAsync(Context($"{{\"referenceLibraryId\": {first}}}"), CancellationToken.None);
+        var adopt = new ReferenceAdoptCommandHandler(
+                _provider.GetRequiredService<IServiceScopeFactory>(),
+                NullLogger<ReferenceAdoptCommandHandler>.Instance)
+            .ExecuteAsync(Context($"{{\"referenceLibraryId\": {first}}}"), CancellationToken.None);
+
+        await Task.WhenAll(scan, adopt);
+
+        overlapped.Should().BeFalse("the adopter would otherwise copy every file twice");
+        await _adopter.Received(2).AdoptAsync(first, Arg.Any<Func<string, Task>?>(), Arg.Any<CancellationToken>());
     }
 
     /// <inheritdoc />
