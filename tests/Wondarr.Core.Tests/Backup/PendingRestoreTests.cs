@@ -241,6 +241,45 @@ public sealed class PendingRestoreTests : IDisposable
     }
 
     [Fact]
+    public void A_second_attempt_that_fails_after_a_crash_leaves_the_live_files_in_place()
+    {
+        // The crash set the database aside; the second attempt then fails on the config.
+        Write(_paths.DatabaseFile + PendingRestore.PreRestoreSuffix, "the live database");
+        Write(_paths.DatabaseFile + PendingRestore.PreRestoreSuffix + ".1", "an older database");
+        Write(_paths.DatabaseFile + PendingRestore.PreRestoreSuffix + ".2.discard", "the oldest database");
+        Write(_paths.ConfigFile, "the live config");
+        Stage("the new database", "the new config");
+        Write(Path.Combine(_root, PendingRestore.JournalFileName), "journal");
+        Directory.CreateDirectory(_paths.ConfigFile + PendingRestore.PreRestoreSuffix);
+
+        var applied = PendingRestore.ApplyIfStaged(_paths, out var message);
+
+        applied.Should().BeFalse();
+        message.Should().Contain("rolled back");
+        Read(_paths.DatabaseFile).Should().Be("the live database");
+        Read(_paths.ConfigFile).Should().Be("the live config");
+
+        // The crashed attempt's rotation is undone too: the generations are as they were before it.
+        Read(_paths.DatabaseFile + PendingRestore.PreRestoreSuffix).Should().Be("an older database");
+        Read(_paths.DatabaseFile + PendingRestore.PreRestoreSuffix + ".2").Should().Be("the oldest database");
+        Directory.GetFiles(_root, "*.discard").Should().BeEmpty();
+        Directory.Exists(RestoreFolder).Should().BeTrue();
+        File.Exists(Path.Combine(_root, PendingRestore.JournalFileName)).Should().BeFalse("the rollback completed, so nothing is left to recover");
+    }
+
+    [Fact]
+    public void A_stale_discard_from_a_crashed_attempt_is_deleted_when_the_restore_is_applied()
+    {
+        Write(_paths.DatabaseFile, "the old database");
+        Write(_paths.DatabaseFile + PendingRestore.PreRestoreSuffix + ".2.discard", "stale");
+        Stage("the new database", "the new config");
+
+        PendingRestore.ApplyIfStaged(_paths, out _).Should().BeTrue();
+
+        Directory.GetFiles(_root, "*.discard").Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_journal_that_leaves_no_database_anywhere_puts_the_old_files_back()
     {
         Write(_paths.DatabaseFile + PendingRestore.PreRestoreSuffix, "the old database");

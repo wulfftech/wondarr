@@ -15,6 +15,9 @@ public interface IBackupService
     /// <returns>The new backup's descriptor.</returns>
     Task<BackupItem> CreateAsync(BackupType type, CancellationToken cancellationToken);
 
+    /// <summary>The folder the backups live in (its volume is the one a full disk would fail a backup on).</summary>
+    string BackupFolder { get; }
+
     /// <summary>
     /// Creates the backup that protects an upgrade: a scheduled-type zip named after the version
     /// that last ran the database (<c>wondarr_pre-&lt;version&gt;_&lt;timestamp&gt;.zip</c>), so the usual

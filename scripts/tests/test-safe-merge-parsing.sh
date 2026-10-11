@@ -25,7 +25,7 @@ expect_false() { # name command...
 }
 
 # --- a theory case: the name is captured with its arguments, the method without -----------------------
-log="${samples}/theory-failure.log"
+log="${samples}/theory-failure.txt"
 expect_eq "theory: one failed case, arguments kept" \
     'Wondarr.Core.Tests.Organizer.NamingTests.Renders_tokens(template: "{Artist} - {Title}", expected: "A - B")' \
     "$(failed_case_names "${log}")"
@@ -36,7 +36,7 @@ expect_eq "theory: the summary counts one failure" "1" "$(summary_failed_total "
 expect_true "theory: every failure is accounted for" failures_accounted_for "${log}"
 
 # --- a nested class keeps its "+" --------------------------------------------------------------------
-log="${samples}/nested-class.log"
+log="${samples}/nested-class.txt"
 expect_eq "nested class: the method name keeps Outer+Inner" \
     "Wondarr.Core.Tests.Jobs.CommandQueueTests+Cancelling.A_queued_command_can_be_cancelled" \
     "$(failed_case_names "${log}" | failed_method_names)"
@@ -46,7 +46,7 @@ expect_eq "nested class: the re-run filter selects it" \
     "$(failed_case_names "${log}" | failed_method_names | rerun_filter)"
 
 # --- a flaky Fact next to a really broken theory: both are named, so both are re-run ------------------
-log="${samples}/mixed-flaky-and-real.log"
+log="${samples}/mixed-flaky-and-real.txt"
 expect_eq "mixed: three failed cases" "3" "$(failed_case_names "${log}" | grep -c .)"
 expect_eq "mixed: the summaries count three failures" "3" "$(summary_failed_total "${log}")"
 expect_true "mixed: every failure is accounted for" failures_accounted_for "${log}"
@@ -63,11 +63,17 @@ expect_false "unparsed theory: the names do not account for the summary, so no r
 rm -f "${only_fact}"
 
 # --- a failure with no name at all -------------------------------------------------------------------
-log="${samples}/unaccounted-failure.log"
+log="${samples}/unaccounted-failure.txt"
 expect_false "unnamed failure: one name, two failures, no re-run" failures_accounted_for "${log}"
 
+# --- a flaky failure plus a project that printed no summary at all (its host crashed) ---------------------
+log="${samples}/silent-project.txt"
+expect_true "silent project: the one failure is accounted for" failures_accounted_for "${log}"
+expect_eq "silent project: only two of three projects reported" "2" "$(projects_reported "${log}")"
+expect_false "silent project: three summaries are required, so no re-run" test "$(projects_reported "${log}")" -eq 3
+
 # --- a test-host crash after an all-green run: no names, no failures ---------------------------------
-log="${samples}/host-plumbing.log"
+log="${samples}/host-plumbing.txt"
 expect_eq "plumbing: no failed names" "0" "$(failed_case_names "${log}" | grep -c .)"
 expect_eq "plumbing: no failures in the summaries" "0" "$(summary_failed_total "${log}")"
 expect_eq "plumbing: three projects passed" "3" "$(projects_passed "${log}")"

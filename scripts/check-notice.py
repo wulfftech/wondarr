@@ -90,6 +90,20 @@ def listed_files(notice: str) -> list[tuple[int, str]]:
     return listed
 
 
+def last_ported_row(lines: list[str]) -> int:
+    """Index of the last row of the ported-code table (the new rows go after it)."""
+    last = -1
+    in_table = False
+    for index, line in enumerate(lines):
+        if line.startswith("## "):
+            in_table = line.startswith("## Ported")
+        elif in_table and line.startswith("| "):
+            last = index
+    if last < 0:
+        raise SystemExit("NOTICE.md has no ported-code table to add rows to")
+    return last
+
+
 def main() -> int:
     notice_path = REPO / "NOTICE.md"
     notice = notice_path.read_text(encoding="utf-8")
@@ -103,7 +117,7 @@ def main() -> int:
             else:
                 print(f"cannot parse the header of {rel}; add its row by hand")
         lines = notice.splitlines()
-        last = max(i for i, line in enumerate(lines) if line.startswith("| ") and "`src/" in line)
+        last = last_ported_row(lines)
         lines[last + 1:last + 1] = rows
         notice_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         print(f"added {len(rows)} NOTICE.md rows")

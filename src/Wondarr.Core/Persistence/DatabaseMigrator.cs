@@ -23,6 +23,10 @@ public sealed partial class DatabaseMigrator
     private readonly WondarrDbContext _context;
     private readonly ILogger<DatabaseMigrator> _logger;
     private readonly Func<IBackupService?> _backups;
+    private readonly TimeSpan _backupTimeout;
+
+    /// <summary>The longest the pre-migration backup may take before the migration is refused.</summary>
+    public static readonly TimeSpan DefaultBackupTimeout = TimeSpan.FromMinutes(15);
 
     /// <summary>Initialises a new instance of the <see cref="DatabaseMigrator"/> class.</summary>
     /// <param name="context">The database to migrate.</param>
@@ -31,8 +35,8 @@ public sealed partial class DatabaseMigrator
     /// Writes the pre-migration backup. Without it an existing database with pending migrations is
     /// not migrated at all; a fresh database does not need one.
     /// </param>
-    public DatabaseMigrator(WondarrDbContext context, ILogger<DatabaseMigrator> logger, IBackupService? backups = null)
-        : this(context, logger, () => backups)
+    public DatabaseMigrator(WondarrDbContext context, ILogger<DatabaseMigrator> logger, IBackupService? backups = null, TimeSpan? backupTimeout = null)
+        : this(context, logger, () => backups, backupTimeout)
     {
     }
 
@@ -43,13 +47,14 @@ public sealed partial class DatabaseMigrator
     /// <param name="context">The database to migrate.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="backups">Finds the backup service, or returns <see langword="null"/> when there is none.</param>
-    public DatabaseMigrator(WondarrDbContext context, ILogger<DatabaseMigrator> logger, Func<IBackupService?> backups)
+    public DatabaseMigrator(WondarrDbContext context, ILogger<DatabaseMigrator> logger, Func<IBackupService?> backups, TimeSpan? backupTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(backups);
 
         _context = context;
         _logger = logger;
         _backups = backups;
+        _backupTimeout = backupTimeout ?? DefaultBackupTimeout;
     }
 
     /// <summary>The <c>user_version</c> that encodes <paramref name="version"/>, or 0 when it has no usable numeric part.</summary>
@@ -137,18 +142,53 @@ public sealed partial class DatabaseMigrator
 
         var previous = await ReadLastRunVersionAsync(cancellationToken).ConfigureAwait(false) ?? "unknown";
 
+        // A backup that hangs (a stalled volume, a lock that never frees) must not hang startup for ever.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_backupTimeout);
+
         try
         {
-            var backup = await backups.CreatePreMigrationAsync(previous, cancellationToken).ConfigureAwait(false);
+            var backup = await backups.CreatePreMigrationAsync(previous, timeout.Token).ConfigureAwait(false);
             LogBackedUp(pendingCount, backup.Name);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            var free = FreeSpace(backups);
+            LogBackupTimedOut(pendingCount, (int)_backupTimeout.TotalMinutes, free);
+
+            throw new InvalidOperationException(
+                $"The database was not migrated because its pre-migration backup did not finish within {_backupTimeout.TotalMinutes:0} minutes.");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            LogBackupFailed(exception, pendingCount);
+            var free = FreeSpace(backups);
+            LogBackupFailed(exception, pendingCount, free);
 
             throw new InvalidOperationException(
                 $"The database was not migrated because its pre-migration backup failed: {exception.Message}",
                 exception);
+        }
+    }
+
+    /// <summary>The free space on the backups volume, for the log line that explains a failed or hung backup.</summary>
+    private static string FreeSpace(IBackupService backups)
+    {
+        try
+        {
+            var folder = backups.BackupFolder;
+
+            if (string.IsNullOrWhiteSpace(folder))
+            {
+                return "unknown";
+            }
+
+            var root = Path.GetPathRoot(Path.GetFullPath(folder));
+
+            return root is null ? "unknown" : $"{new DriveInfo(root).AvailableFreeSpace / (1024 * 1024)} MB";
+        }
+        catch (Exception exception) when (exception is IOException or ArgumentException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return "unknown";
         }
     }
 
@@ -216,8 +256,11 @@ public sealed partial class DatabaseMigrator
     [LoggerMessage(Level = LogLevel.Information, Message = "Backed up the database before applying {Count} pending migration(s): {Backup}")]
     private partial void LogBackedUp(int count, string backup);
 
-    [LoggerMessage(Level = LogLevel.Critical, Message = "The pre-migration backup failed, so the {Count} pending migration(s) were NOT applied and Wondarr will not start")]
-    private partial void LogBackupFailed(Exception exception, int count);
+    [LoggerMessage(Level = LogLevel.Critical, Message = "The pre-migration backup failed, so the {Count} pending migration(s) were NOT applied and Wondarr will not start. Free space on the backups volume: {FreeSpace}")]
+    private partial void LogBackupFailed(Exception exception, int count, string freeSpace);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "The pre-migration backup did not finish within {Minutes} minutes, so the {Count} pending migration(s) were NOT applied and Wondarr will not start. Free space on the backups volume: {FreeSpace}")]
+    private partial void LogBackupTimedOut(int count, int minutes, string freeSpace);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "This database was written by a newer Wondarr: it has the migration {Migration}, which this version does not know")]
     private partial void LogNewerDatabase(string migration);

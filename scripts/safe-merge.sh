@@ -55,6 +55,11 @@ projects_passed() {
     grep -cE '^Passed! ' "$1" || true
 }
 
+# How many projects ended with any summary line (Passed! or Failed!). A project whose test host crashed prints none.
+projects_reported() {
+    grep -cE '^(Passed|Failed)! ' "$1" || true
+}
+
 # True when every captured failed case is accounted for by the summary totals: the log names exactly as
 # many distinct failed cases as the summaries count as failed (and at least one).
 failures_accounted_for() {
@@ -112,6 +117,12 @@ check() {
             fi
             echo "safe-merge: every test project passed; the non-zero exit came from the test host plumbing"
         else
+            expected="$(count_test_projects)"
+            if [[ "${expected}" -lt 1 || "$(projects_reported "${log}")" -ne "${expected}" ]]; then
+                echo "safe-merge: refusing the re-run — $(projects_reported "${log}") of ${expected} test projects reported a summary; a project that printed none (its host crashed) cannot be vouched for" >&2
+                rm -f "${log}"
+                return 1
+            fi
             if ! failures_accounted_for "${log}"; then
                 echo "safe-merge: refusing the re-run — the log names $(printf '%s\n' "${names}" | grep -c .) failed test case(s) but the summaries count $(summary_failed_total "${log}") failed; a failure the parser cannot name is not flaky" >&2
                 rm -f "${log}"

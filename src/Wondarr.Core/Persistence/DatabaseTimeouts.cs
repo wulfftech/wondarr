@@ -9,9 +9,12 @@ namespace Wondarr.Core.Persistence;
 /// <remarks>
 /// Microsoft.Data.Sqlite leaves SQLite's own <c>busy_timeout</c> at 0 and retries a busy statement
 /// itself for as long as the connection string's <c>Default Timeout</c> allows (30 seconds unless
-/// set). The app raises that to <see cref="BusySeconds"/> and, through
-/// <see cref="BusyTimeoutInterceptor"/>, sets the pragma too, so SQLite's own waits (a checkpoint, a
-/// <c>VACUUM</c> against a reader) get the same budget.
+/// set). The context's connection string is left as it is (a different string is a different
+/// connection pool, and the tests clear pools by the plain string); instead
+/// <see cref="BusyTimeoutInterceptor"/> sets <c>PRAGMA busy_timeout</c> to <see cref="BusySeconds"/>
+/// on every connection the context opens, so SQLite's own waits (a checkpoint, a <c>VACUUM</c>
+/// against a reader) get that budget. The backup service's private connection sets
+/// <c>Default Timeout</c> itself.
 /// </remarks>
 public static class DatabaseTimeouts
 {

@@ -1,0 +1,7 @@
+[xUnit.net 00:00:28.67]     Wondarr.Core.Tests.Jobs.CommandQueueTests+Cancelling.A_queued_command_can_be_cancelled [FAIL]
+  Failed Wondarr.Core.Tests.Jobs.CommandQueueTests+Cancelling.A_queued_command_can_be_cancelled [5 ms]
+  Error Message:
+   System.InvalidOperationException : Unable to resolve service
+Failed!  - Failed:     1, Passed:  1833, Skipped:     3, Total:  1837, Duration: 1 m 11 s - Wondarr.Core.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   360, Skipped:     0, Total:   360, Duration: 1 m 10 s - Wondarr.Api.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   412, Skipped:     0, Total:   412, Duration: 23 s - Wondarr.Sources.Tests.dll (net10.0)
