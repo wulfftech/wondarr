@@ -77,7 +77,7 @@ One mount matters because torrent imports are hard links: Wondarr links the fini
 | Variable | Default | Meaning |
 |---|---|---|
 | `PUID` / `PGID` | `1000` / `1000` | The user and group the app runs as. Files in `/config` and the files Wondarr places in `/data` belong to them. |
-| `UMASK` | `002` | The umask the app runs with. |
+| `UMASK` | `002` | The umask the app runs with. Files that hold secrets (`config.yml`, the database, backups, `slskd.yml`) are always owner-only, whatever it is. |
 | `TZ` | `Etc/UTC` | The time zone. |
 
 Any setting in `config.yml` can also be set from the environment as `APP__<SECTION>__<KEY>`, with the key in upper case. For example `APP__SOULSEEK__USERNAME`, or `APP__SERVER__URL_BASE`. A setting taken from the environment wins over `config.yml`, and the settings page shows it as read-only.

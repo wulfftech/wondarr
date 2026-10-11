@@ -24,7 +24,7 @@ Press **Add indexer** (the button on the page), choose a type, and fill in the f
 - **Protocol**: **Torrent** or **Usenet**. Only shown for types that can be either (Prowlarr).
 - **Download client**: which client takes this indexer's grabs. "Default" uses the first enabled client for the indexer's protocol.
 
-Press **Test** to check the connection before saving. Keys and passwords are stored on the server and never shown again.
+Press **Test** to check the connection before saving. Keys and passwords are stored on the server and never shown again. If you change the address (the host, port or http/https), type the key again: a stored key is only ever sent to the address it was saved for. The same goes for download clients, notifications and your own slskd.
 
 ### Torznab
 
