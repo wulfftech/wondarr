@@ -21,6 +21,7 @@ using Wondarr.Core.Indexers;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
+using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.CustomFilters;
 using Wondarr.Core.Notifications;
@@ -70,6 +71,7 @@ public static class ServiceCollectionExtensions
 
         // DatabaseHealthCheck needs the scoped DbContext; the folder checks only need the paths.
         services.AddScoped<IHealthCheck, DatabaseHealthCheck>();
+        services.AddScoped<IHealthCheck, RecycleBinHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
 
@@ -80,6 +82,11 @@ public static class ServiceCollectionExtensions
         // The media tools only answer once per process (MediaToolAvailability caches), so both it and
         // the check that reads it are singletons like the folder checks.
         services.AddSingleton<IHealthCheck, MediaToolsHealthCheck>();
+
+        // What the process last learned about the AcoustID client key: the client writes it, the health
+        // check and the import's bounded wait read it.
+        services.AddSingleton<AcoustIdKeyState>();
+        services.AddSingleton<IHealthCheck, AcoustIdKeyHealthCheck>();
         services.AddSingleton<HealthCheckService>();
 
         // What the import pipeline asks of a downloaded file: what is it, does it decode, and what is

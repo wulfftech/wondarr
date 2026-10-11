@@ -283,6 +283,12 @@ public sealed partial class FileConverter : IFileConverter
     {
         var oneOff = ParseRule(ruleJson);
 
+        // The lock comes first and the song is read inside it: an upgrade that lands at the same
+        // path while this call waits would otherwise be converted under the old file's rule (R-072).
+        await using var songFileLock = await _songFileLock.AcquireAsync(songId, cancellationToken).ConfigureAwait(false);
+
+        _database.ChangeTracker.Clear();
+
         var song = await LoadSongAsync(songId, cancellationToken).ConfigureAwait(false);
 
         if (song is null)
@@ -303,8 +309,6 @@ public sealed partial class FileConverter : IFileConverter
         var library = await _database.Libraries
             .FirstAsync(candidate => candidate.Id == song.LibraryId, cancellationToken)
             .ConfigureAwait(false);
-
-        await using var songFileLock = await _songFileLock.AcquireAsync(song.Id, cancellationToken).ConfigureAwait(false);
 
         if (await _database.CompactMoves
                 .AsNoTracking()
@@ -438,7 +442,20 @@ public sealed partial class FileConverter : IFileConverter
                 return new ConvertSongResult(songId, ConvertOutcome.Failed, $"Placing the converted file failed: {exception.Message}", info.Codec, CodecName(rule));
             }
 
-            if (!placement.Success || placement.FinalPath is not { } finalPath)
+            string finalPath;
+
+            if (placement.Success && placement.FinalPath is { } placedPath)
+            {
+                finalPath = placedPath;
+            }
+            else if (placement.FinalPath is { } landedPath && File.Exists(landedPath))
+            {
+                // The file reached the library and a later step failed (a chmod, say): it is where
+                // it is, so the row must say so, however the placement was reported.
+                LogPlacedDespiteError(_logger, songId, landedPath, placement.Error ?? string.Empty);
+                finalPath = landedPath;
+            }
+            else
             {
                 _database.ChangeTracker.Clear();
 
@@ -478,11 +495,13 @@ public sealed partial class FileConverter : IFileConverter
                     Json),
             });
 
+            // The file has moved: from here the database writes run with no token, so a shutdown
+            // cannot separate the file from its record (R-012).
             try
             {
-                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception)
             {
                 // The new file is in the library and the original in the recycle bin; only the
                 // bookkeeping failed. The least the row must say is where the song's file is now, so
@@ -498,7 +517,7 @@ public sealed partial class FileConverter : IFileConverter
                             .SetProperty(candidate => candidate.Path, finalPath)
                             .SetProperty(candidate => candidate.Codec, media.Codec)
                             .SetProperty(candidate => candidate.Container, media.Container),
-                        cancellationToken)
+                        CancellationToken.None)
                     .ConfigureAwait(false);
 
                 return new ConvertSongResult(
@@ -641,7 +660,7 @@ public sealed partial class FileConverter : IFileConverter
     /// Moves the sidecars of the old file beside the new one when the name changed. A sidecar whose
     /// new name is taken stays where it was: nothing is ever replaced.
     /// </summary>
-    private static void MoveSidecars(string oldPath, string newPath)
+    internal static void MoveSidecars(string oldPath, string newPath)
     {
         var oldBase = Path.ChangeExtension(oldPath, null);
         var newBase = Path.ChangeExtension(newPath, null);
@@ -698,6 +717,9 @@ public sealed partial class FileConverter : IFileConverter
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Converted song {SongId} from {From} to {To}: {Path}")]
     private static partial void LogConverted(ILogger logger, long songId, string from, string to, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Converted song {SongId} reached {Path} but the placement reported an error ({Error}); recording it as placed")]
+    private static partial void LogPlacedDespiteError(ILogger logger, long songId, string path, string error);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Converting song {SongId} failed")]
     private static partial void LogFailed(ILogger logger, long songId, Exception exception);

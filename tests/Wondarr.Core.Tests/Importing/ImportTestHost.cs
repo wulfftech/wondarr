@@ -8,6 +8,7 @@ using Wondarr.Core.History;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Lyrics;
 using Wondarr.Core.Media;
+using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Profiles;
@@ -49,6 +50,14 @@ internal sealed class ImportTestHost : IAsyncDisposable
         _downloads = downloads;
         Time = time;
     }
+
+    /// <summary>
+    /// The library root, inside the test's own temp folder. The default library is seeded at
+    /// <c>/data/music</c>, and the organizer writes real sidecars (<c>cover.jpg</c>, lyrics) beside
+    /// the "placed" path, so the host moves the root before a test can touch the machine's real disk.
+    /// Forward slashes, like the paths the fake placer builds.
+    /// </summary>
+    public string LibraryRoot { get; private init; } = string.Empty;
 
     /// <summary>The temp database the host runs on.</summary>
     public SqliteTestDatabase Database => _database;
@@ -115,6 +124,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The cover processor that hands every image straight back.</summary>
     public FakeCoverImageProcessor CoverProcessor { get; private init; } = null!;
 
+    /// <summary>What the process knows about the AcoustID key, shared by every import.</summary>
+    public AcoustIdKeyState KeyState => _services.GetRequiredService<AcoustIdKeyState>();
+
     /// <summary>The scripted search service, which records the next-attempt asks.</summary>
     public FakeSongSearchService Search { get; private init; } = null!;
 
@@ -137,11 +149,26 @@ internal sealed class ImportTestHost : IAsyncDisposable
         var downloads = Path.Combine(Path.GetTempPath(), "wondarr-import-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(downloads);
 
+        var libraryRoot = Path.Combine(downloads, "library").Replace('\\', '/');
+        Directory.CreateDirectory(libraryRoot);
+
+        await using (var seedContext = database.CreateContext(time))
+        {
+            var seeded = await seedContext.Libraries.SingleAsync(entry => entry.Id == SeedData.DefaultLibraryId);
+            seeded.RootPath = libraryRoot;
+            await seedContext.SaveChangesAsync();
+        }
+
         var verifier = new FakeDownloadVerifier();
         var transcoder = new FakeTranscoder();
         var probe = new FakeMediaProbe();
         var spectral = new FakeSpectralAnalyzer();
-        var importOptions = new ImportOptions();
+        var importOptions = new ImportOptions
+        {
+            // Nothing the import options name may be a default path on the machine running the test.
+            RecycleBinPath = Path.Combine(downloads, "recycle"),
+            ContainerStagingPath = Path.Combine(downloads, "containers"),
+        };
         var tagWriter = new FakeTagWriter();
         var replayGain = new FakeReplayGainAnalyzer();
         var placer = new FakeFilePlacer();
@@ -172,6 +199,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<ISongSearchService>(search);
         services.AddSingleton<IEventAggregator>(events);
         services.AddSingleton<ISongFileLock>(songFileLock);
+        services.AddSingleton<AcoustIdKeyState>();
         services.AddDbContext<WondarrDbContext>(builder => builder
             .UseSqlite($"Data Source={database.FilePath}")
             .UseSnakeCaseNamingConvention());
@@ -187,6 +215,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
 
         return new ImportTestHost(database, built, scope, time, downloads)
         {
+            LibraryRoot = libraryRoot,
             Options = options,
             Verifier = verifier,
             Transcoder = transcoder,
@@ -802,6 +831,18 @@ internal sealed class FakeFilePlacer : IFilePlacer
     /// <summary>Why it failed, when it does.</summary>
     public string? Error { get; set; } = "The library root is not writable.";
 
+    /// <summary>
+    /// When set, the placement puts the file at its target and still reports this error, as a failed
+    /// chmod or a download that could not be removed does.
+    /// </summary>
+    public string? LandedWithError { get; set; }
+
+    /// <summary>
+    /// When set, the placement fails after the replaced file went to the bin and could not be put
+    /// back: the result carries this recycled path and no final path.
+    /// </summary>
+    public string? StrandedRecycledPath { get; set; }
+
     /// <summary>Run just before a placement is reported, to move the world under the import's feet.</summary>
     public Func<PlacementRequest, Task>? OnPlaceAsync { get; set; }
 
@@ -824,6 +865,20 @@ internal sealed class FakeFilePlacer : IFilePlacer
         if (OnPlaceAsync is { } hook)
         {
             await hook(request);
+        }
+
+        if (LandedWithError is { } landedError)
+        {
+            var landedTarget = TargetOf(request);
+            Directory.CreateDirectory(Path.GetDirectoryName(landedTarget)!);
+            await File.WriteAllBytesAsync(landedTarget, new byte[8], cancellationToken);
+
+            return new PlacementResult(false, landedTarget, null, request.Mode, landedError);
+        }
+
+        if (StrandedRecycledPath is { } stranded)
+        {
+            return new PlacementResult(false, null, stranded, null, "The old file could not be put back.");
         }
 
         return Success

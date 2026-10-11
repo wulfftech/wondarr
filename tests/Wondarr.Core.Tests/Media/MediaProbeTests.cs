@@ -65,7 +65,7 @@ public sealed class MediaProbeTests
             "-v", "error", "-print_format", "json", "-show_format", "-show_streams", "/m/tone 320 - one's.mp3");
         runner.Calls[1].FileName.Should().Be("ffmpeg");
         runner.Calls[1].Arguments.Should().Equal(
-            "-v", "error", "-xerror", "-i", "/m/tone 320 - one's.mp3", "-f", "null", "-");
+            "-nostdin", "-v", "error", "-xerror", "-i", "/m/tone 320 - one's.mp3", "-f", "null", "-");
     }
 
     [Fact]

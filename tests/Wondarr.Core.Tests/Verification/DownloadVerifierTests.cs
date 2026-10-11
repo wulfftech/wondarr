@@ -105,7 +105,37 @@ public sealed class DownloadVerifierTests
         var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
 
         result.Outcome.Should().Be(VerificationOutcome.Deferred);
-        result.Reason.Should().Be("AcoustID rejected the client key");
+        result.Reason.Should().StartWith("AcoustID rejected the client key").And.Contain("Metadata services");
+        result.KeyRejected.Should().BeTrue("the import bounds how long it waits on a key that will not mend itself");
+    }
+
+    [Fact]
+    public async Task Defers_without_blaming_the_file_when_ffprobe_or_the_decode_check_times_out()
+    {
+        var (verifier, _, fingerprinter, client) = Create(
+            probe: new MediaProbeResult(false, null, "ffprobe timed out", TimedOut: true));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Deferred);
+        result.Reason.Should().Contain("in time");
+        result.KeyRejected.Should().BeFalse();
+        fingerprinter.Windows.Should().BeEmpty();
+        client.Lookups.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Defers_without_blaming_the_file_when_fpcalc_times_out()
+    {
+        var (verifier, _, _, client) = Create(
+            fingerprinter: new FakeFingerprinter(
+                new FingerprintResult(false, null, 369, FingerprintWindow.Start, "fpcalc timed out", TimedOut: true)));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Deferred);
+        result.Media.Should().NotBeNull();
+        client.Lookups.Should().BeEmpty();
     }
 
     [Fact]

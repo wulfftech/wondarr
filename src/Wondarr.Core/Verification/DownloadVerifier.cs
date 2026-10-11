@@ -57,6 +57,10 @@ public sealed record VerificationRequest(
 /// <param name="MatchedRecordingId">The recording the song's own MBID was confirmed against, or <c>null</c>.</param>
 /// <param name="LearnedMbRecordingId">The recording a Deezer-only song learned its MBID from, or <c>null</c>.</param>
 /// <param name="FingerprintVerified">Whether AcoustID recognised the file as the wanted recording.</param>
+/// <param name="KeyRejected">
+/// Whether a <see cref="VerificationOutcome.Deferred"/> verdict is because AcoustID refused the client
+/// key. That will not mend itself, so the import bounds how long it keeps waiting on it.
+/// </param>
 public sealed record VerificationResult(
     VerificationOutcome Outcome,
     string Reason,
@@ -66,7 +70,8 @@ public sealed record VerificationResult(
     double? FingerprintScore,
     string? MatchedRecordingId,
     string? LearnedMbRecordingId,
-    bool FingerprintVerified);
+    bool FingerprintVerified,
+    bool KeyRejected = false);
 
 /// <summary>Decides whether a downloaded file is the wanted recording.</summary>
 public interface IDownloadVerifier
@@ -131,6 +136,13 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
         var probed = await _probe.ProbeAsync(request.Path, cancellationToken).ConfigureAwait(false);
 
+        // A tool that ran out of time has said nothing about the file: a long FLAC on a NAS busy with
+        // a Plex transcode times out and is perfectly good. Ask again later, never blocklist it.
+        if (probed.TimedOut)
+        {
+            return Deferred($"Could not check the file in time: {probed.Error ?? "a media tool timed out"}");
+        }
+
         // 1. It has to decode: real format and real bitrate are what the import runs on.
         if (!probed.Decodable || probed.Info is null)
         {
@@ -162,6 +174,14 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         var fingerprint = await _fingerprinter
             .FingerprintAsync(request.Path, FingerprintWindow.Start, media.DurationMs, cancellationToken)
             .ConfigureAwait(false);
+
+        if (fingerprint.TimedOut)
+        {
+            return Deferred(
+                $"Could not fingerprint the file in time: {fingerprint.Error ?? "a media tool timed out"}",
+                media,
+                quality);
+        }
 
         if (!fingerprint.Success || fingerprint.Fingerprint is null)
         {
@@ -214,7 +234,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
         LogVerified(_logger, request.Path, verdict.Outcome, verdict.Reason);
 
-        return Finish(verdict, media, quality, lookup);
+        return Finish(verdict, media, quality, lookup, keyRejected: lookup.Status == AcoustIdStatus.InvalidKey);
     }
 
     /// <summary>Fingerprints the middle window, or <c>null</c> when fpcalc fails there too.</summary>
@@ -243,7 +263,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
         AcoustIdStatus.InvalidKey => new Verdict(
             VerificationOutcome.Deferred,
-            "AcoustID rejected the client key"),
+            "AcoustID rejected the client key; check it in Settings → General → Metadata services"),
 
         AcoustIdStatus.InvalidFingerprint or AcoustIdStatus.Error => new Verdict(
             VerificationOutcome.Failed,
@@ -417,6 +437,10 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     private static bool HasRecordings(AcoustIdLookupResult lookup) =>
         lookup.Results.Any(result => result.Recordings.Count > 0);
 
+    /// <summary>"Could not reach a verdict": the import comes back to the file later.</summary>
+    private static VerificationResult Deferred(string reason, MediaInfo? media = null, long? quality = null) =>
+        new(VerificationOutcome.Deferred, reason, media, quality, null, null, null, null, false);
+
     /// <summary>A failing verdict with nothing measured to report.</summary>
     private static VerificationResult Failed(string reason, MediaInfo? media = null, long? quality = null) =>
         new(VerificationOutcome.Failed, reason, media, quality, null, null, null, null, false);
@@ -426,7 +450,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         Verdict verdict,
         MediaInfo media,
         long quality,
-        AcoustIdLookupResult lookup)
+        AcoustIdLookupResult lookup,
+        bool keyRejected = false)
     {
         var best = lookup.Results.Count > 0 ? lookup.Results.MaxBy(result => result.Score) : null;
 
@@ -439,7 +464,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             best?.Score,
             verdict.MatchedRecordingId,
             verdict.LearnedMbRecordingId,
-            verdict.FingerprintVerified);
+            verdict.FingerprintVerified,
+            keyRejected);
     }
 
     /// <summary>Whole seconds, for the lines a human reads.</summary>

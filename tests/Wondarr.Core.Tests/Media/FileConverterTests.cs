@@ -36,6 +36,7 @@ public sealed class FileConverterTests : IDisposable
     private readonly FakeOrganizer _organizer;
     private readonly FakeReplayGainAnalyzer _replay = new();
     private readonly IPlexLibraryUpdater _updater = Substitute.For<IPlexLibraryUpdater>();
+    private readonly SongFileLock _songFileLock = new();
     private readonly string _root;
     private readonly string _bin;
 
@@ -107,6 +108,63 @@ public sealed class FileConverterTests : IDisposable
         result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
         _replay.Measured.Should().BeEmpty();
         _organizer.Requests.Single().ReplayGainDb.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_placement_that_moved_the_file_but_reported_an_error_is_recorded_as_placed()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, _) = await SeedAsync(context, "flac", FlacQualityId);
+        _organizer.LandedWithError = "chmod failed";
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+        var file = await context.SongFiles.AsNoTracking().SingleAsync();
+        file.Path.Should().EndWith(".mp3", "the row says where the file is");
+        File.Exists(file.Path).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_shutdown_between_the_move_and_the_save_still_records_the_new_path()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, _) = await SeedAsync(context, "flac", FlacQualityId);
+
+        using var shutdown = new CancellationTokenSource();
+        _organizer.AfterMove = shutdown.Cancel;
+
+        var result = await Converter(context).ConvertAsync(songId, null, shutdown.Token);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+        (await context.SongFiles.AsNoTracking().SingleAsync()).Path.Should().EndWith(".mp3");
+    }
+
+    [Fact]
+    public async Task The_song_is_read_again_inside_the_lock()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, path) = await SeedAsync(context, "flac", FlacQualityId);
+
+        await using var held = await _songFileLock.AcquireAsync(songId, CancellationToken.None);
+
+        var converting = Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        // While the converter waits, the file becomes the user's own (a reference file replaced the
+        // one Wondarr held). Decided from the copy read before the wait, it would be converted.
+        await using (var other = _database.CreateContext(_timeProvider))
+        {
+            await other.SongFiles.ExecuteUpdateAsync(update => update
+                .SetProperty(file => file.SourceType, SourceTypes.Reference));
+        }
+
+        await held.DisposeAsync();
+
+        var result = await converting;
+
+        result.Outcome.Should().Be(ConvertOutcome.Skipped);
+        File.Exists(path).Should().BeTrue();
+        _transcoder.Calls.Should().Be(0);
     }
 
     [Fact]
@@ -230,7 +288,7 @@ public sealed class FileConverterTests : IDisposable
             _probe,
             _organizer,
             _replay,
-            new SongFileLock(),
+            _songFileLock,
             _updater,
             NullLogger<FileConverter>.Instance);
 
@@ -375,6 +433,12 @@ public sealed class FileConverterTests : IDisposable
     {
         public List<OrganizeRequest> Requests { get; } = [];
 
+        /// <summary>When set, the move happens and the result still reports this placement error.</summary>
+        public string? LandedWithError { get; set; }
+
+        /// <summary>Run right after the files have moved, before the result is returned.</summary>
+        public Action? AfterMove { get; set; }
+
         public Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
         {
             Requests.Add(request);
@@ -385,6 +449,18 @@ public sealed class FileConverterTests : IDisposable
 
             File.Move(replaces, recycled);
             File.Move(request.SourcePath, target);
+
+            AfterMove?.Invoke();
+
+            if (LandedWithError is { } error)
+            {
+                return Task.FromResult(new OrganizeResult(
+                    OrganizeFailure.Placement,
+                    error,
+                    target,
+                    recycled,
+                    new Dictionary<string, string>(StringComparer.Ordinal)));
+            }
 
             return Task.FromResult(new OrganizeResult(
                 OrganizeFailure.None,

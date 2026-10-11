@@ -152,11 +152,13 @@ public sealed partial class Transcoder : ITranscoder
     /// The encoder command: <c>-i</c> the source, <c>-vn</c> (a cover image is embedded by the tag
     /// writer, not the encoder), <c>-map 0:a:0</c> (an embedded cover-art stream in a FLAC or MP3
     /// source never becomes a video stream in the target), the codec switches the policy chose,
-    /// then the target.
+    /// then <c>-n</c> and the target.
     /// </summary>
     private static List<string> BuildArguments(string sourcePath, OutputPolicy policy, string destinationPath)
     {
-        var arguments = new List<string> { "-i", sourcePath, "-vn", "-map", "0:a:0" };
+        // -nostdin: never read an inherited terminal. -n (added with the output below): never overwrite,
+        // and never stop to ask whether to.
+        var arguments = new List<string> { "-nostdin", "-i", sourcePath, "-vn", "-map", "0:a:0" };
 
         switch (policy.Codec, policy.Mode)
         {
@@ -214,6 +216,7 @@ public sealed partial class Transcoder : ITranscoder
             arguments.Add(rate.ToString(CultureInfo.InvariantCulture));
         }
 
+        arguments.Add("-n");
         arguments.Add(destinationPath);
 
         return arguments;

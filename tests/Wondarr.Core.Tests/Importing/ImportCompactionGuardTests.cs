@@ -48,7 +48,7 @@ public sealed class ImportCompactionGuardTests : IDisposable
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var held = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+        var held = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
         var seed = await host.SeedAsync(options =>
         {
             options.CurrentFilePath = held;
@@ -80,7 +80,7 @@ public sealed class ImportCompactionGuardTests : IDisposable
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var held = "/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
+        var held = host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.mp3";
         var seed = await host.SeedAsync(options =>
         {
             options.CurrentFilePath = held;
@@ -99,7 +99,7 @@ public sealed class ImportCompactionGuardTests : IDisposable
             .Should()
             .Be(1);
         (await context.SongFiles.SingleAsync()).Path.Should()
-            .Be("/data/music/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+            .Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
     }
 
     [Fact]

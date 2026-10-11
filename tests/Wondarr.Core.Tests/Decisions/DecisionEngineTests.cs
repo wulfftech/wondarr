@@ -2,6 +2,7 @@ using FluentAssertions;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.Profiles;
 using Wondarr.Core.Sources;
 using Xunit;
 
@@ -410,6 +411,73 @@ public class DecisionEngineTests
 
         Judge(Context(), candidate).Rejections.Should().ContainSingle()
             .Which.Message.Should().Be("Artist mismatch: none of the song's artists appears in the candidate's path.");
+    }
+
+    [Theory]
+    [InlineData("ape")]
+    [InlineData("wv")]
+    [InlineData("wma")]
+    public void Rejects_a_container_the_tag_writer_cannot_handle(string extension)
+    {
+        var decision = Judge(Context(), NewCandidate(qualityId: 36, extension: extension));
+
+        decision.Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.UntaggableFormat);
+        decision.Rejections.Single(rejection => rejection.Reason == RejectionReason.UntaggableFormat)
+            .Message.Should().Contain($".{extension}");
+        decision.Accepted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Accepts_an_ape_when_the_librarys_lossless_rule_converts_it()
+    {
+        var context = Context() with
+        {
+            Profile = Lossless,
+            OutputPolicy = LibraryOutputPolicy.Parse("""{"version":2,"lossless":{"codec":"flac"}}"""),
+        };
+
+        Judge(context, NewCandidate(qualityId: 36, extension: "ape")).Rejections
+            .Should().NotContain(rejection => rejection.Reason == RejectionReason.UntaggableFormat);
+    }
+
+    [Fact]
+    public void Rejects_an_ape_when_the_librarys_rule_keeps_lossless_files()
+    {
+        var context = Context() with
+        {
+            Profile = Lossless,
+            OutputPolicy = LibraryOutputPolicy.Parse("""{"version":2,"lossless":{"codec":"keep"}}"""),
+        };
+
+        Judge(context, NewCandidate(qualityId: 36, extension: "ape")).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.UntaggableFormat);
+    }
+
+    [Fact]
+    public void A_lossy_rule_does_not_save_a_lossless_container()
+    {
+        // The rules are per source class: a lossy rule that converts says nothing about an APE.
+        var context = Context() with
+        {
+            Profile = Lossless,
+            OutputPolicy = LibraryOutputPolicy.Parse("""{"version":2,"lossy":{"codec":"mp3","bitrateKbps":320}}"""),
+        };
+
+        Judge(context, NewCandidate(qualityId: 36, extension: "ape")).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.UntaggableFormat);
+    }
+
+    [Theory]
+    [InlineData("mp3")]
+    [InlineData("flac")]
+    [InlineData("m4a")]
+    [InlineData("opus")]
+    [InlineData("ogg")]
+    [InlineData("wav")]
+    public void Does_not_reject_a_container_the_tag_writer_handles(string extension)
+    {
+        Judge(Context(), NewCandidate(extension: extension)).Rejections
+            .Should().NotContain(rejection => rejection.Reason == RejectionReason.UntaggableFormat);
     }
 
     private static CandidateDecision Judge(DecisionContext context, Candidate candidate) =>

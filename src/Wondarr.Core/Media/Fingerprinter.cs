@@ -21,12 +21,14 @@ public enum FingerprintWindow
 /// <param name="DurationSeconds">The <b>whole track's</b> length in whole seconds, which is what AcoustID wants.</param>
 /// <param name="Window">Which part of the file was fingerprinted.</param>
 /// <param name="Error">The line that explains a failure, or <c>null</c>.</param>
+/// <param name="TimedOut">Whether the failure is a tool that ran out of time, which says nothing about the file.</param>
 public sealed record FingerprintResult(
     bool Success,
     string? Fingerprint,
     int DurationSeconds,
     FingerprintWindow Window,
-    string? Error);
+    string? Error,
+    bool TimedOut = false);
 
 /// <summary>Fingerprints a downloaded file.</summary>
 public interface IFingerprinter
@@ -116,6 +118,7 @@ public sealed partial class Fingerprinter : IFingerprinter
             var cut = await _runner.RunAsync(
                     options.FfmpegPath,
                     [
+                        "-nostdin",
                         "-v", "error",
                         "-ss", start.ToString(CultureInfo.InvariantCulture),
                         "-t", length.ToString(CultureInfo.InvariantCulture),
@@ -135,7 +138,8 @@ public sealed partial class Fingerprinter : IFingerprinter
                     window,
                     durationSeconds,
                     MediaProbe.FirstErrorLine(cut.StandardError)
-                        ?? (cut.TimedOut ? "ffmpeg timed out" : $"ffmpeg exited {cut.ExitCode}"));
+                        ?? (cut.TimedOut ? "ffmpeg timed out" : $"ffmpeg exited {cut.ExitCode}"),
+                    cut.TimedOut);
             }
 
             // No -length: the temporary WAV is already exactly as long as the window should be.
@@ -158,7 +162,7 @@ public sealed partial class Fingerprinter : IFingerprinter
     {
         if (result.TimedOut)
         {
-            return Failure(window, durationSeconds, "fpcalc timed out");
+            return Failure(window, durationSeconds, "fpcalc timed out", timedOut: true);
         }
 
         if (result.ExitCode != 0)
@@ -204,8 +208,12 @@ public sealed partial class Fingerprinter : IFingerprinter
         }
     }
 
-    private static FingerprintResult Failure(FingerprintWindow window, int durationSeconds, string error) =>
-        new(false, null, durationSeconds, window, error);
+    private static FingerprintResult Failure(
+        FingerprintWindow window,
+        int durationSeconds,
+        string error,
+        bool timedOut = false) =>
+        new(false, null, durationSeconds, window, error, timedOut);
 
     private static void TryDelete(string path)
     {

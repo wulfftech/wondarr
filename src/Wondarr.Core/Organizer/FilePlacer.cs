@@ -60,7 +60,7 @@ public interface IFilePlacer
 public sealed class FilePlacer : IFilePlacer
 {
     /// <summary>How many collision suffixes to try before giving up.</summary>
-    private const int MaxCollisionSuffix = 99;
+    internal const int MaxCollisionSuffix = 99;
 
     private readonly IDiskOperations _disk;
     private readonly IRecycleBin _recycleBin;
@@ -131,19 +131,38 @@ public sealed class FilePlacer : IFilePlacer
                     .RecycleAsync(replaces, root, cancellationToken)
                     .ConfigureAwait(false);
             }
-            catch (IOException exception)
+            catch (RecycleMovedException moved)
             {
-                // The old file is untouched, so the source is too: stop before anything moves.
-                return Failed($"Could not recycle '{replaces}': {exception.Message}");
+                // The old file is in the bin and the bin said where: put it back, or, when that is
+                // not possible, report the bin path so the caller can point its record at it.
+                var stillRecycled = RollBack(moved.RecycledPath, replaces);
+
+                return Failed(
+                    $"Could not recycle '{replaces}': {moved.Message}"
+                    + (stillRecycled is null ? " The old file was put back." : " The old file is in the recycle bin."),
+                    stillRecycled);
             }
-            catch (UnauthorizedAccessException exception)
+            catch (Exception exception) when (exception is IOException
+                or UnauthorizedAccessException
+                or InvalidOperationException)
             {
-                return Failed($"Could not recycle '{replaces}': {exception.Message}");
-            }
-            catch (InvalidOperationException exception)
-            {
-                // The bin is not a bin we can use (inside the library, for instance). Nothing has
-                // moved, and nothing will: the caller has to fix the configuration first.
+                // Usually nothing has moved: the old file is untouched, so the source is too, and
+                // the placement stops before anything moves. The bin is not a bin we can use
+                // (inside the library, for instance) when it is an InvalidOperationException; the
+                // caller has to fix the configuration first.
+                //
+                // The backstop: a recycle that threw after the move leaves the old file gone from
+                // its path and in the bin, at a path the exception does not carry. Say so rather
+                // than claim the file is untouched.
+                if (!_disk.FileExists(replaces))
+                {
+                    FilePlacerLog.ReplacedFileGone(_logger, replaces, exception.Message);
+
+                    return Failed(
+                        $"Could not recycle '{replaces}': {exception.Message}. The file is no longer at that path; "
+                        + "it was most likely moved into the recycle bin, so look there.");
+                }
+
                 return Failed($"Could not recycle '{replaces}': {exception.Message}");
             }
         }
@@ -194,11 +213,13 @@ public sealed class FilePlacer : IFilePlacer
         catch (PlacementTransferException exception)
         {
             // The file reached the library and a later step failed: the target stays, and the caller
-            // decides what to do about a placed file whose download was not consumed.
+            // decides what to do about a placed file whose download was not consumed. The replaced
+            // file is not put back either: the caller records the new file as the song's, and the
+            // old one stays in the bin (reported as the recycled path), not left untracked beside it.
             return new PlacementResult(
                 false,
                 exception.FinalPath,
-                RollBack(recycled, replaces),
+                recycled,
                 null,
                 exception.Message);
         }
@@ -446,6 +467,12 @@ internal static partial class FilePlacerLog
         Level = LogLevel.Information,
         Message = "Placed {Source} at {Target} using {Mode}")]
     internal static partial void Placed(ILogger logger, string source, string target, TransferMode mode);
+
+    /// <summary>A recycle failed after the file had already left its path.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Recycling {Path} failed ({Reason}) but the file is no longer at its path; it is probably in the recycle bin")]
+    internal static partial void ReplacedFileGone(ILogger logger, string path, string reason);
 
     /// <summary>A recycled file could not be put back after a later step failed.</summary>
     [LoggerMessage(

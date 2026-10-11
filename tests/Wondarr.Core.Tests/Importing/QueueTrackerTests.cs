@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
@@ -268,6 +269,123 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
+    public async Task Records_the_file_an_interrupted_import_had_already_placed()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        // The import moved the file into the library and stopped before it saved: the download is
+        // gone, and the file sits at the destination the song's template names.
+        var landed = await host.LandFileAsync(seed, "flac");
+        File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(1));
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        var item = await host.ItemAsync(seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Imported, "the item must not be reset to grab the next candidate");
+        item.Message.Should().Contain("already been placed");
+
+        var file = await host.SongFileAsync(seed.SongId);
+        file.Should().NotBeNull();
+        file!.Path.Should().Be(landed);
+        file.Codec.Should().Be("flac");
+
+        var history = await host.HistoryAsync();
+        history.Should().ContainSingle().Which.EventType.Should().Be(HistoryEventType.Imported);
+    }
+
+    [Fact]
+    public async Task Does_not_record_a_file_another_song_already_owns()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var first = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+        var other = await host.SeedAsync(options => options.WithAlbum = true);
+
+        // A recent file at the first song's destination that the other song's row points at.
+        var landed = await host.LandFileAsync(first, "flac");
+        File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(1));
+        await host.AddSongFileAsync(other.SongId, landed);
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        (await host.ItemAsync(first.QueueItemId)).State.Should().Be(QueueItemState.Completed);
+        (await host.SongFileAsync(first.SongId)).Should().BeNull("the file is not this song's");
+        (await host.SongFileAsync(other.SongId))!.Path.Should().Be(landed);
+    }
+
+    [Fact]
+    public async Task Ranks_a_recovered_file_by_what_the_probe_measures_not_what_the_candidate_claimed()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var info = new MediaInfo("mp3", "mp3", 320, 44_100, null, 2, 369_000, false, 9_000_000);
+        host.Probe.Result = new MediaProbeResult(true, info, null);
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        var landed = await host.LandFileAsync(seed, "flac");
+        File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(1));
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        var file = await host.SongFileAsync(seed.SongId);
+        file!.QualityId.Should().Be(MeasuredQuality.FromMediaInfo(info));
+        file.QualityId.Should().NotBe(36, "36 is only what the candidate was thought to be");
+    }
+
+    [Fact]
+    public async Task Resets_an_importing_item_when_the_download_is_gone_but_nothing_landed()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        (await host.ItemAsync(seed.QueueItemId)).State.Should().Be(QueueItemState.Completed);
+        (await host.SongFileAsync(seed.SongId)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Resets_an_importing_item_when_the_file_at_the_destination_is_older_than_the_import()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        // Somebody else's file with the same name was there before this import began.
+        var existing = await host.LandFileAsync(seed, "flac");
+        File.SetLastWriteTimeUtc(existing, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        (await host.ItemAsync(seed.QueueItemId)).State.Should().Be(QueueItemState.Completed);
+        (await host.SongFileAsync(seed.SongId)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_wake_runs_a_cycle_without_the_clock_moving()
     {
         await using var host = await QueueTestHost.CreateAsync();
@@ -311,6 +429,12 @@ internal sealed class QueueTestHost : IAsyncDisposable
 
     /// <summary>The fake clock the tracker and the database read; it starts at 2026-09-29T12:00Z.</summary>
     public FakeTimeProvider Time { get; }
+
+    /// <summary>The probe the restart check measures a landed file with.</summary>
+    public FakeMediaProbe Probe { get; private init; } = null!;
+
+    /// <summary>The default library's root, inside the test's own temp folder.</summary>
+    public string LibraryRoot { get; private init; } = string.Empty;
 
     /// <summary>The poll intervals and timeouts every test runs with.</summary>
     public QueueOptions Options { get; private init; } = new();
@@ -356,6 +480,16 @@ internal sealed class QueueTestHost : IAsyncDisposable
         var downloads = Path.Combine(Path.GetTempPath(), "wondarr-queue-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(downloads);
 
+        var libraryRoot = Path.Combine(downloads, "library").Replace('\\', '/');
+        Directory.CreateDirectory(libraryRoot);
+
+        await using (var seedContext = database.CreateContext(time))
+        {
+            var seeded = await seedContext.Libraries.SingleAsync(entry => entry.Id == SeedData.DefaultLibraryId);
+            seeded.RootPath = libraryRoot;
+            await seedContext.SaveChangesAsync();
+        }
+
         var source = new FakeQueueSourceProvider();
         var import = new FakeQueueImportService();
         var searchService = new FakeQueueSearchService { Next = 99 };
@@ -391,6 +525,8 @@ internal sealed class QueueTestHost : IAsyncDisposable
         services.AddSingleton<IImportService>(import);
         services.AddSingleton<ISongSearchService>(searchService);
         services.AddSingleton<IEventAggregator>(events);
+        var probe = new FakeMediaProbe();
+        services.AddSingleton<IMediaProbe>(probe);
         services.AddDbContext<WondarrDbContext>(builder => builder
             .UseSqlite($"Data Source={database.FilePath}")
             .UseSnakeCaseNamingConvention());
@@ -402,6 +538,8 @@ internal sealed class QueueTestHost : IAsyncDisposable
 
         var host = new QueueTestHost(database, services.BuildServiceProvider(), time, downloads)
         {
+            LibraryRoot = libraryRoot,
+            Probe = probe,
             Options = options,
             Search = search,
             Source = source,
@@ -438,6 +576,31 @@ internal sealed class QueueTestHost : IAsyncDisposable
 
         context.Songs.Add(song);
         await context.SaveChangesAsync();
+
+        if (options.WithAlbum)
+        {
+            context.SongArtists.Add(new SongArtist
+            {
+                SongId = song.Id,
+                ArtistId = artist.Id,
+                Role = ArtistRole.Main,
+                Position = 1,
+            });
+
+            context.AlbumContexts.Add(new AlbumContext
+            {
+                SongId = song.Id,
+                Kind = AlbumContextKind.Album,
+                AlbumTitle = "Random Access Memories",
+                AlbumArtist = artist.Name,
+                AlbumKey = "album-" + song.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                TrackNo = 8,
+                TotalTracks = 13,
+                Date = "2013-05-17",
+            });
+
+            await context.SaveChangesAsync();
+        }
 
         var run = new SearchRun
         {
@@ -513,6 +676,72 @@ internal sealed class QueueTestHost : IAsyncDisposable
         await using var context = _database.CreateContext(Time);
 
         return await context.QueueItems.AsNoTracking().SingleAsync(item => item.Id == queueItemId);
+    }
+
+    /// <summary>
+    /// Writes a file where the song's naming template puts it, as an import that moved the file and
+    /// stopped would have left it, and returns its path.
+    /// </summary>
+    /// <param name="seed">The grab whose song the file is for.</param>
+    /// <param name="extension">The extension the file lands under.</param>
+    public async Task<string> LandFileAsync(QueueSeed seed, string extension)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var song = await context.Songs
+            .Include(candidate => candidate.AlbumContext)
+            .Include(candidate => candidate.Artists).ThenInclude(credit => credit.Artist)
+            .SingleAsync(candidate => candidate.Id == seed.SongId);
+        var library = await context.Libraries.SingleAsync(candidate => candidate.Id == song.LibraryId);
+        var quality = await context.Qualities.SingleAsync(candidate => candidate.Id == 36);
+
+        var relative = LibraryOrganizer.RelativePathFor(
+            song,
+            song.AlbumContext!,
+            song.Artists[0].Artist,
+            new MediaInfo(extension, extension, null, null, null, null, 0, true, 0),
+            quality,
+            SourceTypes.Soulseek,
+            library,
+            extension);
+
+        var path = Path.GetFullPath(
+            Path.Combine(library.RootPath, relative.Replace('/', Path.DirectorySeparatorChar) + "." + extension));
+
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllBytesAsync(path, new byte[64]);
+
+        return path;
+    }
+
+    /// <summary>Gives a song a file row at <paramref name="path"/>, as if it owned that file.</summary>
+    /// <param name="songId">The song's id.</param>
+    /// <param name="path">The file the song owns.</param>
+    public async Task AddSongFileAsync(long songId, string path)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = path,
+            Codec = "flac",
+            Container = "flac",
+            QualityId = 36,
+            SourceType = SourceTypes.Soulseek,
+            ImportedAt = Time.GetUtcNow().UtcDateTime,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>The song's file row, or <see langword="null"/> when it has none.</summary>
+    /// <param name="songId">The song's id.</param>
+    public async Task<SongFile?> SongFileAsync(long songId)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        return await context.SongFiles.AsNoTracking().FirstOrDefaultAsync(file => file.SongId == songId);
     }
 
     /// <summary>Reads the item back, or <see langword="null"/> when the row is gone.</summary>
@@ -653,6 +882,9 @@ internal sealed class QueueSeedOptions
 
     /// <summary>Whether the item carries a download path even without a file.</summary>
     public bool WithDownloadPath { get; set; }
+
+    /// <summary>Whether the song gets an album context and a credit, so its library path can be worked out.</summary>
+    public bool WithAlbum { get; set; }
 }
 
 /// <summary>A source that answers every status question the same way, and records what it was asked.</summary>

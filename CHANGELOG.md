@@ -4,6 +4,16 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **A file that moved is always recorded.** A recycle whose time stamp is refused (library files owned by another user, or a mount that refuses it) no longer fails after the old file is already in the bin; the placer also says so, instead of "untouched", when a recycle fails after the move. An import, library move or conversion whose placement moved the file and then failed (a refused chmod, a download that could not be removed) is now recorded as placed instead of leaving the song pointing at nothing, every database write after a move ignores a shutdown, and a restart finds the file an interrupted import had already placed instead of grabbing a second copy beside it. An upgrade that renames the file takes its `.lrc` sidecar along, and conversions and library moves decide from the song as it is when they get their turn.
+- **The recycle bin cannot delete another library's files.** A library cannot be created or moved onto, around or inside the recycle bin, and the bin's cleanup skips any library or reference root it finds under it (and does nothing at all when the bin sits inside one). Health reports an error when `import.recycle_bin_path` overlaps a library or reference root.
+- **A transcoded YouTube download is no longer lost when AcoustID is down.** The queue item now points at the transcoded file, so a deferred import finds it again and a rejection deletes it.
+- **A failed import no longer re-files the song.** The album alignment made before tagging is dropped when tagging or placement fails.
+- **A slow media tool no longer blocklists a good file.** An ffprobe, decode-check or fpcalc timeout defers the import.
+- **Formats Wondarr cannot tag are turned away early.** APE, WavPack and WMA are rejected (`untaggableFormat`) instead of being grabbed again and again, unless a conversion rule in the library turns them into a format it can tag.
+- **A rejected AcoustID key is reported.** Health shows an error naming AcoustID and where to fix the key, and imports waiting on it fail after about an hour and a half with a message that names the key, without blocklisting the file.
+- **ffmpeg never waits on a terminal.** The transcode, decode check and fingerprint cut pass `-nostdin`, and the transcode passes `-n`.
+
 ## [0.1.0] — 2026-10-10
 
 The first public release: every phase of the plan (0–8) is in. Install: `docker pull ghcr.io/wulfftech/wondarr:0.1.0` (linux/amd64, linux/arm64); documentation at https://wulfftech.github.io/wondarr/.

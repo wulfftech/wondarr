@@ -1,9 +1,11 @@
 using System.Text.Json;
+using Wondarr.Core.Configuration;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Organizer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Wondarr.Core.Profiles;
 
@@ -61,14 +63,23 @@ public sealed class LibraryService : ILibraryService
     public const int MaxTracksPerRealAlbum = 10;
 
     private readonly WondarrDbContext _context;
+    private readonly IOptionsMonitor<ImportOptions>? _importOptions;
+    private readonly WondarrPaths? _paths;
 
     /// <summary>Initialises a new instance of the <see cref="LibraryService"/> class.</summary>
     /// <param name="context">The database context.</param>
-    public LibraryService(WondarrDbContext context)
+    /// <param name="importOptions">Where the recycle bin is, so a root that holds or sits inside it is refused.</param>
+    /// <param name="paths">The resolved paths, which decide the default recycle bin.</param>
+    public LibraryService(
+        WondarrDbContext context,
+        IOptionsMonitor<ImportOptions>? importOptions = null,
+        WondarrPaths? paths = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         _context = context;
+        _importOptions = importOptions;
+        _paths = paths;
     }
 
     /// <inheritdoc />
@@ -105,6 +116,13 @@ public sealed class LibraryService : ILibraryService
 
         var errors = await ValidateAsync(library, stored, cancellationToken).ConfigureAwait(false);
         errors.AddRange(await RootOverlapErrorsAsync(library.RootPath, library.Id, cancellationToken).ConfigureAwait(false));
+
+        // Only a root being moved is checked: a library that already overlaps the bin from before this
+        // rule must still be editable (renamed, say).
+        if (!PathRules.AreEqual(stored.RootPath, library.RootPath))
+        {
+            errors.AddRange(RecycleBinErrors(library.RootPath));
+        }
 
         if (!PathRules.AreEqual(stored.RootPath, library.RootPath)
             && await _context.Songs
@@ -182,6 +200,7 @@ public sealed class LibraryService : ILibraryService
         // A fresh library: nothing is stored under this id yet, so nothing can collide with it.
         var errors = await ValidateAsync(library, new Library(), cancellationToken).ConfigureAwait(false);
         errors.AddRange(await RootOverlapErrorsAsync(library.RootPath, excludeId: null, cancellationToken).ConfigureAwait(false));
+        errors.AddRange(RecycleBinErrors(library.RootPath));
 
         if (errors.Count > 0)
         {
@@ -319,6 +338,40 @@ public sealed class LibraryService : ILibraryService
             {
                 errors.Add(("rootPath", $"rootPath overlaps the reference library '{reference.Name}'."));
             }
+        }
+
+        return errors;
+    }
+
+    /// <summary>
+    /// A root that is the recycle bin, holds it or sits inside it is refused. The bin's cleanup
+    /// deletes every old file under it, so a library beside or inside it would lose its files after
+    /// the cleanup age (code review 2026-10-10, R-002).
+    /// </summary>
+    private List<(string Property, string Message)> RecycleBinErrors(string rootPath)
+    {
+        var errors = new List<(string Property, string Message)>();
+
+        if (_importOptions is null || _paths is null)
+        {
+            return errors;
+        }
+
+        try
+        {
+            var bin = _importOptions.CurrentValue.ResolveRecycleBinPath(_paths);
+
+            if (PathRules.IsInside(bin, rootPath) || PathRules.IsInside(rootPath, bin))
+            {
+                errors.Add((
+                    "rootPath",
+                    $"rootPath overlaps the recycle bin '{bin}'; the bin's cleanup would delete the library's files. "
+                    + "Move the recycle bin (import.recycle_bin_path) or choose another folder."));
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Not a usable path; the field's own rule (an absolute path) names it.
         }
 
         return errors;
