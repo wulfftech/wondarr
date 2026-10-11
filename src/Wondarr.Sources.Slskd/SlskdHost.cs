@@ -44,14 +44,17 @@ public sealed partial class SlskdHost : BackgroundService
     /// How long slskd gets to exit after SIGTERM, to log out and flush its transfer state, before its
     /// process tree is killed.
     /// </summary>
-    public static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan GracefulStopTimeout = TimeSpan.FromSeconds(4);
 
     /// <summary>
     /// How long a killed process gets to exit before the supervisor stops waiting. Together with
-    /// <see cref="GracefulStopTimeout"/> this is the worst case of one stop: 7 s of the 8 s the host
+    /// <see cref="GracefulStopTimeout"/> this is the worst case of one stop: 6 s of the 8 s the host
     /// gives a shutdown (<c>docs/architecture/DEPLOYMENT.md</c>).
     /// </summary>
     public static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>The time the host gives a shutdown (<c>HostOptions.ShutdownTimeout</c>, set in Program.cs).</summary>
+    public static readonly TimeSpan ShutdownBudget = TimeSpan.FromSeconds(8);
 
     /// <summary>How long a leftover slskd from a crashed Wondarr gets to die before the new one starts anyway.</summary>
     public static readonly TimeSpan OrphanKillTimeout = TimeSpan.FromSeconds(5);
@@ -291,15 +294,29 @@ public sealed partial class SlskdHost : BackgroundService
     /// <inheritdoc />
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
+        var startedAt = Now;
+
         await base.StopAsync(cancellationToken).ConfigureAwait(false);
 
         // An in-flight settings restart holds the gate; the shutdown waits for its turn rather than
-        // leaving a second slskd behind.
-        await _lifecycle.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        // leaving a second slskd behind - but not past the host's own deadline, which is the token.
+        var gotGate = true;
+        try
+        {
+            await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            gotGate = false;
+        }
 
         try
         {
-            await StopChildAsync(CancellationToken.None).ConfigureAwait(false);
+            // Out of time (or nearly): no grace for slskd, straight to the kill.
+            var skipGraceful = cancellationToken.IsCancellationRequested
+                || ShutdownBudget - (Now - startedAt) < GracefulStopTimeout;
+
+            await StopChildAsync(cancellationToken, skipGraceful).ConfigureAwait(false);
 
             _status.Update(snapshot => new SlskdStatusSnapshot(
                 SlskdState.Stopped,
@@ -311,7 +328,10 @@ public sealed partial class SlskdHost : BackgroundService
         }
         finally
         {
-            _lifecycle.Release();
+            if (gotGate)
+            {
+                _lifecycle.Release();
+            }
         }
     }
 
@@ -337,6 +357,16 @@ public sealed partial class SlskdHost : BackgroundService
                 {
                     LogModeSwitchedToExternal(_logger);
                     await StopChildAsync(cancellationToken).ConfigureAwait(false);
+
+                    // Until the external monitor's first poll, say what is going on instead of leaving
+                    // the bundled Running state and process id on show. If the monitor has already
+                    // published, its snapshot stands.
+                    _status.Update(snapshot => snapshot.State == SlskdState.External
+                        ? snapshot
+                        : new SlskdStatusSnapshot(
+                            SlskdState.External,
+                            LastError: "switching to external slskd",
+                            LastCheckedAt: Now));
                 }
 
                 Volatile.Write(ref _runningOptions, null);
@@ -632,7 +662,7 @@ public sealed partial class SlskdHost : BackgroundService
 
         // A slskd left behind by a Wondarr that crashed would hold the ports and answer our polls
         // with the same API key; it goes before the replacement starts.
-        await KillOrphanAsync(cancellationToken).ConfigureAwait(false);
+        await KillOrphanAsync(options, cancellationToken).ConfigureAwait(false);
 
         var child = _launcher.Launch(BuildRequest(options));
 
@@ -669,7 +699,7 @@ public sealed partial class SlskdHost : BackgroundService
     /// only when it has not exited within <see cref="GracefulStopTimeout"/> the whole process tree is
     /// killed (waiting up to <see cref="StopTimeout"/> for that).
     /// </summary>
-    private async Task StopChildAsync(CancellationToken cancellationToken)
+    private async Task StopChildAsync(CancellationToken cancellationToken, bool skipGraceful = false)
     {
         ILaunchedProcess? child;
 
@@ -690,10 +720,18 @@ public sealed partial class SlskdHost : BackgroundService
         {
             var exited = child.HasExited;
 
-            if (!exited)
+            if (!exited && !skipGraceful)
             {
-                child.RequestStop();
-                exited = await WaitForExitAsync(child, GracefulStopTimeout, cancellationToken).ConfigureAwait(false);
+                // Its own try: a SIGTERM that cannot be sent (no libc, say) must never skip the kill.
+                try
+                {
+                    child.RequestStop();
+                    exited = await WaitForExitAsync(child, GracefulStopTimeout, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    LogStopRequestFailed(_logger, exception.Message);
+                }
             }
 
             if (!exited)
@@ -750,7 +788,7 @@ public sealed partial class SlskdHost : BackgroundService
     /// process whose executable is called slskd is touched: a pid that has since been reused by
     /// something else is left alone. Failures are logged, never thrown — the new slskd is started either way.
     /// </summary>
-    private async Task KillOrphanAsync(CancellationToken cancellationToken)
+    private async Task KillOrphanAsync(SoulseekOptions options, CancellationToken cancellationToken)
     {
         try
         {
@@ -764,9 +802,20 @@ public sealed partial class SlskdHost : BackgroundService
             if (int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var processId)
                 && processId > 0
                 && processId != Environment.ProcessId
-                && _inspector.GetExecutable(processId) is { } executable)
+                && _inspector.IsRunning(processId))
             {
-                if (!string.Equals(Path.GetFileNameWithoutExtension(executable), "slskd", StringComparison.OrdinalIgnoreCase))
+                if (_inspector.GetExecutable(processId) is not { } executable)
+                {
+                    // Alive, but we cannot tell what it is: not ours to kill, and the file stays so
+                    // the next start looks again.
+                    LogPidUnidentifiable(_logger, processId);
+
+                    return;
+                }
+
+                var expected = Path.GetFullPath(options.BinaryPath);
+
+                if (!IsOurSlskd(executable, expected))
                 {
                     LogPidNotSlskd(_logger, processId);
                 }
@@ -791,6 +840,22 @@ public sealed partial class SlskdHost : BackgroundService
         {
             LogOrphanCheckFailed(_logger, exception.Message);
         }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="executable"/> is the bundled slskd: the same path as the configured binary
+    /// or, when the process only reports a bare name (argv[0] as typed), the file name <c>slskd</c>.
+    /// </summary>
+    private static bool IsOurSlskd(string executable, string expectedPath)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        if (Path.IsPathRooted(executable))
+        {
+            return string.Equals(Path.GetFullPath(executable), expectedPath, comparison);
+        }
+
+        return string.Equals(Path.GetFileNameWithoutExtension(executable), "slskd", StringComparison.OrdinalIgnoreCase);
     }
 
     private void WritePidFile(int processId)
@@ -1122,6 +1187,15 @@ public sealed partial class SlskdHost : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not write the slskd pid file: {Reason}")]
     private static partial void LogPidWriteFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not ask slskd to stop ({Reason}); killing it instead")]
+    private static partial void LogStopRequestFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The slskd pid file names process {ProcessId}, which exists but cannot be identified; leaving it alone")]
+    private static partial void LogPidUnidentifiable(ILogger logger, int processId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The slskd pid file names process {ProcessId}, which runs a different executable than {BinaryPath}; leaving it alone")]
+    private static partial void LogPidOtherExecutable(ILogger logger, int processId, string binaryPath);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not kill the slskd process: {Reason}")]
     private static partial void LogKillFailed(ILogger logger, string reason);

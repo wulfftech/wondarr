@@ -28,6 +28,16 @@ public interface ISoulseekSearchBudget
     SoulseekSearchBudgetSnapshot Snapshot();
 }
 
+/// <summary>
+/// A lease that can give its submission back: for a search that provably never reached slskd, so it
+/// should not count against the 30-per-4-minutes window or the 5-second spacing.
+/// </summary>
+public interface IRefundableSearchLease
+{
+    /// <summary>Removes the lease's submission from the window. Does nothing the second time.</summary>
+    void Refund();
+}
+
 /// <inheritdoc />
 /// <remarks>
 /// <para>
@@ -131,7 +141,7 @@ public sealed partial class SoulseekSearchBudget : ISoulseekSearchBudget, IDispo
                         // One small write per submission: at most 30 in 4 minutes.
                         _history?.Save(_wallTimes);
 
-                        return new Lease(this);
+                        return new Lease(this, now);
                     }
                 }
 
@@ -268,6 +278,37 @@ public sealed partial class SoulseekSearchBudget : ISoulseekSearchBudget, IDispo
         return wait;
     }
 
+    /// <summary>Takes the submission made at <paramref name="stamp"/> back out of the window.</summary>
+    private void Refund(long stamp)
+    {
+        lock (_state)
+        {
+            var stamps = _submissions.ToArray();
+            var walls = _wallTimes.ToArray();
+            var index = Array.IndexOf(stamps, stamp);
+
+            if (index < 0)
+            {
+                return;
+            }
+
+            _submissions.Clear();
+            _wallTimes.Clear();
+
+            for (var i = 0; i < stamps.Length; i++)
+            {
+                if (i != index)
+                {
+                    _submissions.Enqueue(stamps[i]);
+                    _wallTimes.Enqueue(walls[i]);
+                }
+            }
+
+            _lastSubmission = stamps.Length > 1 ? _submissions.Last() : null;
+            _history?.Save(_wallTimes);
+        }
+    }
+
     private void Release()
     {
         TaskCompletionSource released;
@@ -289,13 +330,27 @@ public sealed partial class SoulseekSearchBudget : ISoulseekSearchBudget, IDispo
     private static partial void LogWaitingForSlot(ILogger logger, string reason);
 
     /// <summary>Holds one "outstanding" slot until it is disposed. Disposing twice releases once.</summary>
-    private sealed class Lease : IAsyncDisposable
+    private sealed class Lease : IAsyncDisposable, IRefundableSearchLease
     {
         private readonly SoulseekSearchBudget _budget;
+        private readonly long _stamp;
 
         private int _disposed;
+        private int _refunded;
 
-        public Lease(SoulseekSearchBudget budget) => _budget = budget;
+        public Lease(SoulseekSearchBudget budget, long stamp)
+        {
+            _budget = budget;
+            _stamp = stamp;
+        }
+
+        public void Refund()
+        {
+            if (Interlocked.Exchange(ref _refunded, 1) == 0)
+            {
+                _budget.Refund(_stamp);
+            }
+        }
 
         public ValueTask DisposeAsync()
         {

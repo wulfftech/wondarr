@@ -279,8 +279,12 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             {
                 return await _clients.GetClient(indexer).SearchAsync(indexer, query, budget).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && budget.IsCancellationRequested)
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested
+                && budget.IsCancellationRequested
+                && (exception is OperationCanceledException || exception.InnerException is OperationCanceledException))
             {
+                // Whichever way the client reported it (the cancellation itself, or wrapped in an
+                // IndexerException by a conversion that ran as the budget fired).
                 // The search's time budget ran out before this indexer answered: say so, an empty
                 // answer with no trace would look like "nothing found".
                 LogIndexerBudgetSpent(_logger, indexer.Name);

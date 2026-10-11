@@ -77,7 +77,18 @@ public sealed partial class SoulseekSearchHistory
 
             var temporary = $"{_path}.{Guid.NewGuid():N}.tmp";
             File.WriteAllText(temporary, JsonSerializer.Serialize(new StoredHistory([.. submissions]), SerializerOptions));
-            File.Move(temporary, _path, overwrite: true);
+
+            try
+            {
+                File.Move(temporary, _path, overwrite: true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Do not leave the temporary file behind for every failed write.
+                File.Delete(temporary);
+
+                throw;
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

@@ -458,6 +458,27 @@ public class SoulseekSearchBudgetTests
         }
     }
 
+    [Fact]
+    public async Task A_refunded_submission_leaves_the_window_and_the_spacing()
+    {
+        var time = new FakeTimeProvider(Start);
+        var budget = Budget(time);
+
+        var lease = await budget.AcquireAsync(CancellationToken.None);
+        budget.Snapshot().SubmittedInWindow.Should().Be(1);
+
+        ((IRefundableSearchLease)lease).Refund();
+        ((IRefundableSearchLease)lease).Refund();
+        await lease.DisposeAsync();
+
+        budget.Snapshot().SubmittedInWindow.Should().Be(0);
+
+        // No 5-second spacing is owed for a search that never went out.
+        var next = budget.AcquireAsync(CancellationToken.None);
+        next.IsCompleted.Should().BeTrue();
+        await using var second = await next;
+    }
+
     private static SoulseekSearchHistory History(string path) => new(path, NullLogger<SoulseekSearchHistory>.Instance);
 
     private static void DeleteDirectoryOf(string path)

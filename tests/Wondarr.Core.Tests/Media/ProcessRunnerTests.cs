@@ -49,16 +49,19 @@ public sealed class ProcessRunnerTests
     {
         // The shell exits at once; the backgrounded grandchild outlives it and keeps the inherited
         // stdout pipe open, so reading to the end of the pipe would take as long as the grandchild runs.
+        // The grandchild is a real process that nothing here kills: it runs 10 s (long enough to be
+        // clearly later than the 300 ms drain bound below, short enough not to linger after the run)
+        // and then exits on its own.
         var (fileName, arguments) = OperatingSystem.IsWindows()
-            ? ("cmd", new[] { "/c", "start /b ping -n 30 127.0.0.1" })
-            : ("sh", new[] { "-c", "sleep 30 &" });
+            ? ("cmd", new[] { "/c", "start /b ping -n 10 127.0.0.1" })
+            : ("sh", new[] { "-c", "sleep 10 &" });
 
         var runner = new ProcessRunner(NullLogger<ProcessRunner>.Instance) { DrainTimeout = TimeSpan.FromMilliseconds(300) };
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var result = await runner.RunAsync(fileName, arguments, TimeSpan.FromSeconds(60), CancellationToken.None);
 
-        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(15), "the drain is bounded, not as long as the grandchild");
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8), "the drain is bounded, not as long as the grandchild");
         result.TimedOut.Should().BeFalse();
     }
 

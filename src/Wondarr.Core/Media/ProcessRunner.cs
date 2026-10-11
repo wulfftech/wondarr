@@ -126,8 +126,8 @@ public sealed partial class ProcessRunner : IProcessRunner
         {
             KillTree(process);
 
-            var killedOutput = await DrainAsync(standardOutput, DrainTimeout).ConfigureAwait(false);
-            var killedError = await DrainAsync(standardError, DrainTimeout).ConfigureAwait(false);
+            var killedOutput = await DrainAsync(standardOutput, DrainTimeout, fileName).ConfigureAwait(false);
+            var killedError = await DrainAsync(standardError, DrainTimeout, fileName).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -136,8 +136,8 @@ public sealed partial class ProcessRunner : IProcessRunner
             return new ProcessResult(-1, killedOutput, killedError, TimedOut: true);
         }
 
-        var output = await DrainAsync(standardOutput, DrainTimeout).ConfigureAwait(false);
-        var error = await DrainAsync(standardError, DrainTimeout).ConfigureAwait(false);
+        var output = await DrainAsync(standardOutput, DrainTimeout, fileName).ConfigureAwait(false);
+        var error = await DrainAsync(standardError, DrainTimeout, fileName).ConfigureAwait(false);
 
         if (process.ExitCode != 0)
         {
@@ -150,6 +150,9 @@ public sealed partial class ProcessRunner : IProcessRunner
     // Debug on purpose: a tool's stderr can be long, and Information is for the import decision.
     [LoggerMessage(Level = LogLevel.Debug, Message = "'{Tool}' exited {ExitCode}. Stderr: {StandardError}")]
     private static partial void LogExited(ILogger logger, string tool, int exitCode, string standardError);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "'{Tool}' left a pipe open for more than {Timeout}; its remaining output is dropped.")]
+    private static partial void LogDrainTimedOut(ILogger logger, string tool, TimeSpan timeout);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "'{Tool}' was killed after {Timeout}.")]
     private static partial void LogTimedOut(ILogger logger, string tool, TimeSpan timeout);
@@ -175,7 +178,7 @@ public sealed partial class ProcessRunner : IProcessRunner
     /// Waits for a pipe to close, treating a stream disposed by the kill as empty, and giving up
     /// (with no output) when it stays open past <paramref name="timeout"/>.
     /// </summary>
-    private static async Task<string> DrainAsync(Task<string> read, TimeSpan timeout)
+    private async Task<string> DrainAsync(Task<string> read, TimeSpan timeout, string tool)
     {
         try
         {
@@ -183,6 +186,9 @@ public sealed partial class ProcessRunner : IProcessRunner
         }
         catch (TimeoutException)
         {
+            // Something that outlived the tool (a grandchild that escaped the tree kill) still holds the pipe.
+            LogDrainTimedOut(_logger, tool, timeout);
+
             return string.Empty;
         }
         catch (IOException)
