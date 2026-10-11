@@ -178,6 +178,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, ReferenceAdoptCommandHandler>();
         services.AddScoped<ICommandHandler, CompactLibraryCommandHandler>();
         services.AddScoped<ICommandHandler, MoveSongsCommandHandler>();
+        services.AddScoped<ISongRefiler, SongRefiler>();
+        services.AddScoped<ICommandHandler, RefileSongCommandHandler>();
 
         // The weekly Backup task: one scheduled backup, then the retention pass.
         services.AddScoped<IBackupService, BackupService>();

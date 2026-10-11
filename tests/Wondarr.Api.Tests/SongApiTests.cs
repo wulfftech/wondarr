@@ -258,6 +258,47 @@ public sealed class SongApiTests
     }
 
     [Fact]
+    public async Task A_song_a_compaction_is_moving_cannot_be_deleted_or_given_another_album()
+    {
+        var resolver = Substitute.For<IIdentityResolver>();
+        resolver.GetIdentityAsync(RecordingId, null, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<SongIdentity?>(Identity()));
+
+        using var factory = FakeProviders(resolver: resolver);
+        using var client = Authenticated(factory);
+        var songId = await SeedSongAsync(factory, "Get Lucky", RecordingId, monitored: true, albumKey: ReleaseId);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            context.CompactMoves.Add(new CompactMoveRecord
+            {
+                LibraryId = SeedData.DefaultLibraryId,
+                SongId = songId,
+                FromPath = "/music/a.flac",
+                StagedPath = "/music/.wondarr-compact/1/a.flac",
+                State = CompactMoveState.Staged,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        using var delete = await client.DeleteAsync(new Uri($"{SongEndpoint}/{songId}", UriKind.Relative));
+        delete.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ReadJsonAsync(delete)).GetProperty("detail").GetString()
+            .Should().Be("Compaction is moving this song; try again when it finishes");
+
+        using var move = await client.PutAsync(
+            new Uri($"{SongEndpoint}/{songId}/albumcontext", UriKind.Relative),
+            Json("""{"albumKey":"singles"}"""));
+        move.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ReadJsonAsync(move)).GetProperty("detail").GetString()
+            .Should().Be("Compaction is moving this song; try again when it finishes");
+
+        using var stillThere = await client.GetAsync(new Uri($"{SongEndpoint}/{songId}", UriKind.Relative));
+        stillThere.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Every_song_endpoint_requires_the_api_key()
     {
         using var factory = FakeProviders();
