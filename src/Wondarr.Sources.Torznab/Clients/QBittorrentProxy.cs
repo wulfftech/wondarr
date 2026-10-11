@@ -26,6 +26,7 @@ namespace Wondarr.Sources.Torznab.Clients;
 /// <param name="SavePath">The save path as qBittorrent sees it.</param>
 /// <param name="ContentPath">The content path as qBittorrent sees it.</param>
 /// <param name="HasMetadata">Whether the files are known; <see langword="null"/> when this qBittorrent does not report it.</param>
+/// <param name="DownloadPath">Where the incomplete torrent's files are ("keep incomplete torrents in"); empty or <see langword="null"/> when that option is off or this qBittorrent does not report it.</param>
 [method: JsonConstructor]
 public sealed record QBittorrentTorrent(
     string Hash,
@@ -34,7 +35,8 @@ public sealed record QBittorrentTorrent(
     double Progress,
     string SavePath,
     string ContentPath,
-    bool? HasMetadata);
+    bool? HasMetadata,
+    string? DownloadPath = null);
 
 /// <summary>One file as qBittorrent's <c>torrents/files</c> reports it.</summary>
 /// <param name="Index">The file's index; what the priority call names it by.</param>
@@ -90,7 +92,7 @@ public sealed partial class QBittorrentProxy
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<QBittorrentProxy> _logger;
-    private readonly ConcurrentDictionary<string, QBittorrentSession> _sessions = [];
+    private readonly ConcurrentDictionary<long, SessionSlot> _sessions = [];
 
     /// <summary>Initialises a new instance of the <see cref="QBittorrentProxy"/> class.</summary>
     /// <param name="httpClientFactory">Creates the HTTP client the calls go through.</param>
@@ -107,15 +109,31 @@ public sealed partial class QBittorrentProxy
     /// <summary>
     /// The session of one client row: its cookie jar and its cached Web API version. The same key
     /// returns the same session, so the login survives between calls; a settings change must be
-    /// answered with a different key.
+    /// answered with a different key. One session is kept per row (R-081): a changed key replaces the
+    /// row's old session instead of adding to the cache.
     /// </summary>
     /// <param name="key">The row id and the settings hash, as <see cref="SessionKey"/> builds it.</param>
     public QBittorrentSession Session(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        return _sessions.GetOrAdd(key, _ => new QBittorrentSession());
+        var separator = key.IndexOf(':', StringComparison.Ordinal);
+        var rowId = separator > 0 && long.TryParse(key.AsSpan(0, separator), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 0;
+
+        return _sessions.AddOrUpdate(
+            rowId,
+            _ => new SessionSlot(key, new QBittorrentSession()),
+            (_, slot) => string.Equals(slot.Key, key, StringComparison.Ordinal) ? slot : new SessionSlot(key, new QBittorrentSession())).Session;
     }
+
+    /// <summary>Forgets a client row's session, for a row that was deleted.</summary>
+    /// <param name="rowId">The row's id.</param>
+    public void Evict(long rowId) => _sessions.TryRemove(rowId, out _);
+
+    /// <summary>How many rows hold a session.</summary>
+    public int SessionCount => _sessions.Count;
+
+    private sealed record SessionSlot(string Key, QBittorrentSession Session);
 
     /// <summary>Builds the session key of a client row: its id and the hash of its settings JSON.</summary>
     /// <param name="rowId">The row's id, or 0 for a draft being tested.</param>

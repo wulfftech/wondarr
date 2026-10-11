@@ -88,7 +88,8 @@ public sealed partial class QBittorrentClient : ITorrentClient
             RemotePathMapper.Map(torrent.SavePath, settings.RemotePathMappings),
             RemotePathMapper.Map(torrent.ContentPath, settings.RemotePathMappings),
             hasMetadata,
-            ErrorFor(torrent.State));
+            ErrorFor(torrent.State),
+            string.IsNullOrEmpty(torrent.DownloadPath) ? null : RemotePathMapper.Map(torrent.DownloadPath, settings.RemotePathMappings));
     }
 
     /// <inheritdoc />

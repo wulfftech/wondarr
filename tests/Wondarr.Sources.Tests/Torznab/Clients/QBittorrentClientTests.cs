@@ -97,6 +97,26 @@ public sealed class QBittorrentClientTests
     }
 
     [Fact]
+    public async Task The_incomplete_folder_is_mapped_too_and_absent_when_the_client_keeps_none()
+    {
+        var settings = """
+            {"host":"127.0.0.1","port":8080,"username":"admin","password":"fixture-password-1234",
+             "remotePathMappings":[{"key":"/downloads","value":"/mnt/media"}]}
+            """;
+        var harness = new QBittorrentHarness();
+        var fake = harness.Fake.AddTorrent(QBittorrentHarness.InfoHash, "downloading");
+        fake.HasMetadata = true;
+
+        (await harness.Client.GetAsync(QBittorrentHarness.Row(settings), QBittorrentHarness.InfoHash, CancellationToken.None))!
+            .DownloadPath.Should().BeNull();
+
+        fake.DownloadPath = "/downloads/incomplete";
+
+        (await harness.Client.GetAsync(QBittorrentHarness.Row(settings), QBittorrentHarness.InfoHash, CancellationToken.None))!
+            .DownloadPath.Should().Be(Path.Combine("/mnt/media", "incomplete"));
+    }
+
+    [Fact]
     public async Task The_files_of_a_torrent_are_listed_with_index_size_and_priority()
     {
         var harness = new QBittorrentHarness();

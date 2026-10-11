@@ -31,6 +31,40 @@ public sealed class QBittorrentProxyTests
     }
 
     [Fact]
+    public void A_row_keeps_one_session_and_a_settings_change_replaces_it()
+    {
+        var harness = new QBittorrentHarness();
+        var proxy = harness.Proxy;
+
+        var first = proxy.Session(QBittorrentProxy.SessionKey(7, "{\"a\":1}"));
+        proxy.Session(QBittorrentProxy.SessionKey(7, "{\"a\":1}")).Should().BeSameAs(first, "the login survives between calls");
+
+        var changed = proxy.Session(QBittorrentProxy.SessionKey(7, "{\"a\":2}"));
+
+        changed.Should().NotBeSameAs(first);
+        proxy.SessionCount.Should().Be(1, "the old session was replaced, not added to");
+    }
+
+    [Fact]
+    public void Sessions_are_bounded_by_the_number_of_rows_and_a_deleted_row_is_evicted()
+    {
+        var harness = new QBittorrentHarness();
+        var proxy = harness.Proxy;
+
+        for (var edit = 0; edit < 50; edit++)
+        {
+            proxy.Session(QBittorrentProxy.SessionKey(1, "{\"edit\":" + edit + "}"));
+            proxy.Session(QBittorrentProxy.SessionKey(2, "{\"edit\":" + edit + "}"));
+        }
+
+        proxy.SessionCount.Should().Be(2);
+
+        proxy.Evict(1);
+
+        proxy.SessionCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Wrong_credentials_are_a_download_client_exception_that_names_no_password()
     {
         var harness = new QBittorrentHarness();
