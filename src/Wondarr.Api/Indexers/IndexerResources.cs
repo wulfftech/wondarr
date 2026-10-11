@@ -95,7 +95,7 @@ internal static class IndexerResourceMapper
 
         var settings = NotificationSecrets.Masked(
             NotificationSecrets.Read(indexer.Settings),
-            type?.Fields ?? []);
+            type?.Fields);
 
         return new IndexerResource(
             indexer.Id,

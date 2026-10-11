@@ -38,7 +38,7 @@ public sealed class IndexerApiTests
                 type = "torznab",
                 enabled = true,
                 priority = 10,
-                settings = new { baseUrl = "http://indexer.local/torznab", apiKey = "wonderwall" },
+                settings = new { url = "http://indexer.local/torznab", apiKey = "wonderwall" },
             }));
 
         created.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -50,7 +50,7 @@ public sealed class IndexerApiTests
         row.GetProperty("type").GetString().Should().Be("torznab");
         row.GetProperty("protocol").GetString().Should().Be("Torrent");
         row.GetProperty("priority").GetInt32().Should().Be(10);
-        row.GetProperty("settings").GetProperty("baseUrl").GetString()
+        row.GetProperty("settings").GetProperty("url").GetString()
             .Should().Be("http://indexer.local/torznab");
 
         using var fetched = await client.GetAsync(new Uri($"{Endpoint}/{id}", UriKind.Relative));
@@ -66,7 +66,7 @@ public sealed class IndexerApiTests
                 type = "torznab",
                 enabled = false,
                 priority = 5,
-                settings = new { baseUrl = "http://indexer.local/torznab", apiKey = "********" },
+                settings = new { url = "http://indexer.local/torznab", apiKey = "********" },
             }));
 
         updated.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -119,7 +119,7 @@ public sealed class IndexerApiTests
             {
                 name = "Jackett",
                 type = "torznab",
-                settings = new { baseUrl = "http://indexer.local/torznab", apiKey = "********" },
+                settings = new { url = "http://indexer.local/torznab", apiKey = "********" },
             }));
 
         updated.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -164,7 +164,7 @@ public sealed class IndexerApiTests
             {
                 name = "Jackett",
                 type = "torznab",
-                settings = new { baseUrl = "http://indexer.local/torznab" },
+                settings = new { url = "http://indexer.local/torznab" },
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -223,7 +223,7 @@ public sealed class IndexerApiTests
             {
                 name = "Jackett",
                 type = "torznab",
-                settings = new { baseUrl = "http://indexer.local/torznab" },
+                settings = new { url = "http://indexer.local/torznab" },
                 downloadClientId = clientId,
             }));
 
@@ -247,7 +247,7 @@ public sealed class IndexerApiTests
             {
                 name = "Prowlarr",
                 type = "prowlarr",
-                settings = new { baseUrl = "http://prowlarr.local" },
+                settings = new { url = "http://prowlarr.local" },
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -280,12 +280,87 @@ public sealed class IndexerApiTests
         torznab.GetProperty("protocolChoosable").GetBoolean().Should().BeFalse();
         torznab.GetProperty("fields").EnumerateArray()
             .Select(field => field.GetProperty("name").GetString())
-            .Should().Equal("baseUrl", "apiKey");
+            .Should().Equal("url", "apiKey");
 
         var prowlarr = types.Single(entry => entry.GetProperty("type").GetString() == "prowlarr");
 
         prowlarr.GetProperty("protocol").GetRawText().Should().Be("null");
         prowlarr.GetProperty("protocolChoosable").GetBoolean().Should().BeTrue();
+    }
+
+    // R-038: a stored key is reused only for the address it was saved for.
+    [Fact]
+    public async Task A_test_aimed_at_another_host_with_the_masked_key_is_a_400_on_the_key_and_connects_nowhere()
+    {
+        var torznab = new FakeTorznabType();
+        using var factory = Factory(torznab);
+        using var client = Authenticated(factory);
+        var id = await CreateAsync(client, "wonderwall");
+
+        using var response = await client.PostAsync(
+            new Uri($"{Endpoint}/test", UriKind.Relative),
+            Body(new
+            {
+                name = "Jackett",
+                type = "torznab",
+                id,
+                settings = new { url = "http://attacker.example/torznab", apiKey = "********" },
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var problem = await ReadJsonAsync(response);
+        problem.GetProperty("errors").GetProperty("apiKey")[0].GetString()
+            .Should().Be("Enter the API Key again: the address changed.");
+        torznab.Tested.Should().BeEmpty();
+
+        // The same host, or a new host with the key typed in, goes through.
+        (await TestAsync(client, id, "********")).Success.Should().BeTrue();
+        torznab.Tested.Should().ContainSingle();
+
+        using var typed = await client.PostAsync(
+            new Uri($"{Endpoint}/test", UriKind.Relative),
+            Body(new
+            {
+                name = "Jackett",
+                type = "torznab",
+                id,
+                settings = new { url = "http://new.example/torznab", apiKey = "supernova" },
+            }));
+
+        typed.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    // Owner question 4: a stored row whose type is no longer registered is masked by key name, not shown raw.
+    [Fact]
+    public async Task A_row_whose_type_is_gone_comes_back_with_the_keys_that_look_secret_masked()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<Wondarr.Core.Persistence.WondarrDbContext>();
+            database.Indexers.Add(new Wondarr.Core.Domain.Indexer
+            {
+                Name = "Vanished",
+                Type = "retired-tracker",
+                Protocol = DownloadProtocol.Torrent,
+                Settings = """{"url":"http://tracker.local","apiKey":"wonderwall","passkey":"pk-0123","category":"music"}""",
+            });
+            await database.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync(new Uri(Endpoint, UriKind.Relative));
+        var body = await response.Content.ReadAsStringAsync();
+
+        body.Should().NotContain("wonderwall").And.NotContain("pk-0123");
+
+        var row = JsonSerializer.Deserialize<JsonElement>(body).EnumerateArray().Single().GetProperty("settings");
+        row.GetProperty("apiKey").GetString().Should().Be("********");
+        row.GetProperty("passkey").GetString().Should().Be("********");
+        row.GetProperty("url").GetString().Should().Be("http://tracker.local");
+        row.GetProperty("category").GetString().Should().Be("music");
     }
 
     [Fact]
@@ -346,7 +421,7 @@ public sealed class IndexerApiTests
             {
                 name = "Jackett",
                 type = "torznab",
-                settings = new { baseUrl = "http://indexer.local/torznab", apiKey },
+                settings = new { url = "http://indexer.local/torznab", apiKey },
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -374,7 +449,7 @@ public sealed class IndexerApiTests
                 name = "Jackett",
                 type = "torznab",
                 id,
-                settings = new { baseUrl = "http://indexer.local/torznab", apiKey },
+                settings = new { url = "http://indexer.local/torznab", apiKey },
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -402,7 +477,7 @@ public sealed class IndexerApiTests
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("baseUrl", "Base URL", "url", Required: true),
+            new("url", "Base URL", "url", Required: true),
             new("apiKey", "API Key", "password", Required: false, Secret: true),
         ];
 
@@ -433,7 +508,7 @@ public sealed class IndexerApiTests
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("baseUrl", "Prowlarr URL", "url", Required: true),
+            new("url", "Prowlarr URL", "url", Required: true),
         ];
 
         public IReadOnlyList<string> Validate(JsonElement settings) => [];

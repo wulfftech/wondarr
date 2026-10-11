@@ -24,6 +24,64 @@ public sealed class DownloadClientApiTests
     private const string Endpoint = "/api/v1/downloadclient";
     private const string IndexerEndpoint = "/api/v1/indexer";
 
+    // R-038: a stored password is reused only for the address it was saved for.
+    [Fact]
+    public async Task A_test_aimed_at_another_host_with_the_masked_password_is_a_400_on_the_password()
+    {
+        var qbittorrent = new FakeQbittorrentType();
+        using var factory = Factory(qbittorrent);
+        using var client = Authenticated(factory);
+        var id = await CreateAsync(client, "wonderwall");
+
+        using var response = await client.PostAsync(
+            new Uri($"{Endpoint}/test", UriKind.Relative),
+            Body(new
+            {
+                name = "Grabber",
+                type = "qbittorrent",
+                id,
+                settings = new { url = "http://attacker.example:8080", password = "********" },
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var problem = await ReadJsonAsync(response);
+        problem.GetProperty("errors").GetProperty("password")[0].GetString()
+            .Should().Be("Enter the Password again: the address changed.");
+        qbittorrent.Tested.Should().BeEmpty();
+    }
+
+    // Owner question 4: a row whose type is no longer registered is masked by key name, not shown raw.
+    [Fact]
+    public async Task A_row_whose_type_is_gone_comes_back_with_the_keys_that_look_secret_masked()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<Wondarr.Core.Persistence.WondarrDbContext>();
+            database.DownloadClients.Add(new Wondarr.Core.Domain.DownloadClient
+            {
+                Name = "Vanished",
+                Type = "retired-client",
+                Protocol = DownloadProtocol.Torrent,
+                Settings = """{"host":"qbit.local","password":"wonderwall","apiKey":"k-0123","category":"music"}""",
+            });
+            await database.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync(new Uri(Endpoint, UriKind.Relative));
+        var body = await response.Content.ReadAsStringAsync();
+
+        body.Should().NotContain("wonderwall").And.NotContain("k-0123");
+
+        var settings = JsonSerializer.Deserialize<JsonElement>(body).EnumerateArray().Single().GetProperty("settings");
+        settings.GetProperty("password").GetString().Should().Be("********");
+        settings.GetProperty("apiKey").GetString().Should().Be("********");
+        settings.GetProperty("host").GetString().Should().Be("qbit.local");
+    }
+
     [Fact]
     public async Task A_client_is_created_read_updated_and_deleted()
     {

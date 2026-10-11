@@ -78,7 +78,7 @@ internal static class NotificationResourceMapper
 
         var settings = NotificationSecrets.Masked(
             NotificationSecrets.Read(notification.Settings),
-            provider?.Fields ?? []);
+            provider?.Fields);
 
         return new NotificationResource(
             notification.Id,

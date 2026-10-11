@@ -180,6 +180,71 @@ public sealed class IndexerServiceTests : IDisposable
         _torznab.Tested[0].GetProperty("apiKey").GetString().Should().Be("wonderwall");
     }
 
+    // R-038: a stored secret is reused only for the address it was saved for.
+    [Fact]
+    public async Task A_test_to_a_new_host_with_the_masked_key_is_refused_and_connects_nowhere()
+    {
+        var created = await _service.CreateAsync(Draft(apiKey: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<IndexerValidationException>(
+            () => _service.TestAsync(
+                Draft(baseUrl: "http://attacker.example/torznab", apiKey: NotificationSecrets.Mask, id: created.Id),
+                Token));
+
+        failure.Field.Should().Be("apiKey");
+        failure.Detail.Should().Be("Enter the API Key again: the address changed.");
+        _torznab.Tested.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_update_to_a_new_host_with_the_masked_key_is_refused()
+    {
+        var created = await _service.CreateAsync(Draft(apiKey: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<IndexerValidationException>(
+            () => _service.UpdateAsync(
+                created.Id,
+                Draft(baseUrl: "http://attacker.example/torznab", apiKey: NotificationSecrets.Mask),
+                Token));
+
+        failure.Field.Should().Be("apiKey");
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Indexers.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).GetProperty("url").GetString().Should().Be("http://indexer.local/torznab");
+    }
+
+    [Fact]
+    public async Task A_test_to_the_same_host_under_another_path_still_reuses_the_key()
+    {
+        var created = await _service.CreateAsync(Draft(apiKey: "wonderwall"), Token);
+
+        var result = await _service.TestAsync(
+            Draft(baseUrl: "http://indexer.local/other/api", apiKey: NotificationSecrets.Mask, id: created.Id),
+            Token);
+
+        result.Success.Should().BeTrue();
+        _torznab.Tested[0].GetProperty("apiKey").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_new_host_with_the_key_supplied_is_tested_and_saved()
+    {
+        var created = await _service.CreateAsync(Draft(apiKey: "wonderwall"), Token);
+
+        (await _service.TestAsync(
+            Draft(baseUrl: "http://new.example/torznab", apiKey: "supernova", id: created.Id),
+            Token)).Success.Should().BeTrue();
+
+        await _service.UpdateAsync(created.Id, Draft(baseUrl: "http://new.example/torznab", apiKey: "supernova"), Token);
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Indexers.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).GetProperty("apiKey").GetString().Should().Be("supernova");
+    }
+
     [Fact]
     public async Task A_test_without_an_id_uses_the_settings_as_they_are()
     {
@@ -259,7 +324,7 @@ public sealed class IndexerServiceTests : IDisposable
             Priority: 25,
             downloadClientId,
             JsonSerializer.Deserialize<JsonElement>(
-                $$"""{"baseUrl":"{{baseUrl}}","apiKey":"{{apiKey}}"}"""),
+                $$"""{"url":"{{baseUrl}}","apiKey":"{{apiKey}}"}"""),
             id);
 
     /// <summary>An indexer type with a fixed protocol, one plain field and one secret.</summary>
@@ -274,7 +339,7 @@ public sealed class IndexerServiceTests : IDisposable
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("baseUrl", "Base URL", "url", Required: true),
+            new("url", "Base URL", "url", Required: true),
             new("apiKey", "API Key", "password", Required: false, Secret: true),
         ];
 
@@ -283,7 +348,7 @@ public sealed class IndexerServiceTests : IDisposable
 
         public IReadOnlyList<string> Validate(JsonElement settings)
         {
-            var url = settings.TryGetProperty("baseUrl", out var value) ? value.GetString() : null;
+            var url = settings.TryGetProperty("url", out var value) ? value.GetString() : null;
 
             return url is not null && url.StartsWith("http", StringComparison.Ordinal)
                 ? []
@@ -312,7 +377,7 @@ public sealed class IndexerServiceTests : IDisposable
 
         public IReadOnlyList<NotificationField> Fields { get; } =
         [
-            new("baseUrl", "Prowlarr URL", "url", Required: true),
+            new("url", "Prowlarr URL", "url", Required: true),
             new("apiKey", "API Key", "password", Required: false, Secret: true),
         ];
 

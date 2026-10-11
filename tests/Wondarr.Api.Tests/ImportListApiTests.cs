@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Wondarr.Core.Identity;
 using Xunit;
@@ -23,6 +24,43 @@ public sealed class ImportListApiTests
         "\"Track URI\",\"Track Name\",\"Artist URI(s)\",\"Artist Name(s)\",\"Album URI\",\"Album Name\",\"Album Artist URI(s)\",\"Album Artist Name(s)\",\"Album Release Date\",\"Album Image URL\",\"Disc Number\",\"Track Number\",\"Track Duration (ms)\",\"Track Preview URL\",\"Explicit\",\"Popularity\",\"ISRC\",\"Added By\",\"Added At\"\n"
         + "\"spotify:track:69kOkLUCkxIZYexIgSG8rq\",\"Get Lucky\",\"spotify:artist:1\",\"Daft Punk,Pharrell Williams\",\"spotify:album:1\",\"Random Access Memories\",\"\",\"Daft Punk\",\"2013-05-20\",\"\",\"1\",\"8\",\"369626\",\"\",\"false\",\"80\",\"USQX91300108\",\"\",\"\"\n"
         + "\"spotify:track:0000000000000000000000\",\"Nothing\",\"spotify:artist:0\",\"Nobody\",\"spotify:album:0\",\"None\",\"\",\"Nobody\",\"2020\",\"\",\"1\",\"1\",\"200000\",\"\",\"false\",\"1\",\"\",\"\",\"\"\n";
+
+    // Owner question 4: a list whose provider is no longer registered is masked by key name, not shown raw.
+    [Fact]
+    public async Task A_list_whose_provider_is_gone_comes_back_with_the_keys_that_look_secret_masked()
+    {
+        using var factory = SongApiTests.FakeProviders();
+        using var client = SongApiTests.Authenticated(factory);
+
+        long id;
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<Wondarr.Core.Persistence.WondarrDbContext>();
+            var list = new Wondarr.Core.Domain.ImportList
+            {
+                Type = "retired-provider",
+                Name = "Vanished",
+                Settings = """{"user":"someone","apiKey":"wonderwall","sessionCookie":"ck-0123"}""",
+                QualityProfileId = Wondarr.Core.Domain.SeedData.StandardProfileId,
+                LibraryId = Wondarr.Core.Domain.SeedData.DefaultLibraryId,
+            };
+            database.ImportLists.Add(list);
+            await database.SaveChangesAsync();
+            id = list.Id;
+        }
+
+        using var response = await client.GetAsync(new Uri($"{ListEndpoint}/{id}", UriKind.Relative));
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        body.Should().NotContain("wonderwall").And.NotContain("ck-0123");
+
+        var settings = JsonSerializer.Deserialize<JsonElement>(body).GetProperty("settings");
+        settings.GetProperty("apiKey").GetString().Should().Be("********");
+        settings.GetProperty("sessionCookie").GetString().Should().Be("********");
+        settings.GetProperty("user").GetString().Should().Be("someone");
+    }
 
     [Fact]
     public async Task The_schema_names_the_csv_provider_and_its_column_fields()

@@ -25,6 +25,36 @@ public sealed class NotificationApiTests
     private static readonly string[] HealthOnly = ["health"];
     private static readonly string[] ImportOnly = ["import"];
 
+    // Owner question 4: a row whose provider is no longer registered is masked by key name, not shown raw.
+    [Fact]
+    public async Task A_row_whose_provider_is_gone_comes_back_with_the_keys_that_look_secret_masked()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<Wondarr.Core.Persistence.WondarrDbContext>();
+            database.Notifications.Add(new Wondarr.Core.Domain.Notification
+            {
+                Name = "Vanished",
+                Type = "Retired",
+                Settings = """{"url":"http://hooks.local","authPassword":"wonderwall","token":"tk-0123","method":"POST"}""",
+            });
+            await database.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync(new Uri(Endpoint, UriKind.Relative));
+        var body = await response.Content.ReadAsStringAsync();
+
+        body.Should().NotContain("wonderwall").And.NotContain("tk-0123");
+
+        var settings = JsonSerializer.Deserialize<JsonElement>(body).EnumerateArray().Single().GetProperty("settings");
+        settings.GetProperty("authPassword").GetString().Should().Be("********");
+        settings.GetProperty("token").GetString().Should().Be("********");
+        settings.GetProperty("method").GetString().Should().Be("POST");
+    }
+
     [Fact]
     public async Task A_notification_is_created_read_updated_and_deleted()
     {

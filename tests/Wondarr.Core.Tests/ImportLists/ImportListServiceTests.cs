@@ -69,6 +69,58 @@ public sealed class ImportListServiceTests : IDisposable
         (await context.ImportLists.AsNoTracking().SingleAsync()).Settings.Should().Contain("s3cret");
     }
 
+    // R-038: a stored secret is reused only for the address it was saved for.
+    [Fact]
+    public async Task A_masked_secret_sent_with_a_new_host_is_refused_and_the_row_is_unchanged()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(
+            Draft(FakeProvider.FakeType) with { Settings = Json("""{"url":"http://lists.local/a","apiKey":"s3cret"}""") },
+            CancellationToken.None);
+
+        var update = async () => await service.UpdateAsync(
+            list.Id,
+            Draft(FakeProvider.FakeType) with
+            {
+                Settings = Json($$"""{"url":"http://attacker.example/a","apiKey":"{{NotificationSecrets.Mask}}"}"""),
+            },
+            CancellationToken.None);
+
+        var failure = (await update.Should().ThrowAsync<ImportListValidationException>()).Which;
+        failure.Field.Should().Be("apiKey");
+        failure.Detail.Should().Be("Enter the API key again: the address changed.");
+
+        (await context.ImportLists.AsNoTracking().SingleAsync()).Settings.Should().Contain("lists.local");
+    }
+
+    [Fact]
+    public async Task A_masked_secret_with_the_same_host_is_kept_and_a_new_host_with_the_secret_works()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(
+            Draft(FakeProvider.FakeType) with { Settings = Json("""{"url":"http://lists.local/a","apiKey":"s3cret"}""") },
+            CancellationToken.None);
+
+        await service.UpdateAsync(
+            list.Id,
+            Draft(FakeProvider.FakeType) with
+            {
+                Settings = Json($$"""{"url":"http://LISTS.local:80/b","apiKey":"{{NotificationSecrets.Mask}}"}"""),
+            },
+            CancellationToken.None);
+
+        (await context.ImportLists.AsNoTracking().SingleAsync()).Settings.Should().Contain("s3cret");
+
+        await service.UpdateAsync(
+            list.Id,
+            Draft(FakeProvider.FakeType) with { Settings = Json("""{"url":"http://new.example/a","apiKey":"fresh-key"}""") },
+            CancellationToken.None);
+
+        (await context.ImportLists.AsNoTracking().SingleAsync()).Settings.Should().Contain("fresh-key");
+    }
+
     [Fact]
     public async Task Sync_adds_new_items_reorders_known_ones_and_marks_gone_ones()
     {
@@ -411,7 +463,7 @@ public sealed class ImportListServiceTests : IDisposable
         public string DisplayName => "Fake";
 
         public IReadOnlyList<NotificationField> Fields { get; } =
-            [new("apiKey", "API key", "password", false, Secret: true)];
+            [new("url", "URL", "url", false), new("apiKey", "API key", "password", false, Secret: true)];
 
         public IReadOnlyList<string> Validate(JsonElement settings, string? sourceText) => [];
 

@@ -13,6 +13,63 @@ public class PlexConnectionServiceTests
     private const string ServerToken = "PLEX-SERVER-TOKEN";
     private const string MachineIdentifier = "0000000000000000000000000000000000000000";
 
+    /// <summary>The address plex.tv lists for the test server, which the stored token may be sent to.</summary>
+    private static readonly PlexServerConnection ListedConnection =
+        new("https://plex.example:32400", Local: true, Relay: false, "https", "plex.example", 32400);
+
+    // R-038: the stored account token is sent only to an address it belongs to.
+    [Fact]
+    public async Task SelectServer_refuses_an_address_plex_tv_does_not_list_when_the_request_carries_no_token()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubIdentity(harness);
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", [ListedConnection]),
+            ]));
+
+        var act = async () => await harness.CreateService().SelectServerAsync("http://attacker.example:32400", null, CancellationToken.None);
+
+        var failure = await act.Should().ThrowAsync<Wondarr.Core.Notifications.SecretReentryException>();
+        failure.Which.Field.Should().Be("token");
+        failure.Which.Message.Should().Be("Enter the Plex token again: the address changed.").And.NotContain(UserToken);
+
+        await harness.Server.DidNotReceive().GetIdentityAsync(Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        (await harness.ReadSettingsAsync())!.ServerUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task SelectServer_sends_the_supplied_token_and_never_the_stored_one_to_an_address_plex_tv_does_not_list()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SignInAsync(harness);
+        StubIdentity(harness);
+        harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", [ListedConnection]),
+            ]));
+
+        await harness.CreateService().SelectServerAsync("https://proxy.example/plex", "PLEX-TOKEN-FOR-THE-PROXY", CancellationToken.None);
+
+        await harness.Server.Received().GetIdentityAsync(Arg.Any<Uri>(), "PLEX-TOKEN-FOR-THE-PROXY", Arg.Any<CancellationToken>());
+        await harness.Server.DidNotReceive().GetIdentityAsync(Arg.Any<Uri>(), UserToken, Arg.Any<CancellationToken>());
+
+        // An address plex.tv does not vouch for could answer as any server, so it is not given that server's own token.
+        (await harness.ReadSettingsAsync())!.ServerToken.Should().Be("PLEX-TOKEN-FOR-THE-PROXY");
+    }
+
+    [Fact]
+    public async Task SelectServer_keeps_using_the_stored_token_for_the_server_already_selected_under_another_path()
+    {
+        using var harness = new PlexConnectionHarness();
+        await SelectServerAsync(harness);
+
+        await harness.CreateService().SelectServerAsync("https://PLEX.example:32400/web", null, CancellationToken.None);
+
+        (await harness.ReadSettingsAsync())!.ServerUrl.Should().Be("https://plex.example:32400/web");
+    }
+
     [Fact]
     public async Task Generates_the_client_identifier_once_and_keeps_it_across_a_sign_out()
     {
@@ -150,7 +207,7 @@ public class PlexConnectionServiceTests
         await SignInAsync(harness);
         harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
-                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", []),
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", [ListedConnection]),
             ]));
 
         var servers = await harness.CreateService().GetServersAsync(CancellationToken.None);
@@ -169,11 +226,11 @@ public class PlexConnectionServiceTests
         harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
                 new PlexServer("Another Server", "1111111111111111111111111111111111111111", true, "OTHER-TOKEN", "1.0", []),
-                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", []),
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", [ListedConnection]),
             ]));
 
         var service = harness.CreateService();
-        var identity = await service.SelectServerAsync("https://plex.example:32400", CancellationToken.None);
+        var identity = await service.SelectServerAsync("https://plex.example:32400", null, CancellationToken.None);
 
         identity.MachineIdentifier.Should().Be(MachineIdentifier);
 
@@ -201,7 +258,7 @@ public class PlexConnectionServiceTests
             .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([]));
 
         var service = harness.CreateService();
-        await service.SelectServerAsync("https://plex.example:32400", CancellationToken.None);
+        await service.SelectServerAsync("https://plex.example:32400", UserToken, CancellationToken.None);
 
         var settings = (await harness.ReadSettingsAsync())!;
         settings.ServerToken.Should().Be(UserToken);
@@ -217,7 +274,7 @@ public class PlexConnectionServiceTests
         using var harness = new PlexConnectionHarness();
         await SignInAsync(harness);
 
-        var act = async () => await harness.CreateService().SelectServerAsync(url, CancellationToken.None);
+        var act = async () => await harness.CreateService().SelectServerAsync(url, null, CancellationToken.None);
 
         await act.Should().ThrowAsync<ArgumentException>();
     }
@@ -231,7 +288,7 @@ public class PlexConnectionServiceTests
         using var harness = new PlexConnectionHarness();
         await SignInAsync(harness);
 
-        var act = async () => await harness.CreateService().SelectServerAsync(url, CancellationToken.None);
+        var act = async () => await harness.CreateService().SelectServerAsync(url, null, CancellationToken.None);
 
         var exception = await act.Should().ThrowAsync<ArgumentException>();
 
@@ -255,7 +312,7 @@ public class PlexConnectionServiceTests
         harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([]));
 
-        await harness.CreateService().SelectServerAsync("https://plex.example/plex", CancellationToken.None);
+        await harness.CreateService().SelectServerAsync("https://plex.example/plex", UserToken, CancellationToken.None);
 
         (await harness.ReadSettingsAsync())!.ServerUrl.Should().Be("https://plex.example/plex");
     }
@@ -475,9 +532,9 @@ public class PlexConnectionServiceTests
 
         harness.Tv.GetServersAsync(UserToken, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<PlexServer>>([
-                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", []),
+                new PlexServer("Test Server 0", MachineIdentifier, true, ServerToken, "1.43.4", [ListedConnection]),
             ]));
 
-        await harness.CreateService().SelectServerAsync("https://plex.example:32400", CancellationToken.None);
+        await harness.CreateService().SelectServerAsync("https://plex.example:32400", null, CancellationToken.None);
     }
 }

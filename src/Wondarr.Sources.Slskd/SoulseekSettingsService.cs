@@ -1,5 +1,6 @@
 using System.Collections;
 using Wondarr.Core.Configuration;
+using Wondarr.Core.Notifications;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -178,6 +179,7 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
     private readonly IOptionsMonitor<SoulseekOptions> _options;
     private readonly IConfigFileWriter _writer;
     private readonly IValidateOptions<SoulseekOptions> _validator;
+    private readonly WondarrPaths _dataPaths;
     private readonly ILogger<SoulseekSettingsService> _logger;
 
     /// <summary>The <c>config.yml</c> keys the environment owns, normalised as the binder sees them.</summary>
@@ -187,24 +189,28 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
     /// <param name="options">The live Soulseek options, which already include the environment.</param>
     /// <param name="writer">Writes the changed keys back to <c>config.yml</c>.</param>
     /// <param name="validator">The options validator, so a change is judged by the same rules as start-up.</param>
+    /// <param name="dataPaths">Where Wondarr's data directory is, which no folder setting may name.</param>
     /// <param name="environment">The process environment, used to find the fields the environment owns.</param>
     /// <param name="logger">Receives a Debug line naming the keys that were written.</param>
     public SoulseekSettingsService(
         IOptionsMonitor<SoulseekOptions> options,
         IConfigFileWriter writer,
         IValidateOptions<SoulseekOptions> validator,
+        WondarrPaths dataPaths,
         IDictionary environment,
         ILogger<SoulseekSettingsService> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(validator);
+        ArgumentNullException.ThrowIfNull(dataPaths);
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options;
         _writer = writer;
         _validator = validator;
+        _dataPaths = dataPaths;
         _logger = logger;
         _locked = EnvironmentOverrides.SectionKeys(environment, Section);
     }
@@ -351,6 +357,21 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
         ApplySecret(update.ExternalApiKey, "external:api_key", current.External.ApiKey, changes, errors, value => candidate.External.ApiKey = value);
         ApplySecret(update.ExternalWebPassword, "external:web_password", current.External.WebPassword, changes, errors, value => candidate.External.WebPassword = value);
 
+        // A stored secret is sent only to the address it was saved for: pointing the page at another
+        // slskd while keeping the old key or password would hand them to it.
+        if (!SameTarget(current.External.Url, candidate.External.Url))
+        {
+            if (update.ExternalApiKey is null && !string.IsNullOrEmpty(current.External.ApiKey))
+            {
+                errors.Add("external:api_key: Enter the API key again: the address changed.");
+            }
+
+            if (update.ExternalWebPassword is null && !string.IsNullOrEmpty(current.External.WebPassword))
+            {
+                errors.Add("external:web_password: Enter the web password again: the address changed.");
+            }
+        }
+
         if (external)
         {
             RefuseSlskdOwned(update, current, errors);
@@ -367,7 +388,16 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
         ApplyNumber(update.UploadSpeedLimitKib, "upload_speed_limit_kib", current.UploadSpeedLimitKib, changes, errors, value => candidate.UploadSpeedLimitKib = value);
         ApplyFlag(update.DistributedNetwork, "distributed_network", current.DistributedNetwork, changes, errors, value => candidate.DistributedNetwork = value);
         ApplyText(update.Username, "username", current.Username, changes, errors, value => candidate.Username = value);
-        ApplyText(update.DownloadsDir, "downloads_dir", current.DownloadsDir, changes, errors, value => candidate.DownloadsDir = value);
+        ApplyText(update.DownloadsDir, "downloads_dir", current.DownloadsDir, changes, errors, value =>
+        {
+            // Only a value being set is refused: a config.yml that already holds one still loads.
+            if (ProtectedPaths.Failure("soulseek.downloads_dir", value, _dataPaths) is { } refused)
+            {
+                errors.Add(refused);
+            }
+
+            candidate.DownloadsDir = value;
+        });
         ApplyText(update.IncompleteDir, "incomplete_dir", current.IncompleteDir, changes, errors, value => candidate.IncompleteDir = value);
 
         if (update.SharedFolders is { } folders)
@@ -377,6 +407,15 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
             if (!replaced.SequenceEqual(current.SharedFolders, StringComparer.Ordinal)
                 && !Refuse("shared_folders", errors))
             {
+                // Sharing the data directory would publish the API key and the passwords.
+                foreach (var folder in replaced)
+                {
+                    if (ProtectedPaths.Failure("soulseek.shared_folders", folder, _dataPaths, sharing: true) is { } refused)
+                    {
+                        errors.Add(refused);
+                    }
+                }
+
                 candidate.SharedFolders = replaced;
                 changes["shared_folders"] = replaced;
             }
@@ -396,6 +435,15 @@ public sealed partial class SoulseekSettingsService : ISoulseekSettingsService
             }
         }
     }
+
+    /// <summary>
+    /// Whether two slskd addresses are the same server: scheme, host and port, a path aside. This is
+    /// the rule for reusing a stored secret (see <see cref="NotificationSecrets.TargetOf"/>).
+    /// </summary>
+    /// <param name="stored">The address the secrets were saved for.</param>
+    /// <param name="requested">The address the request names.</param>
+    public static bool SameTarget(string? stored, string? requested) =>
+        string.Equals(NotificationSecrets.UrlTarget(stored), NotificationSecrets.UrlTarget(requested), StringComparison.Ordinal);
 
     /// <summary>Records a numeric change, unless it is absent, unchanged or owned by the environment.</summary>
     private void ApplyNumber<T>(

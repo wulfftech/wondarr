@@ -111,7 +111,19 @@ public sealed class SoulseekController : ControllerBase
             return Ok(new SoulseekConnectionTestResultResource(false, null, false, "The URL must be an absolute http or https address"));
         }
 
-        var key = string.IsNullOrEmpty(resource.ApiKey) ? _options.CurrentValue.External.ApiKey : resource.ApiKey;
+        // The stored key goes only to the address it was saved for; any other address needs the key itself.
+        var stored = _options.CurrentValue.External;
+
+        if (string.IsNullOrEmpty(resource.ApiKey)
+            && !string.IsNullOrEmpty(stored.ApiKey)
+            && !SoulseekSettingsService.SameTarget(stored.Url, resource.Url))
+        {
+            ModelState.AddModelError("apiKey", "Enter the API key again: the address changed.");
+
+            return ValidationProblem(ModelState);
+        }
+
+        var key = string.IsNullOrEmpty(resource.ApiKey) ? stored.ApiKey : resource.ApiKey;
 
         if (string.IsNullOrEmpty(key))
         {

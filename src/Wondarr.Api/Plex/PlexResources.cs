@@ -142,7 +142,11 @@ public sealed record PlexTokenResource(string Token);
 
 /// <summary>The server the user picked from the list <c>GET api/v1/plex/servers</c> returned.</summary>
 /// <param name="ServerUrl">The connection URL to reach the server on.</param>
-public sealed record PlexServerResourceUpdate(string ServerUrl);
+/// <param name="Token">
+/// A token for the server. Needed only for an address that is neither the selected server nor one
+/// plex.tv lists for the account. Never echoed back.
+/// </param>
+public sealed record PlexServerResourceUpdate(string ServerUrl, string? Token = null);
 
 /// <summary>The body of <c>PUT /api/v1/plex/server/connect</c>: which of the account's servers to connect to.</summary>
 /// <param name="MachineIdentifier">The server's machine identifier, as <c>GET /api/v1/plex/servers</c> lists it.</param>
