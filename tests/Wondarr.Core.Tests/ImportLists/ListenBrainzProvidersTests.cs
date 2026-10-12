@@ -69,6 +69,20 @@ public sealed class ListenBrainzProvidersTests
         result.Entries[0].Artist.Should().Be("Seren Saraç");
     }
 
+    // R-021: a loved list longer than the page cap loses its tail; the read says so.
+    [Fact]
+    public async Task Loved_longer_than_the_page_cap_is_a_truncated_read()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ => Json("""{"count":0,"feedback":[],"offset":0,"total_count":999999}"""));
+        var provider = new ListenBrainzLovedProvider(new ListHttpClientFactory(handler, BaseAddress), (_, _) => Task.CompletedTask);
+
+        var result = await provider.FetchAsync(Loved(), CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        handler.Requests.Should().HaveCount(ListenBrainzLovedProvider.MaxPages);
+        result.Status.Should().Be(Wondarr.Core.ImportLists.ImportListReadStatus.Truncated);
+    }
+
     [Fact]
     public async Task Loved_fails_when_the_user_is_unknown()
     {

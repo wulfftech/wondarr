@@ -69,6 +69,25 @@ public sealed class LastFmProvidersTests
         handler.Requests[1].Query.Should().Contain("page=2");
     }
 
+    // R-021: a loved-tracks list longer than the page cap loses its tail; the read says so.
+    [Fact]
+    public async Task Loved_longer_than_the_page_cap_is_a_truncated_read_and_a_complete_one_is_not()
+    {
+        var handler = StubHttpMessageHandler.Scripted(_ => Json(LovedPage(Track("One", "Artist"), LastFmLovedProvider.MaxPages + 5)));
+        var provider = new LastFmLovedProvider(new ListHttpClientFactory(handler, BaseAddress), (_, _) => Task.CompletedTask);
+
+        var result = await provider.FetchAsync(List(LastFmLovedProvider.LastFmLovedType), CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        handler.Requests.Should().HaveCount(LastFmLovedProvider.MaxPages);
+        result.Status.Should().Be(Wondarr.Core.ImportLists.ImportListReadStatus.Truncated);
+
+        var whole = StubHttpMessageHandler.Scripted(_ => Json(LovedPage(Track("One", "Artist"), 1)));
+        var complete = await new LastFmLovedProvider(new ListHttpClientFactory(whole, BaseAddress), (_, _) => Task.CompletedTask)
+            .FetchAsync(List(LastFmLovedProvider.LastFmLovedType), CancellationToken.None);
+        complete.Status.Should().Be(Wondarr.Core.ImportLists.ImportListReadStatus.Complete);
+    }
+
     [Fact]
     public async Task Loved_fails_when_the_user_is_unknown()
     {
