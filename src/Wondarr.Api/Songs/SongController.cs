@@ -206,9 +206,18 @@ public sealed class SongController : ControllerBase
                         LibraryId = resource.LibraryId,
                         Monitored = resource.Monitored ?? true,
                         AddedBy = AddedBy,
+                        IsolateFailures = true,
                     },
                     cancellationToken)
                 .ConfigureAwait(false);
+
+            if (result.Outcome == SongAddOutcome.Failed)
+            {
+                return Problem(
+                    title: "The song could not be added",
+                    detail: result.Error,
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
 
             if (result.Outcome == SongAddOutcome.AlreadyExists)
             {
