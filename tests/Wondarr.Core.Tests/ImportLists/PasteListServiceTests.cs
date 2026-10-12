@@ -187,6 +187,7 @@ public class PasteListServiceTests : IDisposable
         options!.AddedBy.Should().Be($"list:{list.Id}");
         options.QualityProfileId.Should().Be(SeedData.StandardProfileId);
         options.LibraryId.Should().Be(SeedData.DefaultLibraryId);
+        options.IsolateFailures.Should().BeTrue("one identity the database refuses must not sink the list");
 
         progress.Should().Equal(
             "Resolved 1 of 5 lines",
@@ -288,6 +289,71 @@ public class PasteListServiceTests : IDisposable
 
     /// <summary>The second line the fake resolver knows nothing about.</summary>
     private static string Mystery2Line() => "Another - Mystery";
+
+    [Fact]
+    public async Task ProcessAsync_marks_a_line_whose_identity_failed_unresolved_with_the_error_and_adds_the_rest()
+    {
+        await using var context = await ContextAsync();
+        StubResolver();
+
+        var nobody = await SeedSongAsync(context, "Nothing", "44444444-4444-4444-4444-444444444444");
+
+        _songs
+            .AddIdentitiesAsync(Arg.Any<IReadOnlyList<SongIdentity>>(), Arg.Any<SongAddOptions>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                var batch = call.Arg<IReadOnlyList<SongIdentity>>();
+
+                // The first identity collides on a unique index; a failed result carries an unsaved placeholder.
+                return Task.FromResult<IReadOnlyList<SongAddResult>>(
+                [
+                    new SongAddResult(batch[0], SongAddOutcome.Failed, new Song { Title = "placeholder" }, "UNIQUE constraint failed: song.mb_recording_id"),
+                    new SongAddResult(batch[1], SongAddOutcome.Added, nobody),
+                ]);
+            });
+
+        var service = NewService(context);
+        var list = await service.CreateAsync($"{ResolvableLine}\n{DeezerLine}", null, null, CancellationToken.None);
+
+        var summary = await service.ProcessAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        summary.Should().Be("2 lines: 1 added, 0 already in the library, 1 unresolved, 0 skipped");
+
+        context.ChangeTracker.Clear();
+        var items = await context.ImportListItems.OrderBy(item => item.Id).ToListAsync();
+
+        items[0].State.Should().Be(ImportListItemState.Unresolved);
+        items[0].SongId.Should().BeNull();
+        items[0].Reason.Should().Be("UNIQUE constraint failed: song.mb_recording_id");
+        items[1].State.Should().Be(ImportListItemState.Added);
+        items[1].SongId.Should().Be(nobody.Id);
+    }
+
+    [Fact]
+    public async Task ResolveItemAsync_leaves_the_item_unresolved_with_the_error_when_the_add_fails()
+    {
+        await using var context = await ContextAsync();
+        StubResolver();
+
+        var service = NewService(context);
+        var list = await service.CreateAsync(UnresolvedLine, null, null, CancellationToken.None);
+        await service.ProcessAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+        var item = await context.ImportListItems.SingleAsync();
+
+        _songs
+            .AddAsync("22222222-2222-2222-2222-222222222222", null, Arg.Any<SongAddOptions>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult(new SongAddResult(
+                Identity("22222222-2222-2222-2222-222222222222", "X"),
+                SongAddOutcome.Failed,
+                new Song { Title = "placeholder" },
+                "refused")));
+
+        var resolved = await service.ResolveItemAsync(item.Id, "22222222-2222-2222-2222-222222222222", null, CancellationToken.None);
+
+        resolved!.State.Should().Be(ImportListItemState.Unresolved);
+        resolved.SongId.Should().BeNull();
+        resolved.Reason.Should().Be("refused");
+    }
 
     /// <summary>Answers every line the way the acceptance criteria name.</summary>
     private void StubResolver()
