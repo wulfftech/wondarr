@@ -148,6 +148,23 @@ public sealed class SongSearchServiceTests
         (await host.Context.QueueItems.CountAsync(Token)).Should().Be(0);
     }
 
+    [Fact]
+    public async Task A_song_whose_missing_reference_file_is_inside_the_grace_period_is_not_searched_for()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+
+        // An unmounted share: the row is Missing, but the song still holds its reference file.
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Missing, withSongFile: true);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        result.Outcome.Should().Be(SearchOutcome.Cancelled);
+        result.Message.Should().Contain("reference library");
+        host.Provider.Grabs.Should().BeEmpty();
+    }
 
     [Fact]
     public async Task A_successful_grab_announces_itself_once()

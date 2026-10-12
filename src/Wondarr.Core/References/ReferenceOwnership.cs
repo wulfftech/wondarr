@@ -185,6 +185,75 @@ internal static class ReferenceOwnership
     }
 
     /// <summary>
+    /// Points a song's reference <c>song_file</c> at another reference row of the same song, instead of
+    /// letting the song go. Used when the file it holds is leaving (missing past its grace, or its
+    /// library deleted) while a second copy of the recording is still there.
+    /// </summary>
+    /// <param name="database">The Wondarr database.</param>
+    /// <param name="songId">The song.</param>
+    /// <param name="fromPath">The absolute path the song's reference file holds now.</param>
+    /// <param name="target">The Identified row to follow; its message is cleared.</param>
+    /// <param name="targetRootPath">The root of the target row's library.</param>
+    /// <param name="now">The instant the file is recorded as imported.</param>
+    /// <returns><see langword="true"/> when the file now points at the target.</returns>
+    public static async Task<bool> RepointAsync(
+        WondarrDbContext database,
+        long songId,
+        string fromPath,
+        ReferenceFile target,
+        string targetRootPath,
+        DateTime now)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(target);
+
+        var held = await HeldFileAsync(database, songId).ConfigureAwait(false);
+
+        if (held is null
+            || !string.Equals(held.SourceType, SourceTypes.Reference, StringComparison.Ordinal)
+            || !string.Equals(held.Path, fromPath, StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(target.Probe))
+        {
+            return false;
+        }
+
+        MediaInfo? probe;
+
+        try
+        {
+            probe = JsonSerializer.Deserialize<MediaInfo>(target.Probe, ReadJson);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        if (probe is null)
+        {
+            return false;
+        }
+
+        Apply(
+            held,
+            AbsolutePath(targetRootPath, target.RelativePath),
+            target,
+            probe,
+            target.AcoustId,
+            target.IdentifiedBy ?? string.Empty,
+            now);
+
+        target.Message = null;
+
+        return true;
+    }
+
+    private static readonly JsonSerializerOptions ReadJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    /// <summary>
     /// The reference row behind a song's reference file, when that row is <c>Missing</c> and is not the
     /// row being linked now.
     /// </summary>

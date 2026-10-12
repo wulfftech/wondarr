@@ -300,12 +300,15 @@ public class SongServiceTests : IDisposable
         await using var context = await ContextAsync();
         StubCoverArt();
 
-        // The second identity has the first one's Deezer id but no MusicBrainz id, so neither the stored
-        // songs nor the batch's own keys see the clash: only the unique index does.
+        // The database refuses the second song, whatever the service believes about the keys.
+        await context.Database.ExecuteSqlRawAsync(
+            "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
+            + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
+
         var batch = new[]
         {
             DeezerIdentity(42, "Get Lucky", "m-a"),
-            DeezerIdentity(42, "Get Lucky (again)"),
+            DeezerIdentity(44, "Poison", "m-b"),
             DeezerIdentity(43, "Instant Crush", "m-c"),
         };
 
@@ -328,6 +331,49 @@ public class SongServiceTests : IDisposable
         songs.Select(song => song.DeezerId).Should().Equal(42L, 43L);
         songs.Should().OnlyContain(song => song.AlbumContext != null);
         (await context.Artists.CountAsync()).Should().Be(1, "the failed song's artist was the shared one, saved with the first song");
+    }
+
+    [Fact]
+    public async Task Two_identities_of_one_batch_that_share_a_deezer_id_are_one_song()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var results = await NewService(context).AddIdentitiesAsync(
+            [DeezerIdentity(42, "Get Lucky", "m-a"), DeezerIdentity(42, "Get Lucky", "m-b"), DeezerIdentity(42, "Get Lucky")],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        results.Select(result => result.Outcome)
+            .Should().Equal(SongAddOutcome.Added, SongAddOutcome.AlreadyExists, SongAddOutcome.AlreadyExists);
+        results[1].Song.Should().BeSameAs(results[0].Song);
+        (await context.Songs.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_failure_after_the_fallback_began_rolls_back_the_transaction_the_add_opened()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        await context.Database.ExecuteSqlRawAsync(
+            "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
+            + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
+
+        // The failure is made by cancelling
+        // the token as the first save fails, so the fallback throws something that is not a DbUpdateException.
+        using var cancellation = new CancellationTokenSource();
+        var batch = new[] { DeezerIdentity(44, "Poison", "m-b"), DeezerIdentity(43, "Instant Crush", "m-c") };
+
+        context.SaveChangesFailed += (_, _) => cancellation.Cancel();
+
+        var act = async () => await NewService(context).AddIdentitiesAsync(
+            batch,
+            new SongAddOptions { IsolateFailures = true, KeepTransactionOpen = true, SearchOnAdd = false },
+            cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        context.Database.CurrentTransaction.Should().BeNull();
     }
 
     [Fact]

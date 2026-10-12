@@ -78,7 +78,7 @@ public static class ContainerBundler
         var songIds = songs.Select(song => song.Id).ToList();
         var referenceOwned = await database.ReferenceFiles
             .AsNoTracking()
-            .Where(file => file.State == ReferenceFileState.Identified
+            .Where(file => (file.State == ReferenceFileState.Identified || file.State == ReferenceFileState.Missing)
                 && file.SongId != null
                 && songIds.Contains(file.SongId.Value))
             .Select(file => file.SongId!.Value)
