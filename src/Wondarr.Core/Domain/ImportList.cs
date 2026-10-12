@@ -42,6 +42,20 @@ public sealed class ImportList : EntityBase
     /// <summary>Gets or sets the one-line result of the last sync, or why it failed.</summary>
     public string? LastSyncMessage { get; set; }
 
+    /// <summary>
+    /// Gets or sets how many items the last <em>complete</em> read of the source returned, or <c>0</c>
+    /// before one. A later read far below it is suspect and drives no removal (R-007).
+    /// </summary>
+    public int LastCompleteReadCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets why the last read was not trusted (failed, cut at a provider cap, empty or far
+    /// shorter than the last complete one), for example <c>Read returned 0 of 300 items; removals
+    /// skipped</c>, or <see langword="null"/> when it was. A suspect read adds new items but removes
+    /// nothing. Cleared by the next complete read; Health warns while it is set.
+    /// </summary>
+    public string? SuspectReadMessage { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the scheduled sync reads this list.</summary>
     public bool Enabled { get; set; } = true;
 
@@ -108,6 +122,13 @@ public sealed class ImportListItem : EntityBase
     /// <see langword="null"/> while it is still there.
     /// </summary>
     public DateTime? RemovedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the list's policy unmonitored this item's song when the
+    /// item left the source (<c>AddAndUnmonitor</c>, or <c>Mirror</c> for a song with a file). It lets a
+    /// returning item monitor the song again without touching a song the <em>user</em> unmonitored.
+    /// </summary>
+    public bool PolicyUnmonitored { get; set; }
 
     /// <summary>
     /// Gets or sets the Plex rating key of the track the item's file is, as last found, or

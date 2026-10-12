@@ -2,10 +2,14 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Importing;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 
 namespace Wondarr.Core.ImportLists;
@@ -126,6 +130,14 @@ public interface IImportListService
     /// <summary>The ids of the enabled synced lists whose interval has passed, oldest sync first.</summary>
     /// <param name="cancellationToken">Cancels the query.</param>
     Task<IReadOnlyList<long>> GetDueAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Queues one <c>MissingSearch</c> when songs a synced list added are waiting to be searched for
+    /// the first time and no reference library is still identifying its files (owner question 15).
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether a search was queued.</returns>
+    Task<bool> QueueSearchForWaitingSongsAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>A sync whose source could not be read; the list records the reason.</summary>
@@ -145,6 +157,15 @@ public sealed partial class ImportListService : IImportListService
     /// <summary>The most items one synced list holds; a longer source is cut, and the sync says so.</summary>
     public const int MaxItems = 10_000;
 
+    /// <summary>
+    /// The size from which a read far below the last complete one is suspect (R-007): a list of fewer
+    /// items than this can legitimately lose half of them, and only an empty read of one is doubted.
+    /// </summary>
+    public const int SuspectMinimumItems = 20;
+
+    /// <summary>How long Mirror waits for a song's file lock before it leaves the song alone.</summary>
+    private static readonly TimeSpan FileLockWait = TimeSpan.FromMilliseconds(250);
+
     /// <summary>The longest uploaded file, in characters (about 5 MB of CSV).</summary>
     public const int MaxSourceTextLength = 5 * 1024 * 1024;
 
@@ -160,6 +181,8 @@ public sealed partial class ImportListService : IImportListService
     private readonly WondarrDbContext _database;
     private readonly IPasteListService _items;
     private readonly ISongService _songs;
+    private readonly ISongFileLock _fileLock;
+    private readonly ICommandQueue _commands;
     private readonly IPlaylistWriter _playlists;
     private readonly IReadOnlyList<IImportListProvider> _providers;
     private readonly TimeProvider _timeProvider;
@@ -169,6 +192,8 @@ public sealed partial class ImportListService : IImportListService
     /// <param name="database">The Wondarr database.</param>
     /// <param name="items">The item pipeline the bulk add uses: resolve, then one batch add.</param>
     /// <param name="songs">The song service, for the policies' unmonitor and delete.</param>
+    /// <param name="fileLock">The per-song file lock, held while Mirror deletes a song so no import places its file meanwhile.</param>
+    /// <param name="commands">The command queue, for the search that follows the first reference scan.</param>
     /// <param name="playlists">Writes the list's playlists after a sync.</param>
     /// <param name="providers">Every registered provider.</param>
     /// <param name="timeProvider">The clock.</param>
@@ -177,6 +202,8 @@ public sealed partial class ImportListService : IImportListService
         WondarrDbContext database,
         IPasteListService items,
         ISongService songs,
+        ISongFileLock fileLock,
+        ICommandQueue commands,
         IPlaylistWriter playlists,
         IEnumerable<IImportListProvider> providers,
         TimeProvider timeProvider,
@@ -185,6 +212,8 @@ public sealed partial class ImportListService : IImportListService
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(songs);
+        ArgumentNullException.ThrowIfNull(fileLock);
+        ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(playlists);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -193,6 +222,8 @@ public sealed partial class ImportListService : IImportListService
         _database = database;
         _items = items;
         _songs = songs;
+        _fileLock = fileLock;
+        _commands = commands;
         _playlists = playlists;
         _providers = [.. providers];
         _timeProvider = timeProvider;
@@ -364,26 +395,82 @@ public sealed partial class ImportListService : IImportListService
             return await FailAsync(list, fetched.Error!, now, cancellationToken).ConfigureAwait(false);
         }
 
-        var diff = await ApplyFetchAsync(list, fetched.Entries, now, cancellationToken).ConfigureAwait(false);
+        var diff = await ApplyFetchAsync(list, fetched, now, cancellationToken).ConfigureAwait(false);
 
         // The same pipeline a pasted list runs: pending items are resolved one by one, then added in
         // one batch so the album policy sees an artist's songs together and one search is queued.
         var processed = await _items.ProcessAsync(list.Id, reportProgress, cancellationToken).ConfigureAwait(false);
 
+        // A suspect read has no gone items, so the policy finds nothing to act on.
         var policy = await ApplyPolicyAsync(list, diff.GoneItemIds, cancellationToken).ConfigureAwait(false);
         var playlists = await _playlists.WriteAsync(list.Id, cancellationToken).ConfigureAwait(false);
 
+        var returned = diff.Returned == 0
+            ? string.Empty
+            : string.Create(CultureInfo.InvariantCulture, $", {diff.Returned} back");
         var message = string.Create(
             CultureInfo.InvariantCulture,
-            $"Read {diff.Read} items ({diff.New} new, {diff.Gone} no longer in the list{(diff.Cut ? $", cut at {MaxItems}" : string.Empty)}); {processed}{policy}{(playlists is null ? string.Empty : "; " + playlists)}");
+            $"Read {diff.Read} items ({diff.New} new{returned}, {diff.Gone} no longer in the list{(diff.Cut ? $", cut at {MaxItems}" : string.Empty)}); {processed}{policy}{(playlists is null ? string.Empty : "; " + playlists)}");
 
         list.LastSyncedAt = now;
-        list.LastSyncMessage = message;
+        var full = diff.Suspect is null ? message : diff.Suspect + ". " + message;
+        list.LastSyncMessage = full;
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        if (diff.Suspect is not null)
+        {
+            LogSuspectRead(_logger, list.Id, diff.Suspect);
+        }
 
         LogSynced(_logger, list.Id, diff.Read, diff.New, diff.Gone);
 
-        return message;
+        return full;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> QueueSearchForWaitingSongsAsync(CancellationToken cancellationToken)
+    {
+        // Still waiting on a scan: the songs keep waiting.
+        if ((await ReferenceScanWait.PendingLibrariesAsync(_database, cancellationToken).ConfigureAwait(false)).Count > 0)
+        {
+            return false;
+        }
+
+        // A song a synced list added that has never been searched for: monitored, without a file, with
+        // no search run. Songs a pasted list or the UI added were searched when they were added.
+        var syncedListTags = await _database.ImportLists
+            .AsNoTracking()
+            .Where(list => list.Type != ImportList.PasteType)
+            .Select(list => list.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (syncedListTags.Count == 0)
+        {
+            return false;
+        }
+
+        var tags = syncedListTags.Select(id => string.Create(CultureInfo.InvariantCulture, $"list:{id}")).ToList();
+        var waiting = await _database.Songs
+            .AsNoTracking()
+            .AnyAsync(
+                song => tags.Contains(song.AddedBy)
+                    && song.Monitored
+                    && song.File == null
+                    && !_database.SearchRuns.Any(run => run.SongId == song.Id),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!waiting)
+        {
+            return false;
+        }
+
+        await _commands
+            .EnqueueAsync(MissingSearchCommandHandler.CommandName, null, CommandTrigger.Unspecified, cancellationToken)
+            .ConfigureAwait(false);
+
+        return true;
     }
 
     /// <inheritdoc />
@@ -621,28 +708,44 @@ public sealed partial class ImportListService : IImportListService
     /// had gone), items no longer there marked removed. Nothing is resolved or deleted here; what
     /// a removal means for a song is the list's policy's business (DECISIONS build session 7 #9).
     /// </summary>
+    /// <remarks>
+    /// A read that cannot be trusted to be the whole list (R-007, R-021) adds what it found but marks
+    /// nothing removed: it was cut at a provider's cap, or — for a list whose policy removes things — it
+    /// returned no rows for a list that held items, or fewer than half the items of the last complete
+    /// read of a list of at least <see cref="SuspectMinimumItems"/>. The reason comes back in the diff.
+    /// </remarks>
     private async Task<FetchDiff> ApplyFetchAsync(
         ImportList list,
-        IReadOnlyList<ImportListEntry> entries,
+        ImportListFetchResult fetched,
         DateTime now,
         CancellationToken cancellationToken)
     {
+        var entries = fetched.Entries;
         var items = await _database.ImportListItems
             .Where(item => item.ImportListId == list.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // A list written before external ids were unique keeps its first row per id.
+        // The unique (list, external id) index keeps this to one row per id; the first-row rule is
+        // for a database whose duplicates were not cleaned yet.
         var byExternalId = new Dictionary<string, ImportListItem>(StringComparer.Ordinal);
         foreach (var item in items.OrderBy(item => item.Id))
         {
             byExternalId.TryAdd(item.ExternalId, item);
         }
 
+        // What the list held before this read: the last complete read's size, or — for a list that
+        // has not had one recorded — the items it still has.
+        var heldBefore = list.LastCompleteReadCount > 0
+            ? list.LastCompleteReadCount
+            : byExternalId.Values.Count(item => item.RemovedAt is null);
+
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var position = 0;
         var added = 0;
+        var returned = 0;
         var cut = false;
+        var remonitor = new List<ImportListItem>();
 
         foreach (var entry in entries)
         {
@@ -660,13 +763,40 @@ public sealed partial class ImportListService : IImportListService
             if (byExternalId.TryGetValue(entry.ExternalId, out var known))
             {
                 known.Position = position;
+
+                if (known.RemovedAt is not null)
+                {
+                    // A returning item (R-019, owner question 13: re-add and re-monitor).
+                    returned++;
+
+                    if (known.State == ImportListItemState.Added && known.SongId is null)
+                    {
+                        // Its song was deleted (Mirror, or the user): look it up and add it again.
+                        known.State = ImportListItemState.Pending;
+                        known.Reason = null;
+                    }
+                    else if (known.PolicyUnmonitored && known.SongId is not null)
+                    {
+                        remonitor.Add(known);
+                    }
+                }
+
                 known.RemovedAt = null;
 
                 // An item not added yet is looked up again from what the source says now (a
                 // retitled track, an ISRC filled in later); an added one keeps the text it was added by.
                 if (known.State != ImportListItemState.Added)
                 {
-                    known.Raw = ImportListItemJson.Write(entry);
+                    var raw = ImportListItemJson.Write(entry);
+
+                    if (known.State == ImportListItemState.Unresolved && !string.Equals(raw, known.Raw, StringComparison.Ordinal))
+                    {
+                        // R-074: text the review screen has not seen is worth another lookup.
+                        known.State = ImportListItemState.Pending;
+                        known.Reason = null;
+                    }
+
+                    known.Raw = raw;
                 }
             }
             else
@@ -684,19 +814,83 @@ public sealed partial class ImportListService : IImportListService
             position++;
         }
 
+        var truncated = fetched.Truncated || cut;
+        var suspect = SuspectReason(list.Policy, position, truncated, heldBefore);
+
+        // A read cut at a cap never marks removals, whatever the policy: the tail it did not reach is
+        // not gone. A suspect read marks none either.
         var gone = new List<long>();
-        foreach (var item in byExternalId.Values)
+        if (!truncated && suspect is null)
         {
-            if (!seen.Contains(item.ExternalId) && item.RemovedAt is null)
+            foreach (var item in byExternalId.Values)
             {
-                item.RemovedAt = now;
-                gone.Add(item.Id);
+                if (!seen.Contains(item.ExternalId) && item.RemovedAt is null)
+                {
+                    item.RemovedAt = now;
+                    gone.Add(item.Id);
+                }
             }
+        }
+
+        if (remonitor.Count > 0)
+        {
+            var songIds = remonitor.Select(item => item.SongId!.Value).Distinct().ToList();
+            var songs = await _database.Songs
+                .Where(song => songIds.Contains(song.Id))
+                .ToDictionaryAsync(song => song.Id, cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var item in remonitor)
+            {
+                if (songs.TryGetValue(item.SongId!.Value, out var song))
+                {
+                    song.Monitored = true;
+                }
+
+                item.PolicyUnmonitored = false;
+            }
+        }
+
+        list.SuspectReadMessage = suspect;
+
+        if (!truncated && suspect is null)
+        {
+            list.LastCompleteReadCount = position;
         }
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return new FetchDiff(position, added, gone.Count, cut, gone);
+        return new FetchDiff(position, added, gone.Count, cut, gone, suspect, returned);
+    }
+
+    /// <summary>
+    /// Why a successful read is not to be trusted with removals, or <see langword="null"/> when it is.
+    /// Only a list whose policy removes things (<c>AddAndUnmonitor</c>, <c>Mirror</c>) is held to this:
+    /// an add-only list has nothing to lose. A read cut at a cap is not judged here (it removes nothing
+    /// whatever the policy), but it is worth saying so on a list that would have removed.
+    /// </summary>
+    private static string? SuspectReason(string policy, int read, bool truncated, int heldBefore)
+    {
+        if (policy == ImportList.AddOnlyPolicy)
+        {
+            return null;
+        }
+
+        if (truncated)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"Read stopped at the source's cap after {read} items; removals skipped");
+        }
+
+        if ((read == 0 && heldBefore > 0) || (heldBefore >= SuspectMinimumItems && read * 2 < heldBefore))
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"Read returned {read} of {heldBefore} items; removals skipped");
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -704,7 +898,8 @@ public sealed partial class ImportListService : IImportListService
     /// build session 7 #9). Only a song this list added (<c>added_by = list:{id}</c>) that no other item
     /// still in any list wants is touched: "add and unmonitor" unmonitors it; "mirror" deletes it when
     /// it has no file and nothing for it is in the queue, and unmonitors it otherwise. A file is never
-    /// deleted by a list.
+    /// deleted by a list. A song the policy unmonitored is remembered on its item
+    /// (<see cref="ImportListItem.PolicyUnmonitored"/>), so it is monitored again when the item returns.
     /// </summary>
     private async Task<string> ApplyPolicyAsync(ImportList list, IReadOnlyList<long> goneItemIds, CancellationToken cancellationToken)
     {
@@ -714,13 +909,11 @@ public sealed partial class ImportListService : IImportListService
         }
 
         var addedBy = string.Create(CultureInfo.InvariantCulture, $"list:{list.Id}");
-        var songIds = await _database.ImportListItems
-            .AsNoTracking()
+        var goneItems = await _database.ImportListItems
             .Where(item => goneItemIds.Contains(item.Id) && item.SongId != null)
-            .Select(item => item.SongId!.Value)
-            .Distinct()
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var songIds = goneItems.Select(item => item.SongId!.Value).Distinct().ToList();
 
         var unmonitored = 0;
         var deleted = 0;
@@ -741,17 +934,6 @@ public sealed partial class ImportListService : IImportListService
                 .ConfigureAwait(false))
             .ToHashSet();
 
-        var queued = (await _database.QueueItems
-                .AsNoTracking()
-                .Where(item => songIds.Contains(item.SongId)
-                    && item.State != QueueItemState.Imported
-                    && item.State != QueueItemState.Failed
-                    && item.State != QueueItemState.Cancelled)
-                .Select(item => item.SongId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false))
-            .ToHashSet();
-
         foreach (var song in songs)
         {
             var songId = song.Id;
@@ -761,16 +943,20 @@ public sealed partial class ImportListService : IImportListService
                 continue;
             }
 
-            var inQueue = queued.Contains(songId);
-
-            if (list.Policy == MirrorPolicy && song.File is null && !inQueue)
+            if (list.Policy == MirrorPolicy && song.File is null
+                && await TryDeleteIdleSongAsync(songId, cancellationToken).ConfigureAwait(false))
             {
-                await _songs.DeleteAsync(songId, cancellationToken).ConfigureAwait(false);
                 deleted++;
             }
             else if (song.Monitored)
             {
                 song.Monitored = false;
+
+                foreach (var item in goneItems.Where(item => item.SongId == songId))
+                {
+                    item.PolicyUnmonitored = true;
+                }
+
                 await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 unmonitored++;
             }
@@ -781,12 +967,84 @@ public sealed partial class ImportListService : IImportListService
             : string.Create(CultureInfo.InvariantCulture, $"; {unmonitored} unmonitored, {deleted} deleted (no file)");
     }
 
+    /// <summary>
+    /// Deletes a song Mirror dropped, but only if nothing is working on it right now. The decision to
+    /// delete was made on a snapshot taken before the removals were applied, and a grab or import can
+    /// finish in between; the song's queue items go with it, so deleting under them would orphan the
+    /// transfer. So the song's file lock is taken (the one an import and a compaction hold), the song
+    /// is read again, and it is left alone — and logged — if it now has a file, a queue item that is
+    /// not finished, or a compaction move in flight.
+    /// </summary>
+    /// <returns><see langword="true"/> when the song was deleted; <see langword="false"/> when it is busy or gone.</returns>
+    private async Task<bool> TryDeleteIdleSongAsync(long songId, CancellationToken cancellationToken)
+    {
+        IAsyncDisposable handle;
+
+        using (var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            wait.CancelAfter(FileLockWait);
+
+            try
+            {
+                handle = await _fileLock.AcquireAsync(songId, wait.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                LogDeleteSkipped(_logger, songId, "its file lock is in use");
+
+                return false;
+            }
+        }
+
+        await using (handle.ConfigureAwait(false))
+        {
+            // Read again, now that nothing can place a file for the song.
+            var hasFile = await _database.SongFiles
+                .AsNoTracking()
+                .AnyAsync(file => file.SongId == songId, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (hasFile)
+            {
+                LogDeleteSkipped(_logger, songId, "it has a file now");
+
+                return false;
+            }
+
+            var inFlight = await _database.QueueItems
+                .AsNoTracking()
+                .AnyAsync(
+                    item => item.SongId == songId
+                        && item.State != QueueItemState.Imported
+                        && item.State != QueueItemState.Failed
+                        && item.State != QueueItemState.Cancelled,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var moving = await _database.CompactMoves
+                .AsNoTracking()
+                .Where(CompactMoveRules.IsUnfinished)
+                .AnyAsync(row => row.SongId == songId, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (inFlight || moving)
+            {
+                LogDeleteSkipped(_logger, songId, inFlight ? "a grab for it is in flight" : "a compaction has its file");
+
+                return false;
+            }
+
+            return await _songs.DeleteAsync(songId, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async Task<string> FailAsync(ImportList list, string reason, DateTime now, CancellationToken cancellationToken)
     {
         // The attempt counts as a sync for the schedule: a source that is down is not hammered every
         // hour, and the message says why the list did not change.
         list.LastSyncedAt = now;
         list.LastSyncMessage = "Failed: " + reason;
+        list.SuspectReadMessage = "Last read failed: " + reason;
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         LogSyncFailed(_logger, list.Id, reason);
@@ -816,10 +1074,23 @@ public sealed partial class ImportListService : IImportListService
     [LoggerMessage(Level = LogLevel.Information, Message = "Playlists of import list {ImportListId}: {Result}")]
     private static partial void LogPlaylistsWritten(ILogger logger, long importListId, string result);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Import list {ImportListId}: {Reason}")]
+    private static partial void LogSuspectRead(ILogger logger, long importListId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Mirror left song {SongId} alone: {Why}")]
+    private static partial void LogDeleteSkipped(ILogger logger, long songId, string why);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Syncing import list {ImportListId} failed: {Reason}")]
     private static partial void LogSyncFailed(ILogger logger, long importListId, string reason);
 
     private sealed record Counts(int Pending = 0, int Added = 0, int Unresolved = 0, int Skipped = 0, int Removed = 0);
 
-    private sealed record FetchDiff(int Read, int New, int Gone, bool Cut, IReadOnlyList<long> GoneItemIds);
+    private sealed record FetchDiff(
+        int Read,
+        int New,
+        int Gone,
+        bool Cut,
+        IReadOnlyList<long> GoneItemIds,
+        string? Suspect,
+        int Returned);
 }
