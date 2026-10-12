@@ -765,6 +765,21 @@ public sealed partial class SongSearchService : ISongSearchService
 
         try
         {
+            // A song that waited for a slot may have become the user's meanwhile (a reference scan linked
+            // it): it is checked again here, right before anything is grabbed.
+            var runSongId = await _database.SearchRuns
+                .AsNoTracking()
+                .Where(run => run.Id == searchRunId)
+                .Select(run => (long?)run.SongId)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (runSongId is { } owner
+                && await IsOwnedThroughReferenceAsync(owner, cancellationToken).ConfigureAwait(false))
+            {
+                return (false, null);
+            }
+
             if (await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
             {
                 var item = await GrabBestAsync(searchRunId, 1, cancellationToken).ConfigureAwait(false);
@@ -809,6 +824,13 @@ public sealed partial class SongSearchService : ISongSearchService
             .ConfigureAwait(false);
 
         if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        // The run may be old: a reference scan can have linked the song since it was searched. The
+        // user's own file is never replaced, so nothing is grabbed for it.
+        if (await IsOwnedThroughReferenceAsync(candidates[0].SongId, cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
@@ -1223,7 +1245,13 @@ public sealed partial class SongSearchService : ISongSearchService
             .AsNoTracking()
             .AnyAsync(
                 file => file.SongId == songId
-                    && file.State == ReferenceFileState.Identified
+                    && (file.State == ReferenceFileState.Identified
+
+                        // A file that is missing right now still owns the song through the grace period
+                        // (the song keeps its reference file), so an unmounted share never causes a grab.
+                        || (file.State == ReferenceFileState.Missing
+                            && _database.SongFiles.Any(held =>
+                                held.SongId == songId && held.SourceType == SourceTypes.Reference)))
 
                     // A managed file the song got later (a hand-made grab, a download that came first) is
                     // Wondarr's to upgrade, whatever the reference row still says.

@@ -219,20 +219,56 @@ public sealed partial class SongService : ISongService
                 continue;
             }
 
-            if (stored.TryGetValue(key, out var song))
+            // Either key finds the stored song: a Deezer-only song and an identity that carries both the
+            // MusicBrainz id and the Deezer id are the same song (the unique index on each would refuse
+            // the second one otherwise).
+            var storedSong = StoredKeys(identities[index])
+                .Select(storedKey => stored.GetValueOrDefault(storedKey))
+                .FirstOrDefault(song => song is not null);
+
+            if (storedSong is not null)
             {
-                results[index] = new SongAddResult(identities[index], SongAddOutcome.AlreadyExists, song);
+                results[index] = new SongAddResult(identities[index], SongAddOutcome.AlreadyExists, storedSong);
                 continue;
             }
 
-            if (firstByKey.TryGetValue(key, out var first))
+            // The batch is matched on either key too: two identities that share a Deezer id (or an MBID)
+            // are one song, and the second takes the first's result.
+            var keys = StoredKeys(identities[index]).ToList();
+            var earlier = keys.Where(firstByKey.ContainsKey).Select(k => (int?)firstByKey[k]).FirstOrDefault();
+
+            if (earlier is { } first)
             {
                 duplicateOf[index] = first;
                 continue;
             }
 
-            firstByKey.Add(key, index);
+            foreach (var batchKey in keys)
+            {
+                firstByKey[batchKey] = index;
+            }
+
             pending.Add(index);
+        }
+
+        if (options.IsolateFailures)
+        {
+            // Checked here, not by CreateAsync, so one identity without an artist is reported and the
+            // rest of the batch still goes through.
+            foreach (var index in pending.Where(index => identities[index].Artists.Count == 0).ToList())
+            {
+                results[index] = FailedResult(identities[index], NoArtistMessage);
+                pending.Remove(index);
+            }
+
+            foreach (var (duplicate, first) in duplicateOf.ToList())
+            {
+                if (results[first] is { Outcome: SongAddOutcome.Failed } failedFirst)
+                {
+                    results[duplicate] = FailedResult(identities[duplicate], failedFirst.Error ?? string.Empty);
+                    duplicateOf.Remove(duplicate);
+                }
+            }
         }
 
         if (pending.Count > 0)
@@ -252,6 +288,11 @@ public sealed partial class SongService : ISongService
         foreach (var result in results)
         {
             added += result is { Outcome: SongAddOutcome.Added } ? 1 : 0;
+
+            if (result is { Outcome: SongAddOutcome.Failed })
+            {
+                LogIdentityFailed(_logger, result.Identity.Title, result.Error ?? string.Empty);
+            }
         }
 
         LogBatch(_logger, added, identities.Count - added);
@@ -813,6 +854,7 @@ public sealed partial class SongService : ISongService
     {
         var libraryAlbums = await LoadLibraryAlbumsAsync(library.Id, cancellationToken).ConfigureAwait(false);
         var knownArtists = await LoadArtistsAsync(identities, pending, cancellationToken).ConfigureAwait(false);
+        var storedArtists = knownArtists.ToList();
         var artistKeys = new Dictionary<Artist, string>();
         var creditsByIndex = new Dictionary<int, List<(Artist Artist, IdentityArtist Credit)>>();
         var plannedByRef = new Dictionary<string, PlannedSong>(StringComparer.Ordinal);
@@ -921,7 +963,7 @@ public sealed partial class SongService : ISongService
             .ConfigureAwait(false);
 
         // 7. Everything in one transaction.
-        foreach (var index in pending)
+        Song BuildSong(int index, IReadOnlyList<(Artist Artist, IdentityArtist Credit)> credited)
         {
             var identity = identities[index];
             var reference = index.ToString(CultureInfo.InvariantCulture);
@@ -931,7 +973,7 @@ public sealed partial class SongService : ISongService
             {
                 Title = identity.Title,
                 ArtistCredit = identity.ArtistCredit,
-                PrimaryArtist = plannedByRef[reference].PrimaryArtist,
+                PrimaryArtist = credited.MinBy(entry => entry.Credit.Position).Artist,
                 MbRecordingId = Lower(identity.MbRecordingId),
                 DeezerId = identity.DeezerId,
                 Isrcs = [.. identity.Isrcs],
@@ -943,7 +985,7 @@ public sealed partial class SongService : ISongService
                 AddedBy = options.AddedBy,
             };
 
-            foreach (var (artist, credit) in creditsByIndex[index])
+            foreach (var (artist, credit) in credited)
             {
                 // The domain's positions start at 1 for the main artist; the identity's start at 0.
                 song.Artists.Add(new SongArtist
@@ -960,8 +1002,15 @@ public sealed partial class SongService : ISongService
             song.AlbumContext.Pinned = pinnedOptions.TryGetValue(index, out var pinnedOption)
                 && string.Equals(assignment.AlbumKey, pinnedOption.Key, StringComparison.Ordinal);
 
+            return song;
+        }
+
+        foreach (var index in pending)
+        {
+            var song = BuildSong(index, creditsByIndex[index]);
+
             _database.Songs.Add(song);
-            results[index] = new SongAddResult(identity, SongAddOutcome.Added, song);
+            results[index] = new SongAddResult(identities[index], SongAddOutcome.Added, song);
         }
 
         // The network work is over: a transaction the caller asked to keep starts here, so it does not
@@ -973,9 +1022,50 @@ public sealed partial class SongService : ISongService
             await _database.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        var failedIndexes = new HashSet<int>();
+
         try
         {
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (DbUpdateException) when (options.IsolateFailures)
+            {
+                // One identity broke the batch (a unique index, usually). EF has rolled the save back, so
+                // nothing was written: the batch's rows leave the tracker and the songs are built again, one
+                // save each, so only the song that fails is lost. An artist an earlier song of the batch
+                // created is reused by the later ones, exactly as in the single save.
+                DetachNewRows();
+
+                foreach (var index in pending)
+                {
+                    var known = storedArtists;
+                    var knownBefore = known.Count;
+                    var credited = new List<(Artist Artist, IdentityArtist Credit)>(identities[index].Artists.Count);
+
+                    foreach (var credit in identities[index].Artists)
+                    {
+                        credited.Add((ResolveArtist(credit, known), credit));
+                    }
+
+                    var song = BuildSong(index, credited);
+                    _database.Songs.Add(song);
+
+                    try
+                    {
+                        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                        results[index] = new SongAddResult(identities[index], SongAddOutcome.Added, song);
+                    }
+                    catch (DbUpdateException exception)
+                    {
+                        DetachNewRows();
+                        known.RemoveRange(knownBefore, known.Count - knownBefore);
+                        failedIndexes.Add(index);
+                        results[index] = FailedResult(identities[index], exception.GetBaseException().Message);
+                    }
+                }
+            }
         }
         catch
         {
@@ -990,10 +1080,9 @@ public sealed partial class SongService : ISongService
         // A repeated identity inside one batch shares the song the first occurrence created.
         foreach (var (duplicate, first) in duplicateOf)
         {
-            results[duplicate] = new SongAddResult(
-                identities[duplicate],
-                SongAddOutcome.AlreadyExists,
-                results[first]!.Song);
+            results[duplicate] = failedIndexes.Contains(first)
+                ? FailedResult(identities[duplicate], results[first]!.Error ?? string.Empty)
+                : new SongAddResult(identities[duplicate], SongAddOutcome.AlreadyExists, results[first]!.Song);
         }
 
         // 8. Search on add (ARCHITECTURE §5.5): a monitored song starts looking for its file at once.
@@ -1263,7 +1352,9 @@ public sealed partial class SongService : ISongService
                     mbIds.Add(id);
                 }
             }
-            else if (identity.DeezerId is { } deezerId && !deezerIds.Contains(deezerId))
+
+            // Both keys are looked up: a stored song may know only one of them.
+            if (identity.DeezerId is { } deezerId && !deezerIds.Contains(deezerId))
             {
                 deezerIds.Add(deezerId);
             }
@@ -1288,7 +1379,15 @@ public sealed partial class SongService : ISongService
 
         foreach (var song in songs)
         {
-            byKey.TryAdd(DuplicateKey(song), song);
+            if (song.MbRecordingId is { Length: > 0 } mbRecordingId)
+            {
+                byKey.TryAdd("mb:" + mbRecordingId.ToLowerInvariant(), song);
+            }
+
+            if (song.DeezerId is { } deezerId)
+            {
+                byKey.TryAdd("dz:" + deezerId.ToString(CultureInfo.InvariantCulture), song);
+            }
         }
 
         return byKey;
@@ -1474,11 +1573,56 @@ public sealed partial class SongService : ISongService
                 ? "dz:" + deezerId.ToString(CultureInfo.InvariantCulture)
                 : null;
 
-    /// <summary>The same key, read off a stored song.</summary>
-    private static string DuplicateKey(Song song) =>
-        song.MbRecordingId is { Length: > 0 } mbRecordingId
-            ? "mb:" + mbRecordingId.ToLowerInvariant()
-            : "dz:" + song.DeezerId!.Value.ToString(CultureInfo.InvariantCulture);
+    /// <summary>Every key a stored song could be found by for this identity: the MBID's, then the Deezer id's.</summary>
+    private static IEnumerable<string> StoredKeys(SongIdentity identity)
+    {
+        if (!string.IsNullOrWhiteSpace(identity.MbRecordingId))
+        {
+            yield return "mb:" + identity.MbRecordingId!.ToLowerInvariant();
+        }
+
+        if (identity.DeezerId is { } deezerId)
+        {
+            yield return "dz:" + deezerId.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>A result for an identity that could not be added. Its song is an unsaved placeholder.</summary>
+    private static SongAddResult FailedResult(SongIdentity identity, string error) =>
+        new(
+            identity,
+            SongAddOutcome.Failed,
+            new Song { Title = identity.Title, ArtistCredit = identity.ArtistCredit },
+            error);
+
+    /// <summary>
+    /// Takes the rows a failed save left in the tracker out of it, with the temporary ids EF gave them,
+    /// so the same objects can be added again.
+    /// </summary>
+    private void DetachNewRows()
+    {
+        // Dependents first: letting go of an artist or a song while rows that need it are still tracked
+        // would sever a required relationship.
+        var added = _database.ChangeTracker.Entries()
+            .Where(entry => entry.State == EntityState.Added && entry.Entity is Song or SongArtist or AlbumContext or Artist)
+            .OrderBy(entry => entry.Entity switch
+            {
+                AlbumContext or SongArtist => 0,
+                Song => 1,
+                _ => 2,
+            })
+            .ToList();
+
+        foreach (var entry in added)
+        {
+            entry.State = EntityState.Detached;
+
+            if (entry.Entity is EntityBase entity)
+            {
+                entity.Id = 0;
+            }
+        }
+    }
 
     private async Task<Library> GetLibraryAsync(long? libraryId, CancellationToken cancellationToken)
     {
@@ -1521,6 +1665,9 @@ public sealed partial class SongService : ISongService
     /// <summary>MusicBrainz ids are stored lower-case, whatever case the provider used.</summary>
     private static string? Lower(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.ToLowerInvariant();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not add '{Title}': {Error}")]
+    private static partial void LogIdentityFailed(ILogger logger, string title, string error);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Added {Added} songs, {Existing} already present")]
     private static partial void LogBatch(ILogger logger, int added, int existing);

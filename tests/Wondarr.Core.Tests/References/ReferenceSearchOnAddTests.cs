@@ -306,10 +306,12 @@ public sealed class ReferenceSearchOnAddTests : IDisposable
                 throw new InvalidOperationException("boom");
             });
 
-        var act = async () => await Identifier(context, spy).IdentifyPendingAsync(library.Id, null, CancellationToken.None);
+        // The chunk fails and is rolled back, but the run goes on: the file stays pending for the next scan.
+        var result = await Identifier(context, spy).IdentifyPendingAsync(library.Id, null, CancellationToken.None);
 
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        result.Should().Be(new ReferenceIdentifyResult(0, 0, 0, 1));
         context.Database.CurrentTransaction.Should().BeNull();
+        (await context.ReferenceFiles.AsNoTracking().SingleAsync()).State.Should().Be(ReferenceFileState.Pending);
         (await CountOnOtherConnectionAsync("song")).Should().Be(0);
     }
 

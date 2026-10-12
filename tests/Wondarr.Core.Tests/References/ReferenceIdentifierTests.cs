@@ -603,6 +603,194 @@ public class ReferenceIdentifierTests : IDisposable
     }
 
     [Fact]
+    public async Task A_renamed_file_is_the_same_song_at_a_new_path_and_the_song_follows_it()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+
+        var moved = AddFile(context, library.Id, "old/Get Lucky.flac", 248_000, Tags(mbid: "m-a"));
+        await context.SaveChangesAsync();
+
+        var songs = NewSongService(context);
+        var old = await songs.AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        var songId = old[0].Song.Id;
+        var held = new SongFile
+        {
+            SongId = songId,
+            Path = ReferenceOwnershipPath(moved.RelativePath),
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":{moved.Id}}}",
+            QualityId = ProbeQualityId,
+        };
+
+        context.SongFiles.Add(held);
+
+        // What the scanner leaves behind when the file is gone: Missing, still carrying its song.
+        moved.State = ReferenceFileState.Missing;
+        moved.MissingSince = _timeProvider.GetUtcNow().UtcDateTime;
+        moved.SongId = songId;
+
+        // The same recording turns up under a new name.
+        var renamed = AddFile(context, library.Id, "new/Get Lucky (renamed).flac", 248_000, Tags(mbid: "m-a"));
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Identified.Should().Be(1);
+
+        var row = await RowAsync(context, renamed.Id);
+        row.State.Should().Be(ReferenceFileState.Identified);
+        row.SongId.Should().Be(songId);
+        row.Message.Should().BeNull("this is a move, not a duplicate");
+
+        // One file, pointing at the new path and naming the new row: exactly what adoption checks
+        // before it copies, so an adopt-mode library adopts the renamed file as usual.
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync();
+        stored.Id.Should().Be(held.Id);
+        stored.Path.Should().Be(ReferenceOwnershipPath(renamed.RelativePath));
+        stored.SourceType.Should().Be(SourceTypes.Reference);
+        stored.SourceRef.Should().Contain($"\"referenceFileId\":{renamed.Id}");
+
+        var gone = await RowAsync(context, moved.Id);
+        gone.State.Should().Be(ReferenceFileState.Missing);
+        gone.SongId.Should().BeNull("the song belongs to the file at the new path now");
+    }
+
+    [Fact]
+    public async Task A_second_file_of_a_song_whose_first_file_is_still_there_stays_a_duplicate()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+
+        var first = AddFile(context, library.Id, "a/one.flac", 248_000, Tags(mbid: "m-a"));
+        await context.SaveChangesAsync();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        await RunAsync(context, library.Id);
+
+        var second = AddFile(context, library.Id, "b/two.flac", 248_000, Tags(mbid: "m-a"));
+
+        await RunAsync(context, library.Id);
+
+        (await RowAsync(context, second.Id)).Message.Should().Be("duplicate: the song already has a file");
+        (await RowAsync(context, first.Id)).SongId.Should().NotBeNull();
+        (await context.SongFiles.AsNoTracking().SingleAsync()).Path.Should().Be(ReferenceOwnershipPath(first.RelativePath));
+    }
+
+    [Fact]
+    public async Task One_identity_the_song_service_cannot_add_leaves_that_file_pending_and_the_rest_identified()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+
+        var good = AddFile(context, library.Id, "a/good.flac", 248_000, Tags(mbid: "m-a"));
+        var bad = AddFile(context, library.Id, "b/bad.flac", 248_000, Tags(mbid: "m-b"));
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        // MusicBrainz knows the recording but credits nobody: a song cannot be added without an artist.
+        _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+            .Returns(new SongIdentity
+            {
+                Source = "musicbrainz",
+                MbRecordingId = "m-b",
+                Title = "Nobody's Song",
+                ArtistCredit = string.Empty,
+                Artists = [],
+                DurationMs = 248_000,
+            });
+
+        var result = await RunAsync(context, library.Id);
+
+        result.Should().Be(new ReferenceIdentifyResult(1, 0, 0, 1));
+
+        (await RowAsync(context, good.Id)).State.Should().Be(ReferenceFileState.Identified);
+
+        var pending = await RowAsync(context, bad.Id);
+        pending.State.Should().Be(ReferenceFileState.Pending);
+        pending.SongId.Should().BeNull();
+        pending.Message.Should().Contain("next scan retries");
+    }
+
+    [Fact]
+    public async Task A_failed_chunk_does_not_stop_the_run_and_is_not_sent_again_by_the_next_save()
+    {
+        _options.BatchSize = 1;
+
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+
+        var first = AddFile(context, library.Id, "a/first.flac", 248_000, Tags(mbid: "m-a"));
+        var second = AddFile(context, library.Id, "b/second.flac", 248_000, Tags(mbid: "m-b"));
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+        _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-b", "Instant Crush", durationMs: 248_000));
+
+        await context.SaveChangesAsync();
+
+        // The first chunk's add saves its songs inside the open transaction and then fails, the way a
+        // collision on a later statement would: the songs are in the change tracker, saved, with ids.
+        var real = NewSongService(context);
+        var calls = 0;
+        var failing = Substitute.For<ISongService>();
+
+        failing.AddIdentitiesAsync(
+                Arg.Any<IReadOnlyList<SongIdentity>>(),
+                Arg.Any<SongAddOptions>(),
+                Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                var added = await real.AddIdentitiesAsync(
+                    call.ArgAt<IReadOnlyList<SongIdentity>>(0),
+                    call.ArgAt<SongAddOptions>(1),
+                    call.ArgAt<CancellationToken>(2));
+
+                if (++calls == 1)
+                {
+                    throw new InvalidOperationException("the first chunk fails");
+                }
+
+                return added;
+            });
+
+        var result = await new ReferenceIdentifier(
+                context,
+                _resolver,
+                failing,
+                _fingerprinter,
+                _acoustId,
+                Options(),
+                _timeProvider,
+                NullLogger<ReferenceIdentifier>.Instance)
+            .IdentifyPendingAsync(library.Id, null, CancellationToken.None);
+
+        result.Should().Be(new ReferenceIdentifyResult(1, 0, 0, 1));
+
+        (await RowAsync(context, first.Id)).State.Should().Be(ReferenceFileState.Pending);
+        (await RowAsync(context, second.Id)).State.Should().Be(ReferenceFileState.Identified);
+
+        // Nothing of the failed chunk is waiting in the tracker for the adopter's first save: that save
+        // would insert a song with no file.
+        context.ChangeTracker.Entries().Should().NotContain(entry =>
+            entry.Entity is Song && entry.State != EntityState.Detached && entry.State != EntityState.Unchanged);
+        context.ChangeTracker.HasChanges().Should().BeFalse();
+
+        (await context.Songs.AsNoTracking().SingleAsync()).MbRecordingId.Should().Be("m-b");
+        (await context.SongFiles.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_file_that_is_no_longer_identified_frees_the_reference_song()
     {
         await using var context = await ContextAsync();

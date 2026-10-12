@@ -119,13 +119,51 @@ public sealed class SongSearchServiceTests
     {
         await using var host = await SearchTestHost.CreateAsync();
         var songId = await host.SeedSongAsync();
-        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Missing);
+        // The state a scan leaves once the grace period is over: the row is Missing and owns nothing,
+        // and the song has no file.
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Missing, released: true);
 
         host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
 
         var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
 
         result.Outcome.Should().Be(SearchOutcome.Grabbed);
+    }
+
+    [Fact]
+    public async Task A_song_a_reference_scan_linked_while_the_search_waited_for_a_slot_is_not_grabbed()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var search = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
+        search.SearchRunId.Should().BeGreaterThan(0);
+
+        // The run is over and holds an accepted candidate; the user's own file shows up before the grab.
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Identified, withSongFile: true);
+
+        (await host.Search.GrabBestAsync(search.SearchRunId, 1, Token)).Should().BeNull();
+        host.Provider.Grabs.Should().BeEmpty();
+        (await host.Context.QueueItems.CountAsync(Token)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_song_whose_missing_reference_file_is_inside_the_grace_period_is_not_searched_for()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+
+        // An unmounted share: the row is Missing, but the song still holds its reference file.
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Missing, withSongFile: true);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        result.Outcome.Should().Be(SearchOutcome.Cancelled);
+        result.Message.Should().Contain("reference library");
+        host.Provider.Grabs.Should().BeEmpty();
     }
 
     [Fact]

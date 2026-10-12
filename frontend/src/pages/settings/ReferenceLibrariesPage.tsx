@@ -7,6 +7,7 @@ import {
   Group,
   Menu,
   Modal,
+  Radio,
   SegmentedControl,
   Select,
   Stack,
@@ -27,8 +28,10 @@ import {
   useAdoptReferenceLibraries,
   useDeleteReferenceLibrary,
   useReferenceLibraries,
+  useReferenceLibraryOwnedSongs,
   useScanReferenceLibrary,
   useUpdateReferenceLibrary,
+  type ReferenceLibraryDeleteChoice,
   type ReferenceLibraryInput,
   type ReferenceLibraryModeName,
   type ReferenceLibraryResource,
@@ -247,13 +250,95 @@ function LibraryForm({ library, onClose }: { library: ReferenceLibraryResource |
   );
 }
 
+/**
+ * What the delete dialog offers for the songs the library owned. The default is `wanted`: the songs are
+ * not lost and nothing starts searching behind the user's back; only `search` starts a search at once.
+ */
+const DELETE_CHOICES: { value: ReferenceLibraryDeleteChoice; label: string }[] = [
+  { value: 'wanted', label: 'Keep them wanted; the scheduled search will pick them up' },
+  { value: 'search', label: 'Make them wanted and search every wanted song now' },
+  { value: 'unmonitor', label: 'Unmonitor them' },
+];
+
+/** The body of the delete dialog: how many songs it affects, and what to do with them. */
+function DeleteLibraryContent({ library, onClose }: { library: ReferenceLibraryResource; onClose: () => void }) {
+  const owned = useReferenceLibraryOwnedSongs(Number(library.id));
+  const remove = useDeleteReferenceLibrary();
+  const [choice, setChoice] = useState<ReferenceLibraryDeleteChoice>('wanted');
+
+  const count = owned.data;
+
+  return (
+    <Stack gap="md">
+      {owned.isPending && <Text size="sm">Counting the songs this folder owns…</Text>}
+
+      {owned.isError && (
+        <Stack gap="xs">
+          <Text size="sm" c="red">
+            {owned.error.message}
+          </Text>
+          <Text size="sm">You can still delete the library. Your files are not touched.</Text>
+          <Group>
+            <Button size="xs" variant="default" loading={owned.isFetching} onClick={() => void owned.refetch()}>
+              Retry
+            </Button>
+          </Group>
+        </Stack>
+      )}
+
+      {count !== undefined && (
+        <Text size="sm">
+          {count === 0
+            ? 'No song is owned through this folder. '
+            : `${count} ${count === 1 ? 'song is' : 'songs are'} owned through this folder; deleting it takes ${count === 1 ? 'its' : 'their'} file away. `}
+          Your files are not touched.
+        </Text>
+      )}
+
+      {((count !== undefined && count > 0) || owned.isError) && (
+        <Radio.Group
+          label="What should happen to those songs?"
+          description="Only the second choice starts searching right away, and it searches every wanted song, not only these."
+          value={choice}
+          onChange={setChoice}
+        >
+          <Stack gap="xs" mt="xs">
+            {DELETE_CHOICES.map((option) => (
+              <Radio key={option.value} value={option.value} label={option.label} />
+            ))}
+          </Stack>
+        </Radio.Group>
+      )}
+
+      {remove.error !== null && (
+        <Text size="sm" c="red">
+          {remove.error.message}
+        </Text>
+      )}
+
+      <Group justify="flex-end">
+        <Button variant="default" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          color="red"
+          loading={remove.isPending}
+          disabled={owned.isPending}
+          onClick={() => remove.mutate({ id: Number(library.id), songs: choice }, { onSuccess: onClose })}
+        >
+          Delete
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
+
 /** The list of reference libraries and the dialogs that add, edit and delete one. */
 export function ReferenceLibrariesPage() {
   const query = useReferenceLibraries();
   const libraries = useLibraries();
   const scan = useScanReferenceLibrary();
   const adopt = useAdoptReferenceLibraries();
-  const remove = useDeleteReferenceLibrary();
 
   const [form, setForm] = useState<{ library: ReferenceLibraryResource | null } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ReferenceLibraryResource | null>(null);
@@ -384,32 +469,9 @@ export function ReferenceLibrariesPage() {
       </Modal>
 
       <Modal opened={pendingDelete !== null} onClose={() => setPendingDelete(null)} title="Delete reference library">
-        <Stack gap="md">
-          <Text size="sm">Songs owned only through this folder become wanted again. Your files are not touched.</Text>
-
-          {remove.error !== null && (
-            <Text size="sm" c="red">
-              {remove.error.message}
-            </Text>
-          )}
-
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setPendingDelete(null)}>
-              Cancel
-            </Button>
-            <Button
-              color="red"
-              loading={remove.isPending}
-              onClick={() => {
-                if (pendingDelete !== null) {
-                  remove.mutate(Number(pendingDelete.id), { onSuccess: () => setPendingDelete(null) });
-                }
-              }}
-            >
-              Delete
-            </Button>
-          </Group>
-        </Stack>
+        {pendingDelete !== null && (
+          <DeleteLibraryContent key={pendingDelete.id} library={pendingDelete} onClose={() => setPendingDelete(null)} />
+        )}
       </Modal>
     </Stack>
   );
