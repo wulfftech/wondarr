@@ -391,6 +391,9 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
             {
                 song.Monitored = false;
             }
+
+            // The user's choice replaces any import list policy's unmonitor.
+            await Songs.SongService.ClearPolicyFlagsAsync(_database, songIds, cancellationToken).ConfigureAwait(false);
         }
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
