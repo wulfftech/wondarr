@@ -73,12 +73,29 @@ public static class ContainerBundler
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // A song the user owns through a reference file is never searched for, upgraded or replaced, so
+        // it is never pulled into a bundle either (the same rule as SongSearchService).
+        var songIds = songs.Select(song => song.Id).ToList();
+        var referenceOwned = await database.ReferenceFiles
+            .AsNoTracking()
+            .Where(file => file.State == ReferenceFileState.Identified
+                && file.SongId != null
+                && songIds.Contains(file.SongId.Value))
+            .Select(file => file.SongId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         var taken = new HashSet<int> { grabbedIndex };
         var bundle = new List<BundledSong>();
 
         foreach (var song in songs)
         {
-            if (busy.Contains(song.Id) || !Wants(song, candidate.QualityId, profiles))
+            // A managed file the song got later is Wondarr's to upgrade, whatever the reference row says.
+            var ownedByUser = referenceOwned.Contains(song.Id)
+                && (song.File is null || song.File.SourceType == SourceTypes.Reference);
+
+            if (ownedByUser || busy.Contains(song.Id) || !Wants(song, candidate.QualityId, profiles))
             {
                 continue;
             }
