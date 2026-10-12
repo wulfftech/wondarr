@@ -252,6 +252,9 @@ internal static class DomainModelConfiguration
             entity.HasIndex(x => x.ImportListId);
             entity.HasIndex(x => x.State);
 
+            // One row per source item: two syncs of one list must not each insert the same item (R-020).
+            entity.HasIndex(x => new { x.ImportListId, x.ExternalId }).IsUnique();
+
             entity.HasOne(x => x.ImportList)
                 .WithMany(x => x.Items)
                 .HasForeignKey(x => x.ImportListId)

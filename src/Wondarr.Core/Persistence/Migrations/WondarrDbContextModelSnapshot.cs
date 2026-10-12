@@ -575,6 +575,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("enabled");
 
+                    b.Property<int>("LastCompleteReadCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("last_complete_read_count");
+
                     b.Property<string>("LastSyncMessage")
                         .HasColumnType("TEXT")
                         .HasColumnName("last_sync_message");
@@ -623,6 +627,10 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<string>("SourceText")
                         .HasColumnType("TEXT")
                         .HasColumnName("source_text");
+
+                    b.Property<string>("SuspectReadMessage")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("suspect_read_message");
 
                     b.Property<int>("SyncIntervalHours")
                         .HasColumnType("INTEGER")
@@ -684,6 +692,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("plex_rating_key_path");
 
+                    b.Property<bool>("PolicyUnmonitored")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("policy_unmonitored");
+
                     b.Property<int>("Position")
                         .HasColumnType("INTEGER")
                         .HasColumnName("position");
@@ -727,6 +739,10 @@ namespace Wondarr.Core.Persistence.Migrations
 
                     b.HasIndex("State")
                         .HasDatabaseName("ix_import_list_item_state");
+
+                    b.HasIndex("ImportListId", "ExternalId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_import_list_item_import_list_id_external_id");
 
                     b.ToTable("import_list_item", (string)null);
                 });
