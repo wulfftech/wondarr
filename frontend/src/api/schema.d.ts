@@ -2056,7 +2056,9 @@ export interface paths {
         post?: never;
         delete: {
             parameters: {
-                query?: never;
+                query?: {
+                    songs?: string;
+                };
                 header?: never;
                 path: {
                     id: number;
@@ -2074,6 +2076,43 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/referencelibrary/{id}/ownedsongs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReferenceLibraryOwnedSongsResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6069,6 +6108,10 @@ export interface components {
             /** Format: int64 */
             libraryId: null | number | string;
             enabled: boolean;
+        };
+        ReferenceLibraryOwnedSongsResource: {
+            /** Format: int32 */
+            count: number | string;
         };
         ReferenceLibraryResource: {
             /** Format: int64 */

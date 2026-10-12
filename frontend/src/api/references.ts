@@ -159,15 +159,49 @@ export function useUpdateReferenceLibrary(): UseMutationResult<
   });
 }
 
+/**
+ * What happens to the songs a deleted reference library owned: `search` makes them wanted and starts a
+ * search for them now, `wanted` leaves them monitored for the scheduled search to pick up, and
+ * `unmonitor` unmonitors them.
+ */
+export type ReferenceLibraryDeleteChoice = 'search' | 'wanted' | 'unmonitor';
+
+/** How many songs deleting a reference library would affect: those owned through one of its files. */
+export function useReferenceLibraryOwnedSongs(id: number | null): UseQueryResult<number, Error> {
+  const client = useApiClient();
+
+  return useQuery({
+    queryKey: [...REFERENCE_LIBRARIES_QUERY_KEY, 'owned-songs', id],
+    enabled: id !== null,
+    // A scan may have linked or freed songs since the dialog last opened.
+    gcTime: 0,
+    queryFn: async (): Promise<number> => {
+      const { data, response } = await client.GET('/api/v1/referencelibrary/{id}/ownedsongs', {
+        params: { path: { id: id ?? 0 } },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The number of songs this library owns could not be read.');
+      }
+
+      return Number(data.count);
+    },
+  });
+}
+
 /** Deletes a reference library; its files are never touched on disk. */
-export function useDeleteReferenceLibrary(): UseMutationResult<void, Error, number> {
+export function useDeleteReferenceLibrary(): UseMutationResult<
+  void,
+  Error,
+  { id: number; songs: ReferenceLibraryDeleteChoice }
+> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: number): Promise<void> => {
+    mutationFn: async ({ id, songs }: { id: number; songs: ReferenceLibraryDeleteChoice }): Promise<void> => {
       const { error, response } = await client.DELETE('/api/v1/referencelibrary/{id}', {
-        params: { path: { id } },
+        params: { path: { id }, query: { songs } },
       });
 
       if (!response.ok) {
