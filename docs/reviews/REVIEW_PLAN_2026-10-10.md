@@ -97,6 +97,18 @@ Each fix comes with the test the review says is missing. The questions for each 
 - **Q27, minimum seeders:** Prowlarr gets the same filter as Torznab (M-18).
 - **R-082, passkeys in download links:** a link is kept only while a grab could still use it, then cleared, with a 24 h housekeeping backstop (M-18).
 
+**Tranche 5 (2026-10-12):**
+- **Q12, deleting a reference library:** the dialog states how many songs would become wanted and offers three choices (M-20):
+  - make them wanted and search;
+  - make them wanted without searching now (the default);
+  - unmonitor them.
+- **Q13, items that return to a list:** they are re-added and re-monitored, unless the user unmonitored the song themselves (M-19).
+- **Q15, the first reference scan:** songs added by import lists wait, unsearched, while a reference library has unidentified rows. Manual adds still search (M-19).
+- **Q19, free text in bulk:** a free-text line auto-resolves only when the hit's artist and title closely match what was typed. A bare title never auto-resolves (M-19).
+- **Defaults taken:**
+  - **Q11, missing reference files:** a song is released only after two scans and 24 h; a scan that finds more than 10 % (or 200) missing is treated as a mount problem and releases nothing; a moved file is followed (M-20).
+  - **Q14, a changed file:** it keeps the user's Skipped or Adopted choice (M-20).
+
 **Not planned.** Two findings already reached by known backlog items are left there:
 
 - The Mirror delete with no busy check is the known "single song delete vs in-flight downloads" problem. Tranche 5 adds the guard on the Mirror caller only.
