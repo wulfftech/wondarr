@@ -9,6 +9,8 @@ An import list is a source Wondarr reads again and again: a playlist, a CSV file
 
 For each item Wondarr tries, in order: a MusicBrainz recording id, then an ISRC (MusicBrainz, then Deezer), then a text search on artist and title that also uses the item's length. An item that matches a song already in the library is linked to it ("already in the library"). Anything Wondarr is not sure about goes to the **Unresolved** page, where you pick a candidate or skip it. See [Adding songs](/wondarr/library/adding-songs/).
 
+A line of plain text with no artist and title (just `Hallelujah`) is never added on its own: it waits on the Unresolved page for you to pick. A line such as `Jeff Buckley Hallelujah` is added only when the best match is close to what was typed in both artist and title; a typo or two is fine, a different artist is not. An unresolved item whose text changes at the source (an ISRC added, a title corrected) is looked up again at the next sync.
+
 ## Providers
 
 | Type | What it reads | Settings |
@@ -38,7 +40,7 @@ You need a Last.fm API key, from `last.fm/api/account/create`. Put it in **Setti
 
 ## Sync interval
 
-**Sync every (hours)** is 24 by default. It can be 0 to 720; **0 means only when I ask** (**Sync now**). A scheduled **Import List Sync** task runs hourly and syncs the lists that are due. A failed read still counts as a sync for the schedule, so a source that is down is not hammered.
+**Sync every (hours)** is 24 by default. It can be 0 to 720; **0 means only when I ask** (**Sync now**). A scheduled **Import List Sync** task runs hourly and syncs the lists that are due. A failed read still counts as a sync for the schedule, so a source that is down is not hammered. A list is never synced twice at once: **Sync now** waits for a sync that is already running, and the scheduled task leaves a list that is being synced alone.
 
 ## Policy
 
@@ -51,6 +53,25 @@ The **Policy** says what happens when an item leaves the source:
 | `mirror` | Mirror: also delete songs that leave the list and have no file | As above, but a song with no file (and nothing downloading) is deleted. A song that has a file is unmonitored instead. |
 
 **A list never deletes a file.** A song you added by hand, or one that another list still holds, is never touched.
+
+### A read that looks wrong
+
+For `addAndUnmonitor` and `mirror`, Wondarr does not act on a read that cannot be trusted to be the whole list. The sync still adds new items, but marks nothing as gone and unmonitors and deletes nothing, when:
+
+- the source answered with an error or something Wondarr could not read;
+- the read stopped at a limit (10 000 items for Deezer, Last.fm and ListenBrainz; 100 pages for YouTube Music);
+- it returned nothing for a list that had items;
+- or it returned fewer than half the items of the last complete read, for a list of 20 items or more.
+
+The list's status says so (for example "Read returned 0 of 300 items; removals skipped"), and **Health** shows a warning naming the list. The warning goes away at the next complete read. If a list really was emptied, change something in its source settings (or upload its file again) and the next read is trusted.
+
+### Items that come back
+
+When an item that left the source returns, Wondarr undoes what the list did. A song that `mirror` deleted is added again. A song that the policy unmonitored is monitored again. A song **you** unmonitored stays unmonitored.
+
+### Songs wait for the reference scan
+
+While a [reference library](/wondarr/library/reference-libraries/) still has files it has not identified, songs that a list adds are added but not searched for: you may already own them in files the scan has not reached. **Health** says "Import list songs wait for the reference scan of … to finish". When the scan is done, the next hourly sync run starts the search. Songs you add by hand, or from a pasted list, are searched at once.
 
 ## Quality profile and library
 
