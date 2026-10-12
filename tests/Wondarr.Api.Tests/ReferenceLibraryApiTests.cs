@@ -234,7 +234,7 @@ public sealed class ReferenceLibraryApiTests
         using var scanned = await client.PostAsync(new Uri($"{Endpoint}/987654/scan", UriKind.Relative), null);
         scanned.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
-        using var deleted = await client.DeleteAsync(new Uri($"{Endpoint}/987654", UriKind.Relative));
+        using var deleted = await client.DeleteAsync(new Uri($"{Endpoint}/987654?songs=wanted", UriKind.Relative));
         deleted.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -247,7 +247,7 @@ public sealed class ReferenceLibraryApiTests
         var id = await AddLibraryAsync(client, "Music", "/reference/music", "reference");
         await SeedFilesAsync(factory, id, ("a.flac", "identified"));
 
-        using var deleted = await client.DeleteAsync(new Uri($"{Endpoint}/{id}", UriKind.Relative));
+        using var deleted = await client.DeleteAsync(new Uri($"{Endpoint}/{id}?songs=wanted", UriKind.Relative));
 
         deleted.StatusCode.Should().Be(HttpStatusCode.OK);
         (await deleted.Content.ReadAsStringAsync()).Should().BeEmpty();
@@ -258,6 +258,73 @@ public sealed class ReferenceLibraryApiTests
         using var scope = factory.Services.CreateScope();
         await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
         (await context.ReferenceFiles.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Deleting_without_saying_what_happens_to_the_songs_is_a_bad_request_and_keeps_the_library()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var id = await AddLibraryAsync(client, "Music", "/reference/music", "reference");
+
+        using var missing = await client.DeleteAsync(new Uri($"{Endpoint}/{id}", UriKind.Relative));
+        missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ValidationErrorsAsync(missing)).Should().ContainKey("songs");
+
+        using var unknown = await client.DeleteAsync(new Uri($"{Endpoint}/{id}?songs=everything", UriKind.Relative));
+        unknown.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var read = await client.GetAsync(new Uri($"{Endpoint}/{id}", UriKind.Relative));
+        read.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task The_owned_songs_endpoint_counts_the_songs_a_delete_would_affect()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var id = await AddLibraryAsync(client, "Music", "/reference/music", "reference");
+        var other = await AddLibraryAsync(client, "Other", "/reference/other", "reference");
+
+        await SeedOwnedSongAsync(factory, id, "One", true);
+        await SeedOwnedSongAsync(factory, id, "Two", true);
+        await SeedOwnedSongAsync(factory, other, "Three", true);
+
+        using var response = await client.GetAsync(new Uri($"{Endpoint}/{id}/ownedsongs", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        ((JsonObject)(await ReadJsonAsync(response))!)["count"]!.GetValue<int>().Should().Be(2);
+
+        using var unknown = await client.GetAsync(new Uri($"{Endpoint}/987654/ownedsongs", UriKind.Relative));
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData("wanted", true, false)]
+    [InlineData("search", true, true)]
+    [InlineData("unmonitor", false, false)]
+    public async Task Deleting_applies_the_choice_to_the_songs_the_library_owned(
+        string choice,
+        bool monitored,
+        bool searchQueued)
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var id = await AddLibraryAsync(client, "Music", "/reference/music", "reference");
+        var songId = await SeedOwnedSongAsync(factory, id, "One", true);
+
+        using var deleted = await client.DeleteAsync(new Uri($"{Endpoint}/{id}?songs={choice}", UriKind.Relative));
+        deleted.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var scope = factory.Services.CreateScope();
+        await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+        (await context.SongFiles.AnyAsync(file => file.SongId == songId)).Should().BeFalse();
+        (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == songId)).Monitored.Should().Be(monitored);
+        (await context.Commands.AsNoTracking().AnyAsync(record => record.Name == "MissingSearch")).Should().Be(searchQueued);
     }
 
     [Fact]
@@ -349,6 +416,47 @@ public sealed class ReferenceLibraryApiTests
         }
 
         await context.SaveChangesAsync();
+    }
+
+    /// <summary>A monitored song whose only file is a reference file of the given library.</summary>
+    private static async Task<long> SeedOwnedSongAsync(
+        WondarrAppFactory factory,
+        long referenceLibraryId,
+        string title,
+        bool monitored)
+    {
+        using var scope = factory.Services.CreateScope();
+        await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+        var artist = new Artist { Name = "Queen " + title, SortName = "Queen " + title };
+        context.Artists.Add(artist);
+        await context.SaveChangesAsync();
+
+        var song = new Song
+        {
+            Title = title,
+            ArtistCredit = artist.Name,
+            PrimaryArtistId = artist.Id,
+            Monitored = monitored,
+            QualityProfileId = SeedData.StandardProfileId,
+            LibraryId = SeedData.DefaultLibraryId,
+            AddedBy = "reference:" + referenceLibraryId,
+        };
+
+        context.Songs.Add(song);
+        await context.SaveChangesAsync();
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = song.Id,
+            Path = $"/reference/music/{title}.flac",
+            SourceType = "reference",
+            SourceRef = $"{{\"referenceLibraryId\":{referenceLibraryId},\"referenceFileId\":1}}",
+            QualityId = 1,
+        });
+        await context.SaveChangesAsync();
+
+        return song.Id;
     }
 
     private static Task<HttpResponseMessage> PostAsync(HttpClient client, string url, string body) =>
