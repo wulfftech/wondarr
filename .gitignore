@@ -5,6 +5,9 @@
 config/
 data/
 *.local.json
+
+#claude
+claude/
 CLAUDE.md
 AGENTS.md
 
