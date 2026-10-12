@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Wondarr.Core.Domain;
@@ -39,6 +40,7 @@ public sealed class ImportListSyncSafetyTests : IDisposable
     private readonly ICommandQueue _commands = Substitute.For<ICommandQueue>();
     private readonly HookedLock _fileLock = new();
     private readonly ScriptedProvider _provider = new();
+    private readonly SearchOptions _searchValue = new();
 
     // ---- R-007: a read that cannot be trusted drives no removal ----
 
@@ -115,28 +117,109 @@ public sealed class ImportListSyncSafetyTests : IDisposable
     }
 
     [Fact]
-    public async Task Changing_the_lists_source_makes_the_next_read_trusted_even_when_it_is_empty()
+    public async Task An_edit_of_the_source_followed_by_an_empty_read_deletes_nothing()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror", """{"playlist":"one","apiKey":"k1"}"""), CancellationToken.None);
+        await SeedItemsAsync(context, list, 50, songs: []);
+
+        var edited = await service.UpdateAsync(list.Id, Draft("Mirror", """{"playlist":"another","apiKey":"k1"}"""), CancellationToken.None);
+        edited!.SourceEditedSinceRead.Should().BeTrue();
+
+        _provider.Entries = [];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(0);
+        (await context.ImportLists.AsNoTracking().SingleAsync()).SuspectReadMessage
+            .Should().Be("Read returned 0 of 50 items; removals skipped");
+    }
+
+    [Fact]
+    public async Task An_edit_of_the_source_turns_off_only_the_under_half_rule_until_a_complete_read()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror", """{"playlist":"one"}"""), CancellationToken.None);
+        await SeedItemsAsync(context, list, 50, songs: []);
+
+        await service.UpdateAsync(list.Id, Draft("Mirror", """{"playlist":"smaller"}"""), CancellationToken.None);
+
+        // The new playlist really is a fifth of the size: believed, and the flag is spent.
+        _provider.Entries = Entries(10);
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(40);
+        var stored = await context.ImportLists.AsNoTracking().SingleAsync();
+        stored.SourceEditedSinceRead.Should().BeFalse();
+        stored.LastCompleteReadCount.Should().Be(10);
+    }
+
+    [Fact]
+    public async Task Trusting_the_next_read_lets_an_empty_read_remove_everything_once()
     {
         await using var context = await ContextAsync();
         var service = NewService(context);
         var list = await service.CreateAsync(Draft("Mirror"), CancellationToken.None);
         await SeedItemsAsync(context, list, 50, songs: []);
 
-        _provider.Entries = [];
-        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
-        context.ChangeTracker.Clear();
-        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(0);
+        (await service.TrustNextReadAsync(list.Id, CancellationToken.None))!.TrustNextRead.Should().BeTrue();
 
-        // Pointing the list at another source says the empty read is expected.
-        await service.UpdateAsync(
-            list.Id,
-            Draft("Mirror") with { Settings = JsonDocument.Parse("""{"playlist":"another"}""").RootElement.Clone() },
-            CancellationToken.None);
+        _provider.Entries = [];
         await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
 
         context.ChangeTracker.Clear();
         (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(50);
+        var stored = await context.ImportLists.AsNoTracking().SingleAsync();
+        stored.TrustNextRead.Should().BeFalse("the flag is spent by that read");
+        stored.SuspectReadMessage.Should().BeNull();
+
+        // A second empty read has nothing left to remove and nothing to doubt.
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(50);
         (await context.ImportLists.AsNoTracking().SingleAsync()).SuspectReadMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Trusting_the_next_read_does_not_trust_a_read_cut_at_a_cap_and_a_pasted_list_has_nothing_to_trust()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror"), CancellationToken.None);
+        await SeedItemsAsync(context, list, 5, songs: []);
+        await service.TrustNextReadAsync(list.Id, CancellationToken.None);
+
+        _provider.Entries = Entries(2);
+        _provider.Truncated = true;
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(0);
+        (await context.ImportLists.AsNoTracking().SingleAsync()).TrustNextRead.Should().BeTrue("a cut read does not spend it");
+
+        var paste = await new PasteListService(context, _resolver, _songs, _time, NullLogger<PasteListService>.Instance)
+            .CreateAsync("Queen - Bohemian Rhapsody", null, null, CancellationToken.None);
+        (await service.TrustNextReadAsync(paste.Id, CancellationToken.None)).Should().BeNull();
+        (await service.TrustNextReadAsync(9999, CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_rotated_api_key_or_reordered_keys_are_not_a_source_edit_but_a_new_file_is()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror", """{"playlist":"one","apiKey":"k1"}"""), CancellationToken.None);
+
+        var rotated = await service.UpdateAsync(list.Id, Draft("Mirror", """{"apiKey":"k2","playlist":"one"}"""), CancellationToken.None);
+        rotated!.SourceEditedSinceRead.Should().BeFalse();
+
+        var file = await service.UpdateAsync(
+            list.Id,
+            Draft("Mirror", """{"playlist":"one","apiKey":"k2"}""") with { SourceText = "a,b" },
+            CancellationToken.None);
+        file!.SourceEditedSinceRead.Should().BeTrue();
     }
 
     [Fact]
@@ -171,7 +254,7 @@ public sealed class ImportListSyncSafetyTests : IDisposable
 
         var warning = await health.CheckAsync(CancellationToken.None);
         warning.Type.Should().Be(HealthCheckResult.Warning);
-        warning.Message.Should().Contain("Road trip").And.Contain("429");
+        warning.Message.Should().Contain("Road trip").And.Contain("429").And.NotContain("..");
 
         _provider.Error = null;
         _provider.Entries = Entries(2);
@@ -262,6 +345,8 @@ public sealed class ImportListSyncSafetyTests : IDisposable
         (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(0);
         (await context.Songs.SingleAsync(song => song.Id == tail.Id)).Monitored.Should().BeTrue();
         await _songs.DidNotReceive().DeleteAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+        (await context.ImportLists.AsNoTracking().SingleAsync()).SuspectReadMessage
+            .Should().Be("The source is longer than Wondarr reads (10,000), so removals are never applied");
     }
 
     // ---- R-019 / owner question 13: returning items ----
@@ -347,6 +432,39 @@ public sealed class ImportListSyncSafetyTests : IDisposable
         (await context.ImportListItems.SingleAsync(item => item.ExternalId == "a")).PolicyUnmonitored
             .Should().BeFalse("the policy did not unmonitor it: the user had");
 
+        _provider.Entries = [Entry("a"), Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.Songs.SingleAsync(song => song.Title == "Title a")).Monitored.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_song_someone_monitored_after_the_policy_is_not_touched_when_its_item_returns()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("AddAndUnmonitor"), CancellationToken.None);
+
+        _provider.Entries = [Entry("a"), Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        _provider.Entries = [Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        // The user monitors the song again by hand; the next sync sees it and lets the flag go.
+        context.ChangeTracker.Clear();
+        (await context.Songs.SingleAsync(song => song.Title == "Title a")).Monitored = true;
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.SingleAsync(item => item.ExternalId == "a")).PolicyUnmonitored.Should().BeFalse();
+
+        // Then they switch it off again, their own decision; the item returning must not undo it.
+        (await context.Songs.SingleAsync(song => song.Title == "Title a")).Monitored = false;
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
         _provider.Entries = [Entry("a"), Entry("b")];
         await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
 
@@ -455,24 +573,63 @@ public sealed class ImportListSyncSafetyTests : IDisposable
         await _songs.DidNotReceive().DeleteAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Mirror_leaves_alone_a_song_that_vanished_before_it_could_be_deleted()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror"), CancellationToken.None);
+
+        _provider.Entries = [Entry("a"), Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        var song = await context.Songs.AsNoTracking().SingleAsync(candidate => candidate.Title == "Title a");
+        context.ChangeTracker.Clear();
+
+        // Somebody deletes the song between the policy's snapshot and its delete.
+        _fileLock.OnAcquire = id =>
+        {
+            using var other = _database.CreateContext(_time);
+            other.Songs.Where(candidate => candidate.Id == id).ExecuteDelete();
+        };
+        _provider.Entries = [Entry("b")];
+
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        await _songs.DidNotReceive().DeleteAsync(Arg.Any<long>(), Arg.Any<CancellationToken>());
+        context.ChangeTracker.Clear();
+        (await context.Songs.CountAsync(candidate => candidate.Id == song.Id)).Should().Be(0);
+    }
+
+    // ---- the hourly playlist refresh respects the per-list gate ----
+
+    [Fact]
+    public async Task The_hourly_playlist_refresh_skips_a_list_that_is_being_synced()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror") with { PlexPlaylist = true }, CancellationToken.None);
+
+        // A first sync is mid-way: it holds the gate and has not recorded a Plex playlist key yet.
+        using (ImportListSyncGates.TryEnter(list.Id))
+        {
+            (await service.RefreshPlaylistsAsync(CancellationToken.None)).Should().Be(0);
+            await _playlists.DidNotReceive().WriteAsync(list.Id, Arg.Any<CancellationToken>());
+        }
+
+        _playlists.WriteAsync(list.Id, Arg.Any<CancellationToken>()).Returns("written");
+        (await service.RefreshPlaylistsAsync(CancellationToken.None)).Should().Be(1);
+        await _playlists.Received(1).WriteAsync(list.Id, Arg.Any<CancellationToken>());
+    }
+
     // ---- owner question 15: songs wait for the reference scan ----
 
     [Fact]
-    public async Task A_list_added_song_is_not_searched_while_a_reference_row_is_pending_and_is_after()
+    public async Task A_list_added_song_is_not_searched_while_a_reference_row_is_pending_and_is_after_the_scan_or_the_cap()
     {
         await using var context = await ContextAsync();
         var service = NewService(context);
         var list = await service.CreateAsync(Draft(ImportList.AddOnlyPolicy), CancellationToken.None);
-        var reference = new ReferenceLibrary { Name = "Old MP3s", RootPath = "/old" };
-        context.ReferenceLibraries.Add(reference);
-        context.ReferenceFiles.Add(new ReferenceFile
-        {
-            ReferenceLibrary = reference,
-            RelativePath = "a.mp3",
-            State = ReferenceFileState.Pending,
-            LastSeenAt = Now.UtcDateTime,
-        });
-        await context.SaveChangesAsync();
+        var file = await AddReferenceFileAsync(context, ReferenceFileState.Pending, message: null);
 
         _provider.Entries = [Entry("a")];
         var message = await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
@@ -483,34 +640,102 @@ public sealed class ImportListSyncSafetyTests : IDisposable
             Arg.Is<SongAddOptions>(options => !options.SearchOnAdd),
             Arg.Any<CancellationToken>());
 
-        // Still scanning: the hourly run queues nothing, and Health says why.
-        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().BeFalse();
-        var notice = await new ImportListScanWaitHealthCheck(context).CheckAsync(CancellationToken.None);
+        // Still scanning, and the song is young: nothing is queued, and Health says why.
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(0);
+        var notice = await new ImportListScanWaitHealthCheck(context, _time).CheckAsync(CancellationToken.None);
         notice.Type.Should().Be(HealthCheckResult.Notice);
         notice.Message.Should().Be("Import list songs wait for the reference scan of Old MP3s to finish");
 
-        // The scan finishes: the next run queues one MissingSearch for the waiting songs.
-        var file = await context.ReferenceFiles.SingleAsync();
-        file.State = ReferenceFileState.Identified;
-        await context.SaveChangesAsync();
-        _songs.ClearReceivedCalls();
+        // Past the cap the song is searched anyway, once, and Health warns.
+        _time.Advance(TimeSpan.FromHours(25));
+        var overdue = await new ImportListScanWaitHealthCheck(context, _time).CheckAsync(CancellationToken.None);
+        overdue.Type.Should().Be(HealthCheckResult.Warning);
+        overdue.Message.Should().Contain("Old MP3s");
 
-        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().BeTrue();
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(1);
         await _commands.Received(1).EnqueueAsync(
-            MissingSearchCommandHandler.CommandName,
-            null,
+            SongSearchCommandHandler.CommandName,
+            Arg.Is<string?>(body => body != null && body.Contains("\"songId\"")),
             CommandTrigger.Unspecified,
             Arg.Any<CancellationToken>());
-        (await new ImportListScanWaitHealthCheck(context).CheckAsync(CancellationToken.None)).Type
+
+        // The next hourly run does not queue it again, scan or no scan.
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(0);
+        file.State = ReferenceFileState.Identified;
+        await context.SaveChangesAsync();
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(0);
+        await _commands.Received(1).EnqueueAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CommandTrigger>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task When_the_scan_finishes_the_waiting_song_is_searched_by_a_song_search_once()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft(ImportList.AddOnlyPolicy), CancellationToken.None);
+        var file = await AddReferenceFileAsync(context, ReferenceFileState.Pending, message: null);
+
+        _provider.Entries = [Entry("a"), Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        file.State = ReferenceFileState.Identified;
+        await context.SaveChangesAsync();
+
+        (await new ImportListScanWaitHealthCheck(context, _time).CheckAsync(CancellationToken.None)).Type
             .Should().Be(HealthCheckResult.Ok);
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(2);
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(0);
+        await _commands.Received(2).EnqueueAsync(
+            SongSearchCommandHandler.CommandName,
+            Arg.Any<string?>(),
+            CommandTrigger.Unspecified,
+            Arg.Any<CancellationToken>());
 
         // And a list that syncs after the scan searches at once.
-        _provider.Entries = [Entry("a"), Entry("b")];
+        _songs.ClearReceivedCalls();
+        _provider.Entries = [Entry("a"), Entry("b"), Entry("c")];
         await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
         await _songs.Received(1).AddIdentitiesAsync(
             Arg.Any<IReadOnlyList<SongIdentity>>(),
             Arg.Is<SongAddOptions>(options => options.SearchOnAdd),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_deferred_reference_row_does_not_hold_back_the_search()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft(ImportList.AddOnlyPolicy), CancellationToken.None);
+        await AddReferenceFileAsync(context, ReferenceFileState.Pending, message: "AcoustID unavailable; the next scan retries this file");
+
+        _provider.Entries = [Entry("a")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        await _songs.Received(1).AddIdentitiesAsync(
+            Arg.Any<IReadOnlyList<SongIdentity>>(),
+            Arg.Is<SongAddOptions>(options => options.SearchOnAdd),
+            Arg.Any<CancellationToken>());
+        (await new ImportListScanWaitHealthCheck(context, _time).CheckAsync(CancellationToken.None)).Type
+            .Should().Be(HealthCheckResult.Ok);
+    }
+
+    [Fact]
+    public async Task Nothing_is_queued_when_search_on_add_is_off()
+    {
+        _searchValue.SearchOnAdd = false;
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft(ImportList.AddOnlyPolicy), CancellationToken.None);
+        var file = await AddReferenceFileAsync(context, ReferenceFileState.Pending, message: null);
+
+        _provider.Entries = [Entry("a")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        file.State = ReferenceFileState.Identified;
+        await context.SaveChangesAsync();
+        _time.Advance(TimeSpan.FromHours(48));
+
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(0);
+        await _commands.DidNotReceive().EnqueueAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CommandTrigger>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -528,7 +753,7 @@ public sealed class ImportListSyncSafetyTests : IDisposable
         context.SearchRuns.Add(new SearchRun { SongId = song.Id, Trigger = SearchTrigger.Automatic, StartedAt = Now.UtcDateTime });
         await context.SaveChangesAsync();
 
-        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().BeFalse();
+        (await service.QueueSearchForWaitingSongsAsync(CancellationToken.None)).Should().Be(0);
         await _commands.DidNotReceive().EnqueueAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CommandTrigger>(), Arg.Any<CancellationToken>());
     }
 
@@ -581,11 +806,29 @@ public sealed class ImportListSyncSafetyTests : IDisposable
 
     private static Task Quiet(string line) => Task.CompletedTask;
 
-    private static ImportListDraft Draft(string policy) =>
+    private static async Task<ReferenceFile> AddReferenceFileAsync(WondarrDbContext context, ReferenceFileState state, string? message)
+    {
+        var reference = new ReferenceLibrary { Name = "Old MP3s", RootPath = "/old" };
+        var file = new ReferenceFile
+        {
+            ReferenceLibrary = reference,
+            RelativePath = "a.mp3",
+            State = state,
+            Message = message,
+            LastSeenAt = Now.UtcDateTime,
+        };
+        context.ReferenceLibraries.Add(reference);
+        context.ReferenceFiles.Add(file);
+        await context.SaveChangesAsync();
+
+        return file;
+    }
+
+    private static ImportListDraft Draft(string policy, string settings = "{}") =>
         new(
             ScriptedProvider.ScriptedType,
             "My playlist",
-            JsonDocument.Parse("{}").RootElement.Clone(),
+            JsonDocument.Parse(settings).RootElement.Clone(),
             SourceText: null,
             Policy: policy,
             QualityProfileId: null,
@@ -778,10 +1021,19 @@ public sealed class ImportListSyncSafetyTests : IDisposable
             _songs,
             _fileLock,
             _commands,
+            OptionsMonitorOf(_searchValue),
             _playlists,
             [_provider],
             _time,
             NullLogger<ImportListService>.Instance);
+
+    private static IOptionsMonitor<SearchOptions> OptionsMonitorOf(SearchOptions value)
+    {
+        var monitor = Substitute.For<IOptionsMonitor<SearchOptions>>();
+        monitor.CurrentValue.Returns(value);
+
+        return monitor;
+    }
 
     /// <summary>The real per-song lock, with a hook that runs as a caller takes it.</summary>
     private sealed class HookedLock : ISongFileLock
@@ -814,7 +1066,8 @@ public sealed class ImportListSyncSafetyTests : IDisposable
 
         public string DisplayName => "Scripted";
 
-        public IReadOnlyList<NotificationField> Fields { get; } = [];
+        public IReadOnlyList<NotificationField> Fields { get; } =
+            [new("playlist", "Playlist", "text", false), new("apiKey", "API key", "password", false, Secret: true)];
 
         public IReadOnlyList<string> Validate(JsonElement settings, string? sourceText) => [];
 

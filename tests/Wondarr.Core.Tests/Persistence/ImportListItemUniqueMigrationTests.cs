@@ -41,7 +41,9 @@ public sealed class ImportListItemUniqueMigrationTests
                    (4, 1, 'b', 1, '{}', 'Added', '[]', 9, NULL, '2026-10-01', '2026-10-01'),
                    (5, 1, 'b', 1, '{}', 'Pending', '[]', NULL, NULL, '2026-10-02', '2026-10-02'),
                    (6, 1, 'c', 2, '{}', 'Unresolved', '[]', NULL, 'No match', '2026-10-01', '2026-10-01'),
-                   (7, 2, 'a', 0, '{}', 'Pending', '[]', NULL, NULL, '2026-10-01', '2026-10-01');
+                   (7, 2, 'a', 0, '{}', 'Pending', '[]', NULL, NULL, '2026-10-01', '2026-10-01'),
+                   (8, 1, 'd', 3, '{}', 'Skipped', '[]', NULL, 'Skipped by the user', '2026-10-01', '2026-10-01'),
+                   (9, 1, 'd', 3, '{}', 'Added', '[]', 11, NULL, '2026-10-02', '2026-10-02');
             """);
 
         // The pre-migration backup is the migrator's business (and needs a backup service); the
@@ -63,7 +65,8 @@ public sealed class ImportListItemUniqueMigrationTests
             "1|1|a|Added|7|Already in the library",
             "4|1|b|Added|9|-",
             "6|1|c|Unresolved|-|No match",
-            "7|2|a|Pending|-|-");
+            "7|2|a|Pending|-|-",
+            "8|1|d|Skipped|11|Skipped by the user");
 
         // The unique index is there.
         (await database.ReadStringsAsync(

@@ -148,6 +148,9 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
             .ResolveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new ResolveResult { Status = ResolveStatus.Unresolved, Reason = "No match." });
 
+        var searchOptions = Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Wondarr.Core.Searching.SearchOptions>>();
+        searchOptions.CurrentValue.Returns(new Wondarr.Core.Searching.SearchOptions());
+
         var services = new ServiceCollection();
         services.AddSingleton<TimeProvider>(_time);
         services.AddSingleton(_resolver);
@@ -169,6 +172,7 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
             _songs,
             _fileLock,
             _commands,
+            searchOptions,
             _playlists,
             [_provider],
             _time,

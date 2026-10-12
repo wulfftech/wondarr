@@ -149,9 +149,15 @@ public sealed class LastFmLovedProvider : IImportListProvider
                 }
             }
 
-            if (page >= LastFmFetch.TotalPages(read.Attributes) || read.Track.Count == 0)
+            if (page >= LastFmFetch.TotalPages(read.Attributes))
             {
                 complete = true;
+                break;
+            }
+
+            // An empty page before the last one Last.fm announced is a read that fell short.
+            if (read.Track.Count == 0)
+            {
                 break;
             }
 

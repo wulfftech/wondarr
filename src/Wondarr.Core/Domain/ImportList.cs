@@ -44,11 +44,25 @@ public sealed class ImportList : EntityBase
 
     /// <summary>
     /// Gets or sets how many items the last <em>complete</em> read of the source returned, or <c>0</c>
-    /// before one. A later read far below it is suspect and drives no removal (R-007). It is
-    /// <c>-1</c> after the list's source settings (or uploaded file) changed: the next read is of a
-    /// different source and is trusted whatever its size.
+    /// before one. A later read far below it is suspect and drives no removal (R-007).
     /// </summary>
     public int LastCompleteReadCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the list's source (its non-secret settings or its
+    /// uploaded file) was edited since the last complete read. The next read is of a different source,
+    /// so it is not held to the "under half of the last read" rule; an empty read of a list that still
+    /// holds items stays suspect, and so does a read cut at a cap.
+    /// </summary>
+    public bool SourceEditedSinceRead { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the user asked to trust the next read whatever its size
+    /// (<c>POST /api/v1/importlist/{id}/trustnextread</c>), for example when the source really was
+    /// emptied. The next read that is not cut at a cap removes what is missing from it; the flag clears
+    /// after that read.
+    /// </summary>
+    public bool TrustNextRead { get; set; }
 
     /// <summary>
     /// Gets or sets why the last read was not trusted (failed, cut at a provider cap, empty or far
@@ -128,9 +142,17 @@ public sealed class ImportListItem : EntityBase
     /// <summary>
     /// Gets or sets a value indicating whether the list's policy unmonitored this item's song when the
     /// item left the source (<c>AddAndUnmonitor</c>, or <c>Mirror</c> for a song with a file). It lets a
-    /// returning item monitor the song again without touching a song the <em>user</em> unmonitored.
+    /// returning item monitor the song again without touching a song the <em>user</em> unmonitored. A
+    /// sync clears it when it finds the song monitored again (someone monitored it after the policy).
     /// </summary>
     public bool PolicyUnmonitored { get; set; }
+
+    /// <summary>
+    /// Gets or sets the UTC instant the sync queued the first search for this item's song after the
+    /// song waited for a reference scan (owner question 15), or <see langword="null"/>. It stops the
+    /// hourly run from queueing the same search again.
+    /// </summary>
+    public DateTime? SearchQueuedAt { get; set; }
 
     /// <summary>
     /// Gets or sets the Plex rating key of the track the item's file is, as last found, or

@@ -127,6 +127,61 @@ public class InnertubePlaylistTests
     }
 
     [Fact]
+    public async Task A_continuation_page_with_no_rows_but_a_next_token_is_a_truncated_read()
+    {
+        const string emptyButMore =
+            """{"onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"next"}}}}]}}]}""";
+        var handler = Scripted(
+            (HttpStatusCode.OK, YouTubeTestData.ReadFixture("browse-playlist-PL15B1E77BB5708555-page1.json")),
+            (HttpStatusCode.OK, emptyButMore));
+
+        var playlist = await Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None);
+
+        playlist.Rows.Should().NotBeEmpty();
+        playlist.Truncated.Should().BeTrue();
+    }
+
+    // The recorded header states "1,157 tracks"; a header that says 0 tracks is an empty playlist even
+    // when YouTube sends no shelf, while any other missing-shelf response is a layout failure.
+    [Fact]
+    public async Task A_missing_shelf_is_an_empty_playlist_only_when_the_header_says_zero_tracks()
+    {
+        const string template =
+            """{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"content":{"sectionListRenderer":{"contents":[{"musicResponsiveHeaderRenderer":{"secondSubtitle":{"runs":[{"text":"COUNT"}]}}}]}}}}]}}}""";
+
+        var empty = await Client(Scripted((HttpStatusCode.OK, template.Replace("COUNT", "0 tracks", StringComparison.Ordinal))))
+            .BrowsePlaylistAsync(PlaylistId, CancellationToken.None);
+        empty.Rows.Should().BeEmpty();
+
+        await FluentActions.Awaiting(() => Client(Scripted((HttpStatusCode.OK, template.Replace("COUNT", "1,157 tracks", StringComparison.Ordinal))))
+                .BrowsePlaylistAsync(PlaylistId, CancellationToken.None))
+            .Should().ThrowAsync<InnertubeLayoutException>();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.BadRequest)]
+    public async Task A_refused_continuation_page_says_the_playlist_changed_while_it_was_read(HttpStatusCode status)
+    {
+        var handler = Scripted(
+            (HttpStatusCode.OK, YouTubeTestData.ReadFixture("browse-playlist-PL15B1E77BB5708555-page1.json")),
+            (status, YouTubeTestData.ReadFixture("search-error.json")));
+        var client = Client(handler);
+
+        await FluentActions.Awaiting(() => client.BrowsePlaylistAsync(PlaylistId, CancellationToken.None))
+            .Should().ThrowAsync<InnertubePlaylistChangedException>();
+
+        var innertube = Substitute.For<IInnertubeClient>();
+        innertube
+            .BrowsePlaylistAsync(PlaylistId, Arg.Any<CancellationToken>())
+            .Returns<Task<InnertubePlaylist>>(_ => throw new InnertubePlaylistChangedException(status));
+        var result = await new YouTubeMusicPlaylistProvider(innertube).FetchAsync(
+            List(("playlist", PlaylistId)),
+            CancellationToken.None);
+        result.Error.Should().Be("The YouTube Music playlist changed while it was being read.");
+    }
+
+    [Fact]
     public async Task A_read_that_runs_out_of_pages_before_the_playlist_does_is_truncated()
     {
         var first = YouTubeTestData.ReadFixture("browse-playlist-PL15B1E77BB5708555-page1.json");

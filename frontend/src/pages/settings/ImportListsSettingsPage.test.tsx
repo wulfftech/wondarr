@@ -89,6 +89,15 @@ const IMPORT_LISTS = [
   },
 ];
 
+/** A Mirror list whose last read came back empty: its removals were skipped. */
+const SUSPECT_LIST = {
+  ...IMPORT_LISTS[0],
+  policy: 'Mirror',
+  lastSyncMessage: 'Read returned 0 of 300 items; removals skipped. Read 0 items (0 new, 0 no longer in the list)',
+  suspectReadMessage: 'Read returned 0 of 300 items; removals skipped',
+  trustNextRead: false,
+};
+
 /** What the list a create returns, so the dialog closes on a body the client can read. */
 const CREATED_LIST = { ...IMPORT_LISTS[0], id: 8, name: 'Deezer favourites', lastSyncMessage: null };
 
@@ -144,7 +153,9 @@ async function lastRequest(method: string, urlPart: string): Promise<Record<stri
  * The route table the page needs. The schema, the preview, the sync and the command are matched
  * before the collection, because their own URLs start with the collection's.
  */
-function install(options: { create?: () => Response; preview?: () => Response } = {}): FetchMock {
+function install(
+  options: { create?: () => Response; preview?: () => Response; lists?: unknown[] } = {},
+): FetchMock {
   return installFetch((url, init) => {
     const method = init?.method ?? 'GET';
 
@@ -172,6 +183,10 @@ function install(options: { create?: () => Response; preview?: () => Response } 
       return options.preview?.() ?? jsonResponse(CSV_PREVIEW);
     }
 
+    if (url.includes('/api/v1/importlist/7/trustnextread')) {
+      return jsonResponse({ ...SUSPECT_LIST, trustNextRead: true });
+    }
+
     if (url.includes('/api/v1/importlist/7/sync')) {
       return jsonResponse({ commandId: 9 });
     }
@@ -193,7 +208,7 @@ function install(options: { create?: () => Response; preview?: () => Response } 
         return jsonResponse({});
       }
 
-      return jsonResponse(IMPORT_LISTS);
+      return jsonResponse(options.lists ?? IMPORT_LISTS);
     }
 
     return new Response('not found', { status: 404 });
@@ -312,6 +327,43 @@ describe('ImportListsSettingsPage', () => {
 
     expect(await screen.findByText('Synced Deezer favourites')).toBeInTheDocument();
     expect(screen.getByText('Resolved 50 of 50 lines')).toBeInTheDocument();
+  });
+
+  it('shows why a read was not trusted and trusts the next one after a warning', async () => {
+    install({ lists: [SUSPECT_LIST] });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const row = await rowOf('Deezer favourites');
+
+    expect(within(row).getByText('Read returned 0 of 300 items; removals skipped')).toBeInTheDocument();
+
+    await user.click(within(row).getByRole('button', { name: 'Trust the next read' }));
+
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).getByText(/will remove anything missing from it/)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Trust the next read' }));
+
+    await waitFor(() => {
+      expect(
+        sent().some(
+          (request) => request.method === 'POST' && request.url.includes('/api/v1/importlist/7/trustnextread'),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('shows no trust button for a list whose reads are fine', async () => {
+    install();
+
+    renderApp();
+
+    const row = await rowOf('Deezer favourites');
+
+    expect(within(row).queryByRole('button', { name: 'Trust the next read' })).not.toBeInTheDocument();
   });
 
   it('asks before deleting, then deletes', async () => {

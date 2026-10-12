@@ -114,9 +114,9 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
                 CultureInfo.InvariantCulture,
                 $"Synced {synced} import lists, {failed} failed{(skipped == 0 ? string.Empty : $", {skipped} already syncing")}");
 
-        if (searchQueued)
+        if (searchQueued > 0)
         {
-            summary += "; search queued for songs that waited for the reference scan";
+            summary += string.Create(CultureInfo.InvariantCulture, $"; {searchQueued} searches queued for songs that waited for the reference scan");
         }
 
         return playlists == 0
