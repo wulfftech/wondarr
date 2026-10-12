@@ -59,19 +59,22 @@ The **Policy** says what happens when an item leaves the source:
 For `addAndUnmonitor` and `mirror`, Wondarr does not act on a read that cannot be trusted to be the whole list. The sync still adds new items, but marks nothing as gone and unmonitors and deletes nothing, when:
 
 - the source answered with an error or something Wondarr could not read;
-- the read stopped at a limit (10 000 items for Deezer, Last.fm and ListenBrainz; 100 pages for YouTube Music);
+- the read stopped at a limit (10 000 items for Deezer, Last.fm and ListenBrainz; 100 pages for YouTube Music), or the source is longer than the 10 000 items Wondarr reads (removals are then never applied);
+- a page came back empty before the end the source announced;
 - it returned nothing for a list that had items;
 - or it returned fewer than half the items of the last complete read, for a list of 20 items or more.
 
-The list's status says so (for example "Read returned 0 of 300 items; removals skipped"), and **Health** shows a warning naming the list. The warning goes away at the next complete read. If a list really was emptied, change something in its source settings (or upload its file again) and the next read is trusted.
+The list's status says so (for example "Read returned 0 of 300 items; removals skipped"), and **Health** shows a warning naming the list. The warning goes away at the next complete read.
+
+If you change the source of a list (its playlist, its user, its file) the "fewer than half" rule is switched off for the next read, because a smaller playlist is expected; an empty read of a list that still holds items stays suspect. If a source really was emptied, or really shrank, press **Trust the next read** next to the warning in Settings → Import lists (or `POST /api/v1/importlist/{id}/trustnextread`). The next read that is not cut at a limit then removes everything missing from it, whatever its size, and the button resets. Changing only an API key, or the order of the settings, does not count as changing the source.
 
 ### Items that come back
 
-When an item that left the source returns, Wondarr undoes what the list did. A song that `mirror` deleted is added again. A song that the policy unmonitored is monitored again. A song **you** unmonitored stays unmonitored.
+When an item that left the source returns, Wondarr undoes what the list did. A song that `mirror` deleted is added again. A song that the policy unmonitored is monitored again, unless somebody monitored and unmonitored it since. A song **you** unmonitored stays unmonitored. A song you deleted yourself is added again too, if its item leaves the list and returns.
 
 ### Songs wait for the reference scan
 
-While a [reference library](/wondarr/library/reference-libraries/) still has files it has not identified, songs that a list adds are added but not searched for: you may already own them in files the scan has not reached. **Health** says "Import list songs wait for the reference scan of … to finish". When the scan is done, the next hourly sync run starts the search. Songs you add by hand, or from a pasted list, are searched at once.
+While a [reference library](/wondarr/library/reference-libraries/) still has files it has not identified, songs that a list adds are added but not searched for: you may already own them in files the scan has not reached. **Health** says "Import list songs wait for the reference scan of … to finish". When the scan is done, the next hourly sync run starts a search for each of those songs, once. A file that was deferred (for example because AcoustID was unavailable) does not hold anything back. No song waits more than 24 hours: after that it is searched anyway and Health warns, naming the library. Nothing is searched from here while `search_on_add` is off; the regular missing-song search finds the songs. Songs you add by hand, or from a pasted list, are searched at once.
 
 ## Quality profile and library
 

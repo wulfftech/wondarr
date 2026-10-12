@@ -46,7 +46,7 @@ public sealed class ImportListReadHealthCheck : IHealthCheck
         return new HealthCheck(
             Name,
             HealthCheckResult.Warning,
-            string.Join(" ", suspect.Select(list => $"Import list '{list.Name}': {list.SuspectReadMessage}.")),
+            string.Join(" ", suspect.Select(list => $"Import list '{list.Name}': {list.SuspectReadMessage!.TrimEnd('.')}.")),
             null);
     }
 }
@@ -59,14 +59,18 @@ public sealed class ImportListReadHealthCheck : IHealthCheck
 public sealed class ImportListScanWaitHealthCheck : IHealthCheck
 {
     private readonly WondarrDbContext _database;
+    private readonly TimeProvider _time;
 
     /// <summary>Initialises a new instance of the <see cref="ImportListScanWaitHealthCheck"/> class.</summary>
     /// <param name="database">Where the lists and the reference libraries are.</param>
-    public ImportListScanWaitHealthCheck(WondarrDbContext database)
+    /// <param name="timeProvider">The clock the 24-hour cap is measured against.</param>
+    public ImportListScanWaitHealthCheck(WondarrDbContext database, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         _database = database;
+        _time = timeProvider;
     }
 
     /// <inheritdoc />
@@ -84,12 +88,36 @@ public sealed class ImportListScanWaitHealthCheck : IHealthCheck
             ? await ReferenceScanWait.PendingLibrariesAsync(_database, cancellationToken).ConfigureAwait(false)
             : [];
 
-        return waiting.Count == 0
-            ? new HealthCheck(Name, HealthCheckResult.Ok, "No import list is waiting for a reference scan", null)
+        if (waiting.Count == 0)
+        {
+            return new HealthCheck(Name, HealthCheckResult.Ok, "No import list is waiting for a reference scan", null);
+        }
+
+        var names = string.Join(", ", waiting);
+
+        // A song that has waited past the cap is searched anyway; the scan is taking too long.
+        var cutoff = _time.GetUtcNow().UtcDateTime - ReferenceScanWait.MaxWait;
+        var overdue = await _database.Songs
+            .AsNoTracking()
+            .AnyAsync(
+                song => song.AddedBy.StartsWith("list:")
+                    && song.Monitored
+                    && song.File == null
+                    && song.CreatedAt < cutoff
+                    && !_database.SearchRuns.Any(run => run.SongId == song.Id),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return overdue
+            ? new HealthCheck(
+                Name,
+                HealthCheckResult.Warning,
+                $"The reference scan of {names} has held back import list songs for over 24 hours, so they are being searched for anyway",
+                null)
             : new HealthCheck(
                 Name,
                 HealthCheckResult.Notice,
-                $"Import list songs wait for the reference scan of {string.Join(", ", waiting)} to finish",
+                $"Import list songs wait for the reference scan of {names} to finish",
                 null);
     }
 }

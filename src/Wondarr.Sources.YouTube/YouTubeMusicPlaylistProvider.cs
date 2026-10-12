@@ -84,6 +84,10 @@ public sealed class YouTubeMusicPlaylistProvider : IImportListProvider
         {
             playlist = await _innertube.BrowsePlaylistAsync(playlistId, cancellationToken).ConfigureAwait(false);
         }
+        catch (InnertubePlaylistChangedException)
+        {
+            return ImportListFetchResult.Failed("The YouTube Music playlist changed while it was being read.");
+        }
         catch (InnertubeException exception) when (exception.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
         {
             return ImportListFetchResult.Failed("The YouTube Music playlist was not found, or it is private.");

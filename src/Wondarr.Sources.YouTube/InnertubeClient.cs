@@ -31,6 +31,20 @@ public interface IInnertubeClient
 public sealed record InnertubePlaylist(IReadOnlyList<InnertubePlaylistRow> Rows, bool Truncated = false);
 
 /// <summary>
+/// InnerTube refused a continuation page of a playlist it had just served (404 or 400): the playlist
+/// was changed, made private or deleted while it was being read.
+/// </summary>
+public sealed class InnertubePlaylistChangedException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="InnertubePlaylistChangedException"/> class.</summary>
+    /// <param name="statusCode">The status InnerTube answered with.</param>
+    public InnertubePlaylistChangedException(HttpStatusCode statusCode)
+        : base($"InnerTube refused a continuation page of the playlist with HTTP {(int)statusCode}: it changed while it was being read")
+    {
+    }
+}
+
+/// <summary>
 /// InnerTube answered a browse with a success status but not with a layout the playlist parser knows —
 /// YouTube changed the response (R-007). The read is a failed read, never an empty playlist.
 /// </summary>
@@ -141,8 +155,18 @@ public sealed class InnertubeClient : IInnertubeClient
 
         for (var page = 0; page < MaxPlaylistPages; page++)
         {
-            var body = await PostAsync(BrowsePath, BrowseBody(browseId, continuation), cancellationToken)
-                .ConfigureAwait(false);
+            string body;
+
+            try
+            {
+                body = await PostAsync(BrowsePath, BrowseBody(browseId, continuation), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (InnertubeException exception)
+                when (continuation is not null && exception.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+            {
+                throw new InnertubePlaylistChangedException(exception.StatusCode);
+            }
 
             using var document = JsonDocument.Parse(body, new JsonDocumentOptions
             {
@@ -161,8 +185,15 @@ public sealed class InnertubeClient : IInnertubeClient
 
             rows.AddRange(pageRows);
 
-            if (next is null || pageRows.Count == 0)
+            if (next is null)
             {
+                break;
+            }
+
+            if (pageRows.Count == 0)
+            {
+                // A page with no rows that still points at another one is not the end of the playlist.
+                truncated = true;
                 break;
             }
 

@@ -27,6 +27,11 @@ internal static class InnertubePlaylistParser
     /// <summary>A duration as InnerTube shows it: M:SS, MM:SS or H:MM:SS.</summary>
     private static readonly Regex DurationRegex = new(@"^(\d+:)*\d+:\d+$", RegexOptions.CultureInvariant);
 
+    /// <summary>The header's "N tracks" (or "1 track"), with thousands separators.</summary>
+    private static readonly Regex TrackCountRegex = new(
+        @"^(?<n>\d[\d,]*)\s+tracks?$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     /// <summary>The browse id prefix of a channel: an artist page.</summary>
     private const string ChannelBrowseIdPrefix = "UC";
 
@@ -51,7 +56,8 @@ internal static class InnertubePlaylistParser
 
         return shelf switch
         {
-            null => null,
+            // No shelf: unknown layout, unless the playlist's header says it holds 0 tracks.
+            null => HeaderTrackCount(root) == 0 ? ([], null) : null,
             { } items when items.ValueKind == JsonValueKind.Array => ReadItems(items),
             _ => ([], null),
         };
@@ -97,6 +103,45 @@ internal static class InnertubePlaylistParser
         }
 
         return TryGet(shelf, "contents", out var items) ? items : default(JsonElement);
+    }
+
+    /// <summary>
+    /// The track count the playlist header states ("1,157 tracks"), or <see langword="null"/> when the
+    /// response has no such header. It lives in the first tab's header, under <c>secondSubtitle</c>.
+    /// </summary>
+    private static int? HeaderTrackCount(JsonElement root)
+    {
+        if (!TryGet(root, "contents", out var contents) ||
+            !TryGet(contents, "twoColumnBrowseResultsRenderer", out var twoColumn) ||
+            !TryGet(twoColumn, "tabs", out var tabs) ||
+            tabs.ValueKind != JsonValueKind.Array ||
+            tabs.GetArrayLength() == 0 ||
+            !TryGet(tabs[0], "tabRenderer", out var tab) ||
+            !TryGet(tab, "content", out var content) ||
+            !TryGet(content, "sectionListRenderer", out var sectionList) ||
+            !TryGet(sectionList, "contents", out var sections) ||
+            sections.ValueKind != JsonValueKind.Array ||
+            sections.GetArrayLength() == 0 ||
+            !TryGet(sections[0], "musicResponsiveHeaderRenderer", out var header) ||
+            !TryGet(header, "secondSubtitle", out var subtitle) ||
+            !TryGet(subtitle, "runs", out var runs) ||
+            runs.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var run in runs.EnumerateArray())
+        {
+            var match = TrackCountRegex.Match(Text(run, "text") ?? string.Empty);
+
+            if (match.Success &&
+                int.TryParse(match.Groups["n"].Value.Replace(",", string.Empty, StringComparison.Ordinal), NumberStyles.None, CultureInfo.InvariantCulture, out var count))
+            {
+                return count;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Every row of one page, plus the token of the page after it.</summary>

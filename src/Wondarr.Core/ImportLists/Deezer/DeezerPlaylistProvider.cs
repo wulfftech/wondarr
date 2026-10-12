@@ -109,12 +109,19 @@ public sealed class DeezerPlaylistProvider : IImportListProvider
 
             index += tracks.Data.Count;
 
-            // Only an empty page, or the page that reached the total Deezer reported, ends the read: a
-            // short page is not the last one (Deezer can drop unavailable tracks from a page), and a
-            // total of 0 means Deezer did not say. Running out of pages first is a truncated read.
-            if (tracks.Data.Count == 0 || (tracks.Total > 0 && index >= tracks.Total))
+            // The page that reached the total Deezer reported ends the read. A short page is not the
+            // last one (Deezer can drop unavailable tracks from a page). An empty page ends it too,
+            // but it is a complete read only when Deezer reported no total (0) to compare against; an
+            // empty page short of the total, or running out of pages, is a truncated read.
+            if (tracks.Total > 0 && index >= tracks.Total)
             {
                 complete = true;
+                break;
+            }
+
+            if (tracks.Data.Count == 0)
+            {
+                complete = tracks.Total <= 0;
                 break;
             }
         }

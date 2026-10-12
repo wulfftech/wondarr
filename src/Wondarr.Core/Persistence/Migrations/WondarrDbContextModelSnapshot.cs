@@ -624,6 +624,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasDefaultValue("{}")
                         .HasColumnName("settings");
 
+                    b.Property<bool>("SourceEditedSinceRead")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("source_edited_since_read");
+
                     b.Property<string>("SourceText")
                         .HasColumnType("TEXT")
                         .HasColumnName("source_text");
@@ -635,6 +639,10 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<int>("SyncIntervalHours")
                         .HasColumnType("INTEGER")
                         .HasColumnName("sync_interval_hours");
+
+                    b.Property<bool>("TrustNextRead")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("trust_next_read");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -714,6 +722,10 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<DateTime?>("RemovedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("removed_at");
+
+                    b.Property<DateTime?>("SearchQueuedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("search_queued_at");
 
                     b.Property<long?>("SongId")
                         .HasColumnType("INTEGER")

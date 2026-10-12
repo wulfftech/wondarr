@@ -204,6 +204,30 @@ export function useSyncImportList(): UseMutationResult<ImportListSyncAcceptedRes
 }
 
 /**
+ * Makes the list's next read trusted whatever its size, so a source that really was emptied is let go
+ * of: the next sync removes what is missing from it, and the flag clears.
+ */
+export function useTrustNextRead(): UseMutationResult<ImportListResource, Error, number> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: number): Promise<ImportListResource> => {
+      const { data, error, response } = await client.POST('/api/v1/importlist/{id}/trustnextread', {
+        params: { path: { id } },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw problemError(response.status, error, 'The next read could not be trusted.');
+      }
+
+      return data;
+    },
+    onSuccess: () => invalidateImportLists(queryClient),
+  });
+}
+
+/**
  * Reads a CSV the way the provider will: which columns it found, the first rows and the problems
  * with the mapping. The editor shows the result before the list is saved.
  */

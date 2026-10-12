@@ -442,6 +442,14 @@ public sealed class ImportListServiceTests : IDisposable
         return _database.CreateContext(_timeProvider);
     }
 
+    private static Microsoft.Extensions.Options.IOptionsMonitor<Wondarr.Core.Searching.SearchOptions> Options()
+    {
+        var monitor = Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Wondarr.Core.Searching.SearchOptions>>();
+        monitor.CurrentValue.Returns(new Wondarr.Core.Searching.SearchOptions());
+
+        return monitor;
+    }
+
     private ImportListService NewService(WondarrDbContext context) =>
         new(
             context,
@@ -449,6 +457,7 @@ public sealed class ImportListServiceTests : IDisposable
             _songs,
             new SongFileLock(),
             Substitute.For<ICommandQueue>(),
+            Options(),
             _playlists,
             [_provider, new CsvImportListProvider()],
             _timeProvider,
