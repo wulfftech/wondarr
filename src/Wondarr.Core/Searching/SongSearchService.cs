@@ -1245,7 +1245,13 @@ public sealed partial class SongSearchService : ISongSearchService
             .AsNoTracking()
             .AnyAsync(
                 file => file.SongId == songId
-                    && file.State == ReferenceFileState.Identified
+                    && (file.State == ReferenceFileState.Identified
+
+                        // A file that is missing right now still owns the song through the grace period
+                        // (the song keeps its reference file), so an unmounted share never causes a grab.
+                        || (file.State == ReferenceFileState.Missing
+                            && _database.SongFiles.Any(held =>
+                                held.SongId == songId && held.SourceType == SourceTypes.Reference)))
 
                     // A managed file the song got later (a hand-made grab, a download that came first) is
                     // Wondarr's to upgrade, whatever the reference row still says.

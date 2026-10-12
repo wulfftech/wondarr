@@ -167,13 +167,18 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
     private readonly WondarrDbContext _database;
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly WondarrPaths _paths;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initialises a new instance of the <see cref="ReferenceLibraryService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
+    /// <param name="importOptions">The import settings, for the recycle bin.</param>
+    /// <param name="paths">The resolved paths.</param>
+    /// <param name="timeProvider">The clock a repointed file is stamped with, or <see langword="null"/> for the system's.</param>
     public ReferenceLibraryService(
         WondarrDbContext database,
         IOptionsMonitor<ImportOptions> importOptions,
-        WondarrPaths paths)
+        WondarrPaths paths,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(importOptions);
@@ -182,6 +187,7 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         _database = database;
         _importOptions = importOptions;
         _paths = paths;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
@@ -306,10 +312,22 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
             return null;
         }
 
-        return (await OwnedFilesAsync(id, track: false, cancellationToken).ConfigureAwait(false))
-            .Select(file => file.SongId)
+        var owned = await OwnedFilesAsync(id, track: false, cancellationToken).ConfigureAwait(false);
+        var songIds = owned.Select(file => file.SongId).Distinct().ToList();
+
+        // A song another library's Identified row also has is not affected: its file follows that row.
+        var covered = await _database.ReferenceFiles
+            .AsNoTracking()
+            .Where(row => row.State == ReferenceFileState.Identified
+                && row.ReferenceLibraryId != id
+                && row.SongId != null
+                && songIds.Contains(row.SongId.Value))
+            .Select(row => row.SongId!.Value)
             .Distinct()
-            .Count();
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return songIds.Count(songId => !covered.Contains(songId));
     }
 
     /// <inheritdoc />
@@ -331,10 +349,36 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         // removed here: a library file belongs to Wondarr and another reference file belongs to another
         // library, and both are left exactly as they are.
         var owned = await OwnedFilesAsync(id, track: true, cancellationToken).ConfigureAwait(false);
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var freed = new List<SongFile>();
 
-        _database.SongFiles.RemoveRange(owned);
+        foreach (var file in owned)
+        {
+            // A second copy of the recording in another reference library keeps the song owned: the
+            // song's file follows it, and the song does not become wanted.
+            var other = await _database.ReferenceFiles
+                .Include(row => row.ReferenceLibrary)
+                .Where(row => row.SongId == file.SongId
+                    && row.State == ReferenceFileState.Identified
+                    && row.ReferenceLibraryId != id)
+                .OrderBy(row => row.Id)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
 
-        var songIds = owned.Select(file => file.SongId).Distinct().ToList();
+            if (other is not null
+                && await ReferenceOwnership
+                    .RepointAsync(_database, file.SongId, file.Path, other, other.ReferenceLibrary.RootPath, now)
+                    .ConfigureAwait(false))
+            {
+                continue;
+            }
+
+            freed.Add(file);
+        }
+
+        _database.SongFiles.RemoveRange(freed);
+
+        var songIds = freed.Select(file => file.SongId).Distinct().ToList();
 
         if (choice == ReferenceLibraryDeleteChoice.Unmonitor && songIds.Count > 0)
         {

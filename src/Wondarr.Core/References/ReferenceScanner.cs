@@ -356,11 +356,46 @@ public sealed partial class ReferenceScanner(
                     continue;
                 }
 
+                var fromPath = ReferenceOwnership.AbsolutePath(root, row.RelativePath);
+
+                // A second copy of the recording that is still there (another Identified row of the same
+                // song, seen by this scan or present on disk) keeps the song owned: the song's file
+                // follows it instead of being released.
+                var other = await database.ReferenceFiles
+                    .AsNoTracking()
+                    .Where(candidate => candidate.SongId == songId
+                        && candidate.State == ReferenceFileState.Identified
+                        && candidate.Id != row.Id)
+                    .Select(candidate => new { Row = candidate, candidate.ReferenceLibrary.RootPath })
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                var alive = other.FirstOrDefault(candidate => candidate.Row.ReferenceLibraryId == referenceLibraryId
+                    ? seen.Contains(candidate.Row.RelativePath)
+                    : File.Exists(ReferenceOwnership.AbsolutePath(candidate.RootPath, candidate.Row.RelativePath)));
+
+                if (alive is not null)
+                {
+                    var target = Track(alive.Row);
+
+                    if (await ReferenceOwnership
+                        .RepointAsync(database, songId, fromPath, target, alive.RootPath, now)
+                        .ConfigureAwait(false))
+                    {
+                        touched.Add(target);
+                        var follower = Track(row);
+                        follower.SongId = null;
+                        touched.Add(follower);
+
+                        continue;
+                    }
+                }
+
                 // The song's reference file goes, so the song has none and every wanted path sees it
                 // again. Only a reference file at this row's path is removed; a library file the song
                 // holds, or the file of another row, stays.
                 var removed = await ReferenceOwnership
-                    .ReleaseAsync(database, songId, ReferenceOwnership.AbsolutePath(root, row.RelativePath))
+                    .ReleaseAsync(database, songId, fromPath)
                     .ConfigureAwait(false);
 
                 var tracked = Track(row);

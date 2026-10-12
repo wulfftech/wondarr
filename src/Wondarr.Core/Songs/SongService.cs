@@ -232,13 +232,22 @@ public sealed partial class SongService : ISongService
                 continue;
             }
 
-            if (firstByKey.TryGetValue(key, out var first))
+            // The batch is matched on either key too: two identities that share a Deezer id (or an MBID)
+            // are one song, and the second takes the first's result.
+            var keys = StoredKeys(identities[index]).ToList();
+            var earlier = keys.Where(firstByKey.ContainsKey).Select(k => (int?)firstByKey[k]).FirstOrDefault();
+
+            if (earlier is { } first)
             {
                 duplicateOf[index] = first;
                 continue;
             }
 
-            firstByKey.Add(key, index);
+            foreach (var batchKey in keys)
+            {
+                firstByKey[batchKey] = index;
+            }
+
             pending.Add(index);
         }
 
@@ -1017,41 +1026,44 @@ public sealed partial class SongService : ISongService
 
         try
         {
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (DbUpdateException) when (options.IsolateFailures)
-        {
-            // One identity broke the batch (a unique index, usually). EF has rolled the save back, so
-            // nothing was written: the batch's rows leave the tracker and the songs are built again, one
-            // save each, so only the song that fails is lost. An artist an earlier song of the batch
-            // created is reused by the later ones, exactly as in the single save.
-            DetachNewRows();
-
-            foreach (var index in pending)
+            try
             {
-                var known = storedArtists;
-                var knownBefore = known.Count;
-                var credited = new List<(Artist Artist, IdentityArtist Credit)>(identities[index].Artists.Count);
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (DbUpdateException) when (options.IsolateFailures)
+            {
+                // One identity broke the batch (a unique index, usually). EF has rolled the save back, so
+                // nothing was written: the batch's rows leave the tracker and the songs are built again, one
+                // save each, so only the song that fails is lost. An artist an earlier song of the batch
+                // created is reused by the later ones, exactly as in the single save.
+                DetachNewRows();
 
-                foreach (var credit in identities[index].Artists)
+                foreach (var index in pending)
                 {
-                    credited.Add((ResolveArtist(credit, known), credit));
-                }
+                    var known = storedArtists;
+                    var knownBefore = known.Count;
+                    var credited = new List<(Artist Artist, IdentityArtist Credit)>(identities[index].Artists.Count);
 
-                var song = BuildSong(index, credited);
-                _database.Songs.Add(song);
+                    foreach (var credit in identities[index].Artists)
+                    {
+                        credited.Add((ResolveArtist(credit, known), credit));
+                    }
 
-                try
-                {
-                    await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    results[index] = new SongAddResult(identities[index], SongAddOutcome.Added, song);
-                }
-                catch (DbUpdateException exception)
-                {
-                    DetachNewRows();
-                    known.RemoveRange(knownBefore, known.Count - knownBefore);
-                    failedIndexes.Add(index);
-                    results[index] = FailedResult(identities[index], exception.GetBaseException().Message);
+                    var song = BuildSong(index, credited);
+                    _database.Songs.Add(song);
+
+                    try
+                    {
+                        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                        results[index] = new SongAddResult(identities[index], SongAddOutcome.Added, song);
+                    }
+                    catch (DbUpdateException exception)
+                    {
+                        DetachNewRows();
+                        known.RemoveRange(knownBefore, known.Count - knownBefore);
+                        failedIndexes.Add(index);
+                        results[index] = FailedResult(identities[index], exception.GetBaseException().Message);
+                    }
                 }
             }
         }

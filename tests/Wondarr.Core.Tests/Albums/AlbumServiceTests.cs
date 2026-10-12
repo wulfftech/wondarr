@@ -245,6 +245,47 @@ public sealed class AlbumServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_add_asks_for_isolated_failures_and_reports_the_identity_the_song_service_could_not_add()
+    {
+        await using var context = await ContextAsync();
+        _musicBrainz.GetReleaseAsync(ReleaseId, Arg.Any<CancellationToken>()).Returns(ReleaseWithIsrcs());
+
+        _resolver
+            .GetIdentityAsync(Arg.Any<string?>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => new SongIdentity
+            {
+                Source = "musicbrainz",
+                MbRecordingId = callInfo.ArgAt<string?>(0),
+                Title = callInfo.ArgAt<string?>(0) == BohemianRecording ? "Bohemian Rhapsody" : "Track",
+                ArtistCredit = "Queen",
+                Artists = [new IdentityArtist("Queen", "Queen", "q1", null, ArtistRole.Main, 0)],
+                ReleaseOptions = [ReleaseOption(ReleaseId)],
+            });
+
+        SongAddOptions? seen = null;
+
+        _songs
+            .AddIdentitiesAsync(
+                Arg.Any<IReadOnlyList<SongIdentity>>(),
+                Arg.Do<SongAddOptions>(options => seen = options),
+                Arg.Any<CancellationToken>())
+            .Returns(callInfo => callInfo
+                .ArgAt<IReadOnlyList<SongIdentity>>(0)
+                .Select(identity => identity.MbRecordingId == BohemianRecording
+                    ? new SongAddResult(identity, SongAddOutcome.Failed, new Song(), "unique index")
+                    : new SongAddResult(identity, SongAddOutcome.Added, new Song()))
+                .ToList());
+
+        var result = await NewService().AddAsync(
+            new AlbumAddRequest { Album = new AlbumRef(AlbumRef.MusicBrainzSource, ReleaseId) },
+            cancellationToken: CancellationToken.None);
+
+        seen!.IsolateFailures.Should().BeTrue();
+        result.Added.Should().Be(11);
+        result.Failed.Should().ContainSingle().Which.Reason.Should().Be("unique index");
+    }
+
+    [Fact]
     public async Task A_search_answers_from_musicbrainz_and_falls_back_to_deezer()
     {
         _musicBrainz

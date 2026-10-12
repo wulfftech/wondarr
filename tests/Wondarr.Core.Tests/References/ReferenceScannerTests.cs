@@ -202,6 +202,88 @@ public sealed class ReferenceScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_second_copy_in_the_same_library_takes_over_the_song_instead_of_releasing_it()
+    {
+        var path = Write("a.mp3", "one");
+        Write("b.mp3", "one, again");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        // b.mp3 is the same recording, Identified as a duplicate: the song's file is a.mp3's.
+        var copy = await database.ReferenceFiles.SingleAsync(row => row.RelativePath == "b.mp3");
+        copy.SongId = songId;
+        copy.State = ReferenceFileState.Identified;
+        copy.Message = "duplicate: the song already has a file";
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        File.Delete(path);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        _time.Advance(TimeSpan.FromHours(25));
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Released.Should().Be(0, "the song is still owned through b.mp3");
+
+        var file = await database.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId);
+        file.Path.Should().Be(Path.Combine(_root, "b.mp3"));
+        file.SourceRef.Should().Contain($"\"referenceFileId\":{copy.Id}");
+
+        var rows = await database.ReferenceFiles.AsNoTracking().ToListAsync();
+        rows.Single(row => row.RelativePath == "a.mp3").SongId.Should().BeNull();
+        rows.Single(row => row.RelativePath == "b.mp3").Message.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_second_copy_in_another_library_takes_over_the_song_instead_of_releasing_it()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+        var other = Directory.CreateTempSubdirectory("wondarr-reference-other-").FullName;
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(other, "b.mp3"), "one, elsewhere");
+
+            await using var database = await ContextAsync();
+            var library = await AddLibraryAsync(database, _root);
+            var second = new ReferenceLibrary { Name = "Other", RootPath = other };
+            database.ReferenceLibraries.Add(second);
+            await database.SaveChangesAsync();
+
+            var scanner = Scanner(database);
+            await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+            await scanner.ScanAsync(second.Id, null, CancellationToken.None);
+            var songId = await OwnAsync(database, "a.mp3");
+
+            var copy = await database.ReferenceFiles.SingleAsync(row => row.ReferenceLibraryId == second.Id);
+            copy.SongId = songId;
+            copy.State = ReferenceFileState.Identified;
+            await database.SaveChangesAsync();
+            database.ChangeTracker.Clear();
+
+            File.Delete(path);
+            await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+            _time.Advance(TimeSpan.FromHours(25));
+            var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+            result.Released.Should().Be(0);
+            (await database.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId)).Path
+                .Should().Be(Path.Combine(other, "b.mp3"));
+            (await database.ReferenceFiles.AsNoTracking().SingleAsync(row => row.RelativePath == "a.mp3")).SongId
+                .Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(other, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task A_single_scan_never_releases_a_song_however_old_the_row_is()
     {
         var path = Write("a.mp3", "one");
