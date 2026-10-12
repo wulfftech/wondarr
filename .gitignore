@@ -64,3 +64,4 @@ scripts/worker.py
 scripts/worker_agent.py
 scripts/test_worker_agent.py
 scripts/openrouter_value.py
+git-backup/
