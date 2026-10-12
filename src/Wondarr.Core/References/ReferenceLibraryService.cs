@@ -118,13 +118,35 @@ public interface IReferenceLibraryService
     Task<ReferenceLibrarySummary?> UpdateAsync(long id, ReferenceLibraryInput input, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Deletes a reference library: its files and candidates go with it, and every song owned through
-    /// one of its files becomes wanted again.
+    /// Counts the songs that deleting a library would affect: those owned through one of its files.
     /// </summary>
     /// <param name="id">The library id.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The count, or <see langword="null"/> when the library does not exist.</returns>
+    Task<int?> CountOwnedSongsAsync(long id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes a reference library: its files and candidates go with it, and every song owned through
+    /// one of its files loses that file. What happens to those songs is the caller's choice.
+    /// </summary>
+    /// <param name="id">The library id.</param>
+    /// <param name="choice">What happens to the songs that were owned through this library.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns><see langword="true"/> when a library was deleted.</returns>
-    Task<bool> DeleteAsync(long id, CancellationToken cancellationToken);
+    /// <returns>How many songs were owned through the library, or <see langword="null"/> when it does not exist.</returns>
+    Task<int?> DeleteAsync(long id, ReferenceLibraryDeleteChoice choice, CancellationToken cancellationToken);
+}
+
+/// <summary>What happens to the songs a deleted reference library owned.</summary>
+public enum ReferenceLibraryDeleteChoice
+{
+    /// <summary>They are wanted again, and the caller starts a search for them at once.</summary>
+    Search,
+
+    /// <summary>They stay monitored and wanted; the scheduled missing search picks them up in its own time.</summary>
+    Wanted,
+
+    /// <summary>They are unmonitored, so nothing looks for them.</summary>
+    Unmonitor,
 }
 
 /// <summary>
@@ -145,13 +167,18 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
     private readonly WondarrDbContext _database;
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly WondarrPaths _paths;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Initialises a new instance of the <see cref="ReferenceLibraryService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
+    /// <param name="importOptions">The import settings, for the recycle bin.</param>
+    /// <param name="paths">The resolved paths.</param>
+    /// <param name="timeProvider">The clock a repointed file is stamped with, or <see langword="null"/> for the system's.</param>
     public ReferenceLibraryService(
         WondarrDbContext database,
         IOptionsMonitor<ImportOptions> importOptions,
-        WondarrPaths paths)
+        WondarrPaths paths,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(importOptions);
@@ -160,6 +187,7 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         _database = database;
         _importOptions = importOptions;
         _paths = paths;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
@@ -272,7 +300,38 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
     }
 
     /// <inheritdoc />
-    public async Task<bool> DeleteAsync(long id, CancellationToken cancellationToken)
+    public async Task<int?> CountOwnedSongsAsync(long id, CancellationToken cancellationToken)
+    {
+        var exists = await _database.ReferenceLibraries
+            .AsNoTracking()
+            .AnyAsync(candidate => candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!exists)
+        {
+            return null;
+        }
+
+        var owned = await OwnedFilesAsync(id, track: false, cancellationToken).ConfigureAwait(false);
+        var songIds = owned.Select(file => file.SongId).Distinct().ToList();
+
+        // A song another library's Identified row also has is not affected: its file follows that row.
+        var covered = await _database.ReferenceFiles
+            .AsNoTracking()
+            .Where(row => row.State == ReferenceFileState.Identified
+                && row.ReferenceLibraryId != id
+                && row.SongId != null
+                && songIds.Contains(row.SongId.Value))
+            .Select(row => row.SongId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return songIds.Count(songId => !covered.Contains(songId));
+    }
+
+    /// <inheritdoc />
+    public async Task<int?> DeleteAsync(long id, ReferenceLibraryDeleteChoice choice, CancellationToken cancellationToken)
     {
         var library = await _database.ReferenceLibraries
             .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken)
@@ -280,25 +339,76 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
 
         if (library is null)
         {
-            return false;
+            return null;
         }
 
         // The files and their candidates cascade in the database.
         _database.ReferenceLibraries.Remove(library);
 
-        // The songs owned through this library's files are wanted again. Only a reference song_file is
-        // ever removed here: a library file belongs to Wondarr and another reference file belongs to
-        // another library, and both are left exactly as they are.
-        var owned = await _database.SongFiles
+        // The songs owned through this library's files lose them. Only a reference song_file is ever
+        // removed here: a library file belongs to Wondarr and another reference file belongs to another
+        // library, and both are left exactly as they are.
+        var owned = await OwnedFilesAsync(id, track: true, cancellationToken).ConfigureAwait(false);
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var freed = new List<SongFile>();
+
+        foreach (var file in owned)
+        {
+            // A second copy of the recording in another reference library keeps the song owned: the
+            // song's file follows it, and the song does not become wanted.
+            var other = await _database.ReferenceFiles
+                .Include(row => row.ReferenceLibrary)
+                .Where(row => row.SongId == file.SongId
+                    && row.State == ReferenceFileState.Identified
+                    && row.ReferenceLibraryId != id)
+                .OrderBy(row => row.Id)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (other is not null
+                && await ReferenceOwnership
+                    .RepointAsync(_database, file.SongId, file.Path, other, other.ReferenceLibrary.RootPath, now)
+                    .ConfigureAwait(false))
+            {
+                continue;
+            }
+
+            freed.Add(file);
+        }
+
+        _database.SongFiles.RemoveRange(freed);
+
+        var songIds = freed.Select(file => file.SongId).Distinct().ToList();
+
+        if (choice == ReferenceLibraryDeleteChoice.Unmonitor && songIds.Count > 0)
+        {
+            var songs = await _database.Songs
+                .Where(song => songIds.Contains(song.Id))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var song in songs)
+            {
+                song.Monitored = false;
+            }
+        }
+
+        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return songIds.Count;
+    }
+
+    /// <summary>The reference <c>song_file</c> rows that point at one of this library's files.</summary>
+    private async Task<List<SongFile>> OwnedFilesAsync(long referenceLibraryId, bool track, CancellationToken cancellationToken)
+    {
+        var query = track ? _database.SongFiles.AsQueryable() : _database.SongFiles.AsNoTracking();
+
+        var candidates = await query
             .Where(file => file.SourceType == SourceTypes.Reference && file.SourceRef != null)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        _database.SongFiles.RemoveRange(owned.Where(file => OwnedBy(file.SourceRef, id)));
-
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-        return true;
+        return [.. candidates.Where(file => OwnedBy(file.SourceRef, referenceLibraryId))];
     }
 
     /// <summary>Whether a <c>source_ref</c> JSON blob names this reference library.</summary>
