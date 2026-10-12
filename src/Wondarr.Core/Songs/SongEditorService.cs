@@ -193,6 +193,12 @@ public sealed class SongEditorService : ISongEditorService
             }
         }
 
+        if (request.Monitored is not null)
+        {
+            await SongService.ClearPolicyFlagsAsync(_database, [.. songs.Select(song => song.Id)], cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         // One SaveChanges is one transaction: monitored, profile and tags land together or not at all.
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

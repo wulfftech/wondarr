@@ -330,6 +330,16 @@ public sealed partial class PasteListService : IPasteListService
                 var item = resolvedItems[index];
                 var result = results[index];
 
+                if (result.Outcome == SongAddOutcome.Failed)
+                {
+                    // A failed result carries an unsaved placeholder: never read its Id. The item waits on
+                    // the Unresolved page and is retried when its text changes.
+                    item.State = ImportListItemState.Unresolved;
+                    item.SongId = null;
+                    item.Reason = result.Error;
+                    continue;
+                }
+
                 item.State = ImportListItemState.Added;
                 item.SongId = result.Song.Id;
                 item.Reason = result.Outcome == SongAddOutcome.AlreadyExists ? AlreadyInLibraryReason : null;
@@ -371,9 +381,18 @@ public sealed partial class PasteListService : IPasteListService
             .AddAsync(mbRecordingId, deezerId, OptionsFor(list), cancellationToken)
             .ConfigureAwait(false);
 
-        item.State = ImportListItemState.Added;
-        item.SongId = result.Song.Id;
-        item.Reason = null;
+        if (result.Outcome == SongAddOutcome.Failed)
+        {
+            item.State = ImportListItemState.Unresolved;
+            item.SongId = null;
+            item.Reason = result.Error;
+        }
+        else
+        {
+            item.State = ImportListItemState.Added;
+            item.SongId = result.Song.Id;
+            item.Reason = null;
+        }
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -591,6 +610,7 @@ public sealed partial class PasteListService : IPasteListService
         QualityProfileId = list.QualityProfileId,
         LibraryId = list.LibraryId,
         AddedBy = $"list:{list.Id.ToString(CultureInfo.InvariantCulture)}",
+        IsolateFailures = true,
     };
 
     /// <summary>

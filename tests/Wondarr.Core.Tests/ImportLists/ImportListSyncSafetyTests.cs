@@ -32,6 +32,8 @@ public sealed class ImportListSyncSafetyTests : IDisposable
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 12, 9, 0, 0, TimeSpan.Zero);
 
+    private const string PoisonTitle = "Title poison";
+
     private readonly SqliteTestDatabase _database = new();
     private readonly FakeTimeProvider _time = new(Now);
     private readonly IIdentityResolver _resolver = Substitute.For<IIdentityResolver>();
@@ -473,6 +475,70 @@ public sealed class ImportListSyncSafetyTests : IDisposable
 
         context.ChangeTracker.Clear();
         (await context.Songs.SingleAsync(song => song.Title == "Title a")).Monitored.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_sync_isolates_an_identity_that_fails_to_add_and_adds_the_rest()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("AddOnly"), CancellationToken.None);
+
+        _provider.Entries = [Entry("a"), Entry("poison"), Entry("b")];
+        var act = async () => await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        await act.Should().NotThrowAsync();
+
+        await _songs.Received().AddIdentitiesAsync(
+            Arg.Any<IReadOnlyList<SongIdentity>>(),
+            Arg.Is<SongAddOptions>(options => options.IsolateFailures),
+            Arg.Any<CancellationToken>());
+
+        context.ChangeTracker.Clear();
+        var items = await context.ImportListItems.OrderBy(item => item.Position).ToListAsync();
+
+        items.Select(item => item.State).Should().Equal(
+            ImportListItemState.Added,
+            ImportListItemState.Unresolved,
+            ImportListItemState.Added);
+        items[1].SongId.Should().BeNull();
+        items[1].Reason.Should().Be("UNIQUE constraint failed: song.mb_recording_id");
+        items[0].SongId.Should().NotBeNull();
+        items[2].SongId.Should().NotBeNull();
+        (await context.Songs.CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_song_the_user_unmonitors_through_the_song_service_stays_unmonitored_when_its_item_returns()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("AddAndUnmonitor"), CancellationToken.None);
+
+        _provider.Entries = [Entry("a"), Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        _provider.Entries = [Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        var song = await context.Songs.SingleAsync(row => row.Title == "Title a");
+        song.Monitored.Should().BeFalse();
+        (await context.ImportListItems.SingleAsync(item => item.ExternalId == "a")).PolicyUnmonitored.Should().BeTrue("the policy sets it");
+
+        // The user monitors it, then unmonitors it again, both before the item returns.
+        var songs = Songs.SongSeed.Service(context);
+        await songs.UpdateAsync(song.Id, monitored: true, qualityProfileId: null, CancellationToken.None);
+        await songs.UpdateAsync(song.Id, monitored: false, qualityProfileId: null, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.SingleAsync(item => item.ExternalId == "a")).PolicyUnmonitored
+            .Should().BeFalse("a user's change clears the flag at once");
+
+        _provider.Entries = [Entry("a"), Entry("b")];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.Songs.SingleAsync(row => row.Title == "Title a")).Monitored.Should().BeFalse();
     }
 
     [Fact]
@@ -1015,6 +1081,13 @@ public sealed class ImportListSyncSafetyTests : IDisposable
 
                 foreach (var identity in call.Arg<IReadOnlyList<SongIdentity>>())
                 {
+                    if (identity.Title == PoisonTitle)
+                    {
+                        // A failed result carries an unsaved placeholder, never a stored song.
+                        results.Add(new SongAddResult(identity, SongAddOutcome.Failed, new Song { Title = identity.Title }, "UNIQUE constraint failed: song.mb_recording_id"));
+                        continue;
+                    }
+
                     var existing = await context.Songs.FirstOrDefaultAsync(song => song.MbRecordingId == identity.MbRecordingId);
 
                     if (existing is not null)

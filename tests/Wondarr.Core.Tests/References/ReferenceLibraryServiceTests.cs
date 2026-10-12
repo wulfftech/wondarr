@@ -338,6 +338,30 @@ public class ReferenceLibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Deleting_a_library_with_the_unmonitor_choice_clears_the_list_policy_flag()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+
+        var doomed = await service.AddAsync(
+            new ReferenceLibraryInput("Doomed", "/reference/doomed", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var owned = await AddSongAsync(context, "Owned");
+        var list = new ImportList { Name = "L", QualityProfileId = SeedData.StandardProfileId, LibraryId = SeedData.DefaultLibraryId };
+        context.ImportLists.Add(list);
+        await context.SaveChangesAsync();
+        context.ImportListItems.Add(new ImportListItem { ImportListId = list.Id, ExternalId = "x", SongId = owned, PolicyUnmonitored = true });
+        context.SongFiles.Add(NewFile(owned, "/reference/doomed/a.flac", SourceTypes.Reference, doomed.Library.Id));
+        await context.SaveChangesAsync();
+
+        await service.DeleteAsync(doomed.Library.Id, ReferenceLibraryDeleteChoice.Unmonitor, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.SingleAsync()).PolicyUnmonitored.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_song_another_library_also_has_follows_that_copy_and_is_neither_counted_nor_freed()
     {
         await using var context = await ContextAsync();

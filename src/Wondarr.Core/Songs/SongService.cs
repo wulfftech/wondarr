@@ -453,12 +453,38 @@ public sealed partial class SongService : ISongService
         if (monitored is { } value)
         {
             song.Monitored = value;
+
+            // The user's choice replaces the list policy's: a returning list item must not undo it.
+            await ClearPolicyFlagsAsync([song.Id], cancellationToken).ConfigureAwait(false);
         }
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return song;
     }
+
+    /// <summary>
+    /// Clears <c>import_list_item.policy_unmonitored</c> on the items that point at these songs, in the
+    /// caller's unit of work. Called whenever a user or API path changes a song's monitored state.
+    /// </summary>
+    internal static async Task ClearPolicyFlagsAsync(
+        WondarrDbContext database,
+        IReadOnlyCollection<long> songIds,
+        CancellationToken cancellationToken)
+    {
+        var flagged = await database.ImportListItems
+            .Where(item => item.PolicyUnmonitored && item.SongId != null && songIds.Contains(item.SongId.Value))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var item in flagged)
+        {
+            item.PolicyUnmonitored = false;
+        }
+    }
+
+    private Task ClearPolicyFlagsAsync(IReadOnlyCollection<long> songIds, CancellationToken cancellationToken) =>
+        ClearPolicyFlagsAsync(_database, songIds, cancellationToken);
 
     /// <inheritdoc />
     public async Task<bool> DeleteAsync(long id, CancellationToken cancellationToken)
