@@ -153,9 +153,7 @@ async function lastRequest(method: string, urlPart: string): Promise<Record<stri
  * The route table the page needs. The schema, the preview, the sync and the command are matched
  * before the collection, because their own URLs start with the collection's.
  */
-function install(
-  options: { create?: () => Response; preview?: () => Response; lists?: unknown[] } = {},
-): FetchMock {
+function install(options: { create?: () => Response; preview?: () => Response; lists?: unknown[] } = {}): FetchMock {
   return installFetch((url, init) => {
     const method = init?.method ?? 'GET';
 
