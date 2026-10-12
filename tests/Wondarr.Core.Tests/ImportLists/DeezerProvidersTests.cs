@@ -56,22 +56,52 @@ public sealed class DeezerProvidersTests
         provider.Validate(Settings(), null).Should().ContainSingle().Which.Should().Contain("Enter a Deezer playlist");
     }
 
+    // R-007: a page shorter than the page size is not the last one while the total says more remain.
     [Fact]
-    public async Task Stops_paging_on_a_short_page()
+    public async Task A_short_page_does_not_stop_the_read_while_the_total_says_more_remain()
+    {
+        var deezer = Client();
+        deezer.GetPlaylistTracksAsync(PlaylistId, 0, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
+            .Returns(Page(98, 150));
+        deezer.GetPlaylistTracksAsync(PlaylistId, 98, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
+            .Returns(Page(52, 150, firstId: 1001));
+
+        var result = await Fetch(new DeezerPlaylistProvider(deezer), ("playlist", PlaylistId.ToString()));
+
+        result.Success.Should().BeTrue();
+        result.Entries.Should().HaveCount(150);
+        result.Status.Should().Be(ImportListReadStatus.Complete);
+    }
+
+    [Fact]
+    public async Task An_empty_page_stops_the_read()
     {
         var deezer = Client();
         deezer.GetPlaylistTracksAsync(PlaylistId, 0, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
             .Returns(Page(tracks: 2, total: 50));
+        deezer.GetPlaylistTracksAsync(PlaylistId, 2, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
+            .Returns(Page(tracks: 0, total: 50));
 
         var result = await Fetch(new DeezerPlaylistProvider(deezer), ("playlist", PlaylistId.ToString()));
 
         result.Success.Should().BeTrue();
         result.Entries.Should().HaveCount(2);
-        await deezer.Received(1).GetPlaylistTracksAsync(
-            PlaylistId,
-            0,
-            DeezerPlaylistProvider.PageSize,
-            Arg.Any<CancellationToken>());
+        result.Status.Should().Be(ImportListReadStatus.Complete);
+    }
+
+    // R-021: a read that runs out of pages before the playlist does is truncated.
+    [Fact]
+    public async Task A_playlist_longer_than_the_page_cap_is_a_truncated_read()
+    {
+        var deezer = Client();
+        deezer.GetPlaylistTracksAsync(PlaylistId, Arg.Any<int>(), DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
+            .Returns(Page(DeezerPlaylistProvider.PageSize, 1_000_000));
+
+        var result = await Fetch(new DeezerPlaylistProvider(deezer), ("playlist", PlaylistId.ToString()));
+
+        result.Success.Should().BeTrue();
+        result.Entries.Should().HaveCount(DeezerPlaylistProvider.PageSize * DeezerPlaylistProvider.MaxPages);
+        result.Status.Should().Be(ImportListReadStatus.Truncated);
     }
 
     [Fact]

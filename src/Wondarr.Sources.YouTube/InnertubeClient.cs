@@ -19,8 +19,29 @@ public interface IInnertubeClient
     /// </summary>
     /// <param name="playlistId">The playlist id, with or without its <c>VL</c> browse prefix.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The rows, and whether the read stopped at the page cap with more pages left.</returns>
     /// <exception cref="InnertubeException">InnerTube refused the request.</exception>
-    Task<IReadOnlyList<InnertubePlaylistRow>> BrowsePlaylistAsync(string playlistId, CancellationToken cancellationToken);
+    /// <exception cref="InnertubeLayoutException">InnerTube answered, but not with a playlist page the parser knows (page 1 or a continuation).</exception>
+    Task<InnertubePlaylist> BrowsePlaylistAsync(string playlistId, CancellationToken cancellationToken);
+}
+
+/// <summary>What a playlist browse read.</summary>
+/// <param name="Rows">The rows in playlist order.</param>
+/// <param name="Truncated">Whether the read stopped at <see cref="InnertubeClient.MaxPlaylistPages"/> with a next page still on offer.</param>
+public sealed record InnertubePlaylist(IReadOnlyList<InnertubePlaylistRow> Rows, bool Truncated = false);
+
+/// <summary>
+/// InnerTube answered a browse with a success status but not with a layout the playlist parser knows —
+/// YouTube changed the response (R-007). The read is a failed read, never an empty playlist.
+/// </summary>
+public sealed class InnertubeLayoutException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="InnertubeLayoutException"/> class.</summary>
+    /// <param name="detail">Which page did not parse.</param>
+    public InnertubeLayoutException(string detail)
+        : base($"InnerTube browse answered a layout that could not be read: {detail}")
+    {
+    }
 }
 
 /// <summary>
@@ -104,7 +125,7 @@ public sealed class InnertubeClient : IInnertubeClient
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<InnertubePlaylistRow>> BrowsePlaylistAsync(
+    public async Task<InnertubePlaylist> BrowsePlaylistAsync(
         string playlistId,
         CancellationToken cancellationToken)
     {
@@ -116,6 +137,7 @@ public sealed class InnertubeClient : IInnertubeClient
 
         var rows = new List<InnertubePlaylistRow>();
         string? continuation = null;
+        var truncated = false;
 
         for (var page = 0; page < MaxPlaylistPages; page++)
         {
@@ -128,9 +150,14 @@ public sealed class InnertubeClient : IInnertubeClient
                 CommentHandling = JsonCommentHandling.Skip,
             });
 
-            var (pageRows, next) = continuation is null
+            var parsed = continuation is null
                 ? InnertubePlaylistParser.ParseFirstPage(document.RootElement)
                 : InnertubePlaylistParser.ParseContinuation(document.RootElement);
+
+            // A page that does not parse is a failed read, not the end of the playlist: the rows
+            // read so far are not the whole list.
+            var (pageRows, next) = parsed
+                ?? throw new InnertubeLayoutException(continuation is null ? "the first page" : "a continuation page");
 
             rows.AddRange(pageRows);
 
@@ -140,9 +167,10 @@ public sealed class InnertubeClient : IInnertubeClient
             }
 
             continuation = next;
+            truncated = page == MaxPlaylistPages - 1;
         }
 
-        return rows;
+        return new InnertubePlaylist(rows, truncated);
     }
 
     /// <summary>

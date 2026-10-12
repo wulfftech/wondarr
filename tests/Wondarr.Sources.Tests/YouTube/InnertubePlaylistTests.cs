@@ -6,6 +6,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Wondarr.Core.Domain;
+using Wondarr.Core.ImportLists;
 using Wondarr.Sources.YouTube;
 using Xunit;
 
@@ -27,8 +28,10 @@ public class InnertubePlaylistTests
             (HttpStatusCode.OK, YouTubeTestData.ReadFixture("browse-playlist-PL15B1E77BB5708555-page1.json")),
             (HttpStatusCode.OK, YouTubeTestData.ReadFixture("browse-playlist-PL15B1E77BB5708555-page2-last.json")));
 
-        var rows = await Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None);
+        var playlist = await Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None);
+        var rows = playlist.Rows;
 
+        playlist.Truncated.Should().BeFalse();
         handler.Requests.Should().HaveCount(2);
         handler.Requests[0].RequestUri!.ToString().Should().Be("https://music.youtube.com/youtubei/v1/browse?alt=json");
         handler.Requests[1].RequestUri!.ToString().Should().Be("https://music.youtube.com/youtubei/v1/browse?alt=json");
@@ -81,7 +84,7 @@ public class InnertubePlaylistTests
     [Fact]
     public async Task Accepts_an_id_that_already_carries_the_vl_prefix()
     {
-        var handler = Scripted((HttpStatusCode.OK, "{}"));
+        var handler = Scripted((HttpStatusCode.OK, EmptyShelf));
 
         await Client(handler).BrowsePlaylistAsync("VL" + PlaylistId, CancellationToken.None);
 
@@ -90,13 +93,54 @@ public class InnertubePlaylistTests
     }
 
     [Fact]
-    public async Task Answers_no_rows_for_a_response_without_a_shelf()
+    public async Task A_playlist_shelf_with_no_rows_is_an_empty_playlist()
     {
-        var handler = Scripted((HttpStatusCode.OK, "{}"));
+        var handler = Scripted((HttpStatusCode.OK, EmptyShelf));
 
-        var rows = await Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None);
+        var playlist = await Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None);
 
-        rows.Should().BeEmpty();
+        playlist.Rows.Should().BeEmpty();
+        playlist.Truncated.Should().BeFalse();
+    }
+
+    // R-007: a layout YouTube changed is a failed read, never an empty playlist.
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"contents":{"somethingNew":{}}}""")]
+    public async Task A_response_without_the_playlist_shelf_is_a_layout_failure(string body)
+    {
+        var handler = Scripted((HttpStatusCode.OK, body));
+
+        await FluentActions.Awaiting(() => Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None))
+            .Should().ThrowAsync<InnertubeLayoutException>().WithMessage("*the first page*");
+    }
+
+    [Fact]
+    public async Task A_continuation_page_that_does_not_parse_is_a_layout_failure_not_the_end_of_the_list()
+    {
+        var handler = Scripted(
+            (HttpStatusCode.OK, YouTubeTestData.ReadFixture("browse-playlist-PL15B1E77BB5708555-page1.json")),
+            (HttpStatusCode.OK, "{}"));
+
+        await FluentActions.Awaiting(() => Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None))
+            .Should().ThrowAsync<InnertubeLayoutException>().WithMessage("*a continuation page*");
+    }
+
+    [Fact]
+    public async Task A_read_that_runs_out_of_pages_before_the_playlist_does_is_truncated()
+    {
+        var first = YouTubeTestData.ReadFixture("browse-playlist-PL15B1E77BB5708555-page1.json");
+
+        // Every continuation answers one row and a token for yet another page.
+        const string more =
+            """{"onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"abcdefghijk"}}},{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"next"}}}}]}}]}""";
+        var handler = Scripted(
+            [(HttpStatusCode.OK, first), .. Enumerable.Repeat((HttpStatusCode.OK, more), InnertubeClient.MaxPlaylistPages - 1)]);
+
+        var playlist = await Client(handler).BrowsePlaylistAsync(PlaylistId, CancellationToken.None);
+
+        handler.Requests.Should().HaveCount(InnertubeClient.MaxPlaylistPages);
+        playlist.Truncated.Should().BeTrue();
     }
 
     [Fact]
@@ -153,7 +197,7 @@ public class InnertubePlaylistTests
             new("RgKAFK5djSk", "See You Again (feat. Charlie Puth)", "Wiz Khalifa", "Wiz Khalifa", "Furious 7", 238_000),
         };
         var innertube = Substitute.For<IInnertubeClient>();
-        innertube.BrowsePlaylistAsync(PlaylistId, Arg.Any<CancellationToken>()).Returns(rows);
+        innertube.BrowsePlaylistAsync(PlaylistId, Arg.Any<CancellationToken>()).Returns(new InnertubePlaylist(rows));
 
         var result = await new YouTubeMusicPlaylistProvider(innertube).FetchAsync(
             List(("playlist", PlaylistId)),
@@ -190,8 +234,64 @@ public class InnertubePlaylistTests
         result.Error.Should().Be("The YouTube Music playlist was not found, or it is private.");
     }
 
+    // R-076: a 429 or a 5xx takes the failure path (a failed read the sync records), not an exception.
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task A_rate_limited_or_failing_youtube_is_a_failed_read(HttpStatusCode status)
+    {
+        var innertube = Substitute.For<IInnertubeClient>();
+        innertube
+            .BrowsePlaylistAsync(PlaylistId, Arg.Any<CancellationToken>())
+            .Returns<Task<InnertubePlaylist>>(_ => throw new InnertubeException(status, "slow down", "browse"));
+
+        var result = await new YouTubeMusicPlaylistProvider(innertube).FetchAsync(
+            List(("playlist", PlaylistId)),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Status.Should().Be(ImportListReadStatus.Failed);
+        result.Error.Should().Be(string.Create(CultureInfo.InvariantCulture, $"YouTube Music answered HTTP {(int)status}."));
+    }
+
+    [Fact]
+    public async Task A_layout_failure_or_unparseable_body_is_a_failed_read_not_an_empty_list()
+    {
+        var innertube = Substitute.For<IInnertubeClient>();
+        innertube
+            .BrowsePlaylistAsync(PlaylistId, Arg.Any<CancellationToken>())
+            .Returns<Task<InnertubePlaylist>>(_ => throw new InnertubeLayoutException("the first page"));
+
+        var result = await new YouTubeMusicPlaylistProvider(innertube).FetchAsync(
+            List(("playlist", PlaylistId)),
+            CancellationToken.None);
+
+        result.Status.Should().Be(ImportListReadStatus.Failed);
+        result.Entries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_playlist_read_cut_at_the_page_cap_is_a_truncated_read()
+    {
+        var innertube = Substitute.For<IInnertubeClient>();
+        innertube
+            .BrowsePlaylistAsync(PlaylistId, Arg.Any<CancellationToken>())
+            .Returns(new InnertubePlaylist([new InnertubePlaylistRow("kJQP7kiw5Fk", "Despacito", "Luis Fonsi", null, null, null)], Truncated: true));
+
+        var result = await new YouTubeMusicPlaylistProvider(innertube).FetchAsync(
+            List(("playlist", PlaylistId)),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        result.Status.Should().Be(ImportListReadStatus.Truncated);
+    }
+
+    private const string EmptyShelf =
+        """{"contents":{"twoColumnBrowseResultsRenderer":{"secondaryContents":{"sectionListRenderer":{"contents":[{"musicPlaylistShelfRenderer":{}}]}}}}}""";
+
     /// <summary>The answer a private or unknown playlist gets, as a method group so NSubstitute's <c>Returns</c> overloads stay unambiguous.</summary>
-    private static Task<IReadOnlyList<InnertubePlaylistRow>> NotFound(NSubstitute.Core.CallInfo call) =>
+    private static Task<InnertubePlaylist> NotFound(NSubstitute.Core.CallInfo call) =>
         throw new InnertubeException(HttpStatusCode.NotFound, "The requested item was not found.");
 
     private static InnertubeClient Client(StubbedInnertubeHandler handler) =>

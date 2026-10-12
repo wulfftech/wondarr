@@ -86,6 +86,7 @@ public sealed class DeezerPlaylistProvider : IImportListProvider
 
         var entries = new List<ImportListEntry>();
         var index = 0;
+        var complete = false;
 
         for (var page = 0; page < MaxPages; page++)
         {
@@ -108,14 +109,17 @@ public sealed class DeezerPlaylistProvider : IImportListProvider
 
             index += tracks.Data.Count;
 
-            // A short page is the last one, and so is the page that reached the total Deezer reported.
-            if (tracks.Data.Count < PageSize || index >= tracks.Total)
+            // Only an empty page, or the page that reached the total Deezer reported, ends the read: a
+            // short page is not the last one (Deezer can drop unavailable tracks from a page), and a
+            // total of 0 means Deezer did not say. Running out of pages first is a truncated read.
+            if (tracks.Data.Count == 0 || (tracks.Total > 0 && index >= tracks.Total))
             {
+                complete = true;
                 break;
             }
         }
 
-        return new ImportListFetchResult(entries);
+        return new ImportListFetchResult(entries, Truncated: !complete);
     }
 
     private static ImportListEntry Entry(DeezerTrack track) => new(
