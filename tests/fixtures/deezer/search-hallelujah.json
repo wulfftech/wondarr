@@ -1,0 +1,50 @@
+{
+  "data": [
+    {
+      "id": 3001,
+      "readable": true,
+      "title": "Hallelujah",
+      "title_short": "Hallelujah",
+      "title_version": "",
+      "isrc": "USSM19402001",
+      "link": "https://www.deezer.com/track/3001",
+      "duration": 414,
+      "rank": 900000,
+      "explicit_lyrics": false,
+      "artist": { "id": 5001, "name": "Jeff Buckley", "type": "artist" },
+      "album": { "id": 6001, "title": "Grace", "type": "album" },
+      "type": "track"
+    },
+    {
+      "id": 3002,
+      "readable": true,
+      "title": "Hallelujah",
+      "title_short": "Hallelujah",
+      "title_version": "",
+      "isrc": "USSM18400002",
+      "link": "https://www.deezer.com/track/3002",
+      "duration": 277,
+      "rank": 800000,
+      "explicit_lyrics": false,
+      "artist": { "id": 5002, "name": "Leonard Cohen", "type": "artist" },
+      "album": { "id": 6002, "title": "Various Positions", "type": "album" },
+      "type": "track"
+    },
+    {
+      "id": 3003,
+      "readable": true,
+      "title": "Hallelujah",
+      "title_short": "Hallelujah",
+      "title_version": "",
+      "isrc": "USSM11500003",
+      "link": "https://www.deezer.com/track/3003",
+      "duration": 201,
+      "rank": 700000,
+      "explicit_lyrics": false,
+      "artist": { "id": 5003, "name": "Pentatonix", "type": "artist" },
+      "album": { "id": 6003, "title": "That's Christmas To Me", "type": "album" },
+      "type": "track"
+    }
+  ],
+  "total": 3
+}

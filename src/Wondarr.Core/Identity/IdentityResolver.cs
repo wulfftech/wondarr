@@ -97,6 +97,16 @@ public sealed partial class IdentityResolver : IIdentityResolver
     /// <summary>The lowest total score a candidate may have and still be accepted.</summary>
     private const double AcceptScore = 70;
 
+    /// <summary>
+    /// The lowest similarity a free-text line (no <c>Artist - Title</c> separator) may have to the chosen
+    /// hit's "artist title" for the line to resolve on its own (owner question 19). It is the token-sort
+    /// ratio of <see cref="TextMatching.Similarity"/> over the whole line against the hit's artist and
+    /// title together: 1 for the same words in any order, about 0.91 for two typos in "Jeff Buckley
+    /// Hallelujah", about 0.45 for "Hallelujah" alone or with the wrong artist. It equals
+    /// <see cref="AcceptTitle"/>: a typo or two passes, a missing or wrong artist does not.
+    /// </summary>
+    public const double FreeTextFloor = 0.85;
+
     /// <summary>The lowest title similarity an accepted candidate may have.</summary>
     private const double AcceptTitle = 0.85;
 
@@ -352,6 +362,17 @@ public sealed partial class IdentityResolver : IIdentityResolver
     {
         var outcome = await RunTextPipelineAsync(input, null, cancellationToken).ConfigureAwait(false);
 
+        // Free text has no artist to hold the hit to, so it resolves on its own only when the hit's
+        // artist and title together are what was typed (owner question 19). Anything else goes to the
+        // review screen with the candidates it found.
+        if (input.Kind == LookupKind.FreeText && outcome.Reference is not null && !CloselyMatches(input, outcome.Reference))
+        {
+            return Unresolved(
+                input,
+                $"'{input.Raw}' has no artist and title to check the match against; pick the song yourself",
+                BuildCandidates(outcome, ReviewCandidateLimit));
+        }
+
         if (outcome.Ranked.Count > 0)
         {
             var pick = await IdentityWithReleasesAsync(RecordingsOf(outcome.Ranked), null, cancellationToken)
@@ -603,16 +624,56 @@ public sealed partial class IdentityResolver : IIdentityResolver
     private static DeezerTrack? FindFreeTextReference(IReadOnlyList<DeezerTrack> hits, LookupInput input)
     {
         var expected = FlagsOf(input.Raw, null) & VersionFlagNames.HardFlags;
+        DeezerTrack? first = null;
 
         foreach (var hit in hits)
         {
-            if ((DeezerFlags(hit) & VersionFlagNames.HardFlags) == expected)
+            if ((DeezerFlags(hit) & VersionFlagNames.HardFlags) != expected)
+            {
+                continue;
+            }
+
+            // The first hit that is also what was typed wins; failing that, the first flag-compatible
+            // hit stays the reference (the review screen's candidates are built around it).
+            if (CloselyMatches(input, hit))
             {
                 return hit;
             }
+
+            first ??= hit;
         }
 
-        return null;
+        return first;
+    }
+
+    /// <summary>
+    /// Whether a free-text line is closely what a Deezer hit's artist and title say: at least two words
+    /// (a lone word has no artist), and a token-sort similarity of at least <see cref="FreeTextFloor"/>
+    /// to "artist title", tried with the full and the version-stripped title and with and without a
+    /// leading "the" on the artist.
+    /// </summary>
+    private static bool CloselyMatches(LookupInput input, DeezerTrack hit)
+    {
+        if (TextMatching.Normalize(input.Raw).Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 2)
+        {
+            return false;
+        }
+
+        var titles = new[] { hit.Title, BaseTitleOf(hit.TitleShort ?? hit.Title) };
+        var artists = new[] { hit.Artist.Name, TextMatching.NormalizeArtist(hit.Artist.Name) };
+
+        foreach (var title in titles)
+        {
+            foreach (var artist in artists)
+            {
+                if (TextMatching.Similarity(input.Raw, string.Concat(artist, " ", title)) >= FreeTextFloor)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
