@@ -27,7 +27,7 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
 function install(
   libraries: unknown = REFERENCE_LIBRARIES,
   post: () => Response = () => jsonResponse(REFERENCE_LIBRARIES[0]),
-  ownedSongs = 12,
+  ownedSongs: number | (() => Response) = 12,
 ): FetchMock {
   return installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
@@ -43,7 +43,7 @@ function install(
     }
 
     if (url.includes('/ownedsongs')) {
-      return jsonResponse({ count: ownedSongs });
+      return typeof ownedSongs === 'function' ? ownedSongs() : jsonResponse({ count: ownedSongs });
     }
 
     if (url.includes('/api/v1/referencelibrary')) {
@@ -163,7 +163,7 @@ describe('ReferenceLibrariesPage', () => {
 
     // The safe choice is the default, and the dialog says which choice starts searching.
     expect(within(dialog).getByRole('radio', { name: /Keep them wanted/ })).toBeChecked();
-    expect(within(dialog).getByRole('radio', { name: /search for them now/ })).not.toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: /search every wanted song now/ })).not.toBeChecked();
     expect(within(dialog).getByRole('radio', { name: 'Unmonitor them' })).not.toBeChecked();
     expect(within(dialog).getByText(/Only the second choice starts searching/)).toBeInTheDocument();
 
@@ -177,7 +177,7 @@ describe('ReferenceLibrariesPage', () => {
   });
 
   it.each([
-    ['Make them wanted and search for them now', 'search'],
+    ['Make them wanted and search every wanted song now', 'search'],
     ['Unmonitor them', 'unmonitor'],
   ])('sends the chosen option "%s" with the DELETE', async (label, songs) => {
     install();
@@ -197,6 +197,44 @@ describe('ReferenceLibrariesPage', () => {
       const deletion = sent().find((request) => request.method === 'DELETE');
 
       expect(deletion?.url).toContain(`/api/v1/referencelibrary/3?songs=${songs}`);
+    });
+  });
+
+  it('still allows the delete when the count fails, and can retry the count', async () => {
+    let attempts = 0;
+
+    install(
+      REFERENCE_LIBRARIES,
+      () => jsonResponse(REFERENCE_LIBRARIES[0]),
+      () => {
+        attempts += 1;
+
+        return attempts <= 1 ? new Response('boom', { status: 500 }) : jsonResponse({ count: 4 });
+      },
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await openRowMenu(user, 'Old music');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Delete reference library' });
+
+    expect(await within(dialog).findByText(/could not be read/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: /Keep them wanted/ })).toBeChecked();
+    expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeEnabled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
+
+    expect(await within(dialog).findByText(/4 songs are owned through this folder/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Retry' })).toBeNull();
+
+    // The delete goes out with the default choice even though the count had failed.
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(sent().find((request) => request.method === 'DELETE')?.url).toContain('?songs=wanted');
     });
   });
 
