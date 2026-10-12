@@ -73,21 +73,53 @@ public sealed class DeezerProvidersTests
         result.Status.Should().Be(ImportListReadStatus.Complete);
     }
 
-    // An empty page ends the read, but only a Deezer that reported no total (0) makes that a complete one.
-    [Fact]
-    public async Task An_empty_page_short_of_the_total_is_a_truncated_read()
+    // An empty page ends the read. Deezer's total counts tracks it no longer serves, so a read a few
+    // short of it is whole (at most 5 tracks, or 10 % of the total) and one far short of it is not.
+    [Theory]
+    [InlineData(8, 10, true)]
+    [InlineData(95, 100, true)]
+    [InlineData(90, 100, true)]
+    [InlineData(89, 100, false)]
+    [InlineData(50, 100, false)]
+    [InlineData(2, 50, false)]
+    public async Task An_empty_page_short_of_the_total_is_complete_when_the_gap_is_small_and_a_short_read_when_it_is_not(
+        int returned,
+        int total,
+        bool complete)
     {
         var deezer = Client();
         deezer.GetPlaylistTracksAsync(PlaylistId, 0, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
-            .Returns(Page(tracks: 2, total: 50));
-        deezer.GetPlaylistTracksAsync(PlaylistId, 2, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
-            .Returns(Page(tracks: 0, total: 50));
+            .Returns(Page(returned, total));
+        deezer.GetPlaylistTracksAsync(PlaylistId, returned, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
+            .Returns(Page(tracks: 0, total: total));
 
         var result = await Fetch(new DeezerPlaylistProvider(deezer), ("playlist", PlaylistId.ToString()));
 
         result.Success.Should().BeTrue();
-        result.Entries.Should().HaveCount(2);
-        result.Status.Should().Be(ImportListReadStatus.Truncated);
+        result.Entries.Should().HaveCount(returned);
+        result.Truncated.Should().BeFalse("it did not stop at the provider's own cap");
+
+        if (complete)
+        {
+            result.Status.Should().Be(ImportListReadStatus.Complete);
+        }
+        else
+        {
+            result.Status.Should().Be(ImportListReadStatus.FellShort);
+            result.ShortRead.Should().Be($"Deezer reported {total} tracks but returned {returned}");
+        }
+    }
+
+    [Fact]
+    public async Task A_playlist_that_returns_nothing_though_deezer_announced_tracks_is_a_short_read()
+    {
+        var deezer = Client();
+        deezer.GetPlaylistTracksAsync(PlaylistId, 0, DeezerPlaylistProvider.PageSize, Arg.Any<CancellationToken>())
+            .Returns(Page(tracks: 0, total: 40));
+
+        var result = await Fetch(new DeezerPlaylistProvider(deezer), ("playlist", PlaylistId.ToString()));
+
+        result.Status.Should().Be(ImportListReadStatus.FellShort);
     }
 
     [Fact]

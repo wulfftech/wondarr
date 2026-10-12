@@ -77,6 +77,12 @@ public enum ImportListReadStatus
     /// <summary>The provider stopped at its own cap; the source holds more than the read returned.</summary>
     Truncated,
 
+    /// <summary>
+    /// The provider read to the end of what the source would give, but the source announced more than it
+    /// returned (Deezer drops unavailable tracks from its pages). Not a cap: the user can trust such a read.
+    /// </summary>
+    FellShort,
+
     /// <summary>The provider could not read the source, or could not parse what it sent.</summary>
     Failed,
 }
@@ -86,9 +92,19 @@ public enum ImportListReadStatus
 /// <param name="Error">Why the source could not be read, or <see langword="null"/> on success.</param>
 /// <param name="Truncated">
 /// Whether the provider stopped at its own cap, so the source holds items past the end of
-/// <paramref name="Entries"/>. A truncated read adds new items but never drives a removal.
+/// <paramref name="Entries"/>. A truncated read adds new items but never drives a removal, and the
+/// user cannot trust it away.
 /// </param>
-public sealed record ImportListFetchResult(IReadOnlyList<ImportListEntry> Entries, string? Error = null, bool Truncated = false)
+/// <param name="ShortRead">
+/// Why the read fell short of what the source announced without hitting a cap, for example
+/// <c>Deezer reported 100 tracks but returned 50</c>, or <see langword="null"/>. A short read is
+/// suspect like an empty one; the user may trust it.
+/// </param>
+public sealed record ImportListFetchResult(
+    IReadOnlyList<ImportListEntry> Entries,
+    string? Error = null,
+    bool Truncated = false,
+    string? ShortRead = null)
 {
     /// <summary>Gets a value indicating whether the source was read.</summary>
     public bool Success => Error is null;
@@ -96,7 +112,9 @@ public sealed record ImportListFetchResult(IReadOnlyList<ImportListEntry> Entrie
     /// <summary>Gets how far the read got: complete, cut at the provider's cap, or failed.</summary>
     public ImportListReadStatus Status => Error is not null
         ? ImportListReadStatus.Failed
-        : Truncated ? ImportListReadStatus.Truncated : ImportListReadStatus.Complete;
+        : Truncated ? ImportListReadStatus.Truncated
+        : ShortRead is not null ? ImportListReadStatus.FellShort
+        : ImportListReadStatus.Complete;
 
     /// <summary>A failed read.</summary>
     /// <param name="error">Why the source could not be read.</param>

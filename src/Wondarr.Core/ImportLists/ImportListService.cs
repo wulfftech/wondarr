@@ -925,6 +925,7 @@ public sealed partial class ImportListService : IImportListService
             position,
             truncated,
             cut,
+            fetched.ShortRead,
             heldBefore,
             list.SourceEditedSinceRead,
             list.TrustNextRead);
@@ -980,6 +981,7 @@ public sealed partial class ImportListService : IImportListService
         int read,
         bool truncated,
         bool cut,
+        string? shortRead,
         int heldBefore,
         bool sourceEdited,
         bool trusted)
@@ -1003,10 +1005,16 @@ public sealed partial class ImportListService : IImportListService
                 $"Read stopped at the source's cap after {read} items; removals skipped");
         }
 
-        // The user said the next read can be believed, whatever its size.
+        // The user said the next read can be believed, whatever its size (a cap, above, is not a size).
         if (trusted)
         {
             return null;
+        }
+
+        // The source announced more than it returned and the gap is not a few unavailable tracks.
+        if (shortRead is not null)
+        {
+            return shortRead + "; removals skipped";
         }
 
         // After an edit of the source the "under half" rule is off (a smaller playlist is expected);

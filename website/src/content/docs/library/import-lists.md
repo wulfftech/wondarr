@@ -60,7 +60,7 @@ For `addAndUnmonitor` and `mirror`, Wondarr does not act on a read that cannot b
 
 - the source answered with an error or something Wondarr could not read;
 - the read stopped at a limit (10 000 items for Deezer, Last.fm and ListenBrainz; 100 pages for YouTube Music), or the source is longer than the 10 000 items Wondarr reads (removals are then never applied);
-- a page came back empty before the end the source announced;
+- a page came back empty before the end the source announced (for a Deezer playlist, a read that returns more than 5 tracks and 10 % fewer than Deezer's own count; Deezer counts tracks it no longer serves, so a smaller gap is fine). This "short read" can be trusted with **Trust the next read**; a read cut at a limit cannot;
 - it returned nothing for a list that had items;
 - or it returned fewer than half the items of the last complete read, for a list of 20 items or more.
 
@@ -74,7 +74,7 @@ When an item that left the source returns, Wondarr undoes what the list did. A s
 
 ### Songs wait for the reference scan
 
-While a [reference library](/wondarr/library/reference-libraries/) still has files it has not identified, songs that a list adds are added but not searched for: you may already own them in files the scan has not reached. **Health** says "Import list songs wait for the reference scan of … to finish". When the scan is done, the next hourly sync run starts a search for each of those songs, once. A file that was deferred (for example because AcoustID was unavailable) does not hold anything back. No song waits more than 24 hours: after that it is searched anyway and Health warns, naming the library. Nothing is searched from here while `search_on_add` is off; the regular missing-song search finds the songs. Songs you add by hand, or from a pasted list, are searched at once.
+While a [reference library](/wondarr/library/reference-libraries/) still has files it has not identified, songs that a list adds are added but not searched for: you may already own them in files the scan has not reached. **Health** says "Import list songs wait for the reference scan of … to finish". When the scan is done, the next hourly sync run starts a search for each of those songs, once. A file that was deferred (for example because AcoustID was unavailable) does not hold anything back. No song waits more than 24 hours: after that it is searched anyway and Health warns, naming the library. The regular missing-song search leaves these songs alone for the same wait. Nothing is searched from here while `search_on_add` is off; the regular missing-song search finds the songs. Songs you add by hand, or from a pasted list, are searched at once.
 
 ## Quality profile and library
 
