@@ -59,6 +59,44 @@ public sealed class SongEditorServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_user_monitored_change_clears_the_list_policy_flag_on_those_songs_only()
+    {
+        await using var context = await ContextAsync();
+        var a = await SongSeed.AddAsync(context, "A");
+        var b = await SongSeed.AddAsync(context, "B");
+        var c = await SongSeed.AddAsync(context, "C");
+        var list = new ImportList { Name = "L", Type = "paste", QualityProfileId = SeedData.StandardProfileId, LibraryId = SeedData.DefaultLibraryId };
+        context.ImportLists.Add(list);
+        await context.SaveChangesAsync();
+
+        foreach (var song in new[] { a, b, c })
+        {
+            context.ImportListItems.Add(new ImportListItem
+            {
+                ImportListId = list.Id,
+                ExternalId = song.Title,
+                SongId = song.Id,
+                PolicyUnmonitored = true,
+            });
+        }
+
+        await context.SaveChangesAsync();
+
+        var editor = SongSeed.Editor(context, Substitute.For<ICommandQueue>());
+
+        // A tag-only edit is not a monitored change.
+        await editor.EditAsync(new SongEditorRequest([a.Id], Tags: ["x"], ApplyTags: "add"), CancellationToken.None);
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.PolicyUnmonitored)).Should().Be(3);
+
+        await editor.EditAsync(new SongEditorRequest([a.Id, b.Id], Monitored: false), CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        var flags = await context.ImportListItems.OrderBy(item => item.ExternalId).Select(item => item.PolicyUnmonitored).ToListAsync();
+        flags.Should().Equal(false, false, true);
+    }
+
+    [Fact]
     public async Task Monitored_and_profile_change_in_one_call_and_the_result_carries_the_songs()
     {
         await using var context = await ContextAsync();
