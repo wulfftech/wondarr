@@ -256,7 +256,7 @@ function LibraryForm({ library, onClose }: { library: ReferenceLibraryResource |
  */
 const DELETE_CHOICES: { value: ReferenceLibraryDeleteChoice; label: string }[] = [
   { value: 'wanted', label: 'Keep them wanted; the scheduled search will pick them up' },
-  { value: 'search', label: 'Make them wanted and search for them now' },
+  { value: 'search', label: 'Make them wanted and search every wanted song now' },
   { value: 'unmonitor', label: 'Unmonitor them' },
 ];
 
@@ -273,9 +273,17 @@ function DeleteLibraryContent({ library, onClose }: { library: ReferenceLibraryR
       {owned.isPending && <Text size="sm">Counting the songs this folder owns…</Text>}
 
       {owned.isError && (
-        <Text size="sm" c="red">
-          {owned.error.message}
-        </Text>
+        <Stack gap="xs">
+          <Text size="sm" c="red">
+            {owned.error.message}
+          </Text>
+          <Text size="sm">You can still delete the library. Your files are not touched.</Text>
+          <Group>
+            <Button size="xs" variant="default" loading={owned.isFetching} onClick={() => void owned.refetch()}>
+              Retry
+            </Button>
+          </Group>
+        </Stack>
       )}
 
       {count !== undefined && (
@@ -287,10 +295,10 @@ function DeleteLibraryContent({ library, onClose }: { library: ReferenceLibraryR
         </Text>
       )}
 
-      {count !== undefined && count > 0 && (
+      {((count !== undefined && count > 0) || owned.isError) && (
         <Radio.Group
           label="What should happen to those songs?"
-          description="Only the second choice starts searching right away."
+          description="Only the second choice starts searching right away, and it searches every wanted song, not only these."
           value={choice}
           onChange={setChoice}
         >
@@ -315,7 +323,7 @@ function DeleteLibraryContent({ library, onClose }: { library: ReferenceLibraryR
         <Button
           color="red"
           loading={remove.isPending}
-          disabled={count === undefined}
+          disabled={owned.isPending}
           onClick={() => remove.mutate({ id: Number(library.id), songs: choice }, { onSuccess: onClose })}
         >
           Delete
