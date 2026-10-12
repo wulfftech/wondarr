@@ -8,6 +8,10 @@ You know the feeling. You want *that* song — the one everybody knows — and L
 
 If you've used Sonarr or Radarr, you already know how to drive it.
 
+## AI disclaimer
+
+Developed in tandem with Claude. All architecture and security decsions human-made, code generation hand-held and reviewed. I have absolutley no intention of this project becoming cooked like Huntarr. That siad if you find anything i didn't, please [create an issue](https://github.com/wulfftech/wondarr/issues) or a PR.
+
 ![The library](docs/screenshots/library.png)
 
 ## What it does
