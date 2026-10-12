@@ -20,13 +20,13 @@ The table shows each library's mode, when it was last scanned (hover for the sca
 - **Reference only**: Wondarr only reads the folder. An identified file becomes the song's file where it lies. The song counts as owned and is never searched for, upgraded or replaced automatically. If you later grab a file for it by hand, the new file goes into your managed library and the song points at it; your own file is left alone.
 - **Adopt**: identified files are **copied** into the target library through the normal import path: tagged, filed by the library's layout and album policy, with cover and lyrics. The originals are never moved or changed. The copy is an ordinary library file from then on, so it can be upgraded. Use **Adopt now** in a library's menu to start it.
 
-In both modes your files are only ever read. Deleting a reference library does not touch them. The delete dialog tells you how many songs are owned through that folder and asks what should happen to them: keep them wanted (the default; the scheduled search picks them up in its own time), make them wanted and search for them now, or unmonitor them.
+In both modes your files are only ever read. Deleting a reference library does not touch them. The delete dialog tells you how many songs are owned through that folder and asks what should happen to them: keep them wanted (the default; the scheduled search picks them up in its own time), make them wanted and search every wanted song now (the search is not limited to these songs), or unmonitor them.
 
 ## Files that go missing, move or change
 
 If a file disappears from the folder, its song keeps counting as owned for now. Only when a later scan finds it still gone, and at least 24 hours after it was first missed, does the song lose it and become wanted again, if it is monitored. So a rename or a move never loses the song: the scan finds the same song at its new path and the song follows it (and Adopt mode adopts the new file as usual).
 
-If a scan finds more than 10 % of a library's identified files missing at once, or more than 200 of them (whichever is smaller), Wondarr assumes the share is not mounted. It marks them missing but releases nothing, and Health shows a warning naming the library and the count. The warning clears by itself when the files are back or fewer are missing.
+If a scan finds more than 10 % of a library's owned files missing at once, or more than 200 of them (whichever is smaller, and never fewer than 3 files), Wondarr assumes the share is not mounted. It marks them missing but releases nothing, and Health shows a warning naming the library and the count. The warning clears by itself when the files are back or fewer are missing.
 
 A file that is edited (a new size or modification time) is read and identified again, unless you skipped it or it was adopted: your choice stays, and only its size and measurements are refreshed.
 
