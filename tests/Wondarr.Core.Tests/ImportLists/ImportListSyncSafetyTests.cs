@@ -115,6 +115,31 @@ public sealed class ImportListSyncSafetyTests : IDisposable
     }
 
     [Fact]
+    public async Task Changing_the_lists_source_makes_the_next_read_trusted_even_when_it_is_empty()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror"), CancellationToken.None);
+        await SeedItemsAsync(context, list, 50, songs: []);
+
+        _provider.Entries = [];
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(0);
+
+        // Pointing the list at another source says the empty read is expected.
+        await service.UpdateAsync(
+            list.Id,
+            Draft("Mirror") with { Settings = JsonDocument.Parse("""{"playlist":"another"}""").RootElement.Clone() },
+            CancellationToken.None);
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(50);
+        (await context.ImportLists.AsNoTracking().SingleAsync()).SuspectReadMessage.Should().BeNull();
+    }
+
+    [Fact]
     public async Task An_add_only_list_has_nothing_to_lose_and_is_not_held_to_the_thresholds()
     {
         await using var context = await ContextAsync();

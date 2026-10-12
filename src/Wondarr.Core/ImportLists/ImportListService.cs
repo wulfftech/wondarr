@@ -314,7 +314,19 @@ public sealed partial class ImportListService : IImportListService
             throw new ImportListValidationException("type", "A list's type cannot be changed; create a new list instead.");
         }
 
+        var (settingsBefore, sourceBefore) = (list.Settings, list.SourceText);
+
         await ApplyAsync(list, draft, Provider(list.Type), list.Settings, cancellationToken).ConfigureAwait(false);
+
+        // A different source (a new playlist, a new file) has no "usual size": its first read is
+        // trusted, which is also how a list that really was emptied is let go of.
+        if (!string.Equals(settingsBefore, list.Settings, StringComparison.Ordinal)
+            || !string.Equals(sourceBefore, list.SourceText, StringComparison.Ordinal))
+        {
+            list.LastCompleteReadCount = -1;
+            list.SuspectReadMessage = null;
+        }
+
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return list;
@@ -736,9 +748,12 @@ public sealed partial class ImportListService : IImportListService
 
         // What the list held before this read: the last complete read's size, or — for a list that
         // has not had one recorded — the items it still has.
-        var heldBefore = list.LastCompleteReadCount > 0
-            ? list.LastCompleteReadCount
-            : byExternalId.Values.Count(item => item.RemovedAt is null);
+        var heldBefore = list.LastCompleteReadCount switch
+        {
+            < 0 => 0,
+            > 0 => list.LastCompleteReadCount,
+            _ => byExternalId.Values.Count(item => item.RemovedAt is null),
+        };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var position = 0;
