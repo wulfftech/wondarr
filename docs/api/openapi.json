@@ -3634,6 +3634,47 @@
         }
       }
     },
+    "/api/v1/importlist/{id}/trustnextread": {
+      "post": {
+        "tags": [
+          "ImportList"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportListResource"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/importlist/{id}/sync": {
       "post": {
         "tags": [
@@ -6714,6 +6755,16 @@
               "null",
               "string"
             ]
+          },
+          "suspectReadMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "trustNextRead": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

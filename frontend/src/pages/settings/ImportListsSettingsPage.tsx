@@ -706,11 +706,7 @@ export function ImportListsSettingsPage() {
         )}
       </Modal>
 
-      <Modal
-        opened={pendingTrust !== null}
-        onClose={() => setPendingTrust(null)}
-        title="Trust the next read"
-      >
+      <Modal opened={pendingTrust !== null} onClose={() => setPendingTrust(null)} title="Trust the next read">
         <Stack>
           <Text size="sm">
             {pendingTrust?.suspectReadMessage}. If you trust the next read, it will remove anything missing from it:
