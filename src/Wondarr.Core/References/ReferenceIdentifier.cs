@@ -154,7 +154,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
         var options = _options.CurrentValue;
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var addOptions = ReferenceOwnership.AddOptions(library);
+        var addOptions = ReferenceOwnership.AddOptions(library) with { IsolateFailures = true };
 
         var pending = await _database.ReferenceFiles
             .Where(row => row.ReferenceLibraryId == referenceLibraryId
@@ -224,8 +224,29 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                             cancellationToken)
                         .ConfigureAwait(false);
 
+                // One identity the song service could not add (a collision, an identity without an artist)
+                // does not take the chunk with it: its file stays pending and the next scan retries it.
                 for (var index = 0; index < accepted.Count; index++)
                 {
+                    if (results[index].Outcome == SongAddOutcome.Failed)
+                    {
+                        var failed = accepted[index];
+
+                        planned[planned.IndexOf(failed)] = Deferred(
+                            failed.Row,
+                            failed.RootPath,
+                            "the song could not be added; the next scan retries this file",
+                            failed.Fingerprint);
+                    }
+                }
+
+                for (var index = 0; index < accepted.Count; index++)
+                {
+                    if (results[index].Outcome == SongAddOutcome.Failed)
+                    {
+                        continue;
+                    }
+
                     var row = accepted[index];
                     var song = results[index].Song;
 
@@ -307,6 +328,24 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                 }
 
                 await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+
+                // The chunk failed as a whole and nothing of it was saved: its files stay pending and the
+                // next scan retries them. The tracker is cleared so the adopter's first save, which runs
+                // in this same scope, does not send the failed chunk again; the rows still to come are
+                // attached again, because clearing let go of them too.
+                LogChunkFailed(_logger, referenceLibraryId, chunk.Count, exception);
+
+                _database.ChangeTracker.Clear();
+                _database.ReferenceFiles.AttachRange(pending.Skip(start + chunk.Count));
+
+                deferred += chunk.Count;
+                scanned += chunk.Count;
+
+                continue;
             }
             catch
             {
@@ -977,6 +1016,9 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "AcoustID is unusable ({Status}); the fingerprint tier is skipped for this run")]
     private static partial void LogAcoustIdDisabled(ILogger logger, string status);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Identifying a chunk of {Count} files of reference library {ReferenceLibraryId} failed; its files stay pending")]
+    private static partial void LogChunkFailed(ILogger logger, long referenceLibraryId, int count, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Identifying reference file {ReferenceFileId} failed; it stays pending")]
     private static partial void LogRowFailed(ILogger logger, long referenceFileId, Exception exception);
