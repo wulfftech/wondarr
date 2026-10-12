@@ -38,7 +38,9 @@ internal static class ReferenceOwnership
     /// <param name="rootPath">The library's root.</param>
     /// <param name="relativePath">The row's <c>/</c>-separated path under the root.</param>
     public static string AbsolutePath(string rootPath, string relativePath) =>
-        Path.Combine(rootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Path.Combine(
+            rootPath,
+            Path.DirectorySeparatorChar == '/' ? relativePath : relativePath.Replace('/', Path.DirectorySeparatorChar));
 
     /// <summary>
     /// How a song identified through a reference library is added: filed in the library the reference
@@ -168,7 +170,53 @@ internal static class ReferenceOwnership
             return new LinkResult(true, null);
         }
 
+        // The song's reference file is gone from disk and the same song has turned up at a new path: the
+        // file was renamed or moved. The song follows it, in this same save, instead of pointing at a
+        // dead path for good.
+        if (await HeldRowMissingAsync(database, held, row.Id).ConfigureAwait(false) is { } vanished)
+        {
+            vanished.SongId = null;
+            Apply(held, absolutePath, row, probe, acoustId, identifiedBy, now);
+
+            return new LinkResult(true, null);
+        }
+
         return LinkResult.Duplicate;
+    }
+
+    /// <summary>
+    /// The reference row behind a song's reference file, when that row is <c>Missing</c> and is not the
+    /// row being linked now.
+    /// </summary>
+    private static async Task<ReferenceFile?> HeldRowMissingAsync(WondarrDbContext database, SongFile held, long newRowId)
+    {
+        if (!string.Equals(held.SourceType, SourceTypes.Reference, StringComparison.Ordinal)
+            || string.IsNullOrEmpty(held.SourceRef))
+        {
+            return null;
+        }
+
+        ReferenceSource? source;
+
+        try
+        {
+            source = JsonSerializer.Deserialize<ReferenceSource>(held.SourceRef, StoredJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        if (source is null || source.ReferenceFileId == newRowId)
+        {
+            return null;
+        }
+
+        var old = await database.ReferenceFiles
+            .FirstOrDefaultAsync(candidate => candidate.Id == source.ReferenceFileId)
+            .ConfigureAwait(false);
+
+        return old is { State: ReferenceFileState.Missing } ? old : null;
     }
 
     /// <summary>
