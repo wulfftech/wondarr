@@ -27,6 +27,11 @@ internal static class InnertubePlaylistParser
     /// <summary>A duration as InnerTube shows it: M:SS, MM:SS or H:MM:SS.</summary>
     private static readonly Regex DurationRegex = new(@"^(\d+:)*\d+:\d+$", RegexOptions.CultureInvariant);
 
+    /// <summary>The header's "N tracks" (or "1 track"), with thousands separators.</summary>
+    private static readonly Regex TrackCountRegex = new(
+        @"^(?<n>\d[\d,]*)\s+tracks?$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     /// <summary>The browse id prefix of a channel: an artist page.</summary>
     private const string ChannelBrowseIdPrefix = "UC";
 
@@ -41,18 +46,30 @@ internal static class InnertubePlaylistParser
 
     /// <summary>Parses the first page of a playlist browse.</summary>
     /// <param name="root">The response, already parsed.</param>
-    /// <returns>The rows in playlist order, and the next page's token when there is one.</returns>
-    public static (IReadOnlyList<InnertubePlaylistRow> Rows, string? Continuation) ParseFirstPage(JsonElement root)
+    /// <returns>
+    /// The rows in playlist order and the next page's token when there is one, or <see langword="null"/>
+    /// when the response is not the layout the parser knows (an empty shelf is a page, an absent one is not).
+    /// </returns>
+    public static (IReadOnlyList<InnertubePlaylistRow> Rows, string? Continuation)? ParseFirstPage(JsonElement root)
     {
-        var items = Shelf(root);
+        var shelf = Shelf(root);
 
-        return items is null ? ([], null) : ReadItems(items.Value);
+        return shelf switch
+        {
+            // No shelf: unknown layout, unless the playlist's header says it holds 0 tracks.
+            null => HeaderTrackCount(root) == 0 ? ([], null) : null,
+            { } items when items.ValueKind == JsonValueKind.Array => ReadItems(items),
+            _ => ([], null),
+        };
     }
 
     /// <summary>Parses a continuation answer.</summary>
     /// <param name="root">The response, already parsed.</param>
-    /// <returns>The rows in playlist order, and the next page's token when there is one.</returns>
-    public static (IReadOnlyList<InnertubePlaylistRow> Rows, string? Continuation) ParseContinuation(JsonElement root)
+    /// <returns>
+    /// The rows in playlist order and the next page's token when there is one, or <see langword="null"/>
+    /// when the answer is not the layout the parser knows.
+    /// </returns>
+    public static (IReadOnlyList<InnertubePlaylistRow> Rows, string? Continuation)? ParseContinuation(JsonElement root)
     {
         if (TryGet(root, "onResponseReceivedActions", out var actions) &&
             actions.ValueKind == JsonValueKind.Array &&
@@ -64,10 +81,13 @@ internal static class InnertubePlaylistParser
             return ReadItems(items);
         }
 
-        return ([], null);
+        return null;
     }
 
-    /// <summary>The first page's shelf contents, when the response has them.</summary>
+    /// <summary>
+    /// The first page's shelf contents: <see langword="null"/> when the response has no playlist shelf,
+    /// and a non-array value (the default element) when the shelf is there but holds no contents.
+    /// </summary>
     private static JsonElement? Shelf(JsonElement root)
     {
         if (!TryGet(root, "contents", out var contents) ||
@@ -77,14 +97,51 @@ internal static class InnertubePlaylistParser
             !TryGet(sectionList, "contents", out var sections) ||
             sections.ValueKind != JsonValueKind.Array ||
             sections.GetArrayLength() == 0 ||
-            !TryGet(sections[0], "musicPlaylistShelfRenderer", out var shelf) ||
-            !TryGet(shelf, "contents", out var items) ||
-            items.ValueKind != JsonValueKind.Array)
+            !TryGet(sections[0], "musicPlaylistShelfRenderer", out var shelf))
         {
             return null;
         }
 
-        return items;
+        return TryGet(shelf, "contents", out var items) ? items : default(JsonElement);
+    }
+
+    /// <summary>
+    /// The track count the playlist header states ("1,157 tracks"), or <see langword="null"/> when the
+    /// response has no such header. It lives in the first tab's header, under <c>secondSubtitle</c>.
+    /// </summary>
+    private static int? HeaderTrackCount(JsonElement root)
+    {
+        if (!TryGet(root, "contents", out var contents) ||
+            !TryGet(contents, "twoColumnBrowseResultsRenderer", out var twoColumn) ||
+            !TryGet(twoColumn, "tabs", out var tabs) ||
+            tabs.ValueKind != JsonValueKind.Array ||
+            tabs.GetArrayLength() == 0 ||
+            !TryGet(tabs[0], "tabRenderer", out var tab) ||
+            !TryGet(tab, "content", out var content) ||
+            !TryGet(content, "sectionListRenderer", out var sectionList) ||
+            !TryGet(sectionList, "contents", out var sections) ||
+            sections.ValueKind != JsonValueKind.Array ||
+            sections.GetArrayLength() == 0 ||
+            !TryGet(sections[0], "musicResponsiveHeaderRenderer", out var header) ||
+            !TryGet(header, "secondSubtitle", out var subtitle) ||
+            !TryGet(subtitle, "runs", out var runs) ||
+            runs.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var run in runs.EnumerateArray())
+        {
+            var match = TrackCountRegex.Match(Text(run, "text") ?? string.Empty);
+
+            if (match.Success &&
+                int.TryParse(match.Groups["n"].Value.Replace(",", string.Empty, StringComparison.Ordinal), NumberStyles.None, CultureInfo.InvariantCulture, out var count))
+            {
+                return count;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Every row of one page, plus the token of the page after it.</summary>

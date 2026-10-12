@@ -10,6 +10,10 @@ namespace Wondarr.Core.ImportLists;
 /// The <c>ImportListSync</c> command. With a body naming an <c>importListId</c> it syncs that list
 /// (the "Sync now" button); without one — the hourly scheduled run — it syncs every enabled list whose
 /// interval has passed, one after another, and a list whose source is down does not stop the others.
+/// Both take the list's gate (<see cref="ImportListSyncGates"/>), so one list is never synced twice at
+/// once: "Sync now" waits for a running sync of the list (handing its executor place back meanwhile),
+/// because the user asked for a read and the running one may be reading settings since changed. The
+/// scheduled run skips a list that is being synced: that sync is the read the schedule wanted.
 /// </summary>
 public sealed partial class ImportListSyncCommandHandler : ICommandHandler
 {
@@ -55,16 +59,29 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
         {
             // One list, asked for by hand: a source that cannot be read fails the command, so the
             // user sees why.
+            using var gate = await ImportListSyncGates.EnterAsync(id, context.YieldWorker, cancellationToken)
+                .ConfigureAwait(false);
+
             return await lists.SyncAsync(id, context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
         }
 
         var due = await lists.GetDueAsync(cancellationToken).ConfigureAwait(false);
         var synced = 0;
         var failed = 0;
+        var skipped = 0;
 
         foreach (var listId in due)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            using var gate = ImportListSyncGates.TryEnter(listId);
+
+            if (gate is null)
+            {
+                LogAlreadySyncing(_logger, listId);
+                skipped++;
+                continue;
+            }
 
             try
             {
@@ -87,9 +104,20 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
         // their list is due for a read of its source.
         var playlists = await lists.RefreshPlaylistsAsync(cancellationToken).ConfigureAwait(false);
 
+        // Songs the lists added while a reference scan was running were not searched for; once the
+        // scan is done they are (owner question 15).
+        var searchQueued = await lists.QueueSearchForWaitingSongsAsync(cancellationToken).ConfigureAwait(false);
+
         var summary = due.Count == 0
             ? "No import list is due"
-            : string.Create(CultureInfo.InvariantCulture, $"Synced {synced} import lists, {failed} failed");
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"Synced {synced} import lists, {failed} failed{(skipped == 0 ? string.Empty : $", {skipped} already syncing")}");
+
+        if (searchQueued > 0)
+        {
+            summary += string.Create(CultureInfo.InvariantCulture, $"; {searchQueued} searches queued for songs that waited for the reference scan");
+        }
 
         return playlists == 0
             ? summary
@@ -118,6 +146,9 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
     }
 
     private sealed record ImportListSyncBody(string? Name, long? ImportListId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Import list {ImportListId} is being synced already; the scheduled run leaves it to that sync")]
+    private static partial void LogAlreadySyncing(ILogger logger, long importListId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Syncing import list {ImportListId} failed")]
     private static partial void LogListFailed(ILogger logger, long importListId, Exception exception);

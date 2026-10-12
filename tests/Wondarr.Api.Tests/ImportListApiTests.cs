@@ -151,6 +151,36 @@ public sealed class ImportListApiTests
     }
 
     [Fact]
+    public async Task Trusting_the_next_read_sets_the_flag_and_refuses_a_pasted_or_unknown_list()
+    {
+        using var factory = SongApiTests.FakeProviders();
+        using var client = SongApiTests.Authenticated(factory);
+
+        using var created = await client.PostAsync(
+            new Uri(ListEndpoint, UriKind.Relative),
+            SongApiTests.Json(JsonSerializer.Serialize(new { type = "csv", name = "Road trip", settings = new { }, sourceText = Exportify })));
+        var listId = (await SongApiTests.ReadJsonAsync(created)).GetProperty("id").GetInt64();
+        (await SongApiTests.ReadJsonAsync(created)).GetProperty("trustNextRead").GetBoolean().Should().BeFalse();
+
+        using var trusted = await client.PostAsync(new Uri($"{ListEndpoint}/{listId}/trustnextread", UriKind.Relative), null);
+        trusted.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await SongApiTests.ReadJsonAsync(trusted)).GetProperty("trustNextRead").GetBoolean().Should().BeTrue();
+
+        using var read = await client.GetAsync(new Uri($"{ListEndpoint}/{listId}", UriKind.Relative));
+        (await SongApiTests.ReadJsonAsync(read)).GetProperty("trustNextRead").GetBoolean().Should().BeTrue();
+
+        using var pasted = await client.PostAsync(
+            new Uri("/api/v1/song/bulk", UriKind.Relative),
+            SongApiTests.Json("""{"text":"Queen - Bohemian Rhapsody"}"""));
+        var pastedId = (await SongApiTests.ReadJsonAsync(pasted)).GetProperty("importListId").GetInt64();
+        using var pastedTrust = await client.PostAsync(new Uri($"{ListEndpoint}/{pastedId}/trustnextread", UriKind.Relative), null);
+        pastedTrust.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        using var missing = await client.PostAsync(new Uri($"{ListEndpoint}/9999/trustnextread", UriKind.Relative), null);
+        missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Refuses_an_unknown_type_a_missing_file_and_a_sync_of_a_pasted_list()
     {
         using var factory = SongApiTests.FakeProviders();

@@ -83,6 +83,7 @@ public sealed class ListenBrainzLovedProvider : IImportListProvider
         var http = _factory.CreateClient(Metadata.ServiceCollectionExtensions.ListenBrainzClientName);
         var entries = new List<ImportListEntry>();
         var offset = 0;
+        var complete = false;
 
         for (var page = 0; page < MaxPages; page++)
         {
@@ -135,6 +136,7 @@ public sealed class ListenBrainzLovedProvider : IImportListProvider
 
             if (offset >= read.TotalCount)
             {
+                complete = true;
                 break;
             }
 
@@ -144,7 +146,8 @@ public sealed class ListenBrainzLovedProvider : IImportListProvider
             }
         }
 
-        return new ImportListFetchResult(entries);
+        // Newest loves come first, so a source longer than the cap loses its oldest items off the end.
+        return new ImportListFetchResult(entries, Truncated: !complete);
     }
 
     /// <summary>

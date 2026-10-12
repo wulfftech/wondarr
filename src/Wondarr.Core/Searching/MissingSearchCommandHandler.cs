@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
+using Wondarr.Core.ImportLists;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -130,7 +131,10 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
 
     /// <summary>
     /// Picks the batch: monitored songs with no file and no identified reference file, no grab in flight and their backoff expired,
-    /// the ones that have been waiting longest first (never searched songs first of all).
+    /// the ones that have been waiting longest first (never searched songs first of all). While a
+    /// reference library still has files it has not identified, a song a synced import list added in the
+    /// last 24 hours is left out: it waits for the scan (owner question 15), and the import-list sync
+    /// searches it when the scan is done or the wait is over.
     /// </summary>
     private async Task<List<long>> SelectAsync(SearchOptions options, CancellationToken cancellationToken)
     {
@@ -153,6 +157,15 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
                     && (item.State == QueueItemState.Queued
                         || item.State == QueueItemState.RemotelyQueued
                         || item.State == QueueItemState.Downloading)));
+
+            if ((await ReferenceScanWait.PendingLibrariesAsync(database, cancellationToken).ConfigureAwait(false)).Count > 0)
+            {
+                var waitCutoff = _timeProvider.GetUtcNow().UtcDateTime - ReferenceScanWait.MaxWait;
+
+                wanted = wanted.Where(song => song.CreatedAt < waitCutoff
+                    || !database.ImportLists.Any(list =>
+                        list.Type != ImportList.PasteType && song.AddedBy == "list:" + list.Id));
+            }
 
             candidates = await wanted
                 .Select(song => new MissingSongRow(song.Id, song.CreatedAt, null))

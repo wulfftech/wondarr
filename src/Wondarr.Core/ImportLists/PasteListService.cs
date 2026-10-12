@@ -300,11 +300,29 @@ public sealed partial class PasteListService : IPasteListService
                 .ConfigureAwait(false);
         }
 
+        var waitNote = string.Empty;
+
         if (identities.Count > 0)
         {
+            var options = OptionsFor(list);
+
+            // A synced list's songs wait for the first reference scan (owner question 15): a song the
+            // user already owns as a file not yet identified would be searched for, and downloaded
+            // twice. They are added now and found by the search the sync queues once the scan is done.
+            // A pasted list is a manual add and searches at once.
+            if (list.Type != ImportList.PasteType
+                && await ReferenceScanWait.PendingLibrariesAsync(_database, cancellationToken).ConfigureAwait(false) is { Count: > 0 } waiting)
+            {
+                var names = string.Join(", ", waiting);
+
+                options = options with { SearchOnAdd = false };
+                waitNote = "; not searched until the reference scan of " + names + " finishes";
+                LogSearchWaits(_logger, list.Id, identities.Count, names);
+            }
+
             // One batch, so the album policy groups an artist's songs instead of scattering singles.
             var results = await _songs
-                .AddIdentitiesAsync(identities, OptionsFor(list), cancellationToken)
+                .AddIdentitiesAsync(identities, options, cancellationToken)
                 .ConfigureAwait(false);
 
             for (var index = 0; index < results.Count; index++)
@@ -325,7 +343,7 @@ public sealed partial class PasteListService : IPasteListService
 
         LogProcessed(_logger, list.Id, summary.Total, summary.Added, summary.Unresolved, summary.Skipped);
 
-        return SummaryLine(summary);
+        return SummaryLine(summary) + waitNote;
     }
 
     /// <inheritdoc />
@@ -688,6 +706,11 @@ public sealed partial class PasteListService : IPasteListService
 
     /// <summary>What one processing run did with a list's lines.</summary>
     private sealed record LineCounts(int Total, int Added, int Existing, int Unresolved, int Skipped);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Import list {ImportListId} added {Count} songs without searching: the reference scan of {Libraries} is not finished")]
+    private static partial void LogSearchWaits(ILogger logger, long importListId, int count, string libraries);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Stored import list {ImportListId} with {LineCount} lines")]
     private static partial void LogCreated(ILogger logger, long importListId, int lineCount);

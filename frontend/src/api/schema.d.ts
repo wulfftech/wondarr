@@ -3982,6 +3982,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/importlist/{id}/trustnextread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportListResource"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/importlist/{id}/sync": {
         parameters: {
             query?: never;
@@ -5611,6 +5657,9 @@ export interface components {
             /** @default false */
             m3uExport: boolean;
             plexPlaylistKey?: null | string;
+            suspectReadMessage?: null | string;
+            /** @default false */
+            trustNextRead: boolean;
         };
         ImportListSchemaResource: {
             type: string;

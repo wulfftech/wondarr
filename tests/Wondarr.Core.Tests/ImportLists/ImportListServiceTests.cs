@@ -8,6 +8,8 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.ImportLists.Csv;
+using Wondarr.Core.Importing;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
@@ -203,8 +205,9 @@ public sealed class ImportListServiceTests : IDisposable
         ];
         await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
 
-        // Both leave the source. The song added by hand ("ui") is never the list's to touch.
-        _provider.Entries = [];
+        // Both leave the source, which now holds one other item (an empty read would be a suspect one).
+        // The song added by hand ("ui") is never the list's to touch.
+        _provider.Entries = [new("z", "Somebody", "Else")];
         await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
 
         context.ChangeTracker.Clear();
@@ -237,7 +240,7 @@ public sealed class ImportListServiceTests : IDisposable
         _provider.Entries = [new("b", "Daft Punk", "Get Lucky", Isrc: "USQX91300108")];
         await service.SyncAsync(other.Id, _ => Task.CompletedTask, CancellationToken.None);
 
-        _provider.Entries = [];
+        _provider.Entries = [new("z", "Somebody", "Else")];
         await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
 
         context.ChangeTracker.Clear();
@@ -439,11 +442,22 @@ public sealed class ImportListServiceTests : IDisposable
         return _database.CreateContext(_timeProvider);
     }
 
+    private static Microsoft.Extensions.Options.IOptionsMonitor<Wondarr.Core.Searching.SearchOptions> Options()
+    {
+        var monitor = Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<Wondarr.Core.Searching.SearchOptions>>();
+        monitor.CurrentValue.Returns(new Wondarr.Core.Searching.SearchOptions());
+
+        return monitor;
+    }
+
     private ImportListService NewService(WondarrDbContext context) =>
         new(
             context,
             new PasteListService(context, _resolver, _songs, _timeProvider, NullLogger<PasteListService>.Instance),
             _songs,
+            new SongFileLock(),
+            Substitute.For<ICommandQueue>(),
+            Options(),
             _playlists,
             [_provider, new CsvImportListProvider()],
             _timeProvider,

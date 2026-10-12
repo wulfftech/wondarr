@@ -155,6 +155,30 @@ public sealed class ImportListController : ControllerBase
     public async Task<IActionResult> DeleteImportList(long id, CancellationToken cancellationToken) =>
         await _lists.DeleteAsync(id, cancellationToken).ConfigureAwait(false) ? Ok() : NotFound();
 
+    /// <summary>
+    /// Makes the next read of a list trusted whatever its size, so a source that really was emptied
+    /// (or shortened) is let go of: the next read removes what is missing from it, and the flag clears.
+    /// </summary>
+    /// <param name="id">The list id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    [HttpPost("{id:long}/trustnextread")]
+    [Produces("application/json")]
+    [ProducesResponseType<ImportListResource>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ImportListResource>> TrustNextRead(long id, CancellationToken cancellationToken)
+    {
+        var list = await _lists.TrustNextReadAsync(id, cancellationToken).ConfigureAwait(false);
+
+        if (list is null)
+        {
+            return NotFound();
+        }
+
+        var view = await _lists.GetAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return Ok(view!.ToResource(ProviderFor(list.Type)));
+    }
+
     /// <summary>Queues a sync of one list.</summary>
     /// <param name="id">The list id.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
