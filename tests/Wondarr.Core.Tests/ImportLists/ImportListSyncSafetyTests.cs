@@ -285,6 +285,42 @@ public sealed class ImportListSyncSafetyTests : IDisposable
         (await health.CheckAsync(CancellationToken.None)).Type.Should().Be(HealthCheckResult.Ok);
     }
 
+    // ---- a short read: the source announced more than it returned, without a cap ----
+
+    [Fact]
+    public async Task A_short_read_is_suspect_with_its_own_message_and_a_trusted_one_applies_its_removals_once()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft("Mirror"), CancellationToken.None);
+        await SeedItemsAsync(context, list, 100, songs: []);
+
+        _provider.Entries = Entries(50);
+        _provider.ShortRead = "Deezer reported 100 tracks but returned 50";
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(0);
+        (await context.ImportLists.AsNoTracking().SingleAsync()).SuspectReadMessage
+            .Should().Be("Deezer reported 100 tracks but returned 50; removals skipped");
+
+        // The user says it is fine: the removals apply, the flag is spent, the baseline moves.
+        await service.TrustNextReadAsync(list.Id, CancellationToken.None);
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        (await context.ImportListItems.CountAsync(item => item.RemovedAt != null)).Should().Be(50);
+        var stored = await context.ImportLists.AsNoTracking().SingleAsync();
+        stored.TrustNextRead.Should().BeFalse();
+        stored.SuspectReadMessage.Should().BeNull();
+        stored.LastCompleteReadCount.Should().Be(50);
+
+        // The next short read is doubted again.
+        await service.SyncAsync(list.Id, Quiet, CancellationToken.None);
+        context.ChangeTracker.Clear();
+        (await context.ImportLists.AsNoTracking().SingleAsync()).SuspectReadMessage.Should().NotBeNull();
+    }
+
     // ---- R-021: a source longer than a cap ----
 
     [Fact]
@@ -1060,6 +1096,8 @@ public sealed class ImportListSyncSafetyTests : IDisposable
 
         public bool Truncated { get; set; }
 
+        public string? ShortRead { get; set; }
+
         public string? Error { get; set; }
 
         public string Type => ScriptedType;
@@ -1074,7 +1112,7 @@ public sealed class ImportListSyncSafetyTests : IDisposable
         public Task<ImportListFetchResult> FetchAsync(ImportList list, CancellationToken cancellationToken)
         {
             return Task.FromResult(Error is null
-                ? new ImportListFetchResult(Entries, Truncated: Truncated)
+                ? new ImportListFetchResult(Entries, Truncated: Truncated, ShortRead: ShortRead)
                 : ImportListFetchResult.Failed(Error));
         }
     }

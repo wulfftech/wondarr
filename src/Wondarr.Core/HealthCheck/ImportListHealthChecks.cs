@@ -100,7 +100,8 @@ public sealed class ImportListScanWaitHealthCheck : IHealthCheck
         var overdue = await _database.Songs
             .AsNoTracking()
             .AnyAsync(
-                song => song.AddedBy.StartsWith("list:")
+                song => _database.ImportLists.Any(list =>
+                        list.Type != ImportList.PasteType && song.AddedBy == "list:" + list.Id)
                     && song.Monitored
                     && song.File == null
                     && song.CreatedAt < cutoff

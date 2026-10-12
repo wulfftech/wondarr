@@ -87,6 +87,8 @@ public sealed class DeezerPlaylistProvider : IImportListProvider
         var entries = new List<ImportListEntry>();
         var index = 0;
         var complete = false;
+        var total = 0;
+        string? shortRead = null;
 
         for (var page = 0; page < MaxPages; page++)
         {
@@ -110,9 +112,9 @@ public sealed class DeezerPlaylistProvider : IImportListProvider
             index += tracks.Data.Count;
 
             // The page that reached the total Deezer reported ends the read. A short page is not the
-            // last one (Deezer can drop unavailable tracks from a page). An empty page ends it too,
-            // but it is a complete read only when Deezer reported no total (0) to compare against; an
-            // empty page short of the total, or running out of pages, is a truncated read.
+            // last one (Deezer can drop unavailable tracks from a page). An empty page ends it too: a
+            // complete read when it lands near the total, a short read when it lands far under it.
+            // Running out of pages before either is a truncated read (the provider's own cap).
             if (tracks.Total > 0 && index >= tracks.Total)
             {
                 complete = true;
@@ -121,13 +123,29 @@ public sealed class DeezerPlaylistProvider : IImportListProvider
 
             if (tracks.Data.Count == 0)
             {
-                complete = tracks.Total <= 0;
+                // An empty page ends the read. Deezer's total counts tracks it no longer serves, so a
+                // read that lands a little under it is whole; one that lands far under it is a short
+                // read the sync does not act on.
+                total = tracks.Total;
+                complete = true;
+
+                if (total > 0 && !SmallGap(total, index))
+                {
+                    shortRead = string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Deezer reported {total} tracks but returned {index}");
+                }
+
                 break;
             }
         }
 
-        return new ImportListFetchResult(entries, Truncated: !complete);
+        return new ImportListFetchResult(entries, Truncated: !complete, ShortRead: shortRead);
     }
+
+    /// <summary>Whether a read that returned <paramref name="read"/> of <paramref name="total"/> tracks is close enough to be whole: at least one track, and at most 5 or 10 % missing.</summary>
+    internal static bool SmallGap(int total, int read) =>
+        read > 0 && (total - read <= 5 || (total - read) * 10 <= total);
 
     private static ImportListEntry Entry(DeezerTrack track) => new(
         string.Create(CultureInfo.InvariantCulture, $"deezer:{track.Id}"),
