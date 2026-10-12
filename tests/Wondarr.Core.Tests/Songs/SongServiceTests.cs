@@ -205,6 +205,132 @@ public class SongServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_identity_carrying_both_ids_finds_the_stored_deezer_only_song()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var service = NewService(context);
+        var first = await service.AddIdentitiesAsync(
+            [DeezerIdentity(42, "Get Lucky")],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        var again = await service.AddIdentitiesAsync(
+            [DeezerIdentity(42, "Get Lucky", "m-a")],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        again.Should().ContainSingle().Which.Outcome.Should().Be(SongAddOutcome.AlreadyExists);
+        again[0].Song.Id.Should().Be(first[0].Song.Id);
+        (await context.Songs.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_deezer_only_identity_finds_the_stored_song_that_has_both_ids()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var service = NewService(context);
+        var first = await service.AddIdentitiesAsync(
+            [DeezerIdentity(42, "Get Lucky", "m-a")],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        var again = await service.AddIdentitiesAsync(
+            [DeezerIdentity(42, "Get Lucky")],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        again.Should().ContainSingle().Which.Outcome.Should().Be(SongAddOutcome.AlreadyExists);
+        again[0].Song.Id.Should().Be(first[0].Song.Id);
+    }
+
+    [Fact]
+    public async Task A_track_in_two_playlists_no_longer_fails_the_second_playlists_whole_batch()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var service = NewService(context);
+
+        // Playlist 1 added the track as Deezer-only; MusicBrainz has since learnt its ISRC.
+        await service.AddIdentitiesAsync([DeezerIdentity(42, "Get Lucky")], new SongAddOptions(), CancellationToken.None);
+
+        var results = await service.AddIdentitiesAsync(
+            [DeezerIdentity(42, "Get Lucky", "m-a"), DeezerIdentity(43, "Other Song", "m-b")],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        results.Select(result => result.Outcome).Should().Equal(SongAddOutcome.AlreadyExists, SongAddOutcome.Added);
+        (await context.Songs.CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task One_identity_without_an_artist_is_reported_and_the_rest_of_the_batch_is_added()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        var nobody = new SongIdentity
+        {
+            Source = "musicbrainz",
+            MbRecordingId = "m-bad",
+            Title = "Nobody's Song",
+            ArtistCredit = string.Empty,
+            Artists = [],
+        };
+
+        var results = await NewService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", Single("s-a", "Get Lucky")), nobody, Identity("m-b", "Instant Crush", Single("s-b", "Instant Crush"))],
+            new SongAddOptions { IsolateFailures = true },
+            CancellationToken.None);
+
+        results.Select(result => result.Outcome)
+            .Should().Equal(SongAddOutcome.Added, SongAddOutcome.Failed, SongAddOutcome.Added);
+        results[1].Error.Should().NotBeNullOrEmpty();
+        (await context.Songs.Select(song => song.MbRecordingId).OrderBy(id => id).ToListAsync())
+            .Should().Equal("m-a", "m-b");
+    }
+
+    [Fact]
+    public async Task One_identity_the_database_refuses_is_reported_and_the_rest_of_the_batch_is_added()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        // The second identity has the first one's Deezer id but no MusicBrainz id, so neither the stored
+        // songs nor the batch's own keys see the clash: only the unique index does.
+        var batch = new[]
+        {
+            DeezerIdentity(42, "Get Lucky", "m-a"),
+            DeezerIdentity(42, "Get Lucky (again)"),
+            DeezerIdentity(43, "Instant Crush", "m-c"),
+        };
+
+        var strict = async () => await NewService(context).AddIdentitiesAsync(batch, new SongAddOptions(), CancellationToken.None);
+        await strict.Should().ThrowAsync<DbUpdateException>();
+        context.ChangeTracker.Clear();
+
+        var results = await NewService(context).AddIdentitiesAsync(
+            batch,
+            new SongAddOptions { IsolateFailures = true },
+            CancellationToken.None);
+
+        results.Select(result => result.Outcome)
+            .Should().Equal(SongAddOutcome.Added, SongAddOutcome.Failed, SongAddOutcome.Added);
+        results[1].Error.Should().NotBeNullOrEmpty();
+
+        context.ChangeTracker.Clear();
+
+        var songs = await context.Songs.AsNoTracking().Include(song => song.AlbumContext).OrderBy(song => song.Id).ToListAsync();
+        songs.Select(song => song.DeezerId).Should().Equal(42L, 43L);
+        songs.Should().OnlyContain(song => song.AlbumContext != null);
+        (await context.Artists.CountAsync()).Should().Be(1, "the failed song's artist was the shared one, saved with the first song");
+    }
+
+    [Fact]
     public async Task A_deezer_only_identity_uses_its_own_cover_and_never_reads_a_release()
     {
         await using var context = await ContextAsync();
@@ -944,6 +1070,19 @@ public class SongServiceTests : IDisposable
         Artists = [new IdentityArtist("Daft Punk", "Daft Punk", "a1", null, ArtistRole.Main, 0)],
         OriginalDate = "2013",
         ReleaseOptions = options,
+    };
+
+    /// <summary>An identity with a Deezer id, and a MusicBrainz id when the recording has since been found there.</summary>
+    private static SongIdentity DeezerIdentity(long deezerId, string title, string? mbRecordingId = null) => new()
+    {
+        Source = mbRecordingId is null ? "deezer" : "musicbrainz",
+        MbRecordingId = mbRecordingId,
+        DeezerId = deezerId,
+        Title = title,
+        ArtistCredit = "Daft Punk",
+        Artists = [new IdentityArtist("Daft Punk", "Daft Punk", "a1", null, ArtistRole.Main, 0)],
+        OriginalDate = "2013",
+        ReleaseOptions = [Single("s-" + deezerId, title)],
     };
 
     private static SongIdentity Featured(

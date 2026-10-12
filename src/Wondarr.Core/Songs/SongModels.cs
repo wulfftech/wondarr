@@ -42,6 +42,14 @@ public sealed record SongAddOptions
     /// is open, because the queue writes through a connection of its own.
     /// </summary>
     public bool KeepTransactionOpen { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether one failing identity is reported as <see cref="SongAddOutcome.Failed"/>
+    /// while the rest of the batch is added. When <see langword="false"/> (the default) the first failure
+    /// throws and nothing is added, which is what a caller that reads <see cref="SongAddResult.Song"/>
+    /// unconditionally needs.
+    /// </summary>
+    public bool IsolateFailures { get; init; }
 }
 
 /// <summary>What happened to one identity handed to the add pipeline.</summary>
@@ -52,13 +60,20 @@ public enum SongAddOutcome
 
     /// <summary>The library already held the song, or the batch named it twice.</summary>
     AlreadyExists,
+
+    /// <summary>
+    /// The identity could not be added and the rest of the batch was (<see cref="SongAddOptions.IsolateFailures"/>).
+    /// <see cref="SongAddResult.Song"/> is then an unsaved placeholder with no id; read <see cref="SongAddResult.Error"/>.
+    /// </summary>
+    Failed,
 }
 
 /// <summary>One identity's fate in an add, paired with the song it produced or matched.</summary>
 /// <param name="Identity">The identity the caller handed in.</param>
 /// <param name="Outcome">Whether the identity was added or was already there.</param>
 /// <param name="Song">The new song, or the row the identity already belonged to.</param>
-public sealed record SongAddResult(SongIdentity Identity, SongAddOutcome Outcome, Song Song);
+/// <param name="Error">Why the identity could not be added, for <see cref="SongAddOutcome.Failed"/>; otherwise <see langword="null"/>.</param>
+public sealed record SongAddResult(SongIdentity Identity, SongAddOutcome Outcome, Song Song, string? Error = null);
 
 /// <summary>The result of choosing a song's album.</summary>
 /// <param name="Song">The song, with its new album context.</param>
