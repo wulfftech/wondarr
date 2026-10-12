@@ -30,6 +30,7 @@ import {
   useImportListSchema,
   useImportLists,
   useSyncImportList,
+  useTrustNextRead,
   useUpdateImportList,
   type CsvPreviewResource,
   type ImportListInput,
@@ -464,7 +465,9 @@ export function ImportListsSettingsPage() {
   const update = useUpdateImportList();
   const remove = useDeleteImportList();
   const sync = useSyncImportList();
+  const trust = useTrustNextRead();
 
+  const [pendingTrust, setPendingTrust] = useState<ImportListResource | null>(null);
   const [picking, setPicking] = useState(false);
   const [type, setType] = useState<string | null>(null);
   const [form, setForm] = useState<{ list: ImportListResource | null; type: string } | null>(null);
@@ -557,6 +560,27 @@ export function ImportListsSettingsPage() {
                           <Text size="xs" c={failed ? 'red' : 'dimmed'}>
                             {list.lastSyncMessage}
                           </Text>
+                        )}
+                        {list.suspectReadMessage != null && list.suspectReadMessage !== '' && (
+                          <Stack gap={4} mt={4}>
+                            <Text size="xs" c="orange">
+                              {list.suspectReadMessage}
+                            </Text>
+                            {list.trustNextRead ? (
+                              <Text size="xs" c="dimmed">
+                                The next read will be trusted.
+                              </Text>
+                            ) : (
+                              <Button
+                                variant="light"
+                                color="orange"
+                                size="compact-xs"
+                                onClick={() => setPendingTrust(list)}
+                              >
+                                Trust the next read
+                              </Button>
+                            )}
+                          </Stack>
                         )}
                       </Stack>
                     </Table.Td>
@@ -680,6 +704,36 @@ export function ImportListsSettingsPage() {
             onClose={() => setForm(null)}
           />
         )}
+      </Modal>
+
+      <Modal opened={pendingTrust !== null} onClose={() => setPendingTrust(null)} title="Trust the next read">
+        <Stack>
+          <Text size="sm">
+            {pendingTrust?.suspectReadMessage}. If you trust the next read, it will remove anything missing from it:
+            songs this list added are unmonitored or deleted, as the list&apos;s policy says.
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setPendingTrust(null)}>
+              Cancel
+            </Button>
+            <Button
+              color="orange"
+              loading={trust.isPending}
+              onClick={() => {
+                if (pendingTrust === null) {
+                  return;
+                }
+
+                trust.mutate(Number(pendingTrust.id), {
+                  onSuccess: () => setPendingTrust(null),
+                  onError: (error) => notifications.show({ message: error.message, color: 'red' }),
+                });
+              }}
+            >
+              Trust the next read
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
 
       <Modal opened={pendingDelete !== null} onClose={() => setPendingDelete(null)} title="Delete import list">

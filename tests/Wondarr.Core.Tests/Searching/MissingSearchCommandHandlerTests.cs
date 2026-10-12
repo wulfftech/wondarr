@@ -165,6 +165,54 @@ public sealed class MissingSearchCommandHandlerTests
         host.Provider.Requests.Should().ContainSingle().Which.Title.Should().Be("Wanted");
     }
 
+    // Owner question 15: a song a synced list added waits for a pending reference scan, for at most 24 hours.
+    [Fact]
+    public async Task Missing_search_leaves_a_fresh_list_song_alone_during_a_pending_scan_and_searches_it_past_the_cap()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var listSong = await host.SeedSongAsync("Listed");
+        await host.SeedSongAsync("Manual");
+        await using (var context = host.Database.CreateContext(host.Time))
+        {
+            var list = new ImportList
+            {
+                Type = "deezerPlaylist",
+                Name = "List",
+                Policy = ImportList.AddOnlyPolicy,
+                QualityProfileId = SeedData.StandardProfileId,
+                LibraryId = SeedData.DefaultLibraryId,
+            };
+            context.ImportLists.Add(list);
+            await context.SaveChangesAsync(Token);
+
+            (await context.Songs.SingleAsync(song => song.Id == listSong, Token)).AddedBy = $"list:{list.Id}";
+            var reference = new ReferenceLibrary { Name = "Old MP3s", RootPath = "/old" };
+            context.ReferenceLibraries.Add(reference);
+            context.ReferenceFiles.Add(new ReferenceFile
+            {
+                ReferenceLibrary = reference,
+                RelativePath = "a.mp3",
+                State = ReferenceFileState.Pending,
+                LastSeenAt = host.Time.GetUtcNow().UtcDateTime,
+            });
+            await context.SaveChangesAsync(Token);
+        }
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Select(request => request.Title).Should().Equal("Manual");
+
+        // Past the cap the scan has held it back long enough.
+        host.Time.Advance(TimeSpan.FromHours(25));
+        host.Provider.Requests.Clear();
+
+        await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Select(request => request.Title).Should().Contain("Listed");
+    }
+
     [Fact]
     public async Task Missing_search_picks_a_song_again_when_its_reference_file_went_missing()
     {

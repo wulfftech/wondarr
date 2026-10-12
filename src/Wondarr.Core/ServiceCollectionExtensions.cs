@@ -75,6 +75,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, ProtectedPathsHealthCheck>();
         services.AddScoped<IHealthCheck, ReferenceMissingFilesHealthCheck>();
         services.AddScoped<IHealthCheck, CompactMoveHealthCheck>();
+        services.AddScoped<IHealthCheck, ImportListReadHealthCheck>();
+        services.AddScoped<IHealthCheck, ImportListScanWaitHealthCheck>();
         services.AddSingleton<IHealthCheck, ConfigFolderHealthCheck>();
         services.AddSingleton<IHealthCheck, LogFolderHealthCheck>();
 

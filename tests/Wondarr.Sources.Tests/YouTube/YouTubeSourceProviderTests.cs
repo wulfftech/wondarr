@@ -279,8 +279,8 @@ internal sealed class StubInnertubeClient : IInnertubeClient
         return failure is not null ? Task.FromException<InnertubeSearchResult>(failure) : Task.FromResult(result!);
     }
 
-    public Task<IReadOnlyList<InnertubePlaylistRow>> BrowsePlaylistAsync(string playlistId, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<InnertubePlaylistRow>>([]);
+    public Task<InnertubePlaylist> BrowsePlaylistAsync(string playlistId, CancellationToken cancellationToken) =>
+        Task.FromResult(new InnertubePlaylist([]));
 }
 
 /// <summary>Records every download; answers with the file it was asked to place.</summary>

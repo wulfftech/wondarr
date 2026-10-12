@@ -121,6 +121,8 @@ public sealed class LastFmLovedProvider : IImportListProvider
         var http = _factory.CreateClient(Metadata.ServiceCollectionExtensions.LastFmClientName);
         var entries = new List<ImportListEntry>();
 
+        var complete = false;
+
         for (var page = 1; page <= MaxPages; page++)
         {
             var answer = await LastFmFetch
@@ -147,7 +149,14 @@ public sealed class LastFmLovedProvider : IImportListProvider
                 }
             }
 
-            if (page >= LastFmFetch.TotalPages(read.Attributes) || read.Track.Count == 0)
+            if (page >= LastFmFetch.TotalPages(read.Attributes))
+            {
+                complete = true;
+                break;
+            }
+
+            // An empty page before the last one Last.fm announced is a read that fell short.
+            if (read.Track.Count == 0)
             {
                 break;
             }
@@ -155,7 +164,8 @@ public sealed class LastFmLovedProvider : IImportListProvider
             await _wait(PageDelay, cancellationToken).ConfigureAwait(false);
         }
 
-        return new ImportListFetchResult(entries);
+        // Newest loves come first, so a source longer than the cap loses its oldest items off the end.
+        return new ImportListFetchResult(entries, Truncated: !complete);
     }
 
     /// <summary>The loved row as an entry: its id is the artist and title, lowercased.</summary>

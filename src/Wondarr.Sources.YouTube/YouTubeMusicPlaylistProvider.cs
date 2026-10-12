@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -77,16 +78,36 @@ public sealed class YouTubeMusicPlaylistProvider : IImportListProvider
             }
         }
 
-        IReadOnlyList<InnertubePlaylistRow> rows;
+        InnertubePlaylist playlist;
 
         try
         {
-            rows = await _innertube.BrowsePlaylistAsync(playlistId, cancellationToken).ConfigureAwait(false);
+            playlist = await _innertube.BrowsePlaylistAsync(playlistId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InnertubePlaylistChangedException)
+        {
+            return ImportListFetchResult.Failed("The YouTube Music playlist changed while it was being read.");
         }
         catch (InnertubeException exception) when (exception.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
         {
             return ImportListFetchResult.Failed("The YouTube Music playlist was not found, or it is private.");
         }
+        catch (InnertubeException exception)
+        {
+            // A 429 or a 5xx (R-076) is a failed read like any other: the sync records it and the
+            // list's next-sync time, instead of the exception escaping past the failure path. The
+            // message names the status only; the exception text quotes the response body.
+            return ImportListFetchResult.Failed(string.Create(
+                CultureInfo.InvariantCulture,
+                $"YouTube Music answered HTTP {(int)exception.StatusCode}."));
+        }
+        catch (Exception exception) when (exception is InnertubeLayoutException or JsonException)
+        {
+            // YouTube changed its response (R-007): this is not an empty playlist.
+            return ImportListFetchResult.Failed("YouTube Music sent a playlist page Wondarr could not read.");
+        }
+
+        var rows = playlist.Rows;
 
         var entries = new List<ImportListEntry>(rows.Count);
 
@@ -100,7 +121,7 @@ public sealed class YouTubeMusicPlaylistProvider : IImportListProvider
                 row.DurationMs));
         }
 
-        return new ImportListFetchResult(entries);
+        return new ImportListFetchResult(entries, Truncated: playlist.Truncated);
     }
 
     private static string? Playlist(JsonElement settings) =>

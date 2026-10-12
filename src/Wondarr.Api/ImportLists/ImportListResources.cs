@@ -48,6 +48,8 @@ public sealed record ImportListCountsResource(int Pending, int Added, int Unreso
 /// <param name="PlexPlaylist">Whether the list is kept as a Plex playlist of the same name.</param>
 /// <param name="M3uExport">Whether the list is written as an <c>.m3u8</c> in its library's <c>Playlists</c> folder.</param>
 /// <param name="PlexPlaylistKey">The Plex playlist's rating key, once it exists.</param>
+/// <param name="SuspectReadMessage">Why the last read was not trusted to remove anything (for example "Read returned 0 of 300 items; removals skipped"), or <see langword="null"/>.</param>
+/// <param name="TrustNextRead">Whether the next read will be trusted whatever its size (set by <c>POST /api/v1/importlist/{id}/trustnextread</c>).</param>
 public sealed record ImportListResource(
     long Id,
     string Type,
@@ -65,7 +67,9 @@ public sealed record ImportListResource(
     bool HasFile = false,
     bool PlexPlaylist = false,
     bool M3uExport = false,
-    string? PlexPlaylistKey = null);
+    string? PlexPlaylistKey = null,
+    string? SuspectReadMessage = null,
+    bool TrustNextRead = false);
 
 /// <summary>A synced import list as the caller creates or changes it.</summary>
 /// <param name="Type">The provider type, for example <c>csv</c> (see <c>GET /api/v1/importlist/schema</c>).</param>
@@ -203,7 +207,9 @@ public static class ImportListResourceExtensions
             !string.IsNullOrEmpty(list.SourceText),
             list.PlexPlaylist,
             list.M3uExport,
-            list.PlexPlaylistKey);
+            list.PlexPlaylistKey,
+            list.SuspectReadMessage,
+            list.TrustNextRead);
     }
 
     /// <summary>Maps one entry a provider read.</summary>
