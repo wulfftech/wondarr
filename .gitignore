@@ -51,3 +51,6 @@ __pycache__/
 
 # Browser-automation artefacts from local UI checks
 .playwright-mcp/
+
+# agent worktrees (nested repos; never track)
+.claude/worktrees/
