@@ -3,6 +3,7 @@ using Wondarr.Api.Commands;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.References;
+using Wondarr.Core.Searching;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Wondarr.Api.References;
@@ -115,15 +116,73 @@ public sealed class ReferenceLibraryController : ControllerBase
     }
 
     /// <summary>
-    /// Deletes a reference library. Its files and candidates go with it, and every song that was owned
-    /// through one of its files becomes wanted again. The files on disk are never touched; delete is
-    /// followed by <c>200</c> with an empty body, as Lidarr and Sonarr do.
+    /// Counts the songs that deleting a reference library would affect: those owned through one of its
+    /// files. The delete dialog asks this before it asks what to do with them.
     /// </summary>
     /// <param name="id">The library id.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    [HttpGet("{id:long}/ownedsongs")]
+    [Produces("application/json")]
+    public async Task<ActionResult<ReferenceLibraryOwnedSongsResource>> GetOwnedSongs(
+        long id,
+        CancellationToken cancellationToken)
+    {
+        var count = await _libraries.CountOwnedSongsAsync(id, cancellationToken).ConfigureAwait(false);
+
+        return count is { } songs ? Ok(new ReferenceLibraryOwnedSongsResource(songs)) : NotFound();
+    }
+
+    /// <summary>
+    /// Deletes a reference library. Its files and candidates go with it, and every song that was owned
+    /// through one of its files loses that file. <c>songs</c> says what happens to those songs:
+    /// <c>search</c> makes them wanted and starts a search for them now, <c>wanted</c> leaves them
+    /// monitored and wanted for the scheduled search to pick up, and <c>unmonitor</c> unmonitors them.
+    /// The files on disk are never touched; delete is followed by <c>200</c> with an empty body, as
+    /// Lidarr and Sonarr do.
+    /// </summary>
+    /// <param name="id">The library id.</param>
+    /// <param name="songs">What happens to the songs the library owned: <c>search</c>, <c>wanted</c> or <c>unmonitor</c>.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     [HttpDelete("{id:long}")]
-    public async Task<IActionResult> DeleteLibrary(long id, CancellationToken cancellationToken) =>
-        await _libraries.DeleteAsync(id, cancellationToken).ConfigureAwait(false) ? Ok() : NotFound();
+    public async Task<IActionResult> DeleteLibrary(
+        long id,
+        [FromQuery] string? songs,
+        CancellationToken cancellationToken)
+    {
+        if (ReferenceLibraryResourceMapper.ToDeleteChoice(songs) is not { } choice)
+        {
+            ModelState.AddModelError(
+                "songs",
+                "songs must be 'search', 'wanted' or 'unmonitor': it says what happens to the songs the library owned.");
+
+            return ValidationProblem(ModelState);
+        }
+
+        var owned = await _libraries.DeleteAsync(id, choice, cancellationToken).ConfigureAwait(false);
+
+        if (owned is null)
+        {
+            return NotFound();
+        }
+
+        if (choice == ReferenceLibraryDeleteChoice.Search && owned > 0)
+        {
+            // The songs are wanted again; the missing search looks for them now instead of at its next
+            // scheduled run. The library is gone either way, so a queue failure is not the caller's.
+            try
+            {
+                await _commands
+                    .EnqueueAsync(MissingSearchCommandHandler.CommandName, null, CommandTrigger.Manual, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The scheduled search finds them.
+            }
+        }
+
+        return Ok();
+    }
 
     /// <summary>
     /// Queues a scan of one reference library: a walk of its folder, then identification of what the

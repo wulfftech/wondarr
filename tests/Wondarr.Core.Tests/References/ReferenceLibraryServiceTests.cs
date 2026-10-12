@@ -259,7 +259,7 @@ public class ReferenceLibraryServiceTests : IDisposable
         AddFile(context, kept.Library.Id, "b.flac", ReferenceFileState.Identified);
         await context.SaveChangesAsync();
 
-        (await service.DeleteAsync(doomed.Library.Id, CancellationToken.None)).Should().BeTrue();
+        (await service.DeleteAsync(doomed.Library.Id, ReferenceLibraryDeleteChoice.Wanted, CancellationToken.None)).Should().Be(1);
 
         (await context.ReferenceLibraries.CountAsync()).Should().Be(1);
         (await context.ReferenceFiles.AsNoTracking().Select(row => row.ReferenceLibraryId).ToListAsync())
@@ -276,11 +276,73 @@ public class ReferenceLibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task The_count_of_affected_songs_is_the_songs_owned_through_the_library_only()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+
+        var library = await service.AddAsync(
+            new ReferenceLibraryInput("Mine", "/reference/mine", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var other = await service.AddAsync(
+            new ReferenceLibraryInput("Other", "/reference/other", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var first = await AddSongAsync(context, "First");
+        var second = await AddSongAsync(context, "Second");
+        var elsewhere = await AddSongAsync(context, "Elsewhere");
+        var downloaded = await AddSongAsync(context, "Downloaded");
+
+        context.SongFiles.AddRange(
+            NewFile(first, "/reference/mine/a.flac", SourceTypes.Reference, library.Library.Id),
+            NewFile(second, "/reference/mine/b.flac", SourceTypes.Reference, library.Library.Id),
+            NewFile(elsewhere, "/reference/other/c.flac", SourceTypes.Reference, other.Library.Id),
+            NewFile(downloaded, "/data/music/d.flac", SourceTypes.Soulseek, library.Library.Id));
+        await context.SaveChangesAsync();
+
+        (await service.CountOwnedSongsAsync(library.Library.Id, CancellationToken.None)).Should().Be(2);
+        (await service.CountOwnedSongsAsync(other.Library.Id, CancellationToken.None)).Should().Be(1);
+        (await service.CountOwnedSongsAsync(987654, CancellationToken.None)).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(ReferenceLibraryDeleteChoice.Search, true)]
+    [InlineData(ReferenceLibraryDeleteChoice.Wanted, true)]
+    [InlineData(ReferenceLibraryDeleteChoice.Unmonitor, false)]
+    public async Task Deleting_a_library_applies_the_choice_to_the_songs_it_owned(
+        ReferenceLibraryDeleteChoice choice,
+        bool stillMonitored)
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+
+        var doomed = await service.AddAsync(
+            new ReferenceLibraryInput("Doomed", "/reference/doomed", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var owned = await AddSongAsync(context, "Owned");
+        var untouched = await AddSongAsync(context, "Untouched");
+
+        context.SongFiles.Add(NewFile(owned, "/reference/doomed/a.flac", SourceTypes.Reference, doomed.Library.Id));
+        await context.SaveChangesAsync();
+
+        (await service.DeleteAsync(doomed.Library.Id, choice, CancellationToken.None)).Should().Be(1);
+
+        context.ChangeTracker.Clear();
+
+        // Whatever the choice, the song has lost the reference file: it is wanted unless it is unmonitored.
+        (await context.SongFiles.AnyAsync(file => file.SongId == owned)).Should().BeFalse();
+        (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == owned)).Monitored.Should().Be(stillMonitored);
+        (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == untouched)).Monitored.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Deleting_an_unknown_library_is_a_missing_row()
     {
         await using var context = await ContextAsync();
 
-        (await Service(context).DeleteAsync(987654, CancellationToken.None)).Should().BeFalse();
+        (await Service(context).DeleteAsync(987654, ReferenceLibraryDeleteChoice.Wanted, CancellationToken.None)).Should().BeNull();
     }
 
     [Theory]

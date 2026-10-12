@@ -62,6 +62,10 @@ public sealed record ReferenceLibraryInputResource(
     long? LibraryId,
     bool Enabled);
 
+/// <summary>How many songs deleting a reference library would affect.</summary>
+/// <param name="Count">The songs owned through one of the library's files.</param>
+public sealed record ReferenceLibraryOwnedSongsResource(int Count);
+
 /// <summary>Maps reference libraries onto the wire shapes, in both directions.</summary>
 public static class ReferenceLibraryResourceMapper
 {
@@ -109,6 +113,17 @@ public static class ReferenceLibraryResourceMapper
     {
         ReferenceMode => ReferenceLibraryMode.Reference,
         AdoptMode => ReferenceLibraryMode.Adopt,
+        _ => null,
+    };
+
+    /// <summary>The delete choice a request names, or <see langword="null"/> when it names none this API knows.</summary>
+    /// <param name="choice">The wire name (<c>search</c>, <c>wanted</c> or <c>unmonitor</c>), in any case.</param>
+    /// <returns>The choice, or <see langword="null"/>.</returns>
+    public static ReferenceLibraryDeleteChoice? ToDeleteChoice(string? choice) => choice?.Trim().ToLowerInvariant() switch
+    {
+        "search" => ReferenceLibraryDeleteChoice.Search,
+        "wanted" => ReferenceLibraryDeleteChoice.Wanted,
+        "unmonitor" => ReferenceLibraryDeleteChoice.Unmonitor,
         _ => null,
     };
 
