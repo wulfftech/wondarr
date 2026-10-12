@@ -259,7 +259,7 @@ public class ReferenceLibraryServiceTests : IDisposable
         AddFile(context, kept.Library.Id, "b.flac", ReferenceFileState.Identified);
         await context.SaveChangesAsync();
 
-        (await service.DeleteAsync(doomed.Library.Id, CancellationToken.None)).Should().BeTrue();
+        (await service.DeleteAsync(doomed.Library.Id, ReferenceLibraryDeleteChoice.Wanted, CancellationToken.None)).Should().Be(1);
 
         (await context.ReferenceLibraries.CountAsync()).Should().Be(1);
         (await context.ReferenceFiles.AsNoTracking().Select(row => row.ReferenceLibraryId).ToListAsync())
@@ -276,11 +276,123 @@ public class ReferenceLibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task The_count_of_affected_songs_is_the_songs_owned_through_the_library_only()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+
+        var library = await service.AddAsync(
+            new ReferenceLibraryInput("Mine", "/reference/mine", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var other = await service.AddAsync(
+            new ReferenceLibraryInput("Other", "/reference/other", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var first = await AddSongAsync(context, "First");
+        var second = await AddSongAsync(context, "Second");
+        var elsewhere = await AddSongAsync(context, "Elsewhere");
+        var downloaded = await AddSongAsync(context, "Downloaded");
+
+        context.SongFiles.AddRange(
+            NewFile(first, "/reference/mine/a.flac", SourceTypes.Reference, library.Library.Id),
+            NewFile(second, "/reference/mine/b.flac", SourceTypes.Reference, library.Library.Id),
+            NewFile(elsewhere, "/reference/other/c.flac", SourceTypes.Reference, other.Library.Id),
+            NewFile(downloaded, "/data/music/d.flac", SourceTypes.Soulseek, library.Library.Id));
+        await context.SaveChangesAsync();
+
+        (await service.CountOwnedSongsAsync(library.Library.Id, CancellationToken.None)).Should().Be(2);
+        (await service.CountOwnedSongsAsync(other.Library.Id, CancellationToken.None)).Should().Be(1);
+        (await service.CountOwnedSongsAsync(987654, CancellationToken.None)).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(ReferenceLibraryDeleteChoice.Search, true)]
+    [InlineData(ReferenceLibraryDeleteChoice.Wanted, true)]
+    [InlineData(ReferenceLibraryDeleteChoice.Unmonitor, false)]
+    public async Task Deleting_a_library_applies_the_choice_to_the_songs_it_owned(
+        ReferenceLibraryDeleteChoice choice,
+        bool stillMonitored)
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+
+        var doomed = await service.AddAsync(
+            new ReferenceLibraryInput("Doomed", "/reference/doomed", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var owned = await AddSongAsync(context, "Owned");
+        var untouched = await AddSongAsync(context, "Untouched");
+
+        context.SongFiles.Add(NewFile(owned, "/reference/doomed/a.flac", SourceTypes.Reference, doomed.Library.Id));
+        await context.SaveChangesAsync();
+
+        (await service.DeleteAsync(doomed.Library.Id, choice, CancellationToken.None)).Should().Be(1);
+
+        context.ChangeTracker.Clear();
+
+        // Whatever the choice, the song has lost the reference file: it is wanted unless it is unmonitored.
+        (await context.SongFiles.AnyAsync(file => file.SongId == owned)).Should().BeFalse();
+        (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == owned)).Monitored.Should().Be(stillMonitored);
+        (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == untouched)).Monitored.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_song_another_library_also_has_follows_that_copy_and_is_neither_counted_nor_freed()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+
+        var doomed = await service.AddAsync(
+            new ReferenceLibraryInput("Doomed", "/reference/doomed", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var kept = await service.AddAsync(
+            new ReferenceLibraryInput("Kept", "/reference/kept", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var twice = await AddSongAsync(context, "In both");
+        var once = await AddSongAsync(context, "Only here");
+        var duplicated = await AddSongAsync(context, "Twice here");
+
+        context.SongFiles.AddRange(
+            NewFile(twice, "/reference/doomed/a.flac", SourceTypes.Reference, doomed.Library.Id),
+            NewFile(once, "/reference/doomed/b.flac", SourceTypes.Reference, doomed.Library.Id),
+            NewFile(duplicated, "/reference/doomed/c.flac", SourceTypes.Reference, doomed.Library.Id));
+
+        AddFile(context, doomed.Library.Id, "a.flac", ReferenceFileState.Identified, twice);
+        AddFile(context, kept.Library.Id, "copy/a.flac", ReferenceFileState.Identified, twice);
+        AddFile(context, doomed.Library.Id, "b.flac", ReferenceFileState.Identified, once);
+        AddFile(context, doomed.Library.Id, "c.flac", ReferenceFileState.Identified, duplicated);
+        AddFile(context, doomed.Library.Id, "c2.flac", ReferenceFileState.Identified, duplicated);
+        await context.SaveChangesAsync();
+
+        (await service.CountOwnedSongsAsync(doomed.Library.Id, CancellationToken.None)).Should().Be(2);
+
+        (await service.DeleteAsync(doomed.Library.Id, ReferenceLibraryDeleteChoice.Unmonitor, CancellationToken.None))
+            .Should().Be(2);
+
+        context.ChangeTracker.Clear();
+
+        var followed = await context.SongFiles.AsNoTracking().SingleAsync(file => file.SongId == twice);
+        followed.Path.Should().Be(Path.Combine("/reference/kept", "copy", "a.flac"));
+        followed.SourceRef.Should().Contain($"\"referenceFileId\":{(await context.ReferenceFiles.SingleAsync(row => row.RelativePath == "copy/a.flac")).Id}");
+
+        (await context.SongFiles.AnyAsync(file => file.SongId == once)).Should().BeFalse();
+        (await context.SongFiles.AnyAsync(file => file.SongId == duplicated)).Should().BeFalse();
+
+        var songs = await context.Songs.AsNoTracking().ToDictionaryAsync(song => song.Id, song => song.Monitored);
+        songs[twice].Should().BeTrue("it is still owned");
+        songs[once].Should().BeFalse();
+        songs[duplicated].Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Deleting_an_unknown_library_is_a_missing_row()
     {
         await using var context = await ContextAsync();
 
-        (await Service(context).DeleteAsync(987654, CancellationToken.None)).Should().BeFalse();
+        (await Service(context).DeleteAsync(987654, ReferenceLibraryDeleteChoice.Wanted, CancellationToken.None)).Should().BeNull();
     }
 
     [Theory]
@@ -456,11 +568,16 @@ public class ReferenceLibraryServiceTests : IDisposable
         WondarrDbContext context,
         long libraryId,
         string relativePath,
-        ReferenceFileState state) =>
+        ReferenceFileState state,
+        long? songId = null) =>
         context.ReferenceFiles.Add(new ReferenceFile
         {
             ReferenceLibraryId = libraryId,
             RelativePath = relativePath,
+            SongId = songId,
+            Probe = songId is null
+                ? null
+                : "{\"codec\":\"flac\",\"container\":\"flac\",\"bitrateKbps\":900,\"sampleRate\":44100,\"bitDepth\":16,\"channels\":2,\"durationMs\":248000,\"isLossless\":true,\"sizeBytes\":1}",
             Size = 1,
             ModifiedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             LastSeenAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),

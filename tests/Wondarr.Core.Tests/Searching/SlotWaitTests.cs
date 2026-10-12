@@ -56,6 +56,40 @@ public sealed class SlotWaitTests
     }
 
     [Fact]
+    public async Task A_song_a_reference_scan_linked_during_the_wait_is_not_grabbed_when_a_slot_frees()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var blockers = await FillSlotsAsync(host);
+        var progress = 0;
+        host.SlotWait.ReportProgressAsync = _ =>
+        {
+            Interlocked.Increment(ref progress);
+
+            return Task.CompletedTask;
+        };
+
+        var search = Task.Run(() => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
+
+        await WaitUntilAsync(() => Volatile.Read(ref progress) > 0);
+        search.IsCompleted.Should().BeFalse("every download slot is taken");
+
+        // While the search waits, a reference scan finds the user's own file for the song.
+        await host.SeedReferenceFileAsync(songId, ReferenceFileState.Identified, withSongFile: true);
+
+        await FinishItemAsync(host, blockers[0]);
+        var result = await AdvanceUntilAsync(host, search);
+
+        result.QueueItemId.Should().BeNull();
+        host.Provider.Grabs.Should().BeEmpty("the song is the user's now, so nothing is grabbed for it");
+
+        await using var context = host.Database.CreateContext(host.Time);
+        (await context.QueueItems.AsNoTracking().AnyAsync(item => item.SongId == songId, Token)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_search_that_never_gets_a_slot_ends_cancelled_after_the_wait_and_the_song_stays_wanted()
     {
         await using var host = await SearchTestHost.CreateAsync(options => options.SlotWaitMinutes = 2);

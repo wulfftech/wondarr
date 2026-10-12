@@ -1919,11 +1919,49 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "songs",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/referencelibrary/{id}/ownedsongs": {
+      "get": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceLibraryOwnedSongsResource"
+                }
+              }
+            }
           }
         }
       }
@@ -8951,6 +8989,22 @@
           },
           "enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "ReferenceLibraryOwnedSongsResource": {
+        "required": [
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

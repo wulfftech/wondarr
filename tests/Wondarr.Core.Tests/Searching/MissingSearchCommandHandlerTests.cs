@@ -170,13 +170,29 @@ public sealed class MissingSearchCommandHandlerTests
     {
         await using var host = await SearchTestHost.CreateAsync();
         var song = await host.SeedSongAsync("Lost");
-        await host.SeedReferenceFileAsync(song, ReferenceFileState.Missing);
+
+        // What a scan leaves once the grace period is over: the row owns nothing and the song has no file.
+        await host.SeedReferenceFileAsync(song, ReferenceFileState.Missing, released: true);
 
         host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
 
         await Handler(host).ExecuteAsync(Context([]), Token);
 
         host.Provider.Requests.Should().ContainSingle().Which.Title.Should().Be("Lost");
+    }
+
+    [Fact]
+    public async Task Missing_search_leaves_a_song_alone_while_its_missing_reference_file_is_inside_the_grace_period()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var song = await host.SeedSongAsync("Held");
+        await host.SeedReferenceFileAsync(song, ReferenceFileState.Missing, withSongFile: true);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Should().BeEmpty("the song still holds its file; the scan has not let it go");
     }
 
     [Fact]

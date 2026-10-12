@@ -27,6 +27,7 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
 function install(
   libraries: unknown = REFERENCE_LIBRARIES,
   post: () => Response = () => jsonResponse(REFERENCE_LIBRARIES[0]),
+  ownedSongs: number | (() => Response) = 12,
 ): FetchMock {
   return installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
@@ -39,6 +40,10 @@ function install(
 
     if (url.includes('/scan')) {
       return jsonResponse({ id: 9, name: 'ReferenceLibraryScan', status: 'queued' });
+    }
+
+    if (url.includes('/ownedsongs')) {
+      return typeof ownedSongs === 'function' ? ownedSongs() : jsonResponse({ count: ownedSongs });
     }
 
     if (url.includes('/api/v1/referencelibrary')) {
@@ -153,15 +158,100 @@ describe('ReferenceLibrariesPage', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Delete reference library' });
 
+    expect(await within(dialog).findByText(/12 songs are owned through this folder/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Your files are not touched/)).toBeInTheDocument();
+
+    // The safe choice is the default, and the dialog says which choice starts searching.
+    expect(within(dialog).getByRole('radio', { name: /Keep them wanted/ })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: /search every wanted song now/ })).not.toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: 'Unmonitor them' })).not.toBeChecked();
+    expect(within(dialog).getByText(/Only the second choice starts searching/)).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => {
       const deletion = sent().find((request) => request.method === 'DELETE');
 
-      expect(deletion?.url).toContain('/api/v1/referencelibrary/3');
+      expect(deletion?.url).toContain('/api/v1/referencelibrary/3?songs=wanted');
     });
+  });
+
+  it.each([
+    ['Make them wanted and search every wanted song now', 'search'],
+    ['Unmonitor them', 'unmonitor'],
+  ])('sends the chosen option "%s" with the DELETE', async (label, songs) => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await openRowMenu(user, 'Old music');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Delete reference library' });
+
+    await user.click(await within(dialog).findByRole('radio', { name: label }));
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      const deletion = sent().find((request) => request.method === 'DELETE');
+
+      expect(deletion?.url).toContain(`/api/v1/referencelibrary/3?songs=${songs}`);
+    });
+  });
+
+  it('still allows the delete when the count fails, and can retry the count', async () => {
+    let attempts = 0;
+
+    install(
+      REFERENCE_LIBRARIES,
+      () => jsonResponse(REFERENCE_LIBRARIES[0]),
+      () => {
+        attempts += 1;
+
+        return attempts <= 1 ? new Response('boom', { status: 500 }) : jsonResponse({ count: 4 });
+      },
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await openRowMenu(user, 'Old music');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Delete reference library' });
+
+    expect(await within(dialog).findByText(/could not be read/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: /Keep them wanted/ })).toBeChecked();
+    expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeEnabled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Retry' }));
+
+    expect(await within(dialog).findByText(/4 songs are owned through this folder/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Retry' })).toBeNull();
+
+    // The delete goes out with the default choice even though the count had failed.
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(sent().find((request) => request.method === 'DELETE')?.url).toContain('?songs=wanted');
+    });
+  });
+
+  it('offers no choice when the library owns no song', async () => {
+    install(REFERENCE_LIBRARIES, () => jsonResponse(REFERENCE_LIBRARIES[0]), 0);
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await openRowMenu(user, 'Old music');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Delete reference library' });
+
+    expect(await within(dialog).findByText(/No song is owned through this folder/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('radio')).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeEnabled();
   });
 
   it('queues the adopt command for an adopt-mode row, and offers it only there', async () => {

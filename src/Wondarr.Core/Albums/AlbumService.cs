@@ -268,11 +268,24 @@ public sealed partial class AlbumService : IAlbumService
             Monitored = request.Monitored,
             AddedBy = "album",
             AlbumReleaseId = request.Album.Source == AlbumRef.MusicBrainzSource ? request.Album.Id : null,
+
+            // One track the database refuses is reported with the others that failed; the rest is added.
+            IsolateFailures = true,
         };
 
         var results = identities.Count > 0
             ? await _songs.AddIdentitiesAsync(identities, options, cancellationToken).ConfigureAwait(false)
             : [];
+
+        foreach (var failed in results.Where(result => result.Outcome == SongAddOutcome.Failed))
+        {
+            failures.Add(new AlbumAddFailure(
+                failed.Identity.MbRecordingId
+                    ?? failed.Identity.DeezerId?.ToString(CultureInfo.InvariantCulture)
+                    ?? failed.Identity.Title,
+                failed.Identity.Title,
+                failed.Error ?? "The song could not be added."));
+        }
 
         var added = results.Count(result => result.Outcome == SongAddOutcome.Added);
         var alreadyInLibrary = selected.Count(track => track.Owned)
