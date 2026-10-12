@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Time.Testing;
+using Wondarr.Core.Persistence;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Persistence;
@@ -29,7 +30,6 @@ public sealed class ImportListItemUniqueMigrationTests
         await ExecuteAsync(
             database,
             """
-            PRAGMA foreign_keys = OFF;
             INSERT INTO import_list (id, type, name, settings, policy, quality_profile_id, library_id, enabled,
                                      sync_interval_hours, plex_playlist, m3u_export, created_at, updated_at)
             VALUES (1, 'fake', 'One', '{}', 'Mirror', 1, 1, 1, 24, 0, 0, '2026-10-01', '2026-10-01'),
@@ -46,7 +46,12 @@ public sealed class ImportListItemUniqueMigrationTests
 
         // The pre-migration backup is the migrator's business (and needs a backup service); the
         // migration itself is what is under test.
-        await using (var context = database.CreateContext(new FakeTimeProvider()))
+        await using (var context = new WondarrDbContext(
+            new DbContextOptionsBuilder<WondarrDbContext>()
+                .UseSqlite($"Data Source={database.FilePath};Pooling=False;Foreign Keys=False")
+                .UseSnakeCaseNamingConvention()
+                .Options,
+            new FakeTimeProvider()))
         {
             await context.GetService<IMigrator>().MigrateAsync();
         }
@@ -74,10 +79,15 @@ public sealed class ImportListItemUniqueMigrationTests
 
     private static async Task ExecuteAsync(SqliteTestDatabase database, string sql)
     {
-        await using var connection = new SqliteConnection($"Data Source={database.FilePath}");
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        await command.ExecuteNonQueryAsync();
+        // Pooled connections of the migration step are let go first, and this one is not kept after.
+        SqliteConnection.ClearPool(new SqliteConnection($"Data Source={database.FilePath}"));
+
+        await using (var connection = new SqliteConnection($"Data Source={database.FilePath};Pooling=False;Foreign Keys=False"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            await command.ExecuteNonQueryAsync();
+        }
     }
 }

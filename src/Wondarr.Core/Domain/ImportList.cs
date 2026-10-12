@@ -44,7 +44,9 @@ public sealed class ImportList : EntityBase
 
     /// <summary>
     /// Gets or sets how many items the last <em>complete</em> read of the source returned, or <c>0</c>
-    /// before one. A later read far below it is suspect and drives no removal (R-007).
+    /// before one. A later read far below it is suspect and drives no removal (R-007). It is
+    /// <c>-1</c> after the list's source settings (or uploaded file) changed: the next read is of a
+    /// different source and is trusted whatever its size.
     /// </summary>
     public int LastCompleteReadCount { get; set; }
 
