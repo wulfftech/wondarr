@@ -4,9 +4,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Wondarr.Core.Domain;
+using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Media;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.References;
+using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
 using Wondarr.Core.Tests.Persistence;
 using Xunit;
@@ -150,6 +152,277 @@ public sealed class ReferenceScannerTests : IDisposable
         var back = await database.ReferenceFiles.SingleAsync(row => row.RelativePath == "a.mp3");
         back.State.Should().Be(ReferenceFileState.Pending);
         back.MissingSince.Should().BeNull();
+    }
+
+    // --- A missing file and the song it owns -----------------------------------------------------
+
+    [Fact]
+    public async Task A_file_that_stays_missing_for_two_scans_a_day_apart_makes_its_song_wanted_again()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        File.Delete(path);
+
+        // The first scan that misses the file only notices.
+        var first = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        first.Released.Should().Be(0);
+        (await SongFileCountAsync(database, songId)).Should().Be(1, "the song keeps its file through the grace period");
+
+        // A later scan, but not yet a day on: still held.
+        _time.Advance(TimeSpan.FromHours(23));
+        (await scanner.ScanAsync(library.Id, null, CancellationToken.None)).Released.Should().Be(0);
+        (await SongFileCountAsync(database, songId)).Should().Be(1);
+
+        // A later scan, a day after the file was first missed: the song is let go in the same save.
+        _time.Advance(TimeSpan.FromHours(2));
+        var released = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        released.Released.Should().Be(1);
+        released.MountProblem.Should().BeFalse();
+        (await SongFileCountAsync(database, songId)).Should().Be(0);
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.RelativePath == "a.mp3");
+        row.SongId.Should().BeNull();
+        row.State.Should().Be(ReferenceFileState.Missing);
+
+        // Wanted: monitored, no file and no Identified reference row owns it.
+        (await database.Songs.AsNoTracking().AnyAsync(song =>
+            song.Id == songId
+            && song.Monitored
+            && song.File == null
+            && !database.ReferenceFiles.Any(file => file.SongId == song.Id && file.State == ReferenceFileState.Identified)))
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_single_scan_never_releases_a_song_however_old_the_row_is()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        // The file went missing long ago as far as the clock goes, but no scan has seen it missing yet.
+        _time.Advance(TimeSpan.FromDays(30));
+        File.Delete(path);
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Missing.Should().Be(1);
+        result.Released.Should().Be(0);
+        (await SongFileCountAsync(database, songId)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_file_that_comes_back_inside_the_grace_period_keeps_its_song()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+        var bytes = await File.ReadAllBytesAsync(path);
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        File.Delete(path);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        await File.WriteAllBytesAsync(path, bytes);
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime);
+        _time.Advance(TimeSpan.FromDays(2));
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.RelativePath == "a.mp3");
+        row.State.Should().Be(ReferenceFileState.Identified);
+        row.SongId.Should().Be(songId);
+        (await SongFileCountAsync(database, songId)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_half_unmounted_share_releases_nothing_and_raises_a_warning_until_the_files_are_back()
+    {
+        var names = Enumerable.Range(1, 6).Select(number => $"song{number}.mp3").ToList();
+        var contents = new Dictionary<string, byte[]>();
+
+        foreach (var name in names)
+        {
+            contents[name] = await File.ReadAllBytesAsync(Write(name, name));
+        }
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        var songs = new List<long>();
+
+        foreach (var name in names)
+        {
+            songs.Add(await OwnAsync(database, name));
+        }
+
+        var health = new ReferenceMissingFilesHealthCheck(database);
+        (await health.CheckAsync(CancellationToken.None)).Type.Should().Be(HealthCheckResult.Ok);
+
+        // Five of the six owned files vanish at once: more than the threshold allows.
+        foreach (var name in names.Skip(1))
+        {
+            File.Delete(Path.Combine(_root, name));
+        }
+
+        var first = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        first.Missing.Should().Be(5);
+        first.MountProblem.Should().BeTrue();
+
+        // Days later the share is still gone: the clock has run out, but nothing is released.
+        _time.Advance(TimeSpan.FromDays(3));
+        var second = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        second.MountProblem.Should().BeTrue();
+        second.Released.Should().Be(0);
+        (await database.ReferenceLibraries.AsNoTracking().SingleAsync()).LastScanMessage
+            .Should().Contain("no song was released");
+
+        foreach (var songId in songs)
+        {
+            (await SongFileCountAsync(database, songId)).Should().Be(1);
+        }
+
+        var warning = await health.CheckAsync(CancellationToken.None);
+        warning.Type.Should().Be(HealthCheckResult.Warning);
+        warning.Message.Should().Contain("Music").And.Contain("5 of 6");
+
+        // The share comes back: the warning clears and the songs never noticed.
+        foreach (var name in names.Skip(1))
+        {
+            var restored = Path.Combine(_root, name);
+            await File.WriteAllBytesAsync(restored, contents[name]);
+            File.SetLastWriteTimeUtc(restored, Start.UtcDateTime);
+        }
+
+        var third = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        third.MountProblem.Should().BeFalse();
+        third.Missing.Should().Be(0);
+        (await health.CheckAsync(CancellationToken.None)).Type.Should().Be(HealthCheckResult.Ok);
+
+        foreach (var songId in songs)
+        {
+            (await SongFileCountAsync(database, songId)).Should().Be(1);
+        }
+    }
+
+    [Theory]
+    [InlineData(0, 0, false)]
+    [InlineData(5, 3, false)]
+    [InlineData(5, 4, true)]
+    [InlineData(100, 10, false)]
+    [InlineData(100, 11, true)]
+    [InlineData(1000, 100, false)]
+    [InlineData(1000, 101, true)]
+    [InlineData(5000, 200, false)]
+    [InlineData(5000, 201, true)]
+    [InlineData(100000, 200, false)]
+    [InlineData(100000, 201, true)]
+    public void More_than_ten_percent_or_two_hundred_owned_files_missing_is_a_mount_problem(
+        int owned,
+        int missing,
+        bool mountProblem) =>
+        ReferenceMissingRules.IsMountProblem(owned, missing).Should().Be(mountProblem);
+
+    // --- A changed file and the user's choice ------------------------------------------------------
+
+    [Theory]
+    [InlineData(ReferenceFileState.Skipped)]
+    [InlineData(ReferenceFileState.Adopted)]
+    public async Task A_changed_file_keeps_a_skipped_or_adopted_state(ReferenceFileState state)
+    {
+        var path = Write("a.mp3", "one");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        var songId = await AddSongAsync(database);
+        var row = await database.ReferenceFiles.SingleAsync();
+        row.State = state;
+        row.SongId = songId;
+        row.Message = "kept";
+        row.Probe = null;
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        File.WriteAllText(path, "one, but longer now");
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+
+        var result = await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Changed.Should().Be(1);
+
+        var after = await database.ReferenceFiles.AsNoTracking().SingleAsync();
+        after.State.Should().Be(state);
+        after.SongId.Should().Be(songId);
+        after.Message.Should().Be("kept");
+        after.Size.Should().Be(new FileInfo(path).Length, "the size follows the file");
+        after.ModifiedAt.Should().Be(Start.UtcDateTime.AddHours(1));
+        after.Probe.Should().NotBeNull("the probe follows the file");
+    }
+
+    [Fact]
+    public async Task A_changed_file_in_any_other_state_is_identified_again()
+    {
+        var path = Write("a.mp3", "one");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        var row = await database.ReferenceFiles.SingleAsync();
+        row.State = ReferenceFileState.Unmatched;
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync()).State.Should().Be(ReferenceFileState.Pending);
+    }
+
+    // --- A file name with a backslash ----------------------------------------------------------------
+
+    [Fact]
+    public async Task A_file_name_with_a_backslash_keeps_it_on_linux()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            // Only Linux treats a backslash as part of a name; elsewhere it is a separator.
+            return;
+        }
+
+        Write("AC\\DC.mp3", "thunder");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync();
+        row.RelativePath.Should().Be("AC\\DC.mp3");
+        File.Exists(Path.Combine(_root, row.RelativePath.Replace('/', Path.DirectorySeparatorChar))).Should().BeTrue();
+        ReferenceScanner.RelativeKey("a\\b").Should().Be("a\\b");
     }
 
     [Fact]
@@ -436,6 +709,36 @@ public sealed class ReferenceScannerTests : IDisposable
 
         return library;
     }
+
+    /// <summary>
+    /// Makes a scanned file the file of a new song exactly as identification leaves it: the row is
+    /// <c>Identified</c> and carries the song, and the song holds a reference <c>song_file</c> at the
+    /// file's path.
+    /// </summary>
+    private async Task<long> OwnAsync(WondarrDbContext database, string relativePath)
+    {
+        var row = await database.ReferenceFiles.SingleAsync(candidate => candidate.RelativePath == relativePath);
+        var songId = await AddSongAsync(database);
+
+        database.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = Path.Combine(_root, relativePath.Replace('/', Path.DirectorySeparatorChar)),
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{row.ReferenceLibraryId},\"referenceFileId\":{row.Id}}}",
+            QualityId = 1,
+        });
+
+        row.SongId = songId;
+        row.State = ReferenceFileState.Identified;
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        return songId;
+    }
+
+    private static Task<int> SongFileCountAsync(WondarrDbContext database, long songId) =>
+        database.SongFiles.AsNoTracking().CountAsync(file => file.SongId == songId);
 
     private static async Task<long> AddSongAsync(WondarrDbContext database)
     {

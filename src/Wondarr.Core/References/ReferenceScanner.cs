@@ -18,13 +18,20 @@ namespace Wondarr.Core.References;
 /// <param name="Unchanged">How many existing rows matched on size and modification time.</param>
 /// <param name="Missing">How many rows had no file on disk at the end of the scan.</param>
 /// <param name="Unreadable">How many files were probed and found not to be decodable audio.</param>
+/// <param name="Released">How many songs let go of a reference file that stayed missing past the grace period.</param>
+/// <param name="MountProblem">
+/// Whether so many owned files were missing at once that the scan released nothing
+/// (<see cref="ReferenceMissingRules"/>).
+/// </param>
 public sealed record ReferenceScanResult(
     int Seen,
     int Added,
     int Changed,
     int Unchanged,
     int Missing,
-    int Unreadable);
+    int Unreadable,
+    int Released = 0,
+    bool MountProblem = false);
 
 /// <summary>Walks a reference library and keeps one row per audio file (LIBRARY_OUTPUT §7.6).</summary>
 public interface IReferenceScanner
@@ -235,6 +242,14 @@ public sealed partial class ReferenceScanner(
 
                 unchanged++;
             }
+            else if (row.State is ReferenceFileState.Skipped or ReferenceFileState.Adopted)
+            {
+                // The user's choice outlives a changed file: a new modification time or size is not
+                // the user changing their mind. Only what was measured follows the file.
+                await RefreshMeasurementAsync(row, file, info, now, cancellationToken).ConfigureAwait(false);
+
+                changed++;
+            }
             else
             {
                 await RescanAsync(row, file, info, now, isNew, cancellationToken).ConfigureAwait(false);
@@ -269,6 +284,10 @@ public sealed partial class ReferenceScanner(
 
         var missing = 0;
 
+        // Rows that were already missing at the start of this scan and still are: they have now been
+        // seen missing on a later scan as well, which is the first half of letting their song go.
+        var stillMissing = new List<ReferenceFile>();
+
         foreach (var row in rows)
         {
             // An adopted file is the library's now (adoption copies it; a user who then deletes the
@@ -290,9 +309,74 @@ public sealed partial class ReferenceScanner(
                 tracked.MissingSince = now;
                 touched.Add(tracked);
             }
+            else
+            {
+                stillMissing.Add(row);
+            }
         }
 
-        var result = new ReferenceScanResult(files.Count, added, changed, unchanged, missing, unreadable);
+        // A share that is half unmounted looks like half the library being deleted at once. The count
+        // is of the rows that own a song, because those are the ones whose loss has a consequence.
+        var owned = 0;
+        var ownedMissing = 0;
+
+        foreach (var row in rows)
+        {
+            if (row.SongId is null)
+            {
+                continue;
+            }
+
+            if (row.State == ReferenceFileState.Missing)
+            {
+                owned++;
+                ownedMissing++;
+            }
+            else if (row.State == ReferenceFileState.Identified)
+            {
+                owned++;
+            }
+        }
+
+        var mountProblem = ReferenceMissingRules.IsMountProblem(owned, ownedMissing);
+        var released = 0;
+
+        if (mountProblem)
+        {
+            LogMountProblem(logger, referenceLibraryId, ownedMissing, owned);
+        }
+        else
+        {
+            foreach (var row in stillMissing)
+            {
+                if (row.SongId is not { } songId
+                    || row.MissingSince is not { } since
+                    || now - since < ReferenceMissingRules.Grace)
+                {
+                    continue;
+                }
+
+                // The song's reference file goes, so the song has none and every wanted path sees it
+                // again. Only a reference file at this row's path is removed; a library file the song
+                // holds, or the file of another row, stays.
+                var removed = await ReferenceOwnership
+                    .ReleaseAsync(database, songId, ReferenceOwnership.AbsolutePath(root, row.RelativePath))
+                    .ConfigureAwait(false);
+
+                var tracked = Track(row);
+                tracked.SongId = null;
+                touched.Add(tracked);
+
+                if (removed)
+                {
+                    released++;
+                    LogReleased(logger, row.Id, songId);
+                }
+            }
+        }
+
+        var result = new ReferenceScanResult(
+            files.Count, added, changed, unchanged, missing, unreadable, released, mountProblem);
 
         library.LastScannedAt = now;
         library.LastScanMessage = Summary(result);
@@ -307,6 +391,43 @@ public sealed partial class ReferenceScanner(
         LogScanned(logger, referenceLibraryId, files.Count, added, changed, missing);
 
         return result;
+    }
+
+    /// <summary>
+    /// Follows a changed file that carries the user's choice (Skipped, Adopted): its size, modification
+    /// time and probe are refreshed, and its state, song and message are left exactly as they are.
+    /// </summary>
+    private async Task RefreshMeasurementAsync(
+        ReferenceFile row,
+        string path,
+        FileInfo info,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        row.Size = info.Length;
+        row.ModifiedAt = info.LastWriteTimeUtc;
+        row.LastSeenAt = now;
+        row.MissingSince = null;
+
+        MediaProbeResult probed;
+
+        try
+        {
+            probed = await probe.ProbeAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            probed = new MediaProbeResult(false, null, exception.Message);
+        }
+
+        if (probed is { Decodable: true, Info: not null })
+        {
+            row.Probe = JsonSerializer.Serialize(probed.Info, StoredJson);
+        }
     }
 
     /// <summary>
@@ -539,7 +660,14 @@ public sealed partial class ReferenceScanner(
     }
 
     private static string Relative(string root, string path) =>
-        Path.GetRelativePath(root, path).Replace('\\', '/');
+        RelativeKey(Path.GetRelativePath(root, path));
+
+    /// <summary>
+    /// A relative path as the row stores it, <c>/</c>-separated. Separators are swapped only where the
+    /// platform's own is a backslash: on Linux a backslash is part of a file name (<c>AC\DC.mp3</c>).
+    /// </summary>
+    internal static string RelativeKey(string relativePath) =>
+        Path.DirectorySeparatorChar == '\\' ? relativePath.Replace('\\', '/') : relativePath;
 
     private static string ProgressMessage(int scanned, int total) =>
         string.Concat(
@@ -562,7 +690,19 @@ public sealed partial class ReferenceScanner(
             result.Missing.ToString(CultureInfo.InvariantCulture),
             " missing, ",
             result.Unreadable.ToString(CultureInfo.InvariantCulture),
-            " unreadable");
+            " unreadable",
+            result.Released > 0
+                ? string.Concat(", ", result.Released.ToString(CultureInfo.InvariantCulture), " released")
+                : string.Empty,
+            result.MountProblem ? "; too many files are missing at once, so no song was released" : string.Empty);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Reference library {ReferenceLibraryId} has {Missing} of {Owned} owned files missing; this looks like a share that is not mounted, so no song is released")]
+    private static partial void LogMountProblem(ILogger logger, long referenceLibraryId, int missing, int owned);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Reference file {ReferenceFileId} stayed missing; song {SongId} is wanted again")]
+    private static partial void LogReleased(ILogger logger, long referenceFileId, long songId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipped a file that could not be read.")]
     private static partial void LogEntrySkipped(ILogger logger, Exception exception);

@@ -227,7 +227,21 @@ internal sealed class SearchTestHost : IAsyncDisposable
     /// Records that a reference file in the given state identifies the song, without any
     /// <c>song_file</c> row: the state a song is in before (or without) its reference file being linked.
     /// </summary>
-    public async Task SeedReferenceFileAsync(long songId, ReferenceFileState state)
+    /// <param name="songId">The song.</param>
+    /// <param name="state">The row's state.</param>
+    /// <param name="withSongFile">
+    /// Also gives the song the reference <c>song_file</c> a scan leaves while the row is Missing (the
+    /// song keeps its file through the grace period).
+    /// </param>
+    /// <param name="released">
+    /// Leaves the row without a song, as a scan does when it lets the song go: a Missing row that no
+    /// longer owns anything, and a song with no file.
+    /// </param>
+    public async Task SeedReferenceFileAsync(
+        long songId,
+        ReferenceFileState state,
+        bool withSongFile = false,
+        bool released = false)
     {
         await using var context = _database.CreateContext(Time);
 
@@ -235,18 +249,37 @@ internal sealed class SearchTestHost : IAsyncDisposable
         context.ReferenceLibraries.Add(library);
         await context.SaveChangesAsync();
 
-        context.ReferenceFiles.Add(new ReferenceFile
+        var row = new ReferenceFile
         {
             ReferenceLibraryId = library.Id,
             RelativePath = $"{songId}.flac",
             Size = 25_000_000,
             ModifiedAt = Time.GetUtcNow().UtcDateTime,
             LastSeenAt = Time.GetUtcNow().UtcDateTime,
-            SongId = songId,
+            SongId = released ? null : songId,
             State = state,
-        });
+        };
 
+        context.ReferenceFiles.Add(row);
         await context.SaveChangesAsync();
+
+        if (withSongFile)
+        {
+            context.SongFiles.Add(new SongFile
+            {
+                SongId = songId,
+                Path = $"/reference/music/{songId}.flac",
+                Size = 25_000_000,
+                Codec = "flac",
+                Container = "flac",
+                QualityId = 29,
+                SourceType = SourceTypes.Reference,
+                SourceRef = $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":{row.Id}}}",
+                ImportedAt = Time.GetUtcNow().UtcDateTime,
+            });
+
+            await context.SaveChangesAsync();
+        }
     }
 
     /// <summary>Inserts one finished run and one stored candidate, and returns the candidate's id.</summary>
