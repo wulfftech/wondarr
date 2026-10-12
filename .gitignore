@@ -5,6 +5,9 @@
 config/
 data/
 *.local.json
+CLAUDE.md
+AGENTS.md
+
 
 # .NET
 bin/
