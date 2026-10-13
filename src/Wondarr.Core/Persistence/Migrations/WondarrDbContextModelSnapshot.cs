@@ -1022,6 +1022,48 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.ToTable("notification", (string)null);
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.NotificationDigestEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Event")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("event");
+
+                    b.Property<long>("NotificationId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("notification_id");
+
+                    b.Property<string>("Snapshot")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("snapshot");
+
+                    b.Property<long?>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_notification_digest_entry");
+
+                    b.HasIndex("NotificationId", "CreatedAt")
+                        .HasDatabaseName("ix_notification_digest_entry_notification_id_created_at");
+
+                    b.ToTable("notification_digest_entry", (string)null);
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.Quality", b =>
                 {
                     b.Property<long>("Id")
@@ -2696,6 +2738,16 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasConstraintName("fk_match_candidate_reference_file_reference_file_id");
 
                     b.Navigation("ReferenceFile");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.NotificationDigestEntry", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.Notification", null)
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_notification_digest_entry_notification_notification_id");
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.QualityProfile", b =>

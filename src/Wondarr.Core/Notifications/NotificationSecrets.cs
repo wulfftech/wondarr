@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Wondarr.Core.Logging;
 
 namespace Wondarr.Core.Notifications;
 
@@ -28,6 +29,35 @@ public static class NotificationSecrets
         return SecretWords.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase));
     }
 
+
+    /// <summary>
+    /// Registers every secret field's value with the log redactor, so no log line or exception text
+    /// can carry it. The mask and empty values are skipped.
+    /// </summary>
+    /// <param name="registry">The redactor's secret registry.</param>
+    /// <param name="settings">The settings, as stored or as sent.</param>
+    /// <param name="fields">The provider's fields, which say what is secret.</param>
+    public static void Register(ISecretRegistry registry, JsonElement settings, IReadOnlyList<NotificationField> fields)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        ArgumentNullException.ThrowIfNull(fields);
+
+        if (settings.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        foreach (var field in fields.Where(field => field.Secret))
+        {
+            if (settings.TryGetProperty(field.Name, out var value) &&
+                value.ValueKind == JsonValueKind.String &&
+                value.GetString() is { Length: > 0 } secret &&
+                !string.Equals(secret, Mask, StringComparison.Ordinal))
+            {
+                registry.Register(secret);
+            }
+        }
+    }
 
     /// <summary>
     /// Copies <paramref name="settings"/> with every secret field that has a value replaced by
@@ -141,6 +171,11 @@ public static class NotificationSecrets
         foreach (var field in fields.Where(field => field.Target && !field.Secret))
         {
             var raw = TextOf(settings[field.Name]);
+
+            if (string.IsNullOrWhiteSpace(raw) && field.TargetDefault is { } fallback)
+            {
+                raw = fallback;
+            }
 
             parts.Add(field.Type == "checkbox"
                 ? string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) ? "ssl" : "plain"

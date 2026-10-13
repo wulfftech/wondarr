@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **Email notifications.** A new **Email** notification type sends over SMTP (STARTTLS, SSL on connect or none; the password is kept secret like the other types') when Wondarr grabs, imports, upgrades or fails, and for health and update messages. Each email is HTML with a plain-text alternative and shows the artist, title, album, source, quality and size, a link to the song when you set the Wondarr address, and the album cover embedded from the album folder's `cover.jpg` (up to 500 KB). **Delivery** is either one email per song, or a digest: one email per window (5 to 1440 minutes, 30 by default) that lists what was imported, upgraded and failed. Only imports, upgrades and failures are batched; grabs, health and update messages are always sent at once. Pending digest entries are stored in the database, so a restart loses nothing; a failed send is retried with a backoff and logged as an error after the third failure in a row. **Upgrading:** an additive migration adds the `notification_digest_entry` table. The new dependency is MailKit (MIT).
+
 ### Fixed
 - A new single filed into an artist's Singles folder takes the folder's shared date again (0.1.3 gave it its own date, which could split the Singles album in Plex); its real date stays in ORIGINALDATE.
 

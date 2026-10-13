@@ -187,7 +187,7 @@ public sealed class NotificationApiTests
     }
 
     [Fact]
-    public async Task The_schema_lists_the_Webhook_Discord_and_Apprise_providers()
+    public async Task The_schema_lists_the_Webhook_Discord_Apprise_and_Email_providers()
     {
         using var factory = Factory();
         using var client = Authenticated(factory);
@@ -199,7 +199,7 @@ public sealed class NotificationApiTests
         var schema = await ReadJsonAsync(response);
 
         schema.EnumerateArray().Select(entry => entry.GetProperty("implementation").GetString())
-            .Should().BeEquivalentTo(["Webhook", "Discord", "Apprise"]);
+            .Should().BeEquivalentTo(["Webhook", "Discord", "Apprise", "Email"]);
 
         var discord = Field(
             schema.EnumerateArray().Single(entry => entry.GetProperty("implementation").GetString() == "Discord")
