@@ -54,6 +54,17 @@ public static class YouTubeCandidateMapper
         return string.Concat(BlocklistKeyPrefix, videoId);
     }
 
+    /// <summary>The decision engine's name for a result's video type; null when InnerTube sent none.</summary>
+    private static string? KindName(string? musicVideoType) =>
+        musicVideoType is null
+            ? null
+            : InnertubeVideoTypes.KindOf(musicVideoType) switch
+            {
+                InnertubeVideoKind.ArtTrack => YouTubeVideoKinds.ArtTrack,
+                InnertubeVideoKind.OfficialVideo => YouTubeVideoKinds.OfficialVideo,
+                _ => YouTubeVideoKinds.UserUpload,
+            };
+
     private static Candidate Map(InnertubeResult result, string key, string query)
     {
         // A YouTube title carries the same version hints and feat. clauses a file name does, so the
@@ -82,6 +93,7 @@ public static class YouTubeCandidateMapper
             // The runner always lands an .opus remux (it refuses anything else), so the candidate
             // says so: the engine's not-audio check reads this before yt-dlp has run.
             Extension = "opus",
+            VideoKind = KindName(result.MusicVideoType),
             QualityId = Opus160QualityId,
             // The engine's YouTube rule is a flat 120 availability (MATCHING_ENGINE.md §6.2): a free
             // slot (80) and an empty queue (40). Nothing else about a stream is known up front.

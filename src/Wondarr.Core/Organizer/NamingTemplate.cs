@@ -43,8 +43,40 @@ public static class NamingTemplate
             [LibraryLayout.Flat] = "{Artist Name} - {Track Title}",
             [LibraryLayout.Artist] = "{Artist Name}/{Artist Name} - {Track Title}",
             [LibraryLayout.ArtistAlbum] = "{Artist Name}/{Album Title} ({Release Year})/{track:00} - {Track Title}",
+            [LibraryLayout.Plexamp] = "{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}",
+        }.ToFrozenDictionary();
+
+    /// <summary>
+    /// What a preset used to be, for the layouts whose preset changed. A library stores a copy of its
+    /// preset's template, so a stored copy that equals the old text is an unmodified preset and follows
+    /// the new one (R-046); anything else is the user's own template and is left alone.
+    /// </summary>
+    private static readonly FrozenDictionary<LibraryLayout, string> RetiredPresetTemplates =
+        new Dictionary<LibraryLayout, string>
+        {
             [LibraryLayout.Plexamp] = "{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}",
         }.ToFrozenDictionary();
+
+    /// <summary>
+    /// The template to render a library's paths with: its preset's current template when the stored one is
+    /// empty or an unmodified earlier copy of that preset, otherwise the stored (custom) template as it is.
+    /// Nothing is moved by this; files only change folder when the user runs a move or Compact.
+    /// </summary>
+    /// <param name="layout">The library's layout preset.</param>
+    /// <param name="stored">The library's stored naming template.</param>
+    /// <returns>The template to render with.</returns>
+    public static string Effective(LibraryLayout layout, string? stored)
+    {
+        if (string.IsNullOrWhiteSpace(stored))
+        {
+            return PresetTemplates[layout];
+        }
+
+        return RetiredPresetTemplates.TryGetValue(layout, out var retired)
+            && string.Equals(stored.Trim(), retired, StringComparison.Ordinal)
+            ? PresetTemplates[layout]
+            : stored;
+    }
 
     /// <summary>The token names the engine knows, as they read in a template (lower-cased for lookup).</summary>
     private static readonly FrozenSet<string> ValueTokens = new[]

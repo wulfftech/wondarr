@@ -175,9 +175,6 @@ public sealed record DecisionContext
     /// <summary>Whether a person asked for this grab by hand; manual grabs are exempt from the upgrade rule.</summary>
     public bool IsManualGrab { get; init; }
 
-    /// <summary>The source's tier, 1 (preferred) to 3.</summary>
-    public int SourceTier { get; init; } = 1;
-
     /// <summary>
     /// The output policy of the library the song files into. A container the tag writer cannot handle
     /// is accepted when this policy converts that kind of source to one it can; <see langword="null"/>

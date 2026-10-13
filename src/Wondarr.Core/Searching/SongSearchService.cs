@@ -1484,7 +1484,6 @@ public sealed partial class SongSearchService : ISongSearchService
             CurrentFileQualityId = song.File?.QualityId,
             CurrentFileIdentityScore = await ReadHeldIdentityAsync(song.File, cancellationToken).ConfigureAwait(false),
             IsManualGrab = trigger == SearchTrigger.Manual,
-            SourceTier = 1,
             IsBlocklisted = key => blockedKeys.Contains(key),
             IgnoredUsers = ignored,
             MaxContainerSizeBytes = _options.CurrentValue.MaxContainerSizeMb * 1024L * 1024L,

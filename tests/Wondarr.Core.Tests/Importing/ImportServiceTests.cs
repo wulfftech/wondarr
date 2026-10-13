@@ -701,7 +701,7 @@ public sealed class ImportServiceTests
 
         var item = await host.Context.QueueItems.SingleAsync(entry => entry.Id == seed.QueueItemId);
         item.State.Should().Be(QueueItemState.Failed);
-        item.Message.Should().StartWith("Imported to " + host.LibraryRoot + "/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+        item.Message.Should().StartWith("Imported to " + host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)/08 - Get Lucky.flac");
         item.Message.Should().Contain("but recording it failed:");
 
         // The unsuccessful import never announced itself as one.
