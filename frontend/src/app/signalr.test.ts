@@ -57,6 +57,16 @@ function serverMessage(name: string, action: string, resource: unknown): unknown
   return { name, body: { action, resource } };
 }
 
+/** A command push as `CommandResource` serialises it: `name` as queued, `commandName` as display text. */
+function commandPush(id: number, name: string, status: string): unknown {
+  return serverMessage('command', 'updated', {
+    id,
+    name,
+    commandName: name.replace(/([a-z])([A-Z])/g, '$1 $2'),
+    status,
+  });
+}
+
 /** A cache holding one entry for each list the messages touch. */
 function cacheWithEntries(): QueryClient {
   const queryClient = new QueryClient();
@@ -159,7 +169,7 @@ describe('applyEventMessage', () => {
     queryClient.setQueryData(['match-queue', 'total'], 3);
     queryClient.setQueryData(['match-queue', 'list', { page: 1 }], { records: [] });
 
-    applyEventMessage(queryClient, serverMessage('command', 'updated', { id: 5, name: 'Backup', status: 'completed' }));
+    applyEventMessage(queryClient, commandPush(5, 'Backup', 'completed'));
 
     expect(isInvalidated(queryClient, ['match-queue', 'total'])).toBe(true);
     expect(isInvalidated(queryClient, ['match-queue', 'list', { page: 1 }])).toBe(false);
@@ -170,18 +180,12 @@ describe('applyEventMessage', () => {
     queryClient.setQueryData(['match-queue', 'total'], 3);
     queryClient.setQueryData(['match-queue', 'list', { page: 1 }], { records: [] });
 
-    applyEventMessage(
-      queryClient,
-      serverMessage('command', 'updated', { id: 6, name: 'ReferenceLibraryScan', status: 'started' }),
-    );
+    applyEventMessage(queryClient, commandPush(6, 'ReferenceLibraryScan', 'started'));
 
     expect(isInvalidated(queryClient, ['match-queue', 'total'])).toBe(false);
     expect(isInvalidated(queryClient, ['match-queue', 'list', { page: 1 }])).toBe(false);
 
-    applyEventMessage(
-      queryClient,
-      serverMessage('command', 'updated', { id: 6, name: 'ReferenceLibraryScan', status: 'completed' }),
-    );
+    applyEventMessage(queryClient, commandPush(6, 'ReferenceLibraryScan', 'completed'));
 
     expect(isInvalidated(queryClient, ['match-queue', 'total'])).toBe(true);
     expect(isInvalidated(queryClient, ['match-queue', 'list', { page: 1 }])).toBe(true);
@@ -190,26 +194,31 @@ describe('applyEventMessage', () => {
   it('refreshes the song lists when a song-changing command ends, not while it runs', () => {
     const queryClient = cacheWithEntries();
 
-    applyEventMessage(
-      queryClient,
-      serverMessage('command', 'updated', { id: 7, name: 'MoveSongs', status: 'started' }),
-    );
+    applyEventMessage(queryClient, commandPush(7, 'MoveSongs', 'started'));
 
     expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(false);
 
-    applyEventMessage(
-      queryClient,
-      serverMessage('command', 'updated', { id: 7, name: 'MoveSongs', commandName: 'MoveSongs', status: 'completed' }),
-    );
+    applyEventMessage(queryClient, commandPush(7, 'MoveSongs', 'completed'));
 
     expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(true);
     expect(isInvalidated(queryClient, ['wanted', 'missing', { page: 1 }])).toBe(true);
   });
 
+  it('matches a song-changing command by its queued name, not its display name', () => {
+    const queryClient = cacheWithEntries();
+
+    applyEventMessage(
+      queryClient,
+      serverMessage('command', 'updated', { id: 9, name: 'MoveSongs', commandName: 'Move Songs', status: 'completed' }),
+    );
+
+    expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(true);
+  });
+
   it('leaves the song lists alone when a command that does not change songs ends', () => {
     const queryClient = cacheWithEntries();
 
-    applyEventMessage(queryClient, serverMessage('command', 'updated', { id: 8, name: 'Backup', status: 'completed' }));
+    applyEventMessage(queryClient, commandPush(8, 'Backup', 'completed'));
 
     expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(false);
   });

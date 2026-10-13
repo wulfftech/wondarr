@@ -84,15 +84,15 @@ function applyCommandOutcome(queryClient: QueryClient, resource: unknown): void 
     return;
   }
 
-  const command = resource as { name?: unknown; commandName?: unknown; status?: unknown };
+  // `name` is the queued name (`MoveSongs`); `commandName` is only its display form (`Move Songs`).
+  const command = resource as { name?: unknown; status?: unknown };
   const status = typeof command.status === 'string' ? command.status.toLowerCase() : '';
 
   if (status !== 'completed' && status !== 'failed' && status !== 'aborted') {
     return;
   }
 
-  const rawName = typeof command.commandName === 'string' ? command.commandName : command.name;
-  const name = typeof rawName === 'string' ? rawName : '';
+  const name = typeof command.name === 'string' ? command.name : '';
 
   if (SONG_CHANGING_COMMANDS.has(name)) {
     invalidateLibrary(queryClient);
