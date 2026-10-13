@@ -34,16 +34,15 @@ public sealed class MetadataResilienceTests
     [InlineData("IDeezerClient")]
     [InlineData("IITunesClient")]
     [InlineData("IAcoustIdClient")]
-    public void No_metadata_client_times_out_before_the_longest_cooldown_it_can_be_asked_to_wait_out(string clientName)
+    public void No_metadata_client_has_a_whole_call_timeout_that_a_cooldown_could_outlast(string clientName)
     {
         using var provider = BuildProvider(new FakeTimeProvider(Start), new ScriptedByCount());
 
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(clientName);
 
-        // Either no HttpClient limit at all (the retried clients limit each attempt in their pipeline
-        // instead), or one comfortably above the longest Retry-After.
-        (client.Timeout == Timeout.InfiniteTimeSpan || client.Timeout > RetryAfterHeader.MaxWait + TimeSpan.FromSeconds(10))
-            .Should().BeTrue($"{clientName} must outlast a {RetryAfterHeader.MaxWait.TotalSeconds:0} s Retry-After; it has {client.Timeout}");
+        // The attempt limit is a handler after the gate; HttpClient's own timeout would cover the gate wait
+        // and every retry as well, which is what turned a long cooldown into a 100 s timeout.
+        client.Timeout.Should().Be(Timeout.InfiniteTimeSpan);
     }
 
     [Fact]
@@ -152,6 +151,74 @@ public sealed class MetadataResilienceTests
         }
 
         cache.SetCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_musicbrainz_row_cached_as_html_before_the_fix_is_fetched_again_and_replaced()
+    {
+        var handler = new FixtureHttpMessageHandler(_ => MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("recording-bohemian-rhapsody.json")));
+        var cache = new InMemoryMetadataCache();
+        const string Key = $"recording/{BohemianRhapsodyId}?inc=artist-credits+isrcs&fmt=json";
+        await cache.SetAsync("musicbrainz", Key, HtmlBody, TimeSpan.FromDays(1), CancellationToken.None);
+        var client = new MusicBrainzClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://musicbrainz.org/ws/2/") },
+            cache);
+
+        (await client.GetRecordingAsync(BohemianRhapsodyId))!.Length.Should().Be(355106);
+        (await cache.GetAsync("musicbrainz", Key, CancellationToken.None)).Should().NotBe(HtmlBody);
+
+        // The replacement is a good row: the next call is served from it.
+        await client.GetRecordingAsync(BohemianRhapsodyId);
+        handler.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_deezer_row_cached_as_html_before_the_fix_is_fetched_again_and_replaced()
+    {
+        var handler = new FixtureHttpMessageHandler(_ => MusicBrainzFixtures.Json("""{"id":3135556,"title":"Harder, Better, Faster, Stronger"}"""));
+        var cache = new InMemoryMetadataCache();
+        await cache.SetAsync("deezer", "track/3135556", HtmlBody, TimeSpan.FromDays(1), CancellationToken.None);
+        var client = new DeezerClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://api.deezer.com/") },
+            cache);
+
+        (await client.GetTrackAsync(3135556))!.Id.Should().Be(3135556);
+        (await cache.GetAsync("deezer", "track/3135556", CancellationToken.None)).Should().NotBe(HtmlBody);
+
+        await client.GetTrackAsync(3135556);
+        handler.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task An_itunes_row_cached_as_html_before_the_fix_is_fetched_again_and_replaced()
+    {
+        var handler = new FixtureHttpMessageHandler(_ => MusicBrainzFixtures.Json("""{"resultCount":0,"results":[]}"""));
+        var cache = new InMemoryMetadataCache();
+        var client = new ITunesClient(
+            new HttpClient(handler) { BaseAddress = new Uri("https://itunes.apple.com/") },
+            cache);
+
+        var key = "search?term=queen&entity=song&limit=10&country=US";
+        await cache.SetAsync("itunes", key, HtmlBody, TimeSpan.FromDays(1), CancellationToken.None);
+
+        (await client.SearchSongsAsync("queen")).Should().BeEmpty();
+        (await cache.GetAsync("itunes", key, CancellationToken.None)).Should().NotBe(HtmlBody);
+
+        await client.SearchSongsAsync("queen");
+        handler.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void An_unreadable_body_is_logged_as_a_single_short_line_without_a_cut_surrogate_pair()
+    {
+        // 119 characters, then a surrogate pair that straddles the 120-character limit.
+        var body = new string('a', 119) + "\U0001F3B5" + "\r\nnext line";
+
+        var snippet = ProviderBodies.Snippet(body);
+
+        snippet.Should().NotContain("\r").And.NotContain("\n");
+        snippet.Should().Be(new string('a', 119));
+        ProviderBodies.Snippet("a\r\nb\tc").Should().Be("a  b c");
     }
 
     [Fact]

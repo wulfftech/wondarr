@@ -11,7 +11,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
-using Polly.Timeout;
 using Xunit;
 
 namespace Wondarr.Core.Tests.ImportLists;
@@ -357,19 +356,19 @@ public class PasteListServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("timeout-rejected")]
+    [InlineData("json")]
     [InlineData("task-cancelled")]
     public async Task ProcessAsync_survives_one_lines_provider_timeout(string kind)
     {
         await using var context = await ContextAsync();
         StubResolver();
 
-        // The failing line's lookup runs out of time (the per-attempt limit, or HttpClient's own
-        // timeout, which .NET reports as a TaskCanceledException). The caller's token is not cancelled.
+        // The failing line's lookup runs out of time (the attempt limit reports a TaskCanceledException,
+        // as HttpClient's own timeout did) or comes back unreadable. The caller's token is not cancelled.
         _resolver
             .ResolveAsync(FailingLine, Arg.Any<CancellationToken>())
-            .Returns<Task<ResolveResult>>(_ => throw (kind == "timeout-rejected"
-                ? new TimeoutRejectedException("The operation didn't complete within the allowed timeout.")
+            .Returns<Task<ResolveResult>>(_ => throw (kind == "json"
+                ? new System.Text.Json.JsonException("'<' is an invalid start of a value.")
                 : new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout")));
 
         var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111");
