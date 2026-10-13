@@ -22,9 +22,10 @@ import { ErrorState, LoadingState } from '../../components/DataState';
 
 /** The explanation of what the command does, in the order the user reads it. */
 const EXPLANATION =
-  "Re-plans every song's album under this library's album policy, as if the library were built today. " +
-  'Songs you placed on an album yourself are kept. Files move to their new album folders; Plex is told ' +
-  'to forget the old albums first. ' +
+  "Re-plans every song's album under this library's album policy, as if the library were built today, " +
+  "and checks that every file sits where the library's folder template puts it. " +
+  'Songs you placed on an album yourself are kept on it, but their files still follow the template. ' +
+  'Files move to their new folders; Plex is told to forget the old ones first. ' +
   "Plex's trash is emptied only when every folder of the section is reachable; otherwise moved songs " +
   'show as unavailable in Plex until you empty its trash.';
 
@@ -94,8 +95,10 @@ export function CompactLibraryModal({
   const moves = plan.data?.moves ?? [];
   const hasMoves = moves.length > 0;
   // A move that keeps the album only changes the folder: the library's naming template changed since the file was filed.
-  const templateMoves = moves.filter((move) => move.from.albumKey === move.to.albumKey).length;
-  const albumMoves = moves.length - templateMoves;
+  const templateMoves = Number(plan.data?.templateMoves ?? 0);
+  const templateMovesTotal = Number(plan.data?.templateMovesTotal ?? 0);
+  const albumMoves = Number(plan.data?.albumMoves ?? 0);
+  const moveCount = Number(plan.data?.moveCount ?? 0);
 
   // The moves are on disk now, so the songs and the plan the user is looking at are both stale.
   useEffect(() => {
@@ -125,7 +128,25 @@ export function CompactLibraryModal({
               {plan.data.albumsBefore} albums → {plan.data.albumsAfter} albums, {albumMoves} songs move to another album
             </Text>
 
-            {templateMoves > 0 && <Text fw={600}>{templateMoves} songs move to match the folder template</Text>}
+            {templateMoves > 0 && (
+              <>
+                <Text fw={600}>
+                  {templateMovesTotal > templateMoves
+                    ? `${templateMoves} of ${templateMovesTotal} template moves this run; run Compact again for the rest`
+                    : `${templateMoves} songs move to match the folder template`}
+                </Text>
+                <Alert color="yellow" icon={<CircleAlert size={16} />}>
+                  {templateMoves} files will be moved to match the folder template. Each is re-tagged and re-filed, and
+                  Plex sees them as moved. Take a backup first, and run it at a quiet time.
+                </Alert>
+              </>
+            )}
+
+            {moveCount > moves.length && (
+              <Text size="sm" c="dimmed">
+                Showing {moves.length} of {moveCount} moves.
+              </Text>
+            )}
 
             {!hasMoves && (
               <Text size="sm">
@@ -167,7 +188,7 @@ export function CompactLibraryModal({
 
         {confirming ? (
           <Stack gap="xs">
-            <Text size="sm">Move {moves.length} files? This rescans the linked Plex library.</Text>
+            <Text size="sm">Move {moveCount} files? This rescans the linked Plex library.</Text>
 
             <Group justify="flex-end">
               <Button variant="default" onClick={() => setConfirming(false)}>

@@ -795,6 +795,10 @@ export const COMPACT_PLAN = {
   albumsBefore: 4,
   albumsAfter: 2,
   songsConsidered: 12,
+  albumMoves: 2,
+  templateMoves: 0,
+  templateMovesTotal: 0,
+  moveCount: 2,
   moves: [
     {
       songId: 12,
@@ -832,6 +836,10 @@ export const COMPACT_PLAN_EMPTY = {
   ...COMPACT_PLAN,
   albumsBefore: 2,
   albumsAfter: 2,
+  albumMoves: 0,
+  templateMoves: 0,
+  templateMovesTotal: 0,
+  moveCount: 0,
   moves: [],
 };
 

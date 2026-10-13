@@ -124,6 +124,69 @@ describe('CompactLibraryModal', () => {
     expect(within(dialog).getByText('Daft Punk — Random Access Memories')).toBeInTheDocument();
   });
 
+  it('counts the songs that only move to match the folder template, and warns what it costs', async () => {
+    const album = { albumKey: 'rama', kind: 'album', albumTitle: 'Random Access Memories', albumArtist: 'Daft Punk' };
+
+    install({
+      plan: {
+        ...COMPACT_PLAN_EMPTY,
+        templateMoves: 1,
+        templateMovesTotal: 1,
+        moveCount: 1,
+        moves: [
+          {
+            songId: 12,
+            title: 'Get Lucky',
+            artistCredit: 'Daft Punk',
+            from: album,
+            to: album,
+            fromPath: '/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac',
+            toPath: '/data/music/Daft Punk/Random Access Memories (2013)/08 - Get Lucky.flac',
+          },
+        ],
+      },
+    });
+
+    const dialog = await openCompact();
+
+    expect(await within(dialog).findByText('2 albums → 2 albums, 0 songs move to another album')).toBeInTheDocument();
+    expect(within(dialog).getByText('1 songs move to match the folder template')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/1 files will be moved to match the folder template\. Each is re-tagged and re-filed/),
+    ).toBeInTheDocument();
+  });
+
+  it('says how many template moves this run does of the whole, and that the list is cut', async () => {
+    const album = { albumKey: 'rama', kind: 'album', albumTitle: 'Random Access Memories', albumArtist: 'Daft Punk' };
+
+    install({
+      plan: {
+        ...COMPACT_PLAN_EMPTY,
+        templateMoves: 250,
+        templateMovesTotal: 900,
+        moveCount: 250,
+        moves: [
+          {
+            songId: 12,
+            title: 'Get Lucky',
+            artistCredit: 'Daft Punk',
+            from: album,
+            to: album,
+            fromPath: '/data/music/a.flac',
+            toPath: '/data/music/b.flac',
+          },
+        ],
+      },
+    });
+
+    const dialog = await openCompact();
+
+    expect(
+      await within(dialog).findByText('250 of 900 template moves this run; run Compact again for the rest'),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('Showing 1 of 250 moves.')).toBeInTheDocument();
+  });
+
   it('says there is nothing to do and disables the run button', async () => {
     install({ plan: COMPACT_PLAN_EMPTY });
 

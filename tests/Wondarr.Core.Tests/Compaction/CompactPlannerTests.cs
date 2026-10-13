@@ -1,3 +1,4 @@
+using System.Globalization;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
@@ -339,6 +340,129 @@ public class CompactPlannerTests : IDisposable
         plan.Moves.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("Daft Punk/random access memories (2013)/01 - track 1.flac", "a different case")]
+    [InlineData("Daft Punk/Random Access Memories (2013)/01 - Track 1.FLAC", "an upper-case extension")]
+    public async Task A_case_difference_is_not_a_move(string relative, string why)
+    {
+        await using var context = await ContextAsync();
+        await SeedPinnedOnAlbumAsync(context, Placed(relative));
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty(why);
+    }
+
+    [Fact]
+    public async Task A_decomposed_unicode_folder_is_not_a_move()
+    {
+        await using var context = await ContextAsync();
+        var artistId = await SeedArtistAsync(context);
+
+        // The album is "Café" with a precomposed é; the folder on disk (a Mac wrote it) has e + a combining accent.
+        await SeedSongAsync(
+            context,
+            artistId,
+            "m-1",
+            "Track 1",
+            "r1",
+            AlbumContextKind.Album,
+            "Caf\u00e9",
+            trackNo: 1,
+            pinned: true,
+            filePath: Placed("Daft Punk/Cafe\u0301 (2013)/01 - Track 1.flac"));
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_file_outside_the_library_root_is_not_the_templates_business()
+    {
+        await using var context = await ContextAsync();
+        await SeedPinnedOnAlbumAsync(context, Placed("../music-other/Daft Punk/Random Access Memories/01 - Track 1.flac"));
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(CompactMoveState.Failed)]
+    [InlineData(CompactMoveState.GivenUp)]
+    public async Task A_move_that_failed_to_this_very_path_is_left_out_until_the_target_changes(CompactMoveState state)
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedPinnedOnAlbumAsync(context, Placed("Daft Punk/Random Access Memories/01 - Track 1.flac"));
+        var target = Placed("Daft Punk/Random Access Memories (2013)/01 - Track 1.flac");
+
+        var row = new CompactMoveRecord
+        {
+            LibraryId = SeedData.DefaultLibraryId,
+            SongId = songId,
+            FromPath = Placed("Daft Punk/Random Access Memories/01 - Track 1.flac"),
+            ToPath = target,
+            State = state,
+            Message = "the share said no",
+        };
+        context.CompactMoves.Add(row);
+        await context.SaveChangesAsync();
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty("the same move already failed to the same path");
+        plan.SuppressedRowIds.Should().Equal(row.Id);
+
+        // A new target (the template changed) is a new move.
+        row.ToPath = Placed("Daft Punk/Elsewhere/01 - Track 1.flac");
+        await context.SaveChangesAsync();
+
+        (await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None))
+            .Moves.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_run_takes_whole_albums_up_to_the_cap_and_reports_the_total()
+    {
+        await using var context = await ContextAsync();
+        var artistId = await SeedArtistAsync(context);
+
+        // Albums A (2 songs), B (2) and C (1), every file in a year-less folder.
+        var layout = new[] { ("A", 1), ("A", 2), ("B", 1), ("B", 2), ("C", 1) };
+        var index = 0;
+
+        foreach (var (album, track) in layout)
+        {
+            index++;
+            await SeedSongAsync(
+                context,
+                artistId,
+                "m-" + index,
+                "Track " + index,
+                "key-" + album,
+                AlbumContextKind.Album,
+                "Album " + album,
+                trackNo: track,
+                pinned: true,
+                filePath: Placed($"Daft Punk/Album {album}/{track:00} - Track {index}.flac"));
+        }
+
+        var plan = await new CompactPlanner(context, NewSongs(context)) { TemplateMoveCap = 3 }
+            .PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.TemplateMovesTotal.Should().Be(5);
+        plan.TemplateMoves.Should().Be(3);
+        plan.Moves.Select(move => move.To.AlbumTitle).Should().BeEquivalentTo("Album A", "Album A", "Album C");
+
+        // An album bigger than the cap is still taken whole, and alone.
+        var small = await new CompactPlanner(context, NewSongs(context)) { TemplateMoveCap = 1 }
+            .PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        small.Moves.Select(move => move.To.AlbumTitle).Should().Equal("Album A", "Album A");
+        small.TemplateMovesTotal.Should().Be(5);
+    }
+
     /// <summary>One song pinned to the real album r1 (so the re-plan leaves it there), holding a file.</summary>
     private static async Task<long> SeedPinnedOnAlbumAsync(
         WondarrDbContext context,
@@ -368,11 +492,13 @@ public class CompactPlannerTests : IDisposable
         return _database.CreateContext(_timeProvider);
     }
 
-    private CompactPlanner NewPlanner(WondarrDbContext context)
+    private CompactPlanner NewPlanner(WondarrDbContext context) => new(context, NewSongs(context));
+
+    private SongService NewSongs(WondarrDbContext context)
     {
         var counter = 0;
 
-        var songs = new SongService(
+        return new SongService(
             context,
             _resolver,
             new AlbumPolicyEngine(() => new Guid(++counter, 0, 0, new byte[8])),
@@ -381,8 +507,6 @@ public class CompactPlannerTests : IDisposable
             Wondarr.Core.Tests.Songs.SearchOnAddOff.Commands,
             Wondarr.Core.Tests.Songs.SearchOnAddOff.Options,
             NullLogger<SongService>.Instance);
-
-        return new CompactPlanner(context, songs);
     }
 
     private static long SongId(WondarrDbContext context, string mbRecordingId) =>
@@ -410,7 +534,9 @@ public class CompactPlannerTests : IDisposable
         int? trackNo,
         bool pinned = false,
         string? filePath = null,
-        string sourceType = SourceTypes.Soulseek)
+        string sourceType = SourceTypes.Soulseek,
+        string date = "2013-05-17",
+        int discNo = 1)
     {
         var song = new Song
         {
@@ -444,9 +570,9 @@ public class CompactPlannerTests : IDisposable
             MbReleaseId = kind == AlbumContextKind.PseudoSingles ? null : albumKey,
             MbReleaseGroupId = kind == AlbumContextKind.PseudoSingles ? null : albumKey + "-group",
             TrackNo = trackNo,
-            DiscNo = 1,
+            DiscNo = discNo,
             TotalTracks = 1,
-            Date = "2013-05-17",
+            Date = date,
             Pinned = pinned,
         });
 
