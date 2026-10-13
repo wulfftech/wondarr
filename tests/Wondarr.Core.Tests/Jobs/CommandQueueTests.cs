@@ -127,7 +127,7 @@ public class CommandQueueTests
     {
         await using var host = await JobTestHost.CreateAsync();
 
-        var running = await host.InsertCommandAsync("Heartbeat", CommandStatus.Started, "{\"name\":\"Heartbeat\",\"referenceLibraryId\":1}");
+        var running = await host.InsertCommandAsync("Heartbeat", CommandStatus.Started, "{\"name\":\"Heartbeat\",\"referenceLibraryId\":1}", live: true);
         var other = await host.Queue.EnqueueAsync(
             "Heartbeat",
             "{\"name\":\"Heartbeat\",\"referenceLibraryId\":2}",

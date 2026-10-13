@@ -648,6 +648,23 @@ public class SongServiceTests : IDisposable
         (await FindSongAsync(context, "m-a")).AlbumContext!.Pinned.Should().BeTrue();
     }
 
+    /// <summary>Whether a MissingSearch body names exactly these songs (R-034).</summary>
+    private static bool NamesSongs(string? body, IEnumerable<long> songIds)
+    {
+        if (body is null)
+        {
+            return false;
+        }
+
+        using var document = JsonDocument.Parse(body);
+        var named = document.RootElement.GetProperty("songIds").EnumerateArray().Select(id => id.GetInt64());
+
+        // Sorted, so the same set of songs is the same request whatever order the add produced them in.
+        var list = named.ToList();
+
+        return list.SequenceEqual(list.Order()) && list.SequenceEqual(songIds.Order());
+    }
+
     [Fact]
     public async Task An_album_add_pins_the_identities_that_carry_the_release_and_leaves_the_rest_to_the_policy()
     {
@@ -679,10 +696,10 @@ public class SongServiceTests : IDisposable
         var byPolicy = await FindSongAsync(context, "m-b");
         byPolicy.AlbumContext!.Pinned.Should().BeFalse();
 
-        // The batch still queues one missing search, not one search per song.
+        // The batch still queues one missing search, not one search per song, and it names its songs.
         await commands.Received(1).EnqueueAsync(
             "MissingSearch",
-            null,
+            Arg.Is<string?>(body => NamesSongs(body, added.Select(result => result!.Song.Id))),
             CommandTrigger.Unspecified,
             Arg.Any<CancellationToken>());
     }
@@ -927,7 +944,7 @@ public class SongServiceTests : IDisposable
 
         await commands.Received(1).EnqueueAsync(
             "MissingSearch",
-            null,
+            Arg.Is<string?>(body => NamesSongs(body, added.Select(result => result!.Song.Id))),
             CommandTrigger.Unspecified,
             Arg.Any<CancellationToken>());
         await commands.DidNotReceive().EnqueueAsync(

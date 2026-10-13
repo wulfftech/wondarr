@@ -57,6 +57,9 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     /// <summary>What an item left mid-import by a previous run is marked with.</summary>
     internal const string RecoveredAfterRestart = "recovered after restart";
 
+    /// <summary>The message of a grab that was still inside its source's grab when the process went down.</summary>
+    internal const string RestartedDuringGrab = "Wondarr restarted during the grab";
+
     /// <summary>The JSON shape of every payload this class writes: camelCase, nulls left out.</summary>
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -69,6 +72,10 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     private readonly IOptionsMonitor<SearchOptions> _searchOptions;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<QueueTracker> _logger;
+
+    // When this process began following the queue. A grab with no handle that is older than this was in
+    // a previous process; one newer is a live grab of this one, whenever the recovery gets to run.
+    private readonly DateTime _startedAt;
 
     // Capacity one: a wake while a wake is already pending is the same request twice.
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -101,6 +108,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         _searchOptions = searchOptions;
         _timeProvider = timeProvider;
         _logger = logger;
+        _startedAt = timeProvider.GetUtcNow().UtcDateTime;
     }
 
     /// <inheritdoc />
@@ -401,6 +409,40 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         await using var scope = _scopeFactory.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
         var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        // A Queued item with no handle was inside its source's grab (a YouTube download) when the
+        // previous process went down; that grab is gone, so the item is failed and the song can be
+        // searched again.
+        var lost = await database.QueueItems
+            .Include(entry => entry.Candidate)
+            .Where(entry => entry.State == QueueItemState.Queued
+                && (entry.Handle == null || entry.Handle == string.Empty)
+                && entry.StateChangedAt < _startedAt)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var item in lost)
+        {
+            item.State = QueueItemState.Failed;
+            item.StateChangedAt = now;
+            item.FinishedAt = now;
+            item.Message = RestartedDuringGrab;
+
+            database.History.Add(new HistoryItem
+            {
+                SongId = item.SongId,
+                EventType = HistoryEventType.Failed,
+                SourceInstanceId = item.SourceInstanceId,
+                Data = JsonSerializer.Serialize(
+                    new FailureHistoryData(RestartedDuringGrab, item.Candidate?.Provider, item.Candidate?.RemotePath, item.Attempt, null),
+                    Json),
+            });
+        }
+
+        if (lost.Count > 0)
+        {
+            await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         var stuck = await database.QueueItems
             .Include(entry => entry.Candidate)
@@ -740,7 +782,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     /// <param name="now">The instant to measure against.</param>
     private static string? TimeoutReason(QueueItem item, QueueOptions options, DateTime now) => item.State switch
     {
-        QueueItemState.Queued when Waited(item.StateChangedAt, options.StartTimeoutMinutes, now)
+        QueueItemState.Queued when Waited(item.StateChangedAt, StartTimeoutMinutes(item, options), now)
             => "Peer did not respond",
         QueueItemState.RemotelyQueued when Waited(item.StateChangedAt, options.RemoteQueueTimeoutMinutes, now)
             => string.Create(
@@ -750,6 +792,19 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
             => string.Create(CultureInfo.InvariantCulture, $"Stalled at {Math.Round(item.Progress * 100)} %"),
         _ => null,
     };
+
+    /// <summary>
+    /// How long a <c>Queued</c> item may wait. A YouTube item with no handle yet is still inside its
+    /// source's grab, which is the whole yt-dlp download, so it gets the longer allowance
+    /// (<see cref="QueueOptions.HandlelessGrabTimeoutMinutes"/>) and is never failed while yt-dlp writes.
+    /// Every other source hands back a handle at once and keeps the start timeout.
+    /// </summary>
+    /// <param name="item">The queued item.</param>
+    /// <param name="options">The configured timeouts.</param>
+    private static int StartTimeoutMinutes(QueueItem item, QueueOptions options) =>
+        string.IsNullOrEmpty(item.Handle) && item.SourceType == SourceTypes.YouTube
+            ? Math.Max(options.StartTimeoutMinutes, QueueOptions.HandlelessGrabTimeoutMinutes)
+            : options.StartTimeoutMinutes;
 
     /// <summary>Where in the peer's queue the item is, as the message reads it.</summary>
     /// <param name="item">The item in the peer's queue.</param>

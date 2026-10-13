@@ -35,6 +35,22 @@ internal sealed class JobTestHost : IAsyncDisposable
     /// <summary>The command queue under test.</summary>
     public ICommandQueue Queue => _provider.GetRequiredService<ICommandQueue>();
 
+    /// <summary>Which command rows the process holds, as the queue and the executor keep them.</summary>
+    public ActiveCommands Active => _provider.GetRequiredService<ActiveCommands>();
+
+    /// <summary>Runs <paramref name="work"/> against a context of its own, then saves.</summary>
+    /// <param name="work">What to do with the context.</param>
+    public async Task UseDatabaseAsync(Func<WondarrDbContext, Task> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+
+        await using var scope = _provider.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+        await work(context);
+        await context.SaveChangesAsync(CancellationToken.None);
+    }
+
     /// <summary>Builds the container, migrates it, and returns it.</summary>
     /// <param name="configure">Extra registrations, used to add test handlers.</param>
     public static async Task<JobTestHost> CreateAsync(Action<IServiceCollection>? configure = null)
@@ -77,10 +93,18 @@ internal sealed class JobTestHost : IAsyncDisposable
         aggregator ?? _provider.GetRequiredService<IEventAggregator>(),
         _provider.GetRequiredService<Channel<long>>(),
         TimeProvider,
+        _provider.GetRequiredService<ActiveCommands>(),
         NullLogger<CommandExecutor>.Instance);
 
     /// <summary>Writes a command row directly, as a process that died mid-command would leave it.</summary>
-    public async Task<long> InsertCommandAsync(string name, CommandStatus status, string? body = null)
+    /// <param name="name">The command name.</param>
+    /// <param name="status">The status the row is written with.</param>
+    /// <param name="body">The command body.</param>
+    /// <param name="live">
+    /// Whether this process holds the command, as an executor working on it would; a row nobody holds
+    /// and that is still Queued or Started is a stranded one.
+    /// </param>
+    public async Task<long> InsertCommandAsync(string name, CommandStatus status, string? body = null, bool live = false)
     {
         await using var scope = _provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
@@ -96,6 +120,11 @@ internal sealed class JobTestHost : IAsyncDisposable
 
         context.Commands.Add(record);
         await context.SaveChangesAsync(CancellationToken.None);
+
+        if (live)
+        {
+            _provider.GetRequiredService<ActiveCommands>().Add(record.Id);
+        }
 
         return record.Id;
     }

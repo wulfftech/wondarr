@@ -438,6 +438,9 @@ internal sealed class FakeSourceProvider : ISourceProvider
     /// <summary>Runs inside every grab, before it answers; lets a test change the world mid-grab.</summary>
     public Action<Candidate>? OnGrab { get; set; }
 
+    /// <summary>Awaited inside every grab, after <see cref="OnGrab"/>; lets a test hold a grab open the way a long download does.</summary>
+    public Func<Candidate, Task>? GrabHook { get; set; }
+
     /// <summary>The queries a search reports.</summary>
     public List<string> Queries { get; } = ["aphex twin alpha"];
 
@@ -509,10 +512,15 @@ internal sealed class FakeSourceProvider : ISourceProvider
     }
 
     /// <inheritdoc />
-    public Task<GrabHandle> GrabAsync(Candidate candidate, string destination, CancellationToken cancellationToken)
+    public async Task<GrabHandle> GrabAsync(Candidate candidate, string destination, CancellationToken cancellationToken)
     {
         Grabs.Add(new GrabbedCandidate(candidate, destination));
         OnGrab?.Invoke(candidate);
+
+        if (GrabHook is { } hook)
+        {
+            await hook(candidate);
+        }
 
         if (TimingOutKeys.Contains(candidate.BlocklistKey))
         {
@@ -530,7 +538,7 @@ internal sealed class FakeSourceProvider : ISourceProvider
             throw new InvalidOperationException("The peer went offline.");
         }
 
-        return Task.FromResult(new GrabHandle(SourceType, "{\"username\":\"peer\"}"));
+        return new GrabHandle(SourceType, "{\"username\":\"peer\"}");
     }
 
     /// <inheritdoc />
