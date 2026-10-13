@@ -375,86 +375,88 @@ export function ReferenceLibrariesPage() {
 
       {rows.length > 0 && (
         <Card withBorder padding="md">
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th>Root path</Table.Th>
-                <Table.Th w={200}>Mode</Table.Th>
-                <Table.Th w={90}>Enabled</Table.Th>
-                <Table.Th w={180}>Last scan</Table.Th>
-                <Table.Th>Files</Table.Th>
-                <Table.Th w={50} />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((library) => (
-                <Table.Tr key={library.id}>
-                  <Table.Td>{library.name}</Table.Td>
-                  <Table.Td>
-                    <Text size="sm" style={{ overflowWrap: 'anywhere' }}>
-                      {library.rootPath}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>{modeText(library, names)}</Table.Td>
-                  <Table.Td>{library.enabled ? 'Yes' : 'No'}</Table.Td>
-                  <Table.Td>
-                    <Tooltip
-                      label={library.lastScanMessage ?? 'This library has not been scanned yet.'}
-                      multiline
-                      w={320}
-                    >
-                      <Text size="sm">{formatAge(library.lastScannedAt)}</Text>
-                    </Tooltip>
-                  </Table.Td>
-                  <Table.Td>
-                    <CountsCell library={library} />
-                  </Table.Td>
-                  <Table.Td>
-                    <Menu withinPortal>
-                      <Menu.Target>
-                        <ActionIcon
-                          variant="subtle"
-                          aria-label={`Actions for ${library.name}`}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <EllipsisVertical size={16} />
-                        </ActionIcon>
-                      </Menu.Target>
-                      <Menu.Dropdown>
-                        <Menu.Item
-                          onClick={() =>
-                            scan.mutate(Number(library.id), {
-                              onSuccess: () => notifications.show({ message: 'Scan queued', color: 'green' }),
-                              onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-                            })
-                          }
-                        >
-                          Scan now
-                        </Menu.Item>
-                        {library.mode === 'adopt' && (
+          <Table.ScrollContainer minWidth={560}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th>Root path</Table.Th>
+                  <Table.Th w={200}>Mode</Table.Th>
+                  <Table.Th w={90}>Enabled</Table.Th>
+                  <Table.Th w={180}>Last scan</Table.Th>
+                  <Table.Th>Files</Table.Th>
+                  <Table.Th w={50} />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((library) => (
+                  <Table.Tr key={library.id}>
+                    <Table.Td>{library.name}</Table.Td>
+                    <Table.Td>
+                      <Text size="sm" style={{ overflowWrap: 'anywhere' }}>
+                        {library.rootPath}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>{modeText(library, names)}</Table.Td>
+                    <Table.Td>{library.enabled ? 'Yes' : 'No'}</Table.Td>
+                    <Table.Td>
+                      <Tooltip
+                        label={library.lastScanMessage ?? 'This library has not been scanned yet.'}
+                        multiline
+                        w={320}
+                      >
+                        <Text size="sm">{formatAge(library.lastScannedAt)}</Text>
+                      </Tooltip>
+                    </Table.Td>
+                    <Table.Td>
+                      <CountsCell library={library} />
+                    </Table.Td>
+                    <Table.Td>
+                      <Menu withinPortal>
+                        <Menu.Target>
+                          <ActionIcon
+                            variant="subtle"
+                            aria-label={`Actions for ${library.name}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <EllipsisVertical size={16} />
+                          </ActionIcon>
+                        </Menu.Target>
+                        <Menu.Dropdown>
                           <Menu.Item
                             onClick={() =>
-                              adopt.mutate(Number(library.id), {
-                                onSuccess: () => notifications.show({ message: 'Adopt queued', color: 'green' }),
+                              scan.mutate(Number(library.id), {
+                                onSuccess: () => notifications.show({ message: 'Scan queued', color: 'green' }),
                                 onError: (error) => notifications.show({ message: error.message, color: 'red' }),
                               })
                             }
                           >
-                            Adopt now
+                            Scan now
                           </Menu.Item>
-                        )}
-                        <Menu.Item onClick={() => setForm({ library })}>Edit</Menu.Item>
-                        <Menu.Item color="red" onClick={() => setPendingDelete(library)}>
-                          Delete
-                        </Menu.Item>
-                      </Menu.Dropdown>
-                    </Menu>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+                          {library.mode === 'adopt' && (
+                            <Menu.Item
+                              onClick={() =>
+                                adopt.mutate(Number(library.id), {
+                                  onSuccess: () => notifications.show({ message: 'Adopt queued', color: 'green' }),
+                                  onError: (error) => notifications.show({ message: error.message, color: 'red' }),
+                                })
+                              }
+                            >
+                              Adopt now
+                            </Menu.Item>
+                          )}
+                          <Menu.Item onClick={() => setForm({ library })}>Edit</Menu.Item>
+                          <Menu.Item color="red" onClick={() => setPendingDelete(library)}>
+                            Delete
+                          </Menu.Item>
+                        </Menu.Dropdown>
+                      </Menu>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Card>
       )}
 

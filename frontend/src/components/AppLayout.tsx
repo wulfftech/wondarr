@@ -2,12 +2,15 @@ import {
   ActionIcon,
   AppShell,
   Badge,
+  Burger,
   Group,
   NavLink as MantineNavLink,
   Text,
   Tooltip,
   useMantineColorScheme,
+  VisuallyHidden,
 } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import {
   Activity,
   Archive,
@@ -22,8 +25,11 @@ import {
   Star,
   Sun,
   Timer,
+  WifiOff,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
+import { useEventStreamConnected } from '../app/signalr';
 import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
 import { useMatchQueueTotal } from '../api/references';
@@ -81,19 +87,71 @@ function ColorSchemeToggle() {
   );
 }
 
+const DISCONNECTED_MESSAGE = 'Live updates disconnected — reconnecting…';
+
+/** A blip shorter than this is not worth a badge. */
+const DISCONNECTED_GRACE_MS = 2000;
+
+/** `active`, but only once it has stayed true for `delayMs`; false again the moment it stops. */
+function useAfterGrace(active: boolean, delayMs: number): boolean {
+  const [elapsed, setElapsed] = useState(false);
+
+  useEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => setElapsed(true), delayMs);
+
+    return () => {
+      clearTimeout(timer);
+      setElapsed(false);
+    };
+  }, [active, delayMs]);
+
+  return active && elapsed;
+}
+
 /** The *arr shell: a fixed navbar, a header with the instance name, health and the theme toggle. */
 export function AppLayout() {
   const { instanceName } = useAppConfig();
   const problemCount = useProblemCount();
   const matchTotal = useMatchQueueTotal();
+  const showDisconnected = useAfterGrace(!useEventStreamConnected(), DISCONNECTED_GRACE_MS);
   const { pathname } = useLocation();
+  const [navOpened, { toggle: toggleNav, close: closeNav }] = useDisclosure(false);
+
+  // Below the breakpoint the navbar covers the page, so every navigation closes it.
+  useEffect(() => {
+    closeNav();
+  }, [pathname, closeNav]);
 
   return (
-    <AppShell header={{ height: 56 }} navbar={{ width: 220, breakpoint: 'sm' }} padding="md">
+    <AppShell
+      header={{ height: 56 }}
+      navbar={{ width: 220, breakpoint: 'sm', collapsed: { mobile: !navOpened } }}
+      padding="md"
+    >
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Text fw={600}>{instanceName}</Text>
-          <Group gap="sm">
+        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap">
+            <Burger opened={navOpened} onClick={toggleNav} hiddenFrom="sm" size="sm" aria-label="Toggle navigation" />
+            <Text fw={600}>{instanceName}</Text>
+          </Group>
+          <Group gap="sm" wrap="nowrap">
+            {showDisconnected && (
+              <Tooltip label={DISCONNECTED_MESSAGE}>
+                {/* The hidden live region below announces it; the badge itself is only for eyes. */}
+                <Badge color="yellow" variant="light" leftSection={<WifiOff size={12} />} aria-hidden>
+                  <Text span visibleFrom="sm" inherit>
+                    {DISCONNECTED_MESSAGE}
+                  </Text>
+                </Badge>
+              </Tooltip>
+            )}
+            <VisuallyHidden aria-live="polite" role="status">
+              {showDisconnected ? DISCONNECTED_MESSAGE : ''}
+            </VisuallyHidden>
             <UpdateBadge />
             {problemCount !== null && <HealthBadge count={problemCount} />}
             <ColorSchemeToggle />
@@ -109,6 +167,8 @@ export function AppLayout() {
             to={to}
             active={match.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))}
             label={label}
+            // Following the link to the page already open changes no pathname, so close on the tap itself.
+            onClick={closeNav}
             leftSection={<Icon size={16} />}
             rightSection={
               label === 'Match' && matchTotal !== null && matchTotal > 0 ? (

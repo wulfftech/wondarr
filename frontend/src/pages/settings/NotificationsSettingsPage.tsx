@@ -295,60 +295,62 @@ export function NotificationsSettingsPage() {
 
       {rows.length > 0 && (
         <Card withBorder padding="md">
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th w={140}>Type</Table.Th>
-                <Table.Th>Events</Table.Th>
-                <Table.Th w={110}>Enabled</Table.Th>
-                <Table.Th w={170} />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((notification) => (
-                <Table.Tr key={notification.id}>
-                  <Table.Td>{notification.name}</Table.Td>
-                  <Table.Td>{notification.implementation}</Table.Td>
-                  <Table.Td>
-                    <Group gap={4}>
-                      {notification.events.map((event) => (
-                        <Badge key={event} variant="light" size="sm">
-                          {eventLabel(event)}
-                        </Badge>
-                      ))}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    <Switch
-                      aria-label={`Enable ${notification.name}`}
-                      checked={notification.enabled}
-                      disabled={update.isPending}
-                      onChange={(event) =>
-                        update.mutate(enabledInput(notification, event.currentTarget.checked), {
-                          onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-                        })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <Group gap="xs" justify="flex-end">
-                      <Button
-                        variant="light"
-                        size="xs"
-                        onClick={() => setForm({ notification, implementation: notification.implementation })}
-                      >
-                        Edit
-                      </Button>
-                      <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(notification)}>
-                        Delete
-                      </Button>
-                    </Group>
-                  </Table.Td>
+          <Table.ScrollContainer minWidth={560}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th w={140}>Type</Table.Th>
+                  <Table.Th>Events</Table.Th>
+                  <Table.Th w={110}>Enabled</Table.Th>
+                  <Table.Th w={170} />
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((notification) => (
+                  <Table.Tr key={notification.id}>
+                    <Table.Td>{notification.name}</Table.Td>
+                    <Table.Td>{notification.implementation}</Table.Td>
+                    <Table.Td>
+                      <Group gap={4}>
+                        {notification.events.map((event) => (
+                          <Badge key={event} variant="light" size="sm">
+                            {eventLabel(event)}
+                          </Badge>
+                        ))}
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      <Switch
+                        aria-label={`Enable ${notification.name}`}
+                        checked={notification.enabled}
+                        disabled={update.isPending}
+                        onChange={(event) =>
+                          update.mutate(enabledInput(notification, event.currentTarget.checked), {
+                            onError: (error) => notifications.show({ message: error.message, color: 'red' }),
+                          })
+                        }
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" justify="flex-end">
+                        <Button
+                          variant="light"
+                          size="xs"
+                          onClick={() => setForm({ notification, implementation: notification.implementation })}
+                        >
+                          Edit
+                        </Button>
+                        <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(notification)}>
+                          Delete
+                        </Button>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Card>
       )}
 

@@ -134,20 +134,22 @@ export function ConvertLibraryModal({
             {songs.length === 0 && <Text size="sm">Nothing to convert — every file already matches the rules.</Text>}
 
             {songs.length > 0 && (
-              <Table>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Song</Table.Th>
-                    <Table.Th>From → to</Table.Th>
-                    <Table.Th>Reason</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {shown.map((song) => (
-                    <PlanRow key={String(song.songId)} song={song} />
-                  ))}
-                </Table.Tbody>
-              </Table>
+              <Table.ScrollContainer minWidth={560}>
+                <Table>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Song</Table.Th>
+                      <Table.Th>From → to</Table.Th>
+                      <Table.Th>Reason</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {shown.map((song) => (
+                      <PlanRow key={String(song.songId)} song={song} />
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
             )}
 
             {songs.length > shown.length && (

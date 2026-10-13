@@ -343,26 +343,28 @@ function ImportListForm({
               ))}
 
               {preview.sample.length > 0 && (
-                <Table>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Title</Table.Th>
-                      <Table.Th>Artist</Table.Th>
-                      <Table.Th>ISRC</Table.Th>
-                      <Table.Th w={90}>Length</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {preview.sample.map((entry) => (
-                      <Table.Tr key={entry.externalId}>
-                        <Table.Td>{entry.title}</Table.Td>
-                        <Table.Td>{entry.artist}</Table.Td>
-                        <Table.Td>{entry.isrc}</Table.Td>
-                        <Table.Td>{formatDuration(entry.durationMs)}</Table.Td>
+                <Table.ScrollContainer minWidth={560}>
+                  <Table>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Title</Table.Th>
+                        <Table.Th>Artist</Table.Th>
+                        <Table.Th>ISRC</Table.Th>
+                        <Table.Th w={90}>Length</Table.Th>
                       </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {preview.sample.map((entry) => (
+                        <Table.Tr key={entry.externalId}>
+                          <Table.Td>{entry.title}</Table.Td>
+                          <Table.Td>{entry.artist}</Table.Td>
+                          <Table.Td>{entry.isrc}</Table.Td>
+                          <Table.Td>{formatDuration(entry.durationMs)}</Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Table.ScrollContainer>
               )}
             </Stack>
           )}
@@ -524,118 +526,120 @@ export function ImportListsSettingsPage() {
 
       {rows.length > 0 && (
         <Card withBorder padding="md">
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th w={200}>Type</Table.Th>
-                <Table.Th w={150}>Songs</Table.Th>
-                <Table.Th w={220}>Last sync</Table.Th>
-                <Table.Th w={90}>Enabled</Table.Th>
-                <Table.Th w={300} />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((list) => {
-                const failed = list.lastSyncMessage?.startsWith('Failed:') ?? false;
+          <Table.ScrollContainer minWidth={560}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th w={200}>Type</Table.Th>
+                  <Table.Th w={150}>Songs</Table.Th>
+                  <Table.Th w={220}>Last sync</Table.Th>
+                  <Table.Th w={90}>Enabled</Table.Th>
+                  <Table.Th w={300} />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((list) => {
+                  const failed = list.lastSyncMessage?.startsWith('Failed:') ?? false;
 
-                return (
-                  <Table.Tr key={list.id}>
-                    <Table.Td>{list.name}</Table.Td>
-                    <Table.Td>
-                      {providers.find((provider) => provider.type === list.type)?.displayName ?? list.type}
-                    </Table.Td>
-                    <Table.Td>
-                      <Stack gap={0}>
-                        <Text size="xs">Added {list.counts.added}</Text>
-                        <Text size="xs">Unresolved {list.counts.unresolved}</Text>
-                        <Text size="xs">Pending {list.counts.pending}</Text>
-                        <Text size="xs">Removed {list.counts.removed}</Text>
-                      </Stack>
-                    </Table.Td>
-                    <Table.Td>
-                      <Stack gap={0}>
-                        <Text size="sm">{formatSynced(list.lastSyncedAt)}</Text>
-                        {list.lastSyncMessage !== null && list.lastSyncMessage !== '' && (
-                          <Text size="xs" c={failed ? 'red' : 'dimmed'}>
-                            {list.lastSyncMessage}
-                          </Text>
-                        )}
-                        {list.suspectReadMessage != null && list.suspectReadMessage !== '' && (
-                          <Stack gap={4} mt={4}>
-                            <Text size="xs" c="orange">
-                              {list.suspectReadMessage}
+                  return (
+                    <Table.Tr key={list.id}>
+                      <Table.Td>{list.name}</Table.Td>
+                      <Table.Td>
+                        {providers.find((provider) => provider.type === list.type)?.displayName ?? list.type}
+                      </Table.Td>
+                      <Table.Td>
+                        <Stack gap={0}>
+                          <Text size="xs">Added {list.counts.added}</Text>
+                          <Text size="xs">Unresolved {list.counts.unresolved}</Text>
+                          <Text size="xs">Pending {list.counts.pending}</Text>
+                          <Text size="xs">Removed {list.counts.removed}</Text>
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>
+                        <Stack gap={0}>
+                          <Text size="sm">{formatSynced(list.lastSyncedAt)}</Text>
+                          {list.lastSyncMessage !== null && list.lastSyncMessage !== '' && (
+                            <Text size="xs" c={failed ? 'red' : 'dimmed'}>
+                              {list.lastSyncMessage}
                             </Text>
-                            {list.trustNextRead ? (
-                              <Text size="xs" c="dimmed">
-                                The next read will be trusted.
+                          )}
+                          {list.suspectReadMessage != null && list.suspectReadMessage !== '' && (
+                            <Stack gap={4} mt={4}>
+                              <Text size="xs" c="orange">
+                                {list.suspectReadMessage}
                               </Text>
-                            ) : (
-                              <Button
-                                variant="light"
-                                color="orange"
-                                size="compact-xs"
-                                onClick={() => setPendingTrust(list)}
-                              >
-                                Trust the next read
-                              </Button>
-                            )}
-                          </Stack>
-                        )}
-                      </Stack>
-                    </Table.Td>
-                    <Table.Td>
-                      <Switch
-                        aria-label={`Enable ${list.name}`}
-                        checked={list.enabled}
-                        disabled={update.isPending}
-                        onChange={(event) =>
-                          update.mutate(enabledInput(list, event.currentTarget.checked), {
-                            onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-                          })
-                        }
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs" justify="flex-end">
-                        <Button
-                          variant="light"
-                          size="xs"
-                          loading={sync.isPending && sync.variables === Number(list.id)}
-                          onClick={() =>
-                            sync.mutate(Number(list.id), {
-                              onSuccess: (accepted) =>
-                                setSyncing({
-                                  id: Number(list.id),
-                                  commandId: Number(accepted.commandId),
-                                  name: list.name,
-                                }),
+                              {list.trustNextRead ? (
+                                <Text size="xs" c="dimmed">
+                                  The next read will be trusted.
+                                </Text>
+                              ) : (
+                                <Button
+                                  variant="light"
+                                  color="orange"
+                                  size="compact-xs"
+                                  onClick={() => setPendingTrust(list)}
+                                >
+                                  Trust the next read
+                                </Button>
+                              )}
+                            </Stack>
+                          )}
+                        </Stack>
+                      </Table.Td>
+                      <Table.Td>
+                        <Switch
+                          aria-label={`Enable ${list.name}`}
+                          checked={list.enabled}
+                          disabled={update.isPending}
+                          onChange={(event) =>
+                            update.mutate(enabledInput(list, event.currentTarget.checked), {
+                              onError: (error) => notifications.show({ message: error.message, color: 'red' }),
                             })
                           }
-                        >
-                          Sync now
-                        </Button>
-                        <Button
-                          variant="light"
-                          size="xs"
-                          component={Link}
-                          to={`/add/unresolved?importListId=${String(list.id)}`}
-                        >
-                          Items
-                        </Button>
-                        <Button variant="light" size="xs" onClick={() => setForm({ list, type: list.type })}>
-                          Edit
-                        </Button>
-                        <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(list)}>
-                          Delete
-                        </Button>
-                      </Group>
-                    </Table.Td>
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        <Group gap="xs" justify="flex-end">
+                          <Button
+                            variant="light"
+                            size="xs"
+                            loading={sync.isPending && sync.variables === Number(list.id)}
+                            onClick={() =>
+                              sync.mutate(Number(list.id), {
+                                onSuccess: (accepted) =>
+                                  setSyncing({
+                                    id: Number(list.id),
+                                    commandId: Number(accepted.commandId),
+                                    name: list.name,
+                                  }),
+                              })
+                            }
+                          >
+                            Sync now
+                          </Button>
+                          <Button
+                            variant="light"
+                            size="xs"
+                            component={Link}
+                            to={`/add/unresolved?importListId=${String(list.id)}`}
+                          >
+                            Items
+                          </Button>
+                          <Button variant="light" size="xs" onClick={() => setForm({ list, type: list.type })}>
+                            Edit
+                          </Button>
+                          <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(list)}>
+                            Delete
+                          </Button>
+                        </Group>
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Card>
       )}
 
