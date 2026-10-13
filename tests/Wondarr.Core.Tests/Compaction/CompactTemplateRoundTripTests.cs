@@ -50,7 +50,8 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
         string Date = "2013-05-17",
         int Disc = 1,
         int Track = 1,
-        string Key = "r1");
+        string Key = "r1",
+        AlbumContextKind Kind = AlbumContextKind.Album);
 
     public static TheoryData<string> Cases { get; } =
     [
@@ -66,6 +67,7 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
         "disc 2 with disc 1's title",
         "file already named (100)",
         "siblings whose dates disagree",
+        "singles from two years",
     ];
 
     [Theory]
@@ -133,6 +135,11 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
             new("Song One", Track: 1, Date: "2013-05-17"),
             new("Song Two", Track: 2, Date: "2014-02-02", OldFile: "old2.flac"),
         ],
+        "singles from two years" =>
+        [
+            new("Song One", Album: "Singles", OldFolder: "Daft Punk/Singles (1964)", Date: "1964-05-01", Key: "singles", Kind: AlbumContextKind.PseudoSingles),
+            new("Song Two", Album: "Singles", OldFolder: "Daft Punk/Singles (1965)", Date: "1965-02-01", Track: 2, Key: "singles", Kind: AlbumContextKind.PseudoSingles, OldFile: "old2.flac"),
+        ],
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, null),
     };
 
@@ -199,7 +206,7 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
         context.AlbumContexts.Add(new AlbumContext
         {
             SongId = song.Id,
-            Kind = AlbumContextKind.Album,
+            Kind = spec.Kind,
             AlbumTitle = spec.Album,
             AlbumArtist = "Daft Punk",
             AlbumKey = spec.Key,
