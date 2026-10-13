@@ -39,6 +39,21 @@ public sealed class AlbumFolderConsistencyTests
     }
 
     [Fact]
+    public void Never_copies_one_singles_dates_onto_another()
+    {
+        var target = Context();
+        var folder = Context();
+
+        target.Kind = AlbumContextKind.PseudoSingles;
+        target.Date = "1965-02-01";
+        folder.Kind = AlbumContextKind.PseudoSingles;
+        folder.Date = "1964-05-01";
+
+        AlbumFolderConsistency.Align(target, folder).Should().NotContain("Date");
+        target.Date.Should().Be("1965-02-01", "each single keeps its own date");
+    }
+
+    [Fact]
     public void Changes_nothing_and_reports_nothing_when_the_folder_already_agrees()
     {
         var target = Context();
