@@ -547,7 +547,7 @@ public partial class CompactExecutorTests : IDisposable
 
         var running = _executor.RunAsync(SeedData.DefaultLibraryId, null, CancellationToken.None);
 
-        await started.Task;
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         var second = async () =>
             await _executor.RunAsync(SeedData.DefaultLibraryId, null, CancellationToken.None);

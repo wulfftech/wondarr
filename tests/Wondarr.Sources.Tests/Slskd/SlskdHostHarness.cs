@@ -3,6 +3,7 @@ using Wondarr.Core.Configuration;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Persistence;
 using Wondarr.Sources.Slskd;
+using Wondarr.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -46,7 +47,7 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
             File.WriteAllText(Options.BinaryPath, "#!/bin/sh\n");
         }
 
-        Time = new FakeTimeProvider();
+        Time = new TrackingTimeProvider();
         Launcher = new FakeProcessLauncher(Time);
         Inspector = new FakeProcessInspector();
         Status = new SlskdStatus();
@@ -113,7 +114,7 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
         }
     }
 
-    public FakeTimeProvider Time { get; }
+    public TrackingTimeProvider Time { get; }
 
     public FakeProcessLauncher Launcher { get; }
 
@@ -189,11 +190,14 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
     }
 
     /// <summary>
+    /// Moves the fake clock forward by <paramref name="step"/> and waits for the supervisor to run
+    /// whatever that made due (see <see cref="TrackingTimeProvider.AdvanceAndSettleAsync"/>).
+    /// </summary>
+    public Task AdvanceAsync(TimeSpan step, Func<bool>? condition = null) => Time.AdvanceAndSettleAsync(step, condition);
+
+    /// <summary>
     /// Moves fake time forward in <paramref name="step"/>s until <paramref name="condition"/> holds.
     /// </summary>
-    /// <summary>The longest real time one fake-clock step waits for the condition before the next step.</summary>
-    private static readonly TimeSpan SettlePerStep = TimeSpan.FromMilliseconds(250);
-
     public async Task AdvanceUntilAsync(Func<bool> condition, TimeSpan step, int steps, string because)
     {
         ArgumentNullException.ThrowIfNull(condition);
@@ -205,17 +209,11 @@ internal sealed class SlskdHostHarness : IAsyncDisposable
                 return;
             }
 
-            Time.Advance(step);
+            // The supervisor may not have armed the delay this step is meant to fire yet. Advancing
+            // a clock nobody is waiting on only burns steps, so wait for a delay to be pending.
+            await Time.WaitForPendingTimerAsync(condition);
 
-            // Give the supervisor's continuations time to run before the clock moves again: on a
-            // loaded machine a fixed 2 ms yield was not enough, so a restart that was due at this
-            // step ran a few fake seconds later and was stamped late (a CI flake). Waiting for the
-            // condition in real time, bounded, keeps each step's work at the fake time it was due.
-            var settle = Stopwatch.StartNew();
-            while (!condition() && settle.Elapsed < SettlePerStep)
-            {
-                await Task.Delay(5);
-            }
+            await AdvanceAsync(step, condition);
         }
 
         if (!condition())
