@@ -205,7 +205,8 @@ public sealed class EmailMessageBuilderTests : IDisposable
         mail.Subject.Should().NotContain("\r").And.NotContain("\n");
 
         // And on the wire: the header block (up to the first blank line) has no Bcc line.
-        mail.ToString().Split(["\r\n\r\n", "\n\n"], 2, StringSplitOptions.None)[0].Should().NotContain("Bcc:");
+        mail.ToString().Split(["\r\n\r\n", "\n\n"], 2, StringSplitOptions.None)[0]
+            .Split('\n').AsEnumerable().Should().NotContain(line => line.StartsWith("Bcc:", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
