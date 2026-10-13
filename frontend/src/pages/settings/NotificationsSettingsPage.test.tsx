@@ -195,6 +195,44 @@ describe('NotificationsSettingsPage', () => {
     });
   });
 
+  it('renders the Email form from the schema and posts its choices', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await addNotification(user, 'Email');
+
+    expect(within(dialog).getByLabelText('SMTP host *')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Security', { selector: 'input' })).toHaveValue('startTls');
+    expect(within(dialog).getByLabelText('Delivery', { selector: 'input' })).toHaveValue('each');
+
+    await user.type(within(dialog).getByLabelText('Name'), 'Mail');
+    await user.type(within(dialog).getByLabelText('SMTP host *'), 'smtp.example.com');
+    await user.type(within(dialog).getByLabelText('From *'), 'wondarr@example.com');
+    await user.type(within(dialog).getByLabelText('To *'), 'me@example.com, you@example.com');
+    await pickOption(user, 'Delivery', 'digest');
+    await user.click(within(dialog).getByLabelText('On import'));
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const body = await lastRequest('POST', '/api/v1/notification');
+
+      expect(body).toMatchObject({
+        name: 'Mail',
+        implementation: 'Email',
+        events: ['import'],
+        settings: {
+          host: 'smtp.example.com',
+          security: 'startTls',
+          from: 'wondarr@example.com',
+          to: 'me@example.com, you@example.com',
+          delivery: 'digest',
+        },
+      });
+    });
+  });
+
   it('shows a rejected save inside the dialog', async () => {
     install({
       create: () =>

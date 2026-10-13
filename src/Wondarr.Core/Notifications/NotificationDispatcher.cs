@@ -177,6 +177,12 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         using var scope = _scopes.CreateScope();
         var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
+        var notifications = await database.Notifications
+            .Where(notification => notification.Enabled)
+            .OrderBy(notification => notification.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         IReadOnlyList<NotificationMessage> messages;
 
         if (item.Event == NotificationEventNames.Health)
@@ -189,7 +195,15 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         }
         else
         {
-            var message = await BuildAsync(database, item, cancellationToken).ConfigureAwait(false);
+            // The failure details (quality, size, existing cover) are shown only by a provider that batches
+            // into emails; nothing else reads them, so skip their queries when none subscribes.
+            var wantsDetail = notifications.Any(notification =>
+                Subscribed(notification, item.Event) &&
+                _providers.Any(provider =>
+                    provider is IDigestNotificationProvider &&
+                    string.Equals(provider.Implementation, notification.Type, StringComparison.OrdinalIgnoreCase)));
+
+            var message = await BuildAsync(database, item, wantsDetail, cancellationToken).ConfigureAwait(false);
 
             if (message is null)
             {
@@ -206,29 +220,24 @@ public sealed partial class NotificationDispatcher : BackgroundService,
             return;
         }
 
-        var notifications = await database.Notifications
-            .Where(notification => notification.Enabled)
-            .OrderBy(notification => notification.Id)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
         foreach (var message in messages)
         {
             foreach (var notification in notifications)
             {
                 if (Subscribed(notification, message.Event))
                 {
-                    await SendAsync(notification, message, cancellationToken).ConfigureAwait(false);
+                    await SendAsync(database, notification, message, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
     }
 
     /// <summary>
-    /// Sends one message to one notification. A failure is a warning and nothing else: no retry, and
-    /// the next notification is unaffected.
+    /// Sends one message to one notification, or stores it for the notification's digest. A failure is
+    /// a warning and nothing else: no retry, and the next notification is unaffected.
     /// </summary>
     private async Task SendAsync(
+        WondarrDbContext database,
         Notification notification,
         NotificationMessage message,
         CancellationToken cancellationToken)
@@ -243,6 +252,25 @@ public sealed partial class NotificationDispatcher : BackgroundService,
             return;
         }
 
+        var settings = NotificationSecrets.Read(notification.Settings);
+
+        // A provider in digest mode holds some events back; the digest service sends them later.
+        if (provider is IDigestNotificationProvider digest && digest.Batches(settings, message.Event))
+        {
+            try
+            {
+                await NotificationDigestService
+                    .AddAsync(database, notification, message, _logger, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogSendFailed(_logger, notification.Name, exception.GetType().Name);
+            }
+
+            return;
+        }
+
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         // The named client bounds each request; this bounds the whole delivery, including a waited-out
@@ -252,7 +280,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         try
         {
             await provider
-                .SendAsync(message, NotificationSecrets.Read(notification.Settings), timeout.Token)
+                .SendAsync(message, settings, timeout.Token)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -274,6 +302,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     private static async Task<NotificationMessage?> BuildAsync(
         WondarrDbContext database,
         WorkItem item,
+        bool wantsDetail,
         CancellationToken cancellationToken)
     {
         var song = await LoadSongAsync(database, item.SongId, cancellationToken).ConfigureAwait(false);
@@ -295,7 +324,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
                 return await BuildImportAsync(database, song, name, item, cancellationToken).ConfigureAwait(false);
 
             case NotificationEventNames.Failure:
-                return await BuildFailureAsync(database, song, name, item, cancellationToken).ConfigureAwait(false);
+                return await BuildFailureAsync(database, song, name, item, wantsDetail, cancellationToken).ConfigureAwait(false);
 
             default:
                 return null;
@@ -357,7 +386,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     {
         var file = await database.SongFiles
             .Where(row => row.Id == item.SongFileId)
-            .Select(row => new { row.Path, Quality = row.Quality.Name })
+            .Select(row => new { row.Path, Quality = row.Quality.Name, row.Size, row.SourceType })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -376,6 +405,12 @@ public sealed partial class NotificationDispatcher : BackgroundService,
             Song = Song(song),
             File = new NotificationFile(file.Path, file.Quality),
             IsUpgrade = upgraded,
+            Download = new NotificationDownload(
+                file.SourceType,
+                file.Quality,
+                file.Size,
+                CoverPathOf(file.Path),
+                song.AlbumContext?.CoverUrl),
         };
     }
 
@@ -384,6 +419,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         Song song,
         string name,
         WorkItem item,
+        bool wantsDetail,
         CancellationToken cancellationToken)
     {
         var queueItem = await database.QueueItems
@@ -397,14 +433,54 @@ public sealed partial class NotificationDispatcher : BackgroundService,
 
         var reason = string.IsNullOrWhiteSpace(queueItem.Message) ? "the download failed" : queueItem.Message;
 
+        if (!wantsDetail)
+        {
+            return new NotificationMessage(NotificationEventNames.Failure, string.Concat("Failed: ", name), reason)
+            {
+                Song = Song(song),
+            };
+        }
+
+        var candidate = await database.Candidates
+            .FirstOrDefaultAsync(row => row.Id == queueItem.CandidateId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var quality = candidate is null
+            ? null
+            : await database.Qualities
+                .Where(row => row.Id == candidate.QualityId)
+                .Select(row => row.Name)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+        // A song that already has a file has an album folder, and so possibly a cover.
+        var existingPath = await database.SongFiles
+            .Where(row => row.SongId == song.Id)
+            .OrderByDescending(row => row.Id)
+            .Select(row => row.Path)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         return new NotificationMessage(
             NotificationEventNames.Failure,
             string.Concat("Failed: ", name),
             reason)
         {
             Song = Song(song),
+            Download = new NotificationDownload(
+                queueItem.SourceType,
+                quality,
+                queueItem.SizeBytes ?? candidate?.SizeBytes,
+                CoverPathOf(existingPath),
+                song.AlbumContext?.CoverUrl),
         };
     }
+
+    /// <summary>Where the <c>cover.jpg</c> beside a library file would be, or <see langword="null"/>.</summary>
+    private static string? CoverPathOf(string? filePath) =>
+        string.IsNullOrWhiteSpace(filePath) || Path.GetDirectoryName(filePath) is not { Length: > 0 } folder
+            ? null
+            : Path.Combine(folder, "cover.jpg");
 
     /// <summary>
     /// The health results that were not failing last time. The first result set is the baseline and

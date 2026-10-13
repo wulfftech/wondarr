@@ -25,6 +25,19 @@ public sealed record NotificationRelease(string Title, string SourceType, string
 /// <param name="Quality">The quality name the file was matched to.</param>
 public sealed record NotificationFile(string Path, string Quality);
 
+/// <summary>What the email provider shows about a song's download beyond the song itself.</summary>
+/// <param name="SourceType">The source the file came from, for example <c>soulseek</c>, or <see langword="null"/>.</param>
+/// <param name="Quality">The quality name, or <see langword="null"/>.</param>
+/// <param name="SizeBytes">The file size, or <see langword="null"/>.</param>
+/// <param name="CoverPath">Where the album folder's <c>cover.jpg</c> would be, or <see langword="null"/>; the file may not exist.</param>
+/// <param name="CoverUrl">The album's cover URL, or <see langword="null"/>.</param>
+public sealed record NotificationDownload(
+    string? SourceType,
+    string? Quality,
+    long? SizeBytes,
+    string? CoverPath,
+    string? CoverUrl);
+
 /// <summary>One health check that started failing.</summary>
 /// <param name="Source">The name of the check that produced the result.</param>
 /// <param name="Level">The severity, lower-cased: <c>warning</c> or <c>error</c>.</param>
@@ -58,6 +71,9 @@ public sealed record NotificationMessage(string Event, string Title, string Body
 
     /// <summary>Gets a value indicating whether the import replaced a file the song already had.</summary>
     public bool IsUpgrade { get; init; }
+
+    /// <summary>Gets the download details an email shows for an import, an upgrade or a failure, or <see langword="null"/>.</summary>
+    public NotificationDownload? Download { get; init; }
 
     /// <summary>Gets the health check the message is about, or <see langword="null"/>.</summary>
     public NotificationHealth? Health { get; init; }
