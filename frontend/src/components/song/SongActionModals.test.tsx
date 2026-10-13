@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, type RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,6 +11,7 @@ import { createTestConfig, installFetch, jsonResponse, type FetchMock } from '..
 import { theme } from '../../theme/theme';
 import { ChangeAlbumModal } from './ChangeAlbumModal';
 import { ConvertSongModal } from './ConvertSongModal';
+import { DeleteSongModal } from './DeleteSongModal';
 import { MoveSongModal } from './MoveSongModal';
 
 /**
@@ -104,6 +105,8 @@ interface RouteTable {
   libraries?: () => Response;
   commands?: () => Response;
   albumChoice?: () => Response;
+  move?: () => Response;
+  remove?: () => Response;
 }
 
 function install(routes: RouteTable = {}): FetchMock {
@@ -137,7 +140,11 @@ function install(routes: RouteTable = {}): FetchMock {
     }
 
     if (url.includes('/api/v1/song/move')) {
-      return jsonResponse(MOVE_ACCEPTED, 202);
+      return (routes.move ?? (() => jsonResponse(MOVE_ACCEPTED, 202)))();
+    }
+
+    if (/\/api\/v1\/song\/\d+$/.test(url)) {
+      return (routes.remove ?? (() => new Response(null, { status: 204 })))();
     }
 
     if (url.includes('/api/v1/command/')) {
@@ -149,18 +156,24 @@ function install(routes: RouteTable = {}): FetchMock {
 }
 
 /** The providers a modal needs when it is rendered without the app shell around it. */
-function renderModal(ui: ReactElement): void {
-  render(
+function renderModal(
+  ui: ReactElement,
+  client = testClient(),
+): RenderResult & { rerenderModal: (next: ReactElement) => void } {
+  const wrap = (inner: ReactElement) => (
     <MantineProvider theme={theme} defaultColorScheme="auto" env="test">
       <ApiProvider config={createTestConfig()}>
-        <QueryClientProvider
-          client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } })}
-        >
-          {ui}
-        </QueryClientProvider>
+        <QueryClientProvider client={client}>{inner}</QueryClientProvider>
       </ApiProvider>
-    </MantineProvider>,
+    </MantineProvider>
   );
+  const result = render(wrap(ui));
+
+  return { ...result, rerenderModal: (next) => result.rerender(wrap(next)) };
+}
+
+function testClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
 }
 
 /** "Get Lucky" with the file it holds, of the given source. */
@@ -330,5 +343,104 @@ describe('SongActionModals', () => {
       expect(post?.url).toMatch(/\/api\/v1\/song\/convert$/);
       expect(post?.body).toEqual({ songIds: [12], libraryId: null, rule: null });
     });
+  });
+
+  it('refreshes the song lists only once the move command has finished, not when the API answers 202', async () => {
+    let polls = 0;
+    install({
+      libraries: () => jsonResponse([LIBRARIES[0], SECOND_LIBRARY]),
+      commands: () => {
+        polls += 1;
+
+        return jsonResponse(polls === 1 ? { ...MOVE_COMMAND, status: 'started', message: 'Moving…' } : MOVE_COMMAND);
+      },
+    });
+    const user = userEvent.setup();
+    const client = testClient();
+    client.setQueryData(['songs', { page: 1 }], { records: [] });
+    const stale = () => client.getQueryState(['songs', { page: 1 }])?.isInvalidated === true;
+
+    renderModal(<MoveSongModal song={SONG} opened onClose={() => {}} />, client);
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(await within(dialog).findByRole('combobox', { name: 'Library' }));
+    await user.click(await screen.findByRole('option', { name: 'Singles' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Move' }));
+
+    // The command is accepted and running: the lists are still current.
+    expect(await screen.findByText('Moving…')).toBeInTheDocument();
+    expect(stale()).toBe(false);
+
+    expect(await screen.findByText('Moved 1 song to Singles', {}, { timeout: 5000 })).toBeInTheDocument();
+    await waitFor(() => expect(stale()).toBe(true));
+  });
+
+  it('refreshes the song lists only once the conversion command has finished', async () => {
+    let polls = 0;
+    install({
+      commands: () => {
+        polls += 1;
+
+        return jsonResponse(
+          polls === 1 ? { ...CONVERT_COMMAND, status: 'started', message: 'Converting…' } : CONVERT_COMMAND,
+        );
+      },
+    });
+    const user = userEvent.setup();
+    const client = testClient();
+    client.setQueryData(['songs', { page: 1 }], { records: [] });
+    const stale = () => client.getQueryState(['songs', { page: 1 }])?.isInvalidated === true;
+
+    renderModal(<ConvertSongModal song={SONG} opened onClose={() => {}} />, client);
+
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Convert' }));
+
+    expect(await screen.findByText('Converting…')).toBeInTheDocument();
+    expect(stale()).toBe(false);
+
+    expect(await screen.findByText('Converted 1 song to MP3-320', {}, { timeout: 5000 })).toBeInTheDocument();
+    await waitFor(() => expect(stale()).toBe(true));
+  });
+
+  it("does not show song A's delete failure when the dialog opens for song B", async () => {
+    install({ remove: () => new Response(null, { status: 409 }) });
+    const user = userEvent.setup();
+    const songB = { ...SONG, id: 13, title: 'Instant Crush' } as unknown as SongResource;
+
+    const { rerenderModal } = renderModal(<DeleteSongModal song={SONG} opened onClose={() => {}} />);
+
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('The song could not be deleted.')).toBeInTheDocument();
+
+    rerenderModal(<DeleteSongModal song={SONG} opened={false} onClose={() => {}} />);
+    rerenderModal(<DeleteSongModal song={songB} opened onClose={() => {}} />);
+
+    expect(await screen.findByText(/Instant Crush/)).toBeInTheDocument();
+    expect(screen.queryByText('The song could not be deleted.')).not.toBeInTheDocument();
+  });
+
+  it("does not show song A's move failure when the dialog opens for song B", async () => {
+    install({
+      libraries: () => jsonResponse([LIBRARIES[0], SECOND_LIBRARY]),
+      move: () => new Response(null, { status: 409 }),
+    });
+    const user = userEvent.setup();
+    const songB = { ...SONG, id: 13, title: 'Instant Crush' } as unknown as SongResource;
+
+    const { rerenderModal } = renderModal(<MoveSongModal song={SONG} opened onClose={() => {}} />);
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(await within(dialog).findByRole('combobox', { name: 'Library' }));
+    await user.click(await screen.findByRole('option', { name: 'Singles' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Move' }));
+    expect(await within(dialog).findByText('The songs could not be moved.')).toBeInTheDocument();
+
+    rerenderModal(<MoveSongModal song={SONG} opened={false} onClose={() => {}} />);
+    rerenderModal(<MoveSongModal song={songB} opened onClose={() => {}} />);
+
+    expect(await screen.findByText(/Instant Crush/)).toBeInTheDocument();
+    expect(screen.queryByText('The songs could not be moved.')).not.toBeInTheDocument();
   });
 });

@@ -265,54 +265,56 @@ export function DownloadClientsSettingsPage() {
 
       {rows.length > 0 && (
         <Card withBorder padding="md">
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th w={130}>Type</Table.Th>
-                <Table.Th w={100}>Protocol</Table.Th>
-                <Table.Th w={80}>Priority</Table.Th>
-                <Table.Th w={90}>Enabled</Table.Th>
-                <Table.Th w={170} />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((client) => (
-                <Table.Tr key={client.id}>
-                  <Table.Td>{client.name}</Table.Td>
-                  <Table.Td>{typeName(client.type)}</Table.Td>
-                  <Table.Td>
-                    <Badge variant="light" color={protocolName(client.protocol) === 'Usenet' ? 'grape' : 'teal'}>
-                      {protocolName(client.protocol)}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>{client.priority}</Table.Td>
-                  <Table.Td>
-                    <Switch
-                      aria-label={`Enable ${client.name}`}
-                      checked={client.enabled}
-                      disabled={update.isPending}
-                      onChange={(event) =>
-                        update.mutate(enabledInput(client, event.currentTarget.checked), {
-                          onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-                        })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <Group gap="xs" justify="flex-end">
-                      <Button variant="light" size="xs" onClick={() => setForm({ client, type: client.type })}>
-                        Edit
-                      </Button>
-                      <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(client)}>
-                        Delete
-                      </Button>
-                    </Group>
-                  </Table.Td>
+          <Table.ScrollContainer minWidth={560}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th w={130}>Type</Table.Th>
+                  <Table.Th w={100}>Protocol</Table.Th>
+                  <Table.Th w={80}>Priority</Table.Th>
+                  <Table.Th w={90}>Enabled</Table.Th>
+                  <Table.Th w={170} />
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((client) => (
+                  <Table.Tr key={client.id}>
+                    <Table.Td>{client.name}</Table.Td>
+                    <Table.Td>{typeName(client.type)}</Table.Td>
+                    <Table.Td>
+                      <Badge variant="light" color={protocolName(client.protocol) === 'Usenet' ? 'grape' : 'teal'}>
+                        {protocolName(client.protocol)}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>{client.priority}</Table.Td>
+                    <Table.Td>
+                      <Switch
+                        aria-label={`Enable ${client.name}`}
+                        checked={client.enabled}
+                        disabled={update.isPending}
+                        onChange={(event) =>
+                          update.mutate(enabledInput(client, event.currentTarget.checked), {
+                            onError: (error) => notifications.show({ message: error.message, color: 'red' }),
+                          })
+                        }
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" justify="flex-end">
+                        <Button variant="light" size="xs" onClick={() => setForm({ client, type: client.type })}>
+                          Edit
+                        </Button>
+                        <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(client)}>
+                          Delete
+                        </Button>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Card>
       )}
 

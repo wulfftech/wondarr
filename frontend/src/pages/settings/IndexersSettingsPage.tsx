@@ -334,56 +334,58 @@ export function IndexersSettingsPage() {
 
       {rows.length > 0 && (
         <Card withBorder padding="md">
-          <Table>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Name</Table.Th>
-                <Table.Th w={110}>Type</Table.Th>
-                <Table.Th w={100}>Protocol</Table.Th>
-                <Table.Th w={80}>Priority</Table.Th>
-                <Table.Th>Client</Table.Th>
-                <Table.Th w={90}>Enabled</Table.Th>
-                <Table.Th w={170} />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((indexer) => (
-                <Table.Tr key={indexer.id}>
-                  <Table.Td>{indexer.name}</Table.Td>
-                  <Table.Td>{typeName(indexer.type)}</Table.Td>
-                  <Table.Td>
-                    <Badge variant="light" color={asProtocol(indexer.protocol) === 'usenet' ? 'grape' : 'teal'}>
-                      {protocolName(indexer.protocol)}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>{indexer.priority}</Table.Td>
-                  <Table.Td>{clientName(indexer)}</Table.Td>
-                  <Table.Td>
-                    <Switch
-                      aria-label={`Enable ${indexer.name}`}
-                      checked={indexer.enabled}
-                      disabled={update.isPending}
-                      onChange={(event) =>
-                        update.mutate(enabledInput(indexer, event.currentTarget.checked), {
-                          onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-                        })
-                      }
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <Group gap="xs" justify="flex-end">
-                      <Button variant="light" size="xs" onClick={() => setForm({ indexer, type: indexer.type })}>
-                        Edit
-                      </Button>
-                      <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(indexer)}>
-                        Delete
-                      </Button>
-                    </Group>
-                  </Table.Td>
+          <Table.ScrollContainer minWidth={560}>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Name</Table.Th>
+                  <Table.Th w={110}>Type</Table.Th>
+                  <Table.Th w={100}>Protocol</Table.Th>
+                  <Table.Th w={80}>Priority</Table.Th>
+                  <Table.Th>Client</Table.Th>
+                  <Table.Th w={90}>Enabled</Table.Th>
+                  <Table.Th w={170} />
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((indexer) => (
+                  <Table.Tr key={indexer.id}>
+                    <Table.Td>{indexer.name}</Table.Td>
+                    <Table.Td>{typeName(indexer.type)}</Table.Td>
+                    <Table.Td>
+                      <Badge variant="light" color={asProtocol(indexer.protocol) === 'usenet' ? 'grape' : 'teal'}>
+                        {protocolName(indexer.protocol)}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>{indexer.priority}</Table.Td>
+                    <Table.Td>{clientName(indexer)}</Table.Td>
+                    <Table.Td>
+                      <Switch
+                        aria-label={`Enable ${indexer.name}`}
+                        checked={indexer.enabled}
+                        disabled={update.isPending}
+                        onChange={(event) =>
+                          update.mutate(enabledInput(indexer, event.currentTarget.checked), {
+                            onError: (error) => notifications.show({ message: error.message, color: 'red' }),
+                          })
+                        }
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" justify="flex-end">
+                        <Button variant="light" size="xs" onClick={() => setForm({ indexer, type: indexer.type })}>
+                          Edit
+                        </Button>
+                        <Button variant="light" color="red" size="xs" onClick={() => setPendingDelete(indexer)}>
+                          Delete
+                        </Button>
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Card>
       )}
 

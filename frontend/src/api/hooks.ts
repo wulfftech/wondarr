@@ -47,6 +47,8 @@ export function useHealth(): UseQueryResult<HealthEntry[], Error> {
 
   return useQuery({
     queryKey: HEALTH_QUERY_KEY,
+    // The SignalR push is the fast path; this catches a missed one.
+    refetchInterval: 60_000,
     queryFn: async (): Promise<HealthEntry[]> => {
       const { data, response } = await client.GET('/api/v1/health');
 

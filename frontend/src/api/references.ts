@@ -301,6 +301,8 @@ export function useMatchQueueTotal(): number | null {
   const query = useQuery({
     // A single row is enough: the header badge needs the total, not the page.
     queryKey: [...MATCH_QUEUE_QUERY_KEY, 'total'],
+    // Scheduled scans add entries with no UI action to invalidate on; poll as a fallback.
+    refetchInterval: 60_000,
     queryFn: async (): Promise<number> => {
       const { data, response } = await client.GET('/api/v1/matchqueue', {
         params: { query: matchQuery(pagingValues(firstPage(1))) },

@@ -1,7 +1,20 @@
-import { ActionIcon, Badge, Button, Group, Menu, Modal, Progress, Stack, Switch, Text, Tooltip } from '@mantine/core';
+import {
+  ActionIcon,
+  Alert,
+  Badge,
+  Button,
+  Group,
+  Menu,
+  Modal,
+  Progress,
+  Stack,
+  Switch,
+  Text,
+  Tooltip,
+} from '@mantine/core';
 import type { MantineColor } from '@mantine/core';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { EllipsisVertical } from 'lucide-react';
+import { CircleAlert, EllipsisVertical } from 'lucide-react';
 import { useState } from 'react';
 import { firstPage, type Paging } from '../api/paging';
 import { readEnum } from '../api/profiles';
@@ -325,10 +338,18 @@ export function QueuePage({ songId }: { songId?: number } = {}) {
         />
       </Group>
 
+      {/* A plain Remove has no dialog to show its failure in; one with a dialog shows it there. */}
+      {pending === null && remove.error !== null && (
+        <Alert color="red" icon={<CircleAlert size={16} />}>
+          {remove.error.message}
+        </Alert>
+      )}
+
       <PagedTable
-        columns={queueColumns(removeNow, (item, action) => setPending({ item, action })).filter(
-          (column) => songId === undefined || column.label !== 'Song',
-        )}
+        columns={queueColumns(removeNow, (item, action) => {
+          remove.reset();
+          setPending({ item, action });
+        }).filter((column) => songId === undefined || column.label !== 'Song')}
         rows={query.data?.records ?? []}
         totalRecords={Number(query.data?.totalRecords ?? 0)}
         paging={paging}
@@ -343,7 +364,10 @@ export function QueuePage({ songId }: { songId?: number } = {}) {
         pending={pending}
         error={remove.error}
         busy={remove.isPending}
-        onCancel={() => setPending(null)}
+        onCancel={() => {
+          remove.reset();
+          setPending(null);
+        }}
         onConfirm={confirm}
       />
     </Stack>

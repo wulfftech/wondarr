@@ -43,6 +43,7 @@ export function ChangeAlbumModal({
 }) {
   const options = useAlbumOptions(opened && song !== null ? Number(song.id) : null);
   const setAlbum = useSetAlbum();
+  const { reset: resetSetAlbum } = setAlbum;
   const queryClient = useQueryClient();
   const [commandId, setCommandId] = useState<number | null>(null);
   const [abandonedId, setAbandonedId] = useState<number | null>(null);
@@ -58,6 +59,13 @@ export function ChangeAlbumModal({
   const failed = status === 'failed' || status === 'aborted';
   // A reference file is the user's own and is never moved; a song with no file has nothing to move.
   const managedFile = song?.file != null && song.file.sourceType !== REFERENCE_SOURCE;
+
+  // Song A's refusal must not show when the dialog opens for song B.
+  useEffect(() => {
+    if (opened) {
+      resetSetAlbum();
+    }
+  }, [opened, song?.id, resetSetAlbum]);
 
   // The file is on disk at its new path now, so the song the user is looking at is stale.
   useEffect(() => {

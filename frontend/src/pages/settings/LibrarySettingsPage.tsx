@@ -739,7 +739,9 @@ export function LibrarySettingsPage() {
         onClose={() => setConverting(null)}
       />
 
-      {deleting !== null && <DeleteLibraryModal library={deleting} opened onClose={() => setDeleting(null)} />}
+      {deleting !== null && (
+        <DeleteLibraryModal key={String(deleting.id)} library={deleting} opened onClose={() => setDeleting(null)} />
+      )}
     </Card>
   );
 }

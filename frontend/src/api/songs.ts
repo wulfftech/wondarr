@@ -6,7 +6,7 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useApiClient } from './context';
 import { ApiError } from './errors';
 import { pagingValues, type Paging } from './paging';
@@ -811,6 +811,22 @@ export function useCommand(
   });
 }
 
+/**
+ * Refreshes the song lists once a command the caller follows has finished. A move or a conversion
+ * answers 202 before it has touched a file, so the lists are only stale after it ends.
+ */
+export function useRefreshSongsWhenFinished(command: CommandResource | undefined): void {
+  const queryClient = useQueryClient();
+  const status = readEnum<CommandStatusName>(command?.status);
+  const finished = command !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
+
+  useEffect(() => {
+    if (finished) {
+      invalidateLibrary(queryClient);
+    }
+  }, [finished, queryClient]);
+}
+
 /** The lines of the import lists, for the review screen. */
 export function useImportListItems(
   paging: Paging,
@@ -910,7 +926,6 @@ export function useMoveSongs(): UseMutationResult<
   { songIds: number[]; libraryId: number }
 > {
   const client = useApiClient();
-  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (move: { songIds: number[]; libraryId: number }): Promise<SongMoveAcceptedResource> => {
@@ -924,7 +939,6 @@ export function useMoveSongs(): UseMutationResult<
 
       return data;
     },
-    onSuccess: () => invalidateLibrary(queryClient),
   });
 }
 
@@ -970,7 +984,6 @@ export function useConvertSongsPreview(): UseMutationResult<ConvertPlanResource,
 /** Converts the songs' files in place, as a command the Activity page tracks. */
 export function useConvertSongs(): UseMutationResult<ConvertAcceptedResource, Error, ConvertInput> {
   const client = useApiClient();
-  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (input: ConvertInput): Promise<ConvertAcceptedResource> => {
@@ -982,6 +995,5 @@ export function useConvertSongs(): UseMutationResult<ConvertAcceptedResource, Er
 
       return data;
     },
-    onSuccess: () => invalidateLibrary(queryClient),
   });
 }
