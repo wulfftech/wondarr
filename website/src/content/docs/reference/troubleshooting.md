@@ -36,7 +36,7 @@ A monitored song with no file is searched for by the **Missing Search** task and
 
 - **No acceptable candidate.** Open **Wanted** and press the **Interactive search** button on the song. It lists every candidate with its score and a **Rejections** column; hover a rejection to read why. Typical reasons are a different version (live, remix), a length that is too far out, a quality the profile does not allow, or a candidate that was blocklisted earlier (see **Activity → Blocklist**). Raising the profile's duration tolerance or allowing more qualities, or grabbing a rejected candidate by hand, are the usual fixes.
 - **The search budget.** Soulseek allows 30 searches per 4 minutes, 2 at a time, at least 5 seconds apart, and Wondarr stays inside that. A big list of new songs takes a while, and the interactive search says it "can take up to a minute when the search budget is busy".
-- **Backoff.** A song that finds nothing is searched again after 1 hour, then 6, 24, 72 hours and then weekly. Press the song's **Search** button to try now.
+- **Backoff.** A song that finds nothing is searched again after 1 hour, then 6, 24, 72 hours and then weekly (the count runs back to its last grab; releases pushed from autobrr do not count). Press the song's **Search** button to try now.
 - **Sources.** Soulseek needs an account (**Settings → Soulseek**). YouTube is off until you turn it on. Indexers need a download client. See [Soulseek](/wondarr/sources/soulseek/), [YouTube Music](/wondarr/sources/youtube/) and [Indexers](/wondarr/sources/indexers/).
 
 ## A file was rejected

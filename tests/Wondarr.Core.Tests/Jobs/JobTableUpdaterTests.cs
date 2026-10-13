@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Quartz;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Jobs;
@@ -137,6 +138,76 @@ public class JobTableUpdaterTests
 
         job!.LastRunAt.Should().BeNull();
         job.LastResult.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_next_run_is_the_triggers_next_fire_time_even_after_a_run_now()
+    {
+        await using var context = await TestContext.CreateAsync();
+        await context.InsertJobAsync("Heartbeat", TimeSpan.FromMinutes(1));
+
+        // Quartz keeps firing on its own schedule, whatever time a run ended: a "run now" does not move
+        // the fire. (Real clock: the scheduler would move a start in the past to "now".)
+        var inFiveMinutes = DateTimeOffset.UtcNow.AddMinutes(5);
+        var fire = new DateTimeOffset(inFiveMinutes.Year, inFiveMinutes.Month, inFiveMinutes.Day, inFiveMinutes.Hour, inFiveMinutes.Minute, inFiveMinutes.Second, TimeSpan.Zero);
+        await using var quartz = await SchedulerWithTriggerAsync("Heartbeat", fire);
+        var updater = new JobTableUpdater(context.DbContext, quartz.GetRequiredService<ISchedulerFactory>());
+
+        await updater.HandleAsync(
+            new CommandUpdatedEvent(new CommandRecord
+            {
+                Name = "Heartbeat",
+                Status = CommandStatus.Completed,
+                Result = CommandResult.Successful,
+                Message = "Heartbeat OK",
+                EndedAt = Ended,
+            }),
+            CancellationToken.None);
+
+        (await context.ReadJobAsync("Heartbeat"))!.NextRunAt.Should().Be(fire.UtcDateTime);
+    }
+
+    [Fact]
+    public async Task A_task_the_scheduler_has_no_trigger_for_falls_back_to_the_end_plus_the_interval()
+    {
+        await using var context = await TestContext.CreateAsync();
+        await context.InsertJobAsync("Heartbeat", TimeSpan.FromMinutes(1));
+
+        await using var quartz = await SchedulerWithTriggerAsync("CheckHealth", new DateTimeOffset(Ended.AddSeconds(40), TimeSpan.Zero));
+        var updater = new JobTableUpdater(context.DbContext, quartz.GetRequiredService<ISchedulerFactory>());
+
+        await updater.HandleAsync(
+            new CommandUpdatedEvent(new CommandRecord
+            {
+                Name = "Heartbeat",
+                Status = CommandStatus.Completed,
+                Result = CommandResult.Successful,
+                EndedAt = Ended,
+            }),
+            CancellationToken.None);
+
+        (await context.ReadJobAsync("Heartbeat"))!.NextRunAt.Should().Be(Ended + TimeSpan.FromMinutes(1));
+    }
+
+    /// <summary>A real, unstarted scheduler holding one trigger, named as the scheduled-task service names it.</summary>
+    private static async Task<ServiceProvider> SchedulerWithTriggerAsync(string commandName, DateTimeOffset nextFire)
+    {
+        var services = new ServiceCollection();
+        services.AddQuartz();
+        var provider = services.BuildServiceProvider();
+        var scheduler = await provider.GetRequiredService<ISchedulerFactory>().GetScheduler();
+
+        var detail = JobBuilder.Create<EnqueueCommandJob>().WithIdentity(commandName).Build();
+        var trigger = TriggerBuilder.Create()
+            .ForJob(detail)
+            .WithIdentity(ScheduledTaskService.TriggerKeyFor(commandName))
+            .StartAt(nextFire)
+            .WithSimpleSchedule(schedule => schedule.WithInterval(TimeSpan.FromMinutes(1)).RepeatForever())
+            .Build();
+
+        await scheduler.ScheduleJob(detail, trigger);
+
+        return provider;
     }
 
     /// <summary>A migrated SQLite container plus the context the updater writes through.</summary>

@@ -227,14 +227,23 @@ public sealed class DecisionEngine
 
         if (context.CurrentFileQualityId is { } current &&
             !context.IsManualGrab &&
-            !context.Profile.IsUpgrade(current, candidate.QualityId))
+            !context.Profile.IsUpgrade(current, candidate.QualityId, stopAtCutoff: true))
         {
+            // An automatic grab stops at the cutoff (owner question 20): a song whose file already
+            // meets it is done, whatever better release turns up.
             rejections.Add(new Rejection(
                 RejectionReason.NotAnUpgrade,
-                string.Concat(
-                    "Not an upgrade over the current file (",
-                    QualityName(QualityOf(context, current), current),
-                    ").")));
+                context.Profile.MeetsCutoff(current) && context.Profile.UpgradeAllowed
+                    ? string.Concat(
+                        "The current file (",
+                        QualityName(QualityOf(context, current), current),
+                        ") already meets the ",
+                        context.Profile.Name,
+                        " profile's cutoff.")
+                    : string.Concat(
+                        "Not an upgrade over the current file (",
+                        QualityName(QualityOf(context, current), current),
+                        ").")));
         }
 
         // The identity rule for upgrades (MATCHING_ENGINE §6.6): a strictly better file may replace

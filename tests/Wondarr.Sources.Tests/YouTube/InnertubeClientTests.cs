@@ -146,6 +146,136 @@ public class InnertubeClientTests
         search.Results.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task A_429_or_503_pauses_every_search_for_the_retry_after_it_carries(HttpStatusCode status)
+    {
+        var time = FakeTime(YouTubeTestData.Recorded);
+        var pause = new InnertubePause();
+        var handler = new StubHttpMessageHandler(status, "{}")
+        {
+            RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(120)),
+        };
+        var client = YouTubeTestData.Client(handler, timeProvider: time, pause: pause);
+
+        var act = () => client.SearchAsync(
+            new InnertubeSearchRequest("daft punk get lucky", InnertubeSearchFilter.Songs),
+            CancellationToken.None);
+
+        var thrown = (await act.Should().ThrowAsync<InnertubeException>()).Which;
+        thrown.StatusCode.Should().Be(status);
+        thrown.RetryAfter.Should().Be(TimeSpan.FromSeconds(120));
+        client.PausedFor.Should().Be(TimeSpan.FromSeconds(120));
+
+        // Another client over the same pause (the client is transient, the pause is shared) sends nothing.
+        var other = new StubHttpMessageHandler(HttpStatusCode.OK, "{}");
+        var second = YouTubeTestData.Client(other, timeProvider: time, pause: pause);
+
+        var refused = await FluentActions.Awaiting(() => second.SearchAsync(
+                new InnertubeSearchRequest("another song", InnertubeSearchFilter.Songs),
+                CancellationToken.None))
+            .Should().ThrowAsync<InnertubeException>();
+
+        refused.Which.RetryAfter.Should().NotBeNull();
+        other.Requests.Should().BeEmpty("YouTube asked to be left alone");
+
+        // The wait is over: searches go out again.
+        time.Advance(TimeSpan.FromSeconds(121));
+        second.PausedFor.Should().BeNull();
+        await second.SearchAsync(
+            new InnertubeSearchRequest("another song", InnertubeSearchFilter.Songs),
+            CancellationToken.None);
+        other.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_playlist_read_honours_the_pause_and_sends_nothing()
+    {
+        var time = FakeTime(YouTubeTestData.Recorded);
+        var pause = new InnertubePause();
+        pause.Set(time.GetUtcNow(), TimeSpan.FromSeconds(30));
+        var handler = StubHttpMessageHandler.Ok("{}");
+        var client = YouTubeTestData.Client(handler, timeProvider: time, pause: pause);
+
+        var thrown = (await FluentActions.Awaiting(() => client.BrowsePlaylistAsync("PLabc", CancellationToken.None))
+            .Should().ThrowAsync<InnertubeException>()).Which;
+
+        thrown.RetryAfter.Should().Be(TimeSpan.FromSeconds(30));
+        handler.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_429_without_a_retry_after_pauses_for_sixty_seconds()
+    {
+        var time = FakeTime(YouTubeTestData.Recorded);
+        var client = YouTubeTestData.Client(
+            StubHttpMessageHandler.Status(HttpStatusCode.TooManyRequests, "{}"),
+            timeProvider: time);
+
+        var act = () => client.SearchAsync(
+            new InnertubeSearchRequest("daft punk get lucky", InnertubeSearchFilter.Songs),
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InnertubeException>()).Which.RetryAfter.Should().Be(TimeSpan.FromSeconds(60));
+        client.PausedFor.Should().Be(TimeSpan.FromSeconds(60));
+
+        time.Advance(TimeSpan.FromSeconds(59));
+        client.PausedFor.Should().Be(TimeSpan.FromSeconds(1));
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        client.PausedFor.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_retry_after_given_as_a_date_is_read_against_the_clock()
+    {
+        var time = FakeTime(YouTubeTestData.Recorded);
+        var handler = new StubHttpMessageHandler(HttpStatusCode.TooManyRequests, "{}")
+        {
+            RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(YouTubeTestData.Recorded.AddSeconds(90)),
+        };
+        var client = YouTubeTestData.Client(handler, timeProvider: time);
+
+        await FluentActions.Awaiting(() => client.SearchAsync(
+                new InnertubeSearchRequest("daft punk get lucky", InnertubeSearchFilter.Songs),
+                CancellationToken.None))
+            .Should().ThrowAsync<InnertubeException>();
+
+        client.PausedFor.Should().Be(TimeSpan.FromSeconds(90));
+    }
+
+    [Fact]
+    public async Task An_absurd_retry_after_is_capped()
+    {
+        var time = FakeTime(YouTubeTestData.Recorded);
+        var handler = new StubHttpMessageHandler(HttpStatusCode.TooManyRequests, "{}")
+        {
+            RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromDays(30)),
+        };
+        var client = YouTubeTestData.Client(handler, timeProvider: time);
+
+        await FluentActions.Awaiting(() => client.SearchAsync(
+                new InnertubeSearchRequest("daft punk get lucky", InnertubeSearchFilter.Songs),
+                CancellationToken.None))
+            .Should().ThrowAsync<InnertubeException>();
+
+        client.PausedFor.Should().Be(InnertubePause.MaxPause);
+    }
+
+    [Fact]
+    public async Task Other_errors_do_not_pause_the_source()
+    {
+        var client = YouTubeTestData.Client(StubHttpMessageHandler.Status(HttpStatusCode.BadRequest, "{}"));
+
+        await FluentActions.Awaiting(() => client.SearchAsync(
+                new InnertubeSearchRequest("daft punk get lucky", InnertubeSearchFilter.Songs),
+                CancellationToken.None))
+            .Should().ThrowAsync<InnertubeException>();
+
+        client.PausedFor.Should().BeNull();
+    }
+
     private static FakeTimeProvider FakeTime(DateTimeOffset now)
     {
         var provider = new FakeTimeProvider();

@@ -1,8 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,28 +19,35 @@ namespace Wondarr.Core.Jobs;
 [SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix", Justification = "Name fixed by the task spec; this is a command queue, not a collection.")]
 public sealed class CommandQueue : ICommandQueue, IDisposable
 {
+    private const string StrandedMessage = "Stranded: the executor lost track of this command, so it was failed.";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Channel<long> _queue;
     private readonly IEventAggregator _eventAggregator;
     private readonly TimeProvider _timeProvider;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly ActiveCommands _activeCommands;
+    private readonly SemaphoreSlim _gate;
 
     /// <summary>Initialises a new instance of the <see cref="CommandQueue"/> class.</summary>
     public CommandQueue(
         IServiceScopeFactory scopeFactory,
         Channel<long> queue,
         IEventAggregator eventAggregator,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ActiveCommands activeCommands)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentNullException.ThrowIfNull(eventAggregator);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(activeCommands);
 
         _scopeFactory = scopeFactory;
         _queue = queue;
         _eventAggregator = eventAggregator;
         _timeProvider = timeProvider;
+        _activeCommands = activeCommands;
+        _gate = activeCommands.Gate;
     }
 
     /// <inheritdoc />
@@ -57,26 +66,80 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             await using var scope = _scopeFactory.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
-            if (!HasHandler(scope.ServiceProvider, name))
-            {
-                throw new UnknownCommandException(name);
-            }
+            // The handler's own name is the canonical one: the resolver matches names case-insensitively,
+            // so "missingsearch" and "MissingSearch" are the same command and must dedupe as one.
+            var canonical = ResolveName(scope.ServiceProvider, name) ?? throw new UnknownCommandException(name);
+            name = canonical;
 
             // Lidarr behaviour: a command already queued or running with this name and body is returned
             // as is, so the executor can never run the same command twice at once. The body counts: a
             // scan of reference library 2 is not the scan of library 1 that happens to be running.
-            var active = await context.Commands
-                .Where(command => command.Name == name
-                    && (command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started))
+            // Only a handful of rows are ever Queued or Started, so the name is compared in memory,
+            // without regard to case: a row an older build wrote under another spelling counts too.
+            // Which rows the process holds is taken before the rows are read: a command that finishes in
+            // between was held when the snapshot was taken, so its fresh Completed row is never taken for
+            // a stranded one.
+            var held = _activeCommands.Snapshot();
+            var running = await context.Commands
+                .Where(command => command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started)
                 .OrderBy(command => command.Id)
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
+            var active = running
+                .Where(command => string.Equals(command.Name, canonical, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // A row the executor no longer holds in memory will never be finished: a failed status write
+            // stranded it. Fail it, so it cannot swallow this enqueue and every one after it.
+            var stranded = active.Where(command => !held.Contains(command.Id)).ToList();
+            var strandedAt = _timeProvider.GetUtcNow().UtcDateTime;
+
+            foreach (var command in stranded)
+            {
+                active.Remove(command);
+
+                // Conditional, so a row that was finished after it was read is left as it is.
+                var changed = await context.Commands
+                    .Where(row => row.Id == command.Id
+                        && (row.Status == CommandStatus.Queued || row.Status == CommandStatus.Started))
+                    .ExecuteUpdateAsync(
+                        set => set
+                            .SetProperty(row => row.Status, CommandStatus.Failed)
+                            .SetProperty(row => row.Result, CommandResult.Unsuccessful)
+                            .SetProperty(row => row.EndedAt, (DateTime?)strandedAt)
+                            .SetProperty(row => row.Message, StrandedMessage)
+                            .SetProperty(row => row.Exception, StrandedMessage)
+                            .SetProperty(row => row.UpdatedAt, strandedAt),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (changed > 0)
+                {
+                    var failed = await context.Commands
+                        .AsNoTracking()
+                        .FirstAsync(row => row.Id == command.Id, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    await _eventAggregator
+                        .PublishAsync(new CommandUpdatedEvent(failed), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
 
             var existing = active.Find(command => SameBody(name, command.Body, body));
 
             if (existing is not null)
             {
                 return existing;
+            }
+
+            // A request to search particular songs, while another such request has not started yet, is
+            // folded into it: one command with all the songs, not a pile of them behind a long run.
+            var merged = await TryMergeQueuedAsync(context, name, active, body, cancellationToken).ConfigureAwait(false);
+
+            if (merged is not null)
+            {
+                return merged;
             }
 
             var record = new CommandRecord
@@ -91,6 +154,7 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
 
             context.Commands.Add(record);
             await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            _activeCommands.Add(record.Id);
 
             // Publish before waking the executor: whoever is listening sees "queued" come first.
             await _eventAggregator
@@ -110,7 +174,6 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        _gate.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -154,23 +217,34 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             await using var scope = _scopeFactory.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
-            var record = await context.Commands
-                .FirstOrDefaultAsync(command => command.Id == id, cancellationToken)
+            // One conditional update, so a cancel and the executor starting the same row cannot both win:
+            // whichever statement SQLite runs first changes the status, and the other finds no Queued row.
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+            var changed = await context.Commands
+                .Where(command => command.Id == id && command.Status == CommandStatus.Queued)
+                .ExecuteUpdateAsync(
+                    set => set
+                        .SetProperty(command => command.Status, CommandStatus.Cancelled)
+                        .SetProperty(command => command.Result, CommandResult.Unsuccessful)
+                        .SetProperty(command => command.EndedAt, (DateTime?)now)
+                        .SetProperty(command => command.Message, "Cancelled")
+                        .SetProperty(command => command.UpdatedAt, now),
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             // Only a command that has not started can be cancelled; anything else is reported as a
             // conflict so the caller does not believe it stopped something that is running.
-            if (record is null || record.Status != CommandStatus.Queued)
+            if (changed == 0)
             {
                 return false;
             }
 
-            record.Status = CommandStatus.Cancelled;
-            record.Result = CommandResult.Unsuccessful;
-            record.EndedAt = _timeProvider.GetUtcNow().UtcDateTime;
-            record.Message = "Cancelled";
+            _activeCommands.Remove(id);
 
-            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            var record = await context.Commands
+                .AsNoTracking()
+                .FirstAsync(command => command.Id == id, cancellationToken)
+                .ConfigureAwait(false);
 
             cancelled = record;
         }
@@ -184,6 +258,101 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             .ConfigureAwait(false);
 
         return true;
+    }
+
+    /// <summary>
+    /// Adds the <c>songIds</c> of <paramref name="body"/> to a Queued command whose body also names
+    /// <c>songIds</c> (the ids sorted, without repeats), when there is one. The update is conditional on
+    /// the command still being Queued, so a command the executor has just started is never edited.
+    /// </summary>
+    private async Task<CommandRecord?> TryMergeQueuedAsync(
+        WondarrDbContext context,
+        string name,
+        List<CommandRecord> active,
+        string? body,
+        CancellationToken cancellationToken)
+    {
+        // Only the missing search is folded: it is a request to look at these songs, and two of them are
+        // one request for the union. Other commands that name songs (MoveSongs, ConvertFiles) carry
+        // parameters of their own, and two of them are two different requests.
+        if (!string.Equals(name, MissingSearchCommandHandler.CommandName, StringComparison.Ordinal)
+            || ReadSongIds(body) is not { } wanted)
+        {
+            return null;
+        }
+
+        foreach (var queued in active.Where(command => command.Status == CommandStatus.Queued))
+        {
+            if (ReadSongIds(queued.Body) is not { } already || JsonNode.Parse(queued.Body!) is not JsonObject node)
+            {
+                continue;
+            }
+
+            // Every other member of the queued body is kept as it is.
+            foreach (var key in node.Select(member => member.Key).Where(key => string.Equals(key, "songIds", StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                node.Remove(key);
+            }
+
+            node["songIds"] = new JsonArray([.. already.Union(wanted).Order().Select(id => (JsonNode?)JsonValue.Create(id))]);
+            var merged = node.ToJsonString();
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+            var changed = await context.Commands
+                .Where(row => row.Id == queued.Id && row.Status == CommandStatus.Queued)
+                .ExecuteUpdateAsync(
+                    set => set
+                        .SetProperty(row => row.Body, merged)
+                        .SetProperty(row => row.UpdatedAt, now),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (changed > 0)
+            {
+                return await context.Commands
+                    .AsNoTracking()
+                    .FirstAsync(row => row.Id == queued.Id, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The <c>songIds</c> a body names, or <see langword="null"/> when it names none.</summary>
+    private static List<long>? ReadSongIds(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var member in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(member.Name, "songIds", StringComparison.OrdinalIgnoreCase)
+                    && member.Value.ValueKind == JsonValueKind.Array)
+                {
+                    return [.. member.Value.EnumerateArray()
+                        .Where(item => item.ValueKind == JsonValueKind.Number && item.TryGetInt64(out _))
+                        .Select(item => item.GetInt64())];
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -300,13 +469,15 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
         }
     }
 
-    private static bool HasHandler(IServiceProvider services, string name)
+    /// <summary>The handler's own spelling of the name, or <see langword="null"/> when nothing answers to it.</summary>
+    private static string? ResolveName(IServiceProvider services, string name)
     {
         var lookup = CommandHandlerResolver.Find(services, name);
+        var canonical = lookup.Handler?.Name;
         lookup.ReleaseAsync().AsTask().GetAwaiter().GetResult();
 
         // A handler that cannot be built has an unknown name, so it might be this one: queue the
-        // command and let the executor fail it with the reason, rather than refusing every command.
-        return lookup.Handler is not null || lookup.Failures.Count > 0;
+        // command as given and let the executor fail it with the reason, rather than refusing every command.
+        return canonical ?? (lookup.Failures.Count > 0 ? name : null);
     }
 }

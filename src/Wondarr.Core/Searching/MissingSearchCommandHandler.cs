@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -21,8 +22,12 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     /// <summary>The name the <c>MissingSearch</c> scheduled task queues.</summary>
     public const string CommandName = "MissingSearch";
 
-    /// <summary>How long the batch waits between two warnings that every download slot is taken.</summary>
-    private static readonly TimeSpan SlotWarningInterval = TimeSpan.FromMinutes(10);
+    /// <summary>The command bodies are camelCase, like every other JSON this app exchanges.</summary>
+    private static readonly JsonSerializerOptions BodyJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
 
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<SearchOptions> _options;
@@ -60,7 +65,7 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
         ArgumentNullException.ThrowIfNull(context);
 
         var options = _options.CurrentValue;
-        var songs = await SelectAsync(options, cancellationToken).ConfigureAwait(false);
+        var songs = await SelectAsync(options, ReadSongIds(context.Body), cancellationToken).ConfigureAwait(false);
 
         var grabbed = 0;
         var withoutAcceptable = 0;
@@ -69,7 +74,7 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
 
         foreach (var songId in songs)
         {
-            await WaitForSlotAsync(options, cancellationToken).ConfigureAwait(false);
+            await WaitForSlotAsync(context, options, cancellationToken).ConfigureAwait(false);
 
             using var scope = _scopes.CreateScope();
 
@@ -136,7 +141,10 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     /// last 24 hours is left out: it waits for the scan (owner question 15), and the import-list sync
     /// searches it when the scan is done or the wait is over.
     /// </summary>
-    private async Task<List<long>> SelectAsync(SearchOptions options, CancellationToken cancellationToken)
+    private async Task<List<long>> SelectAsync(
+        SearchOptions options,
+        IReadOnlyList<long>? onlySongs,
+        CancellationToken cancellationToken)
     {
         List<MissingSongRow> candidates;
         List<SearchRun> runs;
@@ -158,6 +166,12 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
                         || item.State == QueueItemState.RemotelyQueued
                         || item.State == QueueItemState.Downloading)));
 
+            // A run asked for particular songs (search on add) looks at those and no others.
+            if (onlySongs is not null)
+            {
+                wanted = wanted.Where(song => onlySongs.Contains(song.Id));
+            }
+
             if ((await ReferenceScanWait.PendingLibrariesAsync(database, cancellationToken).ConfigureAwait(false)).Count > 0)
             {
                 var waitCutoff = _timeProvider.GetUtcNow().UtcDateTime - ReferenceScanWait.MaxWait;
@@ -172,14 +186,19 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            // One query for the candidate songs and one for their recent runs: asking per song would
-            // be a query per wanted song on every scheduled run. Only the runs the longest backoff can
-            // reach are needed — anything older leaves the song eligible either way.
-            var horizon = _timeProvider.GetUtcNow().UtcDateTime.AddHours(-options.BackoffHours.DefaultIfEmpty(0).Max());
-
+            // One query for the candidate songs and one for their runs: asking per song would be a
+            // query per wanted song on every scheduled run. The backoff step is the number of fruitless
+            // runs in a row, so the runs are loaded back to the newest one the loop counts as a success
+            // (and not for a fixed number of hours: the failures that fall outside a window would lower
+            // the step, and a hopeless song would never reach the weekly one).
             runs = await database.SearchRuns
                 .AsNoTracking()
-                .Where(run => run.StartedAt >= horizon && wanted.Any(song => song.Id == run.SongId))
+                .Where(run => wanted.Any(song => song.Id == run.SongId)
+                    && !database.SearchRuns.Any(grab => grab.SongId == run.SongId
+                        && grab.Outcome == SearchOutcome.Grabbed
+                        && grab.Trigger != SearchTrigger.Manual
+                        && grab.Trigger != SearchTrigger.Push
+                        && (grab.StartedAt > run.StartedAt || (grab.StartedAt == run.StartedAt && grab.Id > run.Id))))
                 .OrderByDescending(run => run.StartedAt)
                 .ThenByDescending(run => run.Id)
                 .ToListAsync(cancellationToken)
@@ -245,48 +264,41 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     private static bool IsEligible(IReadOnlyList<SearchRun> runs, SearchOptions options, DateTime now) =>
         SearchBackoff.IsEligible(runs, options, now, run => run.Trigger != SearchTrigger.Manual);
 
-    /// <summary>Waits until fewer than <see cref="SearchOptions.MaxActiveDownloads"/> grabs are in flight.</summary>
-    private async Task WaitForSlotAsync(SearchOptions options, CancellationToken cancellationToken)
+    /// <summary>Waits until a download slot is free, without holding the command's executor place.</summary>
+    private Task WaitForSlotAsync(CommandContext context, SearchOptions options, CancellationToken cancellationToken) =>
+        SlotWaiting.WaitForFreeSlotAsync(
+            _scopes,
+            _timeProvider,
+            context,
+            options,
+            active => LogWaitingForSlot(_logger, active),
+            cancellationToken);
+
+    /// <summary>
+    /// The songs a body names (<c>{"name":"MissingSearch","songIds":[1,2]}</c>, what search on add queues
+    /// for a batch), or <see langword="null"/> for the scheduled run, which looks at every wanted song.
+    /// </summary>
+    private static List<long>? ReadSongIds(string? body)
     {
-        var lastWarning = _timeProvider.GetUtcNow();
-
-        while (true)
+        if (string.IsNullOrWhiteSpace(body))
         {
-            int active;
+            return null;
+        }
 
-            using (var scope = _scopes.CreateScope())
-            {
-                var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
-
-                active = await database.QueueItems
-                    .AsNoTracking()
-                    .CountAsync(
-                        item => item.State == QueueItemState.Queued
-                            || item.State == QueueItemState.RemotelyQueued
-                            || item.State == QueueItemState.Downloading,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            if (active < options.MaxActiveDownloads)
-            {
-                return;
-            }
-
-            // A stall here is not visible anywhere else — the batch simply stops — so the wait says so
-            // out loud, but only once every ten minutes rather than on every poll.
-            var now = _timeProvider.GetUtcNow();
-
-            if (now - lastWarning >= SlotWarningInterval)
-            {
-                LogWaitingForSlot(_logger, active);
-                lastWarning = now;
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(options.SlotWaitSeconds), _timeProvider, cancellationToken)
-                .ConfigureAwait(false);
+        try
+        {
+            return JsonSerializer.Deserialize<MissingSearchBody>(body, BodyJson)?.SongIds is { } ids ? [.. ids] : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
+
+    /// <summary>The body of a missing search that was asked to look at particular songs.</summary>
+    /// <param name="Name">The command name, echoed by the API for readability.</param>
+    /// <param name="SongIds">The songs to look at.</param>
+    private sealed record MissingSearchBody(string? Name, List<long>? SongIds);
 
     /// <summary>One candidate song: its id, when it was added, and when it was last searched.</summary>
     private sealed record MissingSongRow(long SongId, DateTime CreatedAt, DateTime? LastRunAt);
