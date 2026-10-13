@@ -140,10 +140,10 @@ public sealed class ImportCompactionGuardTests : IDisposable
         // The import's re-check sees the compaction's move and defers, which releases the lock.
         gate.SetResult();
 
-        (await importTask).Should().Be(ImportOutcome.Deferred);
+        (await importTask.WaitAsync(TimeSpan.FromSeconds(30))).Should().Be(ImportOutcome.Deferred);
 
         // The compaction stages and places the file while the import waits its minute out.
-        var compacted = await compactTask;
+        var compacted = await compactTask.WaitAsync(TimeSpan.FromSeconds(30));
         compacted.Moved.Should().Be(1);
 
         var placed = Path.Combine(_root, "Daft Punk", "Random Access Memories", "08 - Get Lucky.mp3");
@@ -154,7 +154,7 @@ public sealed class ImportCompactionGuardTests : IDisposable
         // The next poll, after the deferral minute, imports the upgrade.
         host.Time.Advance(TimeSpan.FromMinutes(1));
 
-        var outcome = await host.FreshImport().ImportAsync(seed.QueueItemId, CancellationToken.None);
+        var outcome = await host.FreshImport().ImportAsync(seed.QueueItemId, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30));
 
         outcome.Should().Be(ImportOutcome.Upgraded);
 
