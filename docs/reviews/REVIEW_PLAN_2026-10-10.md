@@ -109,6 +109,14 @@ Each fix comes with the test the review says is missing. The questions for each 
   - **Q11, missing reference files:** a song is released only after two scans and 24 h; a scan that finds more than 10 % (or 200) missing is treated as a mount problem and releases nothing; a moved file is followed (M-20).
   - **Q14, a changed file:** it keeps the user's Skipped or Adopted choice (M-20).
 
+**Tranche 6 (2026-10-13):**
+- **Q20, "Search now" above the cutoff:** automatic grabs, "Search now" included, stop once the cutoff is met. Interactive search still lets the user grab anything (M-23).
+- **Defaults taken:**
+  - Q21: push runs do not count toward the backoff (M-23).
+  - Q22: the batch loops yield their executor place while they wait (M-23).
+  - Q24: the spacing has a margin, MusicBrainz 1.05 s and AcoustID 350 ms (M-22).
+- **Releases:** 0.1.2 shipped tranches 3–5. Production is updated after it.
+
 **Not planned.** Two findings already reached by known backlog items are left there:
 
 - The Mirror delete with no busy check is the known "single song delete vs in-flight downloads" problem. Tranche 5 adds the guard on the Mirror caller only.
