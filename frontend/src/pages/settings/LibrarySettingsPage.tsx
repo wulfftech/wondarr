@@ -82,7 +82,7 @@ const LAYOUT_TEMPLATES: Record<LibraryLayoutName, string> = {
   flat: '{Artist Name} - {Track Title}',
   artist: '{Artist Name}/{Artist Name} - {Track Title}',
   artistAlbum: '{Artist Name}/{Album Title} ({Release Year})/{track:00} - {Track Title}',
-  plexamp: '{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}',
+  plexamp: '{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}',
 };
 
 /** How long typing settles before the preview is asked for, in milliseconds. */

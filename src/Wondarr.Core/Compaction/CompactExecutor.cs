@@ -322,6 +322,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
         }
         else
         {
+            // The plan is made first, while the last run's rows are still there: a template move that
+            // failed for good to the very path the planner would offer again is left out of the plan,
+            // and its row stays (below) so the next run leaves it out too, not stage it again.
+            _database.ChangeTracker.Clear();
+
+            var plan = await _planner.PlanAsync(libraryId, cancellationToken).ConfigureAwait(false);
+            var suppressed = (plan.SuppressedRowIds ?? []).ToHashSet();
+
             // The rows of the last run are spent — placed, given up on, or failed with their file where
             // it was — so the plan replaces them. A failed row must not block every later compaction:
             // its message was logged when it failed, and its file never left its folder (or is recorded
@@ -332,7 +340,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
                     .ConfigureAwait(false))
                 // A given-up row whose file still sits in the staging folder stays, so the health
                 // check keeps warning about it until the file is dealt with.
-                .Where(row => !IsStranded(row))
+                .Where(row => !IsStranded(row) && !suppressed.Contains(row.Id))
                 .ToList();
 
             var dropped = spent.Count(row => row.State == CompactMoveState.Failed);
@@ -345,8 +353,6 @@ public sealed partial class CompactExecutor : ICompactExecutor
             _database.CompactMoves.RemoveRange(spent);
             await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             _database.ChangeTracker.Clear();
-
-            var plan = await _planner.PlanAsync(libraryId, cancellationToken).ConfigureAwait(false);
 
             // A song this run has just given up on is planned again by the next run, not by this one.
             var planned = plan.Moves.Where(move => !givenUpSongs.Contains(move.SongId)).ToList();

@@ -42,7 +42,7 @@ A library called **Music** exists from the start: root path `/data/music`, layou
 
 - **Name** and **Root path**: the folder inside the container where songs are filed.
 - **Layout**: **Flat**, **Artist**, **Artist → Album** or **Plexamp**.
-- **Naming template**: the path each song is filed under. The page shows a preview, a **Tokens** helper, and a button that resets it to the layout's preset. The Plexamp preset is `{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}`.
+- **Naming template**: the path each song is filed under. The page shows a preview, a **Tokens** helper, and a button that resets it to the layout's preset. The Plexamp preset is `{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}`.
 - **Album policy**: how a stand-alone song gets an album. The default, **Fewest albums**, uses the fewest real albums per artist and puts the rest in a Singles album. The others are **Singles only**, **Original album** and **Single release**. **Minimum tracks per real album** (default 2) applies to Fewest albums.
 - **Plex music section** and **Library folder as Plex sees it**: see [Plex](/wondarr/sources/plex/).
 
