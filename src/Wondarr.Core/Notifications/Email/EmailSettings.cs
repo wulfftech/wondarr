@@ -70,6 +70,18 @@ internal sealed record EmailSettings(
     /// <summary>The longest digest window in minutes.</summary>
     public const int MaxDigestMinutes = 1440;
 
+    /// <summary>The server and the choices; never the password or the addresses, so a log line cannot leak them.</summary>
+    public override string ToString() => string.Concat(
+        "EmailSettings { Host = ",
+        Host,
+        ", Port = ",
+        Port?.ToString(CultureInfo.InvariantCulture),
+        ", Security = ",
+        Security,
+        ", Delivery = ",
+        Delivery,
+        " }");
+
     /// <summary>Gets a value indicating whether the notification batches imports, upgrades and failures.</summary>
     public bool IsDigest => string.Equals(Delivery, EmailDelivery.Digest, StringComparison.Ordinal);
 

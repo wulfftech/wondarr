@@ -449,6 +449,9 @@ public static class ServiceCollectionExtensions
             () => provider.GetService<IBackupService>()));
         services.AddHostedService<DatabaseMigrationHostedService>();
 
+        // After the migration, so the notification table exists: stored notification secrets reach the log redactor.
+        services.AddHostedService<NotificationSecretRegistrar>();
+
         return services;
     }
 }

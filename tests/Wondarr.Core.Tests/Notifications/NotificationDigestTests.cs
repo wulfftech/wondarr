@@ -1,12 +1,15 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using FluentAssertions;
+using MailKit.Net.Smtp;
+using NSubstitute;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Logging;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Notifications.Email;
 using Wondarr.Core.Persistence;
@@ -29,6 +32,7 @@ public sealed class NotificationDigestTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new(Start);
     private readonly FakeSmtpSender _smtp = new();
     private readonly RecordingLogger<NotificationDigestService> _log = new();
+    private readonly SecretRegistry _secrets = new();
     private readonly ServiceProvider _services;
     private readonly EmailProvider _email;
     private NotificationDigestService _digest;
@@ -45,7 +49,7 @@ public sealed class NotificationDigestTests : IAsyncDisposable
             .UseSnakeCaseNamingConvention());
 
         _services = services.BuildServiceProvider();
-        _email = new EmailProvider(_smtp, NullLogger<EmailProvider>.Instance);
+        _email = new EmailProvider(_smtp, _secrets, NullLogger<EmailProvider>.Instance);
         _digest = NewDigestService();
     }
 
@@ -274,7 +278,9 @@ public sealed class NotificationDigestTests : IAsyncDisposable
             await dispatcher.HandleAsync(new Wondarr.Core.Importing.SongImportedEvent(songId, fileId, Upgraded: false), Token);
             await dispatcher.HandleAsync(new UpdateAvailableEvent("0.1.3", "0.2.0", null), Token);
 
-            await WaitUntilAsync(() => _smtp.Sent.Count == 1 && CountNow(id) == 1);
+            // The dispatcher handles items in order, so once the update has been mailed the import
+            // before it has been stored.
+            await _smtp.WaitForSendsAsync(1);
         }
         finally
         {
@@ -312,7 +318,7 @@ public sealed class NotificationDigestTests : IAsyncDisposable
         try
         {
             await dispatcher.HandleAsync(new Wondarr.Core.Importing.SongImportedEvent(songId, fileId, Upgraded: false), Token);
-            await WaitUntilAsync(() => _smtp.Sent.Count == 1);
+            await _smtp.WaitForSendsAsync(1);
         }
         finally
         {
@@ -321,6 +327,121 @@ public sealed class NotificationDigestTests : IAsyncDisposable
 
         _smtp.Sent.Single().Message.Subject.Should().Be("Wondarr: imported Oasis – Wonderwall");
         (await CountAsync(id)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_failure_after_the_message_was_accepted_is_not_a_send_failure()
+    {
+        var id = await SeedNotificationAsync(delivery: "digest");
+        await AddAsync(id, EmailSamples.Song(id: 1));
+
+        var client = Substitute.For<ISmtpClient>();
+        client.DisconnectAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new IOException("the server hung up during QUIT")));
+
+        var email = new EmailProvider(new SmtpSender(() => client), _secrets, NullLogger<EmailProvider>.Instance);
+        var digest = new NotificationDigestService(
+            _services.GetRequiredService<IServiceScopeFactory>(),
+            [email],
+            _time,
+            _log);
+
+        _time.Advance(TimeSpan.FromMinutes(30));
+        await digest.FlushDueAsync(Token);
+
+        await client.Received(1).SendAsync(Arg.Any<MimeKit.MimeMessage>(), Arg.Any<CancellationToken>(), Arg.Any<MailKit.ITransferProgress?>());
+        (await CountAsync(id)).Should().Be(0, "the message was accepted");
+        _log.Warnings.Should().BeEmpty();
+        _log.Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task One_failing_add_does_not_break_the_next_one_on_the_same_context()
+    {
+        var id = await SeedNotificationAsync(delivery: "digest");
+        var missing = new Notification { Id = id + 100, Name = "Gone", Type = "Email" };
+
+        await using var database = _database.CreateContext(_time);
+        var real = await database.Notifications.SingleAsync(row => row.Id == id, Token);
+
+        // The foreign key refuses an entry for a notification that is not there.
+        var act = () => NotificationDigestService.AddAsync(database, missing, EmailSamples.Song(id: 1), _log, Token);
+        await act.Should().ThrowAsync<DbUpdateException>();
+
+        await NotificationDigestService.AddAsync(database, real, EmailSamples.Song(id: 2), _log, Token);
+
+        (await CountAsync(id)).Should().Be(1);
+        (await CountAsync(missing.Id)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_entry_added_while_a_digest_is_being_sent_survives_and_goes_out_in_the_next_one()
+    {
+        var id = await SeedNotificationAsync(delivery: "digest", type: "Racing");
+        var racing = new RacingProvider();
+        var digest = new NotificationDigestService(
+            _services.GetRequiredService<IServiceScopeFactory>(),
+            [racing],
+            _time,
+            _log);
+
+        await AddAsync(id, EmailSamples.Song(id: 1, title: "Before"));
+
+        racing.DuringSend = async () => await AddAsync(id, EmailSamples.Song(id: 2, title: "During"));
+        _time.Advance(TimeSpan.FromMinutes(30));
+        await digest.FlushDueAsync(Token);
+
+        racing.Digests.Should().ContainSingle().Which.Select(entry => entry.Message.Song!.Title).Should().Equal("Before");
+        (await CountAsync(id)).Should().Be(1, "the entry that arrived during the send is still stored");
+
+        racing.DuringSend = null;
+        _time.Advance(TimeSpan.FromMinutes(30));
+        await digest.FlushDueAsync(Token);
+
+        racing.Digests.Should().HaveCount(2);
+        racing.Digests[1].Select(entry => entry.Message.Song!.Title).Should().Equal("During");
+        (await CountAsync(id)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_digest_reports_its_own_window_not_the_moment_it_was_flushed()
+    {
+        var id = await SeedNotificationAsync(delivery: "digest");
+        await AddAsync(id, EmailSamples.Song(id: 1));
+
+        // A tick that comes late: the window ended at 12:30.
+        _time.Advance(TimeSpan.FromMinutes(47));
+        await _digest.FlushDueAsync(Token);
+
+        _smtp.Sent.Single().Message.Subject.Should().Be("Wondarr: 1 imported (12:00–12:30)");
+    }
+
+    [Fact]
+    public async Task A_disabled_notification_keeps_its_entries_and_sends_them_when_enabled_again()
+    {
+        var id = await SeedNotificationAsync(delivery: "digest");
+        await AddAsync(id, EmailSamples.Song(id: 1));
+
+        await SetEnabledAsync(false);
+        _time.Advance(TimeSpan.FromHours(1));
+        await _digest.FlushDueAsync(Token);
+
+        _smtp.Sent.Should().BeEmpty();
+        (await CountAsync(id)).Should().Be(1);
+
+        await SetEnabledAsync(true);
+        await _digest.FlushDueAsync(Token);
+
+        _smtp.Sent.Should().ContainSingle();
+        (await CountAsync(id)).Should().Be(0);
+    }
+
+    private async Task SetEnabledAsync(bool enabled)
+    {
+        await using var database = _database.CreateContext(_time);
+        var notification = await database.Notifications.SingleAsync(Token);
+        notification.Enabled = enabled;
+        await database.SaveChangesAsync(Token);
     }
 
     private NotificationDigestService NewDigestService() => new(
@@ -344,20 +465,19 @@ public sealed class NotificationDigestTests : IAsyncDisposable
         return await database.NotificationDigestEntries.CountAsync(entry => entry.NotificationId == notificationId, Token);
     }
 
-    private int CountNow(long notificationId) => CountAsync(notificationId).GetAwaiter().GetResult();
-
     private async Task<long> SeedNotificationAsync(
         string name = "Mail",
         string delivery = "each",
         int minutes = 30,
-        string[]? events = null)
+        string[]? events = null,
+        string type = "Email")
     {
         await using var database = _database.CreateContext(_time);
 
         var notification = new Notification
         {
             Name = name,
-            Type = "Email",
+            Type = type,
             Settings = EmailSamples.Settings(("delivery", delivery), ("digestMinutes", minutes)).GetRawText(),
             Events = JsonSerializer.Serialize(events ?? [NotificationEventNames.Import]),
         };
@@ -423,18 +543,40 @@ public sealed class NotificationDigestTests : IAsyncDisposable
         return await database.SongFiles.Where(file => file.SongId == songId).Select(file => file.Id).SingleAsync(Token);
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    /// <summary>A digest provider whose send can do something else in the middle, as a concurrent import would.</summary>
+    private sealed class RacingProvider : IDigestNotificationProvider
     {
-        var deadline = Environment.TickCount64 + 10_000;
+        public string Implementation => "Racing";
 
-        while (!condition())
+        public IReadOnlyList<NotificationField> Fields { get; } = [];
+
+        public Func<Task>? DuringSend { get; set; }
+
+        public List<IReadOnlyList<DigestEntry>> Digests { get; } = [];
+
+        public IReadOnlyList<string> Validate(JsonElement settings) => [];
+
+        public Task SendAsync(NotificationMessage message, JsonElement settings, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public bool Batches(JsonElement settings, string eventName) => true;
+
+        public TimeSpan? DigestWindow(JsonElement settings) => TimeSpan.FromMinutes(30);
+
+        public async Task SendDigestAsync(
+            IReadOnlyList<DigestEntry> entries,
+            DateTimeOffset windowStart,
+            DateTimeOffset windowEnd,
+            TimeZoneInfo zone,
+            JsonElement settings,
+            CancellationToken cancellationToken)
         {
-            if (Environment.TickCount64 > deadline)
+            if (DuringSend is { } during)
             {
-                throw new InvalidOperationException("Timed out waiting for the dispatcher.");
+                await during();
             }
 
-            await Task.Delay(5);
+            Digests.Add(entries);
         }
     }
 

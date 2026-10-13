@@ -7,10 +7,11 @@ using Wondarr.Core.Notifications.Email;
 namespace Wondarr.Core.Tests.Notifications;
 
 /// <summary>Records what the email provider hands to SMTP, and fails on demand.</summary>
-internal sealed class FakeSmtpSender : ISmtpSender
+internal sealed class FakeSmtpSender : ISmtpSender, IDisposable
 {
     private readonly Lock _gate = new();
     private readonly List<(SmtpEndpoint Endpoint, MimeMessage Message)> _sent = [];
+    private readonly SemaphoreSlim _signal = new(0);
 
     /// <summary>Thrown by every send when set.</summary>
     public Exception? Throw { get; set; }
@@ -28,6 +29,9 @@ internal sealed class FakeSmtpSender : ISmtpSender
     }
 
     /// <inheritdoc />
+    public void Dispose() => _signal.Dispose();
+
+    /// <inheritdoc />
     public Task SendAsync(SmtpEndpoint endpoint, MimeMessage message, CancellationToken cancellationToken)
     {
         if (Throw is { } failure)
@@ -40,7 +44,25 @@ internal sealed class FakeSmtpSender : ISmtpSender
             _sent.Add((endpoint, message));
         }
 
+        _signal.Release();
+
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Waits, bounded, until <paramref name="count"/> more messages have been sent since the last wait,
+    /// for a test whose sends happen on the dispatcher's own loop.
+    /// </summary>
+    /// <param name="count">How many sends to wait for.</param>
+    public async Task WaitForSendsAsync(int count)
+    {
+        for (var index = 0; index < count; index++)
+        {
+            if (!await _signal.WaitAsync(TimeSpan.FromSeconds(30)))
+            {
+                throw new TimeoutException($"Only {index} of {count} expected sends arrived.");
+            }
+        }
     }
 }
 

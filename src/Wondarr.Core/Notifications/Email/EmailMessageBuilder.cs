@@ -135,7 +135,7 @@ internal sealed class EmailMessageBuilder
                 .Where(group => group.Count > 0)
                 .Select(group => string.Concat(group.Count.ToString(CultureInfo.InvariantCulture), " ", group.Verb)));
 
-        var range = string.Concat(Clock(from, zone), "–", Clock(to, zone));
+        var range = Range(from, to, zone);
         var summary = string.Concat(counts.Length == 0 ? "no events" : counts, " (", range, ")");
         var subject = string.Concat("Wondarr: ", summary);
 
@@ -280,6 +280,23 @@ internal sealed class EmailMessageBuilder
 
     private static string Encode(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
+    /// <summary>"14:00–14:30"; with dates ("13 Oct 23:50–14 Oct 00:20") when it crosses midnight or lasts over 12 hours.</summary>
+    private static string Range(DateTimeOffset from, DateTimeOffset to, TimeZoneInfo zone)
+    {
+        var start = TimeZoneInfo.ConvertTime(from, zone);
+        var end = TimeZoneInfo.ConvertTime(to, zone);
+
+        if (start.Date == end.Date && end - start <= TimeSpan.FromHours(12))
+        {
+            return string.Concat(Clock(from, zone), "–", Clock(to, zone));
+        }
+
+        return string.Concat(
+            start.ToString("d MMM HH:mm", CultureInfo.InvariantCulture),
+            "–",
+            end.ToString("d MMM HH:mm", CultureInfo.InvariantCulture));
+    }
+
     private static string Clock(DateTimeOffset moment, TimeZoneInfo zone) =>
         TimeZoneInfo.ConvertTime(moment, zone).ToString("HH:mm", CultureInfo.InvariantCulture);
 
@@ -391,7 +408,7 @@ internal sealed class EmailMessageBuilder
         var message = new MimeMessage();
         message.From.Add(from);
         message.To.AddRange(to);
-        message.Subject = subject;
+        message.Subject = subject.ReplaceLineEndings(" ");
         message.Body = _body.ToMessageBody();
 
         return message;

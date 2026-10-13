@@ -16,7 +16,8 @@ namespace Wondarr.Core.Notifications;
 /// <para>
 /// One window per notification: it starts at the notification's first pending entry and ends
 /// <see cref="IDigestNotificationProvider.DigestWindow"/> later. A notification that is no longer in
-/// digest mode is flushed on the next tick. An empty window sends nothing.
+/// digest mode is flushed on the next tick. A disabled notification keeps what it holds, and sends it
+/// when it is enabled again. An empty window sends nothing.
 /// </para>
 /// <para>
 /// A failed send keeps its entries and is tried again after a growing wait. The third failure in a row is
@@ -90,33 +91,46 @@ public sealed partial class NotificationDigestService : BackgroundService
         ArgumentNullException.ThrowIfNull(notification);
         ArgumentNullException.ThrowIfNull(message);
 
-        database.NotificationDigestEntries.Add(new NotificationDigestEntry
+        var entry = new NotificationDigestEntry
         {
             NotificationId = notification.Id,
             Event = message.Event,
             SongId = message.Song?.Id,
             Snapshot = JsonSerializer.Serialize(message, SnapshotJson),
-        });
+        };
 
-        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        database.NotificationDigestEntries.Add(entry);
 
-        var excess = await database.NotificationDigestEntries
-            .CountAsync(entry => entry.NotificationId == notification.Id, cancellationToken)
-            .ConfigureAwait(false) - MaxPendingEntries;
-
-        if (excess > 0)
+        try
         {
-            var oldest = await database.NotificationDigestEntries
-                .Where(entry => entry.NotificationId == notification.Id)
-                .OrderBy(entry => entry.Id)
-                .Take(excess)
-                .ToListAsync(cancellationToken)
+            await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The dispatcher reuses this context for the next notification: a failed row left tracked
+            // would be retried, and fail again, with that one's save.
+            database.Entry(entry).State = EntityState.Detached;
+
+            throw;
+        }
+
+        // The id of the newest entry that is past the cap; it and everything older go in one statement.
+        var cutoff = await database.NotificationDigestEntries
+            .Where(row => row.NotificationId == notification.Id)
+            .OrderByDescending(row => row.Id)
+            .Skip(MaxPendingEntries)
+            .Select(row => row.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (cutoff != 0)
+        {
+            var dropped = await database.NotificationDigestEntries
+                .Where(row => row.NotificationId == notification.Id && row.Id <= cutoff)
+                .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            database.NotificationDigestEntries.RemoveRange(oldest);
-            await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            LogDropped(logger, notification.Name, oldest.Count, MaxPendingEntries);
+            LogDropped(logger, notification.Name, dropped, MaxPendingEntries);
         }
     }
 
@@ -231,10 +245,15 @@ public sealed partial class NotificationDigestService : BackgroundService
         var first = new DateTimeOffset(DateTime.SpecifyKind(rows[0].CreatedAt, DateTimeKind.Utc));
 
         // No window means the notification left digest mode: send what is pending now.
-        if (digest.DigestWindow(settings) is { } window && now - first < window)
+        var window = digest.DigestWindow(settings);
+
+        if (window is { } length && now - first < length)
         {
             return;
         }
+
+        // The digest reports its own window, not the moment it happened to be flushed.
+        var end = window is { } span ? first + span : now;
 
         if (_retries.TryGetValue(notificationId, out var retry) && now < retry.NextTry)
         {
@@ -286,7 +305,7 @@ public sealed partial class NotificationDigestService : BackgroundService
         try
         {
             await digest
-                .SendDigestAsync(entries, first, now, _time.LocalTimeZone, settings, timeout.Token)
+                .SendDigestAsync(entries, first, end, _time.LocalTimeZone, settings, timeout.Token)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

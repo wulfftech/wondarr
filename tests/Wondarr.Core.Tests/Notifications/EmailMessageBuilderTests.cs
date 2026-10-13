@@ -195,6 +195,41 @@ public sealed class EmailMessageBuilderTests : IDisposable
         mail.HtmlBody.Should().Contain("Imported (2)").And.Contain("Failed (1)").And.Contain("soulseek");
     }
 
+    [Fact]
+    public void A_line_break_in_a_title_cannot_add_a_header()
+    {
+        var mail = Single(EmailSamples.Song(title: "Evil\r\nBcc: victim@example.com"));
+
+        mail.Headers.Contains(HeaderId.Bcc).Should().BeFalse();
+        mail.Bcc.Count.Should().Be(0);
+        mail.Subject.Should().NotContain("\r").And.NotContain("\n");
+
+        // And on the wire: the header block (up to the first blank line) has no Bcc line.
+        mail.ToString().Split(["\r\n\r\n", "\n\n"], 2, StringSplitOptions.None)[0].Should().NotContain("Bcc:");
+    }
+
+    [Fact]
+    public void The_digest_subject_shows_dates_when_the_window_crosses_midnight_or_is_long()
+    {
+        MimeMessage Subject(DateTimeOffset from, DateTimeOffset to) =>
+            EmailMessageBuilder.Digest(
+                [new DigestEntry(EmailSamples.Song(), from)],
+                from,
+                to,
+                TimeZoneInfo.Utc,
+                EmailSettings.Read(EmailSamples.Settings()),
+                From,
+                To);
+
+        var evening = new DateTimeOffset(2026, 10, 13, 23, 50, 0, TimeSpan.Zero);
+
+        Subject(evening, evening.AddMinutes(30)).Subject.Should().Be("Wondarr: 1 imported (13 Oct 23:50–14 Oct 00:20)");
+        Subject(Now, Now.AddMinutes(30)).Subject.Should().Be("Wondarr: 1 imported (14:00–14:30)");
+        var early = new DateTimeOffset(2026, 10, 13, 0, 30, 0, TimeSpan.Zero);
+
+        Subject(early, early.AddHours(13)).Subject.Should().Be("Wondarr: 1 imported (13 Oct 00:30–13 Oct 13:30)");
+    }
+
     private static DateTimeOffset Now { get; } = new(2026, 10, 13, 14, 0, 0, TimeSpan.Zero);
 
     private static MimeMessage Single(NotificationMessage message) =>
