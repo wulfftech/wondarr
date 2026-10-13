@@ -43,6 +43,7 @@ Wondarr looks for a better file for songs in **Cutoff Unmet** with the scheduled
 
 An automatic upgrade is only taken when:
 
+- the current file does not already meet the cutoff. An automatic grab stops at the cutoff: the scheduled searches, an import list's search and the song's **Search** button never replace a file that is at or above the cutoff, even with a better release on offer. (**Search** on such a song says "Already at the cutoff" and searches nothing.) The interactive search is your own and still lists every release, and you can grab any of them;
 - the new file's quality is strictly higher than the current one;
 - it does not look like a clearly worse match for the recording (a higher bitrate of a live take or different edit is not an upgrade);
 - its AcoustID fingerprint confirms it. A replacement that AcoustID does not know is rejected and blocklisted for the song, because it would replace a file you already have with one nobody can confirm.

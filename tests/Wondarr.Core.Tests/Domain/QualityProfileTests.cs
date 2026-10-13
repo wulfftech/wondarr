@@ -56,6 +56,18 @@ public class QualityProfileTests
     }
 
     [Theory]
+    [InlineData(Mp3256, Flac, true)] // below the cutoff, a better file is wanted
+    [InlineData(Mp3320, Flac, false)] // at the cutoff the automatic search stops (owner question 20)
+    [InlineData(Flac, Flac24Bit, false)]
+    public void Stopping_at_the_cutoff_leaves_a_file_that_meets_it_alone(
+        long currentQualityId,
+        long candidateQualityId,
+        bool isUpgrade)
+    {
+        Standard320().IsUpgrade(currentQualityId, candidateQualityId, stopAtCutoff: true).Should().Be(isUpgrade);
+    }
+
+    [Theory]
     [InlineData(Opus160, Mp3320, true)] // Mid lossy → High lossy
     [InlineData(Mp3320, Mp3320, false)] // the same group is not an upgrade
     [InlineData(Mp3320, Aac256, false)] // AAC-256 is in the cutoff group too

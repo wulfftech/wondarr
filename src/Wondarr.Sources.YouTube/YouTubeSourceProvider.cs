@@ -60,9 +60,16 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
     {
         var options = _options.CurrentValue;
 
-        return Task.FromResult<(bool, string?)>(options.Enabled
-            ? (true, null)
-            : (false, "YouTube is not enabled"));
+        if (!options.Enabled)
+        {
+            return Task.FromResult<(bool, string?)>((false, "YouTube is not enabled"));
+        }
+
+        // YouTube asked to be left alone: the song is not searched there at all, and the run says why
+        // instead of reading as "no results" (R-025).
+        return Task.FromResult<(bool, string?)>(_search.PausedFor is { } paused
+            ? (false, RateLimitedMessage(paused))
+            : (true, null));
     }
 
     /// <inheritdoc />
@@ -82,6 +89,7 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
         var candidates = new List<Candidate>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         string? firstError = null;
+        string? rateLimited = null;
         var submitted = 0;
 
         // The ISRC query first: the catalogue's own identity, so the card it returns is the song
@@ -93,13 +101,21 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
                 break;
             }
 
-            var (result, error) = await RunAsync(
+            var (result, error, limited) = await RunAsync(
                 new InnertubeSearchRequest(isrc, InnertubeSearchFilter.None),
                 cancellationToken).ConfigureAwait(false);
 
             if (result is null)
             {
                 firstError ??= error;
+
+                if (limited)
+                {
+                    // The song's remaining queries would only meet the same wait.
+                    rateLimited = error;
+                    break;
+                }
+
                 continue;
             }
 
@@ -118,15 +134,16 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
         // The songs shelf: the catalogue's Art Tracks, the only results a grab may use by default.
         var text = string.Join(" ", request.MainArtists.Count > 0 ? request.MainArtists : [request.ArtistCredit]);
 
-        if (submitted < options.SearchLimit)
+        if (rateLimited is null && submitted < options.SearchLimit)
         {
-            var (songs, error) = await RunAsync(
+            var (songs, error, limited) = await RunAsync(
                 new InnertubeSearchRequest($"{text} - {request.Title}", InnertubeSearchFilter.Songs),
                 cancellationToken).ConfigureAwait(false);
 
             if (songs is null)
             {
                 firstError ??= error;
+                rateLimited = limited ? error : null;
             }
             else
             {
@@ -142,15 +159,16 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
         }
 
         // The videos shelf: official videos and user uploads, only when the source rule allows them.
-        if (options.AllowVideos && submitted < options.SearchLimit)
+        if (rateLimited is null && options.AllowVideos && submitted < options.SearchLimit)
         {
-            var (videos, error) = await RunAsync(
+            var (videos, error, limited) = await RunAsync(
                 new InnertubeSearchRequest($"{text} - {request.Title}", InnertubeSearchFilter.Videos),
                 cancellationToken).ConfigureAwait(false);
 
             if (videos is null)
             {
                 firstError ??= error;
+                rateLimited = limited ? error : null;
             }
             else
             {
@@ -158,6 +176,13 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
                 queries.Add(videos.Query);
                 Add(videos, candidates, seen);
             }
+        }
+
+        // A song that was cut short by the wait says so: the candidates found before it stay, and with
+        // none the message names the rate limit instead of leaving "no results" to speak for YouTube.
+        if (rateLimited is not null)
+        {
+            return new SourceSearchResult(candidates, queries, rateLimited);
         }
 
         if (queries.Count == 0 && firstError is not null)
@@ -248,25 +273,44 @@ public sealed partial class YouTubeSourceProvider : ISourceProvider
     /// Runs one query. A null result means the query failed: a failed query never contributes
     /// candidates, and the strategy moves on to the next one with the failure's message.
     /// </summary>
-    private async Task<(InnertubeSearchResult? Result, string? Error)> RunAsync(
+    private async Task<(InnertubeSearchResult? Result, string? Error, bool RateLimited)> RunAsync(
         InnertubeSearchRequest request,
         CancellationToken cancellationToken)
     {
+        // The shared wait: not even asked while YouTube has asked to be left alone.
+        if (_search.PausedFor is { } paused)
+        {
+            return (null, RateLimitedMessage(paused), true);
+        }
+
         try
         {
-            return (await _search.SearchAsync(request, cancellationToken).ConfigureAwait(false), null);
+            return (await _search.SearchAsync(request, cancellationToken).ConfigureAwait(false), null, false);
         }
         catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
         {
             throw;
         }
+        catch (InnertubeException exception) when (exception.RetryAfter is { } wait)
+        {
+            // 429 or 503: the client has set the shared wait; this song's other queries are skipped.
+            LogQueryFailed(_logger, request.Query, exception);
+            return (null, RateLimitedMessage(wait), true);
+        }
         catch (Exception exception)
         {
             // InnerTube's own 20 s timeout lands here: a failed query, not a stopped caller.
             LogQueryFailed(_logger, request.Query, exception);
-            return (null, exception.Message);
+            return (null, exception.Message, false);
         }
     }
+
+    /// <summary>The words a run shows when YouTube has asked to be left alone.</summary>
+    private static string RateLimitedMessage(TimeSpan wait) =>
+        string.Concat(
+            "YouTube is rate limiting Wondarr; its searches are paused for another ",
+            Math.Ceiling(wait.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            " s");
 
     /// <summary>Adds one search's results, the card first, dropping the repeats across queries.</summary>
     private static void Add(InnertubeSearchResult result, List<Candidate> candidates, HashSet<string> seen)

@@ -7,14 +7,19 @@ namespace Wondarr.Core.Searching;
 /// consecutive fruitless run waits <c>BackoffHours[min(n − 1, last)]</c> before the song is searched
 /// again. A run that grabbed something resets the wait, a run that errored does not count as an
 /// attempt, and the missing-song loop counts every run but the user's own while the upgrade loop
-/// counts only its own, so neither loop's history delays the other.
+/// counts only its own, so neither loop's history delays the other. A run a release push opened
+/// (autobrr) counts for neither: a rejected push says nothing about when the song's own search
+/// should try again, and frequent pushes must not push that search out by up to a week.
 /// </summary>
 internal static class SearchBackoff
 {
     /// <summary>
     /// Whether a song's backoff has expired and it may be searched again.
     /// </summary>
-    /// <param name="runs">The song's runs, any order.</param>
+    /// <param name="runs">
+    /// The song's runs, any order. They must reach back to the newest run that grabbed something, or to
+    /// the first run there is: a window of fixed length would drop old failures and lower the step.
+    /// </param>
     /// <param name="options">The backoff steps.</param>
     /// <param name="now">The instant the loop is picking its batch at.</param>
     /// <param name="countsForBackoff">
@@ -38,7 +43,8 @@ internal static class SearchBackoff
         }
 
         var counted = runs
-            .Where(run => countsForBackoff(run)
+            .Where(run => run.Trigger != SearchTrigger.Push
+                && countsForBackoff(run)
                 && run.Outcome is SearchOutcome.NoResults or SearchOutcome.NoAcceptableCandidate or SearchOutcome.Grabbed)
             .OrderByDescending(run => run.StartedAt)
             .ThenByDescending(run => run.Id)

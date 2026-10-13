@@ -1151,11 +1151,14 @@ public sealed partial class SongService : ISongService
         // One song gets its own search. A batch (a pasted list, a whole playlist) gets one MissingSearch
         // instead: it takes never-searched songs first, in bounded batches, waiting for download slots —
         // a thousand SongSearch commands would hold the command queue for hours behind the Soulseek
-        // budget.
+        // budget. The batch's MissingSearch names its songs: with no body the queue would hand back a
+        // MissingSearch that is already running, which chose its batch before these songs existed (R-034),
+        // and only an identical body is deduped.
         var (name, body) = added.Count == 1
             ? (SongSearchCommandHandler.CommandName,
                 JsonSerializer.Serialize(new SearchOnAddBody(SongSearchCommandHandler.CommandName, added[0]), BodyJson))
-            : (MissingSearchCommandHandler.CommandName, (string?)null);
+            : (MissingSearchCommandHandler.CommandName,
+                JsonSerializer.Serialize(new SearchOnAddBatchBody(MissingSearchCommandHandler.CommandName, added), BodyJson));
 
         try
         {
@@ -1179,6 +1182,11 @@ public sealed partial class SongService : ISongService
     /// <param name="Name">The command name.</param>
     /// <param name="SongId">The song that was just added.</param>
     private sealed record SearchOnAddBody(string? Name, long SongId);
+
+    /// <summary>The body of the search-on-add command for a batch, exactly as <c>MissingSearch</c> reads it.</summary>
+    /// <param name="Name">The command name.</param>
+    /// <param name="SongIds">The songs that were just added.</param>
+    private sealed record SearchOnAddBatchBody(string? Name, IReadOnlyList<long> SongIds);
 
     /// <summary>The command bodies are camelCase, like every other JSON this app exchanges.</summary>
     private static readonly JsonSerializerOptions BodyJson = new()

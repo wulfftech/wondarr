@@ -18,6 +18,15 @@ public sealed class QueueOptions
     /// <summary>How long a grab may stay <c>Queued</c> — the peer has not acknowledged it — before it is failed.</summary>
     public int StartTimeoutMinutes { get; set; } = 10;
 
+    /// <summary>
+    /// How long a grab that has no handle yet may stay <c>Queued</c>: the source is still working inside
+    /// its grab (YouTube runs the whole of yt-dlp there, which the longest allowed
+    /// <c>youtube.ytdlp.timeout_seconds</c> of 3600 s bounds). It is clearly longer than that, so a slow
+    /// download is never failed as "Peer did not respond" while it is still writing; a grab that never
+    /// returns is still failed in the end. Not configurable.
+    /// </summary>
+    public const int HandlelessGrabTimeoutMinutes = 75;
+
     /// <summary>How long a grab may stay <c>RemotelyQueued</c> before it is failed.</summary>
     public int RemoteQueueTimeoutMinutes { get; set; } = 30;
 

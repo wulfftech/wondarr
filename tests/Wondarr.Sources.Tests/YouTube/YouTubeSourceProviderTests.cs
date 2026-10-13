@@ -35,6 +35,67 @@ public class YouTubeSourceProviderTests
     }
 
     [Fact]
+    public async Task A_429_on_the_first_query_skips_the_remaining_queries_for_the_song_and_reports_the_rate_limit()
+    {
+        var search = new StubInnertubeClient()
+            .Fail(
+                InnertubeSearchFilter.None,
+                new InnertubeException(System.Net.HttpStatusCode.TooManyRequests, "slow down", "search", TimeSpan.FromSeconds(90)));
+
+        var provider = Build(
+            search: search,
+            isrcs: ["USWB19901214", "GBAYE0000001"],
+            options: new YouTubeOptions { Enabled = true, AllowVideos = true });
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        search.Requests.Should().ContainSingle("the rest of the queries for the song would only meet the same wait");
+        result.Candidates.Should().BeEmpty();
+        result.Queries.Should().BeEmpty();
+        result.Message.Should().Contain("rate limiting").And.Contain("90 s").And.NotContain("no results");
+    }
+
+    [Fact]
+    public async Task A_503_on_the_songs_shelf_keeps_what_the_earlier_query_found_and_skips_the_videos_shelf()
+    {
+        var card = Card("HzdD8kbDzZA", "Take on Me", ["a-ha"], 226_000);
+        var search = new StubInnertubeClient()
+            .Respond(InnertubeSearchFilter.None, new InnertubeSearchResult("USWB19901214", InnertubeSearchFilter.None, TopResult: null, [card]))
+            .Fail(
+                InnertubeSearchFilter.Songs,
+                new InnertubeException(System.Net.HttpStatusCode.ServiceUnavailable, "later", "search", TimeSpan.FromSeconds(60)));
+
+        var provider = Build(
+            search: search,
+            isrcs: ["USWB19901214"],
+            options: new YouTubeOptions { Enabled = true, AllowVideos = true });
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        search.Requests.Select(request => request.Filter).Should().Equal(InnertubeSearchFilter.None, InnertubeSearchFilter.Songs);
+        result.Candidates.Should().ContainSingle().Which.RemotePath.Should().Be("HzdD8kbDzZA");
+        result.Message.Should().Contain("rate limiting");
+    }
+
+    [Fact]
+    public async Task While_paused_no_query_is_sent_and_the_source_is_reported_unavailable_for_the_song()
+    {
+        var search = new StubInnertubeClient { PausedFor = TimeSpan.FromSeconds(42) };
+        var provider = Build(search: search, isrcs: ["USWB19901214"]);
+
+        var (available, reason) = await provider.GetAvailabilityAsync(CancellationToken.None);
+
+        available.Should().BeFalse();
+        reason.Should().Contain("rate limiting").And.Contain("42 s");
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        search.Requests.Should().BeEmpty();
+        result.Candidates.Should().BeEmpty();
+        result.Message.Should().Contain("rate limiting");
+    }
+
+    [Fact]
     public async Task Searches_isrc_then_songs()
     {
         // The ISRC query answers with the card: the verified result, so the songs query never runs.
@@ -251,6 +312,8 @@ internal sealed class StubInnertubeClient : IInnertubeClient
     private readonly Queue<(InnertubeSearchFilter Filter, InnertubeSearchResult? Result, Exception? Failure)> _responses = new();
 
     public List<InnertubeSearchRequest> Requests { get; } = [];
+
+    public TimeSpan? PausedFor { get; set; }
 
     public StubInnertubeClient Respond(InnertubeSearchFilter filter, InnertubeSearchResult result)
     {

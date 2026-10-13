@@ -161,6 +161,10 @@ public static class ServiceCollectionExtensions
         // The queue writes ids here and the executor drains it; both resolve the same instance, so
         // this must stay a singleton.
         services.TryAddSingleton(Channel.CreateUnbounded<long>());
+
+        // Which command rows this process holds: the queue adds, the executor removes, and dedupe
+        // ignores a row this process no longer holds.
+        services.TryAddSingleton<ActiveCommands>();
         services.AddSingleton<ICommandQueue, CommandQueue>();
 
         // File placement: the disk seam and the three services that use it hold no request state, so
