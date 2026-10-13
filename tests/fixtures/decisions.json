@@ -1,5 +1,5 @@
 {
-  "description": "Golden cases for DecisionEngine v1 (MATCHING_ENGINE §6.2–6.3). Profiles: 'standard' = seeded 'Standard 320' (id 1), 'lossless' = seeded 'Lossless' (id 2). Durations in ms. 'accepted' lists the accepted candidate ids in the exact expected order; 'rejections' lists, per rejected candidate, the exact set of rejection reasons (camelCase wire names). Optional: 'scoreAtLeast'/'scoreAtMost' bounds on the total, 'goodEnough' expectations. Case options: 'blocklisted' (candidate ids whose blocklist key is blocklisted), 'ignoredUsers', 'reputation' per username, 'manual' (manual grab), song 'currentQualityId' (the existing file's quality). Source tier is 1 (Soulseek) and the duration tolerance is the profile's (3000 ms) for every case.",
+  "description": "Golden cases for DecisionEngine v1 (MATCHING_ENGINE §6.2–6.3). Profiles: 'standard' = seeded 'Standard 320' (id 1), 'lossless' = seeded 'Lossless' (id 2). Durations in ms. 'accepted' lists the accepted candidate ids in the exact expected order; 'rejections' lists, per rejected candidate, the exact set of rejection reasons (camelCase wire names). Optional: 'scoreAtLeast'/'scoreAtMost' bounds on the total, 'goodEnough' expectations. Case options: 'blocklisted' (candidate ids whose blocklist key is blocklisted), 'ignoredUsers', 'reputation' per username, 'manual' (manual grab), song 'currentQualityId' (the existing file's quality). A candidate's source tier comes from its 'sourceType' (default Soulseek = tier 1, youtube 2, torznab/newznab 3), a YouTube candidate may carry a 'videoKind' (atv, omv, ugc), and the duration tolerance is the profile's (3000 ms) for every case. Availability may also carry 'seeders' and 'freeleech' (torrents).",
   "cases": [
     {
       "name": "clean studio match accepted with full identity",
@@ -2375,6 +2375,244 @@
       "expected": {
         "accepted": [
           "a"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "youtube: an art track beats an official video, a user upload ranks last",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "ugc",
+          "provider": "Some Uploader",
+          "remotePath": "ugcVideoId1",
+          "extension": "opus",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": null,
+          "qualityId": 28,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": null
+          },
+          "isLocked": false,
+          "sourceType": "youtube",
+          "videoKind": "ugc"
+        },
+        {
+          "id": "omv",
+          "provider": "Daft Punk",
+          "remotePath": "omvVideoId1",
+          "extension": "opus",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": null,
+          "qualityId": 28,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": null
+          },
+          "isLocked": false,
+          "sourceType": "youtube",
+          "videoKind": "omv"
+        },
+        {
+          "id": "atv",
+          "provider": "Daft Punk",
+          "remotePath": "atvVideoId1",
+          "extension": "opus",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": null,
+          "qualityId": 28,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": null
+          },
+          "isLocked": false,
+          "sourceType": "youtube",
+          "videoKind": "atv"
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "atv",
+          "omv",
+          "ugc"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "at equal quality and availability a Soulseek peer outranks YouTube, which outranks a torrent",
+      "song": {
+        "title": "Get Lucky",
+        "mainArtists": [
+          "Daft Punk"
+        ],
+        "durationMs": 369000,
+        "flags": [],
+        "albumTitle": "Random Access Memories",
+        "trackNo": 8
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "torrent",
+          "provider": "indexer",
+          "remotePath": "Daft Punk - Get Lucky [MP3-320]",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": null,
+            "queueLength": null,
+            "uploadSpeedBytesPerSecond": null,
+            "seeders": 10,
+            "freeleech": true
+          },
+          "isLocked": false,
+          "sourceType": "torznab"
+        },
+        {
+          "id": "youtube",
+          "provider": "Daft Punk",
+          "remotePath": "ytVideoId2",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": null,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": null
+          },
+          "isLocked": false,
+          "sourceType": "youtube"
+        },
+        {
+          "id": "soulseek",
+          "provider": "peer1",
+          "remotePath": "@@b\\Music\\Daft Punk\\Random Access Memories\\08 Get Lucky.mp3",
+          "extension": "mp3",
+          "parsed": {
+            "artist": "Daft Punk",
+            "title": "Get Lucky",
+            "album": "Random Access Memories",
+            "trackNo": 8,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 369000,
+          "bitrateKbps": 320,
+          "isVariableBitrate": null,
+          "sampleRate": null,
+          "bitDepth": null,
+          "sizeBytes": 14850000,
+          "qualityId": 29,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": null
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "soulseek",
+          "youtube",
+          "torrent"
         ],
         "rejections": {}
       }

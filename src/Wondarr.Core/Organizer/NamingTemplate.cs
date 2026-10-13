@@ -436,7 +436,8 @@ public static class NamingTemplate
         _ => string.Empty,
     };
 
-    private static string Year(int? year) => year is { } value ? value.ToString(CultureInfo.InvariantCulture) : string.Empty;
+    private static string Year(int? year) =>
+        year is > 0 and var value ? value.ToString(CultureInfo.InvariantCulture) : string.Empty;
 
     /// <summary>A zero-pad pattern like <c>00</c> pads the number to that many digits; anything else leaves it alone.</summary>
     private static string Padded(int number, string format)

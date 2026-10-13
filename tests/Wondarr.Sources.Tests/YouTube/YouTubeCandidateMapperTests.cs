@@ -12,6 +12,28 @@ namespace Wondarr.Sources.Tests.YouTube;
 /// </summary>
 public class YouTubeCandidateMapperTests
 {
+    [Theory]
+    [InlineData(InnertubeVideoTypes.ArtTrack, YouTubeVideoKinds.ArtTrack)]
+    [InlineData(InnertubeVideoTypes.OfficialVideo, YouTubeVideoKinds.OfficialVideo)]
+    [InlineData(InnertubeVideoTypes.UserUpload, YouTubeVideoKinds.UserUpload)]
+    [InlineData("MUSIC_VIDEO_TYPE_PODCAST_EPISODE", YouTubeVideoKinds.UserUpload)]
+    [InlineData("MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK", YouTubeVideoKinds.UserUpload)]
+    [InlineData("MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC", null)]
+    [InlineData(null, null)]
+    public void Carries_the_video_type_as_the_kind_the_engine_scores(string? musicVideoType, string? expected)
+    {
+        var result = new InnertubeResult(
+            "4D7u5KF7SP8",
+            "Get Lucky",
+            ["Daft Punk"],
+            "Random Access Memories",
+            370_000,
+            musicVideoType,
+            IsExplicit: false);
+
+        YouTubeCandidateMapper.Map(result, "daft punk get lucky").VideoKind.Should().Be(expected);
+    }
+
     [Fact]
     public void Maps_an_art_track_into_a_candidate()
     {

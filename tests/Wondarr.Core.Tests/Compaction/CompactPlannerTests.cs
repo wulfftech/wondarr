@@ -274,6 +274,93 @@ public class CompactPlannerTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    [Fact]
+    public async Task A_year_less_folder_is_moved_into_the_year_folder_and_a_second_run_plans_nothing()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedPinnedOnAlbumAsync(context, "/data/music/Daft Punk/Random Access Memories/01 - Track 1.flac");
+
+        var first = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        var move = first.Moves.Should().ContainSingle().Subject;
+        move.SongId.Should().Be(songId);
+        move.From.AlbumKey.Should().Be(move.To.AlbumKey, "only the folder changes, not the album");
+        move.ToPath.Should().Be(Placed("Daft Punk/Random Access Memories (2013)/01 - Track 1.flac"));
+
+        // The file lands where the plan said; planning again finds nothing left to do.
+        var file = await context.SongFiles.SingleAsync(row => row.SongId == songId);
+        file.Path = move.ToPath!;
+        await context.SaveChangesAsync();
+
+        var second = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        second.Moves.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Daft Punk/Random Access Memories (2013)/01 - Track 1 (2).flac")]
+    [InlineData("Daft Punk/Random Access Memories (2013)/01 - Track 1 (99).flac")]
+    public async Task A_collision_suffixed_file_in_the_right_folder_is_not_moved_again(string relative)
+    {
+        await using var context = await ContextAsync();
+        await SeedPinnedOnAlbumAsync(context, Placed(relative));
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_reference_file_is_not_moved_to_match_the_template()
+    {
+        await using var context = await ContextAsync();
+        await SeedPinnedOnAlbumAsync(
+            context,
+            "/home/listener/Music/Daft Punk - Track 1.flac",
+            sourceType: SourceTypes.Reference);
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_custom_template_that_matches_the_current_paths_plans_nothing()
+    {
+        await using var context = await ContextAsync();
+        var library = await context.Libraries.SingleAsync(row => row.Id == SeedData.DefaultLibraryId);
+        library.NamingTemplate = "{Album Artist Name}/{Album Title}/{track:00} - {Track Title}";
+        await context.SaveChangesAsync();
+
+        await SeedPinnedOnAlbumAsync(context, "/data/music/Daft Punk/Random Access Memories/01 - Track 1.flac");
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty();
+    }
+
+    /// <summary>One song pinned to the real album r1 (so the re-plan leaves it there), holding a file.</summary>
+    private static async Task<long> SeedPinnedOnAlbumAsync(
+        WondarrDbContext context,
+        string filePath,
+        string sourceType = SourceTypes.Soulseek)
+    {
+        var artistId = await SeedArtistAsync(context);
+
+        return await SeedSongAsync(
+            context,
+            artistId,
+            "m-1",
+            "Track 1",
+            "r1",
+            AlbumContextKind.Album,
+            "Random Access Memories",
+            trackNo: 1,
+            pinned: true,
+            filePath: filePath,
+            sourceType: sourceType);
+    }
+
     private async Task<WondarrDbContext> ContextAsync()
     {
         await _database.MigrateAsync(_timeProvider);

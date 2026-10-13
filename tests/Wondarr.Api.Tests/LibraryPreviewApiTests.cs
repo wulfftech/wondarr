@@ -49,7 +49,7 @@ public sealed class LibraryPreviewApiTests
         // The library's own template is untouched: the preview never saves.
         using var library = await client.GetAsync(new Uri("/api/v1/library/1", UriKind.Relative));
         (await ReadJsonAsync(library)).GetProperty("namingTemplate").GetString()
-            .Should().Be("{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}");
+            .Should().Be("{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}");
     }
 
     [Fact]

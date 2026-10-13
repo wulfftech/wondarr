@@ -109,7 +109,7 @@ describe('CompactLibraryModal', () => {
 
     const dialog = await openCompact();
 
-    expect(await within(dialog).findByText('4 albums → 2 albums, 2 songs move')).toBeInTheDocument();
+    expect(await within(dialog).findByText('4 albums → 2 albums, 2 songs move to another album')).toBeInTheDocument();
     expect(
       within(dialog).getByText(/Re-plans every song's album under this library's album policy/),
     ).toBeInTheDocument();
@@ -129,9 +129,11 @@ describe('CompactLibraryModal', () => {
 
     const dialog = await openCompact();
 
-    expect(await within(dialog).findByText('2 albums → 2 albums, 0 songs move')).toBeInTheDocument();
+    expect(await within(dialog).findByText('2 albums → 2 albums, 0 songs move to another album')).toBeInTheDocument();
     expect(
-      within(dialog).getByText('Nothing to compact — every song is already on the album the policy would choose.'),
+      within(dialog).getByText(
+        'Nothing to compact — every song is on the album the policy would choose, in the folder the template gives it.',
+      ),
     ).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Run compaction' })).toBeDisabled();
   });
@@ -142,7 +144,7 @@ describe('CompactLibraryModal', () => {
 
     const dialog = await openCompact();
 
-    await within(dialog).findByText('4 albums → 2 albums, 2 songs move');
+    await within(dialog).findByText('4 albums → 2 albums, 2 songs move to another album');
     await user.click(within(dialog).getByRole('button', { name: 'Run compaction' }));
 
     expect(within(dialog).getByText('Move 2 files? This rescans the linked Plex library.')).toBeInTheDocument();
@@ -172,7 +174,7 @@ describe('CompactLibraryModal', () => {
 
     const dialog = await openCompact();
 
-    await within(dialog).findByText('4 albums → 2 albums, 2 songs move');
+    await within(dialog).findByText('4 albums → 2 albums, 2 songs move to another album');
     await user.click(within(dialog).getByRole('button', { name: 'Run compaction' }));
     await user.click(within(dialog).getByRole('button', { name: 'Run compaction' }));
 

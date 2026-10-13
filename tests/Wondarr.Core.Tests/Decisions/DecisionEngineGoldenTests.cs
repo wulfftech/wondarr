@@ -143,10 +143,13 @@ public class DecisionEngineGoldenTests
             BitDepth = spec.BitDepth,
             SizeBytes = spec.SizeBytes,
             IsLocked = spec.IsLocked,
+            VideoKind = spec.VideoKind,
             Availability = new CandidateAvailability(
                 spec.Availability.FreeUploadSlot,
                 spec.Availability.QueueLength,
-                spec.Availability.UploadSpeedBytesPerSecond),
+                spec.Availability.UploadSpeedBytesPerSecond,
+                Seeders: spec.Availability.Seeders,
+                Freeleech: spec.Availability.Freeleech),
             Parsed = new ParsedName(
                 parsed.Artist,
                 parsed.Title,
@@ -234,7 +237,8 @@ public class DecisionEngineGoldenTests
         long QualityId = 1,
         bool IsLocked = false,
         string? SourceType = null,
-        string? Container = null);
+        string? Container = null,
+        string? VideoKind = null);
 
     private sealed record ParsedSpec(
         string? Artist,
@@ -247,7 +251,12 @@ public class DecisionEngineGoldenTests
         List<string> Featured,
         bool UnexplainedBrackets);
 
-    private sealed record AvailabilitySpec(bool? FreeUploadSlot, int? QueueLength, long? UploadSpeedBytesPerSecond);
+    private sealed record AvailabilitySpec(
+        bool? FreeUploadSlot,
+        int? QueueLength,
+        long? UploadSpeedBytesPerSecond,
+        int? Seeders = null,
+        bool Freeleech = false);
 
     private sealed record ReputationSpec(int Successes, int Failures, int FailuresLast24H);
 
