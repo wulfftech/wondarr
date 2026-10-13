@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- A new single filed into an artist's Singles folder takes the folder's shared date again (0.1.3 gave it its own date, which could split the Singles album in Plex); its real date stays in ORIGINALDATE.
+
 ## [0.1.3] — 2026-10-13
 
 The last round of fixes from the 0.1.0 code review (`docs/reviews/CODE_REVIEW_2026-10-10.md`): searches stop at the cutoff and back off properly, commands can no longer be stranded, metadata services are paced with a margin and their failures stay contained, live updates survive a restart, the UI works at phone width, album folders carry the year, and the source ranking follows the design. Update by pulling `:0.1` (or `:0.1.3`).
