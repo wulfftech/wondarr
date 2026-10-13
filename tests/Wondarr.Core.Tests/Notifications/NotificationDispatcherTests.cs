@@ -30,6 +30,8 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero));
     private readonly FakeNotificationProvider _webhook = new("Webhook");
     private readonly FakeNotificationProvider _discord = new("Discord");
+    private readonly FakeNotificationProvider _flush = new("Flush");
+    private int _flushes;
     private readonly ServiceProvider _services;
     private readonly NotificationDispatcher _dispatcher;
     private readonly EventAggregator _aggregator;
@@ -47,6 +49,7 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
 
         services.AddSingleton<INotificationProvider>(_webhook);
         services.AddSingleton<INotificationProvider>(_discord);
+        services.AddSingleton<INotificationProvider>(_flush);
         services.AddSingleton(provider => new NotificationDispatcher(
             provider.GetRequiredService<IServiceScopeFactory>(),
             provider.GetServices<INotificationProvider>(),
@@ -100,7 +103,7 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         await _aggregator.PublishAsync(new SongImportedEvent(songId, fileId, Upgraded: false), Token);
 
         await WaitUntilAsync(() => _webhook.Sent.Count >= 1, "the import to be sent");
-        await Task.Delay(100);
+        await FlushAsync();
 
         _webhook.Sent.Should().ContainSingle();
         _webhook.Sent[0].Event.Should().Be(NotificationEventNames.Import);
@@ -138,13 +141,13 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         ]);
 
         await _aggregator.PublishAsync(baseline, Token);
-        await Task.Delay(150);
+        await FlushAsync();
 
         _webhook.Sent.Should().BeEmpty("the first result set is the baseline");
 
         // The same issue again: still nothing. A new one: one message.
         await _aggregator.PublishAsync(baseline, Token);
-        await Task.Delay(150);
+        await FlushAsync();
 
         _webhook.Sent.Should().BeEmpty();
 
@@ -197,7 +200,7 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         await _aggregator.PublishAsync(
             new QueueItemChangedEvent(queueItemId, songId, QueueItemState.Downloading),
             Token);
-        await Task.Delay(150);
+        await FlushAsync();
 
         _webhook.Sent.Should().BeEmpty();
 
@@ -221,7 +224,7 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         await _aggregator.PublishAsync(new SongImportedEvent(songId, fileId, Upgraded: true), Token);
 
         await WaitUntilAsync(() => _discord.Sent.Count == 1, "the upgrade to be sent");
-        await Task.Delay(100);
+        await FlushAsync();
 
         _webhook.Sent.Should().BeEmpty();
         _discord.Sent[0].Event.Should().Be(NotificationEventNames.Upgrade);
@@ -238,20 +241,40 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         _database.Dispose();
     }
 
-    /// <summary>Spins until <paramref name="condition"/> holds, so the test does not guess a delay.</summary>
-    private static async Task WaitUntilAsync(Func<bool> condition, string what)
+    /// <summary>
+    /// Waits until the dispatcher has gone through everything published before this call. It works
+    /// off the dispatcher's own queue being first-in-first-out: a sentinel event, subscribed to by a
+    /// notification no test asserts on, can only be sent after every earlier event has been fully
+    /// handled. So "nothing was sent" is checked after the dispatcher has demonstrably got past it,
+    /// not after a guess at how long that takes.
+    /// </summary>
+    private async Task FlushAsync()
     {
-        for (var attempt = 0; attempt < 300; attempt++)
+        if (_flushes == 0)
         {
-            if (condition())
-            {
-                return;
-            }
-
-            await Task.Delay(20);
+            await SeedNotificationAsync("Flush", "Flush", NotificationEventNames.Update);
         }
 
-        throw new InvalidOperationException($"Timed out waiting for {what}.");
+        var expected = ++_flushes;
+
+        await _aggregator.PublishAsync(new UpdateAvailableEvent("0.0.0", "0.0.1", "https://example.invalid/flush"), Token);
+        await WaitUntilAsync(() => _flush.Sent.Count == expected, "the dispatcher to get past the earlier events");
+    }
+
+    /// <summary>Polls until <paramref name="condition"/> holds, failing after a generous bound rather than hanging.</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, string what)
+    {
+        var deadline = Environment.TickCount64 + 30_000;
+
+        while (!condition())
+        {
+            if (Environment.TickCount64 > deadline)
+            {
+                throw new InvalidOperationException($"Timed out waiting for {what}.");
+            }
+
+            await Task.Delay(5);
+        }
     }
 
     private async Task<long> SeedSongAsync()

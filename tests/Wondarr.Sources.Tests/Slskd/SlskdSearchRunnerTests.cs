@@ -1,4 +1,5 @@
 using Wondarr.Sources.Slskd;
+using Wondarr.Testing;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -139,7 +140,7 @@ public class SlskdSearchRunnerTests
     [Fact]
     public async Task Holds_the_budget_lease_after_a_cancel_until_slskd_reports_the_search_gone()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var api = Substitute.For<ISlskdSearchApi>();
         var budget = new RecordingBudget();
         using var provider = Provider(api);
@@ -169,15 +170,21 @@ public class SlskdSearchRunnerTests
             });
 
         var run = Runner(provider, time, budget).RunAsync(SearchText, cancellation.Token);
-        time.Advance(Poll);
+
+        // The clock only moves once the runner is parked on its poll delay: a step taken before it
+        // has armed the delay is lost, and the run then waits for a poll that never comes (the flake).
+        await time.WaitForPendingTimerAsync();
+        await time.AdvanceAndSettleAsync(Poll);
         await cancellation.CancelAsync();
 
-        // One poll interval of fake time per re-poll, each only after the previous poll has happened.
+        // One poll interval of fake time per re-poll, each only after the previous poll has happened
+        // and the runner has armed the delay for the next one.
         for (var expected = 1; expected <= 2; expected++)
         {
             var polls = expected;
             await SlskdHostHarness.AwaitAsync(() => Volatile.Read(ref pollsAfterDelete) >= polls, "a re-poll");
-            time.Advance(Poll);
+            await time.WaitForPendingTimerAsync();
+            await time.AdvanceAndSettleAsync(Poll);
         }
 
         await FluentActions.Awaiting(() => run).Should().ThrowAsync<OperationCanceledException>();

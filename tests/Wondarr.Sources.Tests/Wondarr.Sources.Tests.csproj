@@ -31,6 +31,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- One fake clock that can tell when the code under test has caught up, shared with Core.Tests. -->
+    <Compile Include="..\Wondarr.Core.Tests\Support\TrackingTimeProvider.cs" Link="Support\TrackingTimeProvider.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
