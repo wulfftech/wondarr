@@ -54,16 +54,26 @@ public static class YouTubeCandidateMapper
         return string.Concat(BlocklistKeyPrefix, videoId);
     }
 
-    /// <summary>The decision engine's name for a result's video type; null when InnerTube sent none.</summary>
-    private static string? KindName(string? musicVideoType) =>
-        musicVideoType is null
-            ? null
-            : InnertubeVideoTypes.KindOf(musicVideoType) switch
-            {
-                InnertubeVideoKind.ArtTrack => YouTubeVideoKinds.ArtTrack,
-                InnertubeVideoKind.OfficialVideo => YouTubeVideoKinds.OfficialVideo,
-                _ => YouTubeVideoKinds.UserUpload,
-            };
+    /// <summary>
+    /// The decision engine's name for a result's video type (MATCHING_ENGINE §6.3). No type, and
+    /// <c>MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC</c> (an official upload that is neither the label's Art
+    /// Track nor a video), give none, so they score no adjustment; the user-upload types
+    /// (<c>UGC</c>, <c>PODCAST_EPISODE</c>, <c>PRIVATELY_OWNED_TRACK</c>) are -40.
+    /// </summary>
+    private static string? KindName(string? musicVideoType)
+    {
+        if (musicVideoType is null or "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC")
+        {
+            return null;
+        }
+
+        return InnertubeVideoTypes.KindOf(musicVideoType) switch
+        {
+            InnertubeVideoKind.ArtTrack => YouTubeVideoKinds.ArtTrack,
+            InnertubeVideoKind.OfficialVideo => YouTubeVideoKinds.OfficialVideo,
+            _ => YouTubeVideoKinds.UserUpload,
+        };
+    }
 
     private static Candidate Map(InnertubeResult result, string key, string query)
     {

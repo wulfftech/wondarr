@@ -93,6 +93,9 @@ export function CompactLibraryModal({
   const failed = status === 'failed' || status === 'aborted';
   const moves = plan.data?.moves ?? [];
   const hasMoves = moves.length > 0;
+  // A move that keeps the album only changes the folder: the library's naming template changed since the file was filed.
+  const templateMoves = moves.filter((move) => move.from.albumKey === move.to.albumKey).length;
+  const albumMoves = moves.length - templateMoves;
 
   // The moves are on disk now, so the songs and the plan the user is looking at are both stale.
   useEffect(() => {
@@ -119,11 +122,16 @@ export function CompactLibraryModal({
         {plan.data !== undefined && (
           <>
             <Text fw={600}>
-              {plan.data.albumsBefore} albums → {plan.data.albumsAfter} albums, {moves.length} songs move
+              {plan.data.albumsBefore} albums → {plan.data.albumsAfter} albums, {albumMoves} songs move to another album
             </Text>
 
+            {templateMoves > 0 && <Text fw={600}>{templateMoves} songs move to match the folder template</Text>}
+
             {!hasMoves && (
-              <Text size="sm">Nothing to compact — every song is already on the album the policy would choose.</Text>
+              <Text size="sm">
+                Nothing to compact — every song is on the album the policy would choose, in the folder the template
+                gives it.
+              </Text>
             )}
 
             {hasMoves && (

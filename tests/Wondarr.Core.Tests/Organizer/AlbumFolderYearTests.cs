@@ -48,6 +48,15 @@ public class AlbumFolderYearTests
     }
 
     [Fact]
+    public void A_year_of_zero_is_an_unknown_year()
+    {
+        var values = NamingTemplateTests.SampleValues() with { ReleaseYear = 0 };
+
+        NamingTemplate.Render(NamingTemplate.PresetTemplates[LibraryLayout.ArtistAlbum], values)
+            .Should().Be("Daft Punk/Random Access Memories/08 - Get Lucky");
+    }
+
+    [Fact]
     public void Two_self_titled_albums_with_different_years_get_different_folders()
     {
         var template = NamingTemplate.PresetTemplates[LibraryLayout.Plexamp];

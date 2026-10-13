@@ -166,7 +166,7 @@ describe('LibrarySettingsPage', () => {
 
     const dialog = screen.getByRole('dialog');
 
-    expect(await within(dialog).findByText('4 albums → 2 albums, 2 songs move')).toBeInTheDocument();
+    expect(await within(dialog).findByText('4 albums → 2 albums, 2 songs move to another album')).toBeInTheDocument();
   });
 
   it('saves the ReplayGain switch with the library', async () => {
@@ -401,7 +401,7 @@ describe('LibrarySettingsPage naming template', () => {
     await user.click(screen.getByRole('button', { name: 'Reset to the Plexamp preset' }));
 
     expect(screen.getByLabelText('Naming template')).toHaveValue(
-      '{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}',
+      '{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}',
     );
   });
 });

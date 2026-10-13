@@ -774,6 +774,7 @@ public sealed class DecisionEngine
     /// <summary>
     /// The tier a source runs in (MATCHING_ENGINE §6.3–6.4): Soulseek 1, YouTube 2, torrents and usenet 3.
     /// Wondarr has no configurable source order or per-instance offset, so the default order is the order.
+    /// A source type this does not know scores as tier 3.
     /// </summary>
     /// <param name="sourceType">One of <see cref="SourceTypes"/>.</param>
     /// <returns>1, 2 or 3.</returns>
