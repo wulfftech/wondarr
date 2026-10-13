@@ -4,6 +4,17 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-10-13
+
+The second round of fixes from the 0.1.0 code review (`docs/reviews/CODE_REVIEW_2026-10-10.md`): the no-login rule for local addresses only admits real local callers, stored secrets go only to the host they were saved for, files holding secrets are owner-only, torrents Wondarr did not add are never changed or removed, Gazelle freeleech tokens are spent only on grabs, and import lists never act on an empty or cut-short read. Update by pulling `:0.1` (or `:0.1.2`).
+
+**Upgrading from 0.1.1:**
+- **Everyone signs in once.** Sessions from before the update carry no credential stamp, so every browser is asked to sign in again.
+- **The no-login rule checks the address you use.** With `auth_required: disabledForLocalAddresses`, a request skips the login only when it comes from a local address, carries no proxy header, **and** its host name is a local IP, `localhost`, a single-word name (`mediaserver`), or a `.local`, `.lan`, `.home.arpa` or `.internal` name. If you reach Wondarr by a full domain name on your LAN (for example `wondarr.example.com:1077`), you now get the sign-in page there; to keep skipping it, add the name to `server.allowed_hosts` in `config.yml` (an exact name, or `*.example.com`).
+- **One database migration** (import-list items become unique per list; existing duplicates are merged). A backup is written to `/config/backups/scheduled/` first, as in 0.1.1.
+- **Owner-only files.** On the first start, `config.yml`, the database, `slskd.yml` and every backup zip are made readable by Wondarr's user only (mode 600), whatever `UMASK` says.
+- **API:** `DELETE /api/v1/referencelibrary/{id}` now requires `?songs=search|wanted|unmonitor`.
+
 ### Security
 - **A stored secret is sent only to the address it was saved for.** A test or an update that names another host while leaving the secret masked used to send the stored indexer key, download client password, notification credential, slskd API key or Plex token to that host. Now the request must carry the secret itself and is refused with `400` ("Enter the API key again: the address changed.") on that field; the settings forms mark the field as required once you change the address. A different path or URL base on the same host still reuses the secret. For Plex, the stored token goes only to an address plex.tv lists for your account; any other address, even the selected one, needs a Plex token typed in each time.
 - **Download links are kept only while they are needed.** A torrent, NZB or magnet link can carry a passkey or an indexer API key, and was stored in the candidate row for 30 days and in every backup. A container candidate now keeps its link only while it can still be grabbed: an accepted candidate of an automatic search, or any result of an interactive search, for at most 24 hours. The link is removed once the candidate is grabbed, fails or is rejected by an automatic search, and the daily Housekeeping task clears every link older than a day (so a stored link is gone within about 48 hours), including those already stored. A grab is refused after 24 hours, and grabbing a candidate whose link was cleared answers `410 Gone` and says to search again. Releases pushed from autobrr follow the same rule.
