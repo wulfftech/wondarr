@@ -117,6 +117,14 @@ Each fix comes with the test the review says is missing. The questions for each 
   - Q24: the spacing has a margin, MusicBrainz 1.05 s and AcoustID 350 ms (M-22).
 - **Releases:** 0.1.2 shipped tranches 3–5. Production is updated after it.
 
+**Tranches 8 and 9 (2026-10-13):**
+- **Tranche 8 (front end)** had no owner questions (M-24).
+- **R-046, album folders:** every preset's album folder carries the year. Nothing moves until a Compact. The `%aunique` and `AsciiFold` promises are removed from the doc (M-25).
+- **R-062, Soulseek queries:** banned terms are wildcarded if slskd exposes the server's list. The extra query rungs are not built, and §6.4 is amended (M-25).
+- **R-070, ranking:** implemented as designed, with source tiers 100/60/30 and the YouTube ATV/OMV/UGC adjustments (M-25).
+- **Q23:** the orchestrator corrects the reasoning in DECISIONS build session 7 #11.
+- **Test hygiene:** real-time sleeps, unbounded awaits, a silent pass, and the flaky slskd pid-file test (M-26).
+
 **Not planned.** Two findings already reached by known backlog items are left there:
 
 - The Mirror delete with no busy check is the known "single song delete vs in-flight downloads" problem. Tranche 5 adds the guard on the Mirror caller only.
