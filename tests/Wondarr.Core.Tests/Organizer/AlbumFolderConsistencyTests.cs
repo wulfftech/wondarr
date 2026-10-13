@@ -39,18 +39,21 @@ public sealed class AlbumFolderConsistencyTests
     }
 
     [Fact]
-    public void Never_copies_one_singles_dates_onto_another()
+    public void A_new_single_in_an_existing_singles_folder_takes_the_folders_date_and_keeps_its_own_in_original_date()
     {
         var target = Context();
         var folder = Context();
 
         target.Kind = AlbumContextKind.PseudoSingles;
-        target.Date = "1965-02-01";
+        target.Date = "1965";
+        target.OriginalDate = "1965-02-01";
         folder.Kind = AlbumContextKind.PseudoSingles;
-        folder.Date = "1964-05-01";
+        folder.Date = "1964";
+        folder.OriginalDate = "1964-05-01";
 
-        AlbumFolderConsistency.Align(target, folder).Should().NotContain("Date");
-        target.Date.Should().Be("1965-02-01", "each single keeps its own date");
+        AlbumFolderConsistency.Align(target, folder).Should().Contain("Date");
+        target.Date.Should().Be("1964", "the Singles folder carries one DATE, or Plex splits it");
+        target.OriginalDate.Should().Be("1965-02-01", "the single's real date lives in OriginalDate");
     }
 
     [Fact]

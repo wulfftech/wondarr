@@ -106,6 +106,25 @@ public sealed class TagWriterTests(ITestOutputHelper output)
     }
 
     [Theory]
+    [InlineData("tone.flac")]
+    [InlineData("tone-160.opus")]
+    public async Task A_single_in_a_shared_singles_folder_carries_the_folders_date_and_its_own_original_date(string fixture)
+    {
+        using var media = new TestMedia();
+        var path = media.Copy(fixture);
+
+        var result = await Writer.WriteAsync(
+            path,
+            GetLucky with { Date = "1964", OriginalDate = "1965-02-01" },
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        result.Written["Date"].Should().Be("1964");
+        result.Written["OriginalDate"].Should().Be("1965-02-01");
+        Encoding.Latin1.GetString(TestMedia.Bytes(path)).Should().Contain("ORIGINALDATE=1965-02-01");
+    }
+
+    [Theory]
     [MemberData(nameof(TestMedia.Formats), MemberType = typeof(TestMedia))]
     public async Task Writes_a_year_and_month_date(string fixture)
     {
