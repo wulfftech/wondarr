@@ -80,6 +80,7 @@ const MOVE_COMMAND = commandOf(MOVE_ACCEPTED.commandId, 'Moved 1 song to Singles
 const CONVERT_COMMAND = commandOf(CONVERT_ACCEPTED.commandId, 'Converted 1 song to MP3-320');
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -346,6 +347,8 @@ describe('SongActionModals', () => {
   });
 
   it('refreshes the song lists only once the move command has finished, not when the API answers 202', async () => {
+    // The command is polled every 1.5 s; the clock is moved by hand instead of waited for.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     let polls = 0;
     install({
       libraries: () => jsonResponse([LIBRARIES[0], SECOND_LIBRARY]),
@@ -355,7 +358,7 @@ describe('SongActionModals', () => {
         return jsonResponse(polls === 1 ? { ...MOVE_COMMAND, status: 'started', message: 'Moving…' } : MOVE_COMMAND);
       },
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     const client = testClient();
     client.setQueryData(['songs', { page: 1 }], { records: [] });
     const stale = () => client.getQueryState(['songs', { page: 1 }])?.isInvalidated === true;
@@ -372,11 +375,14 @@ describe('SongActionModals', () => {
     expect(await screen.findByText('Moving…')).toBeInTheDocument();
     expect(stale()).toBe(false);
 
-    expect(await screen.findByText('Moved 1 song to Singles', {}, { timeout: 5000 })).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(await screen.findByText('Moved 1 song to Singles')).toBeInTheDocument();
     await waitFor(() => expect(stale()).toBe(true));
   });
 
   it('refreshes the song lists only once the conversion command has finished', async () => {
+    // The command is polled every 1.5 s; the clock is moved by hand instead of waited for.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     let polls = 0;
     install({
       commands: () => {
@@ -387,7 +393,7 @@ describe('SongActionModals', () => {
         );
       },
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     const client = testClient();
     client.setQueryData(['songs', { page: 1 }], { records: [] });
     const stale = () => client.getQueryState(['songs', { page: 1 }])?.isInvalidated === true;
@@ -399,7 +405,8 @@ describe('SongActionModals', () => {
     expect(await screen.findByText('Converting…')).toBeInTheDocument();
     expect(stale()).toBe(false);
 
-    expect(await screen.findByText('Converted 1 song to MP3-320', {}, { timeout: 5000 })).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(await screen.findByText('Converted 1 song to MP3-320')).toBeInTheDocument();
     await waitFor(() => expect(stale()).toBe(true));
   });
 
@@ -442,5 +449,44 @@ describe('SongActionModals', () => {
 
     expect(await screen.findByText(/Instant Crush/)).toBeInTheDocument();
     expect(screen.queryByText('The songs could not be moved.')).not.toBeInTheDocument();
+  });
+
+  it("does not show song A's change-album failure when the dialog opens for song B", async () => {
+    install({
+      albumChoice: () =>
+        jsonResponse({ title: 'Problem', status: 409, detail: 'The album cannot be changed now.' }, 409),
+    });
+    const user = userEvent.setup();
+    const songB = { ...SONG, id: 13, title: 'Instant Crush' } as unknown as SongResource;
+
+    const { rerenderModal } = renderModal(
+      <ChangeAlbumModal song={songWithFile('reference')} opened onClose={() => {}} />,
+    );
+
+    await user.click(await within(await screen.findByRole('dialog')).findByRole('radio', { name: /^Singles/ }));
+    expect(await screen.findByText('The album cannot be changed now.')).toBeInTheDocument();
+
+    rerenderModal(<ChangeAlbumModal song={songWithFile('reference')} opened={false} onClose={() => {}} />);
+    rerenderModal(<ChangeAlbumModal song={songB} opened onClose={() => {}} />);
+
+    await within(await screen.findByRole('dialog')).findByRole('radio', { name: /^Singles/ });
+    expect(screen.queryByText('The album cannot be changed now.')).not.toBeInTheDocument();
+  });
+
+  it("does not show song A's conversion plan when the dialog opens for song B", async () => {
+    install();
+    const user = userEvent.setup();
+    const songB = { ...SONG, id: 13, title: 'Instant Crush' } as unknown as SongResource;
+
+    const { rerenderModal } = renderModal(<ConvertSongModal song={SONG} opened onClose={() => {}} />);
+
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByText('Would convert from flac to mp3, ~9 MB.')).toBeInTheDocument();
+
+    rerenderModal(<ConvertSongModal song={SONG} opened={false} onClose={() => {}} />);
+    rerenderModal(<ConvertSongModal song={songB} opened onClose={() => {}} />);
+
+    expect(await screen.findByText(/Instant Crush/)).toBeInTheDocument();
+    expect(screen.queryByText('Would convert from flac to mp3, ~9 MB.')).not.toBeInTheDocument();
   });
 });
