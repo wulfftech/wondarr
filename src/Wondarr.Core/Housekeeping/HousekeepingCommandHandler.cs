@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.Metadata;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -16,8 +17,8 @@ namespace Wondarr.Core.Housekeeping;
 
 /// <summary>
 /// The daily <c>Housekeeping</c> task (ARCHITECTURE §5.5): keeps a long-running install small.
-/// It prunes finished commands, old search runs with their candidates, expired blocklist rows and the
-/// recycle bin, clears the download links of candidates older than a day, then checkpoints the WAL and vacuums when a good part of the file is free pages.
+/// It prunes finished commands, old search runs with their candidates, expired blocklist rows, expired
+/// metadata cache rows and the recycle bin, clears the download links of candidates older than a day, then checkpoints the WAL and vacuums when a good part of the file is free pages.
 /// History, queue items and song files are never touched. Every step runs even when an earlier one
 /// failed; a failed step fails the command after the others have run.
 /// </summary>
@@ -130,6 +131,20 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
 
         await Step("blocklist", async () => $"blocklist {await PruneBlocklistAsync(now, cancellationToken).ConfigureAwait(false)}")
             .ConfigureAwait(false);
+
+        await Step(
+            "metadata cache",
+            async () =>
+            {
+                using var scope = _scopes.CreateScope();
+                var removed = await scope.ServiceProvider.GetRequiredService<IMetadataCache>()
+                    .PurgeExpiredAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                LogMetadataCachePurged(removed);
+
+                return $"metadata cache {removed}";
+            }).ConfigureAwait(false);
 
         await Step(
             "recycle bin",
@@ -433,6 +448,9 @@ public sealed partial class HousekeepingCommandHandler : ICommandHandler
 
         return Convert.ToInt64(value, CultureInfo.InvariantCulture);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Housekeeping removed {Count} expired metadata cache rows")]
+    private partial void LogMetadataCachePurged(int count);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Housekeeping step '{Step}' failed")]
     private partial void LogStepFailed(string step, Exception exception);

@@ -6,6 +6,7 @@ using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -562,6 +563,14 @@ public sealed partial class PasteListService : IPasteListService
         }
         catch (HttpRequestException exception)
         {
+            Fail(item, exception);
+        }
+        catch (Exception exception) when (exception is JsonException
+            || (exception is OperationCanceledException
+                && !CancellationRules.IsCallerCancellation(exception, cancellationToken)))
+        {
+            // A metadata call that ran out of time (a host that hangs) or answered something unreadable
+            // is one failed lookup, not the end of the list run. Only the caller giving up stops it.
             Fail(item, exception);
         }
 

@@ -7,6 +7,7 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 ### Changed
 - **An automatic grab stops at the cutoff.** A song whose file already meets its quality profile's cutoff is never replaced by a scheduled search, an import list's search, a pushed release or the **Search** button, even when a better release exists; **Search** on such a song says "Already at the cutoff" and searches nothing. The interactive search still lists every release and lets you grab any of them. This follows Lidarr; it changes what **Search** did on a file at MP3-320 under the Standard profile, which used to fetch a FLAC.
 - **Releases pushed from autobrr no longer delay a song's own searches.** A rejected push used to count as a fruitless search and could push the song's next Missing Search out by up to a week.
+- **A little more room at the metadata rate limits.** MusicBrainz requests are spaced 1.05 s apart (was 1.0 s) and AcoustID requests 350 ms (was 333 ms), so network jitter cannot put two arrivals inside one server-side second.
 
 ### Fixed
 - **A song that is never found settles at the weekly search.** The Missing Search backoff only looked at the last 168 hours, which dropped the older failures, so a hopeless song was searched every day or three instead of weekly. It now counts the failures back to the last grab, and a song with no success on record whose oldest kept failure is three weeks old stays weekly although old runs are pruned.
@@ -17,6 +18,12 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 - **A search waiting for a download slot no longer keeps "Search now" waiting.** Missing Search and Upgrade Search hand their place in the task queue back while they wait for a slot, as Search now already did, and a reference scan does the same while it waits for another scan of the same library.
 - **`missingsearch` and `MissingSearch` are the same task,** so the second is no longer started beside the first. A cancel and the executor starting the same command can no longer both win, a command that finished a moment ago is never failed as stranded, and a command a schedule queued just before the executor started is no longer marked orphaned.
 - **The next run shown on Tasks is the scheduler's,** including after **Run now**.
+- **A `Retry-After` now holds back the requests already waiting.** Requests queued behind the one that was throttled used to go out inside the cooldown; each now takes a new slot after it, still one spacing apart.
+- **A long `Retry-After` no longer ends in a timeout.** MusicBrainz, Cover Art Archive, Deezer, iTunes and AcoustID used the default 100 s client timeout around the whole wait, so a 3-minute cooldown failed every background lookup. The cooldown is now waited out in full, and only the network attempt itself is timed (30 s for MusicBrainz, Cover Art Archive, Deezer and iTunes; 20 s for AcoustID; headers and body together, so a stalled body is bounded too). A `Retry-After` beyond 300 s is clamped instead of obeyed for hours. A lookup that times out is one failed line in a pasted or synced list, not the end of the run.
+- **A cover host that cannot be reached no longer fails an add.** An unreachable, timing-out or garbled Cover Art Archive, Deezer or iTunes now means no cover, with a warning in the log, for songs, albums and lists alike.
+- **A provider's error page is no longer cached.** MusicBrainz, Deezer and iTunes answers are parsed before they are stored; a captive portal's HTML answered with 200 is a provider failure (and a debug log line with its first characters), not 30 days of failed lookups. An error page cached by an earlier version is fetched again and replaced.
+- **The metadata cache is cleaned up.** The daily Housekeeping removes expired cached answers in batches and reports how many, so `wondarr.db` and its backups stop growing with every lookup.
+- **A bulk add breaks ties toward the dated recording.** A pasted line or an ISRC whose candidates score the same now picks the album recording over an undated standalone snippet, as the Add songs list already did.
 
 ## [0.1.2] — 2026-10-13
 

@@ -130,6 +130,111 @@ public sealed class RequestSpacingCooldownTests
         rig.Gate.Cooldown.Should().Be(TimeSpan.FromSeconds(100));
     }
 
+    [Fact]
+    public async Task A_cooldown_set_while_requests_are_queued_holds_back_the_requests_already_waiting()
+    {
+        var fake = new FakeTimeProvider(Start);
+        var time = new CountingTimeProvider(fake);
+        var gate = new RequestSpacingGate(TimeSpan.FromSeconds(1), time);
+
+        // Four requests are queued at t, t+1, t+2 and t+3. The first goes out at once and is answered
+        // with Retry-After: 60 before the other three have started.
+        var waiters = Enumerable.Range(0, 4).Select(_ => gate.WaitAsync(CancellationToken.None).AsTask()).ToArray();
+        waiters[0].IsCompleted.Should().BeTrue();
+        time.TimersCreated.Should().Be(3);
+
+        gate.DelayUntil(Start.AddSeconds(60));
+
+        // Their own slots (1 to 3 s) pass. Each waiter must take its new slot, which shows as a second
+        // timer, before the clock moves on: the continuations run on the thread pool.
+        fake.Advance(TimeSpan.FromSeconds(3));
+        await UntilAsync(() => time.TimersCreated == 6);
+
+        // Up to a second before the cooldown ends: none goes out.
+        fake.Advance(TimeSpan.FromSeconds(56));
+        waiters.Skip(1).Should().OnlyContain(waiter => !waiter.IsCompleted);
+
+        // The cooldown ends: they leave one slot apart, not all at once.
+        fake.Advance(TimeSpan.FromSeconds(1));
+        await UntilAsync(() => waiters.Skip(1).Any(waiter => waiter.IsCompleted));
+        waiters.Skip(1).Count(waiter => waiter.IsCompleted).Should().Be(1);
+
+        fake.Advance(TimeSpan.FromSeconds(1));
+        await UntilAsync(() => waiters.Skip(1).Count(waiter => waiter.IsCompleted) >= 2);
+        waiters.Skip(1).Count(waiter => waiter.IsCompleted).Should().Be(2);
+
+        fake.Advance(TimeSpan.FromSeconds(1));
+        await Task.WhenAll(waiters).WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task A_longer_cooldown_set_later_also_holds_back_a_waiter_that_was_already_moved()
+    {
+        var time = new FakeTimeProvider(Start);
+        var gate = new RequestSpacingGate(TimeSpan.FromSeconds(1), time);
+
+        await gate.WaitAsync(CancellationToken.None);
+        var waiting = gate.WaitAsync(CancellationToken.None).AsTask();
+
+        gate.DelayUntil(Start.AddSeconds(30));
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        // Moved to the first cooldown's end; then the host asks for longer.
+        gate.DelayUntil(Start.AddSeconds(90));
+        time.Advance(TimeSpan.FromSeconds(29));
+        waiting.IsCompleted.Should().BeFalse();
+
+        time.Advance(TimeSpan.FromSeconds(60));
+        await waiting.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void The_public_rate_limits_keep_a_margin()
+    {
+        // MusicBrainz allows 1 request/s and AcoustID 3/s; network jitter can put two arrivals inside
+        // one server-side second when sends are exactly at the limit.
+        new MetadataOptions().MusicBrainzRequestInterval.Should().Be(TimeSpan.FromMilliseconds(1050));
+        new Wondarr.Core.Metadata.AcoustId.AcoustIdOptions().RequestInterval.Should().Be(TimeSpan.FromMilliseconds(350));
+        new Wondarr.Core.Metadata.AcoustId.AcoustIdOptions { RequestsPerSecond = 1 }.RequestInterval
+            .Should().Be(TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>
+    /// Waits, bounded and without sleeping, until a condition the fake clock's callbacks make true holds;
+    /// a condition that never comes true fails the test instead of hanging it.
+    /// </summary>
+    private static async Task UntilAsync(Func<bool> condition)
+    {
+        var guard = System.Diagnostics.Stopwatch.StartNew();
+
+        while (!condition())
+        {
+            guard.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the waiters must make progress");
+            await Task.Yield();
+        }
+    }
+
+    /// <summary>Counts the timers the gate asks for, so a test can tell when a woken waiter has re-queued.</summary>
+    private sealed class CountingTimeProvider(FakeTimeProvider inner) : TimeProvider
+    {
+        private int _timers;
+
+        public int TimersCreated => Volatile.Read(ref _timers);
+
+        public override long TimestampFrequency => inner.TimestampFrequency;
+
+        public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+
+        public override long GetTimestamp() => inner.GetTimestamp();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Interlocked.Increment(ref _timers);
+
+            return inner.CreateTimer(callback, state, dueTime, period);
+        }
+    }
+
     private static Func<int, HttpResponseMessage> Throttled(TimeSpan retryAfter) => request =>
     {
         if (request > 1)
