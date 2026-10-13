@@ -62,8 +62,17 @@ public static class ServiceCollectionExtensions
     /// <summary>How long one Last.fm or ListenBrainz request may take.</summary>
     private static readonly TimeSpan ListClientTimeout = TimeSpan.FromSeconds(30);
 
-    /// <summary>How long one AcoustID request may take before the lookup is reported as unavailable.</summary>
-    private static readonly TimeSpan AcoustIdTimeout = TimeSpan.FromSeconds(15);
+    /// <summary>
+    /// How long one attempt at the network may take (headers and body) for MusicBrainz, Cover Art
+    /// Archive, Deezer and iTunes. Applied by <see cref="AttemptTimeoutHandler"/> after the spacing gate,
+    /// so a queue or a <c>Retry-After</c> cooldown (up to <see cref="RetryAfterHeader.MaxWait"/>) is never
+    /// cut short by it. <see cref="HttpClient.Timeout"/> would cover the gate wait and every retry, which
+    /// is what turned a 3-minute cooldown into a 100 s timeout.
+    /// </summary>
+    private static readonly TimeSpan AttemptTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long one AcoustID attempt may take before the lookup is reported as unavailable.</summary>
+    private static readonly TimeSpan AcoustIdAttemptTimeout = TimeSpan.FromSeconds(20);
 
     /// <summary>How long one Deezer request is spaced from the next: 50 requests per 5 seconds.</summary>
     private static readonly TimeSpan DeezerInterval = TimeSpan.FromMilliseconds(120);
@@ -135,6 +144,7 @@ public static class ServiceCollectionExtensions
             var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
 
             client.BaseAddress = new Uri(options.MusicBrainzBaseUrl, UriKind.Absolute);
+            client.Timeout = Timeout.InfiniteTimeSpan;
             client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BuildUserAgent(options));
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
         });
@@ -142,6 +152,7 @@ public static class ServiceCollectionExtensions
         musicBrainz.AddResilienceHandler("musicbrainz", (builder, context) =>
         {
             var options = context.ServiceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+            var timeProvider = context.ServiceProvider.GetRequiredService<TimeProvider>();
 
             builder.AddRetry(new HttpRetryStrategyOptions
             {
@@ -149,14 +160,15 @@ public static class ServiceCollectionExtensions
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 Delay = options.RetryBaseDelay,
+                MaxDelay = RetryAfterHeader.MaxWait,
 
                 // MusicBrainz answers 503 when throttled; when it sends Retry-After, obey it.
-                ShouldRetryAfterHeader = true,
+                DelayGenerator = RetryAfterDelay(context.ServiceProvider.GetRequiredService<TimeProvider>()),
 
                 // A background caller (a sync, a pasted list) keeps all three retries and waits out
                 // Retry-After. A person waiting on the Add songs page gets two, and a Retry-After past
                 // the interactive budget is surfaced at once instead of hanging the page.
-                ShouldHandle = args => ValueTask.FromResult(ShouldRetryInteractively(args)),
+                ShouldHandle = args => ValueTask.FromResult(ShouldRetryInteractively(args, timeProvider)),
             });
         });
 
@@ -165,6 +177,9 @@ public static class ServiceCollectionExtensions
         musicBrainz.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(MusicBrainzGateKey),
             ProviderKeys.MusicBrainz));
+
+        // After the gate: the limit covers the network only, never the wait for a slot.
+        musicBrainz.AddHttpMessageHandler(serviceProvider => AttemptLimit(serviceProvider, ProviderKeys.MusicBrainz));
 
         services.AddKeyedSingleton(CoverArtArchiveGateKey, (serviceProvider, _) => new RequestSpacingGate(
             CoverArtArchiveInterval,
@@ -189,7 +204,7 @@ public static class ServiceCollectionExtensions
             var acoustIdOptions = serviceProvider.GetRequiredService<IOptions<AcoustIdOptions>>().Value;
 
             client.BaseAddress = new Uri(acoustIdOptions.BaseUrl, UriKind.Absolute);
-            client.Timeout = AcoustIdTimeout;
+            client.Timeout = Timeout.InfiniteTimeSpan;
 
             // The same identifying User-Agent MusicBrainz gets; AcoustID asks for one too.
             AddProviderHeaders(client, serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value);
@@ -200,12 +215,19 @@ public static class ServiceCollectionExtensions
         acoustId.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(AcoustIdGateKey)));
 
+        // The client retries a throttle itself, so this is already one attempt.
+        acoustId.AddHttpMessageHandler(serviceProvider => new AttemptTimeoutHandler(
+            AcoustIdAttemptTimeout,
+            "acoustid",
+            serviceProvider.GetRequiredService<TimeProvider>()));
+
         var coverArtArchive = services.AddHttpClient<ICoverArtArchiveClient, CoverArtArchiveClient>(
             (serviceProvider, client) =>
             {
                 var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
 
                 client.BaseAddress = new Uri(options.CoverArtArchiveBaseUrl, UriKind.Absolute);
+                client.Timeout = Timeout.InfiniteTimeSpan;
                 AddProviderHeaders(client, options);
             });
 
@@ -224,18 +246,22 @@ public static class ServiceCollectionExtensions
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 Delay = options.RetryBaseDelay,
-                ShouldRetryAfterHeader = true,
+                MaxDelay = RetryAfterHeader.MaxWait,
+                DelayGenerator = RetryAfterDelay(context.ServiceProvider.GetRequiredService<TimeProvider>()),
             });
         });
 
         coverArtArchive.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(CoverArtArchiveGateKey)));
 
+        coverArtArchive.AddHttpMessageHandler(serviceProvider => AttemptLimit(serviceProvider, "coverartarchive"));
+
         var deezer = services.AddHttpClient<IDeezerClient, DeezerClient>((serviceProvider, client) =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
 
             client.BaseAddress = new Uri(options.DeezerBaseUrl, UriKind.Absolute);
+            client.Timeout = Timeout.InfiniteTimeSpan;
             AddProviderHeaders(client, options);
         });
 
@@ -249,15 +275,18 @@ public static class ServiceCollectionExtensions
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 Delay = options.RetryBaseDelay,
+                MaxDelay = RetryAfterHeader.MaxWait,
 
                 // The quota handler below turns a code-4 body into a 429 with a Retry-After; obey it.
-                ShouldRetryAfterHeader = true,
+                DelayGenerator = RetryAfterDelay(context.ServiceProvider.GetRequiredService<TimeProvider>()),
             });
         });
 
         deezer.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(DeezerGateKey),
             ProviderKeys.Deezer));
+
+        deezer.AddHttpMessageHandler(serviceProvider => AttemptLimit(serviceProvider, ProviderKeys.Deezer));
 
         // Innermost, below the spacing handler: a retried attempt is spaced first, then inspected.
         deezer.AddHttpMessageHandler(() => new DeezerQuotaHandler());
@@ -267,6 +296,7 @@ public static class ServiceCollectionExtensions
             var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
 
             client.BaseAddress = new Uri(options.ITunesBaseUrl, UriKind.Absolute);
+            client.Timeout = Timeout.InfiniteTimeSpan;
             AddProviderHeaders(client, options);
         });
 
@@ -280,7 +310,8 @@ public static class ServiceCollectionExtensions
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 Delay = options.RetryBaseDelay,
-                ShouldRetryAfterHeader = true,
+                MaxDelay = RetryAfterHeader.MaxWait,
+                DelayGenerator = RetryAfterDelay(context.ServiceProvider.GetRequiredService<TimeProvider>()),
 
                 // iTunes answers 403 once the caller goes over ~20 requests a minute. That is a rate
                 // limit, not a blip: retrying it only spends more of the budget, so it surfaces at once.
@@ -294,6 +325,8 @@ public static class ServiceCollectionExtensions
 
         itunes.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
             serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(ITunesGateKey)));
+
+        itunes.AddHttpMessageHandler(serviceProvider => AttemptLimit(serviceProvider, "itunes"));
 
         // The import-list providers of Last.fm and ListenBrainz read through named clients rather
         // than typed ones: a provider's one operation is "read the next page of this list", which a
@@ -427,7 +460,7 @@ public static class ServiceCollectionExtensions
     /// The MusicBrainz retry decision. Transient failures and statuses are retried; for an interactive
     /// request, at most twice and never when the host asks for more than the interactive budget.
     /// </summary>
-    private static bool ShouldRetryInteractively(RetryPredicateArguments<HttpResponseMessage> args)
+    private static bool ShouldRetryInteractively(RetryPredicateArguments<HttpResponseMessage> args, TimeProvider timeProvider)
     {
         var interactive = InteractiveRequests.IsActive;
 
@@ -449,9 +482,25 @@ public static class ServiceCollectionExtensions
         }
 
         return !(interactive
-            && RetryAfterHeader.Read(response, DateTimeOffset.UtcNow) is { } wait
+            && RetryAfterHeader.Read(response, timeProvider.GetUtcNow()) is { } wait
             && wait > InteractiveRequests.MaxWait);
     }
+
+    /// <summary>
+    /// The retry delay a <c>Retry-After</c> asks for, capped at <see cref="RetryAfterHeader.MaxWait"/>;
+    /// no header leaves the exponential backoff in charge. This replaces the pipeline's own
+    /// <c>ShouldRetryAfterHeader</c> because Polly's <c>MaxDelay</c> does not cap a delay generator's
+    /// answer, and a host asking for two hours would otherwise be obeyed for two hours.
+    /// </summary>
+    private static Func<RetryDelayGeneratorArguments<HttpResponseMessage>, ValueTask<TimeSpan?>> RetryAfterDelay(
+        TimeProvider timeProvider) =>
+        args => ValueTask.FromResult(
+            args.Outcome.Result is { } response
+                ? RetryAfterHeader.Read(response, timeProvider.GetUtcNow())
+                : null);
+
+    private static AttemptTimeoutHandler AttemptLimit(IServiceProvider serviceProvider, string provider) =>
+        new(AttemptTimeout, provider, serviceProvider.GetRequiredService<TimeProvider>());
 
     /// <summary>Whether a status is the kind worth another attempt.</summary>
     private static bool IsRetryable(HttpStatusCode statusCode) =>

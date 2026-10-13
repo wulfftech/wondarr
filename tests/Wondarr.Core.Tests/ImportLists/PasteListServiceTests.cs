@@ -355,6 +355,68 @@ public class PasteListServiceTests : IDisposable
         resolved.Reason.Should().Be("refused");
     }
 
+    [Theory]
+    [InlineData("json")]
+    [InlineData("task-cancelled")]
+    public async Task ProcessAsync_survives_one_lines_provider_timeout(string kind)
+    {
+        await using var context = await ContextAsync();
+        StubResolver();
+
+        // The failing line's lookup runs out of time (the attempt limit reports a TaskCanceledException,
+        // as HttpClient's own timeout did) or comes back unreadable. The caller's token is not cancelled.
+        _resolver
+            .ResolveAsync(FailingLine, Arg.Any<CancellationToken>())
+            .Returns<Task<ResolveResult>>(_ => throw (kind == "json"
+                ? new System.Text.Json.JsonException("'<' is an invalid start of a value.")
+                : new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout")));
+
+        var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111");
+
+        _songs
+            .AddIdentitiesAsync(Arg.Any<IReadOnlyList<SongIdentity>>(), Arg.Any<SongAddOptions>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<IReadOnlyList<SongAddResult>>(
+                [new SongAddResult(call.Arg<IReadOnlyList<SongIdentity>>()[0], SongAddOutcome.Added, queen)]));
+
+        var service = NewService(context);
+        var list = await service.CreateAsync($"{FailingLine}\n{ResolvableLine}", null, null, CancellationToken.None);
+
+        var summary = await service.ProcessAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        summary.Should().Be("2 lines: 1 added, 0 already in the library, 1 unresolved, 0 skipped");
+
+        var items = await context.ImportListItems.OrderBy(item => item.Id).ToListAsync();
+
+        items[0].State.Should().Be(ImportListItemState.Unresolved);
+        items[0].Reason.Should().StartWith("Lookup failed:");
+        items[1].State.Should().Be(ImportListItemState.Added);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_stops_when_the_caller_cancels()
+    {
+        await using var context = await ContextAsync();
+        StubResolver();
+
+        using var cancellation = new CancellationTokenSource();
+
+        _resolver
+            .ResolveAsync(FailingLine, Arg.Any<CancellationToken>())
+            .Returns<Task<ResolveResult>>(_ =>
+            {
+                cancellation.Cancel();
+
+                throw new TaskCanceledException("cancelled by the caller");
+            });
+
+        var service = NewService(context);
+        var list = await service.CreateAsync($"{FailingLine}\n{ResolvableLine}", null, null, CancellationToken.None);
+
+        await FluentActions
+            .Awaiting(() => service.ProcessAsync(list.Id, _ => Task.CompletedTask, cancellation.Token))
+            .Should().ThrowAsync<OperationCanceledException>();
+    }
+
     /// <summary>Answers every line the way the acceptance criteria name.</summary>
     private void StubResolver()
     {

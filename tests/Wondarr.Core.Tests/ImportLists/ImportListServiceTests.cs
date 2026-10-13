@@ -309,6 +309,23 @@ public sealed class ImportListServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_provider_that_times_out_records_that_it_did_not_answer_and_does_not_escape_the_job()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft(FakeProvider.FakeType), CancellationToken.None);
+
+        // What the attempt limit raises, as HttpClient.Timeout did: not the caller's cancellation.
+        _provider.Throws = new TaskCanceledException("Deezer did not answer within 30 s.");
+
+        var sync = async () => await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        await sync.Should().ThrowAsync<ImportListSyncException>().WithMessage("The source did not answer in time.");
+        (await context.ImportLists.AsNoTracking().SingleAsync()).LastSyncMessage
+            .Should().Be("Failed: The source did not answer in time.");
+    }
+
+    [Fact]
     public async Task Due_lists_are_enabled_synced_lists_whose_interval_has_passed()
     {
         await using var context = await ContextAsync();
@@ -472,6 +489,9 @@ public sealed class ImportListServiceTests : IDisposable
 
         public string? Error { get; set; }
 
+        /// <summary>When set, the read throws it, as a provider whose HTTP call timed out does.</summary>
+        public Exception? Throws { get; set; }
+
         public string Type => FakeType;
 
         public string DisplayName => "Fake";
@@ -482,6 +502,6 @@ public sealed class ImportListServiceTests : IDisposable
         public IReadOnlyList<string> Validate(JsonElement settings, string? sourceText) => [];
 
         public Task<ImportListFetchResult> FetchAsync(ImportList list, CancellationToken cancellationToken) =>
-            Task.FromResult(Error is null ? new ImportListFetchResult(Entries) : ImportListFetchResult.Failed(Error));
+            Throws is not null ? Task.FromException<ImportListFetchResult>(Throws) : Task.FromResult(Error is null ? new ImportListFetchResult(Entries) : ImportListFetchResult.Failed(Error));
     }
 }

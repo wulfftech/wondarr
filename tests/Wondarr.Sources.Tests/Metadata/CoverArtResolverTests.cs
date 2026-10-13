@@ -137,6 +137,71 @@ public sealed class CoverArtResolverTests
             "itunes"));
     }
 
+    [Theory]
+    [InlineData("http-request")]
+    [InlineData("timeout")]
+    [InlineData("json")]
+    [InlineData("provider")]
+    [InlineData("pipeline-timeout")]
+    public async Task Every_way_of_not_reaching_a_cover_host_is_no_cover_not_an_error(string failure)
+    {
+        var (resolver, caa, deezer, itunes) = CreateResolver();
+
+        Exception Failure() => failure switch
+        {
+            "http-request" => new HttpRequestException("Name or service not known"),
+            "timeout" => new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout"),
+            "json" => new System.Text.Json.JsonException("'<' is an invalid start of a value."),
+            "pipeline-timeout" => new Polly.Timeout.TimeoutRejectedException("The operation didn't complete within the allowed timeout."),
+            _ => new MetadataProviderException("coverartarchive", HttpStatusCode.BadGateway, "answered 502"),
+        };
+
+        caa.GetReleaseGroupFrontUrlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw Failure());
+        caa.GetReleaseFrontUrlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw Failure());
+        deezer.GetAlbumAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns<DeezerAlbum?>(_ => throw Failure());
+        deezer.SearchTracksAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns<DeezerSearchResult>(_ => throw Failure());
+        itunes.SearchSongsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<ITunesTrack>>(_ => throw Failure());
+
+        var cover = await resolver.ResolveAsync(Request() with { DeezerAlbumId = 816377711 });
+
+        cover.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_failing_cover_host_hands_over_to_the_next_one()
+    {
+        var (resolver, caa, _, itunes) = CreateResolver();
+
+        caa.GetReleaseGroupFrontUrlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw new HttpRequestException("Connection refused"));
+        itunes.SearchSongsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([new ITunesTrack { TrackName = "Get Lucky", ArtistName = "Daft Punk", ArtworkUrl100 = ITunesArtwork }]);
+
+        var cover = await resolver.ResolveAsync(Request());
+
+        cover!.Source.Should().Be("itunes");
+    }
+
+    [Fact]
+    public async Task The_caller_cancelling_is_not_swallowed_as_a_missing_cover()
+    {
+        var (resolver, caa, _, _) = CreateResolver();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        caa.GetReleaseGroupFrontUrlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<string?>(_ => throw new TaskCanceledException());
+
+        var resolve = () => resolver.ResolveAsync(Request(), cancellation.Token);
+
+        await resolve.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     [Fact]
     public async Task Nothing_anywhere_is_null()
     {

@@ -100,7 +100,9 @@ public sealed partial class CoverArtResolver : ICoverArtResolver
         if (!string.IsNullOrWhiteSpace(request.MbReleaseGroupId))
         {
             var url = await TryGetUrlAsync(
-                () => _coverArtArchive.GetReleaseGroupFrontUrlAsync(request.MbReleaseGroupId, cancellationToken))
+                CoverArtArchiveSource,
+                () => _coverArtArchive.GetReleaseGroupFrontUrlAsync(request.MbReleaseGroupId, cancellationToken),
+                cancellationToken)
                 .ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(url))
@@ -112,7 +114,9 @@ public sealed partial class CoverArtResolver : ICoverArtResolver
         if (!string.IsNullOrWhiteSpace(request.MbReleaseId))
         {
             var url = await TryGetUrlAsync(
-                () => _coverArtArchive.GetReleaseFrontUrlAsync(request.MbReleaseId, cancellationToken))
+                CoverArtArchiveSource,
+                () => _coverArtArchive.GetReleaseFrontUrlAsync(request.MbReleaseId, cancellationToken),
+                cancellationToken)
                 .ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(url))
@@ -124,7 +128,9 @@ public sealed partial class CoverArtResolver : ICoverArtResolver
         if (request.DeezerAlbumId is { } albumId && albumId > 0)
         {
             var album = await TryAsync<DeezerAlbum>(
-                async () => await _deezer.GetAlbumAsync(albumId, cancellationToken).ConfigureAwait(false))
+                DeezerSource,
+                async () => await _deezer.GetAlbumAsync(albumId, cancellationToken).ConfigureAwait(false),
+                cancellationToken)
                 .ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(album?.CoverXl))
@@ -161,7 +167,9 @@ public sealed partial class CoverArtResolver : ICoverArtResolver
         }
 
         var result = await TryAsync<DeezerSearchResult>(
-                async () => await _deezer.SearchTracksAsync(query, SearchLimit, cancellationToken).ConfigureAwait(false))
+                DeezerSource,
+                async () => await _deezer.SearchTracksAsync(query, SearchLimit, cancellationToken).ConfigureAwait(false),
+                cancellationToken)
             .ConfigureAwait(false);
 
         if (result?.Data is null)
@@ -190,8 +198,10 @@ public sealed partial class CoverArtResolver : ICoverArtResolver
         }
 
         var results = await TryAsync<IReadOnlyList<ITunesTrack>>(
+                ITunesSource,
                 async () => await _itunes.SearchSongsAsync(query, SearchLimit, "US", cancellationToken)
-                    .ConfigureAwait(false))
+                    .ConfigureAwait(false),
+                cancellationToken)
             .ConfigureAwait(false);
 
         if (results is null)
@@ -250,41 +260,51 @@ public sealed partial class CoverArtResolver : ICoverArtResolver
     }
 
     /// <summary>
-    /// Runs one provider call, turning its failure into a miss. The log names the provider and the
-    /// status only: a URL would carry the lookup, and the message would carry response headers.
+    /// Runs one provider call, turning its failure into a miss: a missing cover is a normal outcome and
+    /// never stops a song, an album or a list from being added. Every way of not reaching the host counts
+    /// (an error status, no connection, a timeout, an unreadable body); only the caller giving up
+    /// propagates. The log names the provider and the failure kind only: a URL would carry the lookup, and
+    /// the message would carry response headers.
     /// </summary>
-    private async Task<string?> TryGetUrlAsync(Func<Task<string?>> call)
+    private async Task<string?> TryGetUrlAsync(
+        string provider,
+        Func<Task<string?>> call,
+        CancellationToken cancellationToken)
     {
         try
         {
             return await call().ConfigureAwait(false);
         }
-        catch (MetadataProviderException exception)
+        catch (Exception exception) when (ProviderKeys.IsProviderFailure(exception, cancellationToken))
         {
-            LogProviderFailure(_logger, exception.Provider, (int)exception.StatusCode);
+            LogProviderFailure(_logger, provider, Describe(exception));
 
             return null;
         }
     }
 
     /// <summary>Runs one provider call whose answer is an object, turning its failure into a miss.</summary>
-    private async Task<T?> TryAsync<T>(Func<Task<T?>> call)
+    private async Task<T?> TryAsync<T>(string provider, Func<Task<T?>> call, CancellationToken cancellationToken)
         where T : class
     {
         try
         {
             return await call().ConfigureAwait(false);
         }
-        catch (MetadataProviderException exception)
+        catch (Exception exception) when (ProviderKeys.IsProviderFailure(exception, cancellationToken))
         {
-            LogProviderFailure(_logger, exception.Provider, (int)exception.StatusCode);
+            LogProviderFailure(_logger, provider, Describe(exception));
 
             return null;
         }
     }
 
+    private static string Describe(Exception exception) => exception is MetadataProviderException provider
+        ? $"status {(int)provider.StatusCode}"
+        : exception.GetType().Name;
+
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "Cover art lookup against {Provider} failed with status {StatusCode}")]
-    private static partial void LogProviderFailure(ILogger logger, string provider, int statusCode);
+        Message = "Cover art lookup against {Provider} failed ({Reason}); continuing without a cover")]
+    private static partial void LogProviderFailure(ILogger logger, string provider, string reason);
 }
