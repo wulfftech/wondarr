@@ -27,6 +27,7 @@ using Wondarr.Core.CustomFilters;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Notifications.Apprise;
 using Wondarr.Core.Notifications.Discord;
+using Wondarr.Core.Notifications.Email;
 using Wondarr.Core.Notifications.Webhook;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
@@ -124,6 +125,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<INotificationProvider, WebhookProvider>();
         services.AddSingleton<INotificationProvider, DiscordProvider>();
         services.AddSingleton<INotificationProvider, AppriseProvider>();
+        services.AddSingleton<ISmtpSender, SmtpSender>();
+        services.AddSingleton<INotificationProvider, EmailProvider>();
+        services.AddSingleton<NotificationDigestService>();
+        services.AddHostedService(provider => provider.GetRequiredService<NotificationDigestService>());
         services.AddScoped<INotificationService, NotificationService>();
         services.AddSingleton<NotificationDispatcher>();
         services.AddSingleton<IHandle<SongGrabbedEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
