@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Wondarr.Core.Metadata.MusicBrainz;
 
@@ -40,15 +42,17 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
 
     private readonly HttpClient _http;
     private readonly IMetadataCache _cache;
+    private readonly ILogger _logger;
 
     /// <summary>Initialises a new instance of the <see cref="MusicBrainzClient"/> class.</summary>
-    public MusicBrainzClient(HttpClient http, IMetadataCache cache)
+    public MusicBrainzClient(HttpClient http, IMetadataCache cache, ILogger<MusicBrainzClient>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(cache);
 
         _http = http;
         _cache = cache;
+        _logger = logger ?? NullLogger<MusicBrainzClient>.Instance;
     }
 
     /// <inheritdoc />
@@ -70,7 +74,7 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
         var uri = $"recording?query={Uri.EscapeDataString(luceneQuery)}"
             + $"&limit={limit.ToString(CultureInfo.InvariantCulture)}&fmt=json";
 
-        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<MbRecordingSearchResult>(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null
             ? new MbRecordingSearchResult()
@@ -82,7 +86,7 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     {
         var id = NormalizeMbid(recordingId, nameof(recordingId));
 
-        var body = await GetBodyAsync($"recording/{id}?inc=artist-credits+isrcs&fmt=json", LookupTtl, cancellationToken)
+        var body = await GetBodyAsync<MbRecording>($"recording/{id}?inc=artist-credits+isrcs&fmt=json", LookupTtl, cancellationToken)
             .ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<MbRecording>(body, SerializerOptions);
@@ -95,7 +99,7 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     {
         var normalized = NormalizeIsrc(isrc);
 
-        var body = await GetBodyAsync($"isrc/{normalized}?inc=artist-credits&fmt=json", LookupTtl, cancellationToken)
+        var body = await GetBodyAsync<MbIsrcResult>($"isrc/{normalized}?inc=artist-credits&fmt=json", LookupTtl, cancellationToken)
             .ConfigureAwait(false);
 
         if (body is null)
@@ -127,7 +131,7 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
             var uri = $"release?recording={id}&status=official&inc=release-groups+media+artist-credits"
                 + $"&limit=100&offset={offset.ToString(CultureInfo.InvariantCulture)}&fmt=json";
 
-            var body = await GetBodyAsync(uri, LookupTtl, cancellationToken).ConfigureAwait(false);
+            var body = await GetBodyAsync<MbReleaseBrowsePage>(uri, LookupTtl, cancellationToken).ConfigureAwait(false);
             if (body is null)
             {
                 // MusicBrainz does not know the recording at all.
@@ -157,7 +161,7 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     {
         var id = NormalizeMbid(releaseId, nameof(releaseId));
 
-        var body = await GetBodyAsync(
+        var body = await GetBodyAsync<MbRelease>(
                 $"release/{id}?inc=recordings+artist-credits+release-groups+isrcs&fmt=json",
                 ReleaseTtl,
                 cancellationToken)
@@ -185,7 +189,7 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
         var uri = $"release-group?query={Uri.EscapeDataString(luceneQuery)}"
             + $"&limit={limit.ToString(CultureInfo.InvariantCulture)}&fmt=json";
 
-        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<MbReleaseGroupSearchResult>(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null
             ? new MbReleaseGroupSearchResult()
@@ -200,7 +204,7 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     {
         var id = NormalizeMbid(releaseGroupId, nameof(releaseGroupId));
 
-        var body = await GetBodyAsync(
+        var body = await GetBodyAsync<MbReleaseBrowsePage>(
                 $"release?release-group={id}&status=official&inc=media&limit=100&fmt=json",
                 LookupTtl,
                 cancellationToken)
@@ -215,15 +219,27 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     }
 
     /// <summary>
-    /// Serves a request from the cache, or makes it and caches what comes back.
+    /// Serves a request from the cache, or makes it and caches what comes back, once it is known to
+    /// parse as <typeparamref name="T"/>.
     /// </summary>
     /// <returns>The body, or <see langword="null"/> for a cached or fresh 404.</returns>
-    private async Task<string?> GetBodyAsync(string relativeUri, TimeSpan ttl, CancellationToken cancellationToken)
+    /// <exception cref="MetadataProviderException">A 2xx body is not <typeparamref name="T"/>; it is not cached.</exception>
+    private async Task<string?> GetBodyAsync<T>(string relativeUri, TimeSpan ttl, CancellationToken cancellationToken)
     {
         var cached = await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
-            return cached == NotFoundPayload ? null : cached;
+            if (cached == NotFoundPayload)
+            {
+                return null;
+            }
+
+            // A row written before bodies were checked can be an error page: fetch it again, and the
+            // fresh answer overwrites it.
+            if (ProviderBodies.IsReadable<T>(Provider, cached, SerializerOptions, _logger))
+            {
+                return cached;
+            }
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, relativeUri);
@@ -250,6 +266,9 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        // Parsed before it is cached: a captive portal's HTML must not poison the cache for the TTL.
+        ProviderBodies.Parse<T>(Provider, body, SerializerOptions, _logger);
 
         await _cache.SetAsync(Provider, relativeUri, body, ttl, cancellationToken).ConfigureAwait(false);
 

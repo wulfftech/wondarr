@@ -702,7 +702,11 @@ public sealed partial class IdentityResolver : IIdentityResolver
         [
             .. acceptable
                 .OrderByDescending(scored => scored.Score.Total)
-                .ThenBy(scored => scored.Recording.FirstReleaseDate ?? string.Empty, StringComparer.Ordinal),
+
+                // A recording with no date sorts last, as Rank does: scores clamp at 100, so ties are
+                // common, and an undated standalone snippet must not beat the album recording.
+                .ThenBy(scored => string.IsNullOrWhiteSpace(scored.Recording.FirstReleaseDate))
+                .ThenBy(scored => scored.Recording.FirstReleaseDate, StringComparer.Ordinal),
         ];
     }
 
@@ -1327,7 +1331,7 @@ public sealed partial class IdentityResolver : IIdentityResolver
         }
 
         MbRecording? best = null;
-        var bestDate = string.Empty;
+        string? bestDate = null;
 
         foreach (var recording in recordings)
         {
@@ -1336,9 +1340,10 @@ public sealed partial class IdentityResolver : IIdentityResolver
                 continue;
             }
 
-            var date = recording.FirstReleaseDate ?? string.Empty;
+            var date = recording.FirstReleaseDate;
 
-            if (best is null || string.CompareOrdinal(date, bestDate) < 0)
+            // A missing date is the latest possible, not the earliest.
+            if (best is null || IsEarlier(date, bestDate))
             {
                 best = recording;
                 bestDate = date;
@@ -1346,6 +1351,17 @@ public sealed partial class IdentityResolver : IIdentityResolver
         }
 
         return best ?? recordings[0];
+    }
+
+    /// <summary>Whether <paramref name="date"/> is strictly earlier than <paramref name="other"/>; a missing date is later than any date.</summary>
+    private static bool IsEarlier(string? date, string? other)
+    {
+        if (string.IsNullOrWhiteSpace(date))
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(other) || string.CompareOrdinal(date, other) < 0;
     }
 
     /// <summary>The query a Deezer track is scored against when it is the reference.</summary>

@@ -15,7 +15,7 @@ description: The scheduled tasks, making and restoring backups, reading the logs
 | Upgrade Search | 24 h (`search.upgrade_interval_hours`) | Searches for better files for songs below their cutoff. See [Quality and upgrades](/wondarr/library/quality-and-upgrades/). |
 | Reference Library Scan | 24 h | Scans [reference libraries](/wondarr/library/reference-libraries/). |
 | Import List Sync | 1 h | Syncs the [import lists](/wondarr/library/import-lists/) that are due. |
-| Housekeeping | 24 h | Keeps the database small: deletes finished commands older than 7 days (the newest run of each task is kept, for the Last run column), search results older than 30 days that no download or file still refers to, and expired blocklist entries; empties the recycle bin of files older than `import.recycle_bin_cleanup_days`; then compacts the database when a quarter of it is free space. The history is never pruned. |
+| Housekeeping | 24 h | Keeps the database small: deletes finished commands older than 7 days (the newest run of each task is kept, for the Last run column), search results older than 30 days that no download or file still refers to, expired blocklist entries and expired cached answers from the metadata providers; empties the recycle bin of files older than `import.recycle_bin_cleanup_days`; then compacts the database when a quarter of it is free space. The history is never pruned. |
 | Backup | 7 days (`backup.interval_days`) | Makes a scheduled backup. |
 | Check For Updates | 12 h | Asks GitHub whether a newer Wondarr release exists (the first run is about two minutes after start-up). Does nothing when `update.check_enabled` is off. See [Upgrading](/wondarr/getting-started/install/#upgrading). |
 

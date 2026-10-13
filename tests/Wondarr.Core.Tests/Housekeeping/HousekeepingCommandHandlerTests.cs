@@ -10,6 +10,7 @@ using NSubstitute;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Housekeeping;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.Metadata;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -239,6 +240,15 @@ public class HousekeepingCommandHandlerTests
         (await host.ReadAsync(context => context.SearchRuns.CountAsync())).Should().Be(0);
     }
 
+    private static MetadataCacheEntry CacheRow(string key, DateTime expiresAt) => new()
+    {
+        Provider = "musicbrainz",
+        Key = key,
+        Payload = "{}",
+        FetchedAt = expiresAt.AddDays(-1),
+        ExpiresAt = expiresAt,
+    };
+
     [Fact]
     public async Task Expired_blocklist_rows_go_while_permanent_and_future_ones_stay()
     {
@@ -260,6 +270,32 @@ public class HousekeepingCommandHandlerTests
     }
 
     [Fact]
+    public async Task Expired_metadata_cache_rows_go_in_batches_while_fresh_ones_stay_and_the_message_counts_them()
+    {
+        await using var host = await HousekeepingHost.CreateAsync();
+
+        // More than two purge batches of stale rows, so the loop has to come round again.
+        var stale = (MetadataCache.PurgeBatchSize * 2) + 50;
+
+        await host.SeedAsync(context =>
+        {
+            for (var index = 0; index < stale; index++)
+            {
+                context.MetadataCache.Add(CacheRow($"stale-{index}", host.Now.AddMinutes(-1)));
+            }
+
+            context.MetadataCache.Add(CacheRow("fresh-a", host.Now.AddDays(1)));
+            context.MetadataCache.Add(CacheRow("fresh-b", host.Now.AddDays(30)));
+        });
+
+        var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
+
+        message.Should().Contain(string.Create(CultureInfo.InvariantCulture, $"metadata cache {stale},"));
+        (await host.ReadAsync(context => context.MetadataCache.Select(row => row.Key).ToListAsync()))
+            .Should().BeEquivalentTo("fresh-a", "fresh-b");
+    }
+
+    [Fact]
     public async Task The_recycle_bin_is_cleaned_once_and_the_message_summarises_every_step()
     {
         await using var host = await HousekeepingHost.CreateAsync();
@@ -268,7 +304,7 @@ public class HousekeepingCommandHandlerTests
         var message = await host.Handler.ExecuteAsync(NoContext, CancellationToken.None);
 
         await host.RecycleBin.Received(1).CleanupAsync(Arg.Any<CancellationToken>());
-        message.Should().Be("commands 0, search runs 0 (candidates 0), download links 0, blocklist 0, recycle bin 5 files, checkpointed");
+        message.Should().Be("commands 0, search runs 0 (candidates 0), download links 0, blocklist 0, metadata cache 0, recycle bin 5 files, checkpointed");
     }
 
     [Fact]
@@ -510,6 +546,7 @@ public class HousekeepingCommandHandlerTests
             services.AddLogging();
             services.AddSingleton<TimeProvider>(time);
             services.AddSingleton(bin);
+            services.AddSingleton<IMetadataCache, MetadataCache>();
             services.AddWondarrPersistence($"Data Source={Path.Combine(directory, "wondarr.db")}");
 
             var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
