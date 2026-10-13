@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 /** The route table the queue needs: the shell, the list and the removals. */
-function install(items: unknown = paged(QUEUE_ITEMS)): FetchMock {
+function install(items: unknown = paged(QUEUE_ITEMS), removal: () => Response = () => jsonResponse({})): FetchMock {
   return installFetch((url) => {
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
@@ -96,7 +96,7 @@ function install(items: unknown = paged(QUEUE_ITEMS)): FetchMock {
     }
 
     if (url.includes('/api/v1/queue/')) {
-      return jsonResponse({});
+      return removal();
     }
 
     if (url.includes('/api/v1/queue')) {
@@ -168,6 +168,20 @@ describe('QueuePage', () => {
 
     expect(await removalUrl(mock)).toContain('/api/v1/queue/31');
     expect(await removalUrl(mock)).toContain('blocklist=false');
+  });
+
+  it('shows the failure above the table when a plain Remove is refused', async () => {
+    install(paged(QUEUE_ITEMS), () => new Response(null, { status: 409 }));
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText('Actions for Teardrop'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Remove' }));
+
+    expect(await screen.findByText('The download is being imported; try again in a moment.')).toBeInTheDocument();
+    // No dialog was open to carry it.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('asks before blocklisting, and sends the blocklist-skip query', async () => {

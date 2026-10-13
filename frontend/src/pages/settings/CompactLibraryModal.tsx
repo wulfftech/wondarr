@@ -127,20 +127,22 @@ export function CompactLibraryModal({
             )}
 
             {hasMoves && (
-              <Table>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Song</Table.Th>
-                    <Table.Th>From</Table.Th>
-                    <Table.Th>To</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {moves.map((move) => (
-                    <MoveRow key={String(move.songId)} move={move} />
-                  ))}
-                </Table.Tbody>
-              </Table>
+              <Table.ScrollContainer minWidth={560}>
+                <Table>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Song</Table.Th>
+                      <Table.Th>From</Table.Th>
+                      <Table.Th>To</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {moves.map((move) => (
+                      <MoveRow key={String(move.songId)} move={move} />
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
             )}
           </>
         )}

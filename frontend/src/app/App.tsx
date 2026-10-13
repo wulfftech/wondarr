@@ -21,7 +21,7 @@ import { UpdatesPage } from '../pages/system/UpdatesPage';
 import { UnresolvedPage } from '../pages/UnresolvedPage';
 import { WantedPage } from '../pages/WantedPage';
 import { theme } from '../theme/theme';
-import { useEventStream } from './signalr';
+import { EventStreamStatusContext, useEventStream } from './signalr';
 
 const ROUTES: RouteObject[] = [
   {
@@ -72,14 +72,16 @@ export function App({ config, env }: { config: AppConfig; env?: 'default' | 'tes
     [config.urlBase],
   );
 
-  useEventStream(config, queryClient);
+  const streamConnected = useEventStream(config, queryClient);
 
   return (
     <MantineProvider theme={theme} defaultColorScheme="auto" env={env}>
       <Notifications />
       <ApiProvider config={config}>
         <QueryClientProvider client={queryClient}>
-          <RouterProvider router={router} />
+          <EventStreamStatusContext.Provider value={streamConnected}>
+            <RouterProvider router={router} />
+          </EventStreamStatusContext.Provider>
         </QueryClientProvider>
       </ApiProvider>
     </MantineProvider>

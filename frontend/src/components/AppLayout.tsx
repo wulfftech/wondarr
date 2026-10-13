@@ -2,12 +2,14 @@ import {
   ActionIcon,
   AppShell,
   Badge,
+  Burger,
   Group,
   NavLink as MantineNavLink,
   Text,
   Tooltip,
   useMantineColorScheme,
 } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import {
   Activity,
   Archive,
@@ -22,8 +24,11 @@ import {
   Star,
   Sun,
   Timer,
+  WifiOff,
 } from 'lucide-react';
+import { useEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
+import { useEventStreamConnected } from '../app/signalr';
 import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
 import { useMatchQueueTotal } from '../api/references';
@@ -86,14 +91,43 @@ export function AppLayout() {
   const { instanceName } = useAppConfig();
   const problemCount = useProblemCount();
   const matchTotal = useMatchQueueTotal();
+  const streamConnected = useEventStreamConnected();
   const { pathname } = useLocation();
+  const [navOpened, { toggle: toggleNav, close: closeNav }] = useDisclosure(false);
+
+  // Below the breakpoint the navbar covers the page, so every navigation closes it.
+  useEffect(() => {
+    closeNav();
+  }, [pathname, closeNav]);
 
   return (
-    <AppShell header={{ height: 56 }} navbar={{ width: 220, breakpoint: 'sm' }} padding="md">
+    <AppShell
+      header={{ height: 56 }}
+      navbar={{ width: 220, breakpoint: 'sm', collapsed: { mobile: !navOpened } }}
+      padding="md"
+    >
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
-          <Text fw={600}>{instanceName}</Text>
-          <Group gap="sm">
+        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap">
+            <Burger opened={navOpened} onClick={toggleNav} hiddenFrom="sm" size="sm" aria-label="Toggle navigation" />
+            <Text fw={600}>{instanceName}</Text>
+          </Group>
+          <Group gap="sm" wrap="nowrap">
+            {!streamConnected && (
+              <Tooltip label="Live updates disconnected — reconnecting…">
+                <Badge
+                  color="yellow"
+                  variant="light"
+                  leftSection={<WifiOff size={12} />}
+                  role="status"
+                  aria-label="Live updates disconnected — reconnecting…"
+                >
+                  <Text span visibleFrom="sm" inherit>
+                    Live updates disconnected — reconnecting…
+                  </Text>
+                </Badge>
+              </Tooltip>
+            )}
             <UpdateBadge />
             {problemCount !== null && <HealthBadge count={problemCount} />}
             <ColorSchemeToggle />

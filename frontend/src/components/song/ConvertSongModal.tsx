@@ -5,6 +5,7 @@ import {
   useCommand,
   useConvertSongs,
   useConvertSongsPreview,
+  useRefreshSongsWhenFinished,
   type ConvertPlanResource,
   type SongResource,
 } from '../../api/songs';
@@ -79,6 +80,15 @@ export function ConvertSongModal({
   opened: boolean;
   onClose: () => void;
 }) {
+  return (
+    <Modal opened={opened} onClose={onClose} title="Convert">
+      {/* Keyed by the song, and unmounted with the dialog, so one song's plan and errors never reach the next. */}
+      <ConvertSongForm key={song?.id} song={song} onClose={onClose} />
+    </Modal>
+  );
+}
+
+function ConvertSongForm({ song, onClose }: { song: SongResource | null; onClose: () => void }) {
   const preview = useConvertSongsPreview();
   const convert = useConvertSongs();
   const [codec, setCodec] = useState('');
@@ -88,6 +98,9 @@ export function ConvertSongModal({
   const [plan, setPlan] = useState<ConvertPlanResource | null>(null);
   const [commandId, setCommandId] = useState<number | null>(null);
   const command = useCommand(commandId, { poll: true });
+
+  // The file is converted only once the command has run, not when the API answered 202.
+  useRefreshSongsWhenFinished(command.data);
 
   const rule = ruleOf(codec, mode, bitrate, vbrQuality);
 
@@ -111,93 +124,91 @@ export function ConvertSongModal({
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Convert">
-      <Stack gap="md">
-        <Text size="sm">Convert “{song?.title ?? ''}” in place. The original goes to the recycle bin.</Text>
+    <Stack gap="md">
+      <Text size="sm">Convert “{song?.title ?? ''}” in place. The original goes to the recycle bin.</Text>
 
-        <Group gap="sm" align="flex-end" wrap="nowrap">
-          <Select
-            label="Rule"
-            placeholder="Use the library's rules"
-            data={[{ value: '', label: "Use the library's rules" }, ...CODECS]}
-            value={codec}
-            w={200}
-            onChange={(value) => setCodec(value ?? '')}
+      <Group gap="sm" align="flex-end" wrap="nowrap">
+        <Select
+          label="Rule"
+          placeholder="Use the library's rules"
+          data={[{ value: '', label: "Use the library's rules" }, ...CODECS]}
+          value={codec}
+          w={200}
+          onChange={(value) => setCodec(value ?? '')}
+        />
+
+        {codec === 'mp3' && (
+          <SegmentedControl
+            data={[
+              { value: 'cbr', label: 'CBR' },
+              { value: 'vbr', label: 'VBR' },
+            ]}
+            value={mode}
+            onChange={setMode}
           />
-
-          {codec === 'mp3' && (
-            <SegmentedControl
-              data={[
-                { value: 'cbr', label: 'CBR' },
-                { value: 'vbr', label: 'VBR' },
-              ]}
-              value={mode}
-              onChange={setMode}
-            />
-          )}
-
-          {codec !== '' && codec !== 'flac' && codec !== 'alac' && mode === 'cbr' && (
-            <Select
-              label="Bitrate"
-              data={BITRATES}
-              value={bitrate}
-              allowDeselect={false}
-              w={140}
-              onChange={(value) => setBitrate(value ?? '320')}
-            />
-          )}
-
-          {codec === 'mp3' && mode === 'vbr' && (
-            <Select
-              label="VBR quality"
-              data={VBR_QUALITIES}
-              value={vbrQuality}
-              allowDeselect={false}
-              w={120}
-              onChange={(value) => setVbrQuality(value ?? '2')}
-            />
-          )}
-        </Group>
-
-        <Group>
-          <Button variant="light" loading={preview.isPending} onClick={runPreview}>
-            Preview
-          </Button>
-          <Button loading={convert.isPending} onClick={runConvert}>
-            Convert
-          </Button>
-        </Group>
-
-        {preview.error !== null && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            {preview.error.message}
-          </Alert>
         )}
 
-        {plan !== null && <Text size="sm">{planLine(plan)}</Text>}
-
-        {convert.error !== null && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            {convert.error.message}
-          </Alert>
+        {codec !== '' && codec !== 'flac' && codec !== 'alac' && mode === 'cbr' && (
+          <Select
+            label="Bitrate"
+            data={BITRATES}
+            value={bitrate}
+            allowDeselect={false}
+            w={140}
+            onChange={(value) => setBitrate(value ?? '320')}
+          />
         )}
 
-        {command.data?.message !== null && command.data?.message !== undefined && (
-          <Text size="sm">{command.data.message}</Text>
+        {codec === 'mp3' && mode === 'vbr' && (
+          <Select
+            label="VBR quality"
+            data={VBR_QUALITIES}
+            value={vbrQuality}
+            allowDeselect={false}
+            w={120}
+            onChange={(value) => setVbrQuality(value ?? '2')}
+          />
         )}
+      </Group>
 
-        {command.error !== null && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            {command.error.message}
-          </Alert>
-        )}
+      <Group>
+        <Button variant="light" loading={preview.isPending} onClick={runPreview}>
+          Preview
+        </Button>
+        <Button loading={convert.isPending} onClick={runConvert}>
+          Convert
+        </Button>
+      </Group>
 
-        <Group justify="flex-end">
-          <Button variant="default" onClick={onClose}>
-            Close
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
+      {preview.error !== null && (
+        <Alert color="red" icon={<CircleAlert size={16} />}>
+          {preview.error.message}
+        </Alert>
+      )}
+
+      {plan !== null && <Text size="sm">{planLine(plan)}</Text>}
+
+      {convert.error !== null && (
+        <Alert color="red" icon={<CircleAlert size={16} />}>
+          {convert.error.message}
+        </Alert>
+      )}
+
+      {command.data?.message !== null && command.data?.message !== undefined && (
+        <Text size="sm">{command.data.message}</Text>
+      )}
+
+      {command.error !== null && (
+        <Alert color="red" icon={<CircleAlert size={16} />}>
+          {command.error.message}
+        </Alert>
+      )}
+
+      <Group justify="flex-end">
+        <Button variant="default" onClick={onClose}>
+          Close
+        </Button>
+      </Group>
+    </Stack>
   );
 }

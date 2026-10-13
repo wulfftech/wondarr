@@ -360,7 +360,8 @@ export function AddAlbumTab({ prefill }: { prefill: AlbumPrefill | null }) {
               data={releaseList.map((release) => ({ value: release.id, label: releaseLabel(release) }))}
               value={releaseId}
               allowDeselect={false}
-              w={420}
+              w="100%"
+              maw={420}
               onChange={(value) => setPickedReleaseId(value)}
             />
           )}
@@ -384,66 +385,68 @@ export function AddAlbumTab({ prefill }: { prefill: AlbumPrefill | null }) {
                 </Text>
               </Group>
 
-              <Table verticalSpacing="xs" horizontalSpacing="sm" withTableBorder>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th w={36} aria-label="Add" />
-                    <Table.Th w={60}>#</Table.Th>
-                    <Table.Th>Title</Table.Th>
-                    <Table.Th>Artist</Table.Th>
-                    <Table.Th w={90}>Length</Table.Th>
-                    <Table.Th w={130} aria-label="Library" />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {tracks.map((track) => {
-                    const key = trackKeyOf(track);
-                    const owned = track.owned;
+              <Table.ScrollContainer minWidth={560}>
+                <Table verticalSpacing="xs" horizontalSpacing="sm" withTableBorder>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th w={36} aria-label="Add" />
+                      <Table.Th w={60}>#</Table.Th>
+                      <Table.Th>Title</Table.Th>
+                      <Table.Th>Artist</Table.Th>
+                      <Table.Th w={90}>Length</Table.Th>
+                      <Table.Th w={130} aria-label="Library" />
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {tracks.map((track) => {
+                      const key = trackKeyOf(track);
+                      const owned = track.owned;
 
-                    return (
-                      <Table.Tr key={`${String(track.disc)}-${String(track.position)}-${key ?? track.title}`}>
-                        <Table.Td>
-                          <Checkbox
-                            aria-label={`Add ${track.title}`}
-                            checked={owned || (key !== null && isSelected(key))}
-                            disabled={owned || key === null}
-                            onChange={(event) => {
-                              if (key !== null) {
-                                toggle(key, event.currentTarget.checked);
-                              }
-                            }}
-                          />
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" c="dimmed">
-                            {trackPosition(track)}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm">{track.title}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" c="dimmed">
-                            {track.artistCredit}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" c="dimmed">
-                            {formatDuration(track.lengthMs)}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          {owned && (
-                            <Text component={Link} size="xs" to="/library">
-                              In the library
+                      return (
+                        <Table.Tr key={`${String(track.disc)}-${String(track.position)}-${key ?? track.title}`}>
+                          <Table.Td>
+                            <Checkbox
+                              aria-label={`Add ${track.title}`}
+                              checked={owned || (key !== null && isSelected(key))}
+                              disabled={owned || key === null}
+                              onChange={(event) => {
+                                if (key !== null) {
+                                  toggle(key, event.currentTarget.checked);
+                                }
+                              }}
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <Text size="sm" c="dimmed">
+                              {trackPosition(track)}
                             </Text>
-                          )}
-                        </Table.Td>
-                      </Table.Tr>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text size="sm">{track.title}</Text>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text size="sm" c="dimmed">
+                              {track.artistCredit}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text size="sm" c="dimmed">
+                              {formatDuration(track.lengthMs)}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            {owned && (
+                              <Text component={Link} size="xs" to="/library">
+                                In the library
+                              </Text>
+                            )}
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                    })}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
 
               <Group justify="space-between" wrap="nowrap" align="flex-end">
                 <Group gap="md" align="flex-end">
