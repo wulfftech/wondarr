@@ -1,8 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -24,7 +26,7 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
     private readonly IEventAggregator _eventAggregator;
     private readonly TimeProvider _timeProvider;
     private readonly ActiveCommands _activeCommands;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _gate;
 
     /// <summary>Initialises a new instance of the <see cref="CommandQueue"/> class.</summary>
     public CommandQueue(
@@ -45,6 +47,7 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
         _eventAggregator = eventAggregator;
         _timeProvider = timeProvider;
         _activeCommands = activeCommands;
+        _gate = activeCommands.Gate;
     }
 
     /// <inheritdoc />
@@ -132,7 +135,7 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
 
             // A request to search particular songs, while another such request has not started yet, is
             // folded into it: one command with all the songs, not a pile of them behind a long run.
-            var merged = await TryMergeQueuedAsync(context, active, body, cancellationToken).ConfigureAwait(false);
+            var merged = await TryMergeQueuedAsync(context, name, active, body, cancellationToken).ConfigureAwait(false);
 
             if (merged is not null)
             {
@@ -171,7 +174,6 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        _gate.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -265,24 +267,35 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
     /// </summary>
     private async Task<CommandRecord?> TryMergeQueuedAsync(
         WondarrDbContext context,
+        string name,
         List<CommandRecord> active,
         string? body,
         CancellationToken cancellationToken)
     {
-        if (ReadSongIds(body) is not { } wanted)
+        // Only the missing search is folded: it is a request to look at these songs, and two of them are
+        // one request for the union. Other commands that name songs (MoveSongs, ConvertFiles) carry
+        // parameters of their own, and two of them are two different requests.
+        if (!string.Equals(name, MissingSearchCommandHandler.CommandName, StringComparison.Ordinal)
+            || ReadSongIds(body) is not { } wanted)
         {
             return null;
         }
 
         foreach (var queued in active.Where(command => command.Status == CommandStatus.Queued))
         {
-            if (ReadSongIds(queued.Body) is not { } already)
+            if (ReadSongIds(queued.Body) is not { } already || JsonNode.Parse(queued.Body!) is not JsonObject node)
             {
                 continue;
             }
 
-            var ids = already.Union(wanted).Order().ToList();
-            var merged = JsonSerializer.Serialize(new { name = queued.Name, songIds = ids });
+            // Every other member of the queued body is kept as it is.
+            foreach (var key in node.Select(member => member.Key).Where(key => string.Equals(key, "songIds", StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                node.Remove(key);
+            }
+
+            node["songIds"] = new JsonArray([.. already.Union(wanted).Order().Select(id => (JsonNode?)JsonValue.Create(id))]);
+            var merged = node.ToJsonString();
             var now = _timeProvider.GetUtcNow().UtcDateTime;
 
             var changed = await context.Commands

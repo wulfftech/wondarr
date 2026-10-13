@@ -12,6 +12,12 @@ public sealed class ActiveCommands
 {
     private readonly ConcurrentDictionary<long, byte> _ids = new();
 
+    /// <summary>
+    /// Gets the gate the queue holds while it writes a row and records it here (and while it cancels one).
+    /// The executor's start-up sweep takes it too, so it never sees a row that is saved but not yet held.
+    /// </summary>
+    internal SemaphoreSlim Gate { get; } = new(1, 1);
+
     /// <summary>Records that the process holds the command.</summary>
     /// <param name="id">The command row.</param>
     public void Add(long id) => _ids[id] = 0;
