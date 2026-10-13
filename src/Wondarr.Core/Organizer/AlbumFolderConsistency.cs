@@ -42,11 +42,7 @@ public static class AlbumFolderConsistency
             changed.Add(nameof(AlbumContext.AlbumArtist));
         }
 
-        // The Singles pseudo-album is not one release: each single keeps its own date, so one sibling's
-        // date is never copied onto the others (it would tag them, and name their folder, with the wrong year).
-        var singles = target.Kind == AlbumContextKind.PseudoSingles || folder.Kind == AlbumContextKind.PseudoSingles;
-
-        if (!singles && !string.Equals(target.Date, folder.Date, StringComparison.Ordinal))
+        if (!string.Equals(target.Date, folder.Date, StringComparison.Ordinal))
         {
             target.Date = folder.Date;
             changed.Add(nameof(AlbumContext.Date));
