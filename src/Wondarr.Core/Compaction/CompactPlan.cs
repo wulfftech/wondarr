@@ -32,7 +32,11 @@ public sealed record CompactMove(
     CompactAlbum To,
     string? FromPath,
     string? ToPath,
-    AlbumContext Proposed);
+    AlbumContext Proposed)
+{
+    /// <summary>Gets a value indicating whether the move keeps the album and only changes the file's folder or name.</summary>
+    public bool IsTemplateMove => string.Equals(From.AlbumKey, To.AlbumKey, StringComparison.Ordinal);
+}
 
 /// <summary>
 /// The whole re-plan of one library: how many albums it holds now and would hold afterwards, how many
@@ -42,10 +46,26 @@ public sealed record CompactMove(
 /// <param name="AlbumsBefore">How many distinct album keys the library's songs hold now.</param>
 /// <param name="AlbumsAfter">How many distinct album keys they would hold after the moves.</param>
 /// <param name="SongsConsidered">How many songs the re-plan looked at.</param>
-/// <param name="Moves">The songs whose album would change, ordered by from-album, then to-album, then song id.</param>
+/// <param name="Moves">
+/// The songs that would move, ordered by from-album, then to-album, then song id: those whose album
+/// changes, and the template moves of this run (at most <see cref="CompactPlanner.MaxTemplateMovesPerRun"/>, whole albums).
+/// </param>
+/// <param name="TemplateMovesTotal">
+/// How many template moves the library needs in all, before the per-run cap; the plan lists the first albums' worth.
+/// </param>
+/// <param name="SuppressedRowIds">
+/// The rows of earlier moves that failed (or were given up) for the very path the planner would offer
+/// again: the planner leaves those songs out, and the executor keeps the rows so the next run does too.
+/// </param>
 public sealed record CompactPlan(
     long LibraryId,
     int AlbumsBefore,
     int AlbumsAfter,
     int SongsConsidered,
-    IReadOnlyList<CompactMove> Moves);
+    IReadOnlyList<CompactMove> Moves,
+    int TemplateMovesTotal = 0,
+    IReadOnlyList<long>? SuppressedRowIds = null)
+{
+    /// <summary>Gets how many of <see cref="Moves"/> only change a folder, not the album.</summary>
+    public int TemplateMoves => Moves.Count(move => move.IsTemplateMove);
+}
