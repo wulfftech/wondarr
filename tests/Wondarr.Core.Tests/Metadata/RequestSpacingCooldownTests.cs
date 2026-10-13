@@ -133,31 +133,37 @@ public sealed class RequestSpacingCooldownTests
     [Fact]
     public async Task A_cooldown_set_while_requests_are_queued_holds_back_the_requests_already_waiting()
     {
-        var time = new FakeTimeProvider(Start);
+        var fake = new FakeTimeProvider(Start);
+        var time = new CountingTimeProvider(fake);
         var gate = new RequestSpacingGate(TimeSpan.FromSeconds(1), time);
 
         // Four requests are queued at t, t+1, t+2 and t+3. The first goes out at once and is answered
         // with Retry-After: 60 before the other three have started.
         var waiters = Enumerable.Range(0, 4).Select(_ => gate.WaitAsync(CancellationToken.None).AsTask()).ToArray();
         waiters[0].IsCompleted.Should().BeTrue();
+        time.TimersCreated.Should().Be(3);
 
         gate.DelayUntil(Start.AddSeconds(60));
 
-        // Past the three slots they were given, and up to a second before the cooldown ends: none goes out.
-        time.Advance(TimeSpan.FromSeconds(59));
-        await SettleAsync();
+        // Their own slots (1 to 3 s) pass. Each waiter must take its new slot, which shows as a second
+        // timer, before the clock moves on: the continuations run on the thread pool.
+        fake.Advance(TimeSpan.FromSeconds(3));
+        await UntilAsync(() => time.TimersCreated == 6);
+
+        // Up to a second before the cooldown ends: none goes out.
+        fake.Advance(TimeSpan.FromSeconds(56));
         waiters.Skip(1).Should().OnlyContain(waiter => !waiter.IsCompleted);
 
         // The cooldown ends: they leave one slot apart, not all at once.
-        time.Advance(TimeSpan.FromSeconds(1));
-        await SettleAsync();
+        fake.Advance(TimeSpan.FromSeconds(1));
+        await UntilAsync(() => waiters.Skip(1).Any(waiter => waiter.IsCompleted));
         waiters.Skip(1).Count(waiter => waiter.IsCompleted).Should().Be(1);
 
-        time.Advance(TimeSpan.FromSeconds(1));
-        await SettleAsync();
+        fake.Advance(TimeSpan.FromSeconds(1));
+        await UntilAsync(() => waiters.Skip(1).Count(waiter => waiter.IsCompleted) >= 2);
         waiters.Skip(1).Count(waiter => waiter.IsCompleted).Should().Be(2);
 
-        time.Advance(TimeSpan.FromSeconds(1));
+        fake.Advance(TimeSpan.FromSeconds(1));
         await Task.WhenAll(waiters).WaitAsync(TimeSpan.FromSeconds(10));
     }
 
@@ -172,12 +178,10 @@ public sealed class RequestSpacingCooldownTests
 
         gate.DelayUntil(Start.AddSeconds(30));
         time.Advance(TimeSpan.FromSeconds(1));
-        await SettleAsync();
 
         // Moved to the first cooldown's end; then the host asks for longer.
         gate.DelayUntil(Start.AddSeconds(90));
         time.Advance(TimeSpan.FromSeconds(29));
-        await SettleAsync();
         waiting.IsCompleted.Should().BeFalse();
 
         time.Advance(TimeSpan.FromSeconds(60));
@@ -195,12 +199,39 @@ public sealed class RequestSpacingCooldownTests
             .Should().Be(TimeSpan.FromSeconds(1));
     }
 
-    /// <summary>Lets continuations that the fake clock just released run to their next await.</summary>
-    private static async Task SettleAsync()
+    /// <summary>
+    /// Waits, bounded and without sleeping, until a condition the fake clock's callbacks make true holds;
+    /// a condition that never comes true fails the test instead of hanging it.
+    /// </summary>
+    private static async Task UntilAsync(Func<bool> condition)
     {
-        for (var i = 0; i < 20; i++)
+        var guard = System.Diagnostics.Stopwatch.StartNew();
+
+        while (!condition())
         {
+            guard.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the waiters must make progress");
             await Task.Yield();
+        }
+    }
+
+    /// <summary>Counts the timers the gate asks for, so a test can tell when a woken waiter has re-queued.</summary>
+    private sealed class CountingTimeProvider(FakeTimeProvider inner) : TimeProvider
+    {
+        private int _timers;
+
+        public int TimersCreated => Volatile.Read(ref _timers);
+
+        public override long TimestampFrequency => inner.TimestampFrequency;
+
+        public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+
+        public override long GetTimestamp() => inner.GetTimestamp();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Interlocked.Increment(ref _timers);
+
+            return inner.CreateTimer(callback, state, dueTime, period);
         }
     }
 

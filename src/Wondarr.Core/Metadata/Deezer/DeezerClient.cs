@@ -320,7 +320,17 @@ public sealed class DeezerClient : IDeezerClient
         var cached = await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
-            return cached == NoDataPayload ? null : cached;
+            if (cached == NoDataPayload)
+            {
+                return null;
+            }
+
+            // A row written before bodies were checked can be an error page: fetch it again, and the
+            // fresh answer overwrites it.
+            if (ProviderBodies.IsReadable<T>(Provider, cached, SerializerOptions, _logger))
+            {
+                return cached;
+            }
         }
 
         var body = await SendAsync(relativeUri, cancellationToken).ConfigureAwait(false);

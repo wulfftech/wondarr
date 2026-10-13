@@ -128,6 +128,16 @@ public sealed class MetadataUnavailableApiTests
         response.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(60));
     }
 
+    [Fact]
+    public async Task A_provider_attempt_that_times_out_is_a_503_not_a_500()
+    {
+        // What AttemptTimeoutHandler raises: a TaskCanceledException while the request itself is alive.
+        using var response = await ReleasesStatusAsync(new TaskCanceledException("MusicBrainz did not answer within 30 s."));
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(60));
+    }
+
     private static async Task<HttpResponseMessage> ReleasesStatusAsync(Exception failure)
     {
         using var factory = SongApiTests.FakeProviders();

@@ -10,7 +10,6 @@ using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Polly.Timeout;
 
 namespace Wondarr.Core.ImportLists;
 
@@ -566,12 +565,12 @@ public sealed partial class PasteListService : IPasteListService
         {
             Fail(item, exception);
         }
-        catch (Exception exception) when (exception is TimeoutRejectedException
+        catch (Exception exception) when (exception is JsonException
             || (exception is OperationCanceledException
                 && !CancellationRules.IsCallerCancellation(exception, cancellationToken)))
         {
-            // A metadata call that ran out of time (a long Retry-After cooldown, a host that hangs) is
-            // one failed lookup, not the end of the list run. Only the caller giving up stops it.
+            // A metadata call that ran out of time (a host that hangs) or answered something unreadable
+            // is one failed lookup, not the end of the list run. Only the caller giving up stops it.
             Fail(item, exception);
         }
 

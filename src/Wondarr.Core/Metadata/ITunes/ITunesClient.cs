@@ -177,10 +177,14 @@ public sealed class ITunesClient : IITunesClient
     private async Task<ITunesSearchResult?> GetResultAsync(string relativeUri, CancellationToken cancellationToken)
     {
         var cached = await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
-        if (cached is not null)
+        if (cached is not null
+            && ProviderBodies.IsReadable<ITunesSearchResult>(Provider, cached, SerializerOptions, _logger))
         {
             return JsonSerializer.Deserialize<ITunesSearchResult>(cached, SerializerOptions);
         }
+
+        // Otherwise the row, if any, was written before bodies were checked and is an error page: the
+        // fresh answer below overwrites it.
 
         using var request = new HttpRequestMessage(HttpMethod.Get, relativeUri);
         using var response = await _http

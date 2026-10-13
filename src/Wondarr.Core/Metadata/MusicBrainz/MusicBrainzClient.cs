@@ -229,7 +229,17 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
         var cached = await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
-            return cached == NotFoundPayload ? null : cached;
+            if (cached == NotFoundPayload)
+            {
+                return null;
+            }
+
+            // A row written before bodies were checked can be an error page: fetch it again, and the
+            // fresh answer overwrites it.
+            if (ProviderBodies.IsReadable<T>(Provider, cached, SerializerOptions, _logger))
+            {
+                return cached;
+            }
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, relativeUri);

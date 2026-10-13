@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -29,7 +30,11 @@ internal static partial class ProviderBodies
         }
         catch (JsonException)
         {
-            LogUnreadableBody(logger, provider, body.Length > LoggedBodyLength ? body[..LoggedBodyLength] : body);
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                var start = Snippet(body);
+                LogUnreadableBody(logger, provider, start);
+            }
 
             // A 502, so callers treat it as a provider that is down, not as one refusing the request.
             throw new MetadataProviderException(
@@ -39,8 +44,57 @@ internal static partial class ProviderBodies
         }
     }
 
+    /// <summary>
+    /// Whether a cached body still parses as <typeparamref name="T"/>. A row written before bodies were
+    /// checked can be an error page; the caller then goes to the network, and the fresh answer overwrites it.
+    /// </summary>
+    public static bool IsReadable<T>(string provider, string body, JsonSerializerOptions options, ILogger logger)
+    {
+        try
+        {
+            JsonSerializer.Deserialize<T>(body, options);
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            if (logger.IsEnabled(LogLevel.Debug))
+            {
+                var start = Snippet(body);
+                LogUnreadableCacheEntry(logger, provider, start);
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>The first characters of a body, safe to log: no control characters, no cut surrogate pair.</summary>
+    internal static string Snippet(string body)
+    {
+        var length = Math.Min(body.Length, LoggedBodyLength);
+
+        if (length < body.Length && length > 0 && char.IsHighSurrogate(body[length - 1]))
+        {
+            length--;
+        }
+
+        var builder = new StringBuilder(length);
+
+        foreach (var character in body.AsSpan(0, length))
+        {
+            builder.Append(char.IsControl(character) ? ' ' : character);
+        }
+
+        return builder.ToString();
+    }
+
     [LoggerMessage(
         Level = LogLevel.Debug,
         Message = "{Provider} answered 2xx with a body that is not the expected JSON; not cached. Starts: {Start}")]
     private static partial void LogUnreadableBody(ILogger logger, string provider, string start);
+
+    [LoggerMessage(
+        Level = LogLevel.Debug,
+        Message = "A cached {Provider} body is not the expected JSON; fetching it again. Starts: {Start}")]
+    private static partial void LogUnreadableCacheEntry(ILogger logger, string provider, string start);
 }
