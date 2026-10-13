@@ -659,7 +659,10 @@ public class SongServiceTests : IDisposable
         using var document = JsonDocument.Parse(body);
         var named = document.RootElement.GetProperty("songIds").EnumerateArray().Select(id => id.GetInt64());
 
-        return named.Order().SequenceEqual(songIds.Order());
+        // Sorted, so the same set of songs is the same request whatever order the add produced them in.
+        var list = named.ToList();
+
+        return list.SequenceEqual(list.Order()) && list.SequenceEqual(songIds.Order());
     }
 
     [Fact]

@@ -289,7 +289,28 @@ public sealed partial class SongSearchService : ISongSearchService
             return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, cutoffMessage);
         }
 
-        var run = await _runs.StartAsync(songId, trigger, cancellationToken).ConfigureAwait(false);
+        // Another run is searching this song for a grab right now (the scheduled and the bodied missing
+        // search overlap, say): it is left to that run.
+        if (grab && !_waiters.TryBeginSearch(songId))
+        {
+            return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, "Already being searched");
+        }
+
+        SearchRun run;
+
+        try
+        {
+            run = await _runs.StartAsync(songId, trigger, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (grab)
+            {
+                _waiters.EndSearch(songId);
+            }
+
+            throw;
+        }
 
         // Everything that was asked and everything that came back, so a run that ends in an exception
         // still says what it had got through. Declared out here because the catch below closes it.
@@ -321,6 +342,13 @@ public sealed partial class SongSearchService : ISongSearchService
                 .ConfigureAwait(false);
 
             throw;
+        }
+        finally
+        {
+            if (grab)
+            {
+                _waiters.EndSearch(songId);
+            }
         }
     }
 
@@ -1340,7 +1368,6 @@ public sealed partial class SongSearchService : ISongSearchService
                 cancellationToken)
             .ConfigureAwait(false);
 
-    /// <summary>Loads the song with everything the decision context needs.</summary>
     /// <summary>
     /// Why an automatic search has nothing to do for a song that holds a file: it already meets its
     /// profile's cutoff and the profile lets nothing better replace it. <see langword="null"/> when the
@@ -1373,6 +1400,7 @@ public sealed partial class SongSearchService : ISongSearchService
             " profile, so nothing is searched for.");
     }
 
+    /// <summary>Loads the song with everything the decision context needs.</summary>
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
             .AsNoTracking()

@@ -20,6 +20,10 @@ public sealed class ActiveCommands
     /// <param name="id">The command row.</param>
     public void Remove(long id) => _ids.TryRemove(id, out _);
 
+    /// <summary>The ids held right now, for a caller that has to judge rows read afterwards against what was held before the read.</summary>
+    /// <returns>A copy of the held ids.</returns>
+    public HashSet<long> Snapshot() => [.. _ids.Keys];
+
     /// <summary>Whether the process still holds the command.</summary>
     /// <param name="id">The command row.</param>
     /// <returns><see langword="true"/> when the executor may yet run or finish it.</returns>

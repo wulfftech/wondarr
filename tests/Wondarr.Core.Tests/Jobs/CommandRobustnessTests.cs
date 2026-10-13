@@ -167,7 +167,8 @@ public class CommandRobustnessTests
 
         album.Id.Should().NotBe(running, "the running one chose its batch before these songs existed");
         sameAlbum.Id.Should().Be(album.Id, "an identical body is the same request");
-        otherAlbum.Id.Should().NotBe(album.Id);
+        otherAlbum.Id.Should().Be(album.Id, "a request to search more songs is folded into the one still waiting to start");
+        (await host.Queue.GetAsync(album.Id, CancellationToken.None))!.Body.Should().Contain("7,8,9,10");
     }
 
     [Fact]
@@ -250,6 +251,148 @@ public class CommandRobustnessTests
         await executor.StopAsync(stopBudget.Token);
     }
 
+    [Fact]
+    public async Task A_command_that_finishes_while_an_enqueue_reads_the_rows_is_not_overwritten_as_stranded()
+    {
+        var interceptor = new StartWriteInterceptor();
+        await using var host = await JobTestHost.CreateAsync(services => Intercept(services, interceptor));
+        var running = await host.InsertCommandAsync("Heartbeat", CommandStatus.Started, live: true);
+
+        // The enqueue has read X as Started; then X finishes (its row is Completed, the executor lets go).
+        interceptor.AfterCommandRead = async () =>
+        {
+            await host.UseDatabaseAsync(async context =>
+            {
+                var row = await context.Commands.SingleAsync(command => command.Id == running);
+                row.Status = CommandStatus.Completed;
+                row.Result = CommandResult.Successful;
+                row.EndedAt = host.TimeProvider.GetUtcNow().UtcDateTime;
+            });
+            host.Active.Remove(running);
+        };
+
+        var again = await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Scheduled, CancellationToken.None);
+
+        var finished = await host.Queue.GetAsync(running, CancellationToken.None);
+        finished!.Status.Should().Be(CommandStatus.Completed, "it was held when the enqueue looked, so it is not stranded");
+        finished.Exception.Should().BeNull();
+        again.Id.Should().Be(running, "the enqueue judged the command by what it saw: still running");
+    }
+
+    [Fact]
+    public async Task A_stranded_row_that_finished_after_it_was_read_is_left_alone_by_the_conditional_update()
+    {
+        var interceptor = new StartWriteInterceptor();
+        await using var host = await JobTestHost.CreateAsync(services => Intercept(services, interceptor));
+        var stale = await host.InsertCommandAsync("Heartbeat", CommandStatus.Started);
+
+        interceptor.AfterCommandRead = async () =>
+            await host.UseDatabaseAsync(async context =>
+            {
+                var row = await context.Commands.SingleAsync(command => command.Id == stale);
+                row.Status = CommandStatus.Completed;
+            });
+
+        await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Scheduled, CancellationToken.None);
+
+        (await StatusAsync(host, stale)).Should().Be(CommandStatus.Completed, "only a Queued or Started row is failed");
+    }
+
+    [Fact]
+    public async Task A_start_whose_answer_was_lost_after_it_committed_still_runs_the_command()
+    {
+        var handler = new BlockingCommandHandler("Long");
+        var interceptor = new StartWriteInterceptor { ThrowAfterNextStart = true };
+        await using var host = await JobTestHost.CreateAsync(services =>
+        {
+            services.AddSingleton<ICommandHandler>(handler);
+            Intercept(services, interceptor);
+        });
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        // The update commits, then the call throws; the retry updates no row but finds its own start.
+        var queued = await host.Queue.EnqueueAsync("Long", null, CommandTrigger.Manual, CancellationToken.None);
+
+        (await TestWait.UntilAsync(() =>
+        {
+            AdvancePastRetries(host);
+
+            return Task.FromResult(handler.StartedCount == 1);
+        })).Should().BeTrue("the command was started, so it runs");
+
+        handler.Release();
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Completed)).Should().BeTrue();
+        interceptor.StartAttempts.Should().Be(2);
+
+        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
+        await executor.StopAsync(stopBudget.Token);
+    }
+
+    [Fact]
+    public async Task A_command_a_scheduler_queued_before_the_executor_started_is_not_orphaned()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        // An overdue trigger fires as the host comes up and queues the command before the executor starts.
+        var early = await host.Queue.EnqueueAsync("Heartbeat", null, CommandTrigger.Scheduled, CancellationToken.None);
+        var leftOver = await host.InsertCommandAsync("CheckHealth", CommandStatus.Started);
+
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, early.Id) == CommandStatus.Completed))
+            .Should().BeTrue("it ran instead of being marked Orphaned");
+        (await StatusAsync(host, leftOver)).Should().Be(CommandStatus.Orphaned, "a row nobody holds is a previous process's");
+
+        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
+        await executor.StopAsync(stopBudget.Token);
+    }
+
+    [Fact]
+    public async Task A_batch_search_is_merged_into_one_that_has_not_started_yet()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var first = await host.Queue.EnqueueAsync(
+            "MissingSearch",
+            "{\"name\":\"MissingSearch\",\"songIds\":[9,7]}",
+            CommandTrigger.Unspecified,
+            CancellationToken.None);
+        var second = await host.Queue.EnqueueAsync(
+            "MissingSearch",
+            "{\"name\":\"MissingSearch\",\"songIds\":[8,7,10]}",
+            CommandTrigger.Unspecified,
+            CancellationToken.None);
+
+        second.Id.Should().Be(first.Id, "one queued command, not two");
+        var stored = await host.Queue.GetAsync(first.Id, CancellationToken.None);
+        using var document = System.Text.Json.JsonDocument.Parse(stored!.Body!);
+        document.RootElement.GetProperty("songIds").EnumerateArray().Select(id => id.GetInt64())
+            .Should().Equal(7, 8, 9, 10);
+        (await host.Queue.ListAsync(10)).Should().ContainSingle(command => command.Name == "MissingSearch");
+    }
+
+    [Fact]
+    public async Task A_batch_search_is_not_merged_into_one_that_has_started()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+        var running = await host.InsertCommandAsync(
+            "MissingSearch",
+            CommandStatus.Started,
+            "{\"name\":\"MissingSearch\",\"songIds\":[1]}",
+            live: true);
+
+        var next = await host.Queue.EnqueueAsync(
+            "MissingSearch",
+            "{\"name\":\"MissingSearch\",\"songIds\":[2]}",
+            CommandTrigger.Unspecified,
+            CancellationToken.None);
+
+        next.Id.Should().NotBe(running);
+        (await host.Queue.GetAsync(running, CancellationToken.None))!.Body.Should().Contain("[1]");
+    }
+
     private static void AdvancePastRetries(JobTestHost host) =>
         host.TimeProvider.Advance(CommandExecutor.WorkerFaultPause + CommandExecutor.StatusWriteRetryPause);
 
@@ -266,10 +409,60 @@ public class CommandRobustnessTests
     private sealed class StartWriteInterceptor : DbCommandInterceptor
     {
         private int _attempts;
+        private int _throwAfter;
         private int _failLeft;
+        private Func<Task>? _afterCommandRead;
         private Func<Task>? _beforeStart;
 
         public bool FailStarts { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the next start update commits and then throws.</summary>
+        public bool ThrowAfterNextStart
+        {
+            get => Volatile.Read(ref _throwAfter) == 1;
+            set => Volatile.Write(ref _throwAfter, value ? 1 : 0);
+        }
+
+        /// <summary>Sets a hook that runs once, right after the next read of the command table.</summary>
+        public Func<Task>? AfterCommandRead
+        {
+            set => _afterCommandRead = value;
+        }
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.StartsWith("SELECT", StringComparison.Ordinal)
+                && command.CommandText.Contains("FROM \"command\"", StringComparison.Ordinal)
+                && Interlocked.Exchange(ref _afterCommandRead, null) is { } hook)
+            {
+                await hook();
+            }
+
+            return result;
+        }
+
+        public override ValueTask<int> NonQueryExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            int result,
+            CancellationToken cancellationToken = default)
+        {
+            if (IsStartUpdate(command.CommandText) && Interlocked.CompareExchange(ref _throwAfter, 0, 1) == 1)
+            {
+                throw new InvalidOperationException("the answer was lost");
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        private static bool IsStartUpdate(string sql) =>
+            sql.StartsWith("UPDATE", StringComparison.Ordinal)
+            && sql.Contains("\"started_at\"", StringComparison.Ordinal)
+            && !sql.Contains("\"ended_at\"", StringComparison.Ordinal);
 
         public int FailNextStarts
         {

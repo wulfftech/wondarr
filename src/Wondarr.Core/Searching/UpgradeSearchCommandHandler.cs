@@ -23,9 +23,6 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
     /// <summary>The name the <c>UpgradeSearch</c> scheduled task queues.</summary>
     public const string CommandName = "UpgradeSearch";
 
-    /// <summary>How long the batch waits between two warnings that every download slot is taken.</summary>
-    private static readonly TimeSpan SlotWarningInterval = TimeSpan.FromMinutes(10);
-
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<SearchOptions> _options;
     private readonly TimeProvider _timeProvider;
@@ -249,77 +246,15 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
         return left.SongId.CompareTo(right.SongId);
     }
 
-    /// <summary>
-    /// Waits until fewer than <see cref="SearchOptions.MaxActiveDownloads"/> grabs are in flight. The
-    /// wait hands the command's executor place back (a batch can wait for hours, and three waiting
-    /// commands would otherwise keep every other command from starting). The place is taken back
-    /// before the wait ends, and the slot is counted again with it in hand, because a slot that was
-    /// free while the place was being waited for may be gone by then.
-    /// </summary>
-    private async Task WaitForSlotAsync(CommandContext context, SearchOptions options, CancellationToken cancellationToken)
-    {
-        var lastWarning = _timeProvider.GetUtcNow();
-        IAsyncDisposable? lease = null;
-
-        try
-        {
-            while (true)
-            {
-                int active;
-
-                using (var scope = _scopes.CreateScope())
-                {
-                    var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
-
-                    active = await database.QueueItems
-                        .AsNoTracking()
-                        .CountAsync(
-                            item => item.State == QueueItemState.Queued
-                                || item.State == QueueItemState.RemotelyQueued
-                                || item.State == QueueItemState.Downloading,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                }
-
-                if (active < options.MaxActiveDownloads)
-                {
-                    if (lease is null)
-                    {
-                        return;
-                    }
-
-                    // Work again only with a place of our own, then look at the slots once more.
-                    var held = lease;
-                    lease = null;
-                    await held.DisposeAsync().ConfigureAwait(false);
-
-                    continue;
-                }
-
-                // A stall here is not visible anywhere else — the batch simply stops — so the wait says so
-                // out loud, but only once every ten minutes rather than on every poll.
-                var now = _timeProvider.GetUtcNow();
-
-                if (now - lastWarning >= SlotWarningInterval)
-                {
-                    LogWaitingForSlot(_logger, active);
-                    lastWarning = now;
-                }
-
-                lease ??= context.YieldWorker?.Invoke();
-
-                await Task.Delay(TimeSpan.FromSeconds(options.SlotWaitSeconds), _timeProvider, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            if (lease is not null)
-            {
-                await lease.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-    }
+    /// <summary>Waits until a download slot is free, without holding the command's executor place.</summary>
+    private Task WaitForSlotAsync(CommandContext context, SearchOptions options, CancellationToken cancellationToken) =>
+        SlotWaiting.WaitForFreeSlotAsync(
+            _scopes,
+            _timeProvider,
+            context,
+            options,
+            active => LogWaitingForSlot(_logger, active),
+            cancellationToken);
 
     /// <summary>One candidate song: its id, its profile, its held file's quality and import time, and when it was last upgrade-searched.</summary>
     private sealed record UpgradeSongRow(

@@ -13,6 +13,9 @@ namespace Wondarr.Core.Searching;
 /// </summary>
 internal static class SearchBackoff
 {
+    /// <summary>How old the oldest kept failure must be for a song with no kept success to count as hopeless.</summary>
+    private static readonly TimeSpan HistoryCertainty = TimeSpan.FromDays(21);
+
     /// <summary>
     /// Whether a song's backoff has expired and it may be searched again.
     /// </summary>
@@ -56,6 +59,7 @@ internal static class SearchBackoff
         }
 
         var failures = 0;
+        var reachedSuccess = false;
 
         foreach (var run in counted)
         {
@@ -65,8 +69,17 @@ internal static class SearchBackoff
             }
             else
             {
+                reachedSuccess = true;
                 break;
             }
+        }
+
+        // Housekeeping prunes search runs after 30 days, which drops the oldest failures and with them
+        // the step. A song with no success in what is kept, whose oldest kept failure is three weeks
+        // old, has been failing for at least that long: it is at the final step, whatever the count.
+        if (!reachedSuccess && now - counted[^1].StartedAt >= HistoryCertainty)
+        {
+            failures = Math.Max(failures, options.BackoffHours.Count);
         }
 
         var index = Math.Clamp(failures - 1, 0, options.BackoffHours.Count - 1);

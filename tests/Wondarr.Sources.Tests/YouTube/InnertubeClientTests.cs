@@ -190,6 +190,22 @@ public class InnertubeClientTests
     }
 
     [Fact]
+    public async Task A_playlist_read_honours_the_pause_and_sends_nothing()
+    {
+        var time = FakeTime(YouTubeTestData.Recorded);
+        var pause = new InnertubePause();
+        pause.Set(time.GetUtcNow(), TimeSpan.FromSeconds(30));
+        var handler = StubHttpMessageHandler.Ok("{}");
+        var client = YouTubeTestData.Client(handler, timeProvider: time, pause: pause);
+
+        var thrown = (await FluentActions.Awaiting(() => client.BrowsePlaylistAsync("PLabc", CancellationToken.None))
+            .Should().ThrowAsync<InnertubeException>()).Which;
+
+        thrown.RetryAfter.Should().Be(TimeSpan.FromSeconds(30));
+        handler.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_429_without_a_retry_after_pauses_for_sixty_seconds()
     {
         var time = FakeTime(YouTubeTestData.Recorded);

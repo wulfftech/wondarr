@@ -50,6 +50,50 @@ public sealed class SearchLoopTests
     }
 
     [Fact]
+    public async Task A_hopeless_song_stays_weekly_when_housekeeping_has_pruned_the_old_runs()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var now = host.Time.GetUtcNow().UtcDateTime;
+
+        // Runs older than 30 days are gone: what is left is one run a week for the last 26 days. Counted
+        // as they stand that is four failures (the 72-hour step), which would search the song every three
+        // days; but nothing in what is kept is a success and the oldest kept failure is over three weeks
+        // old, so the song is at the weekly step.
+        foreach (var days in new[] { 26, 19, 12, 5 })
+        {
+            await SeedRunAsync(host, songId, SearchTrigger.Automatic, SearchOutcome.NoResults, now.AddDays(-days));
+        }
+
+        await Handler(host).ExecuteAsync(Context(), Token);
+        host.Provider.Requests.Should().BeEmpty("five days is short of the weekly step");
+
+        host.Time.Advance(TimeSpan.FromDays(2.5));
+        await Handler(host).ExecuteAsync(Context(), Token);
+        host.Provider.Requests.Should().ContainSingle("seven and a half days have passed");
+    }
+
+    [Fact]
+    public async Task A_young_hopeless_song_still_follows_the_steps_it_has_earned()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var now = host.Time.GetUtcNow().UtcDateTime;
+
+        // Two failures in the last two days: the six-hour step, long past.
+        await SeedRunAsync(host, songId, SearchTrigger.Automatic, SearchOutcome.NoResults, now.AddDays(-2));
+        await SeedRunAsync(host, songId, SearchTrigger.Automatic, SearchOutcome.NoResults, now.AddDays(-1));
+
+        await Handler(host).ExecuteAsync(Context(), Token);
+
+        host.Provider.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Failures_older_than_the_longest_step_still_count_until_a_grab_resets_them()
     {
         await using var host = await SearchTestHost.CreateAsync();

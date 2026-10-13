@@ -57,6 +57,9 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     /// <summary>What an item left mid-import by a previous run is marked with.</summary>
     internal const string RecoveredAfterRestart = "recovered after restart";
 
+    /// <summary>The message of a grab that was still inside its source's grab when the process went down.</summary>
+    internal const string RestartedDuringGrab = "Wondarr restarted during the grab";
+
     /// <summary>The JSON shape of every payload this class writes: camelCase, nulls left out.</summary>
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -401,6 +404,38 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         await using var scope = _scopeFactory.CreateAsyncScope();
         var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
         var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        // A Queued item with no handle was inside its source's grab (a YouTube download) when the
+        // previous process went down; that grab is gone, so the item is failed and the song can be
+        // searched again.
+        var lost = await database.QueueItems
+            .Include(entry => entry.Candidate)
+            .Where(entry => entry.State == QueueItemState.Queued && (entry.Handle == null || entry.Handle == string.Empty))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var item in lost)
+        {
+            item.State = QueueItemState.Failed;
+            item.StateChangedAt = now;
+            item.FinishedAt = now;
+            item.Message = RestartedDuringGrab;
+
+            database.History.Add(new HistoryItem
+            {
+                SongId = item.SongId,
+                EventType = HistoryEventType.Failed,
+                SourceInstanceId = item.SourceInstanceId,
+                Data = JsonSerializer.Serialize(
+                    new FailureHistoryData(RestartedDuringGrab, item.Candidate?.Provider, item.Candidate?.RemotePath, item.Attempt, null),
+                    Json),
+            });
+        }
+
+        if (lost.Count > 0)
+        {
+            await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         var stuck = await database.QueueItems
             .Include(entry => entry.Candidate)
@@ -752,14 +787,15 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     };
 
     /// <summary>
-    /// How long a <c>Queued</c> item may wait. One with no handle yet is still inside its source's grab,
-    /// which for YouTube is the whole download, so it gets the longer allowance
+    /// How long a <c>Queued</c> item may wait. A YouTube item with no handle yet is still inside its
+    /// source's grab, which is the whole yt-dlp download, so it gets the longer allowance
     /// (<see cref="QueueOptions.HandlelessGrabTimeoutMinutes"/>) and is never failed while yt-dlp writes.
+    /// Every other source hands back a handle at once and keeps the start timeout.
     /// </summary>
     /// <param name="item">The queued item.</param>
     /// <param name="options">The configured timeouts.</param>
     private static int StartTimeoutMinutes(QueueItem item, QueueOptions options) =>
-        string.IsNullOrEmpty(item.Handle)
+        string.IsNullOrEmpty(item.Handle) && item.SourceType == SourceTypes.YouTube
             ? Math.Max(options.StartTimeoutMinutes, QueueOptions.HandlelessGrabTimeoutMinutes)
             : options.StartTimeoutMinutes;
 
