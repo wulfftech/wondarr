@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Polly.Timeout;
 
 namespace Wondarr.Core.Metadata;
 
@@ -64,6 +65,9 @@ public static class ProviderKeys
 
             // A provider that answers with an HTML error page is as unavailable as one that does not answer.
             JsonException => true,
+
+            // The per-attempt limit of the resilience pipeline firing is a timeout like any other.
+            TimeoutRejectedException => true,
             TaskCanceledException => !cancellationToken.IsCancellationRequested,
             _ => false,
         };

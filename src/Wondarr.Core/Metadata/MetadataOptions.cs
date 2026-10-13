@@ -26,15 +26,22 @@ public sealed class MetadataOptions
     /// <summary>
     /// Minimum gap between MusicBrainz requests, in milliseconds, for a <b>self-hosted mirror</b> (or
     /// the gate's replay proxy). Ignored for <c>musicbrainz.org</c> itself, which always gets one
-    /// request per second as its rate-limiting rules require. Null keeps one second everywhere.
+    /// request per second as its rate-limiting rules require. Null keeps the public spacing (1.05 s) everywhere.
     /// </summary>
     public int? MusicBrainzMirrorIntervalMs { get; set; }
+
+    /// <summary>
+    /// The gap between MusicBrainz requests to <c>musicbrainz.org</c>. The limit is one request per
+    /// second; the extra 50 ms is headroom, because network jitter can put two arrivals inside one
+    /// server-side second even when the sends are exactly 1.000 s apart.
+    /// </summary>
+    public static readonly TimeSpan MusicBrainzPublicInterval = TimeSpan.FromMilliseconds(1050);
 
     /// <summary>The spacing actually used for <see cref="MusicBrainzBaseUrl"/>.</summary>
     public TimeSpan MusicBrainzRequestInterval =>
         MusicBrainzMirrorIntervalMs is { } mirrorMs && !IsPublicMusicBrainz(MusicBrainzBaseUrl)
             ? TimeSpan.FromMilliseconds(Math.Clamp(mirrorMs, 0, 60_000))
-            : TimeSpan.FromSeconds(1);
+            : MusicBrainzPublicInterval;
 
     private static bool IsPublicMusicBrainz(string baseUrl) =>
         Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)

@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Wondarr.Core.Metadata.ITunes;
 
@@ -95,17 +97,20 @@ public sealed class ITunesClient : IITunesClient
 
     private readonly HttpClient _http;
     private readonly IMetadataCache _cache;
+    private readonly ILogger _logger;
 
     /// <summary>Initialises a new instance of the <see cref="ITunesClient"/> class.</summary>
     /// <param name="http">The typed client.</param>
     /// <param name="cache">The shared provider-response cache.</param>
-    public ITunesClient(HttpClient http, IMetadataCache cache)
+    /// <param name="logger">Where an unreadable body is reported, at debug level.</param>
+    public ITunesClient(HttpClient http, IMetadataCache cache, ILogger<ITunesClient>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(cache);
 
         _http = http;
         _cache = cache;
+        _logger = logger ?? NullLogger<ITunesClient>.Instance;
     }
 
     /// <inheritdoc />
@@ -193,8 +198,11 @@ public sealed class ITunesClient : IITunesClient
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
+        // Parsed before it is cached: a captive portal's HTML must not poison the cache for the TTL.
+        var parsed = ProviderBodies.Parse<ITunesSearchResult>(Provider, body, SerializerOptions, _logger);
+
         await _cache.SetAsync(Provider, relativeUri, body, Ttl, cancellationToken).ConfigureAwait(false);
 
-        return JsonSerializer.Deserialize<ITunesSearchResult>(body, SerializerOptions);
+        return parsed;
     }
 }

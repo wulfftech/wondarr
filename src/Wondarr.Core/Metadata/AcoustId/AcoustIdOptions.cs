@@ -34,8 +34,23 @@ public sealed class AcoustIdOptions
     /// </summary>
     public int RequestsPerSecond { get; set; } = 3;
 
+    /// <summary>
+    /// The shortest gap between AcoustID requests: 350 ms rather than the 333 ms that three a second
+    /// works out to, because network jitter can put four arrivals inside one server-side second when
+    /// the sends are exactly 333 ms apart.
+    /// </summary>
+    public static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(350);
+
     /// <summary>The spacing every AcoustID request is started with.</summary>
-    public TimeSpan RequestInterval => TimeSpan.FromMilliseconds(1000.0 / RequestsPerSecond);
+    public TimeSpan RequestInterval
+    {
+        get
+        {
+            var interval = TimeSpan.FromMilliseconds(1000.0 / RequestsPerSecond);
+
+            return interval > MinimumRequestInterval ? interval : MinimumRequestInterval;
+        }
+    }
 }
 
 /// <summary>

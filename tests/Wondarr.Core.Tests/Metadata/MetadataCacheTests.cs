@@ -89,6 +89,46 @@ public sealed class MetadataCacheTests
     }
 
     [Fact]
+    public async Task Purge_removes_more_than_one_batch_of_expired_rows_and_keeps_the_fresh_ones()
+    {
+        using var database = new SqliteTestDatabase();
+        var time = Start();
+        await database.MigrateAsync(time);
+        await using var provider = BuildProvider(database.FilePath, time);
+
+        var cache = provider.GetRequiredService<IMetadataCache>();
+        var stale = (MetadataCache.PurgeBatchSize * 2) + 7;
+
+        for (var index = 0; index < stale; index++)
+        {
+            await cache.SetAsync(Provider, $"stale-{index}", "x", TimeSpan.FromMinutes(1), CancellationToken.None);
+        }
+
+        await cache.SetAsync(Provider, "fresh", "y", TimeSpan.FromDays(1), CancellationToken.None);
+
+        time.Advance(TimeSpan.FromMinutes(2));
+
+        (await cache.PurgeExpiredAsync(CancellationToken.None)).Should().Be(stale);
+        (await database.ReadStringsAsync("SELECT key FROM metadata_cache")).Should().Equal("fresh");
+
+        // Nothing left to purge.
+        (await cache.PurgeExpiredAsync(CancellationToken.None)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Purge_finds_the_expired_rows_through_the_expiry_index()
+    {
+        using var database = new SqliteTestDatabase();
+        var time = Start();
+        await database.MigrateAsync(time);
+
+        var plan = await database.ReadStringsAsync(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'metadata_cache'");
+
+        plan.Should().Contain("ix_metadata_cache_expires_at");
+    }
+
+    [Fact]
     public async Task Twenty_concurrent_writers_of_one_key_leave_exactly_one_row()
     {
         using var database = new SqliteTestDatabase();
