@@ -243,10 +243,13 @@ public sealed partial class CommandExecutor : BackgroundService
             await using var scope = _scopeFactory.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
-            orphaned = await context.Commands
+            // A row this process already holds was queued by a scheduler trigger that fired before the
+            // executor started: it is waiting in the channel, not left over.
+            orphaned = [.. (await context.Commands
                 .Where(command => command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started)
                 .ToListAsync(CancellationToken.None)
-                .ConfigureAwait(false);
+                .ConfigureAwait(false))
+                .Where(command => !_activeCommands.Contains(command.Id))];
 
             if (orphaned.Count == 0)
             {
@@ -304,16 +307,23 @@ public sealed partial class CommandExecutor : BackgroundService
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
-                if (changed == 0)
-                {
-                    // Cancelled while it waited, or another worker got there first.
-                    return null;
-                }
-
-                return await context.Commands
+                var record = await context.Commands
                     .AsNoTracking()
                     .FirstOrDefaultAsync(command => command.Id == id, CancellationToken.None)
                     .ConfigureAwait(false);
+
+                if (changed == 0)
+                {
+                    // Cancelled while it waited, or another worker got there first. Or this very update
+                    // committed on an earlier try whose answer was lost: the row then says Started with
+                    // the instant written here, and it is ours.
+                    return record is { Status: CommandStatus.Started, StartedAt: { } startedAt }
+                        && startedAt == now
+                            ? record
+                            : null;
+                }
+
+                return record;
             }
             finally
             {
@@ -343,7 +353,7 @@ public sealed partial class CommandExecutor : BackgroundService
 
                     record.Status = CommandStatus.Failed;
                     record.Result = CommandResult.Unsuccessful;
-                    record.Exception = $"The executor could not record this command's progress: {reason}";
+                    record.Exception = $"Wondarr could not record this command's progress: {reason}";
                     record.EndedAt = now;
 
                     return true;

@@ -73,6 +73,10 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             // scan of reference library 2 is not the scan of library 1 that happens to be running.
             // Only a handful of rows are ever Queued or Started, so the name is compared in memory,
             // without regard to case: a row an older build wrote under another spelling counts too.
+            // Which rows the process holds is taken before the rows are read: a command that finishes in
+            // between was held when the snapshot was taken, so its fresh Completed row is never taken for
+            // a stranded one.
+            var held = _activeCommands.Snapshot();
             var running = await context.Commands
                 .Where(command => command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started)
                 .OrderBy(command => command.Id)
@@ -84,27 +88,37 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
 
             // A row the executor no longer holds in memory will never be finished: a failed status write
             // stranded it. Fail it, so it cannot swallow this enqueue and every one after it.
-            var stranded = active.Where(command => !_activeCommands.Contains(command.Id)).ToList();
-            if (stranded.Count > 0)
+            var stranded = active.Where(command => !held.Contains(command.Id)).ToList();
+            var strandedAt = _timeProvider.GetUtcNow().UtcDateTime;
+
+            foreach (var command in stranded)
             {
-                var now = _timeProvider.GetUtcNow().UtcDateTime;
+                active.Remove(command);
 
-                foreach (var command in stranded)
+                // Conditional, so a row that was finished after it was read is left as it is.
+                var changed = await context.Commands
+                    .Where(row => row.Id == command.Id
+                        && (row.Status == CommandStatus.Queued || row.Status == CommandStatus.Started))
+                    .ExecuteUpdateAsync(
+                        set => set
+                            .SetProperty(row => row.Status, CommandStatus.Failed)
+                            .SetProperty(row => row.Result, CommandResult.Unsuccessful)
+                            .SetProperty(row => row.EndedAt, (DateTime?)strandedAt)
+                            .SetProperty(row => row.Message, StrandedMessage)
+                            .SetProperty(row => row.Exception, StrandedMessage)
+                            .SetProperty(row => row.UpdatedAt, strandedAt),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (changed > 0)
                 {
-                    command.Status = CommandStatus.Failed;
-                    command.Result = CommandResult.Unsuccessful;
-                    command.EndedAt = now;
-                    command.Message = StrandedMessage;
-                    command.Exception = StrandedMessage;
-                    active.Remove(command);
-                }
+                    var failed = await context.Commands
+                        .AsNoTracking()
+                        .FirstAsync(row => row.Id == command.Id, cancellationToken)
+                        .ConfigureAwait(false);
 
-                await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-                foreach (var command in stranded)
-                {
                     await _eventAggregator
-                        .PublishAsync(new CommandUpdatedEvent(command), cancellationToken)
+                        .PublishAsync(new CommandUpdatedEvent(failed), cancellationToken)
                         .ConfigureAwait(false);
                 }
             }
@@ -114,6 +128,15 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             if (existing is not null)
             {
                 return existing;
+            }
+
+            // A request to search particular songs, while another such request has not started yet, is
+            // folded into it: one command with all the songs, not a pile of them behind a long run.
+            var merged = await TryMergeQueuedAsync(context, active, body, cancellationToken).ConfigureAwait(false);
+
+            if (merged is not null)
+            {
+                return merged;
             }
 
             var record = new CommandRecord
@@ -233,6 +256,90 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             .ConfigureAwait(false);
 
         return true;
+    }
+
+    /// <summary>
+    /// Adds the <c>songIds</c> of <paramref name="body"/> to a Queued command whose body also names
+    /// <c>songIds</c> (the ids sorted, without repeats), when there is one. The update is conditional on
+    /// the command still being Queued, so a command the executor has just started is never edited.
+    /// </summary>
+    private async Task<CommandRecord?> TryMergeQueuedAsync(
+        WondarrDbContext context,
+        List<CommandRecord> active,
+        string? body,
+        CancellationToken cancellationToken)
+    {
+        if (ReadSongIds(body) is not { } wanted)
+        {
+            return null;
+        }
+
+        foreach (var queued in active.Where(command => command.Status == CommandStatus.Queued))
+        {
+            if (ReadSongIds(queued.Body) is not { } already)
+            {
+                continue;
+            }
+
+            var ids = already.Union(wanted).Order().ToList();
+            var merged = JsonSerializer.Serialize(new { name = queued.Name, songIds = ids });
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+            var changed = await context.Commands
+                .Where(row => row.Id == queued.Id && row.Status == CommandStatus.Queued)
+                .ExecuteUpdateAsync(
+                    set => set
+                        .SetProperty(row => row.Body, merged)
+                        .SetProperty(row => row.UpdatedAt, now),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (changed > 0)
+            {
+                return await context.Commands
+                    .AsNoTracking()
+                    .FirstAsync(row => row.Id == queued.Id, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The <c>songIds</c> a body names, or <see langword="null"/> when it names none.</summary>
+    private static List<long>? ReadSongIds(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var member in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(member.Name, "songIds", StringComparison.OrdinalIgnoreCase)
+                    && member.Value.ValueKind == JsonValueKind.Array)
+                {
+                    return [.. member.Value.EnumerateArray()
+                        .Where(item => item.ValueKind == JsonValueKind.Number && item.TryGetInt64(out _))
+                        .Select(item => item.GetInt64())];
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     /// <summary>

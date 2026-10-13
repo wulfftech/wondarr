@@ -170,7 +170,7 @@ internal static class YouTubeTestData
             new HttpClient(handler),
             Monitor(options ?? new YouTubeOptions()),
             timeProvider ?? TimeProvider.System,
-            pause);
+            pause ?? new InnertubePause());
 
     public static string ReadFixture(string name) =>
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "ytmusic", name));

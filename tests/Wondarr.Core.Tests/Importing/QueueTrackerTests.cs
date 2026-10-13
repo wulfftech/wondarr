@@ -120,9 +120,10 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
-    public async Task Does_not_fail_a_grab_that_is_still_inside_its_sources_long_download()
+    public async Task Does_not_fail_a_youtube_grab_that_is_still_inside_yt_dlp()
     {
         await using var host = await QueueTestHost.CreateAsync();
+        host.Source.SourceType = SourceTypes.YouTube;
 
         // A YouTube grab has no handle until yt-dlp is done, which the longest allowed
         // youtube.ytdlp.timeout_seconds (3600 s) bounds. Well past the 10-minute start timeout, it is
@@ -130,23 +131,25 @@ public sealed class QueueTrackerTests
         var seed = await host.SeedAsync(options =>
         {
             options.Handle = string.Empty;
+            options.SourceType = SourceTypes.YouTube;
             options.StateChangedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-65);
         });
 
         await host.Tracker.RunCycleAsync(CancellationToken.None);
 
-        var item = await host.ItemAsync(seed.QueueItemId);
-        item.State.Should().Be(QueueItemState.Queued, "yt-dlp is still downloading");
+        (await host.ItemAsync(seed.QueueItemId)).State.Should().Be(QueueItemState.Queued, "yt-dlp is still downloading");
         host.Source.Cancels.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Fails_a_grab_that_never_got_a_handle_once_the_long_allowance_is_spent()
+    public async Task Fails_a_youtube_grab_that_never_got_a_handle_once_the_long_allowance_is_spent()
     {
         await using var host = await QueueTestHost.CreateAsync();
+        host.Source.SourceType = SourceTypes.YouTube;
         var seed = await host.SeedAsync(options =>
         {
             options.Handle = string.Empty;
+            options.SourceType = SourceTypes.YouTube;
             options.StateChangedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-(QueueOptions.HandlelessGrabTimeoutMinutes + 1));
         });
 
@@ -158,7 +161,44 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
-    public void The_allowance_for_a_grab_without_a_handle_is_longer_than_the_longest_ytdlp_timeout()
+    public async Task A_handle_less_soulseek_item_still_times_out_at_the_start_timeout()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.Handle = string.Empty;
+            options.StateChangedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-11);
+        });
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        var item = await host.ItemAsync(seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Failed);
+        item.Message.Should().Be("Peer did not respond");
+    }
+
+    [Fact]
+    public async Task The_startup_sweep_fails_a_handle_less_item_the_previous_process_left_behind()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var leftBehind = await host.SeedAsync(options =>
+        {
+            options.Handle = string.Empty;
+            options.SourceType = SourceTypes.YouTube;
+        });
+        var live = await host.SeedAsync(options => options.Handle = "{\"username\":\"peer\",\"id\":\"transfer\"}");
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        var failed = await host.ItemAsync(leftBehind.QueueItemId);
+        failed.State.Should().Be(QueueItemState.Failed);
+        failed.Message.Should().Be("Wondarr restarted during the grab");
+        failed.FinishedAt.Should().NotBeNull();
+        (await host.ItemAsync(live.QueueItemId)).State.Should().Be(QueueItemState.Queued, "an item with a handle is still followed");
+    }
+
+    [Fact]
+    public void The_allowance_for_a_youtube_grab_without_a_handle_is_longer_than_the_longest_ytdlp_timeout()
     {
         QueueOptions.HandlelessGrabTimeoutMinutes.Should().BeGreaterThan(3600 / 60, "yt-dlp may run for up to 3600 s");
     }
@@ -952,7 +992,7 @@ internal sealed class FakeQueueSourceProvider : ISourceProvider
     public List<GrabHandle> Cancels { get; } = [];
 
     /// <inheritdoc />
-    public string SourceType => SourceTypes.Soulseek;
+    public string SourceType { get; set; } = SourceTypes.Soulseek;
 
     /// <summary>Waits for the next status call.</summary>
     public Task NextStatusCall()

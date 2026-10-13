@@ -54,6 +54,59 @@ public sealed class SlotGateTests
     }
 
     [Fact]
+    public async Task A_song_being_searched_by_one_run_is_left_alone_by_another()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        // Another run (the scheduled and the bodied missing search overlapping) is in the middle of
+        // searching the song.
+        using var scope = host.CreateScope();
+        var waiters = scope.ServiceProvider.GetRequiredService<SlotWaiters>();
+        waiters.TryBeginSearch(songId).Should().BeTrue();
+        waiters.IsSearching(songId).Should().BeTrue();
+
+        var skipped = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
+
+        skipped.Outcome.Should().Be(SearchOutcome.Cancelled);
+        skipped.Message.Should().Be("Already being searched");
+        host.Provider.Requests.Should().BeEmpty("the song is left to the run that has it");
+
+        // The batch loops count it as skipped and go on.
+        var handler = new MissingSearchCommandHandler(
+            host.Scopes,
+            host.Monitor,
+            host.Time,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MissingSearchCommandHandler>.Instance);
+        var message = await handler.ExecuteAsync(
+            new Wondarr.Core.Jobs.CommandContext(1, null, Wondarr.Core.Jobs.CommandTrigger.Scheduled, _ => Task.CompletedTask),
+            Token);
+
+        message.Should().Be("1 songs: 0 grabbed, 0 without an acceptable result, 1 skipped");
+
+        // Once the other run lets go, the song is searched like any other.
+        waiters.EndSearch(songId);
+        (await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token)).Outcome
+            .Should().Be(SearchOutcome.Grabbed);
+        waiters.IsSearching(songId).Should().BeFalse("the claim is let go when the search ends");
+    }
+
+    [Fact]
+    public async Task A_search_that_fails_lets_the_song_go()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.SearchFailure = new InvalidOperationException("boom");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
+
+        using var scope = host.CreateScope();
+        scope.ServiceProvider.GetRequiredService<SlotWaiters>().IsSearching(songId).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task The_slot_a_slow_grab_took_still_counts_against_the_limit_while_it_downloads()
     {
         await using var host = await SearchTestHost.CreateAsync(options => options.MaxActiveDownloads = 1);

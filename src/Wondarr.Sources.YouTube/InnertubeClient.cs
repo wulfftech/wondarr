@@ -141,12 +141,14 @@ public sealed class InnertubeClient : IInnertubeClient
         HttpClient http,
         IOptionsMonitor<YouTubeOptions> options,
         TimeProvider timeProvider,
-        InnertubePause? pause = null)
+        InnertubePause pause)
     {
         _http = http;
         _options = options;
         _timeProvider = timeProvider;
-        _pause = pause ?? new InnertubePause();
+        ArgumentNullException.ThrowIfNull(pause);
+
+        _pause = pause;
         _http.BaseAddress ??= new Uri(options.CurrentValue.BaseUrl, UriKind.Absolute);
     }
 
@@ -154,16 +156,6 @@ public sealed class InnertubeClient : IInnertubeClient
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Query);
-
-        // YouTube asked to be left alone: nothing is sent until that time has passed.
-        if (PausedFor is { } remaining)
-        {
-            throw new InnertubeException(
-                HttpStatusCode.TooManyRequests,
-                $"searches are paused for another {Math.Ceiling(remaining.TotalSeconds).ToString(CultureInfo.InvariantCulture)} s because YouTube asked to be left alone",
-                "search",
-                remaining);
-        }
 
         var body = await PostAsync(SearchPath, Body(request), cancellationToken).ConfigureAwait(false);
 
@@ -243,6 +235,16 @@ public sealed class InnertubeClient : IInnertubeClient
     /// <exception cref="InnertubeException">InnerTube answered with anything but a success status.</exception>
     private async Task<string> PostAsync(string relativeUri, ByteArrayContent content, CancellationToken cancellationToken)
     {
+        // YouTube asked to be left alone: nothing is sent, search or playlist read, until that time has passed.
+        if (PausedFor is { } remaining)
+        {
+            throw new InnertubeException(
+                HttpStatusCode.TooManyRequests,
+                $"requests are paused for another {Math.Ceiling(remaining.TotalSeconds).ToString(CultureInfo.InvariantCulture)} s because YouTube asked to be left alone",
+                Operation(relativeUri),
+                remaining);
+        }
+
         using var message = new HttpRequestMessage(HttpMethod.Post, relativeUri)
         {
             Content = content,

@@ -1141,6 +1141,7 @@ public sealed partial class SongService : ISongService
             .Where(result => result is { Outcome: SongAddOutcome.Added } && options.Monitored)
             .Select(result => result!.Song.Id)
             .Distinct()
+            .Order()
             .ToList();
 
         if (added.Count == 0)
@@ -1151,7 +1152,7 @@ public sealed partial class SongService : ISongService
         // One song gets its own search. A batch (a pasted list, a whole playlist) gets one MissingSearch
         // instead: it takes never-searched songs first, in bounded batches, waiting for download slots —
         // a thousand SongSearch commands would hold the command queue for hours behind the Soulseek
-        // budget. The batch's MissingSearch names its songs: with no body the queue would hand back a
+        // budget. The batch's MissingSearch names its songs (sorted, so the same set is the same request): with no body the queue would hand back a
         // MissingSearch that is already running, which chose its batch before these songs existed (R-034),
         // and only an identical body is deduped.
         var (name, body) = added.Count == 1

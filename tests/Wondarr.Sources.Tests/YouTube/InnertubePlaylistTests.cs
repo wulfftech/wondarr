@@ -353,7 +353,8 @@ public class InnertubePlaylistTests
         new(
             new HttpClient(handler),
             YouTubeTestData.Monitor(new YouTubeOptions()),
-            FakeTime(YouTubeTestData.Recorded));
+            FakeTime(YouTubeTestData.Recorded),
+            new InnertubePause());
 
     private static FakeTimeProvider FakeTime(DateTimeOffset now)
     {

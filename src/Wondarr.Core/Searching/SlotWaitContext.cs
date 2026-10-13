@@ -25,7 +25,11 @@ public sealed class SlotWaitContext
     public Func<IAsyncDisposable?>? YieldWorker { get; set; }
 }
 
-/// <summary>The songs whose searches are parked waiting for a download slot, so no second run starts for them.</summary>
+/// <summary>
+/// The songs whose searches are parked waiting for a download slot, so no second run starts for them, and
+/// the songs a run is searching for a grab right now, so the bodied and the scheduled missing search (or a
+/// search now) never search the same song at once.
+/// </summary>
 public sealed class SlotWaiters
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, int> _songs = new();
@@ -37,4 +41,16 @@ public sealed class SlotWaiters
     internal void Add(long songId) => _songs[songId] = 1;
 
     internal void Remove(long songId) => _songs.TryRemove(songId, out _);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, int> _searching = new();
+
+    /// <summary>Whether a run is searching the song (for a grab) right now.</summary>
+    /// <param name="songId">The song.</param>
+    public bool IsSearching(long songId) => _searching.ContainsKey(songId);
+
+    /// <summary>Claims the song for a search; <see langword="false"/> when another run already has it.</summary>
+    internal bool TryBeginSearch(long songId) => _searching.TryAdd(songId, 1);
+
+    /// <summary>Lets the song go.</summary>
+    internal void EndSearch(long songId) => _searching.TryRemove(songId, out _);
 }
