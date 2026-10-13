@@ -657,12 +657,7 @@ public sealed partial class SongSearchService : ISongSearchService
         pool => _engine.Evaluate(context, pool).Any(_engine.IsGoodEnough);
 
     /// <summary>The tier a source runs in (MATCHING_ENGINE §6.4): Soulseek, then YouTube, then torrents.</summary>
-    private static int SourceTier(ISourceProvider provider) => provider.SourceType switch
-    {
-        SourceTypes.Soulseek => 1,
-        SourceTypes.YouTube => 2,
-        _ => 3,
-    };
+    private static int SourceTier(ISourceProvider provider) => DecisionEngine.SourceTierOf(provider.SourceType);
 
     /// <summary>Whether another grab may start: the downloads in flight are below the configured limit.</summary>
     private async Task<bool> HasFreeSlotAsync(CancellationToken cancellationToken)
@@ -1484,7 +1479,6 @@ public sealed partial class SongSearchService : ISongSearchService
             CurrentFileQualityId = song.File?.QualityId,
             CurrentFileIdentityScore = await ReadHeldIdentityAsync(song.File, cancellationToken).ConfigureAwait(false),
             IsManualGrab = trigger == SearchTrigger.Manual,
-            SourceTier = 1,
             IsBlocklisted = key => blockedKeys.Contains(key),
             IgnoredUsers = ignored,
             MaxContainerSizeBytes = _options.CurrentValue.MaxContainerSizeMb * 1024L * 1024L,

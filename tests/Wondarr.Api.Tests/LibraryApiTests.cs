@@ -30,7 +30,7 @@ public sealed class LibraryApiTests
         library["layout"]!.GetValue<string>().Should().Be("plexamp");
         library["albumPolicy"]!.GetValue<string>().Should().Be("fewestAlbums");
         library["namingTemplate"]!.GetValue<string>()
-            .Should().Be("{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}");
+            .Should().Be("{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}");
         library["minTracksPerRealAlbum"]!.GetValue<int>().Should().Be(2);
         library["plexSectionId"].Should().BeNull();
         library["plexLibraryPath"].Should().BeNull();
