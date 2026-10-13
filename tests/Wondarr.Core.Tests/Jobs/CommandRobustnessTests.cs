@@ -185,27 +185,26 @@ public class CommandRobustnessTests
         await executor.StartAsync(CancellationToken.None);
 
         // At the moment the executor is about to write "started", the user's cancel gets in first.
-        var cancelled = false;
-        long id = 0;
+        var cancelResult = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         interceptor.BeforeStart = async () =>
         {
             var newest = (await host.Queue.ListAsync(1)).Single();
-            id = newest.Id;
-            cancelled = await host.Queue.CancelAsync(newest.Id, CancellationToken.None);
+            cancelResult.SetResult(await host.Queue.CancelAsync(newest.Id, CancellationToken.None));
         };
 
         var queued = await host.Queue.EnqueueAsync("Long", null, CommandTrigger.Manual, CancellationToken.None);
 
-        // The executor is done with the row once it no longer holds it.
-        (await TestWait.UntilAsync(() => Task.FromResult(id == queued.Id && !host.Active.Contains(queued.Id))))
-            .Should().BeTrue();
+        // Signals, not polling: the cancel has answered, then the executor's start update has run (and
+        // changed no row). The generous cap only guards against a hang.
+        using var cap = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        (await cancelResult.Task.WaitAsync(cap.Token)).Should().BeTrue();
+        await interceptor.StartUpdateExecuted.WaitAsync(cap.Token);
 
-        cancelled.Should().BeTrue();
+        // Stopping waits for the worker to be done with the command, whichever way it went.
+        await executor.StopAsync(cap.Token);
+
         handler.StartedCount.Should().Be(0, "a cancelled command must not run");
         (await StatusAsync(host, queued.Id)).Should().Be(CommandStatus.Cancelled);
-
-        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
-        await executor.StopAsync(stopBudget.Token);
     }
 
     [Fact]
@@ -408,11 +407,15 @@ public class CommandRobustnessTests
     /// </summary>
     private sealed class StartWriteInterceptor : DbCommandInterceptor
     {
+        private readonly TaskCompletionSource _startUpdateExecuted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _attempts;
         private int _throwAfter;
         private int _failLeft;
         private Func<Task>? _afterCommandRead;
         private Func<Task>? _beforeStart;
+
+        /// <summary>Gets a task that completes once a start update has run (committed or not).</summary>
+        public Task StartUpdateExecuted => _startUpdateExecuted.Task;
 
         public bool FailStarts { get; set; }
 
@@ -451,9 +454,14 @@ public class CommandRobustnessTests
             int result,
             CancellationToken cancellationToken = default)
         {
-            if (IsStartUpdate(command.CommandText) && Interlocked.CompareExchange(ref _throwAfter, 0, 1) == 1)
+            if (IsStartUpdate(command.CommandText))
             {
-                throw new InvalidOperationException("the answer was lost");
+                _startUpdateExecuted.TrySetResult();
+
+                if (Interlocked.CompareExchange(ref _throwAfter, 0, 1) == 1)
+                {
+                    throw new InvalidOperationException("the answer was lost");
+                }
             }
 
             return ValueTask.FromResult(result);
