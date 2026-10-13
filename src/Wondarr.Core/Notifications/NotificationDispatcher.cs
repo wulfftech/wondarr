@@ -177,6 +177,12 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         using var scope = _scopes.CreateScope();
         var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
+        var notifications = await database.Notifications
+            .Where(notification => notification.Enabled)
+            .OrderBy(notification => notification.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         IReadOnlyList<NotificationMessage> messages;
 
         if (item.Event == NotificationEventNames.Health)
@@ -189,7 +195,15 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         }
         else
         {
-            var message = await BuildAsync(database, item, cancellationToken).ConfigureAwait(false);
+            // The failure details (quality, size, existing cover) are shown only by a provider that batches
+            // into emails; nothing else reads them, so skip their queries when none subscribes.
+            var wantsDetail = notifications.Any(notification =>
+                Subscribed(notification, item.Event) &&
+                _providers.Any(provider =>
+                    provider is IDigestNotificationProvider &&
+                    string.Equals(provider.Implementation, notification.Type, StringComparison.OrdinalIgnoreCase)));
+
+            var message = await BuildAsync(database, item, wantsDetail, cancellationToken).ConfigureAwait(false);
 
             if (message is null)
             {
@@ -205,12 +219,6 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         {
             return;
         }
-
-        var notifications = await database.Notifications
-            .Where(notification => notification.Enabled)
-            .OrderBy(notification => notification.Id)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
 
         foreach (var message in messages)
         {
@@ -294,6 +302,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     private static async Task<NotificationMessage?> BuildAsync(
         WondarrDbContext database,
         WorkItem item,
+        bool wantsDetail,
         CancellationToken cancellationToken)
     {
         var song = await LoadSongAsync(database, item.SongId, cancellationToken).ConfigureAwait(false);
@@ -315,7 +324,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
                 return await BuildImportAsync(database, song, name, item, cancellationToken).ConfigureAwait(false);
 
             case NotificationEventNames.Failure:
-                return await BuildFailureAsync(database, song, name, item, cancellationToken).ConfigureAwait(false);
+                return await BuildFailureAsync(database, song, name, item, wantsDetail, cancellationToken).ConfigureAwait(false);
 
             default:
                 return null;
@@ -410,6 +419,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         Song song,
         string name,
         WorkItem item,
+        bool wantsDetail,
         CancellationToken cancellationToken)
     {
         var queueItem = await database.QueueItems
@@ -422,6 +432,14 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         }
 
         var reason = string.IsNullOrWhiteSpace(queueItem.Message) ? "the download failed" : queueItem.Message;
+
+        if (!wantsDetail)
+        {
+            return new NotificationMessage(NotificationEventNames.Failure, string.Concat("Failed: ", name), reason)
+            {
+                Song = Song(song),
+            };
+        }
 
         var candidate = await database.Candidates
             .FirstOrDefaultAsync(row => row.Id == queueItem.CandidateId, cancellationToken)

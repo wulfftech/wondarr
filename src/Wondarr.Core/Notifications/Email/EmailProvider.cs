@@ -15,16 +15,20 @@ public sealed partial class EmailProvider : IDigestNotificationProvider
         new([NotificationEventNames.Import, NotificationEventNames.Upgrade, NotificationEventNames.Failure], StringComparer.Ordinal);
 
     private readonly ISmtpSender _sender;
+    private readonly Wondarr.Core.Logging.ISecretRegistry _secrets;
     private readonly ILogger<EmailProvider> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="EmailProvider"/> class.</summary>
     /// <param name="sender">Hands a finished message to the SMTP server.</param>
+    /// <param name="secrets">The redactor's registry; the password is added before every send.</param>
     /// <param name="logger">The log sink; the password and the bodies are never logged.</param>
-    public EmailProvider(ISmtpSender sender, ILogger<EmailProvider> logger)
+    public EmailProvider(ISmtpSender sender, Wondarr.Core.Logging.ISecretRegistry secrets, ILogger<EmailProvider> logger)
     {
         ArgumentNullException.ThrowIfNull(sender);
+        ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(logger);
 
+        _secrets = secrets;
         _sender = sender;
         _logger = logger;
     }
@@ -36,7 +40,7 @@ public sealed partial class EmailProvider : IDigestNotificationProvider
     public IReadOnlyList<NotificationField> Fields { get; } =
     [
         new("host", "SMTP host", "text", Required: true, HelpText: "The mail server, for example smtp.gmail.com.", Target: true),
-        new("port", "Port", "number", Required: false, HelpText: "587 for STARTTLS, 465 for SSL on connect. Empty means 587.", Target: true),
+        new("port", "Port", "number", Required: false, HelpText: "587 for STARTTLS, 465 for SSL on connect. Empty means 587.", Target: true, TargetDefault: "587"),
         new(
             "security",
             "Security",
@@ -150,6 +154,7 @@ public sealed partial class EmailProvider : IDigestNotificationProvider
         ArgumentNullException.ThrowIfNull(message);
 
         var parsed = EmailSettings.Read(settings);
+        _secrets.Register(parsed.Password);
         var (endpoint, from, to) = Resolve(parsed);
 
         var mime = EmailMessageBuilder.Single(message, parsed, from, to);
@@ -171,6 +176,7 @@ public sealed partial class EmailProvider : IDigestNotificationProvider
         ArgumentNullException.ThrowIfNull(entries);
 
         var parsed = EmailSettings.Read(settings);
+        _secrets.Register(parsed.Password);
         var (endpoint, sender, recipients) = Resolve(parsed);
 
         var mime = EmailMessageBuilder.Digest(entries, windowStart, windowEnd, zone, parsed, sender, recipients);

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Logging;
 using Wondarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -69,15 +70,18 @@ public sealed partial class NotificationService : INotificationService
     private readonly WondarrDbContext _database;
     private readonly IReadOnlyList<INotificationProvider> _providers;
     private readonly ILogger<NotificationService> _logger;
+    private readonly ISecretRegistry? _secrets;
 
     /// <summary>Initialises a new instance of the <see cref="NotificationService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="providers">Every registered provider.</param>
     /// <param name="logger">The log sink.</param>
+    /// <param name="secrets">The redactor's registry that saved and tested secrets are added to, or <see langword="null"/>.</param>
     public NotificationService(
         WondarrDbContext database,
         IEnumerable<INotificationProvider> providers,
-        ILogger<NotificationService> logger)
+        ILogger<NotificationService> logger,
+        ISecretRegistry? secrets = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(providers);
@@ -86,6 +90,7 @@ public sealed partial class NotificationService : INotificationService
         _database = database;
         _providers = [.. providers];
         _logger = logger;
+        _secrets = secrets;
     }
 
     /// <inheritdoc />
@@ -115,6 +120,7 @@ public sealed partial class NotificationService : INotificationService
 
         _database.Notifications.Add(notification);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        RegisterSecrets(notification.Settings, provider);
 
         LogSaved(_logger, notification.Id, notification.Type);
 
@@ -145,6 +151,7 @@ public sealed partial class NotificationService : INotificationService
         notification.Events = JsonSerializer.Serialize(draft.Events);
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        RegisterSecrets(settings, provider);
 
         LogSaved(_logger, notification.Id, notification.Type);
 
@@ -177,6 +184,11 @@ public sealed partial class NotificationService : INotificationService
         var provider = await ValidateAsync(draft, draft.Id, cancellationToken).ConfigureAwait(false);
         var settings = await ResolveSettingsAsync(draft, provider, cancellationToken).ConfigureAwait(false);
 
+        if (_secrets is not null)
+        {
+            NotificationSecrets.Register(_secrets, settings, provider.Fields);
+        }
+
         var message = new NotificationMessage(
             NotificationEventNames.Test,
             "Test notification from Wondarr",
@@ -205,6 +217,14 @@ public sealed partial class NotificationService : INotificationService
         {
             // Only the type: a provider's own message may name the endpoint.
             return new NotificationTestResult(false, exception.GetType().Name);
+        }
+    }
+
+    private void RegisterSecrets(string settings, INotificationProvider provider)
+    {
+        if (_secrets is not null)
+        {
+            NotificationSecrets.Register(_secrets, NotificationSecrets.Read(settings), provider.Fields);
         }
     }
 

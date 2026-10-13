@@ -59,13 +59,26 @@ public sealed class SmtpSender : ISmtpSender
 {
     private const int TimeoutMilliseconds = 15_000;
 
+    private readonly Func<ISmtpClient> _clients;
+
+    /// <summary>Initialises a new instance of the <see cref="SmtpSender"/> class with MailKit's client.</summary>
+    public SmtpSender()
+        : this(() => new SmtpClient())
+    {
+    }
+
+    /// <summary>Initialises a new instance of the <see cref="SmtpSender"/> class with the client a test supplies.</summary>
+    /// <param name="clients">Makes the client one send uses; it is disposed afterwards.</param>
+    internal SmtpSender(Func<ISmtpClient> clients) => _clients = clients;
+
     /// <inheritdoc />
     public async Task SendAsync(SmtpEndpoint endpoint, MimeMessage message, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(message);
 
-        using var client = new SmtpClient { Timeout = TimeoutMilliseconds };
+        using var client = _clients();
+        client.Timeout = TimeoutMilliseconds;
 
         try
         {
@@ -77,7 +90,6 @@ public sealed class SmtpSender : ISmtpSender
             }
 
             await client.SendAsync(message, cancellationToken).ConfigureAwait(false);
-            await client.DisconnectAsync(quit: true, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -107,6 +119,21 @@ public sealed class SmtpSender : ISmtpSender
         {
             // Only the type: a library message could name the server.
             throw new NotificationSendException(string.Concat("sending failed (", exception.GetType().Name, ")."), exception);
+        }
+
+        // The server has the message. A failed goodbye is not a failed send, and disposing the client
+        // closes the connection anyway.
+        try
+        {
+            await client.DisconnectAsync(quit: true, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Swallowed on purpose; see above.
         }
     }
 }

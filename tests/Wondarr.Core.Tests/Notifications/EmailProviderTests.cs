@@ -1,10 +1,16 @@
 using System.Text.Json;
 using FluentAssertions;
 using MailKit.Security;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using Wondarr.Core.Logging;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Notifications.Email;
+using Serilog.Events;
+using Serilog.Formatting.Display;
+using Serilog.Parsing;
 using Wondarr.Core.Tests.Persistence;
 using Xunit;
 
@@ -18,6 +24,7 @@ public sealed class EmailProviderTests : IDisposable
     private readonly SqliteTestDatabase _database = new();
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 13, 12, 0, 0, TimeSpan.Zero));
     private readonly FakeSmtpSender _smtp = new();
+    private readonly SecretRegistry _secrets = new();
     private readonly EmailProvider _provider;
     private readonly NotificationService _service;
 
@@ -25,8 +32,8 @@ public sealed class EmailProviderTests : IDisposable
     {
         _database.MigrateAsync(_time).GetAwaiter().GetResult();
 
-        _provider = new EmailProvider(_smtp, NullLogger<EmailProvider>.Instance);
-        _service = new NotificationService(_database.CreateContext(_time), [_provider], NullLogger<NotificationService>.Instance);
+        _provider = new EmailProvider(_smtp, _secrets, NullLogger<EmailProvider>.Instance);
+        _service = new NotificationService(_database.CreateContext(_time), [_provider], NullLogger<NotificationService>.Instance, _secrets);
     }
 
     public void Dispose() => _database.Dispose();
@@ -203,6 +210,105 @@ public sealed class EmailProviderTests : IDisposable
             Token);
 
         NotificationSecrets.Read(updated!.Settings).GetProperty("password").GetString().Should().Be("app-password");
+    }
+
+    [Fact]
+    public void The_settings_text_never_shows_the_password()
+    {
+        var text = EmailSettings.Read(EmailSamples.Settings()).ToString();
+
+        text.Should().NotContain("app-password").And.Contain("smtp.example.com");
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("data:text/html,<script>1</script>")]
+    [InlineData("file:///etc/passwd")]
+    public async Task A_wondarr_address_that_is_not_http_or_https_is_refused_on_save(string url)
+    {
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.CreateAsync(Draft(EmailSamples.Settings(("wondarrUrl", url))), Token));
+
+        failure.Field.Should().Be("settings");
+        failure.Detail.Should().Contain("http or https");
+    }
+
+    [Fact]
+    public async Task A_send_registers_the_password_so_an_exception_naming_it_is_redacted_by_the_formatter()
+    {
+        var registry = new SecretRegistry();
+        var provider = new EmailProvider(_smtp, registry, NullLogger<EmailProvider>.Instance);
+
+        await provider.SendAsync(EmailSamples.Song(), EmailSamples.Settings(("password", "hunter2-hunter2")), Token);
+
+        var output = new StringWriter();
+        var formatter = new RedactingTextFormatter(new MessageTemplateTextFormatter("{Message}{NewLine}{Exception}"), registry);
+        var logEvent = new LogEvent(
+            DateTimeOffset.UtcNow,
+            LogEventLevel.Error,
+            new InvalidOperationException("login failed for password hunter2-hunter2"),
+            new MessageTemplateParser().Parse("failed with hunter2-hunter2"),
+            []);
+
+        formatter.Format(logEvent, output);
+
+        output.ToString().Should().NotContain("hunter2-hunter2").And.Contain("(removed)");
+    }
+
+    [Fact]
+    public async Task Saving_and_testing_register_the_password()
+    {
+        var created = await _service.CreateAsync(Draft(EmailSamples.Settings(("password", "saved-secret-1"))), Token);
+
+        _secrets.Redact("x saved-secret-1 y").Should().NotContain("saved-secret-1");
+
+        await _service.TestAsync(Draft(EmailSamples.Settings(("password", "tested-secret-2")), created.Id), Token);
+
+        _secrets.Redact("x tested-secret-2 y").Should().NotContain("tested-secret-2");
+        created.Id.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task At_startup_the_stored_passwords_are_registered()
+    {
+        await _service.CreateAsync(Draft(EmailSamples.Settings(("password", "stored-secret-3"))), Token);
+
+        var fresh = new SecretRegistry();
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(_time);
+        services.AddDbContext<Wondarr.Core.Persistence.WondarrDbContext>(builder => builder
+            .UseSqlite($"Data Source={_database.FilePath}")
+            .UseSnakeCaseNamingConvention());
+
+        await using var provider = services.BuildServiceProvider();
+        var registrar = new NotificationSecretRegistrar(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            [_provider],
+            fresh);
+
+        await registrar.StartAsync(Token);
+
+        fresh.Redact("x stored-secret-3 y").Should().NotContain("stored-secret-3");
+    }
+
+    [Fact]
+    public async Task Leaving_the_port_empty_is_the_same_target_as_typing_587()
+    {
+        var created = await _service.CreateAsync(Draft(EmailSamples.Settings(("port", null))), Token);
+
+        var updated = await _service.UpdateAsync(
+            created.Id,
+            Draft(EmailSamples.Settings(("password", NotificationSecrets.Mask), ("port", 587))),
+            Token);
+
+        NotificationSecrets.Read(updated!.Settings).GetProperty("password").GetString().Should().Be("app-password");
+
+        var other = await Assert.ThrowsAsync<NotificationValidationException>(() => _service.UpdateAsync(
+            created.Id,
+            Draft(EmailSamples.Settings(("password", NotificationSecrets.Mask), ("port", 465))),
+            Token));
+
+        other.Field.Should().Be("password");
     }
 
     private static NotificationDraft Draft(JsonElement settings, long? id = null) =>
