@@ -185,6 +185,7 @@ public sealed class QueueTrackerTests
         {
             options.Handle = string.Empty;
             options.SourceType = SourceTypes.YouTube;
+            options.StateChangedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-5);
         });
         var live = await host.SeedAsync(options => options.Handle = "{\"username\":\"peer\",\"id\":\"transfer\"}");
 
@@ -195,6 +196,24 @@ public sealed class QueueTrackerTests
         failed.Message.Should().Be("Wondarr restarted during the grab");
         failed.FinishedAt.Should().NotBeNull();
         (await host.ItemAsync(live.QueueItemId)).State.Should().Be(QueueItemState.Queued, "an item with a handle is still followed");
+    }
+
+    [Fact]
+    public async Task A_handle_less_grab_of_this_process_is_never_swept_even_when_the_recovery_runs_late()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        host.Time.Advance(TimeSpan.FromMinutes(3));
+
+        // Queued after the process began following the queue: yt-dlp is still downloading it.
+        var live = await host.SeedAsync(options =>
+        {
+            options.Handle = string.Empty;
+            options.SourceType = SourceTypes.YouTube;
+        });
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        (await host.ItemAsync(live.QueueItemId)).State.Should().Be(QueueItemState.Queued);
     }
 
     [Fact]

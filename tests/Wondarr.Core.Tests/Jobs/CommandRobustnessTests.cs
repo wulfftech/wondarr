@@ -373,6 +373,67 @@ public class CommandRobustnessTests
     }
 
     [Fact]
+    public async Task Two_move_requests_to_different_libraries_stay_two_commands()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var first = await host.Queue.EnqueueAsync(
+            "MoveSongs",
+            "{\"name\":\"MoveSongs\",\"songIds\":[1,2],\"libraryId\":5}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+        var second = await host.Queue.EnqueueAsync(
+            "MoveSongs",
+            "{\"name\":\"MoveSongs\",\"songIds\":[3],\"libraryId\":6}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+
+        second.Id.Should().NotBe(first.Id);
+        (await host.Queue.GetAsync(first.Id, CancellationToken.None))!.Body.Should().Contain("\"libraryId\":5").And.NotContain("3");
+        second.Body.Should().Contain("\"libraryId\":6");
+    }
+
+    [Fact]
+    public async Task Two_conversions_with_different_rules_stay_two_commands()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var first = await host.Queue.EnqueueAsync(
+            "ConvertFiles",
+            "{\"name\":\"ConvertFiles\",\"songIds\":[1],\"libraryId\":5,\"rule\":\"lossless\"}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+        var second = await host.Queue.EnqueueAsync(
+            "ConvertFiles",
+            "{\"name\":\"ConvertFiles\",\"songIds\":[2],\"libraryId\":5,\"rule\":\"lossy\"}",
+            CommandTrigger.Manual,
+            CancellationToken.None);
+
+        second.Id.Should().NotBe(first.Id);
+        (await host.Queue.GetAsync(first.Id, CancellationToken.None))!.Body.Should().Contain("lossless").And.NotContain("lossy");
+    }
+
+    [Fact]
+    public async Task A_merge_keeps_every_other_member_of_the_queued_body()
+    {
+        await using var host = await JobTestHost.CreateAsync();
+
+        var first = await host.Queue.EnqueueAsync(
+            "MissingSearch",
+            "{\"name\":\"MissingSearch\",\"songIds\":[2],\"note\":\"kept\"}",
+            CommandTrigger.Unspecified,
+            CancellationToken.None);
+        await host.Queue.EnqueueAsync(
+            "MissingSearch",
+            "{\"name\":\"MissingSearch\",\"songIds\":[1]}",
+            CommandTrigger.Unspecified,
+            CancellationToken.None);
+
+        var stored = await host.Queue.GetAsync(first.Id, CancellationToken.None);
+        stored!.Body.Should().Contain("\"note\":\"kept\"").And.Contain("\"songIds\":[1,2]");
+    }
+
+    [Fact]
     public async Task A_batch_search_is_not_merged_into_one_that_has_started()
     {
         await using var host = await JobTestHost.CreateAsync();

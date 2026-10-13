@@ -73,6 +73,10 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<QueueTracker> _logger;
 
+    // When this process began following the queue. A grab with no handle that is older than this was in
+    // a previous process; one newer is a live grab of this one, whenever the recovery gets to run.
+    private readonly DateTime _startedAt;
+
     // Capacity one: a wake while a wake is already pending is the same request twice.
     private readonly SemaphoreSlim _wake = new(0, 1);
 
@@ -104,6 +108,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         _searchOptions = searchOptions;
         _timeProvider = timeProvider;
         _logger = logger;
+        _startedAt = timeProvider.GetUtcNow().UtcDateTime;
     }
 
     /// <inheritdoc />
@@ -410,7 +415,9 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         // searched again.
         var lost = await database.QueueItems
             .Include(entry => entry.Candidate)
-            .Where(entry => entry.State == QueueItemState.Queued && (entry.Handle == null || entry.Handle == string.Empty))
+            .Where(entry => entry.State == QueueItemState.Queued
+                && (entry.Handle == null || entry.Handle == string.Empty)
+                && entry.StateChangedAt < _startedAt)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

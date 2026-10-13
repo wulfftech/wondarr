@@ -236,6 +236,8 @@ public sealed partial class CommandExecutor : BackgroundService
     {
         List<CommandRecord> orphaned;
 
+        // The queue's gate first: a row it has saved but not yet recorded as held is not a leftover.
+        await _activeCommands.Gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         await _writeGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
         try
@@ -269,6 +271,7 @@ public sealed partial class CommandExecutor : BackgroundService
         finally
         {
             _writeGate.Release();
+            _activeCommands.Gate.Release();
         }
 
         LogOrphaned(orphaned.Count);
