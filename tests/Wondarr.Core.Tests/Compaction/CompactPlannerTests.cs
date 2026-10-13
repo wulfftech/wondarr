@@ -463,6 +463,33 @@ public class CompactPlannerTests : IDisposable
         small.TemplateMovesTotal.Should().Be(5);
     }
 
+    [Fact]
+    public async Task A_singles_folder_holding_singles_from_two_years_plans_nothing()
+    {
+        await using var context = await ContextAsync();
+        var artistId = await SeedArtistAsync(context);
+
+        foreach (var (index, date) in new[] { (1, "1964-05-01"), (2, "1965-02-01") })
+        {
+            await SeedSongAsync(
+                context,
+                artistId,
+                "m-" + index,
+                "Track " + index,
+                "singles",
+                AlbumContextKind.PseudoSingles,
+                "Singles",
+                trackNo: index,
+                pinned: true,
+                filePath: Placed($"Daft Punk/Singles/{index:00} - Track {index}.flac"),
+                date: date);
+        }
+
+        var plan = await NewPlanner(context).PlanAsync(SeedData.DefaultLibraryId, CancellationToken.None);
+
+        plan.Moves.Should().BeEmpty();
+    }
+
     /// <summary>One song pinned to the real album r1 (so the re-plan leaves it there), holding a file.</summary>
     private static async Task<long> SeedPinnedOnAlbumAsync(
         WondarrDbContext context,

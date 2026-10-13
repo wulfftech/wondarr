@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Importing;
+using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Xunit;
 
@@ -54,6 +56,41 @@ public class AlbumFolderYearTests
 
         NamingTemplate.Render(NamingTemplate.PresetTemplates[LibraryLayout.ArtistAlbum], values)
             .Should().Be("Daft Punk/Random Access Memories/08 - Get Lucky");
+    }
+
+    [Fact]
+    public void The_singles_pseudo_album_never_carries_a_year_in_any_preset()
+    {
+        var artist = new Artist { Name = "The Dixie Cups", SortName = "Dixie Cups, The" };
+        var song = new Song { Title = "Chapel of Love", ArtistCredit = "The Dixie Cups" };
+        var album = new AlbumContext
+        {
+            Kind = AlbumContextKind.PseudoSingles,
+            AlbumTitle = "Singles",
+            AlbumArtist = "The Dixie Cups",
+            AlbumKey = "singles",
+            TrackNo = 1,
+            DiscNo = 1,
+            Date = "1964-05-01",
+        };
+        var media = new MediaInfo("mp3", "mp3", 320, 44_100, null, 2, 150_000, false, 6_000_000);
+        var quality = new Quality { Name = "MP3-320", Codec = "mp3" };
+
+        var values = NamingValuesBuilder.Build(song, album, artist, media, quality, "soulseek");
+
+        values.ReleaseYear.Should().BeNull();
+
+        foreach (var (layout, template) in NamingTemplate.PresetTemplates)
+        {
+            var path = NamingTemplate.Render(template, values);
+
+            if (template.Contains("{Album Title}", StringComparison.Ordinal))
+            {
+                path.Split('/').Should().Contain("Singles", $"preset {layout}");
+            }
+
+            path.Should().NotContain("1964", $"preset {layout}");
+        }
     }
 
     [Fact]

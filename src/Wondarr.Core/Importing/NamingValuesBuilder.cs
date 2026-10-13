@@ -65,7 +65,9 @@ public static class NamingValuesBuilder
             AlbumArtistName = album.AlbumArtist,
             AlbumTitle = album.AlbumTitle,
             AlbumType = AlbumType(album.Kind),
-            ReleaseYear = Year(album.Date),
+            // The Singles pseudo-album holds an artist's singles from many years, so it has no release
+            // year: the optional year group drops out and every preset renders a plain "Singles" folder.
+            ReleaseYear = album.Kind == AlbumContextKind.PseudoSingles ? null : Year(album.Date),
             OriginalYear = Year(album.OriginalDate),
             TrackTitle = song.Title,
             TrackArtistName = song.ArtistCredit,
