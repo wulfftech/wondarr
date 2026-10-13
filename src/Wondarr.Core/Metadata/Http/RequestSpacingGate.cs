@@ -97,17 +97,34 @@ public sealed class RequestSpacingGate
     }
 
     /// <summary>
-    /// Waits until the clock reaches <paramref name="slot"/>. Timers run on the millisecond tick
-    /// count, which on Windows advances in ~15.6 ms steps, so a delay can end up to one step early by
-    /// the precise clock; check again and wait out the remainder rather than start early.
+    /// Waits until the clock reaches <paramref name="slot"/>, then checks that no <c>Retry-After</c>
+    /// cooldown was set while it waited. A waiter queued before the cooldown began would otherwise go out
+    /// inside it; it takes a fresh slot after the cooldown instead, so the spacing still holds. Timers run
+    /// on the millisecond tick count, which on Windows advances in ~15.6 ms steps, so a delay can end up
+    /// to one step early by the precise clock; check again and wait out the remainder rather than start
+    /// early.
     /// </summary>
     private async Task WaitUntilAsync(DateTimeOffset slot, CancellationToken cancellationToken)
     {
-        var remaining = slot - _timeProvider.GetUtcNow();
-        while (remaining > TimeSpan.Zero)
+        while (true)
         {
-            await Task.Delay(remaining, _timeProvider, cancellationToken).ConfigureAwait(false);
-            remaining = slot - _timeProvider.GetUtcNow();
+            var remaining = slot - _timeProvider.GetUtcNow();
+            while (remaining > TimeSpan.Zero)
+            {
+                await Task.Delay(remaining, _timeProvider, cancellationToken).ConfigureAwait(false);
+                remaining = slot - _timeProvider.GetUtcNow();
+            }
+
+            lock (_sync)
+            {
+                if (_cooldownUntil <= _timeProvider.GetUtcNow())
+                {
+                    return;
+                }
+
+                slot = _nextFreeSlot > _cooldownUntil ? _nextFreeSlot : _cooldownUntil;
+                _nextFreeSlot = slot + _minInterval;
+            }
         }
     }
 }

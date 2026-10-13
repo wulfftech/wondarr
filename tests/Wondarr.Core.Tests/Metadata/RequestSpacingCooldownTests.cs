@@ -130,6 +130,80 @@ public sealed class RequestSpacingCooldownTests
         rig.Gate.Cooldown.Should().Be(TimeSpan.FromSeconds(100));
     }
 
+    [Fact]
+    public async Task A_cooldown_set_while_requests_are_queued_holds_back_the_requests_already_waiting()
+    {
+        var time = new FakeTimeProvider(Start);
+        var gate = new RequestSpacingGate(TimeSpan.FromSeconds(1), time);
+
+        // Four requests are queued at t, t+1, t+2 and t+3. The first goes out at once and is answered
+        // with Retry-After: 60 before the other three have started.
+        var waiters = Enumerable.Range(0, 4).Select(_ => gate.WaitAsync(CancellationToken.None).AsTask()).ToArray();
+        waiters[0].IsCompleted.Should().BeTrue();
+
+        gate.DelayUntil(Start.AddSeconds(60));
+
+        // Past the three slots they were given, and up to a second before the cooldown ends: none goes out.
+        time.Advance(TimeSpan.FromSeconds(59));
+        await SettleAsync();
+        waiters.Skip(1).Should().OnlyContain(waiter => !waiter.IsCompleted);
+
+        // The cooldown ends: they leave one slot apart, not all at once.
+        time.Advance(TimeSpan.FromSeconds(1));
+        await SettleAsync();
+        waiters.Skip(1).Count(waiter => waiter.IsCompleted).Should().Be(1);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        await SettleAsync();
+        waiters.Skip(1).Count(waiter => waiter.IsCompleted).Should().Be(2);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        await Task.WhenAll(waiters).WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task A_longer_cooldown_set_later_also_holds_back_a_waiter_that_was_already_moved()
+    {
+        var time = new FakeTimeProvider(Start);
+        var gate = new RequestSpacingGate(TimeSpan.FromSeconds(1), time);
+
+        await gate.WaitAsync(CancellationToken.None);
+        var waiting = gate.WaitAsync(CancellationToken.None).AsTask();
+
+        gate.DelayUntil(Start.AddSeconds(30));
+        time.Advance(TimeSpan.FromSeconds(1));
+        await SettleAsync();
+
+        // Moved to the first cooldown's end; then the host asks for longer.
+        gate.DelayUntil(Start.AddSeconds(90));
+        time.Advance(TimeSpan.FromSeconds(29));
+        await SettleAsync();
+        waiting.IsCompleted.Should().BeFalse();
+
+        time.Advance(TimeSpan.FromSeconds(60));
+        await waiting.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void The_public_rate_limits_keep_a_margin()
+    {
+        // MusicBrainz allows 1 request/s and AcoustID 3/s; network jitter can put two arrivals inside
+        // one server-side second when sends are exactly at the limit.
+        new MetadataOptions().MusicBrainzRequestInterval.Should().Be(TimeSpan.FromMilliseconds(1050));
+        new Wondarr.Core.Metadata.AcoustId.AcoustIdOptions().RequestInterval.Should().Be(TimeSpan.FromMilliseconds(350));
+        new Wondarr.Core.Metadata.AcoustId.AcoustIdOptions { RequestsPerSecond = 1 }.RequestInterval
+            .Should().Be(TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>Lets continuations that the fake clock just released run to their next await.</summary>
+    private static async Task SettleAsync()
+    {
+        for (var i = 0; i < 20; i++)
+        {
+            await Task.Yield();
+        }
+    }
+
     private static Func<int, HttpResponseMessage> Throttled(TimeSpan retryAfter) => request =>
     {
         if (request > 1)

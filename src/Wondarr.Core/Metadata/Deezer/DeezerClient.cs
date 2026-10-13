@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Wondarr.Core.Metadata.Deezer;
 
@@ -137,17 +139,20 @@ public sealed class DeezerClient : IDeezerClient
 
     private readonly HttpClient _http;
     private readonly IMetadataCache _cache;
+    private readonly ILogger _logger;
 
     /// <summary>Initialises a new instance of the <see cref="DeezerClient"/> class.</summary>
     /// <param name="http">The typed client.</param>
     /// <param name="cache">The shared provider-response cache.</param>
-    public DeezerClient(HttpClient http, IMetadataCache cache)
+    /// <param name="logger">Where an unreadable body is reported, at debug level.</param>
+    public DeezerClient(HttpClient http, IMetadataCache cache, ILogger<DeezerClient>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(cache);
 
         _http = http;
         _cache = cache;
+        _logger = logger ?? NullLogger<DeezerClient>.Instance;
     }
 
     /// <inheritdoc />
@@ -168,7 +173,7 @@ public sealed class DeezerClient : IDeezerClient
 
         var uri = $"search?q={Uri.EscapeDataString(query)}&limit={limit.ToString(CultureInfo.InvariantCulture)}";
 
-        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<DeezerSearchResult>(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null
             ? new DeezerSearchResult()
@@ -194,7 +199,7 @@ public sealed class DeezerClient : IDeezerClient
     {
         var uri = $"album/{NormalizeId(id, nameof(id))}";
 
-        var body = await GetBodyAsync(uri, AlbumTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<DeezerAlbum>(uri, AlbumTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<DeezerAlbum>(body, SerializerOptions);
     }
@@ -218,7 +223,7 @@ public sealed class DeezerClient : IDeezerClient
         var uri = $"search/album?q={Uri.EscapeDataString(query)}"
             + $"&limit={limit.ToString(CultureInfo.InvariantCulture)}";
 
-        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<DeezerAlbumSearchResult>(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null
             ? new DeezerAlbumSearchResult()
@@ -242,7 +247,7 @@ public sealed class DeezerClient : IDeezerClient
             + $"?index={index.ToString(CultureInfo.InvariantCulture)}"
             + $"&limit={Limit(limit, nameof(limit))}";
 
-        var body = await GetBodyAsync(uri, PlaylistTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<DeezerTrackPage>(uri, PlaylistTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<DeezerTrackPage>(body, SerializerOptions) ?? new DeezerTrackPage();
     }
@@ -255,7 +260,7 @@ public sealed class DeezerClient : IDeezerClient
     {
         var uri = $"artist/{NormalizeId(artistId, nameof(artistId))}/top?limit={Limit(limit, nameof(limit))}";
 
-        var body = await GetBodyAsync(uri, ArtistTopTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<DeezerTrackPage>(uri, ArtistTopTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<DeezerTrackPage>(body, SerializerOptions) ?? new DeezerTrackPage();
     }
@@ -270,7 +275,7 @@ public sealed class DeezerClient : IDeezerClient
 
         var uri = $"search/artist?q={Uri.EscapeDataString(name)}&limit={Limit(limit, nameof(limit))}";
 
-        var body = await GetBodyAsync(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<DeezerArtistSearchResult>(uri, SearchTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null
             ? new DeezerArtistSearchResult()
@@ -299,17 +304,18 @@ public sealed class DeezerClient : IDeezerClient
     /// <summary>Serves a track request from the cache, or makes it.</summary>
     private async Task<DeezerTrack?> GetTrackAsync(string uri, TimeSpan ttl, CancellationToken cancellationToken)
     {
-        var body = await GetBodyAsync(uri, ttl, cancellationToken).ConfigureAwait(false);
+        var body = await GetBodyAsync<DeezerTrack>(uri, ttl, cancellationToken).ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<DeezerTrack>(body, SerializerOptions);
     }
 
     /// <summary>
-    /// Serves a request from the cache, or makes it, caches the body — or the "no data" answer — and
-    /// returns it.
+    /// Serves a request from the cache, or makes it, caches the body — once it is known to parse as
+    /// <typeparamref name="T"/> — or the "no data" answer, and returns it.
     /// </summary>
     /// <returns>The body, or <see langword="null"/> for a cached or fresh "no data" answer.</returns>
-    private async Task<string?> GetBodyAsync(string relativeUri, TimeSpan ttl, CancellationToken cancellationToken)
+    /// <exception cref="MetadataProviderException">A 2xx body is not <typeparamref name="T"/>; it is not cached.</exception>
+    private async Task<string?> GetBodyAsync<T>(string relativeUri, TimeSpan ttl, CancellationToken cancellationToken)
     {
         var cached = await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
@@ -318,6 +324,12 @@ public sealed class DeezerClient : IDeezerClient
         }
 
         var body = await SendAsync(relativeUri, cancellationToken).ConfigureAwait(false);
+
+        // Parsed before it is cached: a captive portal's HTML must not poison the cache for the TTL.
+        if (body is not null)
+        {
+            ProviderBodies.Parse<T>(Provider, body, SerializerOptions, _logger);
+        }
 
         await _cache
             .SetAsync(Provider, relativeUri, body ?? NoDataPayload, body is null ? NoDataTtl : ttl, cancellationToken)

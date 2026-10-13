@@ -59,7 +59,7 @@ public interface IMetadataCache
     /// <summary>Stores a body, replacing any entry already held for the same key.</summary>
     Task SetAsync(string provider, string key, string payload, TimeSpan ttl, CancellationToken cancellationToken);
 
-    /// <summary>Deletes every expired entry.</summary>
+    /// <summary>Deletes every expired entry, a batch at a time so no statement holds a long write lock.</summary>
     /// <returns>The number of rows deleted.</returns>
     Task<int> PurgeExpiredAsync(CancellationToken cancellationToken);
 }
@@ -71,6 +71,12 @@ public interface IMetadataCache
 /// </summary>
 public sealed class MetadataCache : IMetadataCache
 {
+    /// <summary>
+    /// The most rows one purge statement removes. A payload can be hundreds of kilobytes, so a batch is
+    /// kept smaller than the search-run delete's.
+    /// </summary>
+    public const int PurgeBatchSize = 200;
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TimeProvider _timeProvider;
 
@@ -141,14 +147,30 @@ public sealed class MetadataCache : IMetadataCache
     public async Task<int> PurgeExpiredAsync(CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var total = 0;
 
         await using var scope = _scopeFactory.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
-        return await context.Database
-            .ExecuteSqlInterpolatedAsync(
-                $"DELETE FROM metadata_cache WHERE expires_at <= {now}",
-                cancellationToken)
-            .ConfigureAwait(false);
+        // ix_metadata_cache_expires_at serves the inner select, so each batch reads only the rows it
+        // deletes rather than scanning the table.
+        while (true)
+        {
+            var deleted = await context.Database
+                .ExecuteSqlInterpolatedAsync(
+                    $"""
+                     DELETE FROM metadata_cache WHERE id IN (
+                         SELECT id FROM metadata_cache WHERE expires_at <= {now} ORDER BY expires_at LIMIT {PurgeBatchSize})
+                     """,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (deleted == 0)
+            {
+                return total;
+            }
+
+            total += deleted;
+        }
     }
 }
