@@ -23,6 +23,12 @@ public interface IInnertubeClient
     /// <exception cref="InnertubeException">InnerTube refused the request.</exception>
     /// <exception cref="InnertubeLayoutException">InnerTube answered, but not with a playlist page the parser knows (page 1 or a continuation).</exception>
     Task<InnertubePlaylist> BrowsePlaylistAsync(string playlistId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gets how much longer searches must wait because YouTube asked to be left alone (429 or 503 with
+    /// <c>Retry-After</c>), or <see langword="null"/> when they may go ahead. Shared by every search.
+    /// </summary>
+    TimeSpan? PausedFor { get; }
 }
 
 /// <summary>What a playlist browse read.</summary>
@@ -61,18 +67,28 @@ public sealed class InnertubeLayoutException : Exception
 /// <summary>
 /// InnerTube refused the request. A 400 is a bug in the request, a 404 is an unknown playlist, and a
 /// 429 or 503 is YouTube rate limiting or being down: whether any of them is worth retrying is the
-/// caller's call, so nothing is retried here.
+/// caller's call, so nothing is retried here (a 429 or 503 does pause every search, see
+/// <see cref="InnertubePause"/>).
 /// </summary>
 public sealed class InnertubeException : Exception
 {
     /// <param name="statusCode">The status InnerTube answered with.</param>
     /// <param name="detail">The first line of what the error body said.</param>
     /// <param name="operation">What the call was, for the message (<c>search</c>, <c>browse</c>).</param>
-    public InnertubeException(HttpStatusCode statusCode, string detail, string operation = "search")
+    /// <param name="retryAfter">How long YouTube asked to be left alone, when the answer was a 429 or a 503.</param>
+    public InnertubeException(HttpStatusCode statusCode, string detail, string operation = "search", TimeSpan? retryAfter = null)
         : base($"InnerTube {operation} failed with HTTP {(int)statusCode} {statusCode}: {detail}")
     {
         StatusCode = statusCode;
+        RetryAfter = retryAfter;
     }
+
+    /// <summary>
+    /// Gets how long YouTube asked to be left alone (<c>Retry-After</c>, or the 60 s default), when it
+    /// answered 429 or 503 or when the search was refused because of that pause; otherwise
+    /// <see langword="null"/>.
+    /// </summary>
+    public TimeSpan? RetryAfter { get; }
 
     /// <summary>The status InnerTube answered with.</summary>
     public HttpStatusCode StatusCode { get; }
@@ -119,12 +135,18 @@ public sealed class InnertubeClient : IInnertubeClient
     private readonly HttpClient _http;
     private readonly IOptionsMonitor<YouTubeOptions> _options;
     private readonly TimeProvider _timeProvider;
+    private readonly InnertubePause _pause;
 
-    public InnertubeClient(HttpClient http, IOptionsMonitor<YouTubeOptions> options, TimeProvider timeProvider)
+    public InnertubeClient(
+        HttpClient http,
+        IOptionsMonitor<YouTubeOptions> options,
+        TimeProvider timeProvider,
+        InnertubePause? pause = null)
     {
         _http = http;
         _options = options;
         _timeProvider = timeProvider;
+        _pause = pause ?? new InnertubePause();
         _http.BaseAddress ??= new Uri(options.CurrentValue.BaseUrl, UriKind.Absolute);
     }
 
@@ -132,6 +154,16 @@ public sealed class InnertubeClient : IInnertubeClient
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Query);
+
+        // YouTube asked to be left alone: nothing is sent until that time has passed.
+        if (PausedFor is { } remaining)
+        {
+            throw new InnertubeException(
+                HttpStatusCode.TooManyRequests,
+                $"searches are paused for another {Math.Ceiling(remaining.TotalSeconds).ToString(CultureInfo.InvariantCulture)} s because YouTube asked to be left alone",
+                "search",
+                remaining);
+        }
 
         var body = await PostAsync(SearchPath, Body(request), cancellationToken).ConfigureAwait(false);
 
@@ -227,9 +259,37 @@ public sealed class InnertubeClient : IInnertubeClient
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
-        return response.IsSuccessStatusCode
-            ? body
-            : throw new InnertubeException(response.StatusCode, ErrorDetail(body), Operation(relativeUri));
+        if (response.IsSuccessStatusCode)
+        {
+            return body;
+        }
+
+        // 429 and 503 mean "slow down": every search waits for Retry-After (60 s when it is absent).
+        TimeSpan? retryAfter = null;
+
+        if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+        {
+            var now = _timeProvider.GetUtcNow();
+            retryAfter = _pause.Set(now, ReadRetryAfter(response, now));
+        }
+
+        throw new InnertubeException(response.StatusCode, ErrorDetail(body), Operation(relativeUri), retryAfter);
+    }
+
+    /// <inheritdoc />
+    public TimeSpan? PausedFor => _pause.Remaining(_timeProvider.GetUtcNow());
+
+    /// <summary>The wait <c>Retry-After</c> asks for, as seconds or as an HTTP date; <see langword="null"/> when absent or unreadable.</summary>
+    private static TimeSpan? ReadRetryAfter(HttpResponseMessage response, DateTimeOffset now)
+    {
+        var header = response.Headers.RetryAfter;
+
+        if (header?.Delta is { } delta)
+        {
+            return delta;
+        }
+
+        return header?.Date is { } date ? date - now : null;
     }
 
     /// <summary>What the call was, for the exception's message.</summary>

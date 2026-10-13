@@ -61,7 +61,7 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
             // scan's own adoption step either.
             var gate = ReferenceLibraryGates.For(libraryId);
 
-            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await WaitForGateAsync(gate, context, cancellationToken).ConfigureAwait(false);
 
             try
             {
@@ -184,6 +184,43 @@ public sealed partial class ReferenceLibraryScanCommandHandler(
             unavailable > 0
                 ? string.Concat(", ", unavailable.ToString(CultureInfo.InvariantCulture), " unavailable")
                 : string.Empty);
+    }
+
+    /// <summary>
+    /// Takes the library's gate. A scan that has to wait for another scan of the same library hands its
+    /// executor place back while it does (a first identification can take days, and a place held for that
+    /// long is one fewer for everything else), and takes a place again before it works; the gate is only
+    /// waited for, not held, while the place is being waited for, so the two waits cannot hold each other up.
+    /// </summary>
+    private static async Task WaitForGateAsync(SemaphoreSlim gate, CommandContext context, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            if (await gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
+
+            var lease = context.YieldWorker?.Invoke();
+
+            if (lease is null)
+            {
+                // No place to spare: wait for the gate holding this one, as before.
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+                return;
+            }
+
+            try
+            {
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                gate.Release();
+            }
+            finally
+            {
+                await lease.DisposeAsync().ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>The libraries to scan: the one named, or every enabled one, in id order.</summary>

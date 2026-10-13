@@ -908,7 +908,7 @@
       }
     },
     {
-      "name": "not an upgrade when the song already has MP3-320; a FLAC is",
+      "name": "an automatic grab stops at the cutoff: with MP3-320 held, neither the same quality nor a FLAC is wanted",
       "song": {
         "title": "Get Lucky",
         "mainArtists": [
@@ -984,11 +984,12 @@
         }
       ],
       "expected": {
-        "accepted": [
-          "flac"
-        ],
+        "accepted": [],
         "rejections": {
           "same": [
+            "notAnUpgrade"
+          ],
+          "flac": [
             "notAnUpgrade"
           ]
         }

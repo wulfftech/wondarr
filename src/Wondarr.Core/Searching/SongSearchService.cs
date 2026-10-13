@@ -171,6 +171,10 @@ public sealed partial class SongSearchService : ISongSearchService
     /// <summary>Serialises "is a slot free?" with the grab that takes it, across every scope in the process.</summary>
     private static readonly SemaphoreSlim SlotGate = new(1, 1);
 
+    // The hold on SlotGate that the grab under way in this scope took, so GrabCandidateAsync can let
+    // go of it once the queue item (which is what takes the slot) is written. Null outside such a grab.
+    private SlotGateHold? _gateHold;
+
     private readonly WondarrDbContext _database;
     private readonly IEnumerable<ISourceProvider> _providers;
     private readonly DecisionEngine _engine;
@@ -274,6 +278,15 @@ public sealed partial class SongSearchService : ISongSearchService
         if (grab && await IsOwnedThroughReferenceAsync(songId, cancellationToken).ConfigureAwait(false))
         {
             return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, ReferenceOwnedMessage);
+        }
+
+        // An automatic grab stops at the cutoff (owner question 20, as in Lidarr): "search now" on a song
+        // whose file already meets its profile's cutoff searches nothing and says so. The interactive
+        // search is the user's own and still shows every release.
+        if (grab && trigger != SearchTrigger.Manual && song.File is { } held
+            && await CutoffMessageAsync(song, held, cancellationToken).ConfigureAwait(false) is { } cutoffMessage)
+        {
+            return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, cutoffMessage);
         }
 
         var run = await _runs.StartAsync(songId, trigger, cancellationToken).ConfigureAwait(false);
@@ -712,6 +725,13 @@ public sealed partial class SongSearchService : ISongSearchService
                     var held = lease;
                     lease = null;
                     await held.DisposeAsync().ConfigureAwait(false);
+
+                    // Getting a place back can take as long as the commands in front hold theirs: the
+                    // deadline is looked at again with the place in hand, before anything is grabbed.
+                    if (_timeProvider.GetUtcNow() >= deadline)
+                    {
+                        return (true, null);
+                    }
                 }
 
                 if (lease is null)
@@ -763,6 +783,9 @@ public sealed partial class SongSearchService : ISongSearchService
     {
         await SlotGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
+        var hold = new SlotGateHold(SlotGate);
+        _gateHold = hold;
+
         try
         {
             // A song that waited for a slot may have become the user's meanwhile (a reference scan linked
@@ -784,15 +807,54 @@ public sealed partial class SongSearchService : ISongSearchService
             {
                 var item = await GrabBestAsync(searchRunId, 1, cancellationToken).ConfigureAwait(false);
 
-                return (false, item);
+                // The slot went to another grab while this one was trying a second candidate: no slot.
+                return hold.SlotTaken && item is null ? (true, null) : (false, item);
             }
 
             return (true, null);
         }
         finally
         {
-            SlotGate.Release();
+            _gateHold = null;
+            hold.Release();
         }
+    }
+
+    /// <summary>
+    /// The gate's hold for one grab. The gate exists so "is a slot free?" and "take it" cannot be split by
+    /// another grab; the queue item is what takes the slot, so once it is written the gate is let go of
+    /// and a long download (YouTube runs the whole of yt-dlp inside <c>GrabAsync</c>) no longer keeps
+    /// every other automatic grab waiting. A second candidate takes the gate again and looks again.
+    /// </summary>
+    private sealed class SlotGateHold(SemaphoreSlim gate)
+    {
+        private bool _held = true;
+
+        /// <summary>Gets a value indicating whether a second look found every slot taken.</summary>
+        public bool SlotTaken { get; private set; }
+
+        /// <summary>Gets a value indicating whether the hold still has the gate.</summary>
+        public bool Held => _held;
+
+        public void Release()
+        {
+            if (_held)
+            {
+                _held = false;
+                gate.Release();
+            }
+        }
+
+        public async Task ReacquireAsync(CancellationToken cancellationToken)
+        {
+            if (!_held)
+            {
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                _held = true;
+            }
+        }
+
+        public void MarkSlotTaken() => SlotTaken = true;
     }
 
     /// <summary>Reports progress on the command; a failed report is logged, never allowed to lose the run.</summary>
@@ -873,6 +935,20 @@ public sealed partial class SongSearchService : ISongSearchService
             if (LinkIsGone(candidate))
             {
                 continue;
+            }
+
+            // The gate was let go of during the previous candidate's download: take it again and make
+            // sure a slot is still free before this one writes its queue item.
+            if (_gateHold is { Held: false } hold)
+            {
+                await hold.ReacquireAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    hold.MarkSlotTaken();
+
+                    return null;
+                }
             }
 
             try
@@ -1028,6 +1104,10 @@ public sealed partial class SongSearchService : ISongSearchService
                     " already has a download in flight."),
                 exception);
         }
+
+        // The queue item takes the slot, and a Queued item counts against the limit: nothing else needs
+        // the gate while the source works, however long that takes.
+        _gateHold?.Release();
 
         GrabHandle handle;
 
@@ -1261,6 +1341,38 @@ public sealed partial class SongSearchService : ISongSearchService
             .ConfigureAwait(false);
 
     /// <summary>Loads the song with everything the decision context needs.</summary>
+    /// <summary>
+    /// Why an automatic search has nothing to do for a song that holds a file: it already meets its
+    /// profile's cutoff and the profile lets nothing better replace it. <see langword="null"/> when the
+    /// song may still be upgraded.
+    /// </summary>
+    private async Task<string?> CutoffMessageAsync(Song song, SongFile held, CancellationToken cancellationToken)
+    {
+        var profile = await _database.QualityProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == song.QualityProfileId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (profile is null || !profile.UpgradeAllowed || !profile.MeetsCutoff(held.QualityId))
+        {
+            return null;
+        }
+
+        var quality = await _database.Qualities
+            .AsNoTracking()
+            .Where(candidate => candidate.Id == held.QualityId)
+            .Select(candidate => candidate.Name)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return string.Concat(
+            "Already at the cutoff: the current file (",
+            quality ?? held.QualityId.ToString(CultureInfo.InvariantCulture),
+            ") meets the ",
+            profile.Name,
+            " profile, so nothing is searched for.");
+    }
+
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
             .AsNoTracking()

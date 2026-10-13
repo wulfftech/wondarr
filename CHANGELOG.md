@@ -4,6 +4,20 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Changed
+- **An automatic grab stops at the cutoff.** A song whose file already meets its quality profile's cutoff is never replaced by a scheduled search, an import list's search, a pushed release or the **Search** button, even when a better release exists; **Search** on such a song says "Already at the cutoff" and searches nothing. The interactive search still lists every release and lets you grab any of them. This follows Lidarr; it changes what **Search** did on a file at MP3-320 under the Standard profile, which used to fetch a FLAC.
+- **Releases pushed from autobrr no longer delay a song's own searches.** A rejected push used to count as a fruitless search and could push the song's next Missing Search out by up to a week.
+
+### Fixed
+- **A song that is never found settles at the weekly search.** The Missing Search backoff only looked at the last 168 hours, which dropped the older failures, so a hopeless song was searched every day or three instead of weekly. It now counts the failures back to the last grab.
+- **A failed status write no longer stops a scheduled task until a restart.** If the database was busy when the executor marked a command started or finished, the command stayed Queued or Started and every later run of it was merged into that row. The write is tried three times, a command it still cannot mark is failed, and a row the executor no longer holds is failed as "Stranded" at the next enqueue.
+- **Adding an album or a list searches the new songs even while a Missing Search is running.** The search that adding queues now names the songs it was queued for, so it is no longer merged into a Missing Search that chose its batch before they existed.
+- **One slow YouTube download no longer holds up other automatic grabs,** and is no longer failed as "Peer did not respond" while it is still writing: the process-wide slot gate is let go of as soon as the queue item has taken the slot, and a grab without a handle is given 75 minutes, more than the longest `youtube.ytdlp.timeout_seconds`.
+- **YouTube searches honour 429 and 503.** Wondarr reads `Retry-After` (60 s when it is absent, at most an hour), pauses every YouTube search until then, skips the rest of the song's queries, and shows "YouTube is rate limiting Wondarr" instead of "no results".
+- **A search waiting for a download slot no longer keeps "Search now" waiting.** Missing Search and Upgrade Search hand their place in the task queue back while they wait for a slot, as Search now already did, and a reference scan does the same while it waits for another scan of the same library.
+- **`missingsearch` and `MissingSearch` are the same task,** so the second is no longer started beside the first. A cancel and the executor starting the same command can no longer both win.
+- **The next run shown on Tasks is the scheduler's,** including after **Run now**.
+
 ## [0.1.2] — 2026-10-13
 
 The second round of fixes from the 0.1.0 code review (`docs/reviews/CODE_REVIEW_2026-10-10.md`): the no-login rule for local addresses only admits real local callers, stored secrets go only to the host they were saved for, files holding secrets are owner-only, torrents Wondarr did not add are never changed or removed, Gazelle freeleech tokens are spent only on grabs, and import lists never act on an empty or cut-short read. Update by pulling `:0.1` (or `:0.1.2`).

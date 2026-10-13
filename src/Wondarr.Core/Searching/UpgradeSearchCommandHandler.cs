@@ -71,7 +71,7 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
 
         foreach (var songId in songs)
         {
-            await WaitForSlotAsync(options, cancellationToken).ConfigureAwait(false);
+            await WaitForSlotAsync(context, options, cancellationToken).ConfigureAwait(false);
 
             using var scope = _scopes.CreateScope();
 
@@ -249,46 +249,75 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
         return left.SongId.CompareTo(right.SongId);
     }
 
-    /// <summary>Waits until fewer than <see cref="SearchOptions.MaxActiveDownloads"/> grabs are in flight.</summary>
-    private async Task WaitForSlotAsync(SearchOptions options, CancellationToken cancellationToken)
+    /// <summary>
+    /// Waits until fewer than <see cref="SearchOptions.MaxActiveDownloads"/> grabs are in flight. The
+    /// wait hands the command's executor place back (a batch can wait for hours, and three waiting
+    /// commands would otherwise keep every other command from starting). The place is taken back
+    /// before the wait ends, and the slot is counted again with it in hand, because a slot that was
+    /// free while the place was being waited for may be gone by then.
+    /// </summary>
+    private async Task WaitForSlotAsync(CommandContext context, SearchOptions options, CancellationToken cancellationToken)
     {
         var lastWarning = _timeProvider.GetUtcNow();
+        IAsyncDisposable? lease = null;
 
-        while (true)
+        try
         {
-            int active;
-
-            using (var scope = _scopes.CreateScope())
+            while (true)
             {
-                var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+                int active;
 
-                active = await database.QueueItems
-                    .AsNoTracking()
-                    .CountAsync(
-                        item => item.State == QueueItemState.Queued
-                            || item.State == QueueItemState.RemotelyQueued
-                            || item.State == QueueItemState.Downloading,
-                        cancellationToken)
+                using (var scope = _scopes.CreateScope())
+                {
+                    var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+                    active = await database.QueueItems
+                        .AsNoTracking()
+                        .CountAsync(
+                            item => item.State == QueueItemState.Queued
+                                || item.State == QueueItemState.RemotelyQueued
+                                || item.State == QueueItemState.Downloading,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                if (active < options.MaxActiveDownloads)
+                {
+                    if (lease is null)
+                    {
+                        return;
+                    }
+
+                    // Work again only with a place of our own, then look at the slots once more.
+                    var held = lease;
+                    lease = null;
+                    await held.DisposeAsync().ConfigureAwait(false);
+
+                    continue;
+                }
+
+                // A stall here is not visible anywhere else — the batch simply stops — so the wait says so
+                // out loud, but only once every ten minutes rather than on every poll.
+                var now = _timeProvider.GetUtcNow();
+
+                if (now - lastWarning >= SlotWarningInterval)
+                {
+                    LogWaitingForSlot(_logger, active);
+                    lastWarning = now;
+                }
+
+                lease ??= context.YieldWorker?.Invoke();
+
+                await Task.Delay(TimeSpan.FromSeconds(options.SlotWaitSeconds), _timeProvider, cancellationToken)
                     .ConfigureAwait(false);
             }
-
-            if (active < options.MaxActiveDownloads)
+        }
+        finally
+        {
+            if (lease is not null)
             {
-                return;
+                await lease.DisposeAsync().ConfigureAwait(false);
             }
-
-            // A stall here is not visible anywhere else — the batch simply stops — so the wait says so
-            // out loud, but only once every ten minutes rather than on every poll.
-            var now = _timeProvider.GetUtcNow();
-
-            if (now - lastWarning >= SlotWarningInterval)
-            {
-                LogWaitingForSlot(_logger, active);
-                lastWarning = now;
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(options.SlotWaitSeconds), _timeProvider, cancellationToken)
-                .ConfigureAwait(false);
         }
     }
 

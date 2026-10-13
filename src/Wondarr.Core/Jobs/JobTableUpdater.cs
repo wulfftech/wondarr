@@ -1,6 +1,7 @@
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Quartz;
 
 namespace Wondarr.Core.Jobs;
 
@@ -19,13 +20,20 @@ public sealed class JobTableUpdater : IHandle<CommandUpdatedEvent>
     public const int MaxResultLength = 500;
 
     private readonly WondarrDbContext _context;
+    private readonly ISchedulerFactory? _schedulerFactory;
 
     /// <summary>Initialises a new instance of the <see cref="JobTableUpdater"/> class.</summary>
-    public JobTableUpdater(WondarrDbContext context)
+    /// <param name="context">The database the <c>job</c> row lives in.</param>
+    /// <param name="schedulerFactory">
+    /// The scheduler whose trigger says when the task is next due; without one the next run is the end of
+    /// this run plus the interval.
+    /// </param>
+    public JobTableUpdater(WondarrDbContext context, ISchedulerFactory? schedulerFactory = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         _context = context;
+        _schedulerFactory = schedulerFactory;
     }
 
     /// <inheritdoc />
@@ -53,10 +61,44 @@ public sealed class JobTableUpdater : IHandle<CommandUpdatedEvent>
         }
 
         job.LastRunAt = endedAt;
-        job.NextRunAt = job.Interval is { } interval ? endedAt + interval : null;
+        job.NextRunAt = await NextRunAtAsync(command.Name, job.Interval, endedAt, cancellationToken).ConfigureAwait(false);
         job.LastResult = Describe(command);
 
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// When the task is next due. Quartz fires on its own schedule whatever a run's end is, and a "run
+    /// now" does not move it, so the trigger's next fire time is the answer; the end of the run plus the
+    /// interval is only the fallback for a task with no trigger (R-071).
+    /// </summary>
+    private async Task<DateTime?> NextRunAtAsync(
+        string name,
+        TimeSpan? interval,
+        DateTime endedAt,
+        CancellationToken cancellationToken)
+    {
+        if (_schedulerFactory is not null)
+        {
+            try
+            {
+                var scheduler = await _schedulerFactory.GetScheduler(cancellationToken).ConfigureAwait(false);
+                var trigger = await scheduler
+                    .GetTrigger(ScheduledTaskService.TriggerKeyFor(name), cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (trigger?.NextFireTimeUtc is { } next)
+                {
+                    return next.UtcDateTime;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The schedule is the clock, the row only a copy of it: fall back to the interval.
+            }
+        }
+
+        return interval is { } period ? endedAt + period : null;
     }
 
     /// <summary>Renders <c>"&lt;result&gt;: &lt;message or exception&gt;"</c>, trimmed to what the table keeps.</summary>

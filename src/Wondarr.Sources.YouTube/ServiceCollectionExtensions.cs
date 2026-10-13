@@ -30,6 +30,10 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
 
+        // The "not before" time every YouTube search shares after a 429 or 503. The typed client is
+        // transient, so the state has to live in a singleton.
+        services.TryAddSingleton<InnertubePause>();
+
         // Bound to the configuration root by the host once the settings API lands (P4-05); until then
         // the defaults apply and the validators still run.
         services.AddOptions<YouTubeOptions>().ValidateOnStart();

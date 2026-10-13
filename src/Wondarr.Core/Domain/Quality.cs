@@ -113,9 +113,20 @@ public sealed class QualityProfile : EntityBase
     /// strictly better, allowed quality than the file already held at <paramref name="currentQualityId"/>.
     /// A current quality the profile does not list counts as worse than everything in it.
     /// </summary>
-    public bool IsUpgrade(long currentQualityId, long candidateQualityId)
+    /// <param name="currentQualityId">The quality of the file already held.</param>
+    /// <param name="candidateQualityId">The quality of the candidate.</param>
+    /// <param name="stopAtCutoff">
+    /// When <see langword="true"/>, a held file that already meets the cutoff is never upgraded (what
+    /// Lidarr does). Every automatic grab passes it; a grab the user picked by hand does not ask at all.
+    /// </param>
+    public bool IsUpgrade(long currentQualityId, long candidateQualityId, bool stopAtCutoff = false)
     {
         if (!UpgradeAllowed || !IsAllowed(candidateQualityId))
+        {
+            return false;
+        }
+
+        if (stopAtCutoff && MeetsCutoff(currentQualityId))
         {
             return false;
         }

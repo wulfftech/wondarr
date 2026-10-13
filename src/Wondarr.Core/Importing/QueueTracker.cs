@@ -740,7 +740,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
     /// <param name="now">The instant to measure against.</param>
     private static string? TimeoutReason(QueueItem item, QueueOptions options, DateTime now) => item.State switch
     {
-        QueueItemState.Queued when Waited(item.StateChangedAt, options.StartTimeoutMinutes, now)
+        QueueItemState.Queued when Waited(item.StateChangedAt, StartTimeoutMinutes(item, options), now)
             => "Peer did not respond",
         QueueItemState.RemotelyQueued when Waited(item.StateChangedAt, options.RemoteQueueTimeoutMinutes, now)
             => string.Create(
@@ -750,6 +750,18 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
             => string.Create(CultureInfo.InvariantCulture, $"Stalled at {Math.Round(item.Progress * 100)} %"),
         _ => null,
     };
+
+    /// <summary>
+    /// How long a <c>Queued</c> item may wait. One with no handle yet is still inside its source's grab,
+    /// which for YouTube is the whole download, so it gets the longer allowance
+    /// (<see cref="QueueOptions.HandlelessGrabTimeoutMinutes"/>) and is never failed while yt-dlp writes.
+    /// </summary>
+    /// <param name="item">The queued item.</param>
+    /// <param name="options">The configured timeouts.</param>
+    private static int StartTimeoutMinutes(QueueItem item, QueueOptions options) =>
+        string.IsNullOrEmpty(item.Handle)
+            ? Math.Max(options.StartTimeoutMinutes, QueueOptions.HandlelessGrabTimeoutMinutes)
+            : options.StartTimeoutMinutes;
 
     /// <summary>Where in the peer's queue the item is, as the message reads it.</summary>
     /// <param name="item">The item in the peer's queue.</param>

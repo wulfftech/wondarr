@@ -48,7 +48,7 @@ A **monitored** song is one Wondarr looks after: if it has no file it is searche
 
 ## Search on add
 
-Adding a monitored song queues a search for it straight away. This is `search.search_on_add`, on by default. With it off, the scheduled **Missing Search** task (every 6 hours by default) finds the song instead. See [Configuration](/wondarr/reference/configuration/).
+Adding a monitored song queues a search for it straight away; adding several at once (an album, a list) queues one Missing Search that names exactly those songs, so a Missing Search that is already running does not swallow it. This is `search.search_on_add`, on by default. With it off, the scheduled **Missing Search** task (every 6 hours by default) finds the song instead. See [Configuration](/wondarr/reference/configuration/).
 
 When all download slots are busy (`search.max_active_downloads`, 3 by default), a search that found something good shows "Waiting for a download slot" under **Activity → Tasks** and grabs the best candidate as soon as a slot frees. It waits up to `search.slot_wait_minutes` (30 by default), then ends "Cancelled — still no free download slot" and leaves the song wanted for the next Missing Search.
 

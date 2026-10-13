@@ -116,6 +116,9 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 
     public List<HttpRequestMessage> Requests { get; } = [];
 
+    /// <summary>Gets the <c>Retry-After</c> header every response carries, when set.</summary>
+    public System.Net.Http.Headers.RetryConditionHeaderValue? RetryAfter { get; init; }
+
     /// <summary>
     /// Each request's body, read while the request is still alive: the client disposes the
     /// <see cref="HttpRequestMessage"/> (and its content) as soon as it has the response.
@@ -139,6 +142,8 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
             Content = new StringContent(_body, Encoding.UTF8, "application/json"),
         };
 
+        response.Headers.RetryAfter = RetryAfter;
+
         return Task.FromResult(response);
     }
 }
@@ -159,11 +164,13 @@ internal static class YouTubeTestData
     public static InnertubeClient Client(
         StubHttpMessageHandler handler,
         YouTubeOptions? options = null,
-        TimeProvider? timeProvider = null) =>
+        TimeProvider? timeProvider = null,
+        InnertubePause? pause = null) =>
         new(
             new HttpClient(handler),
             Monitor(options ?? new YouTubeOptions()),
-            timeProvider ?? TimeProvider.System);
+            timeProvider ?? TimeProvider.System,
+            pause);
 
     public static string ReadFixture(string name) =>
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "ytmusic", name));

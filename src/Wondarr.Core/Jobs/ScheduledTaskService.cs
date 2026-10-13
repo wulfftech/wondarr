@@ -70,7 +70,7 @@ public sealed partial class ScheduledTaskService : IHostedService
 
             var trigger = TriggerBuilder.Create()
                 .ForJob(detail)
-                .WithIdentity($"{definition.CommandName}.trigger")
+                .WithIdentity(TriggerKeyFor(definition.CommandName))
                 .StartAt(new DateTimeOffset(nextRunAt, TimeSpan.Zero))
                 .WithSimpleSchedule(schedule => schedule
                     .WithInterval(definition.Interval)
@@ -82,6 +82,10 @@ public sealed partial class ScheduledTaskService : IHostedService
             LogScheduled(definition.CommandName, definition.Interval, nextRunAt);
         }
     }
+
+    /// <summary>The key of the trigger that fires a task, so its next fire time can be read back.</summary>
+    /// <param name="commandName">The task's command name.</param>
+    internal static TriggerKey TriggerKeyFor(string commandName) => new($"{commandName}.trigger");
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken)

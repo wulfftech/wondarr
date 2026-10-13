@@ -120,6 +120,50 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
+    public async Task Does_not_fail_a_grab_that_is_still_inside_its_sources_long_download()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+
+        // A YouTube grab has no handle until yt-dlp is done, which the longest allowed
+        // youtube.ytdlp.timeout_seconds (3600 s) bounds. Well past the 10-minute start timeout, it is
+        // still writing the file.
+        var seed = await host.SeedAsync(options =>
+        {
+            options.Handle = string.Empty;
+            options.StateChangedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-65);
+        });
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        var item = await host.ItemAsync(seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Queued, "yt-dlp is still downloading");
+        host.Source.Cancels.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Fails_a_grab_that_never_got_a_handle_once_the_long_allowance_is_spent()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.Handle = string.Empty;
+            options.StateChangedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-(QueueOptions.HandlelessGrabTimeoutMinutes + 1));
+        });
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        var item = await host.ItemAsync(seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Failed);
+        item.Message.Should().Be("Peer did not respond");
+    }
+
+    [Fact]
+    public void The_allowance_for_a_grab_without_a_handle_is_longer_than_the_longest_ytdlp_timeout()
+    {
+        QueueOptions.HandlelessGrabTimeoutMinutes.Should().BeGreaterThan(3600 / 60, "yt-dlp may run for up to 3600 s");
+    }
+
+    [Fact]
     public async Task Fails_a_grab_the_peer_queues_us_for()
     {
         await using var host = await QueueTestHost.CreateAsync();

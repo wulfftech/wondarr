@@ -25,10 +25,17 @@ public sealed partial class CommandExecutor : BackgroundService
     /// <summary>How long a worker waits after a command's bookkeeping threw, before it takes the next one.</summary>
     internal static readonly TimeSpan WorkerFaultPause = TimeSpan.FromSeconds(1);
 
+    /// <summary>How often a status write is tried before the executor gives up on it.</summary>
+    internal const int StatusWriteAttempts = 3;
+
+    /// <summary>How long the executor waits between two tries of a status write.</summary>
+    internal static readonly TimeSpan StatusWriteRetryPause = TimeSpan.FromMilliseconds(250);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IEventAggregator _eventAggregator;
     private readonly ChannelReader<long> _queue;
     private readonly TimeProvider _timeProvider;
+    private readonly ActiveCommands _activeCommands;
     private readonly ILogger<CommandExecutor> _logger;
 
     // Every status write is serialised: SQLite has one writer at a time, and three workers racing
@@ -47,18 +54,21 @@ public sealed partial class CommandExecutor : BackgroundService
         IEventAggregator eventAggregator,
         Channel<long> queue,
         TimeProvider timeProvider,
+        ActiveCommands activeCommands,
         ILogger<CommandExecutor> logger)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(eventAggregator);
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(activeCommands);
         ArgumentNullException.ThrowIfNull(logger);
 
         _scopeFactory = scopeFactory;
         _eventAggregator = eventAggregator;
         _queue = queue.Reader;
         _timeProvider = timeProvider;
+        _activeCommands = activeCommands;
         _logger = logger;
     }
 
@@ -113,11 +123,13 @@ public sealed partial class CommandExecutor : BackgroundService
                     // A failed status write (SQLITE_BUSY, say) must not fault the worker and stop the
                     // host. The pause keeps a persistent fault from turning into a tight loop.
                     LogWorkerFault(id, exception);
+                    await FailStrandedAsync(id, exception.Message).ConfigureAwait(false);
                     await Task.Delay(WorkerFaultPause, _timeProvider, stoppingToken).ConfigureAwait(false);
                 }
                 finally
                 {
                     place.Release();
+                    _activeCommands.Remove(id);
                 }
             }
         }
@@ -270,22 +282,84 @@ public sealed partial class CommandExecutor : BackgroundService
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
-        return await UpdateAsync(
-            id,
-            record =>
+        // One conditional update: a cancel that lands between a read and a write would otherwise be
+        // overwritten, and the command would run with a row that says Cancelled.
+        return await RetryAsync(async () =>
+        {
+            await _writeGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+
+            try
             {
-                if (record.Status != CommandStatus.Queued)
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+                var changed = await context.Commands
+                    .Where(command => command.Id == id && command.Status == CommandStatus.Queued)
+                    .ExecuteUpdateAsync(
+                        set => set
+                            .SetProperty(command => command.Status, CommandStatus.Started)
+                            .SetProperty(command => command.StartedAt, (DateTime?)now)
+                            .SetProperty(command => command.Result, CommandResult.Unknown)
+                            .SetProperty(command => command.UpdatedAt, now),
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                if (changed == 0)
                 {
                     // Cancelled while it waited, or another worker got there first.
-                    return false;
+                    return null;
                 }
 
-                record.Status = CommandStatus.Started;
-                record.StartedAt = now;
-                record.Result = CommandResult.Unknown;
+                return await context.Commands
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(command => command.Id == id, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                _writeGate.Release();
+            }
+        }).ConfigureAwait(false);
+    }
 
-                return true;
-            }).ConfigureAwait(false);
+    /// <summary>
+    /// Fails a command whose bookkeeping broke, so it is not left Queued or Started for dedupe to find.
+    /// Best effort: when the database is still unwritable the row stays, and the queue fails it as
+    /// stranded at the next enqueue.
+    /// </summary>
+    private async Task FailStrandedAsync(long id, string reason)
+    {
+        try
+        {
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+            var failed = await UpdateAsync(
+                id,
+                record =>
+                {
+                    if (record.Status is not (CommandStatus.Queued or CommandStatus.Started))
+                    {
+                        return false;
+                    }
+
+                    record.Status = CommandStatus.Failed;
+                    record.Result = CommandResult.Unsuccessful;
+                    record.Exception = $"The executor could not record this command's progress: {reason}";
+                    record.EndedAt = now;
+
+                    return true;
+                }).ConfigureAwait(false);
+
+            if (failed is not null)
+            {
+                await _eventAggregator
+                    .PublishAsync(new CommandUpdatedEvent(failed), CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            LogStrandedNotFailed(id, exception);
+        }
     }
 
     private async Task<CommandRecord?> MarkFinishedAsync(long id, bool aborted, string? message, string? error)
@@ -317,31 +391,53 @@ public sealed partial class CommandExecutor : BackgroundService
     /// Loads the command and saves whatever <paramref name="mutate"/> changed, returning the changed
     /// row — or <see langword="null"/> when the row is gone or the mutation declined to apply.
     /// </summary>
-    private async Task<CommandRecord?> UpdateAsync(long id, Func<CommandRecord, bool> mutate)
-    {
-        await _writeGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
-
-        try
+    private Task<CommandRecord?> UpdateAsync(long id, Func<CommandRecord, bool> mutate) =>
+        RetryAsync(async () =>
         {
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            await _writeGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
 
-            var record = await context.Commands
-                .FirstOrDefaultAsync(command => command.Id == id, CancellationToken.None)
-                .ConfigureAwait(false);
-
-            if (record is null || !mutate(record))
+            try
             {
-                return null;
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+                var record = await context.Commands
+                    .FirstOrDefaultAsync(command => command.Id == id, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                if (record is null || !mutate(record))
+                {
+                    return null;
+                }
+
+                await context.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+
+                return record;
             }
+            finally
+            {
+                _writeGate.Release();
+            }
+        });
 
-            await context.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
-
-            return record;
-        }
-        finally
+    /// <summary>
+    /// Runs a status write, trying again a few times when it throws. SQLite's own busy timeout waits for
+    /// a lock; this covers the write that still fails (a lock held longer than that, a transient fault),
+    /// which would otherwise strand the command.
+    /// </summary>
+    private async Task<CommandRecord?> RetryAsync(Func<Task<CommandRecord?>> write)
+    {
+        for (var attempt = 1; ; attempt++)
         {
-            _writeGate.Release();
+            try
+            {
+                return await write().ConfigureAwait(false);
+            }
+            catch (Exception exception) when (attempt < StatusWriteAttempts && exception is not OperationCanceledException)
+            {
+                LogStatusWriteRetry(attempt, exception);
+                await Task.Delay(StatusWriteRetryPause, _timeProvider, CancellationToken.None).ConfigureAwait(false);
+            }
         }
     }
 
@@ -428,6 +524,12 @@ public sealed partial class CommandExecutor : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The executor could not record the outcome of command {CommandId}")]
     private partial void LogWorkerFault(long commandId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A command status write failed (attempt {Attempt}); trying again")]
+    private partial void LogStatusWriteRetry(int attempt, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Command {CommandId} could not be marked failed after its bookkeeping broke; the next enqueue will fail it as stranded")]
+    private partial void LogStrandedNotFailed(long commandId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Command {CommandId} ({CommandName}) failed: {Reason}")]
     private partial void LogHandlerNotBuilt(long commandId, string commandName, string reason);
