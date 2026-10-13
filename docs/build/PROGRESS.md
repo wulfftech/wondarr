@@ -451,4 +451,6 @@ The review (`docs/reviews/CODE_REVIEW_2026-10-10.md`, 94 findings) is worked thr
 - `docker stop` took 1.5 s, exited 0 and removed the pid file.
 - A restart left exactly one slskd.
 
+**0.1.2 (2026-10-13):** tranches 3, 4 and 5 (M-16 to M-21). ch01's `wondarr-test` (watchtower keeps it on `develop`) ran the `develop` image of `d2f3a32`: healthy, no warnings or errors in the log; `/initialize.json` is served for `localhost` and the LAN IP and refused (401) for `ch01.ad.wulff.com.au`, as the new rule intends; frame headers present; the secret files were tightened to 600 on an earlier start. Then `v0.1.2` was tagged.
+
 Then `v0.1.1` was tagged.
