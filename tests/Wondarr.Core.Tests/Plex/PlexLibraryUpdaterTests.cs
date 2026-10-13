@@ -5,6 +5,7 @@ using Wondarr.Core.Importing;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Tests.Persistence;
+using Wondarr.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -27,7 +28,7 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
     private const string MusicPlexRoot = "/plex/music";
     private const string BooksPlexRoot = "/plex/books";
 
-    private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero));
+    private readonly TrackingTimeProvider _time = new(new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero));
     private readonly SqliteTestDatabase _database = new();
     private readonly IPlexServerClient _client = Substitute.For<IPlexServerClient>();
     private readonly IPlexConnectionService _connection = Substitute.For<IPlexConnectionService>();
@@ -69,8 +70,11 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
         await _updater.StartAsync(_stopping.Token);
         await _updater.HandleAsync(new SongImportedEvent(1, fileId, Upgraded: false), CancellationToken.None);
 
-        await AdvanceAsync(PlexLibraryUpdater.QuietPeriod - TimeSpan.FromSeconds(2));
+        // One fake second short of the end of the quiet period: still nothing. If the quiet period
+        // were missing the scan would already have gone out, and this fails.
+        await AdvanceAsync(PlexLibraryUpdater.QuietPeriod - TimeSpan.FromSeconds(1));
         Refreshes().Should().BeEmpty("the library has not been quiet for long enough");
+        _updater.IsPending.Should().BeTrue();
 
         await AdvanceUntilAsync(() => Refreshes().Count == 1, "the scan after the quiet period");
 
@@ -103,7 +107,7 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
             await AdvanceAsync(TimeSpan.FromSeconds(2));
         }
 
-        await AdvanceAsync(PlexLibraryUpdater.QuietPeriod + TimeSpan.FromSeconds(2));
+        await AdvanceUntilAsync(() => !_updater.IsPending && Refreshes().Count > 0, "the one scan after the last import");
 
         Refreshes().Should().ContainSingle();
     }
@@ -126,6 +130,8 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
             await _updater.HandleAsync(new SongImportedEvent(1, fileId, Upgraded: false), CancellationToken.None);
             await AdvanceAsync(TimeSpan.FromSeconds(5));
         }
+
+        await EventuallyAsync(() => Refreshes().Count > 0, "the scan MaxDelay forces");
 
         Refreshes().Should().ContainSingle("the first pending import is scanned no later than MaxDelay");
     }
@@ -463,16 +469,18 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
         return file.Id;
     }
 
-    /// <summary>Advances fake time one second at a time, letting the updater's loop run in between.</summary>
+    /// <summary>
+    /// Advances fake time one second at a time, letting the updater's loop run in between. Each step
+    /// waits for what that second made due to finish, and the first waits for the updater to be
+    /// parked on a fake-clock delay, so a scan that should be waiting is waiting before time moves.
+    /// </summary>
     private async Task AdvanceAsync(TimeSpan span)
     {
         for (var elapsed = TimeSpan.Zero; elapsed < span; elapsed += TimeSpan.FromSeconds(1))
         {
-            await Settle();
-            _time.Advance(TimeSpan.FromSeconds(1));
+            await _time.WaitForPendingTimerAsync(() => !_updater.IsPending);
+            await _time.AdvanceAndSettleAsync(TimeSpan.FromSeconds(1));
         }
-
-        await Settle();
     }
 
     private async Task AdvanceUntilAsync(Func<bool> condition, string because)
@@ -484,16 +492,28 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
                 return;
             }
 
-            await Settle();
-            _time.Advance(TimeSpan.FromSeconds(1));
+            await _time.WaitForPendingTimerAsync(() => condition() || !_updater.IsPending);
+            await _time.AdvanceAndSettleAsync(TimeSpan.FromSeconds(1), condition);
         }
 
-        await Settle();
         condition().Should().BeTrue($"expected {because} within 900 fake seconds");
     }
 
-    // Gives the updater's continuations a turn on the thread pool.
-    private static Task Settle() => Task.Delay(5);
+    /// <summary>Polls until <paramref name="condition"/> holds, failing after a generous bound rather than hanging.</summary>
+    private static async Task EventuallyAsync(Func<bool> condition, string what)
+    {
+        var deadline = Environment.TickCount64 + 30_000;
+
+        while (!condition())
+        {
+            if (Environment.TickCount64 > deadline)
+            {
+                throw new TimeoutException($"Timed out waiting for {what}.");
+            }
+
+            await Task.Delay(1);
+        }
+    }
 
     /// <summary>A counter the substitute's callback can advance from whichever thread it runs on.</summary>
     private sealed class RefCounter

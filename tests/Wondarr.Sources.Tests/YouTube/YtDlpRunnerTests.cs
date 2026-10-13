@@ -174,7 +174,7 @@ public class YtDlpRunnerTests
         var subject = Build(runner);
 
         var first = subject.DownloadAsync("abc123", "/grabs/queue-1", CancellationToken.None);
-        await firstStarted.Task;
+        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         // The first download holds the gate: the second must not reach the process.
         var second = subject.DownloadAsync("def456", "/grabs/queue-1", CancellationToken.None);
@@ -212,7 +212,7 @@ public class YtDlpRunnerTests
         var subject = Build(runner);
 
         var first = subject.DownloadAsync("abc123", "/grabs/queue-1", CancellationToken.None);
-        await firstStarted.Task;
+        await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         using var cancelled = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
         var act = () => subject.DownloadAsync("def456", "/grabs/queue-1", cancelled.Token);

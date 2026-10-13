@@ -61,7 +61,7 @@ public class SoulseekSearchBudgetTests
 
         // (FakeTimeProvider's timestamps are coarser than a tick, so step by a millisecond.)
         time.Advance(TimeSpan.FromMilliseconds(1));
-        await using var last = await acquisition;
+        await using var last = await acquisition.WaitAsync(TimeSpan.FromSeconds(30));
 
         time.GetUtcNow().Should().Be(Start + Window + TimeSpan.FromMilliseconds(1));
         budget.Snapshot().SubmittedInWindow.Should().Be(30);
@@ -85,7 +85,7 @@ public class SoulseekSearchBudgetTests
         third.IsCompleted.Should().BeFalse();
 
         await first.DisposeAsync();
-        await using var thirdLease = await third;
+        await using var thirdLease = await third.WaitAsync(TimeSpan.FromSeconds(30));
 
         budget.Snapshot().Outstanding.Should().Be(2);
         await second.DisposeAsync();
@@ -106,11 +106,11 @@ public class SoulseekSearchBudgetTests
 
         await first.DisposeAsync();
 
-        await using var secondLease = await second;
+        await using var secondLease = await second.WaitAsync(TimeSpan.FromSeconds(30));
         third.IsCompleted.Should().BeFalse("the third waiter must not overtake the second");
 
         await secondLease.DisposeAsync();
-        await using var thirdLease = await third;
+        await using var thirdLease = await third.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public class SoulseekSearchBudgetTests
         fourth.IsCompleted.Should().BeFalse();
 
         await second.DisposeAsync();
-        await using var fourthLease = await fourth;
+        await using var fourthLease = await fourth.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     /// <summary>
@@ -222,7 +222,7 @@ public class SoulseekSearchBudgetTests
                 time.Advance(earliest - time.GetUtcNow());
             }
 
-            leases.Add(await acquisition);
+            leases.Add(await acquisition.WaitAsync(TimeSpan.FromSeconds(30)));
             submissions.Add(time.GetUtcNow());
         }
 
@@ -301,7 +301,7 @@ public class SoulseekSearchBudgetTests
 
     private static async Task<IAsyncDisposable> Track(Task<IAsyncDisposable> acquisition, string name, List<string> order)
     {
-        var lease = await acquisition.ConfigureAwait(false);
+        var lease = await acquisition.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
         lock (order)
         {
             order.Add(name);
@@ -365,7 +365,7 @@ public class SoulseekSearchBudgetTests
             time.Advance(TimeSpan.FromMilliseconds(1));
         }
 
-        return await acquisition;
+        return await acquisition.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
     [Fact]
@@ -398,7 +398,7 @@ public class SoulseekSearchBudgetTests
             acquisition.IsCompleted.Should().BeFalse("a submission exactly one window old still counts");
 
             time.Advance(TimeSpan.FromMilliseconds(1));
-            await using var lease31 = await acquisition;
+            await using var lease31 = await acquisition.WaitAsync(TimeSpan.FromSeconds(30));
         }
         finally
         {
@@ -426,7 +426,7 @@ public class SoulseekSearchBudgetTests
             acquisition.IsCompleted.Should().BeFalse("only 2 s have passed since the last submission");
 
             time.Advance(TimeSpan.FromSeconds(3));
-            await using var lease = await acquisition;
+            await using var lease = await acquisition.WaitAsync(TimeSpan.FromSeconds(30));
         }
         finally
         {

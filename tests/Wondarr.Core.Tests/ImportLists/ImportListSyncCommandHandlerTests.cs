@@ -50,7 +50,7 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
 
         // The manual sync starts and sits in the provider's read.
         var manual = handler.ExecuteAsync(ManualContext(listId, yieldWorker: null), CancellationToken.None);
-        await _provider.FirstFetchStarted.Task;
+        await _provider.FirstFetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         // The hourly run finds the list due, and finds it being synced.
         var hourly = await handler.ExecuteAsync(
@@ -81,7 +81,7 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
         _provider.Entries = [new("a", "A", "One")];
 
         var first = handler.ExecuteAsync(ManualContext(listId, yieldWorker: null), CancellationToken.None);
-        await _provider.FirstFetchStarted.Task;
+        await _provider.FirstFetchStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         var yielded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var lease = new Lease();

@@ -126,9 +126,12 @@ public class SlskdHostTests
         harness.Status.Current.LastError.Should().Contain("9");
         harness.Launcher.Count.Should().Be(1);
 
-        // Five seconds of backoff: four of them are not enough.
-        harness.Time.Advance(TimeSpan.FromSeconds(4));
-        await Task.Delay(100);
+        // Five seconds of backoff: four of them are not enough. The clock only moves once the
+        // supervisor has actually armed that backoff, so the check cannot pass by being early.
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Time.AnyTimerDueWithin(TimeSpan.FromSeconds(5)),
+            "the backoff timer to be armed");
+        await harness.AdvanceAsync(TimeSpan.FromSeconds(4));
         harness.Launcher.Count.Should().Be(1);
 
         await harness.AdvanceUntilAsync(
@@ -154,8 +157,10 @@ public class SlskdHostTests
 
         var secondCrash = harness.Time.GetUtcNow();
 
-        harness.Time.Advance(TimeSpan.FromSeconds(10));
-        await Task.Delay(100);
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Time.AnyTimerDueWithin(TimeSpan.FromSeconds(15)),
+            "the backoff timer to be armed");
+        await harness.AdvanceAsync(TimeSpan.FromSeconds(10));
         harness.Launcher.Count.Should().Be(2);
 
         await harness.AdvanceUntilAsync(
@@ -165,7 +170,9 @@ public class SlskdHostTests
             "the second restart");
 
         (harness.Launcher.Launches[2].At - secondCrash).Should().BeCloseTo(TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(2));
-        harness.Status.Current.RestartCount.Should().Be(3);
+
+        // The count is bumped just after the launch, on the supervisor's thread.
+        await SlskdHostHarness.AwaitAsync(() => harness.Status.Current.RestartCount == 3, "the restart to be counted");
     }
 
     [Fact]
@@ -448,8 +455,7 @@ public class SlskdHostTests
 
         // The supervisor stays out of the status now; it is the monitor's.
         var statusAfterSwitch = harness.Status.Current;
-        harness.Time.Advance(TimeSpan.FromMinutes(2));
-        await YieldAsync();
+        await harness.AdvanceAsync(TimeSpan.FromMinutes(2));
         harness.Status.Current.Should().Be(statusAfterSwitch);
         harness.Launcher.Count.Should().Be(1, "no replacement is started in external mode");
 
@@ -493,8 +499,15 @@ public class SlskdHostTests
         await harness.StartAsync();
         await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
 
+        // The supervisor records the child's pid just after launching it, on its own thread, so
+        // "launched" does not yet mean "recorded": wait for the file to change rather than read it
+        // straight away and see the stale pid (the old flake under load).
+        var launchedPid = harness.Launcher.Latest.Id.ToString();
+        await SlskdHostHarness.AwaitAsync(
+            () => ReadPidFile(pidFile) == launchedPid,
+            "the new pid to replace the stale one in the pid file");
+
         harness.Inspector.Killed.Should().Equal(4242);
-        (await File.ReadAllTextAsync(pidFile)).Should().Be(harness.Launcher.Latest.Id.ToString());
 
         // A clean stop removes the file.
         await harness.StopAsync();
@@ -627,6 +640,19 @@ public class SlskdHostTests
     }
 
     /// <summary>Lets the supervisor's continuations run, without sleeping, before a "nothing happened" check.</summary>
+    private static string? ReadPidFile(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (IOException)
+        {
+            // Caught mid-write: look again.
+            return null;
+        }
+    }
+
     private static async Task YieldAsync()
     {
         for (var index = 0; index < 100; index++)
@@ -676,8 +702,10 @@ public class SlskdHostTests
         harness.RaiseOptionsChanged(WithCredentials(harness.Options));
 
         // Debounced: nothing happens within the first second.
-        harness.Time.Advance(TimeSpan.FromSeconds(1));
-        await Task.Delay(100);
+        await SlskdHostHarness.AwaitAsync(
+            () => harness.Time.AnyTimerDueWithin(TimeSpan.FromSeconds(5)),
+            "the debounce timer to be armed");
+        await harness.AdvanceAsync(TimeSpan.FromSeconds(1));
         harness.Launcher.Count.Should().Be(1);
 
         await harness.AdvanceUntilAsync(
@@ -750,12 +778,12 @@ public class SlskdHostTests
             // The host is still running and has scheduled the usual backoff: five seconds later it
             // tries again (and fails again), rather than the host stopping in a restart loop.
             var firstAttemptAt = status.LastCheckedAt;
-            harness.Time.Advance(TimeSpan.FromSeconds(4));
-            await YieldAsync();
+            await SlskdHostHarness.AwaitAsync(
+                () => harness.Time.AnyTimerDueWithin(TimeSpan.FromSeconds(5)),
+                "the backoff timer to be armed");
+            await harness.AdvanceAsync(TimeSpan.FromSeconds(4));
             harness.Status.Current.LastCheckedAt.Should().Be(firstAttemptAt, "the backoff has not elapsed yet");
 
-            // Under load the host may register its backoff timer only after the clock was advanced,
-            // so keep nudging fake time forward until the retry shows up instead of advancing once.
             await harness.AdvanceUntilAsync(
                 () => harness.Status.Current.LastCheckedAt > firstAttemptAt,
                 TimeSpan.FromSeconds(1),

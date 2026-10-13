@@ -253,8 +253,11 @@ public sealed class SlotWaitTests
         }
 
         Volatile.Read(ref leaseDisposing).Should().BePositive("the search should take its place back once a slot frees");
-        await Task.Delay(200);
 
+        // No sleep: the lease counts the disposal and then blocks on `release`, so once the count is
+        // up the search is parked in that dispose. The grab comes after the dispose (and before it, in
+        // a regression that grabs first), so a grab that did not wait for the place would already
+        // be visible here.
         search.IsCompleted.Should().BeFalse("the search is still waiting for a place");
         host.Provider.Grabs.Should().BeEmpty("nothing is grabbed until the place is back");
 

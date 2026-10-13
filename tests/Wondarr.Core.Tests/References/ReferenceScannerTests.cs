@@ -485,15 +485,9 @@ public sealed class ReferenceScannerTests : IDisposable
 
     // --- A file name with a backslash ----------------------------------------------------------------
 
-    [Fact]
+    [LinuxFact]
     public async Task A_file_name_with_a_backslash_keeps_it_on_linux()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            // Only Linux treats a backslash as part of a name; elsewhere it is a separator.
-            return;
-        }
-
         Write("AC\\DC.mp3", "thunder");
 
         await using var database = await ContextAsync();
@@ -701,22 +695,14 @@ public sealed class ReferenceScannerTests : IDisposable
         (await database.ReferenceFiles.AsNoTracking().SingleAsync()).State.Should().Be(ReferenceFileState.Skipped);
     }
 
-    [Fact]
+    [SymlinkFact]
     public async Task A_link_inside_the_root_is_not_followed()
     {
         Write("a.mp3", "one");
         var loop = Path.Combine(_root, "loop");
 
-        try
-        {
-            Directory.CreateSymbolicLink(loop, _root);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
-        {
-            // Creating a link needs a privilege Windows only grants to administrators or with
-            // Developer Mode on; without it there is nothing to test here.
-            return;
-        }
+        // SymlinkFact has already skipped this where links cannot be created, so a failure here is real.
+        Directory.CreateSymbolicLink(loop, _root);
 
         await using var database = await ContextAsync();
         var library = await AddLibraryAsync(database, _root);
