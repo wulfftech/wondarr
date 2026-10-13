@@ -453,4 +453,6 @@ The review (`docs/reviews/CODE_REVIEW_2026-10-10.md`, 94 findings) is worked thr
 
 **0.1.2 (2026-10-13):** tranches 3, 4 and 5 (M-16 to M-21). ch01's `wondarr-test` (watchtower keeps it on `develop`) ran the `develop` image of `d2f3a32`: healthy, no warnings or errors in the log; `/initialize.json` is served for `localhost` and the LAN IP and refused (401) for `ch01.ad.wulff.com.au`, as the new rule intends; frame headers present; the secret files were tightened to 600 on an earlier start. Then `v0.1.2` was tagged.
 
+**Production (VM 177), 2026-10-13:** updated from 0.1.0 to 0.1.2 by `docker compose pull && up -d` on `:0.1`. Healthy after 15 s. `wondarr_pre-unknown_2026.10.13_02.18.17.zip` (34 MB, mode 600) was written before the 2 pending migrations. `config.yml` was tightened to 600. All 16 Health checks are OK: slskd 0.26 is logged in, Plex is up to date, and every import list was read in full. There were no warnings or errors in the log. The reverse-proxy route (`wondarr.apps.wulff.com.au`) sits behind the owner's forward-auth and sends proxy headers, so it was never covered by the local-address rule.
+
 Then `v0.1.1` was tagged.
