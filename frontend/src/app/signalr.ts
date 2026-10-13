@@ -5,7 +5,7 @@ import type { AppConfig } from '../api/bootstrap';
 import { HEALTH_QUERY_KEY, TASKS_QUERY_KEY } from '../api/hooks';
 import { QUEUE_QUERY_KEY } from '../api/queue';
 import { MATCH_QUEUE_QUERY_KEY } from '../api/references';
-import { COMMANDS_QUERY_KEY, SONGS_QUERY_KEY } from '../api/songs';
+import { COMMANDS_QUERY_KEY, invalidateLibrary, SONGS_QUERY_KEY } from '../api/songs';
 import { asHealthEntries } from '../api/types';
 import { UPDATE_QUERY_KEY } from '../api/update';
 import { HISTORY_QUERY_KEY, WANTED_QUERY_KEY } from '../api/wanted';
@@ -58,6 +58,52 @@ export function eventStreamUrl(config: AppConfig): string {
   return new URL(`${config.urlBase.replace(/\/+$/, '')}/${HUB_PATH}`, window.location.origin).toString();
 }
 
+/** The commands whose end changes songs or their files; the lists they feed are stale once one finishes. */
+const SONG_CHANGING_COMMANDS: ReadonlySet<string> = new Set([
+  'MoveSongs',
+  'ConvertFiles',
+  'RefileSong',
+  'CompactLibrary',
+  'ApplyReplayGain',
+  'AddAlbum',
+  'BulkAddSongs',
+  'ImportListSync',
+  'ReferenceAdopt',
+]);
+
+/** The commands that put files on (or take them off) the Match queue. */
+const MATCH_COMMANDS: ReadonlySet<string> = new Set(['ReferenceLibraryScan', 'ReferenceAdopt']);
+
+/**
+ * What a command push changes beyond the command lists. Progress ticks change nothing else; the
+ * song lists and the Match queue are only stale once a command that touches them has ended. This
+ * also covers a dialog that was closed before its command finished (its own polling is gone).
+ */
+function applyCommandOutcome(queryClient: QueryClient, resource: unknown): void {
+  if (typeof resource !== 'object' || resource === null) {
+    return;
+  }
+
+  const command = resource as { name?: unknown; commandName?: unknown; status?: unknown };
+  const status = typeof command.status === 'string' ? command.status.toLowerCase() : '';
+
+  if (status !== 'completed' && status !== 'failed' && status !== 'aborted') {
+    return;
+  }
+
+  const rawName = typeof command.commandName === 'string' ? command.commandName : command.name;
+  const name = typeof rawName === 'string' ? rawName : '';
+
+  if (SONG_CHANGING_COMMANDS.has(name)) {
+    invalidateLibrary(queryClient);
+  }
+
+  // The header badge only needs the total; the open Match page is refetched only by a command that fills it.
+  void queryClient.invalidateQueries({
+    queryKey: MATCH_COMMANDS.has(name) ? MATCH_QUEUE_QUERY_KEY : [...MATCH_QUEUE_QUERY_KEY, 'total'],
+  });
+}
+
 /**
  * Folds one server push into the query cache: a `health` message becomes the `['health']` data, a
  * `command` message invalidates `['tasks']`, an `update` message invalidates the update status, a `queue` message invalidates the queue list and its
@@ -83,8 +129,7 @@ export function applyEventMessage(queryClient: QueryClient, message: unknown): v
     // `['commands']` covers the single command a page polls and the Tasks page's history.
     void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: COMMANDS_QUERY_KEY });
-    // A reference scan is a command, and what it finds shows on the Match badge.
-    void queryClient.invalidateQueries({ queryKey: MATCH_QUEUE_QUERY_KEY });
+    applyCommandOutcome(queryClient, message.body.resource);
   } else if (message.name === 'queue') {
     // One key covers the list and the status: both hang off `['queue']`.
     void queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY });
@@ -141,11 +186,12 @@ export function connectEventStream(
   connection.onclose(() => {
     if (!stopped) {
       onStatus(false);
-      void startWithRetry(0);
+      void startWithRetry(0, true);
     }
   });
 
-  async function startWithRetry(failures: number): Promise<void> {
+  /** `resync`: the page has been live before, so a start that works must also catch up on the gap. */
+  async function startWithRetry(failures: number, resync = false): Promise<void> {
     if (stopped) {
       return;
     }
@@ -158,13 +204,14 @@ export function connectEventStream(
       }
 
       onStatus(false);
-      retryTimer = setTimeout(() => void startWithRetry(failures + 1), reconnectDelay(failures));
+      retryTimer = setTimeout(() => void startWithRetry(failures + 1, resync), reconnectDelay(failures));
 
       return;
     }
 
-    // A start that needed a retry missed whatever was pushed meanwhile; the first one did not.
-    if (failures > 0) {
+    // A start that needed a retry, or that follows a closed connection, missed what was pushed
+    // meanwhile; the page-load start that works first time did not.
+    if (failures > 0 || resync) {
       catchUp();
     }
   }

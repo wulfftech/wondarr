@@ -315,9 +315,13 @@ export function LibraryPage() {
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
   const [lastClicked, setLastClicked] = useState<number | null>(null);
-  const [dialog, setDialog] = useState<{ song: SongResource; kind: 'album' | 'delete' | 'move' | 'convert' } | null>(
-    null,
-  );
+  // Closing keeps the song, so a dialog fading out does not lose its title.
+  const [dialog, setDialog] = useState<{
+    song: SongResource;
+    kind: 'album' | 'delete' | 'move' | 'convert';
+    open: boolean;
+  } | null>(null);
+  const closeDialog = () => setDialog((current) => (current === null ? null : { ...current, open: false }));
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -560,10 +564,10 @@ export function LibraryPage() {
       <PagedTable
         columns={libraryColumns(
           (id, wanted) => update.mutate({ id, monitored: wanted }),
-          (song) => setDialog({ song, kind: 'album' }),
-          (song) => setDialog({ song, kind: 'delete' }),
-          (song) => setDialog({ song, kind: 'move' }),
-          (song) => setDialog({ song, kind: 'convert' }),
+          (song) => setDialog({ song, kind: 'album', open: true }),
+          (song) => setDialog({ song, kind: 'delete', open: true }),
+          (song) => setDialog({ song, kind: 'move', open: true }),
+          (song) => setDialog({ song, kind: 'convert', open: true }),
           onRestOfAlbum,
           canMove,
           selection,
@@ -593,26 +597,26 @@ export function LibraryPage() {
 
       <ChangeAlbumModal
         song={dialog?.kind === 'album' ? dialog.song : null}
-        opened={dialog?.kind === 'album'}
-        onClose={() => setDialog(null)}
+        opened={dialog?.open === true && dialog.kind === 'album'}
+        onClose={closeDialog}
       />
 
       <DeleteSongModal
         song={dialog?.kind === 'delete' ? dialog.song : null}
-        opened={dialog?.kind === 'delete'}
-        onClose={() => setDialog(null)}
+        opened={dialog?.open === true && dialog.kind === 'delete'}
+        onClose={closeDialog}
       />
 
       <MoveSongModal
         song={dialog?.kind === 'move' ? dialog.song : null}
-        opened={dialog?.kind === 'move'}
-        onClose={() => setDialog(null)}
+        opened={dialog?.open === true && dialog.kind === 'move'}
+        onClose={closeDialog}
       />
 
       <ConvertSongModal
         song={dialog?.kind === 'convert' ? dialog.song : null}
-        opened={dialog?.kind === 'convert'}
-        onClose={() => setDialog(null)}
+        opened={dialog?.open === true && dialog.kind === 'convert'}
+        onClose={closeDialog}
       />
     </Stack>
   );

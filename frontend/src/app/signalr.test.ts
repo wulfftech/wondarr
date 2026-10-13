@@ -15,6 +15,7 @@ const hub = vi.hoisted(() => ({
   stop: vi.fn<() => Promise<void>>(),
   reconnecting: undefined as (() => void) | undefined,
   reconnected: undefined as (() => void) | undefined,
+  closed: undefined as (() => void) | undefined,
   retryPolicy: null as IRetryPolicy | null,
 }));
 
@@ -39,7 +40,9 @@ vi.mock('@microsoft/signalr', () => {
         onreconnected: (handler: () => void) => {
           hub.reconnected = handler;
         },
-        onclose: () => undefined,
+        onclose: (handler: () => void) => {
+          hub.closed = handler;
+        },
         start: () => hub.start(),
         stop: () => hub.stop(),
       };
@@ -151,13 +154,64 @@ describe('applyEventMessage', () => {
     log.mockRestore();
   });
 
-  it('invalidates the Match badge when a command changes', () => {
+  it('refreshes the Match badge total, and not the Match page, when a command ends', () => {
     const queryClient = cacheWithEntries();
     queryClient.setQueryData(['match-queue', 'total'], 3);
+    queryClient.setQueryData(['match-queue', 'list', { page: 1 }], { records: [] });
 
-    applyEventMessage(queryClient, serverMessage('command', 'updated', { id: 5, status: 'completed' }));
+    applyEventMessage(queryClient, serverMessage('command', 'updated', { id: 5, name: 'Backup', status: 'completed' }));
 
     expect(isInvalidated(queryClient, ['match-queue', 'total'])).toBe(true);
+    expect(isInvalidated(queryClient, ['match-queue', 'list', { page: 1 }])).toBe(false);
+  });
+
+  it('refreshes the whole Match queue when a reference scan ends, but not on its progress', () => {
+    const queryClient = cacheWithEntries();
+    queryClient.setQueryData(['match-queue', 'total'], 3);
+    queryClient.setQueryData(['match-queue', 'list', { page: 1 }], { records: [] });
+
+    applyEventMessage(
+      queryClient,
+      serverMessage('command', 'updated', { id: 6, name: 'ReferenceLibraryScan', status: 'started' }),
+    );
+
+    expect(isInvalidated(queryClient, ['match-queue', 'total'])).toBe(false);
+    expect(isInvalidated(queryClient, ['match-queue', 'list', { page: 1 }])).toBe(false);
+
+    applyEventMessage(
+      queryClient,
+      serverMessage('command', 'updated', { id: 6, name: 'ReferenceLibraryScan', status: 'completed' }),
+    );
+
+    expect(isInvalidated(queryClient, ['match-queue', 'total'])).toBe(true);
+    expect(isInvalidated(queryClient, ['match-queue', 'list', { page: 1 }])).toBe(true);
+  });
+
+  it('refreshes the song lists when a song-changing command ends, not while it runs', () => {
+    const queryClient = cacheWithEntries();
+
+    applyEventMessage(
+      queryClient,
+      serverMessage('command', 'updated', { id: 7, name: 'MoveSongs', status: 'started' }),
+    );
+
+    expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(false);
+
+    applyEventMessage(
+      queryClient,
+      serverMessage('command', 'updated', { id: 7, name: 'MoveSongs', commandName: 'MoveSongs', status: 'completed' }),
+    );
+
+    expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(true);
+    expect(isInvalidated(queryClient, ['wanted', 'missing', { page: 1 }])).toBe(true);
+  });
+
+  it('leaves the song lists alone when a command that does not change songs ends', () => {
+    const queryClient = cacheWithEntries();
+
+    applyEventMessage(queryClient, serverMessage('command', 'updated', { id: 8, name: 'Backup', status: 'completed' }));
+
+    expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(false);
   });
 });
 
@@ -193,6 +247,7 @@ describe('connectEventStream', () => {
     hub.stop.mockReset().mockResolvedValue(undefined);
     hub.reconnecting = undefined;
     hub.reconnected = undefined;
+    hub.closed = undefined;
     hub.retryPolicy = null;
   });
 
@@ -256,6 +311,28 @@ describe('connectEventStream', () => {
     expect(invalidate).not.toHaveBeenCalled();
 
     hub.reconnected?.();
+    expect(status).toHaveBeenLastCalledWith(true);
+    expect(invalidate).toHaveBeenCalledWith();
+
+    await stream.stop();
+  });
+
+  it('catches up after the connection closes and the restart works first time', async () => {
+    hub.start.mockResolvedValue(undefined);
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    const status = vi.fn();
+
+    const stream = connectEventStream(createTestConfig(), queryClient, status);
+    await vi.advanceTimersByTimeAsync(0);
+    // The page-load start worked first time: nothing to catch up on.
+    expect(invalidate).not.toHaveBeenCalled();
+
+    hub.closed?.();
+    expect(status).toHaveBeenLastCalledWith(false);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(hub.start).toHaveBeenCalledTimes(2);
     expect(status).toHaveBeenLastCalledWith(true);
     expect(invalidate).toHaveBeenCalledWith();
 

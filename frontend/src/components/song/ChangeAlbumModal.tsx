@@ -2,7 +2,7 @@ import { Alert, Button, Group, Loader, Modal, Radio, ScrollArea, Stack, Text, Te
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { readEnum } from '../../api/profiles';
 import {
   invalidateLibrary,
@@ -61,7 +61,8 @@ export function ChangeAlbumModal({
   const managedFile = song?.file != null && song.file.sourceType !== REFERENCE_SOURCE;
 
   // Song A's refusal must not show when the dialog opens for song B.
-  useEffect(() => {
+  // A layout effect, so the old error is gone before the first paint of the new dialog.
+  useLayoutEffect(() => {
     if (opened) {
       resetSetAlbum();
     }

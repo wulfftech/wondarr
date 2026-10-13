@@ -16,6 +16,7 @@ import { AppLayout } from './AppLayout';
  */
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -73,15 +74,46 @@ describe('AppLayout', () => {
     await waitFor(() => expect(navbarCollapsedOnMobile()).toBe(true));
   });
 
-  it('shows the disconnected indicator only while live updates are down', () => {
+  it('shows the disconnected badge only after a grace period, and announces it politely', () => {
+    vi.useFakeTimers();
     const { unmount } = renderLayout(true);
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.queryByText(/Live updates disconnected/)).not.toBeInTheDocument();
 
     unmount();
     renderLayout(false);
 
-    expect(screen.getByRole('status')).toHaveAccessibleName('Live updates disconnected — reconnecting…');
+    // The live region is always there, and empty until the grace period has passed.
+    const region = screen.getByRole('status');
+
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(region).toHaveTextContent('');
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(region).toHaveTextContent('');
+
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(region).toHaveTextContent('Live updates disconnected — reconnecting…');
+  });
+
+  it('closes the navbar when the link for the page already open is tapped', async () => {
+    const user = userEvent.setup();
+    renderLayout();
+
+    await user.click(screen.getByRole('link', { name: 'Wanted' }));
+    await user.click(screen.getByRole('button', { name: 'Toggle navigation' }));
+    await waitFor(() => expect(navbarCollapsedOnMobile()).toBe(false));
+
+    await user.click(screen.getByRole('link', { name: 'Wanted' }));
+
+    await waitFor(() => expect(navbarCollapsedOnMobile()).toBe(true));
   });
 
   it('updates the Health badge from a SignalR push in the real message shape', async () => {
