@@ -11,6 +11,29 @@ public sealed class TagSetBuilderTests
     private const string SyntheticAlbumId = "6e2f0c1a-5d43-4b9e-9f70-3ad2a5f58c11";
 
     [Fact]
+    public void A_single_in_the_singles_folder_is_tagged_with_the_folders_date_and_its_own_original_date()
+    {
+        var artist = new Artist { Name = "The Dixie Cups" };
+        var song = new Song { Title = "Iko Iko", ArtistCredit = "The Dixie Cups" };
+
+        // As aligned with the folder: DATE is the folder's, ORIGINALDATE is this single's own.
+        var album = new AlbumContext
+        {
+            Kind = AlbumContextKind.PseudoSingles,
+            AlbumTitle = "Singles",
+            AlbumArtist = "The Dixie Cups",
+            AlbumKey = SyntheticAlbumId,
+            Date = "1964",
+            OriginalDate = "1965-02-01",
+        };
+
+        var tags = TagSetBuilder.Build(song, album, [(artist, ArtistRole.Main)], FakeDownloadVerifier.Passed().AcoustId, null);
+
+        tags.Date.Should().Be("1964");
+        tags.OriginalDate.Should().Be("1965-02-01");
+    }
+
+    [Fact]
     public void Maps_the_song_and_its_release_context()
     {
         var artist = new Artist
