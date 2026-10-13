@@ -351,9 +351,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         Library library,
         string extension)
     {
-        var template = string.IsNullOrWhiteSpace(library.NamingTemplate)
-            ? NamingTemplate.PresetTemplates[library.Layout]
-            : library.NamingTemplate;
+        var template = NamingTemplate.Effective(library.Layout, library.NamingTemplate);
 
         return NamingTemplate.Render(
             template,

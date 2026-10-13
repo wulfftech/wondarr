@@ -113,7 +113,7 @@ public class DecisionEngineTests
     {
         Judge(Context(), NewCandidate()).Score.Total.Should().BeInRange(0, 1000);
 
-        var hopeless = Context() with { SourceTier = 3, SongFlags = VersionFlags.Live };
+        var hopeless = Context() with { SongFlags = VersionFlags.Live };
         var nothing = NewCandidate(
             qualityId: 999,
             durationMs: null,

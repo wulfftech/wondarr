@@ -27,7 +27,7 @@ public sealed class LibraryPreviewApiTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         body.GetProperty("errors").GetArrayLength().Should().Be(0);
         body.GetProperty("path").GetString()
-            .Should().Be("/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+            .Should().Be("/data/music/Daft Punk/Random Access Memories (2013)/08 - Get Lucky.flac");
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class LibraryPreviewApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         body.GetProperty("path").GetString()
-            .Should().Be("/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+            .Should().Be("/data/music/Daft Punk/Random Access Memories (2013)/08 - Get Lucky.flac");
     }
 
     [Fact]

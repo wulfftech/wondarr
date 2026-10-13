@@ -68,7 +68,6 @@ public class DecisionEngineGoldenTests
             Qualities = SeedData.Qualities.ToDictionary(quality => quality.Id, quality => quality),
             CurrentFileQualityId = testCase.Song.CurrentQualityId,
             IsManualGrab = testCase.Manual,
-            SourceTier = 1,
             IsBlocklisted = key => blocklisted.Contains(key),
             IgnoredUsers = (testCase.IgnoredUsers ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase),
             Reputation = (testCase.Reputation ?? [])

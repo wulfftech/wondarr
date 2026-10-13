@@ -31,6 +31,19 @@ public static class SourceTypes
     public const string Adopted = "adopted";
 }
 
+/// <summary>The kinds of YouTube Music result the decision engine scores differently (<see cref="Candidate.VideoKind"/>).</summary>
+public static class YouTubeVideoKinds
+{
+    /// <summary>An Art Track (<c>MUSIC_VIDEO_TYPE_ATV</c>): the catalogue's own audio upload, the auto-generated "Topic" channel kind.</summary>
+    public const string ArtTrack = "atv";
+
+    /// <summary>An official music video (<c>MUSIC_VIDEO_TYPE_OMV</c>).</summary>
+    public const string OfficialVideo = "omv";
+
+    /// <summary>A user upload (<c>MUSIC_VIDEO_TYPE_UGC</c>, and every unlisted type).</summary>
+    public const string UserUpload = "ugc";
+}
+
 /// <summary>Whether a candidate is one file or a container (torrent, NZB) holding the file.</summary>
 public enum CandidateContainer
 {
@@ -161,6 +174,13 @@ public sealed record Candidate
 
     /// <summary>Slots, queue, speed.</summary>
     public CandidateAvailability Availability { get; init; } = CandidateAvailability.Unknown;
+
+    /// <summary>
+    /// YouTube only: what InnerTube's <c>musicVideoType</c> says the result is, one of
+    /// <see cref="YouTubeVideoKinds"/>; null for every other source and when the result carries none.
+    /// The decision engine scores it (MATCHING_ENGINE §6.3).
+    /// </summary>
+    public string? VideoKind { get; init; }
 
     /// <summary>Whether the source reports the file as locked (Soulseek locked files are never grabbed).</summary>
     public bool IsLocked { get; init; }

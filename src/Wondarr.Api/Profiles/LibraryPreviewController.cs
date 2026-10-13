@@ -85,7 +85,9 @@ public sealed class LibraryPreviewController : ControllerBase
             return NotFound();
         }
 
-        var template = string.IsNullOrWhiteSpace(resource.Template) ? library.NamingTemplate : resource.Template;
+        var template = string.IsNullOrWhiteSpace(resource.Template)
+            ? NamingTemplate.Effective(library.Layout, library.NamingTemplate)
+            : resource.Template;
 
         // An invalid template is reported, not refused: the preview box in the UI is where the user
         // is still typing, so the answer is the list of what is wrong with it.

@@ -165,7 +165,7 @@ public class ImportServiceFileRecordTests
     {
         await using var host = await ImportTestHost.CreateAsync();
 
-        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories";
+        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
         Directory.CreateDirectory(folder);
 
         var held = folder + "/08 - Get Lucky (old).mp3";
