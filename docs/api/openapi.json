@@ -5598,6 +5598,10 @@
           "albumsBefore",
           "albumsAfter",
           "songsConsidered",
+          "albumMoves",
+          "templateMoves",
+          "templateMovesTotal",
+          "moveCount",
           "moves"
         ],
         "type": "object",
@@ -5627,6 +5631,38 @@
             "format": "int32"
           },
           "songsConsidered": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "albumMoves": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "templateMoves": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "templateMovesTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "moveCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",

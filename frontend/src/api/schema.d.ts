@@ -5403,6 +5403,14 @@ export interface components {
             albumsAfter: number | string;
             /** Format: int32 */
             songsConsidered: number | string;
+            /** Format: int32 */
+            albumMoves: number | string;
+            /** Format: int32 */
+            templateMoves: number | string;
+            /** Format: int32 */
+            templateMovesTotal: number | string;
+            /** Format: int32 */
+            moveCount: number | string;
             moves: components["schemas"]["CompactMoveResource"][];
         };
         ConvertAcceptedResource: {

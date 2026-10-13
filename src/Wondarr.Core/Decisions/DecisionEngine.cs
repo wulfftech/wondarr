@@ -598,7 +598,7 @@ public sealed class DecisionEngine
         var identity = Math.Max(0, title + artist + duration - pathPenalty);
         var quality = QualityScore(context, candidate.QualityId);
         var availability = AvailabilityScore(candidate);
-        var sourcePreference = SourcePreferenceScore(context.SourceTier);
+        var sourcePreference = SourcePreferenceScore(candidate.SourceType);
 
         var adjustments = Adjustments(context, candidate, pathPenalty);
         var adjustmentTotal = Math.Clamp(adjustments.Sum(adjustment => adjustment.Points), -50, 50);
@@ -771,8 +771,22 @@ public sealed class DecisionEngine
         return score;
     }
 
+    /// <summary>
+    /// The tier a source runs in (MATCHING_ENGINE §6.3–6.4): Soulseek 1, YouTube 2, torrents and usenet 3.
+    /// Wondarr has no configurable source order or per-instance offset, so the default order is the order.
+    /// A source type this does not know scores as tier 3.
+    /// </summary>
+    /// <param name="sourceType">One of <see cref="SourceTypes"/>.</param>
+    /// <returns>1, 2 or 3.</returns>
+    public static int SourceTierOf(string sourceType) => sourceType switch
+    {
+        SourceTypes.Soulseek => 1,
+        SourceTypes.YouTube => 2,
+        _ => 3,
+    };
+
     /// <summary>Tier 1 = 100, tier 2 = 60, tier 3 = 30.</summary>
-    private static int SourcePreferenceScore(int sourceTier) => Math.Clamp(sourceTier, 1, 3) switch
+    private static int SourcePreferenceScore(string sourceType) => SourceTierOf(sourceType) switch
     {
         1 => 100,
         2 => 60,
@@ -783,6 +797,19 @@ public sealed class DecisionEngine
     private static List<ScoreAdjustment> Adjustments(DecisionContext context, Candidate candidate, int pathPenalty)
     {
         var adjustments = new List<ScoreAdjustment>();
+
+        switch (candidate.VideoKind)
+        {
+            case YouTubeVideoKinds.ArtTrack:
+                adjustments.Add(new ScoreAdjustment("artTrack", 40));
+                break;
+            case YouTubeVideoKinds.OfficialVideo:
+                adjustments.Add(new ScoreAdjustment("officialVideo", -20));
+                break;
+            case YouTubeVideoKinds.UserUpload:
+                adjustments.Add(new ScoreAdjustment("userUpload", -40));
+                break;
+        }
 
         if (!candidate.Parsed.HasUnexplainedBrackets)
         {

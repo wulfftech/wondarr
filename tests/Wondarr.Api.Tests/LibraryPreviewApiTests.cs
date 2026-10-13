@@ -27,7 +27,7 @@ public sealed class LibraryPreviewApiTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         body.GetProperty("errors").GetArrayLength().Should().Be(0);
         body.GetProperty("path").GetString()
-            .Should().Be("/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+            .Should().Be("/data/music/Daft Punk/Random Access Memories (2013)/08 - Get Lucky.flac");
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class LibraryPreviewApiTests
         // The library's own template is untouched: the preview never saves.
         using var library = await client.GetAsync(new Uri("/api/v1/library/1", UriKind.Relative));
         (await ReadJsonAsync(library)).GetProperty("namingTemplate").GetString()
-            .Should().Be("{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}");
+            .Should().Be("{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}");
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class LibraryPreviewApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         body.GetProperty("path").GetString()
-            .Should().Be("/data/music/Daft Punk/Random Access Memories/08 - Get Lucky.flac");
+            .Should().Be("/data/music/Daft Punk/Random Access Memories (2013)/08 - Get Lucky.flac");
     }
 
     [Fact]

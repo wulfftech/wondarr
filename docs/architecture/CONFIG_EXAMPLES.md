@@ -94,7 +94,7 @@ libraries:
     layout: plexamp
     album_policy: fewest_albums              # fewest_albums | singles_only | original_album | single_release
     min_tracks_per_real_album: 2
-    naming: "{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}"
+    naming: "{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}"
     sidecars: { cover_jpg: true, lrc: true, artist_jpg: false }
     plex: { url: http://plex:32400, token: "<token>", section: Music, path_map: { "/data/music": "/music" } }
 reference_libraries:

@@ -85,7 +85,11 @@ public sealed class LibraryPreviewController : ControllerBase
             return NotFound();
         }
 
-        var template = string.IsNullOrWhiteSpace(resource.Template) ? library.NamingTemplate : resource.Template;
+        // A posted template goes through the same rule as a stored one: the retired text of an
+        // unmodified preset previews as the preset that replaced it.
+        var template = NamingTemplate.Effective(
+            library.Layout,
+            string.IsNullOrWhiteSpace(resource.Template) ? library.NamingTemplate : resource.Template);
 
         // An invalid template is reported, not refused: the preview box in the UI is where the user
         // is still typing, so the answer is the list of what is wrong with it.

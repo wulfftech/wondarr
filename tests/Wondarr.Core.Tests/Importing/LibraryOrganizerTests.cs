@@ -89,7 +89,7 @@ public sealed class LibraryOrganizerTests : IDisposable
         placement.SourcePath.Should().Be(source);
         placement.Mode.Should().Be(TransferMode.Move);
         placement.ReplacesPath.Should().Be("/music/old.mp3");
-        placement.RelativePathWithoutExtension.Should().Be("Daft Punk/Random Access Memories/08 - Get Lucky");
+        placement.RelativePathWithoutExtension.Should().Be("Daft Punk/Random Access Memories (2013)/08 - Get Lucky");
         result.FinalPath.Should().Be(FakeFilePlacer.TargetOf(placement));
     }
 
