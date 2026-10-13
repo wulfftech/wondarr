@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Profiles;
 
 namespace Wondarr.Api.Profiles;
@@ -67,7 +68,8 @@ public static class LibraryResourceMapper
             library.Name,
             library.RootPath,
             library.Layout,
-            library.NamingTemplate,
+            // What the library renders with, so the form never shows the retired text of an unmodified preset.
+            NamingTemplate.Effective(library.Layout, library.NamingTemplate),
             ParseOptions(library.SidecarOptions),
             ParseOptions(string.IsNullOrWhiteSpace(library.OutputPolicy)
                 ? LibraryOutputPolicy.Default.ToJson()

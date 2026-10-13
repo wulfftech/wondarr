@@ -14,9 +14,9 @@ The **Layout** is a preset for the **Naming template**. You can edit the templat
 | Flat | `{Artist Name} - {Track Title}` |
 | Artist | `{Artist Name}/{Artist Name} - {Track Title}` |
 | Artist → Album | `{Artist Name}/{Album Title} ({Release Year})/{track:00} - {Track Title}` |
-| Plexamp | `{Album Artist Name}/{Album Title}/{medium:0}{track:00} - {Track Title}` |
+| Plexamp | `{Album Artist Name}/{Album Title}[ ({Release Year})]/{medium:0}{track:00} - {Track Title}` |
 
-The Plexamp layout keeps an album folder level and chooses each song's album deliberately, so Plex does not split or rename albums. See [Plex](/wondarr/sources/plex/) for the "Prefer local metadata" setting.
+The album folder always carries the release year, so two albums with one title (Weezer's self-titled records) land in different folders; the year is left out when it is unknown. The Plexamp layout keeps an album folder level and chooses each song's album deliberately, so Plex does not split or rename albums. See [Plex](/wondarr/sources/plex/) for the "Prefer local metadata" setting.
 
 The **Tokens** button lists the tokens you can insert:
 

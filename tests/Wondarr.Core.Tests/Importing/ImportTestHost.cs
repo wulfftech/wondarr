@@ -30,7 +30,7 @@ namespace Wondarr.Core.Tests.Importing;
 internal sealed class ImportTestHost : IAsyncDisposable
 {
     /// <summary>The album context the happy path is filed under, as the default library renders it.</summary>
-    public const string DaftPunkRelativePath = "Daft Punk/Random Access Memories/08 - Get Lucky";
+    public const string DaftPunkRelativePath = "Daft Punk/Random Access Memories (2013)/08 - Get Lucky";
 
     private readonly SqliteTestDatabase _database;
     private readonly ServiceProvider _services;
