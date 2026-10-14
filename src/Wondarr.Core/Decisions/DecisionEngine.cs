@@ -57,12 +57,6 @@ public sealed class DecisionEngine
     /// </summary>
     public const double TitleFloor = 0.6;
 
-    /// <summary>
-    /// The title similarity that stands in for the artist on a compilation path, where the artist is
-    /// legitimately absent from the folders: the file name has to name the song almost exactly.
-    /// </summary>
-    public const double StrongTitleMatch = 0.85;
-
     /// <summary>Below this a file cannot be the song, whatever the source claims.</summary>
     private const long MinimumSizeBytes = 500_000;
 
@@ -425,7 +419,7 @@ public sealed class DecisionEngine
         }
 
         return context.MainArtists.Count > 0 &&
-            ArtistOverlap(context, candidate) > 0 &&
+            ArtistGenuinelyNamed(context, candidate) &&
             context.SongDurationMs is { } songMs &&
             candidate.DurationMs is { } candidateMs &&
             Math.Abs(songMs - candidateMs) <= Tolerance(context);
@@ -437,32 +431,76 @@ public sealed class DecisionEngine
         double? similarity,
         List<Rejection> rejections)
     {
-        if (context.MainArtists.Count == 0 || ArtistOverlap(context, candidate) > 0)
+        if (context.MainArtists.Count == 0)
         {
             return;
         }
 
-        // Compilations ("Various Artists", "OST") legitimately carry no artist in the folders, but the
-        // file itself must still name the artist or, failing that, the song almost exactly.
+        // A compilation path ("Various Artists", "OST") never stands in for the artist, and a token or
+        // two of the artist's name in a folder (the "Days" of "Nine Days") is not the artist either: the
+        // artist must be the file name's or a whole folder's (an artist folder above an OST album), or
+        // the file's own title must be the song's title in full. Checked before the ordinary overlap
+        // for exactly that reason.
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
-            if (FileNameNamesArtist(context, candidate) ||
-                similarity is not { } value ||
-                value >= StrongTitleMatch)
+            if (CompilationPathNamesArtist(context, candidate) ||
+                similarity is null ||
+                CandidateTitleMatcher.IsFullTitleMatch(context.SongTitle, candidate, context.SongFlags))
             {
                 return;
             }
 
             rejections.Add(new Rejection(
                 RejectionReason.ArtistMismatch,
-                "Artist mismatch: a compilation path, and the file name names neither the artist nor the song closely enough."));
+                "Artist mismatch: Various Artists path without the artist or the full title."));
 
+            return;
+        }
+
+        if (ArtistOverlap(context, candidate) > 0)
+        {
             return;
         }
 
         rejections.Add(new Rejection(
             RejectionReason.ArtistMismatch,
             "Artist mismatch: none of the song's artists appears in the candidate's path."));
+    }
+
+    /// <summary>
+    /// Whether the artist is genuinely matched: on a compilation path only the file name or a whole
+    /// folder can name it; elsewhere any overlap with the path counts.
+    /// </summary>
+    private static bool ArtistGenuinelyNamed(DecisionContext context, Candidate candidate) =>
+        ContainsCompilationMarker(candidate.RemotePath)
+            ? CompilationPathNamesArtist(context, candidate)
+            : ArtistOverlap(context, candidate) > 0;
+
+    /// <summary>
+    /// On a compilation path: every word of one of the song's artists is in the file name, or a whole
+    /// folder name is one of the song's artists (<c>Hans Zimmer/Inception OST/05 Time.flac</c>). A word
+    /// or two inside a longer folder name never counts.
+    /// </summary>
+    private static bool CompilationPathNamesArtist(DecisionContext context, Candidate candidate)
+    {
+        if (FileNameNamesArtist(context, candidate))
+        {
+            return true;
+        }
+
+        var segments = candidate.RemotePath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries);
+
+        for (var index = 0; index < segments.Length - 1; index++)
+        {
+            var folder = TextMatching.NormalizeArtist(segments[index]);
+
+            if (folder.Length > 0 && context.MainArtists.Any(artist => TextMatching.NormalizeArtist(artist) == folder))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Whether every word of one of the song's artists is in the file name (not the folders).</summary>

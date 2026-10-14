@@ -46,7 +46,7 @@ The core is a single long-running process (one container). Soulseek access goes 
 ```
 
 1. **Add.** From UI search, API, or an import list. Input is either an identity (MBID/ISRC/Spotify/Deezer id) or free text.
-2. **Resolve identity.** Look up MusicBrainz first (recording search or ISRC lookup); fall back to Deezer/Spotify for songs MB does not have; store *all* known ids. Assign the album context under the library's album policy (§7.3: fewest albums per artist by default). Fetch duration, cover art, artist ids.
+2. **Resolve identity.** Look up MusicBrainz first (recording search or ISRC lookup); fall back to Deezer/Spotify for songs MB does not have; store *all* known ids. Assign the album context under the library's album policy (§7.3: fewest albums per artist by default). Fetch duration, cover art, artist ids. Where MusicBrainz holds several recordings of one artist and title, the original album recording ranks first, and a song Deezer does not know takes its reference length from iTunes (MATCHING_ENGINE §6.3, "Which recording the lookup means" and "Length references").
 3. **Wanted.** Song is monitored and has no file (Missing) or a file below cutoff (Cutoff Unmet).
 4. **Search.** The orchestrator asks each enabled source in profile order. Sources are run *sequentially by tier* (Soulseek first; only if it yields nothing acceptable does YouTube run; torrents/usenet last) unless the user runs an interactive search, which fans out to all sources in parallel. Each source returns normalised `Candidate`s.
 5. **Decide.** Reject candidates that violate hard rules; score the rest; pick the best (section 6).
