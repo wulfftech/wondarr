@@ -13,6 +13,7 @@ using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Compaction;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -84,6 +85,7 @@ public interface ISongService
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns><see langword="true"/> when a song was deleted.</returns>
     /// <exception cref="SongsCompactingException">A Compact run has the song's file in flight.</exception>
+    /// <exception cref="SongsBusyException">A download or an import of the song is still in flight.</exception>
     Task<bool> DeleteAsync(long id, CancellationToken cancellationToken);
 
     /// <summary>Reads the releases a song could be filed under, for the album picker.</summary>
@@ -136,6 +138,9 @@ public sealed partial class SongService : ISongService
 
     /// <summary>Told apart from a database id, which is always numeric.</summary>
     private const string NewArtistPrefix = "new-artist-";
+
+    /// <summary>SQLite's extended result code for a broken UNIQUE constraint (<c>SQLITE_CONSTRAINT_UNIQUE</c>).</summary>
+    private const int UniqueConstraintFailed = 2067;
 
     private readonly WondarrDbContext _database;
     private readonly IIdentityResolver _resolver;
@@ -496,6 +501,20 @@ public sealed partial class SongService : ISongService
         if (song is null)
         {
             return false;
+        }
+
+        // A song's queue items go with it (the foreign key cascades), so deleting one whose download or
+        // import is still running would orphan the transfer. The mass editor refuses in the same states.
+        var inFlight = await _database.QueueItems
+            .AsNoTracking()
+            .AnyAsync(
+                item => item.SongId == id && SongEditorService.ActiveStates.Contains(item.State),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (inFlight)
+        {
+            throw new SongsBusyException([id]);
         }
 
         // A song whose file a compaction has parked in staging would lose the only thing that points
@@ -1087,8 +1106,22 @@ public sealed partial class SongService : ISongService
                     {
                         DetachNewRows();
                         known.RemoveRange(knownBefore, known.Count - knownBefore);
-                        failedIndexes.Add(index);
-                        results[index] = FailedResult(identities[index], exception.GetBaseException().Message);
+
+                        // A racing add saved this recording between the existence check and the write: the
+                        // library holds the song now, which is the answer an add of a known song gives.
+                        var winner = IsDuplicateSongKey(exception)
+                            ? await FindStoredSongAsync(identities[index], cancellationToken).ConfigureAwait(false)
+                            : null;
+
+                        if (winner is not null)
+                        {
+                            results[index] = new SongAddResult(identities[index], SongAddOutcome.AlreadyExists, winner);
+                        }
+                        else
+                        {
+                            failedIndexes.Add(index);
+                            results[index] = FailedResult(identities[index], exception.GetBaseException().Message);
+                        }
                     }
                 }
             }
@@ -1367,6 +1400,25 @@ public sealed partial class SongService : ISongService
 
         // Adding a song never moves another: only the Compact task re-plans assignments.
         context.Sticky = true;
+    }
+
+    /// <summary>
+    /// Whether a failed save broke the unique index on a song's recording MBID or Deezer id, as against
+    /// any other constraint. SQLite names the column: <c>UNIQUE constraint failed: song.mb_recording_id</c>.
+    /// </summary>
+    private static bool IsDuplicateSongKey(DbUpdateException exception) =>
+        exception.InnerException is SqliteException { SqliteExtendedErrorCode: UniqueConstraintFailed } inner
+        && (inner.Message.Contains("song.mb_recording_id", StringComparison.OrdinalIgnoreCase)
+            || inner.Message.Contains("song.deezer_id", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The song the library holds for an identity's MBID or Deezer id, read fresh; <see langword="null"/> when none.</summary>
+    private async Task<Song?> FindStoredSongAsync(SongIdentity identity, CancellationToken cancellationToken)
+    {
+        var stored = await LoadStoredSongsAsync([identity], cancellationToken).ConfigureAwait(false);
+
+        return StoredKeys(identity)
+            .Select(key => stored.GetValueOrDefault(key))
+            .FirstOrDefault(song => song is not null);
     }
 
     /// <summary>The songs the library already holds for the identities' MBIDs and Deezer ids.</summary>

@@ -7736,6 +7736,12 @@
           },
           "target": {
             "type": "boolean"
+          },
+          "targetDefault": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7794,6 +7800,15 @@
               "string"
             ],
             "format": "int64"
+          },
+          "clearSecrets": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -8718,7 +8733,8 @@
           "artistId",
           "statusMessages",
           "releaseTitle",
-          "containerFile"
+          "containerFile",
+          "bundledWithCount"
         ],
         "type": "object",
         "properties": {
@@ -8902,6 +8918,14 @@
               "null",
               "string"
             ]
+          },
+          "bundledWithCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

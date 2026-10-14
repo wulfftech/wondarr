@@ -15,6 +15,7 @@ import {
   type HistoryPage,
   type HistoryResource,
 } from '../api/wanted';
+import { ContainerLine } from '../components/ContainerLine';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { formatDate } from '../components/SongCells';
 import { SongLink } from '../components/song/SongLink';
@@ -47,25 +48,86 @@ function EventBadge({ eventType }: { eventType: unknown }) {
   );
 }
 
-/** What a grabbed event from a torrent or NZB adds: the release it came out of and the songs that rode along. */
+/** How many of the other songs a grabbed event names before it says "and N more". */
+const BUNDLED_NAMES_SHOWN = 10;
+
+/** One other song that rode along on a grab, as the history row recorded it. */
+interface BundledSong {
+  songId: number | null;
+  title: string;
+}
+
+/** The recorded bundled songs, with anything that is not a named song left out. */
+function readBundledSongs(value: unknown): BundledSong[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry: unknown): BundledSong[] => {
+    const song = entry as { songId?: unknown; title?: unknown } | null;
+
+    if (typeof song?.title !== 'string' || song.title === '') {
+      return [];
+    }
+
+    return [{ songId: typeof song.songId === 'number' ? song.songId : null, title: song.title }];
+  });
+}
+
+/** The other songs a grab carried: their names, linked to their pages, capped at ten. */
+function BundledSongs({ songs, total }: { songs: BundledSong[]; total: number }) {
+  const shown = songs.slice(0, BUNDLED_NAMES_SHOWN);
+  const more = Math.max(total, songs.length) - shown.length;
+
+  return (
+    <Group gap={4} wrap="wrap">
+      <Text size="xs" c="dimmed">
+        With:
+      </Text>
+      {shown.map((song, index) => (
+        <Text key={`${song.songId ?? 'x'}-${index}`} size="xs" component="span" c="dimmed">
+          {song.songId === null ? song.title : <SongLink songId={song.songId}>{song.title}</SongLink>}
+          {index < shown.length - 1 || more > 0 ? ',' : ''}
+        </Text>
+      ))}
+      {more > 0 && (
+        <Text size="xs" c="dimmed">
+          and {more} more
+        </Text>
+      )}
+    </Group>
+  );
+}
+
+/**
+ * What a grabbed event from a torrent or NZB adds: the release it came out of, the file inside it
+ * (the event's display name) and the songs that rode along.
+ */
 function GrabDetail({ item }: { item: HistoryResource }) {
   if (String(item.eventType) !== 'grabbed') {
     return null;
   }
 
-  const data = item.data as { release?: unknown; bundledWith?: unknown } | null;
+  const data = item.data as {
+    release?: unknown;
+    displayName?: unknown;
+    bundledWith?: unknown;
+    bundledSongs?: unknown;
+  } | null;
   const release = typeof data?.release === 'string' && data.release !== '' ? data.release : null;
+  const file = typeof data?.displayName === 'string' && data.displayName !== '' ? data.displayName : null;
   const bundled = typeof data?.bundledWith === 'number' ? data.bundledWith : 0;
+  const songs = readBundledSongs(data?.bundledSongs);
 
   if (release === null) {
     return null;
   }
 
   return (
-    <Text size="xs" c="dimmed">
-      {release}
-      {bundled > 0 ? ` · with ${bundled} other ${bundled === 1 ? 'song' : 'songs'}` : ''}
-    </Text>
+    <>
+      <ContainerLine release={release} file={file} bundledCount={bundled} />
+      {songs.length > 0 && <BundledSongs songs={songs} total={bundled} />}
+    </>
   );
 }
 

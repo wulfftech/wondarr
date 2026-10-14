@@ -57,6 +57,31 @@ public class DiscordTests
     }
 
     [Fact]
+    public async Task A_completed_download_posts_a_standard_embed_carrying_the_song_and_the_release()
+    {
+        var (provider, handler) = CreateProvider();
+        var message = new NotificationMessage("download", "Downloaded: Oasis – Wonderwall", "Wonderwall.flac from soulseek (FLAC)")
+        {
+            Song = new NotificationSong(7, "Wonderwall", "Oasis", "(What's the Story) Morning Glory?", "mb-1"),
+            Release = new NotificationRelease("Wonderwall.flac", "soulseek", "FLAC", 30_000_000),
+        };
+
+        await provider.SendAsync(message, Settings, CancellationToken.None);
+
+        var embed = handler.Payloads.Single().GetProperty("embeds")[0];
+
+        embed.GetProperty("title").GetString().Should().Be("Downloaded: Oasis – Wonderwall");
+        embed.GetProperty("color").GetInt32().Should().Be(16761392);
+
+        var fields = Fields(embed);
+
+        fields["Artist"].Should().Be("Oasis");
+        fields["Quality"].Should().Be("FLAC");
+        fields["Source"].Should().Be("soulseek");
+        fields["Size"].Should().Be("28.6 MB");
+    }
+
+    [Fact]
     public async Task An_import_posts_a_green_embed_with_the_files_quality()
     {
         var (provider, handler) = CreateProvider();

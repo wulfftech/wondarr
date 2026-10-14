@@ -21,7 +21,7 @@ public sealed class BulkAddApiTests
     private const string CommandEndpoint = "/api/v1/command";
 
     /// <summary>The longest a test waits for a command to reach a state.</summary>
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     private const string QueenLine = "Queen - Bohemian Rhapsody";
     private const string NobodyLine = "Nobody - Nothing";

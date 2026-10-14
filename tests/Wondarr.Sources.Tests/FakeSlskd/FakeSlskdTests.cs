@@ -559,15 +559,10 @@ public sealed class FakeSlskdTests
         get["results"]!.AsArray().Should().ContainSingle();
     }
 
-    [Fact]
+    // The dev machine has neither ffmpeg nor fpcalc; the container gate exercises this path.
+    [FfmpegFact]
     public async Task The_real_audio_generator_writes_a_file_when_ffmpeg_is_available()
     {
-        if (!FfmpegAudioGenerator.IsAvailable())
-        {
-            // The dev machine has neither ffmpeg nor fpcalc; the container gate exercises this path.
-            return;
-        }
-
         await using var harness = await FakeSlskdHarness.StartAsync(
             ScenarioJson(transferDelayMs: 20),
             generator: new FfmpegAudioGenerator());
@@ -792,4 +787,20 @@ public sealed class FakeSlskdTests
             durationSeconds = (double)length,
         },
     };
+}
+
+/// <summary>
+/// A fact that needs the real ffmpeg and fpcalc on PATH. Without them it is reported as skipped, not as a
+/// pass that never generated any audio.
+/// </summary>
+public sealed class FfmpegFactAttribute : FactAttribute
+{
+    /// <summary>Initialises a new instance of the <see cref="FfmpegFactAttribute"/> class.</summary>
+    public FfmpegFactAttribute()
+    {
+        if (!FfmpegAudioGenerator.IsAvailable())
+        {
+            Skip = "ffmpeg and fpcalc are not on PATH.";
+        }
+    }
 }

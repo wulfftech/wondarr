@@ -160,16 +160,12 @@ public sealed class SpectrumAnalysisTests
         verdict.AnalysedFrames.Should().BeLessThan((SampleRate / SpectrumAnalysis.Hop) + 4, "only the loud second and the frames straddling it count");
     }
 
-    [Fact]
+    [SpectralSamplesFact]
     public void Real_samples_are_classified_when_a_folder_is_named()
     {
         // Opt-in: WONDARR_SPECTRAL_SAMPLES names a folder of mono float32 LE, 44.1 kHz *.f32 files
         // named for what they are (-genuine, -mp3-128, ...). Skipped in CI.
-        var folder = Environment.GetEnvironmentVariable("WONDARR_SPECTRAL_SAMPLES");
-        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
-        {
-            return;
-        }
+        var folder = Environment.GetEnvironmentVariable(SpectralSamplesFactAttribute.FolderVariable)!;
 
         var classified = 0;
         foreach (var file in Directory.EnumerateFiles(folder, "*.f32").Order(StringComparer.Ordinal))
@@ -233,5 +229,26 @@ public sealed class SpectrumAnalysisTests
         }
 
         return samples;
+    }
+}
+
+/// <summary>
+/// A fact that classifies real audio samples, so it needs <c>WONDARR_SPECTRAL_SAMPLES</c> to name a folder of
+/// them. Without one it is reported as skipped, not as a pass that never looked at a sample.
+/// </summary>
+public sealed class SpectralSamplesFactAttribute : FactAttribute
+{
+    /// <summary>The environment variable that names the folder of samples.</summary>
+    public const string FolderVariable = "WONDARR_SPECTRAL_SAMPLES";
+
+    /// <summary>Initialises a new instance of the <see cref="SpectralSamplesFactAttribute"/> class.</summary>
+    public SpectralSamplesFactAttribute()
+    {
+        var folder = Environment.GetEnvironmentVariable(FolderVariable);
+
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        {
+            Skip = $"Set {FolderVariable} to a folder of .f32 samples to run this.";
+        }
     }
 }

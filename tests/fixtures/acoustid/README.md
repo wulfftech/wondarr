@@ -11,6 +11,8 @@ Every other `lookup-*.json` is **synthetic**, built from the documented response
 | `lookup-low-score.json` | 200 | wanted MBID, score 0.61 (needs review) |
 | `lookup-other-recording.json` | 200 | score 0.95 for a different (live) recording only |
 | `lookup-same-title-duplicate.json` | 200 | a different MBID with the same title, artist and duration (an MB duplicate) |
+| `lookup-non-version-subtitle.json` | 200 | one recording titled "MALAMENTE (Cap.1: Augurio)", 150.2 s (M-35 case 1; shaped after a Phase 2 live-run recording, synthetic ids) |
+| `lookup-duplicate-of-another-length.json` | 200 | a same-titled "Little Lion Man" duplicate of 247 s (M-35 case 2; synthetic ids) |
 | `lookup-no-recordings.json` | 200 | a known fingerprint with no linked recordings |
 | `lookup-empty.json` | 200 | fingerprint unknown to AcoustID |
 | `lookup-rate-limited.json` | 429 | error code 14 |

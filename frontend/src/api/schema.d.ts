@@ -5868,6 +5868,7 @@ export interface components {
             secret: boolean;
             advanced: boolean;
             target: boolean;
+            targetDefault?: null | string;
         };
         NotificationInputResource: {
             name: null | string;
@@ -5877,6 +5878,7 @@ export interface components {
             settings: null | components["schemas"]["JsonNode"];
             /** Format: int64 */
             id?: null | number | string;
+            clearSecrets?: null | string[];
         };
         NotificationResource: {
             /** Format: int64 */
@@ -6124,6 +6126,8 @@ export interface components {
             statusMessages: string[];
             releaseTitle: null | string;
             containerFile: null | string;
+            /** Format: int32 */
+            bundledWithCount: number | string;
         };
         QueueStatusResource: {
             /** Format: int32 */

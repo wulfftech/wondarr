@@ -82,7 +82,7 @@ internal sealed record EmailSettings(
         Delivery,
         " }");
 
-    /// <summary>Gets a value indicating whether the notification batches imports, upgrades and failures.</summary>
+    /// <summary>Gets a value indicating whether the notification batches completed downloads, imports, upgrades and failures.</summary>
     public bool IsDigest => string.Equals(Delivery, EmailDelivery.Digest, StringComparison.Ordinal);
 
     /// <summary>Reads a settings object; anything absent takes its default.</summary>

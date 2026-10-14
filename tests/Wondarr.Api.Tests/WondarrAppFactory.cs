@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Wondarr.Core.Jobs;
 using YamlDotNet.RepresentationModel;
 
 namespace Wondarr.Api.Tests;
@@ -14,6 +16,12 @@ namespace Wondarr.Api.Tests;
 /// <c>UseSetting</c>, so they are visible to <c>Program.cs</c> before the host is built no matter
 /// which of the two sources wins. Keys are the configuration keys, for example
 /// <c>Server:UrlBase</c>. <c>ConfigDir</c> is passed with <c>UseSetting</c> only.
+/// </para>
+/// <para>
+/// The scheduled tasks do not run unless a test asks for them (<c>runScheduledTasks: true</c>). The
+/// scheduler starts the missing-song search ten seconds after the host is up, and that search writes
+/// queue items, search runs and history on its own clock: a test that seeds a wanted song and then
+/// takes longer than ten seconds, as one does on a loaded machine, would find the song already grabbed.
 /// </para>
 /// </summary>
 public sealed class WondarrAppFactory : WebApplicationFactory<Program>
@@ -30,17 +38,23 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
 
     private readonly IReadOnlyDictionary<string, string?> _settings;
     private readonly Action<IServiceCollection>? _configureServices;
+    private readonly bool _runScheduledTasks;
 
     /// <param name="settings">Configuration keys (for example <c>Server:UrlBase</c>) to apply.</param>
     /// <param name="configureServices">
     /// Extra registrations, appended after the app's own — used to swap in fake health checks.
     /// </param>
+    /// <param name="runScheduledTasks">
+    /// Whether the scheduler registers the app's tasks. Only a test about the scheduler itself wants this.
+    /// </param>
     public WondarrAppFactory(
         IReadOnlyDictionary<string, string?>? settings = null,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        bool runScheduledTasks = false)
     {
         _settings = settings ?? new Dictionary<string, string?>();
         _configureServices = configureServices;
+        _runScheduledTasks = runScheduledTasks;
         ConfigDir = Path.Combine(Path.GetTempPath(), "wondarr-api-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(ConfigDir);
 
@@ -91,8 +105,33 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
         {
             services.AddSingleton<IStartupFilter, RemoteIpStartupFilter>();
 
+            if (!_runScheduledTasks)
+            {
+                services.RemoveAll<IScheduledTaskCatalog>();
+                services.AddSingleton<IScheduledTaskCatalog, NoScheduledTasks>();
+            }
+
             _configureServices?.Invoke(services);
         });
+    }
+
+    /// <summary>A catalog with nothing in it, so the scheduler has no task to start.</summary>
+    private sealed class NoScheduledTasks : IScheduledTaskCatalog
+    {
+        public IReadOnlyList<ScheduledTaskDefinition> Tasks => [];
+
+        public ScheduledTaskDefinition? Find(string commandName) => null;
+
+        public IDisposable OnChange(Action listener) => NullDisposable.Instance;
+
+        private sealed class NullDisposable : IDisposable
+        {
+            public static readonly NullDisposable Instance = new();
+
+            public void Dispose()
+            {
+            }
+        }
     }
 
     protected override void Dispose(bool disposing)
