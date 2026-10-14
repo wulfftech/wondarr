@@ -4,6 +4,18 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **Rescan Soulseek Shares,** a new scheduled task (every 24 h, `soulseek.share_rescan_interval_hours`, 1 to 168). It asks slskd to rescan its shared folders, so files that reach them without an import (a reference library, your own copies) are shared too; the rescan after an import already covered Wondarr's own files. It does nothing, and its last result says why, when sharing is off or slskd is not running.
+
+### Changed
+- **A song search waits two hours for a free download slot** (`search.slot_wait_minutes`, was 30). It shows "Waiting for a free download slot", does not hold up other commands, and when a slot frees it checks the song again: a song that has met its cutoff meanwhile is not grabbed. If no slot frees in time the command ends *Completed* with "No free download slot after 2 h; the song stays wanted for the next Missing Search", instead of "Cancelled".
+- **A changed task interval** (`search.missing_interval_hours`, `search.upgrade_interval_hours`, `backup.interval_days`, `soulseek.share_rescan_interval_hours`) takes effect when `config.yml` is reloaded (on the next save of any Settings page), not only at start-up. The next run is the last run plus the new interval, or now if that is already past.
+
+### Fixed
+- The interactive search header no longer says "The search was cancelled: Interactive search: N acceptable" for a search that finished normally; it reads "N acceptable of M results".
+- The import log line prints just the quality ("FLAC 24-bit"), no longer with the upgrade flag glued on ("FLAC 24-bitFalse").
+- The Media tools health check reads the fpcalc version from the "version" token ("1.5.1"), not the last word of the line ("SwR6.1.100)").
+
 ## [0.1.4] — 2026-10-14
 
 Email notifications, and a correction to 0.1.3's Singles change. Update by pulling `:0.1` (or `:0.1.4`).

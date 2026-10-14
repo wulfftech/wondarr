@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Wondarr.Core.Blocklisting;
@@ -130,6 +131,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The scripted search service, which records the next-attempt asks.</summary>
     public FakeSongSearchService Search { get; private init; } = null!;
 
+    /// <summary>Every log line written so far, formatted as it would reach the log file.</summary>
+    public List<string> LogMessages { get; private init; } = null!;
+
     /// <summary>The event aggregator, which records what was published.</summary>
     public RecordingEventAggregator Events { get; private init; } = null!;
 
@@ -180,8 +184,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
         var songFileLock = new SongFileLock();
 
         var services = new ServiceCollection();
+        var logMessages = new List<string>();
 
-        services.AddLogging();
+        services.AddLogging(logging => logging.AddProvider(new CapturingLoggerProvider(logMessages)));
         services.AddSingleton<TimeProvider>(time);
         services.AddSingleton<IOptionsMonitor<SearchOptions>>(new TestOptionsMonitor<SearchOptions>(options));
         services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(importOptions));
@@ -230,7 +235,39 @@ internal sealed class ImportTestHost : IAsyncDisposable
             CoverProcessor = coverProcessor,
             Search = search,
             Events = events,
+            LogMessages = logMessages,
         };
+    }
+
+    /// <summary>Collects every log line the services under test wrote, as the formatted message.</summary>
+    private sealed class CapturingLoggerProvider(List<string> messages) : ILoggerProvider
+    {
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(List<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                lock (messages)
+                {
+                    messages.Add(formatter(state, exception));
+                }
+            }
+        }
     }
 
     /// <summary>Inserts one complete grab, and the download it produced.</summary>

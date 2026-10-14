@@ -214,6 +214,94 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
         await AdvanceUntilAsync(() => Scans() == 1, "the rescan after the reload");
     }
 
+    [Fact]
+    public async Task The_daily_task_asks_slskd_for_a_rescan_at_once_with_the_same_call()
+    {
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().Be("Asked slskd to rescan its shares");
+        Scans().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task The_daily_task_says_when_slskd_was_already_scanning()
+    {
+        _client.RescanSharesAsync(Arg.Any<CancellationToken>()).Returns(SlskdRescanOutcome.AlreadyScanning);
+
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().Be("slskd was already scanning its shares");
+    }
+
+    [Fact]
+    public async Task The_daily_task_does_nothing_and_says_so_when_sharing_is_off()
+    {
+        _options = new SoulseekOptions { ShareLibrary = false, SharedFolders = ["/data/music"] };
+
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().StartWith("Nothing to do: sharing is off");
+        Scans().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_daily_task_does_nothing_when_no_folder_is_shared()
+    {
+        _options = new SoulseekOptions { ShareLibrary = true, SharedFolders = [] };
+
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().StartWith("Nothing to do:");
+        Scans().Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(SlskdState.Starting, "Nothing to do: slskd is starting")]
+    [InlineData(SlskdState.Restarting, "Nothing to do: slskd is restarting")]
+    [InlineData(SlskdState.Crashed, "Nothing to do: slskd is crashed")]
+    [InlineData(SlskdState.BinaryMissing, "Nothing to do: slskd is binarymissing, not a process Wondarr runs")]
+    public async Task The_daily_task_does_nothing_when_slskd_is_not_up(SlskdState state, string expected)
+    {
+        _status.Set(new SlskdStatusSnapshot(state));
+
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().Be(expected);
+        Scans().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_daily_task_leaves_an_external_slskd_alone_unless_rescanning_it_is_on()
+    {
+        _options = new SoulseekOptions { Mode = SoulseekMode.External };
+
+        (await _rescanner.RescanNowAsync(CancellationToken.None)).Should().StartWith("Nothing to do:");
+        Scans().Should().Be(0);
+
+        _options = new SoulseekOptions { Mode = SoulseekMode.External, External = new SoulseekExternalOptions { RescanShares = true } };
+        _status.Set(new SlskdStatusSnapshot(SlskdState.External, IsReachable: false));
+
+        (await _rescanner.RescanNowAsync(CancellationToken.None)).Should().Be("Nothing to do: the external slskd is not reachable");
+        Scans().Should().Be(0);
+
+        _status.Set(new SlskdStatusSnapshot(SlskdState.External, IsReachable: true));
+
+        (await _rescanner.RescanNowAsync(CancellationToken.None)).Should().Be("Asked slskd to rescan its shares");
+        Scans().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task The_scheduled_command_runs_the_rescan_and_returns_what_happened()
+    {
+        var handler = new RescanSoulseekSharesCommandHandler(_rescanner);
+
+        var message = await handler.ExecuteAsync(new Wondarr.Core.Jobs.CommandContext(1, null, Wondarr.Core.Jobs.CommandTrigger.Scheduled, _ => Task.CompletedTask), CancellationToken.None);
+
+        handler.Name.Should().Be("RescanSoulseekShares");
+        message.Should().Be("Asked slskd to rescan its shares");
+        Scans().Should().Be(1);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _stopping.CancelAsync();

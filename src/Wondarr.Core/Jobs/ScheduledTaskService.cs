@@ -16,7 +16,7 @@ namespace Wondarr.Core.Jobs;
 /// Quartz hosted service, which starts the scheduler these triggers are registered on.
 /// </para>
 /// </summary>
-public sealed partial class ScheduledTaskService : IHostedService
+public sealed partial class ScheduledTaskService : IHostedService, IDisposable
 {
     /// <summary>
     /// How long after startup a task runs when its stored schedule says it is already overdue. Not
@@ -29,6 +29,10 @@ public sealed partial class ScheduledTaskService : IHostedService
     private readonly IScheduledTaskCatalog _catalog;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ScheduledTaskService> _logger;
+    private readonly SemaphoreSlim _changeGate = new(1, 1);
+    private readonly Lock _applyingLock = new();
+    private Task _applying = Task.CompletedTask;
+    private IDisposable? _changeSubscription;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskService"/> class.</summary>
     public ScheduledTaskService(
@@ -81,6 +85,102 @@ public sealed partial class ScheduledTaskService : IHostedService
 
             LogScheduled(definition.CommandName, definition.Interval, nextRunAt);
         }
+
+        // From here on a changed interval moves the schedule too, without a restart.
+        _changeSubscription = _catalog.OnChange(OnIntervalSettingChanged);
+    }
+
+    /// <summary>
+    /// Moves a task whose interval setting changed: its row takes the new interval and a next run of
+    /// last run plus that interval, never earlier than now (so the longest overdue task runs at once),
+    /// and Quartz gets a trigger to match.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the update.</param>
+    private async Task ApplyIntervalChangesAsync(CancellationToken cancellationToken)
+    {
+        await _changeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            var scheduler = await _schedulerFactory.GetScheduler(cancellationToken).ConfigureAwait(false);
+            var now = _timeProvider.GetUtcNow().UtcDateTime;
+
+            foreach (var definition in _catalog.Tasks)
+            {
+                if (definition.Interval <= TimeSpan.Zero)
+                {
+                    // A setting reloaded to something the validator would refuse: keep the schedule that works.
+                    continue;
+                }
+
+                if (await MoveJobAsync(definition, now, cancellationToken).ConfigureAwait(false) is not { } nextRunAt)
+                {
+                    continue;
+                }
+
+                var trigger = TriggerBuilder.Create()
+                    .ForJob(definition.CommandName)
+                    .WithIdentity(TriggerKeyFor(definition.CommandName))
+                    .StartAt(new DateTimeOffset(nextRunAt, TimeSpan.Zero))
+                    .WithSimpleSchedule(schedule => schedule
+                        .WithInterval(definition.Interval)
+                        .RepeatForever())
+                    .Build();
+
+                await scheduler
+                    .RescheduleJob(TriggerKeyFor(definition.CommandName), trigger, cancellationToken)
+                    .ConfigureAwait(false);
+
+                LogRescheduled(definition.CommandName, definition.Interval, nextRunAt);
+            }
+        }
+        finally
+        {
+            _changeGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Gets a task that ends when every interval change heard so far has been applied, so a test can wait
+    /// for the work the configuration reload's callback starts.
+    /// </summary>
+    internal Task ChangesApplied
+    {
+        get
+        {
+            lock (_applyingLock)
+            {
+                return _applying;
+            }
+        }
+    }
+
+    private void OnIntervalSettingChanged()
+    {
+        // Called on the configuration reload's thread: nothing may escape it, and it does not wait.
+        var work = Task.Run(async () =>
+        {
+            try
+            {
+                await ApplyIntervalChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                LogRescheduleFailed(exception);
+            }
+        });
+
+        lock (_applyingLock)
+        {
+            _applying = Task.WhenAll(_applying, work);
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _changeSubscription?.Dispose();
+        _changeGate.Dispose();
     }
 
     /// <summary>The key of the trigger that fires a task, so its next fire time can be read back.</summary>
@@ -90,7 +190,10 @@ public sealed partial class ScheduledTaskService : IHostedService
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        // The Quartz hosted service owns the scheduler's lifetime; there is nothing of ours to stop.
+        // The Quartz hosted service owns the scheduler's lifetime; only the settings subscription is ours.
+        _changeSubscription?.Dispose();
+        _changeSubscription = null;
+
         return Task.CompletedTask;
     }
 
@@ -141,8 +244,50 @@ public sealed partial class ScheduledTaskService : IHostedService
         return job.NextRunAt!.Value;
     }
 
+    /// <summary>
+    /// Gives a changed task's row its new interval and next run. Returns the next run, or
+    /// <see langword="null"/> when the row already has this interval (or there is no row yet).
+    /// </summary>
+    private async Task<DateTime?> MoveJobAsync(
+        ScheduledTaskDefinition definition,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+        var job = await context.Jobs
+            .FirstOrDefaultAsync(row => row.Name == definition.CommandName, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (job is null || job.Interval == definition.Interval)
+        {
+            return null;
+        }
+
+        // A task that has run is due its last run plus the new interval; one that never has keeps the
+        // time it was waiting for. Neither is ever in the past: the most a change can do is run it now.
+        var due = job.LastRunAt is { } lastRun ? lastRun + definition.Interval : job.NextRunAt ?? now;
+        var nextRunAt = due > now ? due : now;
+
+        job.Interval = definition.Interval;
+        job.NextRunAt = nextRunAt;
+
+        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return nextRunAt;
+    }
+
     [LoggerMessage(
         Level = LogLevel.Information,
         Message = "Scheduled {CommandName} every {Interval} starting at {NextRunAt:o}")]
     private partial void LogScheduled(string commandName, TimeSpan interval, DateTime nextRunAt);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "The interval of {CommandName} changed: now every {Interval}, next run {NextRunAt:o}")]
+    private partial void LogRescheduled(string commandName, TimeSpan interval, DateTime nextRunAt);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A changed task interval could not be applied; it takes effect at the next start")]
+    private partial void LogRescheduleFailed(Exception exception);
 }

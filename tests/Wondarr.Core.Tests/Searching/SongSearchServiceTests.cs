@@ -679,7 +679,7 @@ public async Task An_interactive_search_with_an_acceptable_candidate_finishes_ca
     var acceptable = await host.Search.SearchAsync(songId, SearchTrigger.Manual, grab: false, Token);
 
     acceptable.Outcome.Should().Be(SearchOutcome.Cancelled, "an interactive search did its job");
-    acceptable.Message.Should().Be("Interactive search: 1 acceptable");
+    acceptable.Message.Should().Be("1 acceptable of 1 results");
     acceptable.QueueItemId.Should().BeNull();
     host.Provider.Grabs.Should().BeEmpty();
 

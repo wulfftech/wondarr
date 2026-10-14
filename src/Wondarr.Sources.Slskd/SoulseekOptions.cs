@@ -42,6 +42,12 @@ public sealed class SoulseekOptions
     /// </summary>
     public List<string> SharedFolders { get; set; } = [];
 
+    /// <summary>
+    /// How often the <c>RescanSoulseekShares</c> task asks slskd to rescan its shares, so files that reach a
+    /// shared folder without an import (a reference library, the user's own copies) are shared too.
+    /// </summary>
+    public int ShareRescanIntervalHours { get; set; } = 24;
+
     /// <summary>Concurrent upload slots.</summary>
     public int UploadSlots { get; set; } = 10;
 
@@ -170,6 +176,11 @@ public sealed class SoulseekOptionsValidator : IValidateOptions<SoulseekOptions>
         if (options.UploadSlots is < 1 or > 100)
         {
             failures.Add($"soulseek.upload_slots: must be between 1 and 100 (was {options.UploadSlots})");
+        }
+
+        if (options.ShareRescanIntervalHours is < 1 or > 168)
+        {
+            failures.Add($"soulseek.share_rescan_interval_hours: must be between 1 and 168 (was {options.ShareRescanIntervalHours})");
         }
 
         if (options.UploadSpeedLimitKib < 0)

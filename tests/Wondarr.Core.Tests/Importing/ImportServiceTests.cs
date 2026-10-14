@@ -21,6 +21,25 @@ public sealed class ImportServiceTests
     private static readonly DateTimeOffset Start = new(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task The_import_log_line_names_the_quality_and_nothing_glued_to_it()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        var seed = await host.SeedAsync();
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+
+        string line;
+
+        lock (host.LogMessages)
+        {
+            line = host.LogMessages.Single(message => message.StartsWith("Imported ", StringComparison.Ordinal));
+        }
+
+        line.Should().EndWith(")");
+        line.Should().NotEndWith("True)").And.NotEndWith("False)", "the upgraded flag is not glued to the quality name");
+    }
+
+    [Fact]
     public async Task Imports_a_verified_download_into_the_library()
     {
         await using var host = await ImportTestHost.CreateAsync();

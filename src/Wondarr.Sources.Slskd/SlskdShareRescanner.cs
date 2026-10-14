@@ -199,24 +199,51 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
     /// </summary>
     private async Task<bool> TryRescanAsync(CancellationToken cancellationToken)
     {
+        var (readiness, _) = Assess();
+
+        return readiness switch
+        {
+            // A request with nothing to do is dropped.
+            RescanReadiness.Drop => true,
+            RescanReadiness.Wait => false,
+            _ => await RescanAsync(cancellationToken).ConfigureAwait(false),
+        };
+    }
+
+    /// <summary>Whether a scan can be asked for now, must wait for slskd, or has nothing to do.</summary>
+    private enum RescanReadiness
+    {
+        /// <summary>slskd can be asked now.</summary>
+        Ask,
+
+        /// <summary>slskd is on its way up; the request waits for it.</summary>
+        Wait,
+
+        /// <summary>There is nothing to scan or nobody to ask.</summary>
+        Drop,
+    }
+
+    /// <summary>What a scan would do right now, and in words why not when it would do nothing.</summary>
+    private (RescanReadiness Readiness, string? Reason) Assess()
+    {
         var options = _options.CurrentValue;
 
         if (options.Mode == SoulseekMode.External)
         {
             if (!options.External.RescanShares)
             {
-                // Dropped silently: the user's slskd decides what it shares.
-                return true;
+                // The user's slskd decides what it shares.
+                return (RescanReadiness.Drop, "rescanning the external slskd is off (soulseek.external.rescan_shares)");
             }
 
             // The user's slskd is not a process of ours, so the supervisor's state says nothing
             // about whether it will answer; just ask it.
-            return await RescanAsync(cancellationToken).ConfigureAwait(false);
+            return (RescanReadiness.Ask, null);
         }
 
         if (!options.ShareLibrary || options.SharedFolders.Count == 0)
         {
-            return true;
+            return (RescanReadiness.Drop, "sharing is off (soulseek.share_library) or no folder is shared");
         }
 
         var state = _status.Current.State;
@@ -225,7 +252,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         // supervisor is bringing up.
         if (state is SlskdState.Starting or SlskdState.Restarting or SlskdState.Crashed)
         {
-            return false;
+            return (RescanReadiness.Wait, string.Concat("slskd is ", state.ToString().ToLowerInvariant()));
         }
 
         // No binary, or the host stopping: there is no slskd of ours to ask.
@@ -233,10 +260,41 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         {
             LogSkipped(_logger, state);
 
-            return true;
+            return (RescanReadiness.Drop, string.Concat("slskd is ", state.ToString().ToLowerInvariant(), ", not a process Wondarr runs"));
         }
 
-        return await RescanAsync(cancellationToken).ConfigureAwait(false);
+        return (RescanReadiness.Ask, null);
+    }
+
+    /// <summary>
+    /// Asks slskd for a rescan right now, for the daily <c>RescanSoulseekShares</c> task: the same call and the
+    /// same rules as after an import, but without the quiet period or a retry loop (the task runs again
+    /// tomorrow). A scan that has nothing to do says why instead.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>What was done, or why nothing was.</returns>
+    public async Task<string> RescanNowAsync(CancellationToken cancellationToken)
+    {
+        var (readiness, reason) = Assess();
+
+        if (readiness != RescanReadiness.Ask)
+        {
+            return string.Concat("Nothing to do: ", reason);
+        }
+
+        if (_options.CurrentValue.Mode == SoulseekMode.External && !_status.Current.IsReachable)
+        {
+            return "Nothing to do: the external slskd is not reachable";
+        }
+
+        using var scope = _scopes.CreateScope();
+        var client = scope.ServiceProvider.GetRequiredService<ISlskdClient>();
+
+        var outcome = await client.RescanSharesAsync(cancellationToken).ConfigureAwait(false);
+
+        return outcome == SlskdRescanOutcome.AlreadyScanning
+            ? "slskd was already scanning its shares"
+            : "Asked slskd to rescan its shares";
     }
 
     /// <summary>Asks slskd to rescan; <see langword="false"/> when it should be tried again.</summary>

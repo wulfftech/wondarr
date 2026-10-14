@@ -9,8 +9,8 @@ using Wondarr.Core.Updates;
 namespace Wondarr.Core.Jobs;
 
 /// <summary>
-/// The tasks ARCHITECTURE §5.5 schedules from a cold start. Only the two Phase 0 tasks exist so far;
-/// the rest of the table in that section lands with the features they belong to.
+/// The tasks ARCHITECTURE §5.5 schedules. The intervals are read from the live settings on every call,
+/// so <see cref="ScheduledTaskService"/> can move a task's schedule when one of them changes.
 /// </summary>
 public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
 {
@@ -41,44 +41,97 @@ public sealed class ScheduledTaskCatalog : IScheduledTaskCatalog
     /// <summary>How often Wondarr asks GitHub for a newer release.</summary>
     public static readonly TimeSpan CheckForUpdatesInterval = TimeSpan.FromHours(12);
 
-    private readonly IReadOnlyList<ScheduledTaskDefinition> _tasks;
+    private readonly IOptionsMonitor<SearchOptions> _searchOptions;
+    private readonly IOptionsMonitor<BackupOptions> _backupOptions;
+    private readonly IReadOnlyList<IScheduledTaskSource> _sources;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskCatalog"/> class.</summary>
-    /// <param name="searchOptions">The search settings, which decide how often the missing-song task runs.</param>
+    /// <param name="searchOptions">The search settings, which decide how often the search tasks run.</param>
     /// <param name="backupOptions">The backup settings, which decide how often the backup task runs.</param>
-    public ScheduledTaskCatalog(IOptions<SearchOptions> searchOptions, IOptions<BackupOptions> backupOptions)
+    /// <param name="sources">Tasks defined by projects <c>Wondarr.Core</c> does not reference.</param>
+    public ScheduledTaskCatalog(
+        IOptionsMonitor<SearchOptions> searchOptions,
+        IOptionsMonitor<BackupOptions> backupOptions,
+        IEnumerable<IScheduledTaskSource> sources)
     {
         ArgumentNullException.ThrowIfNull(searchOptions);
         ArgumentNullException.ThrowIfNull(backupOptions);
+        ArgumentNullException.ThrowIfNull(sources);
 
-        _tasks =
-        [
-            new(HeartbeatCommandHandler.CommandName, HeartbeatInterval),
-            new(CheckHealthCommandHandler.CommandName, CheckHealthInterval),
-            new(
-                MissingSearchCommandHandler.CommandName,
-                TimeSpan.FromHours(searchOptions.Value.MissingIntervalHours)),
-            new(
-                UpgradeSearchCommandHandler.CommandName,
-                TimeSpan.FromHours(searchOptions.Value.UpgradeIntervalHours)),
-            new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
-            new(HousekeepingCommandHandler.CommandName, HousekeepingInterval),
-            new(ImportListSyncCommandHandler.CommandName, ImportListSyncInterval),
-            new(
-                BackupCommandHandler.CommandName,
-                TimeSpan.FromDays(backupOptions.Value.IntervalDays)),
-            new(
-                CheckForUpdatesCommandHandler.CommandName,
-                CheckForUpdatesInterval,
-                CheckForUpdatesCommandHandler.FirstRunDelay),
-        ];
+        _searchOptions = searchOptions;
+        _backupOptions = backupOptions;
+        _sources = [.. sources];
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<ScheduledTaskDefinition> Tasks => _tasks;
+    public IReadOnlyList<ScheduledTaskDefinition> Tasks
+    {
+        get
+        {
+            var search = _searchOptions.CurrentValue;
+            var backup = _backupOptions.CurrentValue;
+
+            List<ScheduledTaskDefinition> tasks =
+            [
+                new(HeartbeatCommandHandler.CommandName, HeartbeatInterval),
+                new(CheckHealthCommandHandler.CommandName, CheckHealthInterval),
+                new(MissingSearchCommandHandler.CommandName, TimeSpan.FromHours(search.MissingIntervalHours)),
+                new(UpgradeSearchCommandHandler.CommandName, TimeSpan.FromHours(search.UpgradeIntervalHours)),
+                new(ReferenceLibraryScanCommandHandler.CommandName, ReferenceLibraryScanInterval),
+                new(HousekeepingCommandHandler.CommandName, HousekeepingInterval),
+                new(ImportListSyncCommandHandler.CommandName, ImportListSyncInterval),
+                new(BackupCommandHandler.CommandName, TimeSpan.FromDays(backup.IntervalDays)),
+                new(
+                    CheckForUpdatesCommandHandler.CommandName,
+                    CheckForUpdatesInterval,
+                    CheckForUpdatesCommandHandler.FirstRunDelay),
+            ];
+
+            foreach (var source in _sources)
+            {
+                tasks.AddRange(source.Tasks);
+            }
+
+            return tasks;
+        }
+    }
+
+    /// <inheritdoc />
+    public IDisposable OnChange(Action listener)
+    {
+        ArgumentNullException.ThrowIfNull(listener);
+
+        var subscriptions = new List<IDisposable>();
+
+        if (_searchOptions.OnChange(_ => listener()) is { } search)
+        {
+            subscriptions.Add(search);
+        }
+
+        if (_backupOptions.OnChange(_ => listener()) is { } backup)
+        {
+            subscriptions.Add(backup);
+        }
+
+        subscriptions.AddRange(_sources.Select(source => source.OnChange(listener)));
+
+        return new Subscriptions(subscriptions);
+    }
 
     /// <inheritdoc />
     public ScheduledTaskDefinition? Find(string commandName) =>
-        _tasks.FirstOrDefault(definition =>
+        Tasks.FirstOrDefault(definition =>
             string.Equals(definition.CommandName, commandName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The subscriptions of one <see cref="OnChange"/> call, ended together.</summary>
+    private sealed class Subscriptions(List<IDisposable> inner) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var subscription in inner)
+            {
+                subscription.Dispose();
+            }
+        }
+    }
 }
