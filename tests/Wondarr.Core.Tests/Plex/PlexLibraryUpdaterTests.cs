@@ -275,12 +275,14 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
             () => attempts.Value == PlexLibraryUpdater.MaxAttemptsPerFolder,
             "the third attempt");
 
-        _updater.IsPending.Should().BeFalse("the folder is dropped after three failures");
-        _updater.LastError.Should().Be("Plex is not answering");
-
         await AdvanceAsync(PlexLibraryUpdater.RetryDelay * 3);
 
         attempts.Value.Should().Be(PlexLibraryUpdater.MaxAttemptsPerFolder);
+
+        // Read after the quiet stretch, not right after the counter: the counter moves when the third
+        // call starts, and being dropped is only known once the pass that made it has finished.
+        _updater.IsPending.Should().BeFalse("the folder is dropped after three failures");
+        _updater.LastError.Should().Be("Plex is not answering");
     }
 
     [Fact]
@@ -307,6 +309,12 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
         await _updater.HandleAsync(new SongImportedEvent(2, fine, Upgraded: false), CancellationToken.None);
 
         await AdvanceUntilAsync(() => Refreshes().Count == 2, "both folders to be tried");
+
+        // A call is recorded when it starts; the failed folder is queued for its retry only after the
+        // pass has gone through both of them.
+        await EventuallyAsync(
+            () => _updater.LastError is not null && _updater.IsPending,
+            "the failed folder to be recorded and queued for a retry");
 
         _updater.LastError.Should().Be("Plex is not answering", "the Discovery folder is still waiting for its retry");
         _updater.IsPending.Should().BeTrue();
@@ -361,6 +369,10 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
         await _updater.HandleAsync(new SongImportedEvent(2, second, Upgraded: false), CancellationToken.None);
 
         await AdvanceUntilAsync(() => !_updater.IsPending, "the batch to be dropped");
+
+        // IsPending clears as soon as the pass takes the batch, before the call is even made; the
+        // refusal is recorded only once it has returned.
+        await EventuallyAsync(() => _updater.LastError is not null, "the refusal to be recorded");
 
         attempts.Value.Should().Be(1, "the second library is not asked with the same token");
         _updater.LastError.Should().Be("Plex refused the token");
