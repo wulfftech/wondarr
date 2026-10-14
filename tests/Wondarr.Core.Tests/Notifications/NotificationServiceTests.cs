@@ -274,7 +274,7 @@ public sealed class NotificationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Clearing_a_secret_wins_over_a_value_sent_with_it_and_needs_no_target_rule()
+    public async Task Clearing_a_secret_needs_no_target_rule()
     {
         var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
 
@@ -284,22 +284,88 @@ public sealed class NotificationServiceTests : IDisposable
             Draft(url: "http://new.example/hook", password: NotificationSecrets.Mask) with { ClearSecrets = ["password"] },
             Token);
 
-        var other = await _service.CreateAsync(Draft(name: "Other", password: "supernova"), Token);
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
 
-        await _service.UpdateAsync(
-            other.Id,
-            Draft(name: "Other", password: "typed-again") with { ClearSecrets = ["password"] },
-            Token);
+        NotificationSecrets.Read(row.Settings).TryGetProperty("password", out _).Should().BeFalse();
+        row.Settings.Should().Contain("http://new.example/hook");
+    }
+
+    [Fact]
+    public async Task A_secret_that_is_cleared_and_replaced_in_one_request_is_refused_on_its_field()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.UpdateAsync(
+                created.Id,
+                Draft(password: "typed-again") with { ClearSecrets = ["password"] },
+                Token));
+
+        failure.Field.Should().Be("password");
+        failure.Detail.Should().Be("Clear or replace the secret, not both.");
 
         await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
 
-        foreach (var row in await database.Notifications.ToListAsync(Token))
-        {
-            NotificationSecrets.Read(row.Settings).TryGetProperty("password", out _).Should().BeFalse(row.Name);
-        }
+        NotificationSecrets.Read(row.Settings).GetProperty("password").GetString().Should().Be("wonderwall");
+    }
 
-        (await database.Notifications.SingleAsync(row => row.Id == created.Id, Token)).Settings
-            .Should().Contain("http://new.example/hook");
+    [Theory]
+    [InlineData("""{"url":"http://hooks.local/webhook","password":null}""")]
+    [InlineData("""{"url":"http://hooks.local/webhook"}""")]
+    public async Task A_null_or_omitted_secret_keeps_the_stored_one_and_only_clearSecrets_removes_it(string settings)
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+        var incoming = JsonSerializer.Deserialize<JsonElement>(settings);
+
+        var kept = await _service.UpdateAsync(created.Id, Draft() with { Settings = incoming }, Token);
+
+        NotificationSecrets.Read(kept!.Settings).GetProperty("password").GetString().Should().Be("wonderwall");
+
+        // The same obeys the target rule: the secret does not follow a changed address.
+        var moved = JsonSerializer.Deserialize<JsonElement>(settings.Replace("hooks.local", "attacker.example", StringComparison.Ordinal));
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.UpdateAsync(created.Id, Draft() with { Settings = moved }, Token));
+
+        failure.Field.Should().Be("password");
+
+        var cleared = await _service.UpdateAsync(
+            created.Id,
+            Draft() with { Settings = incoming, ClearSecrets = ["password"] },
+            Token);
+
+        NotificationSecrets.Read(cleared!.Settings).TryGetProperty("password", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_test_of_a_stored_row_keeps_a_blank_secret_for_the_same_target_and_refuses_it_for_a_new_host()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var result = await _service.TestAsync(Draft(password: string.Empty) with { Id = created.Id }, Token);
+
+        result.Success.Should().BeTrue();
+        _provider.SentSettings.Single().GetProperty("password").GetString().Should().Be("wonderwall");
+
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.TestAsync(
+                Draft(url: "http://attacker.example/hook", password: string.Empty) with { Id = created.Id },
+                Token));
+
+        failure.Field.Should().Be("password");
+        _provider.Sent.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_test_of_a_new_draft_ignores_clearSecrets()
+    {
+        var result = await _service.TestAsync(
+            Draft(password: "typed-here") with { ClearSecrets = ["nonsense", "token", "password"] },
+            Token);
+
+        result.Success.Should().BeTrue();
+        _provider.SentSettings.Single().GetProperty("password").GetString().Should().Be("typed-here");
     }
 
     [Fact]

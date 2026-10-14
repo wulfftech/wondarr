@@ -36,7 +36,12 @@ async function lastRequest(method: string, urlPart: string): Promise<Record<stri
  * starts with the collection's.
  */
 function install(
-  options: { create?: () => Response; test?: () => Response; notifications?: unknown[] } = {},
+  options: {
+    create?: () => Response;
+    test?: () => Response;
+    update?: () => Response | Promise<Response>;
+    notifications?: unknown[];
+  } = {},
 ): FetchMock {
   return installFetch((url, init) => {
     const method = init?.method ?? 'GET';
@@ -63,7 +68,7 @@ function install(
       }
 
       if (method === 'PUT') {
-        return jsonResponse(NOTIFICATIONS[1]);
+        return options.update?.() ?? jsonResponse(NOTIFICATIONS[1]);
       }
 
       if (method === 'DELETE') {
@@ -397,6 +402,64 @@ describe('NotificationsSettingsPage', () => {
     await user.click(dialog.querySelector('button.mantine-Modal-close') as HTMLElement);
 
     expect(await screen.findByText('Discard unsaved changes?')).toBeInTheDocument();
+  });
+
+  it('asks for a click outside the dialog too, and Escape with the question open dismisses only the question', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.type(within(dialog).getByLabelText('Name'), ' (edited)');
+    await user.click(document.querySelector('.mantine-Modal-overlay') as HTMLElement);
+
+    expect(await screen.findByText('Discard unsaved changes?')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+    });
+    // The edit dialog is still there, with what was typed.
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('Home webhook (edited)');
+    expect(screen.getByText('Edit notification')).toBeInTheDocument();
+  });
+
+  it('cannot be closed while a save is on its way, and closes by itself once it is saved', async () => {
+    let finish: (response: Response) => void = () => undefined;
+    const pending = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    install({ update: () => pending });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.type(within(dialog).getByLabelText('Name'), ' (edited)');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    });
+
+    // Escape, the X and a click outside all do nothing: no prompt, and the dialog stays.
+    await user.keyboard('{Escape}');
+    await user.click(dialog.querySelector('button.mantine-Modal-close') as HTMLElement);
+    await user.click(document.querySelector('.mantine-Modal-overlay') as HTMLElement);
+
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+    expect(screen.getByText('Edit notification')).toBeInTheDocument();
+
+    finish(jsonResponse(NOTIFICATIONS[0]));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Edit notification')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
   });
 
   it('closes an unedited dialog without asking', async () => {

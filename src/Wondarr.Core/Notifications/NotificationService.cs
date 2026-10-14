@@ -292,7 +292,7 @@ public sealed partial class NotificationService : INotificationService
         // A create has no stored secret to remove, so a name it carries is ignored; a test with no row is the same.
         if (excludingId is not null)
         {
-            ValidateClearSecrets(draft.ClearSecrets, provider);
+            ValidateClearSecrets(draft.ClearSecrets, draft.Settings, provider);
         }
 
         return provider;
@@ -315,7 +315,10 @@ public sealed partial class NotificationService : INotificationService
     /// secret, and one the notification cannot do without (a required secret can only be replaced). The
     /// failure belongs to the named field, or to <c>clearSecrets</c> when no field has that name.
     /// </summary>
-    private static void ValidateClearSecrets(IReadOnlyList<string>? names, INotificationProvider provider)
+    private static void ValidateClearSecrets(
+        IReadOnlyList<string>? names,
+        JsonElement settings,
+        INotificationProvider provider)
     {
         foreach (var name in names ?? [])
         {
@@ -341,7 +344,32 @@ public sealed partial class NotificationService : INotificationService
                     field.Name,
                     string.Concat(field.Label, " is required: it can be replaced but not cleared."));
             }
+
+            // Clearing a secret and sending a new value for it contradict each other.
+            if (HasNewValue(settings, field.Name))
+            {
+                throw new NotificationValidationException(
+                    field.Name,
+                    "Clear or replace the secret, not both.");
+            }
         }
+    }
+
+    /// <summary>Whether the settings carry a value for a field that is neither blank nor the mask.</summary>
+    private static bool HasNewValue(JsonElement settings, string name)
+    {
+        if (settings.ValueKind != JsonValueKind.Object || !settings.TryGetProperty(name, out var value))
+        {
+            return false;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Undefined or JsonValueKind.Null => false,
+            JsonValueKind.String => value.GetString() is { Length: > 0 } text &&
+                !string.Equals(text, NotificationSecrets.Mask, StringComparison.Ordinal),
+            _ => true,
+        };
     }
 
     /// <summary>

@@ -117,8 +117,9 @@ public static class NotificationSecrets
     /// are not secret fields are ignored here; the caller has already refused them.
     /// </param>
     /// <param name="blankKeeps">
-    /// Whether a blank string for a secret that has a stored value also keeps it, like the mask. A blank
-    /// for a secret with nothing stored stays blank. The notifications set this; the other types do not.
+    /// Whether a blank string, a JSON null or an omitted key for a secret that has a stored value also
+    /// keeps it, like the mask. The same sent for a secret with nothing stored stays as sent.
+    /// The notifications set this; the other types do not.
     /// </param>
     /// <exception cref="SecretReentryException">A masked secret would be sent to a target other than the one it was stored for.</exception>
     public static string Merge(
@@ -147,32 +148,41 @@ public static class NotificationSecrets
                 continue;
             }
 
-            if (merged[field.Name] is JsonValue value && value.TryGetValue<string>(out var text))
+            // A JSON null and an omitted key both read as null here.
+            var node = merged[field.Name];
+            var isMask = false;
+            var isBlank = false;
+
+            if (node is null)
             {
-                var isMask = string.Equals(text, Mask, StringComparison.Ordinal);
-                var isBlank = blankKeeps && text.Length == 0;
+                isBlank = blankKeeps;
+            }
+            else if (node is JsonValue value && value.TryGetValue<string>(out var text))
+            {
+                isMask = string.Equals(text, Mask, StringComparison.Ordinal);
+                isBlank = blankKeeps && text.Length == 0;
+            }
 
-                if (!isMask && !isBlank)
+            if (!isMask && !isBlank)
+            {
+                continue;
+            }
+
+            // The mask stands for what is stored; with nothing stored it stands for nothing, and must
+            // never become the secret itself. A blank, a null or an omitted key that keeps does the same
+            // when something is stored, and is just what it was sent as when nothing is.
+            if (existing?[field.Name] is { } kept && (isMask || HasValue(kept)))
+            {
+                if (HasValue(kept) && !string.Equals(TargetOf(merged, fields), TargetOf(existing, fields), StringComparison.Ordinal))
                 {
-                    continue;
+                    throw new SecretReentryException(field.Name, field.Label);
                 }
 
-                // The mask stands for what is stored; with nothing stored it stands for nothing, and
-                // must never become the secret itself. A blank that keeps does the same when something
-                // is stored, and is just a blank when nothing is.
-                if (existing?[field.Name] is { } kept && (isMask || HasValue(kept)))
-                {
-                    if (HasValue(kept) && !string.Equals(TargetOf(merged, fields), TargetOf(existing, fields), StringComparison.Ordinal))
-                    {
-                        throw new SecretReentryException(field.Name, field.Label);
-                    }
-
-                    merged[field.Name] = kept.DeepClone();
-                }
-                else if (isMask)
-                {
-                    merged.Remove(field.Name);
-                }
+                merged[field.Name] = kept.DeepClone();
+            }
+            else if (isMask)
+            {
+                merged.Remove(field.Name);
             }
         }
 
