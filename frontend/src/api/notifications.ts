@@ -34,7 +34,7 @@ export const SECRET_MASK = '********';
  */
 export const NOTIFICATION_EVENTS: readonly { value: string; label: string }[] = [
   { value: 'grab', label: 'On grab' },
-  { value: 'download', label: 'Download completed' },
+  { value: 'download', label: 'On download completed' },
   { value: 'import', label: 'On import' },
   { value: 'upgrade', label: 'On upgrade' },
   { value: 'failure', label: 'On download failure' },

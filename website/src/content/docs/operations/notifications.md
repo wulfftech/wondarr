@@ -10,7 +10,7 @@ Notifications are under **Settings → Notifications**. Press **Add notification
 | Label in the form | When it is sent |
 |---|---|
 | On grab | A candidate was handed to a download source. |
-| Download completed | A download source reported the file complete, once per download. This is before the file is verified and imported, so a song whose import then fails gets both this message and a failure. A notification you made earlier is not subscribed to it; tick it to opt in. |
+| On download completed | A download source reported the file complete, once per download. This is before the file is verified and imported, so a song whose import then fails gets both this message and a failure. A notification you made earlier is not subscribed to it; tick it to opt in. |
 | On import | A downloaded file became a library file. |
 | On upgrade | A better file replaced the one a song already had. |
 | On download failure | A grab or an import failed. |
@@ -28,7 +28,7 @@ Sends a JSON body to a URL.
 - **Username** and **Password**: for HTTP basic authentication.
 - **Headers** (Advanced): extra headers as name and value pairs. Their values are shown in full, so put credentials in Username and Password, which are masked.
 
-The body uses Lidarr's `eventType` values, so tools that read Lidarr's webhook keep working: `Grab`, `Download` (for both a first import and an upgrade, with `isUpgrade` telling them apart), `DownloadFailure`, `Health`, `Update` and `Test`. Wondarr adds `DownloadCompleted` for the Download completed event: the source has the whole file, but it is not imported yet. It carries a `song` and a `release` object, as `Grab` does. Every body also carries `instanceName` (always `Wondarr`), `applicationUrl` and, for a song, a `song` object. An `Update` body carries an `update` object with `currentVersion`, `latestVersion` and `releaseUrl` instead of a song.
+The body uses Lidarr's `eventType` values, so tools that read Lidarr's webhook keep working: `Grab`, `Download` (for both a first import and an upgrade, with `isUpgrade` telling them apart), `DownloadFailure`, `Health`, `Update` and `Test`. Wondarr adds `DownloadCompleted` for the On download completed event: the source has the whole file, but it is not imported yet. It carries a `song` and a `release` object, as `Grab` does. Every body also carries `instanceName` (always `Wondarr`), `applicationUrl` and, for a song, a `song` object. An `Update` body carries an `update` object with `currentVersion`, `latestVersion` and `releaseUrl` instead of a song.
 
 ### Discord
 
@@ -79,4 +79,4 @@ Sends email over SMTP. Each email is HTML with a plain-text alternative.
 
 ## Secrets
 
-Secret fields show as `********`. Leave the mask in place when you save and the stored value is kept. To remove a stored secret that is optional (an email password, a webhook password), press **Clear** next to it: the field shows "Will be cleared on save", with an **Undo**, and the secret is removed when you save. A required secret, such as a Discord webhook URL, can only be replaced. Through the API, a save request lists the fields to remove in `clearSecrets`, for example `"clearSecrets": ["password"]`; a name that is not an optional secret field of that type is refused with a `400`. Closing the Add or Edit window with changes you have not saved asks first ("Discard unsaved changes?"). Notifications never block Wondarr: a slow or failing target is given a limited time and then dropped, and no URL or credential is written to the log.
+Secret fields show as `********`. Leave the mask in place (or the field empty) when you save and the stored value is kept. To remove a stored secret that is optional (an email password, a webhook password), press **Clear** next to it: the field shows "Will be cleared on save", with an **Undo**, and the secret is removed when you save. A required secret, such as a Discord webhook URL, can only be replaced. Through the API, a save request lists the fields to remove in `clearSecrets`, for example `"clearSecrets": ["password"]`; a name that is not an optional secret field of that type is refused with a `400`. Closing the Add or Edit window with changes you have not saved asks first ("Discard unsaved changes?"). Notifications never block Wondarr: a slow or failing target is given a limited time and then dropped, and no URL or credential is written to the log.

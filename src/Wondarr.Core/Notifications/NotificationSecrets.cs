@@ -116,12 +116,17 @@ public static class NotificationSecrets
     /// Nothing stored is reused for a cleared field, so the target rule does not apply to it. Names that
     /// are not secret fields are ignored here; the caller has already refused them.
     /// </param>
+    /// <param name="blankKeeps">
+    /// Whether a blank string for a secret that has a stored value also keeps it, like the mask. A blank
+    /// for a secret with nothing stored stays blank. The notifications set this; the other types do not.
+    /// </param>
     /// <exception cref="SecretReentryException">A masked secret would be sent to a target other than the one it was stored for.</exception>
     public static string Merge(
         JsonElement incoming,
         string? stored,
         IReadOnlyList<NotificationField> fields,
-        IReadOnlyCollection<string>? clear = null)
+        IReadOnlyCollection<string>? clear = null,
+        bool blankKeeps = false)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -142,13 +147,20 @@ public static class NotificationSecrets
                 continue;
             }
 
-            if (merged[field.Name] is JsonValue value &&
-                value.TryGetValue<string>(out var text) &&
-                string.Equals(text, Mask, StringComparison.Ordinal))
+            if (merged[field.Name] is JsonValue value && value.TryGetValue<string>(out var text))
             {
+                var isMask = string.Equals(text, Mask, StringComparison.Ordinal);
+                var isBlank = blankKeeps && text.Length == 0;
+
+                if (!isMask && !isBlank)
+                {
+                    continue;
+                }
+
                 // The mask stands for what is stored; with nothing stored it stands for nothing, and
-                // must never become the secret itself.
-                if (existing?[field.Name] is { } kept)
+                // must never become the secret itself. A blank that keeps does the same when something
+                // is stored, and is just a blank when nothing is.
+                if (existing?[field.Name] is { } kept && (isMask || HasValue(kept)))
                 {
                     if (HasValue(kept) && !string.Equals(TargetOf(merged, fields), TargetOf(existing, fields), StringComparison.Ordinal))
                     {
@@ -157,7 +169,7 @@ public static class NotificationSecrets
 
                     merged[field.Name] = kept.DeepClone();
                 }
-                else
+                else if (isMask)
                 {
                     merged.Remove(field.Name);
                 }
