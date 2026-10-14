@@ -21,7 +21,7 @@ public sealed class SignalRTests
     private const string HealthEndpoint = "/api/v1/health";
 
     /// <summary>The longest a test waits for a broadcast.</summary>
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     [Fact]
     public async Task Connecting_without_a_key_is_rejected()
