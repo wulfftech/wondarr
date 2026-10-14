@@ -1406,7 +1406,7 @@ public sealed partial class SongService : ISongService
     /// Whether a failed save broke the unique index on a song's recording MBID or Deezer id, as against
     /// any other constraint. SQLite names the column: <c>UNIQUE constraint failed: song.mb_recording_id</c>.
     /// </summary>
-    private static bool IsDuplicateSongKey(DbUpdateException exception) =>
+    internal static bool IsDuplicateSongKey(DbUpdateException exception) =>
         exception.InnerException is SqliteException { SqliteExtendedErrorCode: UniqueConstraintFailed } inner
         && (inner.Message.Contains("song.mb_recording_id", StringComparison.OrdinalIgnoreCase)
             || inner.Message.Contains("song.deezer_id", StringComparison.OrdinalIgnoreCase));
