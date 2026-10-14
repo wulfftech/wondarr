@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Wondarr.Core.Configuration;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Configuration;
@@ -43,14 +44,9 @@ public sealed class ProtectedPathsTests
         ProtectedPaths.Reason(ConfigDir + "2", Paths).Should().BeNull();
     }
 
-    [Fact]
+    [LinuxFact]
     public void Case_is_kept_on_linux()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
-
         ProtectedPaths.Reason(ConfigDir.ToUpperInvariant(), Paths).Should().BeNull();
     }
 

@@ -10,6 +10,7 @@ using Wondarr.Core.Persistence;
 using Wondarr.Core.References;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
+using Wondarr.Testing;
 using Wondarr.Core.Tests.Persistence;
 using Xunit;
 

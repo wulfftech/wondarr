@@ -1,7 +1,9 @@
+using System.Runtime.Versioning;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Sources.Slskd;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Sources.Tests.Slskd;
@@ -54,14 +56,10 @@ public class SlskdHostTests
     }
 
     // R-054: slskd.yml holds the Soulseek password and slskd's API key.
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public async Task The_rendered_slskd_yml_is_0600_under_umask_002_and_leaves_no_temporary_file()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         await using var harness = new SlskdHostHarness(new SoulseekOptions { Username = null, Password = null });
 
         using (new Umask(0x2))

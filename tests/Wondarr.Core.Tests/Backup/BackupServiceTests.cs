@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO.Compression;
+using System.Runtime.Versioning;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Wondarr.Core.Backup;
 using Wondarr.Core.Configuration;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Backup;
@@ -71,14 +73,10 @@ public sealed class BackupServiceTests : IDisposable
     }
 
     // R-054: a backup holds the API key, the Soulseek password and every indexer key.
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public async Task A_new_backup_zip_is_0600_under_umask_002()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         BackupItem backup;
 
         using (new Wondarr.Core.Tests.Configuration.Umask(0x2))
@@ -92,14 +90,10 @@ public sealed class BackupServiceTests : IDisposable
         Directory.GetFiles(Path.Combine(_paths.BackupsDir, "manual"), "*.tmp").Should().BeEmpty();
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public async Task A_staged_restore_is_0600_under_umask_002()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var backup = await _backups.CreateAsync(BackupType.Manual, CancellationToken.None);
 
         using (new Wondarr.Core.Tests.Configuration.Umask(0x2))
