@@ -706,11 +706,12 @@ public class SlskdHostTests
         await harness.AdvanceAsync(TimeSpan.FromSeconds(1));
         harness.Launcher.Count.Should().Be(1);
 
-        await harness.AdvanceUntilAsync(
-            () => harness.Launcher.Count == 2,
-            TimeSpan.FromSeconds(1),
-            10,
-            "the debounced restart");
+        // The debounce ends at the two-second mark. Everything after that (stopping the old process,
+        // rendering the settings file, launching the new one) is real file and thread-pool work that
+        // fake time cannot pace: advancing further would only burn steps while it runs, so wait for
+        // it on real time, bounded.
+        await harness.AdvanceAsync(TimeSpan.FromSeconds(1));
+        await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 2, "the debounced restart");
 
         (await harness.ReadConfigAsync()).Should().Contain("username: wondarr-soulseek");
         harness.Launcher.Launches[0].Process.StopRequestCount.Should().Be(1, "slskd is asked to stop first");

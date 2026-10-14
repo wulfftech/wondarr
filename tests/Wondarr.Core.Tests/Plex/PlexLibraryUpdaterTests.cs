@@ -236,6 +236,12 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
         await _updater.HandleAsync(new SongImportedEvent(1, fileId, Upgraded: false), CancellationToken.None);
 
         await AdvanceUntilAsync(() => attempts.Value == 1, "the first attempt");
+
+        // The counter moves when the attempt starts. The failure is recorded and the retry queued only
+        // once the call has returned, on a pool thread, so wait for that instead of assuming it is done.
+        await EventuallyAsync(
+            () => _updater.LastError is not null && _updater.IsPending,
+            "the failed attempt to be recorded and queued for a retry");
         _updater.LastError.Should().Be("Plex is not answering");
         _updater.IsPending.Should().BeTrue();
 
@@ -244,6 +250,9 @@ public sealed class PlexLibraryUpdaterTests : IAsyncDisposable
 
         await AdvanceUntilAsync(() => attempts.Value == 2, "the retry");
 
+        // The error was set before this attempt, so it turning null can only be the successful pass
+        // clearing it; the counter alone moves before the call has even returned.
+        await EventuallyAsync(() => _updater.LastError is null, "the successful retry to clear the error");
         _updater.LastError.Should().BeNull("the next successful scan clears it");
         _updater.IsPending.Should().BeFalse();
     }
