@@ -408,16 +408,30 @@ public class DecisionEngineTests
     }
 
     [Fact]
-    public void A_compilation_path_needs_a_full_title_even_when_a_folder_names_the_whole_artist()
+    public void A_compilation_path_needs_a_full_title_when_a_folder_only_holds_the_artist_among_other_words()
     {
         var context = Context() with { SongTitle = "Story of a Girl", MainArtists = ["Nine Days"] };
 
-        // A Various Artists folder never stands in for the artist, and neither does a folder under it.
+        // A Various Artists folder never stands in for the artist, and neither does "Nine Days Tribute".
         var folderOnly = NewCandidate(
             remotePath: @"@@b\Various Artists\Nine Days Tribute\05 Story of a Dream.mp3",
             parsed: ParsedName.Empty with { Title = "Story of a Dream", TrackNo = 5 });
 
         Judge(context, folderOnly).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+    }
+
+    [Fact]
+    public void A_whole_artist_folder_above_a_soundtrack_album_is_the_artist()
+    {
+        var context = Context() with { SongTitle = "Time", MainArtists = ["Hans Zimmer"] };
+        var parsed = ParsedName.Empty with { Title = "Time (From Inception)", TrackNo = 5 };
+
+        Judge(context, NewCandidate(remotePath: @"@@b\Hans Zimmer\Inception OST\05 Time (From Inception).mp3", parsed: parsed))
+            .Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+
+        // The same album under a folder that is not the artist needs the full title, which this is not.
+        Judge(context, NewCandidate(remotePath: @"@@b\Soundtracks\Inception OST\05 Time (From Inception).mp3", parsed: parsed))
+            .Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
     }
 
     [Fact]

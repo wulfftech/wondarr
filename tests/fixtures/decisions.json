@@ -2881,6 +2881,96 @@
         ],
         "rejections": {}
       }
+    },
+    {
+      "name": "a whole artist folder above a soundtrack album is the artist; the same album under another folder needs the full title",
+      "song": {
+        "title": "Time",
+        "mainArtists": [
+          "Hans Zimmer"
+        ],
+        "durationMs": 275000,
+        "flags": [],
+        "albumTitle": "Inception",
+        "trackNo": 5
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "artistfolder",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Hans Zimmer\\Inception OST\\05 Time (From Inception).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Hans Zimmer",
+            "title": "Time (From Inception)",
+            "album": "Inception OST",
+            "trackNo": 5,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [
+              "(From Inception)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 275000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 30000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "soundtracks",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Soundtracks\\Inception OST\\05 Time (From Inception).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Soundtracks",
+            "title": "Time (From Inception)",
+            "album": "Inception OST",
+            "trackNo": 5,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [
+              "(From Inception)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 275000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 30000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "artistfolder"
+        ],
+        "rejections": {
+          "soundtracks": [
+            "artistMismatch"
+          ]
+        }
+      }
     }
   ]
 }

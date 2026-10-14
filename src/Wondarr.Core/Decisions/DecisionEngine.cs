@@ -440,11 +440,12 @@ public sealed class DecisionEngine
 
         // A compilation path ("Various Artists", "OST") never stands in for the artist, and a token or
         // two of the artist's name in a folder (the "Days" of "Nine Days") is not the artist either: the
-        // file name must name the artist, or the file's own title must be the song's title in full.
-        // Checked before the ordinary overlap for exactly that reason.
+        // artist must be the file name's or a whole folder's (an artist folder above an OST album), or
+        // the file's own title must be the song's title in full. Checked before the ordinary overlap
+        // for exactly that reason.
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
-            if (FileNameNamesArtist(context, candidate) ||
+            if (CompilationPathNamesArtist(context, candidate) ||
                 similarity is null ||
                 CandidateTitleMatcher.IsFullTitleMatch(songVariants, candidate, context.SongFlags))
             {
@@ -469,13 +470,40 @@ public sealed class DecisionEngine
     }
 
     /// <summary>
-    /// Whether the artist is genuinely matched: on a compilation path only the file name can name it;
-    /// elsewhere any overlap with the path counts.
+    /// Whether the artist is genuinely matched: on a compilation path only the file name or a whole
+    /// folder can name it; elsewhere any overlap with the path counts.
     /// </summary>
     private static bool ArtistGenuinelyNamed(DecisionContext context, Candidate candidate) =>
         ContainsCompilationMarker(candidate.RemotePath)
-            ? FileNameNamesArtist(context, candidate)
+            ? CompilationPathNamesArtist(context, candidate)
             : ArtistOverlap(context, candidate) > 0;
+
+    /// <summary>
+    /// On a compilation path: every word of one of the song's artists is in the file name, or a whole
+    /// folder name is one of the song's artists (<c>Hans Zimmer/Inception OST/05 Time.flac</c>). A word
+    /// or two inside a longer folder name never counts.
+    /// </summary>
+    private static bool CompilationPathNamesArtist(DecisionContext context, Candidate candidate)
+    {
+        if (FileNameNamesArtist(context, candidate))
+        {
+            return true;
+        }
+
+        var segments = candidate.RemotePath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries);
+
+        for (var index = 0; index < segments.Length - 1; index++)
+        {
+            var folder = TextMatching.NormalizeArtist(segments[index]);
+
+            if (folder.Length > 0 && context.MainArtists.Any(artist => TextMatching.NormalizeArtist(artist) == folder))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>Whether every word of one of the song's artists is in the file name (not the folders).</summary>
     private static bool FileNameNamesArtist(DecisionContext context, Candidate candidate)
