@@ -4,6 +4,12 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-10-14
+
+A small follow-up to 0.1.5: one Match-queue fix and a test-suite fix. Update by pulling `:0.1` (or `:0.1.6`).
+
+**Upgrading from 0.1.5:** nothing to do. No database migration and no setting changes.
+
 ### Fixed
 - **Matching reference files by hand no longer fails when another add of the same recording wins the race.** Choosing a candidate, a MusicBrainz id or a Deezer id in the Match queue, or accepting the top candidates in bulk, returned an error (or lost the whole group of files) if the song was added a moment earlier by another request. The file is now linked to the song that was added first.
 
