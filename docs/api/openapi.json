@@ -7736,6 +7736,12 @@
           },
           "target": {
             "type": "boolean"
+          },
+          "targetDefault": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7794,6 +7800,15 @@
               "string"
             ],
             "format": "int64"
+          },
+          "clearSecrets": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

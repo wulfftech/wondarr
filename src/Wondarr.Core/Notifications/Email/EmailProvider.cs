@@ -5,14 +5,21 @@ using MimeKit;
 namespace Wondarr.Core.Notifications.Email;
 
 /// <summary>
-/// Sends Wondarr's events as email over SMTP: one message per event, or, for imports, upgrades and
+/// Sends Wondarr's events as email over SMTP: one message per event, or, for completed downloads, imports, upgrades and
 /// failures, a digest of everything in a window (see <see cref="NotificationDigestService"/>). Grabs,
 /// health and update messages are always sent at once.
 /// </summary>
 public sealed partial class EmailProvider : IDigestNotificationProvider
 {
     private static readonly HashSet<string> Batched =
-        new([NotificationEventNames.Import, NotificationEventNames.Upgrade, NotificationEventNames.Failure], StringComparer.Ordinal);
+        new(
+            [
+                NotificationEventNames.Download,
+                NotificationEventNames.Import,
+                NotificationEventNames.Upgrade,
+                NotificationEventNames.Failure,
+            ],
+            StringComparer.Ordinal);
 
     private readonly ISmtpSender _sender;
     private readonly Wondarr.Core.Logging.ISecretRegistry _secrets;
@@ -64,7 +71,7 @@ public sealed partial class EmailProvider : IDigestNotificationProvider
             "Delivery",
             "select",
             Required: false,
-            HelpText: "each sends one email per song. digest sends one email per window for imports, upgrades and failures.",
+            HelpText: "each sends one email per song. digest sends one email per window for completed downloads, imports, upgrades and failures.",
             Options: EmailDelivery.All),
         new(
             "digestMinutes",
