@@ -29,7 +29,22 @@ public sealed record SongSearchResult(
     SearchOutcome Outcome,
     IReadOnlyList<CandidateDecision> Decisions,
     long? QueueItemId,
-    string? Message);
+    string? Message)
+{
+    /// <summary>
+    /// Gets a value indicating whether the search waited for a download slot for the whole
+    /// <see cref="SearchOptions.SlotWaitMinutes"/> and never got one. That is not a failed search: the
+    /// command that ran it completes, and the song stays wanted for the next Missing Search.
+    /// </summary>
+    public bool SlotWaitExpired { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether the song no longer needed the grab by the time a slot freed (it met
+    /// its cutoff, was linked to a reference file or was removed while the search waited). Also not a failed
+    /// search: the command completes, and the run is recorded as <see cref="SearchOutcome.Cancelled"/>.
+    /// </summary>
+    public bool SatisfiedDuringWait { get; init; }
+}
 
 /// <summary>A candidate could not be handed to its download client.</summary>
 public sealed class GrabFailedException : Exception
@@ -322,9 +337,10 @@ public sealed partial class SongSearchService : ISongSearchService
             return await RunAsync(song, trigger, grab, run.Id, sources, queries, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
+        catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken)
+            || (exception is OperationCanceledException && _slotWait.CancelWait.IsCancellationRequested))
         {
-            // Whatever took the search away, the run must not be left open: unfinished runs are what
+            // Whatever took the search away (the host stopping, or a user's cancel of the slot wait), the run must not be left open: unfinished runs are what
             // the backoff and the history read. The finish itself ignores the cancelled token.
             await FinishQuietlyAsync(
                     run.Id,
@@ -538,12 +554,16 @@ public sealed partial class SongSearchService : ISongSearchService
 
         var accepted = decisions.Count(decision => decision.Accepted);
         long? queueItemId = null;
+        var slotWaitExpired = false;
+        var satisfiedDuringWait = false;
         SearchOutcome outcome;
         string? message;
 
         if (grab && accepted > 0)
         {
             var slotTimedOut = false;
+            string? satisfied = null;
+            var attempt = default(SlotGrab);
 
             if (trigger == SearchTrigger.Manual)
             {
@@ -554,19 +574,29 @@ public sealed partial class SongSearchService : ISongSearchService
                 // An automatic grab only starts when a download slot is free. The candidates this run
                 // accepted are kept and grabbed when one frees; searching again would only spend the
                 // Soulseek budget on the same answer.
-                (slotTimedOut, queueItemId) = await GrabWhenSlotIsFreeAsync(songId, searchRunId, cancellationToken)
+                attempt = await GrabWhenSlotIsFreeAsync(songId, searchRunId, cancellationToken)
                     .ConfigureAwait(false);
+
+                (slotTimedOut, queueItemId, satisfied) = (attempt.TimedOut, attempt.QueueItemId, attempt.Satisfied);
             }
 
             if (slotTimedOut)
             {
+                // Not a failed search and not a cancel: the backoff ignores NoFreeSlot, so the song stays
+                // wanted for the next Missing Search. The command that ran it completes, see
+                // SongSearchResult.SlotWaitExpired.
+                outcome = SearchOutcome.NoFreeSlot;
+                message = attempt.NoPlace
+                    ? NoPlaceMessage
+                    : _slotWait.WaitForSlot ? SlotWaitExpiredMessage() : "No free download slot";
+                slotWaitExpired = _slotWait.WaitForSlot;
+            }
+            else if (satisfied is not null)
+            {
+                // The song got what it needed while the search waited: nothing is grabbed for it.
                 outcome = SearchOutcome.Cancelled;
-                message = _slotWait.WaitForSlot
-                    ? string.Concat(
-                        "still no free download slot after ",
-                        _options.CurrentValue.SlotWaitMinutes.ToString(CultureInfo.InvariantCulture),
-                        " min")
-                    : "No free download slot";
+                message = satisfied;
+                satisfiedDuringWait = true;
             }
             else if (queueItemId is null)
             {
@@ -604,19 +634,26 @@ public sealed partial class SongSearchService : ISongSearchService
         else
         {
             // An interactive search asks for the candidates only: an accepted one is left alone, but
-            // the run did its job and must not read as a failed search.
+            // the run did its job. The enum has no "judged only" outcome, so it is recorded as Cancelled
+            // (the backoff ignores it); the message says what actually happened, and the interactive
+            // endpoint's callers must not read the outcome as a user cancel.
             outcome = SearchOutcome.Cancelled;
             message = string.Concat(
-                "Interactive search: ",
                 accepted.ToString(CultureInfo.InvariantCulture),
-                " acceptable");
+                " acceptable of ",
+                decisions.Count.ToString(CultureInfo.InvariantCulture),
+                " results");
         }
 
         await _runs.FinishAsync(searchRunId, outcome, sources, queries, message, cancellationToken).ConfigureAwait(false);
 
         LogRun(_logger, songId, trigger, searchRunId, queries.Count, candidates.Count, accepted, outcome);
 
-        return new SongSearchResult(searchRunId, outcome, decisions, queueItemId, message);
+        return new SongSearchResult(searchRunId, outcome, decisions, queueItemId, message)
+        {
+            SlotWaitExpired = slotWaitExpired,
+            SatisfiedDuringWait = satisfiedDuringWait,
+        };
     }
 
     /// <summary>
@@ -687,25 +724,25 @@ public sealed partial class SongSearchService : ISongSearchService
     /// taken back <em>before</em> the grab, and the check and the grab happen under one process-wide
     /// gate that is never held while waiting for a place.
     /// </remarks>
-    private async Task<(bool TimedOut, long? QueueItemId)> GrabWhenSlotIsFreeAsync(
+    private async Task<SlotGrab> GrabWhenSlotIsFreeAsync(
         long songId,
         long searchRunId,
         CancellationToken cancellationToken)
     {
         if (!_slotWait.WaitForSlot)
         {
-            return await TryGrabNowAsync(searchRunId, cancellationToken).ConfigureAwait(false);
+            return await TryGrabNowAsync(songId, searchRunId, cancellationToken).ConfigureAwait(false);
         }
 
         var started = _timeProvider.GetUtcNow();
         var announced = false;
-        var result = (TimedOut: false, QueueItemId: (long?)null);
+        var result = default(SlotGrab);
 
         _waiters.Add(songId);
 
         try
         {
-            result = await WaitLoopAsync(searchRunId, started, () => announced = true, cancellationToken)
+            result = await WaitLoopAsync(songId, searchRunId, started, () => announced = true, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -719,15 +756,40 @@ public sealed partial class SongSearchService : ISongSearchService
 
             await TryReportAsync(
                     result.TimedOut
-                        ? string.Concat("Cancelled — still no free download slot after ", _options.CurrentValue.SlotWaitMinutes.ToString(CultureInfo.InvariantCulture), " min")
-                        : string.Concat("Grabbed after waiting ", waited.ToString(CultureInfo.InvariantCulture), " s for a slot"))
+                        ? result.NoPlace ? NoPlaceMessage : SlotWaitExpiredMessage()
+                        : result.Satisfied
+                            ?? string.Concat("Grabbed after waiting ", waited.ToString(CultureInfo.InvariantCulture), " s for a slot"))
                 .ConfigureAwait(false);
         }
 
         return result;
     }
 
-    private async Task<(bool TimedOut, long? QueueItemId)> WaitLoopAsync(
+    /// <summary>What the search ends with when the whole wait passed and every download slot was still taken.</summary>
+    private string SlotWaitExpiredMessage() =>
+        string.Concat(
+            "No free download slot after ",
+            FormatWait(_options.CurrentValue.SlotWaitMinutes),
+            "; the song stays wanted for the next Missing Search");
+
+    /// <summary>A wait in the unit a person reads it in: <c>2 h</c> for a whole number of hours, else minutes.</summary>
+    private static string FormatWait(int minutes) =>
+        minutes % 60 == 0
+            ? string.Concat((minutes / 60).ToString(CultureInfo.InvariantCulture), " h")
+            : string.Concat(minutes.ToString(CultureInfo.InvariantCulture), " min");
+
+    /// <summary>How an attempt to grab for a waiting search ended.</summary>
+    /// <param name="TimedOut">Whether every download slot was still taken.</param>
+    /// <param name="QueueItemId">The grab that started, when one did.</param>
+    /// <param name="Satisfied">Why nothing was grabbed because the song no longer needs it, when that is so.</param>
+    /// <param name="NoPlace">Whether the wait was not started because the executor could not spare the command's place.</param>
+    private readonly record struct SlotGrab(bool TimedOut, long? QueueItemId, string? Satisfied = null, bool NoPlace = false);
+
+    /// <summary>What the search ends with when the executor cannot spare its place, so it must not wait holding it.</summary>
+    private const string NoPlaceMessage = "No free download slot; the song stays wanted for the next Missing Search";
+
+    private async Task<SlotGrab> WaitLoopAsync(
+        long songId,
         long searchRunId,
         DateTimeOffset started,
         Action onAnnounced,
@@ -738,11 +800,17 @@ public sealed partial class SongSearchService : ISongSearchService
         IAsyncDisposable? lease = null;
         var announced = false;
 
+        // A user's cancel ends the wait and nothing else: only the polling and the delay see it. The
+        // grab (the search before it and the transfer after) keeps the stopping token, so a cancel that
+        // lands while a grab is under way lets it finish and be recorded.
+        using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _slotWait.CancelWait);
+        var waitToken = waitCancellation.Token;
+
         try
         {
             while (true)
             {
-                if (lease is not null && await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
+                if (lease is not null && await HasFreeSlotAsync(waitToken).ConfigureAwait(false))
                 {
                     // Work again only with a place of our own, and before anything is grabbed.
                     var held = lease;
@@ -753,13 +821,13 @@ public sealed partial class SongSearchService : ISongSearchService
                     // deadline is looked at again with the place in hand, before anything is grabbed.
                     if (_timeProvider.GetUtcNow() >= deadline)
                     {
-                        return (true, null);
+                        return new SlotGrab(true, null);
                     }
                 }
 
                 if (lease is null)
                 {
-                    var attempt = await TryGrabNowAsync(searchRunId, cancellationToken).ConfigureAwait(false);
+                    var attempt = await TryGrabNowAsync(songId, searchRunId, cancellationToken).ConfigureAwait(false);
 
                     if (!attempt.TimedOut)
                     {
@@ -771,7 +839,22 @@ public sealed partial class SongSearchService : ISongSearchService
 
                 if (remaining <= TimeSpan.Zero)
                 {
-                    return (true, null);
+                    return new SlotGrab(true, null);
+                }
+
+                waitToken.ThrowIfCancellationRequested();
+
+                // Inside a command the wait is spent without the executor place. When none can be spared
+                // (too many commands already wait), waiting while holding it would starve the rest: the
+                // search ends at once and the song stays wanted for the next Missing Search.
+                if (lease is null && _slotWait.YieldWorker is { } yieldWorker)
+                {
+                    lease = yieldWorker();
+
+                    if (lease is null)
+                    {
+                        return new SlotGrab(true, null, NoPlace: true);
+                    }
                 }
 
                 if (!announced)
@@ -779,14 +862,12 @@ public sealed partial class SongSearchService : ISongSearchService
                     announced = true;
                     onAnnounced();
                     LogWaitingForSlot(_logger, searchRunId);
-                    await TryReportAsync("Waiting for a download slot").ConfigureAwait(false);
+                    await TryReportAsync("Waiting for a free download slot").ConfigureAwait(false);
                 }
-
-                lease ??= _slotWait.YieldWorker?.Invoke();
 
                 var pause = TimeSpan.FromSeconds(options.SlotWaitSeconds);
 
-                await Task.Delay(pause < remaining ? pause : remaining, _timeProvider, cancellationToken)
+                await Task.Delay(pause < remaining ? pause : remaining, _timeProvider, waitToken)
                     .ConfigureAwait(false);
             }
         }
@@ -800,7 +881,8 @@ public sealed partial class SongSearchService : ISongSearchService
     }
 
     /// <summary>Grabs now when a slot is free (under the gate); <c>TimedOut</c> here means "no slot".</summary>
-    private async Task<(bool TimedOut, long? QueueItemId)> TryGrabNowAsync(
+    private async Task<SlotGrab> TryGrabNowAsync(
+        long songId,
         long searchRunId,
         CancellationToken cancellationToken)
     {
@@ -813,17 +895,15 @@ public sealed partial class SongSearchService : ISongSearchService
         {
             // A song that waited for a slot may have become the user's meanwhile (a reference scan linked
             // it): it is checked again here, right before anything is grabbed.
-            var runSongId = await _database.SearchRuns
-                .AsNoTracking()
-                .Where(run => run.Id == searchRunId)
-                .Select(run => (long?)run.SongId)
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (runSongId is { } owner
-                && await IsOwnedThroughReferenceAsync(owner, cancellationToken).ConfigureAwait(false))
+            if (await IsOwnedThroughReferenceAsync(songId, cancellationToken).ConfigureAwait(false))
             {
-                return (false, null);
+                return new SlotGrab(false, null, ReferenceOwnedMessage);
+            }
+
+            // The same for a file that arrived meanwhile: a song that now meets its cutoff needs nothing.
+            if (await SatisfiedMessageAsync(songId, cancellationToken).ConfigureAwait(false) is { } satisfied)
+            {
+                return new SlotGrab(false, null, satisfied);
             }
 
             if (await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
@@ -831,16 +911,39 @@ public sealed partial class SongSearchService : ISongSearchService
                 var item = await GrabBestAsync(searchRunId, 1, cancellationToken).ConfigureAwait(false);
 
                 // The slot went to another grab while this one was trying a second candidate: no slot.
-                return hold.SlotTaken && item is null ? (true, null) : (false, item);
+                return hold.SlotTaken && item is null ? new SlotGrab(true, null) : new SlotGrab(false, item);
             }
 
-            return (true, null);
+            return new SlotGrab(true, null);
         }
         finally
         {
             _gateHold = null;
             hold.Release();
         }
+    }
+
+    /// <summary>
+    /// Why a search that waited for a slot has nothing left to grab: the song was removed, or it holds a
+    /// file that meets its profile's cutoff now (the same rule that stops a search before it starts).
+    /// <see langword="null"/> when the song still needs the grab.
+    /// </summary>
+    private async Task<string?> SatisfiedMessageAsync(long songId, CancellationToken cancellationToken)
+    {
+        var song = await _database.Songs
+            .AsNoTracking()
+            .Include(candidate => candidate.File)
+            .FirstOrDefaultAsync(candidate => candidate.Id == songId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (song is null)
+        {
+            return "The song was removed while the search waited for a download slot";
+        }
+
+        return song.File is { } held
+            ? await CutoffMessageAsync(song, held, cancellationToken).ConfigureAwait(false)
+            : null;
     }
 
     /// <summary>
@@ -1191,7 +1294,9 @@ public sealed partial class SongSearchService : ISongSearchService
 
         try
         {
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            // Not cancellable: the source has the release, so the handle, the history row and the flag are
+            // written down whatever happens to the caller's token from here on.
+            await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -1205,7 +1310,7 @@ public sealed partial class SongSearchService : ISongSearchService
         // Announce the grab only once it is on disk and the handle is recorded. Handlers are isolated
         // by the aggregator, so this cannot fail the grab, and it is deliberately the last thing here.
         await _events
-            .PublishAsync(new SongGrabbedEvent(item.Id, record.SongId), cancellationToken)
+            .PublishAsync(new SongGrabbedEvent(item.Id, record.SongId), CancellationToken.None)
             .ConfigureAwait(false);
 
         if (bundled.Count > 0)

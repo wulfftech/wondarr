@@ -209,6 +209,7 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
     public async Task<bool> CancelAsync(long id, CancellationToken cancellationToken)
     {
         CommandRecord? cancelled = null;
+        CancellationTokenSource? running = null;
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
@@ -236,21 +237,29 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             // conflict so the caller does not believe it stopped something that is running.
             if (changed == 0)
             {
-                return false;
+                // A command that is already running can be cancelled only when its handler opted in; the
+                // executor then writes the Cancelled row and publishes it. The token is fired after the
+                // gate is released: its callbacks run inline and must not run under the queue's lock.
+                running = _activeCommands.TryTakeRunning(id);
             }
+            else
+            {
+                _activeCommands.Remove(id);
 
-            _activeCommands.Remove(id);
-
-            var record = await context.Commands
-                .AsNoTracking()
-                .FirstAsync(command => command.Id == id, cancellationToken)
-                .ConfigureAwait(false);
-
-            cancelled = record;
+                cancelled = await context.Commands
+                    .AsNoTracking()
+                    .FirstAsync(command => command.Id == id, cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
         finally
         {
             _gate.Release();
+        }
+
+        if (cancelled is null)
+        {
+            return running is not null && ActiveCommands.Fire(running);
         }
 
         await _eventAggregator

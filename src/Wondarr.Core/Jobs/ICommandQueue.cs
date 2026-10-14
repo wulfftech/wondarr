@@ -34,11 +34,12 @@ public interface ICommandQueue
     Task<IReadOnlyList<CommandRecord>> ListAsync(int take = 50, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Cancels a command that has not started yet. A command that is already running (or finished)
-    /// cannot be cancelled this way.
+    /// Cancels a command that has not started yet, or one that is running and whose handler allows it
+    /// (<see cref="ICommandHandler.CancelWhileRunning"/>: a search waiting for a download slot). Any other
+    /// running command, and a finished one, cannot be cancelled this way.
     /// </summary>
     /// <param name="id">The command row.</param>
     /// <param name="cancellationToken">Cancels the update.</param>
-    /// <returns><see langword="true"/> when the command was queued and is now cancelled.</returns>
+    /// <returns><see langword="true"/> when the command was queued and is now cancelled, or is running and is being cancelled.</returns>
     Task<bool> CancelAsync(long id, CancellationToken cancellationToken);
 }

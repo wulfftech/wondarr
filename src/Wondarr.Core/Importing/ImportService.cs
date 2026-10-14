@@ -981,7 +981,7 @@ public sealed partial class ImportService : IImportService
             .PublishAsync(new SongImportedEvent(song.Id, file.Id, upgraded), cancellationToken)
             .ConfigureAwait(false);
 
-        LogImported(_logger, item.Id, song.Id, finalPath, measuredName, upgraded);
+        LogImported(_logger, item.Id, song.Id, finalPath, measuredName);
 
         return upgraded ? ImportOutcome.Upgraded : ImportOutcome.Imported;
     }
@@ -1703,14 +1703,13 @@ public sealed partial class ImportService : IImportService
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Imported {SongId} from queue item {QueueItemId} to {Path} ({Quality}{Upgraded})")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Imported {SongId} from queue item {QueueItemId} to {Path} ({Quality})")]
     private static partial void LogImported(
         ILogger logger,
         long queueItemId,
         long songId,
         string path,
-        string quality,
-        bool upgraded);
+        string quality);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Rejected queue item {QueueItemId} of song {SongId}: {Reason} (next: {Next})")]
     private static partial void LogRejected(ILogger logger, long queueItemId, long songId, string reason, string next);

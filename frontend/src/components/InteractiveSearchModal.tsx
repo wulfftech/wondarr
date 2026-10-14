@@ -54,6 +54,7 @@ const OUTCOME_TEXT: Partial<Record<SearchOutcomeName, string>> = {
   sourceUnavailable: 'A source was unavailable',
   failed: 'The search failed',
   cancelled: 'The search was cancelled',
+  noFreeSlot: 'No free download slot',
 };
 
 /** `12.3 MB`, or an em dash when the source reported no size. */
@@ -89,6 +90,14 @@ function summaryLine(result: InteractiveSearchResource): string {
 
   if (outcome === 'noAcceptableCandidate') {
     return `${count} ${count === 1 ? 'candidate' : 'candidates'}, none acceptable${tail}`;
+  }
+
+  // The server records a search that only listed its candidates, and found some acceptable, as
+  // `cancelled` (the outcome list has no "judged only"). A user cancel never gets here, because the
+  // request is aborted and no result is shown, so a result with releases finished normally and the
+  // server's own message ("N acceptable of M results") says how.
+  if (outcome === 'cancelled' && count > 0) {
+    return message ?? `${count} ${count === 1 ? 'result' : 'results'}.`;
   }
 
   return `${OUTCOME_TEXT[outcome] ?? 'The search finished'}${tail}`;

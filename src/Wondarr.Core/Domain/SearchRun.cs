@@ -41,6 +41,12 @@ public enum SearchOutcome
 
     /// <summary>The run was stopped by the user or by shutdown.</summary>
     Cancelled,
+
+    /// <summary>
+    /// The run found something to grab but every download slot stayed taken for the whole wait. The song
+    /// stays wanted; the per-song backoff ignores this outcome.
+    /// </summary>
+    NoFreeSlot,
 }
 
 /// <summary>

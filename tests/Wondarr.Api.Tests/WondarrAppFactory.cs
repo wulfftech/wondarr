@@ -121,6 +121,17 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
         public IReadOnlyList<ScheduledTaskDefinition> Tasks => [];
 
         public ScheduledTaskDefinition? Find(string commandName) => null;
+
+        public IDisposable OnChange(Action listener) => NullDisposable.Instance;
+
+        private sealed class NullDisposable : IDisposable
+        {
+            public static readonly NullDisposable Instance = new();
+
+            public void Dispose()
+            {
+            }
+        }
     }
 
     protected override void Dispose(bool disposing)

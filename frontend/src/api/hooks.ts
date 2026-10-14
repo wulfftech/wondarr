@@ -79,6 +79,29 @@ export function useTasks(): UseQueryResult<TaskResource[], Error> {
   });
 }
 
+/**
+ * Cancels a command that is queued, or running and one the server lets be cancelled (a search waiting for a
+ * download slot). Any other running command answers 409, which shows as an error.
+ */
+export function useCancelCommand(): UseMutationResult<void, Error, number | string> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: number | string): Promise<void> => {
+      const { response } = await client.DELETE('/api/v1/command/{id}', { params: { path: { id: Number(id) } } });
+
+      if (!response.ok) {
+        throw new ApiError(response.status, 'The command could not be cancelled.');
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: COMMAND_HISTORY_QUERY_KEY });
+    },
+  });
+}
+
 /** Runs a scheduled task by name. */
 export function useRunCommand(): UseMutationResult<void, Error, CommandRequest> {
   const client = useApiClient();

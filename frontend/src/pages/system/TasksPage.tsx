@@ -1,6 +1,6 @@
 import { Button, Card, Stack, Table, Text, Title } from '@mantine/core';
 import { Play } from 'lucide-react';
-import { useRunCommand, useTasks } from '../../api/hooks';
+import { useCancelCommand, useRunCommand, useTasks } from '../../api/hooks';
 import { readEnum } from '../../api/profiles';
 import type { CommandStatusName } from '../../api/songs';
 import { useCommands, type CommandResource } from '../../api/system';
@@ -55,10 +55,21 @@ function statusColour(status: CommandResource['status']): string | undefined {
   return name === 'queued' || name === 'started' ? 'blue' : undefined;
 }
 
+/**
+ * Whether the list offers a Cancel button: a command that is still queued, and a running search (the one
+ * running command the server lets be cancelled, because it only waits for a download slot).
+ */
+function canCancel(command: CommandResource): boolean {
+  const name = readEnum<CommandStatusName>(command.status);
+
+  return name === 'queued' || (name === 'started' && command.name === 'SongSearch');
+}
+
 /** The scheduled tasks, with the interval, the runs and a way to run one now. */
 export function TasksPage() {
   const tasks = useTasks();
   const runCommand = useRunCommand();
+  const cancelCommand = useCancelCommand();
   const commands = useCommands();
 
   return (
@@ -66,6 +77,9 @@ export function TasksPage() {
       <Title order={2}>Tasks</Title>
 
       {runCommand.error !== null && <ErrorState title="The task did not start" message={runCommand.error.message} />}
+      {cancelCommand.error !== null && (
+        <ErrorState title="The command was not cancelled" message={cancelCommand.error.message} />
+      )}
 
       {tasks.isLoading && <LoadingState />}
       {tasks.error !== null && <ErrorState message={tasks.error.message} />}
@@ -135,6 +149,7 @@ export function TasksPage() {
                 <Table.Th w={190}>Ended</Table.Th>
                 <Table.Th w={110}>Duration</Table.Th>
                 <Table.Th>Message</Table.Th>
+                <Table.Th w={90} />
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -148,6 +163,19 @@ export function TasksPage() {
                   <Table.Td>{formatTimestamp(command.ended)}</Table.Td>
                   <Table.Td>{orDash(command.duration)}</Table.Td>
                   <Table.Td>{orDash(command.message)}</Table.Td>
+                  <Table.Td>
+                    {canCancel(command) && (
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        color="red"
+                        loading={cancelCommand.isPending && cancelCommand.variables === command.id}
+                        onClick={() => cancelCommand.mutate(command.id)}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>

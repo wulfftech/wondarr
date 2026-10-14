@@ -54,7 +54,11 @@ public sealed class SystemTaskTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var tasks = document.RootElement.EnumerateArray().ToList();
-        tasks.Should().HaveCount(9, "the catalog holds the two Phase 0 tasks, the missing-song and upgrade searches, the reference-library scan, housekeeping, the backup, the import-list sync and the update check");
+        tasks.Should().HaveCount(10, "the catalog holds the two Phase 0 tasks, the missing-song and upgrade searches, the reference-library scan, housekeeping, the backup, the import-list sync, the update check and the Soulseek share rescan");
+
+        var shareRescan = tasks.Single(task => task.GetProperty("taskName").GetString() == "RescanSoulseekShares");
+        shareRescan.GetProperty("name").GetString().Should().Be("Rescan Soulseek Shares");
+        shareRescan.GetProperty("interval").GetInt32().Should().Be(1440);
 
         var heartbeat = tasks.Single(task => task.GetProperty("taskName").GetString() == "Heartbeat");
         heartbeat.GetProperty("name").GetString().Should().Be("Heartbeat");

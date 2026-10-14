@@ -85,7 +85,8 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
                         grabbed++;
                         break;
                     case SearchOutcome.Cancelled:
-                        // Already downloading: the run was never opened, so nothing was attempted.
+                    case SearchOutcome.NoFreeSlot:
+                        // Already downloading, or every slot was taken: nothing was attempted for the song.
                         skipped++;
                         break;
                     default:

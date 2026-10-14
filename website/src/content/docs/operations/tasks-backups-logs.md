@@ -15,13 +15,14 @@ description: The scheduled tasks, making and restoring backups, reading the logs
 | Upgrade Search | 24 h (`search.upgrade_interval_hours`) | Searches for better files for songs below their cutoff. See [Quality and upgrades](/wondarr/library/quality-and-upgrades/). |
 | Reference Library Scan | 24 h | Scans [reference libraries](/wondarr/library/reference-libraries/). |
 | Import List Sync | 1 h | Syncs the [import lists](/wondarr/library/import-lists/) that are due. |
+| Rescan Soulseek Shares | 24 h (`soulseek.share_rescan_interval_hours`) | Asks slskd to rescan its shared folders, so files that reach them without an import (a [reference library](/wondarr/library/reference-libraries/), your own copies) are shared too. The rescan after an import already covers files Wondarr puts there. It does nothing, and the last result says why, when sharing is off, no folder is shared, or slskd is not running (for your own slskd, when `soulseek.external.rescan_shares` is off or it cannot be reached). |
 | Housekeeping | 24 h | Keeps the database small: deletes finished commands older than 7 days (the newest run of each task is kept, for the Last run column), search results older than 30 days that no download or file still refers to, expired blocklist entries and expired cached answers from the metadata providers; empties the recycle bin of files older than `import.recycle_bin_cleanup_days`; then compacts the database when a quarter of it is free space. The history is never pruned. |
 | Backup | 7 days (`backup.interval_days`) | Makes a scheduled backup. |
 | Check For Updates | 12 h | Asks GitHub whether a newer Wondarr release exists (the first run is about two minutes after start-up). Does nothing when `update.check_enabled` is off. See [Upgrading](/wondarr/getting-started/install/#upgrading). |
 
 **Next run** is the time the scheduler will start the task. **Run now** does not move it. A search task that waits for a download slot, and a reference scan that waits for another scan of the same library, do not keep other commands from starting meanwhile.
 
-The intervals in brackets can be changed in `config.yml`; see [Configuration](/wondarr/reference/configuration/). Longer jobs you start yourself, such as compacting or converting a library, also appear under Recent commands.
+The intervals in brackets can be changed in `config.yml`; see [Configuration](/wondarr/reference/configuration/). A changed interval applies without a restart as soon as `config.yml` is reloaded (Wondarr does not watch the file, so that happens on the next save of any page under **Settings**, or at start-up): the next run becomes the last run plus the new interval, and a task that is already overdue under the new interval runs at once. Longer jobs you start yourself, such as compacting or converting a library, also appear under Recent commands.
 
 ## Backups
 

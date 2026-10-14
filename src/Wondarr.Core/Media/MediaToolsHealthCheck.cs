@@ -116,7 +116,7 @@ public sealed partial class MediaToolAvailability : IDisposable
         return new MediaToolsStatus(missing, fpcalcVersion);
     }
 
-    /// <summary>The version on the first line of <c>-version</c>, for example <c>1.6.1</c>.</summary>
+    /// <summary>The version on the first line of <c>-version</c>, for example <c>1.6.1</c>, or <see langword="null"/> when the line has no <c>version</c> token.</summary>
     private static string? VersionOf(string standardOutput)
     {
         foreach (var line in standardOutput.Split('\n'))
@@ -127,9 +127,12 @@ public sealed partial class MediaToolAvailability : IDisposable
                 continue;
             }
 
+            // "fpcalc version 1.5.1 (FFmpeg Lavu58.29.100 ... SwR6.1.100)": the version is the token after
+            // "version"; the build details in the brackets are not it.
             var tokens = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var marker = Array.FindIndex(tokens, token => string.Equals(token, "version", StringComparison.OrdinalIgnoreCase));
 
-            return tokens.Length == 0 ? null : tokens[^1];
+            return marker >= 0 && marker + 1 < tokens.Length ? tokens[marker + 1] : null;
         }
 
         return null;
