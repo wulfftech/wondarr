@@ -2616,6 +2616,361 @@
         ],
         "rejections": {}
       }
+    },
+    {
+      "name": "a Various Artists path passes with the artist in the file name or with the full title, and scores below the artist-pathed file",
+      "song": {
+        "title": "Story of a Girl",
+        "mainArtists": [
+          "Nine Days"
+        ],
+        "durationMs": 197600,
+        "flags": [],
+        "albumTitle": "The Madding Crowd",
+        "trackNo": 2
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "album",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Nine Days\\The Madding Crowd\\02 Story of a Girl.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Nine Days",
+            "title": "Story of a Girl",
+            "album": "The Madding Crowd",
+            "trackNo": 2,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "hits",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Various Artists\\90s Hits\\07 Nine Days - Story of a Girl.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Various Artists",
+            "title": "Story of a Girl",
+            "album": "90s Hits",
+            "trackNo": 7,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "now",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Various Artists\\Now 48\\12 Story of a Girl.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Various Artists",
+            "title": "Story of a Girl",
+            "album": "Now 48",
+            "trackNo": 12,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "album",
+          "hits",
+          "now"
+        ],
+        "rejections": {},
+        "scoreAtLeast": {
+          "album": 950,
+          "hits": 950
+        },
+        "scoreAtMost": {
+          "now": 870
+        }
+      }
+    },
+    {
+      "name": "a Various Artists path whose folder holds one word of the artist and whose title only partly matches is rejected",
+      "song": {
+        "title": "Story of a Girl",
+        "mainArtists": [
+          "Nine Days"
+        ],
+        "durationMs": 197600,
+        "flags": [],
+        "albumTitle": "The Madding Crowd",
+        "trackNo": 2
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "days",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Various Artists\\Days of Thunder OST\\05 Story of a Dream.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Various Artists",
+            "title": "Story of a Dream",
+            "album": "Days of Thunder OST",
+            "trackNo": 5,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "album",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Nine Days\\The Madding Crowd\\02 Story of a Girl.flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Nine Days",
+            "title": "Story of a Girl",
+            "album": "The Madding Crowd",
+            "trackNo": 2,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "album"
+        ],
+        "rejections": {
+          "days": [
+            "artistMismatch"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a Various Artists path with the full title and a version marker the song also has passes",
+      "song": {
+        "title": "Story of a Girl (Radio Edit)",
+        "mainArtists": [
+          "Nine Days"
+        ],
+        "durationMs": 197600,
+        "flags": [
+          "radio_edit"
+        ],
+        "albumTitle": "The Madding Crowd",
+        "trackNo": 2
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "now",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Various Artists\\Now 48\\12 Story of a Girl (Radio Edit).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Various Artists",
+            "title": "Story of a Girl",
+            "album": "Now 48",
+            "trackNo": 12,
+            "flags": [
+              "radio_edit"
+            ],
+            "pathFlags": [],
+            "hints": [
+              "(Radio Edit)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 197000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 24000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "now"
+        ],
+        "rejections": {}
+      }
+    },
+    {
+      "name": "a whole artist folder above a soundtrack album is the artist; the same album under another folder needs the full title",
+      "song": {
+        "title": "Time",
+        "mainArtists": [
+          "Hans Zimmer"
+        ],
+        "durationMs": 275000,
+        "flags": [],
+        "albumTitle": "Inception",
+        "trackNo": 5
+      },
+      "profile": "standard",
+      "candidates": [
+        {
+          "id": "artistfolder",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Hans Zimmer\\Inception OST\\05 Time (From Inception).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Hans Zimmer",
+            "title": "Time (From Inception)",
+            "album": "Inception OST",
+            "trackNo": 5,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [
+              "(From Inception)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 275000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 30000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        },
+        {
+          "id": "soundtracks",
+          "provider": "peer1",
+          "remotePath": "@@zz\\Soundtracks\\Inception OST\\05 Time (From Inception).flac",
+          "extension": "flac",
+          "parsed": {
+            "artist": "Soundtracks",
+            "title": "Time (From Inception)",
+            "album": "Inception OST",
+            "trackNo": 5,
+            "flags": [],
+            "pathFlags": [],
+            "hints": [
+              "(From Inception)"
+            ],
+            "featured": [],
+            "unexplainedBrackets": false
+          },
+          "durationMs": 275000,
+          "bitrateKbps": null,
+          "isVariableBitrate": null,
+          "sampleRate": 44100,
+          "bitDepth": 16,
+          "sizeBytes": 30000000,
+          "qualityId": 36,
+          "availability": {
+            "freeUploadSlot": true,
+            "queueLength": 0,
+            "uploadSpeedBytesPerSecond": 2000000
+          },
+          "isLocked": false
+        }
+      ],
+      "expected": {
+        "accepted": [
+          "artistfolder"
+        ],
+        "rejections": {
+          "soundtracks": [
+            "artistMismatch"
+          ]
+        }
+      }
     }
   ]
 }
