@@ -365,9 +365,9 @@ public class DecisionEngineTests
     }
 
     [Fact]
-    public void A_compilation_path_needs_the_artist_or_the_song_in_the_file_name()
+    public void A_compilation_path_needs_the_artist_in_the_file_name_or_the_full_title()
     {
-        const string message = "Artist mismatch: a compilation path, and the file name names neither the artist nor the song closely enough.";
+        const string message = "Artist mismatch: Various Artists path without the artist or the full title.";
 
         // Neither the artist nor the song: rejected, with the compilation message.
         var unrelated = NewCandidate(
@@ -376,19 +376,101 @@ public class DecisionEngineTests
 
         Judge(Context(), unrelated).Rejections.Should().Contain(new Rejection(RejectionReason.ArtistMismatch, message));
 
-        // A close but not strong title match ("Get Lucy Star") is not enough either.
+        // A close but not full title match ("Get Lucy Star") is not enough either.
         var close = NewCandidate(
             remotePath: @"@@b\Various Artists\Hits 2013\05 Get Lucy Star.mp3",
             parsed: ParsedName.Empty with { Title = "Get Lucy Star", TrackNo = 5 });
 
         Judge(Context(), close).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
 
-        // The song's own title: passes, as before.
+        // The song's own title in full: passes.
         var song = NewCandidate(
             remotePath: @"@@b\Various Artists\Hits 2013\05 Get Lucky.mp3",
             parsed: ParsedName.Empty with { Title = "Get Lucky", TrackNo = 5 });
 
         Judge(Context(), song).Rejections.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_compilation_path_with_one_word_of_the_artist_in_a_folder_is_not_the_artist()
+    {
+        var context = Context() with { SongTitle = "Story of a Girl", MainArtists = ["Nine Days"] };
+
+        // "Days" is a folder token of the artist's name, and the title overlaps without being the song.
+        var partial = NewCandidate(
+            remotePath: @"@@b\Various Artists\Days of Thunder OST\05 Story of a Dream.mp3",
+            parsed: ParsedName.Empty with { Title = "Story of a Dream", TrackNo = 5 });
+
+        Judge(context, partial).Rejections.Should().ContainSingle()
+            .Which.Should().Be(new Rejection(
+                RejectionReason.ArtistMismatch,
+                "Artist mismatch: Various Artists path without the artist or the full title."));
+    }
+
+    [Fact]
+    public void A_compilation_path_needs_a_full_title_when_a_folder_only_holds_the_artist_among_other_words()
+    {
+        var context = Context() with { SongTitle = "Story of a Girl", MainArtists = ["Nine Days"] };
+
+        // A Various Artists folder never stands in for the artist, and neither does "Nine Days Tribute".
+        var folderOnly = NewCandidate(
+            remotePath: @"@@b\Various Artists\Nine Days Tribute\05 Story of a Dream.mp3",
+            parsed: ParsedName.Empty with { Title = "Story of a Dream", TrackNo = 5 });
+
+        Judge(context, folderOnly).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+    }
+
+    [Theory]
+    [InlineData("12 Story of a Girl (Remastered).mp3", VersionFlags.Remaster)]
+    [InlineData("12 Story of a Girl [Explicit].mp3", VersionFlags.Explicit)]
+    public void A_compilation_path_passes_on_a_full_title_with_a_soft_marker(string fileName, VersionFlags flags)
+    {
+        var context = Context() with { SongTitle = "Story of a Girl", MainArtists = ["Nine Days"] };
+        var parsed = ParsedName.Empty with { Title = "Story of a Girl", TrackNo = 12, VersionFlags = flags };
+
+        Judge(context, NewCandidate(remotePath: @"@@b\Various Artists\Now 48\" + fileName, parsed: parsed))
+            .Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+    }
+
+    [Fact]
+    public void A_whole_artist_folder_above_a_soundtrack_album_is_the_artist()
+    {
+        var context = Context() with { SongTitle = "Time", MainArtists = ["Hans Zimmer"] };
+        var parsed = ParsedName.Empty with { Title = "Time (From Inception)", TrackNo = 5 };
+
+        Judge(context, NewCandidate(remotePath: @"@@b\Hans Zimmer\Inception OST\05 Time (From Inception).mp3", parsed: parsed))
+            .Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+
+        // The same album under a folder that is not the artist needs the full title, which this is not.
+        Judge(context, NewCandidate(remotePath: @"@@b\Soundtracks\Inception OST\05 Time (From Inception).mp3", parsed: parsed))
+            .Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+    }
+
+    [Fact]
+    public void A_compilation_path_passes_on_a_full_title_and_scores_below_a_file_in_the_artists_folder()
+    {
+        var context = Context() with { SongTitle = "Story of a Girl", MainArtists = ["Nine Days"] };
+        var parsed = ParsedName.Empty with { Title = "Story of a Girl", TrackNo = 12 };
+
+        var compilation = Judge(context, NewCandidate(remotePath: @"@@b\Various Artists\Now 48\12 Story of a Girl.mp3", parsed: parsed));
+        var album = Judge(context, NewCandidate(remotePath: @"@@b\Nine Days\The Madding Crowd\12 Story of a Girl.mp3", parsed: parsed));
+
+        compilation.Rejections.Should().BeEmpty();
+        album.Rejections.Should().BeEmpty();
+        compilation.Score.Total.Should().BeLessThan(album.Score.Total);
+    }
+
+    [Fact]
+    public void A_folder_token_of_the_artist_on_a_compilation_path_does_not_lift_the_title_floor_for_another_script()
+    {
+        var context = Context() with { SongTitle = "Story of a Girl", MainArtists = ["Nine Days"] };
+
+        // The Korean title would be waved through as a transliteration if "Days" in a folder counted as the artist.
+        var candidate = NewCandidate(
+            remotePath: @"@@b\Various Artists\Days of Thunder OST\09 - 사랑이 온거야.mp3",
+            parsed: ParsedName.Empty with { Title = "사랑이 온거야", TrackNo = 9 });
+
+        Judge(context, candidate).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch);
     }
 
     [Fact]

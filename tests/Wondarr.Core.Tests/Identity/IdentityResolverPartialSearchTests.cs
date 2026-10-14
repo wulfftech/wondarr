@@ -2,6 +2,7 @@ using System.Net;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Core.Metadata.ITunes;
 using Wondarr.Core.Metadata.MusicBrainz;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,6 +20,7 @@ public sealed class IdentityResolverPartialSearchTests
 {
     private readonly IMusicBrainzClient _musicBrainz = Substitute.For<IMusicBrainzClient>();
     private readonly IDeezerClient _deezer = Substitute.For<IDeezerClient>();
+    private readonly IITunesClient _iTunes = Substitute.For<IITunesClient>();
 
     [Fact]
     public async Task A_busy_musicbrainz_leaves_deezers_candidates_and_names_musicbrainz()
@@ -120,8 +122,18 @@ public sealed class IdentityResolverPartialSearchTests
         await search.Should().ThrowAsync<TaskCanceledException>();
     }
 
+    /// <summary>The iTunes substitute, answering every search with no hits.</summary>
+    private IITunesClient NoITunesHits()
+    {
+        _iTunes
+            .SearchSongsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        return _iTunes;
+    }
+
     private IdentityResolver NewResolver() =>
-        new(_musicBrainz, _deezer, Options.Create(new MetadataOptions()), NullLogger<IdentityResolver>.Instance);
+        new(_musicBrainz, _deezer, NoITunesHits(), Options.Create(new MetadataOptions()), NullLogger<IdentityResolver>.Instance);
 
     private static MetadataProviderException Busy(string provider) =>
         new(provider, HttpStatusCode.ServiceUnavailable, $"{provider} answered 503 for a GET request.");
