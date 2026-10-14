@@ -27,8 +27,8 @@ import {
   type AlbumSearchResultResource,
   type AlbumTrackResource,
 } from '../api/albums';
-import { useLibraries, useQualityProfiles, readEnum } from '../api/profiles';
-import { partialNotice, useCommand, type CommandStatusName } from '../api/songs';
+import { useLibraries, useQualityProfiles } from '../api/profiles';
+import { partialNotice, useCommand } from '../api/songs';
 import { EmptyState, LoadingState } from '../components/DataState';
 import { formatDuration } from '../components/SongCells';
 import { initCaps } from '../components/text';
@@ -225,7 +225,7 @@ export function AddAlbumTab({ prefill }: { prefill: AlbumPrefill | null }) {
   const selectedProfileId = profileId ?? (firstProfile === undefined ? null : String(firstProfile.id));
 
   const progress = parseProgress(command.data?.message);
-  const status = readEnum<CommandStatusName>(command.data?.status);
+  const status = command.data?.status;
   const running = command.data !== undefined && status !== 'completed' && status !== 'failed' && status !== 'aborted';
 
   const submit = (event: FormEvent) => {

@@ -2,15 +2,7 @@ import { Alert, Button, Group, Modal, Paper, Radio, Select, Stack, TagsInput, Te
 import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
 import type { LibraryResource, QualityProfileResource } from '../../api/profiles';
-import { readEnum } from '../../api/profiles';
-import {
-  useCommand,
-  useDeleteSongs,
-  useEditSongs,
-  useRefreshSongsWhenFinished,
-  type ApplyTags,
-  type CommandStatusName,
-} from '../../api/songs';
+import { useCommand, useDeleteSongs, useEditSongs, useRefreshSongsWhenFinished, type ApplyTags } from '../../api/songs';
 
 /** The sticky bar that appears while songs are selected: change or delete them all at once. */
 
@@ -36,7 +28,7 @@ function songs(count: number): string {
 /** Follows the first of the move commands a library change queued. */
 function MoveProgress({ commandId, count }: { commandId: number; count: number }) {
   const command = useCommand(commandId, { poll: true });
-  const status = readEnum<CommandStatusName>(command.data?.status);
+  const status = command.data?.status;
 
   // The table filtered to the old library still lists the songs until the move has run.
   useRefreshSongsWhenFinished(command.data);

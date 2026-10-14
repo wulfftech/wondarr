@@ -17,7 +17,6 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { CircleAlert, EllipsisVertical } from 'lucide-react';
 import { useState } from 'react';
 import { firstPage, type Paging } from '../api/paging';
-import { readEnum } from '../api/profiles';
 import {
   useQueue,
   useRemoveQueueItem,
@@ -122,13 +121,13 @@ function formatAge(iso: string | null | undefined): string {
 
 /** The state as a badge; a peer's own queue position is part of the label when there is one. */
 function StateBadge({ item }: { item: QueueResource }) {
-  const state = readEnum<QueueItemStateName>(item.state);
+  const state = item.state;
   const place = item.placeInQueue === null ? null : Number(item.placeInQueue);
-  const named = (STATE_LABELS as Record<string, string>)[state] ?? String(item.state);
+  const named = STATE_LABELS[state] ?? String(state);
   const label = state === 'remotelyQueued' && place !== null ? `${named} (#${place})` : named;
 
   return (
-    <Badge color={(STATE_COLOURS as Record<string, MantineColor>)[state] ?? 'gray'} variant="light">
+    <Badge color={STATE_COLOURS[state] ?? 'gray'} variant="light">
       {label}
     </Badge>
   );

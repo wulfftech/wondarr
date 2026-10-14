@@ -67,7 +67,10 @@ public static class ServiceCollectionExtensions
 
         // One document, "v1", snapshotted by tests/Wondarr.Api.Tests/OpenApiSnapshotTests.cs.
         services.AddOpenApi("v1", options =>
-            options.AddDocumentTransformer(new WondarrDocumentTransformer().TransformAsync));
+        {
+            options.AddDocumentTransformer(new WondarrDocumentTransformer().TransformAsync);
+            options.AddSchemaTransformer(new EnumSchemaTransformer());
+        });
 
         return services;
     }

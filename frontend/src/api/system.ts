@@ -10,9 +10,8 @@ import { apiOrigin } from './client';
 import { useApiClient, useAppConfig } from './context';
 import { ApiError } from './errors';
 import { pagingValues, type Paging } from './paging';
-import { readEnum } from './profiles';
 import type { components } from './schema';
-import { COMMANDS_QUERY_KEY, type CommandStatusName } from './songs';
+import { COMMANDS_QUERY_KEY } from './songs';
 
 /**
  * The System section's own data: the backups, the app log and the recent commands. Every download
@@ -282,10 +281,8 @@ export function useLogFiles(): UseQueryResult<LogFileResource[], Error> {
 }
 
 /** True while a command is queued or running, so the history keeps itself fresh. */
-function isRunning(status: unknown): boolean {
-  const name = readEnum<CommandStatusName>(status);
-
-  return name === 'queued' || name === 'started';
+function isRunning(status: CommandResource['status']): boolean {
+  return status === 'queued' || status === 'started';
 }
 
 /** The recent commands, newest first, for the Tasks page. */

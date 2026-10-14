@@ -27,7 +27,6 @@ import type { CommandRequest } from '../../api/types';
 import {
   ALBUM_POLICIES,
   LIBRARY_LAYOUTS,
-  readEnum,
   readOutputPolicy,
   useCreateLibrary,
   useDeleteLibrary,
@@ -332,9 +331,9 @@ function LibraryForm({ library }: { library: LibraryResource }) {
   const save = useSaveLibrary();
   const [name, setName] = useState(library.name);
   const [rootPath, setRootPath] = useState(library.rootPath);
-  const [layout, setLayout] = useState<LibraryLayoutName>(readEnum<LibraryLayoutName>(library.layout));
+  const [layout, setLayout] = useState<LibraryLayoutName>(library.layout);
   const [namingTemplate, setNamingTemplate] = useState(library.namingTemplate);
-  const [albumPolicy, setAlbumPolicy] = useState<AlbumPolicyName>(readEnum<AlbumPolicyName>(library.albumPolicy));
+  const [albumPolicy, setAlbumPolicy] = useState<AlbumPolicyName>(library.albumPolicy);
   const [minTracks, setMinTracks] = useState<number | string>(library.minTracksPerRealAlbum);
   const [plexSectionId, setPlexSectionId] = useState<string | null>(library.plexSectionId ?? null);
   const [plexLibraryPath, setPlexLibraryPath] = useState(library.plexLibraryPath ?? '');
@@ -345,9 +344,7 @@ function LibraryForm({ library }: { library: LibraryResource }) {
   const general = Object.entries(fields).filter(([field]) => !KNOWN_FIELDS.has(field));
 
   const submit = () => {
-    // The OpenAPI document types the two enums as integers; the API serialises them as camelCase
-    // strings, so the body carries the strings and is asserted once here.
-    const body = {
+    const body: LibraryResource = {
       ...library,
       name,
       rootPath,
@@ -361,7 +358,7 @@ function LibraryForm({ library }: { library: LibraryResource }) {
       // The rules as the API reads them: version 2, one rule per source class, every key spelled out.
       outputPolicy: writeOutputPolicy(outputPolicy),
       replayGain,
-    } as unknown as LibraryResource;
+    };
 
     save.mutate(body, {
       onSuccess: () => notifications.show({ message: 'Library saved.', color: 'green' }),
@@ -392,7 +389,7 @@ function LibraryForm({ library }: { library: LibraryResource }) {
         value={layout}
         error={fields.layout}
         allowDeselect={false}
-        onChange={(value) => setLayout(readEnum<LibraryLayoutName>(value ?? layout))}
+        onChange={(value) => setLayout(value ?? layout)}
       />
 
       <NamingTemplateField
@@ -409,12 +406,12 @@ function LibraryForm({ library }: { library: LibraryResource }) {
         value={albumPolicy}
         error={fields.albumPolicy}
         allowDeselect={false}
-        onChange={(value) => setAlbumPolicy(readEnum<AlbumPolicyName>(value ?? albumPolicy))}
+        onChange={(value) => setAlbumPolicy(value ?? albumPolicy)}
         renderOption={({ option }) => (
           <Stack gap={0}>
             <Text size="sm">{option.label}</Text>
             <Text size="xs" c="dimmed">
-              {policyDescriptions.get(readEnum<AlbumPolicyName>(option.value)) ?? ''}
+              {policyDescriptions.get(option.value) ?? ''}
             </Text>
           </Stack>
         )}
@@ -549,7 +546,7 @@ function AddLibraryModal({
           value={layout}
           error={fields.layout}
           allowDeselect={false}
-          onChange={(value) => setLayout(readEnum<LibraryLayoutName>(value ?? layout))}
+          onChange={(value) => setLayout(value ?? layout)}
         />
 
         <Checkbox

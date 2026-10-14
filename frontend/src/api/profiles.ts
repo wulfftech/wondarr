@@ -22,15 +22,11 @@ export const QUALITY_DEFINITIONS_QUERY_KEY = ['quality-definitions'] as const;
 export const QUALITY_PROFILES_QUERY_KEY = ['quality-profiles'] as const;
 export const LIBRARIES_QUERY_KEY = ['libraries'] as const;
 
-/**
- * The wire spelling of `LibraryLayout`. The OpenAPI document types the enum as an integer, but the
- * API serialises enums as camelCase strings (`LibraryResource` says so in as many words), so these
- * are the values that actually travel.
- */
-export type LibraryLayoutName = 'flat' | 'artist' | 'artistAlbum' | 'plexamp';
+/** The library layouts, as the document lists them (the API sends the camelCase names). */
+export type LibraryLayoutName = components['schemas']['LibraryLayout'];
 
-/** The wire spelling of `AlbumPolicy`; see {@link LibraryLayoutName}. */
-export type AlbumPolicyName = 'fewestAlbums' | 'singlesOnly' | 'originalAlbum' | 'singleRelease' | 'compilation';
+/** The album policies, as the document lists them. */
+export type AlbumPolicyName = components['schemas']['AlbumPolicy'];
 
 /**
  * The conversion rule one source class carries, with every key the library's save sends
@@ -59,13 +55,13 @@ export interface OutputPolicy {
   lossless: OutputRule;
 }
 
-/** The wire spelling of `OutputCodec`; see {@link LibraryLayoutName}. */
+/** The wire spelling of `OutputCodec`; the output policy travels as free JSON, so the document has no type for it. */
 export type OutputCodecName = 'keep' | 'aac' | 'mp3' | 'opus' | 'flac' | 'alac';
 
-/** The wire spelling of `OutputMode`; see {@link LibraryLayoutName}. */
+/** The wire spelling of `OutputMode`; see {@link OutputCodecName}. */
 export type OutputModeName = 'cbr' | 'vbr';
 
-/** The wire spelling of the Opus container; see {@link LibraryLayoutName}. */
+/** The wire spelling of the Opus container; see {@link OutputCodecName}. */
 export type OpusContainerName = 'opus' | 'ogg';
 
 /** The source classes the policy carries one rule for, with the labels the form shows them by. */
@@ -245,15 +241,6 @@ export const ALBUM_POLICIES: { value: AlbumPolicyName; label: string; descriptio
     description: 'everything under one Various Artists compilation',
   },
 ];
-
-/**
- * Reads an enum the document types as a number but the API sends as a camelCase string. The cast is
- * the one place those two disagree; the value is always one of the names above, because the server
- * serialises the enum with `JsonStringEnumConverter(JsonNamingPolicy.CamelCase)`.
- */
-export function readEnum<TName extends string>(value: unknown): TName {
-  return value as TName;
-}
 
 /** A failed write whose body carried an RFC 7807 problem, with its per-field messages when it had any. */
 export class ValidationError extends ApiError {

@@ -10,8 +10,6 @@ import {
   type CompactAlbumResource,
   type CompactMoveResource,
 } from '../../api/compact';
-import { readEnum } from '../../api/profiles';
-import { type CommandStatusName } from '../../api/songs';
 import { ErrorState, LoadingState } from '../../components/DataState';
 
 /**
@@ -88,7 +86,7 @@ export function CompactLibraryModal({
   const [commandId, setCommandId] = useState<number | null>(null);
   const command = useCompactCommand(commandId);
 
-  const status = readEnum<CommandStatusName>(command.data?.status);
+  const status = command.data?.status;
   const finished =
     command.data !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
   const failed = status === 'failed' || status === 'aborted';
