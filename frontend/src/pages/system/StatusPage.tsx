@@ -39,7 +39,7 @@ const AUTHENTICATION_NAMES: Record<SystemStatus['authentication'], string> = {
 };
 
 function authenticationName(value: SystemStatus['authentication']): string {
-  return AUTHENTICATION_NAMES[value];
+  return AUTHENTICATION_NAMES[value] ?? value;
 }
 
 /** The fields the System → Status table shows, in order. */

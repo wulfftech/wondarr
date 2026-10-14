@@ -2,7 +2,14 @@ import { Alert, Button, Group, Modal, Paper, Radio, Select, Stack, TagsInput, Te
 import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
 import type { LibraryResource, QualityProfileResource } from '../../api/profiles';
-import { useCommand, useDeleteSongs, useEditSongs, useRefreshSongsWhenFinished, type ApplyTags } from '../../api/songs';
+import {
+  isUnsuccessful,
+  useCommand,
+  useDeleteSongs,
+  useEditSongs,
+  useRefreshSongsWhenFinished,
+  type ApplyTags,
+} from '../../api/songs';
 
 /** The sticky bar that appears while songs are selected: change or delete them all at once. */
 
@@ -37,7 +44,7 @@ function MoveProgress({ commandId, count }: { commandId: number; count: number }
     return <Text size="sm">Moved {songs(count)}.</Text>;
   }
 
-  if (status === 'failed' || status === 'aborted') {
+  if (isUnsuccessful(status)) {
     return (
       <Text size="sm" c="red">
         {command.data?.message ?? 'The move failed.'}

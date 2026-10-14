@@ -28,7 +28,7 @@ import {
   type AlbumTrackResource,
 } from '../api/albums';
 import { useLibraries, useQualityProfiles } from '../api/profiles';
-import { partialNotice, useCommand } from '../api/songs';
+import { isFinished, partialNotice, useCommand } from '../api/songs';
 import { EmptyState, LoadingState } from '../components/DataState';
 import { formatDuration } from '../components/SongCells';
 import { initCaps } from '../components/text';
@@ -226,7 +226,7 @@ export function AddAlbumTab({ prefill }: { prefill: AlbumPrefill | null }) {
 
   const progress = parseProgress(command.data?.message);
   const status = command.data?.status;
-  const running = command.data !== undefined && status !== 'completed' && status !== 'failed' && status !== 'aborted';
+  const running = command.data !== undefined && !isFinished(status);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
