@@ -37,7 +37,7 @@ import {
   type ImportListSchemaResource,
 } from '../../api/importLists';
 import { useLibraries, useQualityProfiles, ValidationError } from '../../api/profiles';
-import { useCommand, type ImportListResource } from '../../api/songs';
+import { isFinished, useCommand, type ImportListResource } from '../../api/songs';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 import { formatDuration } from '../../components/SongCells';
 import { initialValues, SettingsField, targetOf, wireValue } from '../../components/SchemaFields';
@@ -83,7 +83,7 @@ function SyncProgress({ commandId, name, onFinished }: { commandId: number; name
   const told = useRef(false);
 
   const status = command.data?.status;
-  const running = command.data !== undefined && status !== 'completed' && status !== 'failed' && status !== 'aborted';
+  const running = command.data !== undefined && !isFinished(status);
   const progress = parseProgress(command.data?.message);
 
   useEffect(() => {

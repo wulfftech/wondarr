@@ -21,6 +21,7 @@ import { useLibraries, useQualityProfiles } from '../api/profiles';
 import { AddAlbumTab, type AlbumPrefill } from './AddAlbumTab';
 import {
   candidateAddInput,
+  isFinished,
   useAddSong,
   useBulkAdd,
   useCommand,
@@ -353,7 +354,7 @@ function PasteTab() {
 
   const progress = parseProgress(command.data?.message);
   const status = command.data?.status;
-  const running = command.data !== undefined && status !== 'completed' && status !== 'failed' && status !== 'aborted';
+  const running = command.data !== undefined && !isFinished(status);
   const counts = list.data?.counts;
 
   // The summary is first read while the command is still queued (every line pending); read it again

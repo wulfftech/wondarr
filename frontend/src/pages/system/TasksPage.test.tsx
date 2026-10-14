@@ -9,6 +9,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -163,6 +164,38 @@ describe('TasksPage', () => {
 
       expect(cancel?.url).toContain('/api/v1/command/9');
     });
+  });
+
+  it.each([
+    ['cancelled', 'Cancelled'],
+    ['orphaned', 'Orphaned'],
+  ])('shows a %s command as finished: its label, no Cancel button and no polling', async (status, label) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    install([
+      {
+        ...COMMANDS[0],
+        id: 12,
+        name: 'SongSearch',
+        commandName: 'SongSearch',
+        status,
+        ended: '2026-01-01T00:00:09Z',
+        message: `SongSearch ${status}`,
+      },
+    ]);
+
+    renderApp();
+
+    const rows = await screen.findAllByRole('row');
+    const row = rows.find((candidate) => within(candidate).queryByText(`SongSearch ${status}`) !== null);
+
+    expect(within(row!).getByText(label)).toBeInTheDocument();
+    expect(within(row!).queryByRole('button', { name: 'Cancel' })).toBeNull();
+
+    const listCalls = () => sent().filter((request) => request.url.includes('/api/v1/command')).length;
+    const callsWhenShown = listCalls();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(listCalls()).toBe(callsWhenShown);
   });
 
   it('shows an error state when the task list fails', async () => {

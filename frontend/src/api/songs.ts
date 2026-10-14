@@ -48,6 +48,16 @@ export const COMMAND_POLL_INTERVAL_MS = 1500;
 /** The states a command goes through, as the document lists them (the API sends the camelCase names). */
 export type CommandStatusName = components['schemas']['CommandStatus'];
 
+/** True once a command has stopped, however it ended: anything but queued and started. */
+export function isFinished(status: string | undefined): boolean {
+  return status !== undefined && status !== '' && status !== 'queued' && status !== 'started';
+}
+
+/** True when a command ended without finishing its work: it failed, was aborted or cancelled, or was orphaned. */
+export function isUnsuccessful(status: string | undefined): boolean {
+  return isFinished(status) && status !== 'completed';
+}
+
 /** The states an import list line is in, as the document lists them. */
 export type ImportListItemStateName = components['schemas']['ImportListItemState'];
 
@@ -792,7 +802,7 @@ export function useCommand(
 
       const status = query.state.data?.status;
 
-      return status === 'completed' || status === 'failed' || status === 'aborted' ? false : COMMAND_POLL_INTERVAL_MS;
+      return isFinished(status) ? false : COMMAND_POLL_INTERVAL_MS;
     },
     queryFn: async (): Promise<CommandResource> => {
       const { data, response } = await client.GET('/api/v1/command/{id}', {
@@ -815,7 +825,7 @@ export function useCommand(
 export function useRefreshSongsWhenFinished(command: CommandResource | undefined): void {
   const queryClient = useQueryClient();
   const status = command?.status;
-  const finished = command !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
+  const finished = command !== undefined && isFinished(status);
 
   useEffect(() => {
     if (finished) {

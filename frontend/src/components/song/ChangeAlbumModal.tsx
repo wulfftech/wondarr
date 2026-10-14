@@ -3,7 +3,15 @@ import { useMediaQuery } from '@mantine/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Search } from 'lucide-react';
 import { useEffect, useLayoutEffect, useState } from 'react';
-import { invalidateLibrary, useAlbumOptions, useCommand, useSetAlbum, type SongResource } from '../../api/songs';
+import {
+  invalidateLibrary,
+  isFinished,
+  isUnsuccessful,
+  useAlbumOptions,
+  useCommand,
+  useSetAlbum,
+  type SongResource,
+} from '../../api/songs';
 import { AlbumGroupRow } from './AlbumGroupRow';
 import { AlbumOptionLabel } from './AlbumOptionLabel';
 import { editionText, groupAlbumOptions, groupMatches } from './albumGroups';
@@ -46,9 +54,8 @@ export function ChangeAlbumModal({
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
 
   const status = command.data?.status;
-  const finished =
-    command.data !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
-  const failed = status === 'failed' || status === 'aborted';
+  const finished = command.data !== undefined && isFinished(status);
+  const failed = isUnsuccessful(status);
   // A reference file is the user's own and is never moved; a song with no file has nothing to move.
   const managedFile = song?.file != null && song.file.sourceType !== REFERENCE_SOURCE;
 

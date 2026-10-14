@@ -14,6 +14,11 @@ namespace Wondarr.Api.Frontend;
 /// frontend types would be wrong. The names are produced by serialising each member with the
 /// configured options, so the naming policy is never re-implemented here; an enum those options
 /// write as a number keeps its integer schema.
+/// <para>
+/// The generator makes one schema per type, so a <c>[JsonConverter]</c> on a single property that
+/// differs from the options is not honoured here. A nullable enum property refers to the enum
+/// type's own component schema, which stays non-nullable, so there is no nullable case to handle.
+/// </para>
 /// </summary>
 internal sealed class EnumSchemaTransformer : IOpenApiSchemaTransformer
 {
@@ -26,9 +31,7 @@ internal sealed class EnumSchemaTransformer : IOpenApiSchemaTransformer
         ArgumentNullException.ThrowIfNull(schema);
         ArgumentNullException.ThrowIfNull(context);
 
-        var type = context.JsonTypeInfo.Type;
-        var nullable = Nullable.GetUnderlyingType(type);
-        var enumType = nullable ?? type;
+        var enumType = context.JsonTypeInfo.Type;
 
         if (!enumType.IsEnum)
         {
@@ -53,16 +56,9 @@ internal sealed class EnumSchemaTransformer : IOpenApiSchemaTransformer
             names.Add(JsonValue.Create(name));
         }
 
-        var isNullable = nullable is not null || (schema.Type is { } existing && existing.HasFlag(JsonSchemaType.Null));
-
-        schema.Type = isNullable ? JsonSchemaType.String | JsonSchemaType.Null : JsonSchemaType.String;
+        schema.Type = JsonSchemaType.String;
         schema.Format = null;
         schema.Enum = names;
-
-        if (isNullable)
-        {
-            schema.Enum.Add(null!);
-        }
 
         return Task.CompletedTask;
     }

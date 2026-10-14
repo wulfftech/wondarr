@@ -41,10 +41,19 @@ function formatDuration(value: string | null | undefined): string {
   return value === null || value === undefined || value === '' || value === '00:00:00' ? '—' : value;
 }
 
+/** A command's state as the Status column spells it: `cancelled` reads "Cancelled". */
+function statusLabel(status: CommandResource['status']): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 /** The colour a command's life-cycle state wears, so a failure stands out. */
 function statusColour(status: CommandResource['status']): string | undefined {
-  if (status === 'failed' || status === 'aborted') {
+  if (status === 'failed' || status === 'aborted' || status === 'orphaned') {
     return 'red';
+  }
+
+  if (status === 'cancelled') {
+    return 'dimmed';
   }
 
   return status === 'queued' || status === 'started' ? 'blue' : undefined;
@@ -152,7 +161,7 @@ export function TasksPage() {
                 <Table.Tr key={command.id}>
                   <Table.Td style={NOWRAP}>{command.commandName}</Table.Td>
                   <Table.Td>
-                    <Text c={statusColour(command.status)}>{command.status}</Text>
+                    <Text c={statusColour(command.status)}>{statusLabel(command.status)}</Text>
                   </Table.Td>
                   <Table.Td>{formatTimestamp(command.queued)}</Table.Td>
                   <Table.Td>{formatTimestamp(command.ended)}</Table.Td>
