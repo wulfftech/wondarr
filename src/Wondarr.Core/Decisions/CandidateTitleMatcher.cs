@@ -139,6 +139,73 @@ public static class CandidateTitleMatcher
         return best;
     }
 
+    /// <summary>
+    /// Whether the candidate's own track title <em>is</em> the song's title, not merely close to it or
+    /// holding it: the folded file title equals a folded text of the song's title, or the song's title
+    /// plus a version marker the song also has (MATCHING_ENGINE.md §6.2). This is what a compilation
+    /// path needs when its file name does not name the artist.
+    /// </summary>
+    /// <param name="songVariants">The song title's comparison texts from <see cref="SongVariants"/>.</param>
+    /// <param name="candidate">The candidate.</param>
+    /// <param name="songFlags">The version flags the song carries.</param>
+    /// <returns><c>false</c> when the candidate carries no title of its own.</returns>
+    public static bool IsFullTitleMatch(IReadOnlyList<string> songVariants, Candidate candidate, VersionFlags songFlags)
+    {
+        ArgumentNullException.ThrowIfNull(songVariants);
+        ArgumentNullException.ThrowIfNull(candidate);
+
+        var parsedTitle = candidate.Parsed.Title;
+        var hasParsedTitle = !string.IsNullOrWhiteSpace(parsedTitle);
+
+        if (!hasParsedTitle && candidate.Container != CandidateContainer.SingleFile)
+        {
+            return false;
+        }
+
+        var songTexts = songVariants
+            .Select(text => TextMatching.Normalize(text))
+            .Where(text => text.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (songTexts.Count == 0)
+        {
+            return false;
+        }
+
+        // Whole texts only: no bracket stripping on the file's side, so "Lonely Girl" never becomes
+        // "Girl", and a bracketed subtitle the song does not have keeps the file from being the song.
+        var candidateTexts = new List<string>();
+
+        if (hasParsedTitle)
+        {
+            candidateTexts.AddRange(JoinedSuffixes(DashParts(parsedTitle!)));
+        }
+
+        for (var passes = 1; passes <= 2; passes++)
+        {
+            candidateTexts.AddRange(JoinedSuffixes(TitleSegments(candidate.RemotePath, passes)));
+        }
+
+        // A version marker is only part of the title when the song has it too.
+        var markersAreTheSongs = (candidate.Parsed.VersionFlags & ~songFlags) == VersionFlags.None;
+
+        foreach (var text in candidateTexts)
+        {
+            if (songTexts.Contains(TextMatching.Normalize(text)))
+            {
+                return true;
+            }
+
+            if (markersAreTheSongs &&
+                songTexts.Contains(TextMatching.Normalize(VersionFlagParser.Parse(text).BaseTitle)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Whether a title is written in Latin letters, in others, or has no letters at all.</summary>
     /// <param name="title">The title.</param>
     /// <returns><c>true</c> for Latin, <c>false</c> for another script, <c>null</c> when no letter is in it.</returns>
@@ -192,10 +259,14 @@ public static class CandidateTitleMatcher
         return Math.Max(similarity, contiguous ? 1.0 : 0.9);
     }
 
+    /// <summary>The dash-separated parts of a text, trimmed and without empty ones.</summary>
+    private static List<string> DashParts(string text) =>
+        DashSeparatorRegex.Split(text).Select(part => part.Trim()).Where(part => part.Length > 0).ToList();
+
     /// <summary>The text, and each of its dash-separated tails ("Artist - Title" also gives "Title").</summary>
     private static void AddWithDashSuffixes(List<string> texts, string text)
     {
-        var parts = DashSeparatorRegex.Split(text).Select(part => part.Trim()).Where(part => part.Length > 0).ToList();
+        var parts = DashParts(text);
 
         foreach (var suffix in JoinedSuffixes(parts))
         {

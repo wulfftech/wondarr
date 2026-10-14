@@ -57,12 +57,6 @@ public sealed class DecisionEngine
     /// </summary>
     public const double TitleFloor = 0.6;
 
-    /// <summary>
-    /// The title similarity that stands in for the artist on a compilation path, where the artist is
-    /// legitimately absent from the folders: the file name has to name the song almost exactly.
-    /// </summary>
-    public const double StrongTitleMatch = 0.85;
-
     /// <summary>Below this a file cannot be the song, whatever the source claims.</summary>
     private const long MinimumSizeBytes = 500_000;
 
@@ -141,7 +135,7 @@ public sealed class DecisionEngine
         var score = Score(context, candidate, songBaseTitle);
         var similarity = CandidateTitleMatcher.Similarity(songVariants, candidate);
 
-        return new CandidateDecision(candidate, score, Rejections(context, candidate, score, similarity));
+        return new CandidateDecision(candidate, score, Rejections(context, candidate, score, similarity, songVariants));
     }
 
     /// <summary>Accepted before rejected, then by score, then by the tie-breaks of MATCHING_ENGINE §6.3.</summary>
@@ -194,7 +188,8 @@ public sealed class DecisionEngine
         DecisionContext context,
         Candidate candidate,
         ScoreBreakdown score,
-        double? similarity)
+        double? similarity,
+        IReadOnlyList<string> songVariants)
     {
         var rejections = new List<Rejection>();
         var quality = QualityOf(context, candidate.QualityId);
@@ -270,7 +265,7 @@ public sealed class DecisionEngine
         AddDurationRejection(context, candidate, rejections);
         AddVersionRejection(context, candidate, rejections);
         AddTitleRejection(context, candidate, similarity, rejections);
-        AddArtistRejection(context, candidate, similarity, rejections);
+        AddArtistRejection(context, candidate, similarity, songVariants, rejections);
         AddSizeRejection(context, candidate, quality, rejections);
         AddUntaggableRejection(context, candidate, rejections);
 
@@ -425,7 +420,7 @@ public sealed class DecisionEngine
         }
 
         return context.MainArtists.Count > 0 &&
-            ArtistOverlap(context, candidate) > 0 &&
+            ArtistGenuinelyNamed(context, candidate) &&
             context.SongDurationMs is { } songMs &&
             candidate.DurationMs is { } candidateMs &&
             Math.Abs(songMs - candidateMs) <= Tolerance(context);
@@ -435,28 +430,36 @@ public sealed class DecisionEngine
         DecisionContext context,
         Candidate candidate,
         double? similarity,
+        IReadOnlyList<string> songVariants,
         List<Rejection> rejections)
     {
-        if (context.MainArtists.Count == 0 || ArtistOverlap(context, candidate) > 0)
+        if (context.MainArtists.Count == 0)
         {
             return;
         }
 
-        // Compilations ("Various Artists", "OST") legitimately carry no artist in the folders, but the
-        // file itself must still name the artist or, failing that, the song almost exactly.
+        // A compilation path ("Various Artists", "OST") never stands in for the artist, and a token or
+        // two of the artist's name in a folder (the "Days" of "Nine Days") is not the artist either: the
+        // file name must name the artist, or the file's own title must be the song's title in full.
+        // Checked before the ordinary overlap for exactly that reason.
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
             if (FileNameNamesArtist(context, candidate) ||
-                similarity is not { } value ||
-                value >= StrongTitleMatch)
+                similarity is null ||
+                CandidateTitleMatcher.IsFullTitleMatch(songVariants, candidate, context.SongFlags))
             {
                 return;
             }
 
             rejections.Add(new Rejection(
                 RejectionReason.ArtistMismatch,
-                "Artist mismatch: a compilation path, and the file name names neither the artist nor the song closely enough."));
+                "Artist mismatch: Various Artists path without the artist or the full title."));
 
+            return;
+        }
+
+        if (ArtistOverlap(context, candidate) > 0)
+        {
             return;
         }
 
@@ -464,6 +467,15 @@ public sealed class DecisionEngine
             RejectionReason.ArtistMismatch,
             "Artist mismatch: none of the song's artists appears in the candidate's path."));
     }
+
+    /// <summary>
+    /// Whether the artist is genuinely matched: on a compilation path only the file name can name it;
+    /// elsewhere any overlap with the path counts.
+    /// </summary>
+    private static bool ArtistGenuinelyNamed(DecisionContext context, Candidate candidate) =>
+        ContainsCompilationMarker(candidate.RemotePath)
+            ? FileNameNamesArtist(context, candidate)
+            : ArtistOverlap(context, candidate) > 0;
 
     /// <summary>Whether every word of one of the song's artists is in the file name (not the folders).</summary>
     private static bool FileNameNamesArtist(DecisionContext context, Candidate candidate)

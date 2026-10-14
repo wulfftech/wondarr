@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Wondarr.Core.Decisions;
+using Wondarr.Core.Metadata;
 using Wondarr.Core.Sources;
 using Xunit;
 
@@ -94,6 +95,48 @@ public class CandidateTitleMatcherTests
         var release = Candidate("Nine Days - The Madding Crowd [FLAC]", null) with { Container = CandidateContainer.AlbumContainer };
 
         CandidateTitleMatcher.Similarity("Story of a Girl", release).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("Story of a Girl", @"@@u\Va\Now 48\12 Story of a Girl.flac", null, true)]
+    [InlineData("Story of a Girl", @"@@u\Va\Now 48\12 Story Of A Girl.flac", "Story Of A Girl", true)]
+    [InlineData("Story of a Girl", @"@@u\Va\90s\07 Nine Days - Story of a Girl.flac", "Nine Days - Story of a Girl", true)]
+    [InlineData("Story of a Girl", @"@@u\Va\X\04 Lonely Girl.flac", "Lonely Girl", false)]
+    [InlineData("Story of a Girl", @"@@u\Va\X\05 Story of a Dream.flac", "Story of a Dream", false)]
+    // Holding the title is not being the title: a longer file title is not the song.
+    [InlineData("Story of a Girl", @"@@u\Va\X\05 Story of a Girl Part 2.flac", "Story of a Girl Part 2", false)]
+    // MusicBrainz lists both titles for one song, and either one is the song in full.
+    [InlineData("Absolutely (Story of a Girl)", @"@@u\Va\X\05 Story of a Girl.flac", "Story of a Girl", true)]
+    public void Tells_a_full_title_match_from_a_partial_one(string song, string path, string? parsedTitle, bool expected)
+    {
+        var candidate = Candidate(path, parsedTitle);
+
+        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants(song), candidate, VersionFlags.None)
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_version_marker_counts_towards_the_full_title_only_when_the_song_has_it()
+    {
+        var candidate = Candidate(@"@@u\Va\X\12 Story of a Girl (Radio Edit).flac", "Story of a Girl") with
+        {
+            Parsed = ParsedName.Empty with { Title = "Story of a Girl", VersionFlags = VersionFlags.RadioEdit },
+        };
+
+        // The song is the radio edit, with or without the marker in its title: the file is the song.
+        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants("Story of a Girl (Radio Edit)"), candidate, VersionFlags.RadioEdit)
+            .Should().BeTrue();
+        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants("Story of a Girl"), candidate, VersionFlags.RadioEdit)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_container_with_no_title_of_its_own_has_no_full_title_match()
+    {
+        var release = Candidate("Nine Days - The Madding Crowd [FLAC]", null) with { Container = CandidateContainer.AlbumContainer };
+
+        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants("Story of a Girl"), release, VersionFlags.None)
+            .Should().BeFalse();
     }
 
     private static Candidate Candidate(string path, string? parsedTitle) => new()
