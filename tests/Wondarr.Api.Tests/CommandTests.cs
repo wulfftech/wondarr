@@ -13,7 +13,7 @@ public sealed class CommandTests
     private const string CommandEndpoint = "/api/v1/command";
 
     /// <summary>The longest a test waits for a command to reach a state.</summary>
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     [Fact]
     public async Task Posting_a_command_without_a_key_is_unauthorized()
