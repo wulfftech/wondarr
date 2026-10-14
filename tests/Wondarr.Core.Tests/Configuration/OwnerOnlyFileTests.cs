@@ -1,27 +1,25 @@
+using System.Runtime.Versioning;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Configuration;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Configuration;
 
 /// <summary>
 /// R-054: every file that holds a secret is 0600 whatever <c>UMASK</c> is. Unix modes do not exist
-/// on Windows, so these tests return early there and run on the Linux CI runner.
+/// on Windows, so these tests are reported as skipped there and run on the Linux CI runner.
 /// </summary>
 public sealed class OwnerOnlyFileTests
 {
     private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
     private const UnixFileMode Group = OwnerOnly | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead;
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public void A_file_is_created_owner_only_even_under_a_permissive_umask()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var directory = new TemporaryConfigDirectory();
         var path = Path.Combine(directory.Paths.ConfigDir, "secret.bin");
 
@@ -34,14 +32,10 @@ public sealed class OwnerOnlyFileTests
         File.GetUnixFileMode(path).Should().Be(OwnerOnly);
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public void A_file_is_already_0600_the_moment_it_is_opened_before_anything_is_written()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var directory = new TemporaryConfigDirectory();
         var path = Path.Combine(directory.Paths.ConfigDir, "secret.bin");
 
@@ -55,14 +49,10 @@ public sealed class OwnerOnlyFileTests
         }
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public void The_first_run_config_yml_is_0600_under_umask_002()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var directory = new TemporaryConfigDirectory();
         var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
 
@@ -78,14 +68,10 @@ public sealed class OwnerOnlyFileTests
         Directory.GetFiles(directory.Paths.ConfigDir, "*.tmp").Should().BeEmpty("the first write is atomic, through a temporary file that is moved into place");
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public void Tighten_changes_a_0664_file_to_0600_once()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var directory = new TemporaryConfigDirectory();
         var path = Path.Combine(directory.Paths.ConfigDir, "x");
         File.WriteAllText(path, "x");
@@ -96,14 +82,10 @@ public sealed class OwnerOnlyFileTests
         File.GetUnixFileMode(path).Should().Be(OwnerOnly);
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public void The_startup_pass_tightens_a_0664_database_and_every_other_file_that_holds_secrets()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var directory = new TemporaryConfigDirectory();
         var paths = directory.Paths;
         Directory.CreateDirectory(paths.SlskdDir);
@@ -150,14 +132,10 @@ public sealed class OwnerOnlyFileTests
         SecretFileModes.TightenExisting(paths, NullLogger.Instance).Should().Be(0, "there is nothing left to change");
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public void A_missing_database_is_created_empty_and_owner_only_so_sqlites_own_files_follow()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         using var directory = new TemporaryConfigDirectory();
 
         using (new Umask(0x2))

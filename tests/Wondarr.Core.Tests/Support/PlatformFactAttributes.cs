@@ -1,6 +1,9 @@
 using Xunit;
 
-namespace Wondarr.Core.Tests.References;
+namespace Wondarr.Testing;
+
+// Compiled into both Wondarr.Core.Tests and Wondarr.Sources.Tests (a linked file, like TrackingTimeProvider),
+// so a platform-dependent test reports Skipped in either project instead of returning early and passing.
 
 /// <summary>
 /// A fact that only runs on Linux. Elsewhere it is reported as skipped, not as a pass that never
@@ -13,7 +16,23 @@ public sealed class LinuxFactAttribute : FactAttribute
     {
         if (!OperatingSystem.IsLinux())
         {
-            Skip = "Only Linux treats a backslash as part of a file name; elsewhere it is a separator.";
+            Skip = "Needs Linux (case-sensitive paths, a backslash that is part of a file name, inode identity).";
+        }
+    }
+}
+
+/// <summary>
+/// A fact that needs Unix file modes (<c>File.GetUnixFileMode</c>, umask) or hard-link identity. Windows has
+/// neither, so there the test is reported as skipped rather than passing without checking a mode.
+/// </summary>
+public sealed class UnixFactAttribute : FactAttribute
+{
+    /// <summary>Initialises a new instance of the <see cref="UnixFactAttribute"/> class.</summary>
+    public UnixFactAttribute()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Skip = "Needs Unix file modes or hard links, which Windows does not have.";
         }
     }
 }

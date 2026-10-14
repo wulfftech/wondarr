@@ -1,6 +1,8 @@
+using System.Runtime.Versioning;
 using FluentAssertions;
 using Wondarr.Core.Backup;
 using Wondarr.Core.Configuration;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Backup;
@@ -43,14 +45,10 @@ public sealed class PendingRestoreTests : IDisposable
         Directory.Exists(RestoreFolder).Should().BeFalse("the restore folder is removed once it is applied");
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public void The_files_a_restore_sets_aside_are_made_0600()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         Write(_paths.DatabaseFile, "the old database");
         Write(_paths.ConfigFile, "the old config");
         File.SetUnixFileMode(_paths.DatabaseFile, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);

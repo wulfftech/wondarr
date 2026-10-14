@@ -211,7 +211,9 @@ public sealed class ReleaseApiTests
             .Returns(Task.FromResult(new GrabHandle(SourceTypes.Soulseek, "{\"transferId\": 1}")));
 
         // The queue tracker polls in the background; on a loaded machine it can poll before the
-        // second grab arrives. The grab stays in flight, so the conflict check always sees it.
+        // second grab arrives. The grab stays in flight, so the conflict check always sees it. (The
+        // scheduler's missing-song search, which would grab the seeded song ten seconds after start-up
+        // and make the first manual grab the conflict, does not run: WondarrAppFactory leaves it off.)
         source.GetStatusAsync(Arg.Any<GrabHandle>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new DownloadStatus(DownloadState.Downloading, 0.1, 1_000)));
 

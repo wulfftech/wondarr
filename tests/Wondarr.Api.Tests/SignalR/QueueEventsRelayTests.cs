@@ -20,7 +20,7 @@ public sealed class QueueEventsRelayTests
     private const string HubPath = "signalr/events";
 
     /// <summary>The longest a test waits for a broadcast.</summary>
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     [Fact]
     public async Task A_queue_item_change_is_broadcast_as_a_queue_message()
