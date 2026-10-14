@@ -1,0 +1,136 @@
+{
+  "created": "2026-10-14T02:00:00.000Z",
+  "count": 4,
+  "offset": 0,
+  "recordings": [
+    {
+      "id": "d0d0d0d0-0000-4000-8000-000000000001",
+      "score": 100,
+      "title": "Story of a Girl",
+      "length": 197600,
+      "video": null,
+      "artist-credit": [
+        {
+          "name": "Nine Days",
+          "artist": { "id": "a9a9a9a9-0000-4000-8000-000000000001", "name": "Nine Days", "sort-name": "Nine Days" }
+        }
+      ],
+      "first-release-date": "2007-03-06",
+      "releases": [
+        {
+          "id": "e0e0e0e0-0000-4000-8000-000000000001",
+          "status": "Official",
+          "title": "Rock Hits of the 2000s",
+          "date": "2007-03-06",
+          "country": "US",
+          "release-group": {
+            "id": "f0f0f0f0-0000-4000-8000-000000000001",
+            "title": "Rock Hits of the 2000s",
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "d0d0d0d0-0000-4000-8000-000000000002",
+      "score": 100,
+      "title": "Story of a Girl",
+      "length": 197600,
+      "video": null,
+      "artist-credit": [
+        {
+          "name": "Nine Days",
+          "artist": { "id": "a9a9a9a9-0000-4000-8000-000000000001", "name": "Nine Days", "sort-name": "Nine Days" }
+        }
+      ],
+      "first-release-date": "1999-08-24",
+      "releases": [
+        {
+          "id": "e0e0e0e0-0000-4000-8000-000000000002",
+          "status": "Official",
+          "title": "Radio Hits Sampler",
+          "date": "1999-08-24",
+          "country": "US",
+          "release-group": {
+            "id": "f0f0f0f0-0000-4000-8000-000000000002",
+            "title": "Radio Hits Sampler",
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "d0d0d0d0-0000-4000-8000-000000000003",
+      "score": 100,
+      "title": "Story of a Girl",
+      "length": 197600,
+      "video": null,
+      "artist-credit": [
+        {
+          "name": "Nine Days",
+          "artist": { "id": "a9a9a9a9-0000-4000-8000-000000000001", "name": "Nine Days", "sort-name": "Nine Days" }
+        }
+      ],
+      "first-release-date": "2000-01-18",
+      "releases": [
+        {
+          "id": "e0e0e0e0-0000-4000-8000-000000000003",
+          "status": "Official",
+          "title": "Pop Culture Soundtrack",
+          "date": "2000-01-18",
+          "country": "US",
+          "release-group": {
+            "id": "f0f0f0f0-0000-4000-8000-000000000003",
+            "title": "Pop Culture Soundtrack",
+            "primary-type": "Album",
+            "secondary-types": ["Soundtrack"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "d0d0d0d0-0000-4000-8000-000000000004",
+      "score": 100,
+      "title": "Story of a Girl",
+      "length": 189000,
+      "video": null,
+      "artist-credit": [
+        {
+          "name": "Nine Days",
+          "artist": { "id": "a9a9a9a9-0000-4000-8000-000000000001", "name": "Nine Days", "sort-name": "Nine Days" }
+        }
+      ],
+      "first-release-date": "2000-05-30",
+      "releases": [
+        {
+          "id": "e0e0e0e0-0000-4000-8000-000000000004",
+          "status": "Promotion",
+          "title": "Story of a Girl",
+          "date": "2000-02-01",
+          "country": "US",
+          "release-group": {
+            "id": "f0f0f0f0-0000-4000-8000-000000000004",
+            "title": "Story of a Girl",
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "e0e0e0e0-0000-4000-8000-000000000005",
+          "status": "Official",
+          "title": "The Madding Crowd",
+          "date": "2000-05-30",
+          "country": "US",
+          "release-group": {
+            "id": "f0f0f0f0-0000-4000-8000-000000000005",
+            "title": "The Madding Crowd",
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        }
+      ]
+    }
+  ]
+}
