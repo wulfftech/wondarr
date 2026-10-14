@@ -824,6 +824,258 @@ public class ReferenceMatchServiceTests : IDisposable
         (await reader.Songs.CountAsync()).Should().Be(1, "only the other request's song exists");
     }
 
+    // --- A racing add that creates the same new artist ----------------------------------------------
+
+    [Fact]
+    public async Task A_racing_add_of_a_song_by_the_same_new_artist_does_not_stop_a_manual_match()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        // A different song by the same new artist is saved after the artist lookup and before this write.
+        var artistId = 0L;
+        StubCoverArtThen(async () => artistId = await SaveWinnerArtistAsync("Instant Crush"));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, "m-a", null, false),
+            CancellationToken.None);
+
+        artistId.Should().BeGreaterThan(0);
+        result.State.Should().Be(ReferenceFileState.Identified);
+        result.SongId.Should().BeGreaterThan(0);
+        context.Database.CurrentTransaction.Should().BeNull("the transaction the add left open is closed");
+
+        // Read through a second connection: it is committed, not pending in the first one's transaction.
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        await AssertOneSharedArtistAsync(reader, artistId, songs: 2);
+
+        var row = await reader.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.Id == file.Id);
+        row.State.Should().Be(ReferenceFileState.Identified);
+        row.SongId.Should().Be(result.SongId);
+
+        var owned = await reader.SongFiles.AsNoTracking().SingleAsync();
+        owned.SongId.Should().Be(result.SongId!.Value);
+        owned.SourceType.Should().Be(SourceTypes.Reference);
+        (await reader.History.AsNoTracking().SingleAsync()).EventType.Should().Be(HistoryEventType.Imported);
+    }
+
+    [Fact]
+    public async Task Bulk_accept_adds_songs_by_a_new_artist_a_racing_add_created_first()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+
+        var ids = new List<long>();
+
+        for (var index = 0; index < 3; index++)
+        {
+            var id = $"m-{index}";
+            var file = await AddFileAsync(context, library.Id, $"a/{index}.flac", ReferenceFileState.Ambiguous);
+
+            await AddCandidateAsync(context, file.Id, 1, id, null);
+            ids.Add(file.Id);
+
+            _resolver.GetIdentityAsync(id, null, Arg.Any<CancellationToken>())
+                .Returns(Identity(id, "T" + index, durationMs: 248_000));
+        }
+
+        var artistId = 0L;
+        StubCoverArtThen(async () => artistId = await SaveWinnerArtistAsync("Instant Crush"));
+
+        var result = await Service(context).AcceptTopCandidatesAsync(ids, CancellationToken.None);
+
+        result.Errors.Should().BeEmpty();
+        result.Resolved.Should().Be(3);
+        result.Failed.Should().Be(0);
+        artistId.Should().BeGreaterThan(0);
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        await AssertOneSharedArtistAsync(reader, artistId, songs: 4);
+
+        (await reader.ReferenceFiles.AsNoTracking().ToListAsync())
+            .Should().OnlyContain(row => row.State == ReferenceFileState.Identified && row.IdentifiedBy == "manual");
+        (await reader.SongFiles.CountAsync()).Should().Be(3);
+        (await reader.MatchCandidates.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_manual_match_whose_new_guest_artist_is_inserted_before_the_raced_one_writes_it_once()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        // The guest is listed before the main artist, so it is inserted first, in a save the raced main
+        // artist then refuses: what the failed first try wrote has to be taken back with its transaction.
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000) with
+            {
+                Artists =
+                [
+                    new IdentityArtist("Todd Edwards", "Edwards, Todd", "g1", null, ArtistRole.Featured, 1),
+                    new IdentityArtist("Daft Punk", "Daft Punk", "a1", null, ArtistRole.Main, 0),
+                ],
+            });
+
+        var artistId = 0L;
+        StubCoverArtThen(async () => artistId = await SaveWinnerArtistAsync("Instant Crush"));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, "m-a", null, false),
+            CancellationToken.None);
+
+        result.State.Should().Be(ReferenceFileState.Identified);
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        (await reader.Artists.AsNoTracking().OrderBy(artist => artist.MbArtistId).Select(artist => artist.MbArtistId).ToListAsync())
+            .Should().Equal("a1", "g1");
+        (await reader.Artists.AsNoTracking().SingleAsync(artist => artist.MbArtistId == "a1")).Id.Should().Be(artistId);
+        (await reader.Songs.CountAsync()).Should().Be(2);
+        (await reader.SongArtists.CountAsync()).Should().Be(3, "the winner's one credit and this song's two");
+        (await reader.AlbumContexts.CountAsync()).Should().Be(2);
+
+        var credits = await reader.SongArtists.AsNoTracking().Where(credit => credit.SongId == result.SongId).ToListAsync();
+        credits.Should().HaveCount(2);
+        (await reader.SongFiles.AsNoTracking().SingleAsync()).SongId.Should().Be(result.SongId!.Value);
+    }
+
+    [Fact]
+    public async Task A_manual_match_of_a_recording_a_racing_add_saved_with_its_new_artist_links_the_file_to_the_winner()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        // The double click: a second request adds this very recording and its new artist after this one
+        // looked for both and before it writes. The first try meets the artist index; the add made again
+        // then finds the song itself.
+        var artistId = 0L;
+        StubCoverArtThen(async () => artistId = await SaveWinnerArtistAsync("Get Lucky", "m-a"));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, "m-a", null, false),
+            CancellationToken.None);
+
+        result.State.Should().Be(ReferenceFileState.Identified);
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        var winner = await reader.Songs.AsNoTracking().SingleAsync();
+        result.SongId.Should().Be(winner.Id);
+
+        await AssertOneSharedArtistAsync(reader, artistId, songs: 1);
+
+        var row = await reader.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.Id == file.Id);
+        row.State.Should().Be(ReferenceFileState.Identified);
+        row.SongId.Should().Be(winner.Id);
+
+        var owned = await reader.SongFiles.AsNoTracking().SingleAsync();
+        owned.SongId.Should().Be(winner.Id);
+        owned.SourceType.Should().Be(SourceTypes.Reference);
+        (await reader.History.AsNoTracking().SingleAsync()).EventType.Should().Be(HistoryEventType.Imported);
+    }
+
+    [Fact]
+    public async Task A_manual_match_whose_retry_fails_fails_as_before_and_leaves_nothing_open_or_written()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/Poison.flac", ReferenceFileState.Unmatched);
+
+        _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-b", "Poison", durationMs: 248_000));
+
+        // The artist index refuses the first try; the retry reuses the winner's artist and reaches the
+        // song, which this trigger refuses: the second failure is final.
+        StubCoverArtThen(async () => await SaveWinnerArtistAsync("Instant Crush"));
+        await context.Database.ExecuteSqlRawAsync(
+            "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
+            + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
+
+        var act = () => Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, "m-b", null, false),
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DbUpdateException>()).Which.GetBaseException().Message.Should().Contain("poison refused");
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        (await reader.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.Id == file.Id))
+            .State.Should().Be(ReferenceFileState.Unmatched);
+        (await reader.SongFiles.CountAsync()).Should().Be(0);
+        (await reader.Songs.CountAsync()).Should().Be(1, "only the winner's song exists");
+        (await reader.Artists.CountAsync()).Should().Be(1);
+        (await reader.AlbumContexts.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Bulk_accept_whose_retry_fails_reports_the_group_and_leaves_nothing_open_or_written()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/Poison.flac", ReferenceFileState.Ambiguous);
+
+        await AddCandidateAsync(context, file.Id, 1, "m-b", null);
+
+        _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-b", "Poison", durationMs: 248_000));
+
+        StubCoverArtThen(async () => await SaveWinnerArtistAsync("Instant Crush"));
+        await context.Database.ExecuteSqlRawAsync(
+            "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
+            + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
+
+        var result = await Service(context).AcceptTopCandidatesAsync([file.Id], CancellationToken.None);
+
+        result.Resolved.Should().Be(0);
+        result.Failed.Should().Be(1);
+        result.Errors.Should().ContainSingle().Which.Should().Contain("a/Poison.flac").And.Contain("could not be accepted");
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        (await reader.SongFiles.CountAsync()).Should().Be(0);
+        (await reader.ReferenceFiles.AsNoTracking().SingleAsync()).State.Should().Be(ReferenceFileState.Ambiguous);
+        (await reader.Songs.CountAsync()).Should().Be(1, "only the winner's song exists");
+        (await reader.Artists.CountAsync()).Should().Be(1);
+    }
+
+    /// <summary>
+    /// The shape a lost artist race must leave: the winner's artist row is the only <c>a1</c>, every song
+    /// credits it, and no song is missing its credit or its album context.
+    /// </summary>
+    private static async Task AssertOneSharedArtistAsync(WondarrDbContext reader, long artistId, int songs)
+    {
+        artistId.Should().BeGreaterThan(0);
+
+        (await reader.Artists.CountAsync()).Should().Be(1);
+        (await reader.Artists.AsNoTracking().SingleAsync()).Id
+            .Should().Be(artistId, "the winner's row is the artist: the loser's copy was never written");
+
+        (await reader.Songs.CountAsync()).Should().Be(songs);
+        (await reader.Songs.CountAsync(song => song.PrimaryArtistId == artistId)).Should().Be(songs);
+        (await reader.SongArtists.CountAsync(credit => credit.ArtistId == artistId)).Should().Be(songs);
+        (await reader.AlbumContexts.CountAsync()).Should().Be(songs);
+    }
+
     /// <summary>
     /// Stubs the cover archive and, on its first call (which comes after the add checked what the library
     /// holds and before it writes), runs <paramref name="beforeWrite"/>: the seam a racing request slips through.
@@ -858,6 +1110,30 @@ public class ReferenceMatchServiceTests : IDisposable
                 .SetProperty(song => song.DeezerId, deezerId));
 
         return winner.Id;
+    }
+
+    /// <summary>
+    /// Commits the artist Daft Punk (MusicBrainz id <c>a1</c>) and a different song by it through a second
+    /// context, as a request that won the race would, and returns the artist's id.
+    /// </summary>
+    private async Task<long> SaveWinnerArtistAsync(string songTitle, string? mbRecordingId = null)
+    {
+        await using var other = _database.CreateContext(_timeProvider);
+        var artist = new Artist { Name = "Daft Punk", SortName = "Daft Punk", MbArtistId = "a1" };
+
+        other.Artists.Add(artist);
+        await other.SaveChangesAsync();
+
+        var winner = await Wondarr.Core.Tests.Songs.SongSeed.AddAsync(other, songTitle);
+
+        if (mbRecordingId is not null)
+        {
+            await other.Songs
+                .Where(song => song.Id == winner.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(song => song.MbRecordingId, mbRecordingId));
+        }
+
+        return artist.Id;
     }
 
     private static MediaInfo Probe(int durationMs) =>

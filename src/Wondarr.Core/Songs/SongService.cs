@@ -1069,6 +1069,39 @@ public sealed partial class SongService : ISongService
 
         var failedIndexes = new HashSet<int>();
 
+        // One song, built against the artists known so far and saved on its own. A failed save leaves
+        // nothing of the song in the tracker and none of its new artists in the known list, and hands back
+        // what the save threw.
+        async Task<DbUpdateException?> SaveOneAsync(int index)
+        {
+            var known = storedArtists;
+            var knownBefore = known.Count;
+            var credited = new List<(Artist Artist, IdentityArtist Credit)>(identities[index].Artists.Count);
+
+            foreach (var credit in identities[index].Artists)
+            {
+                credited.Add((ResolveArtist(credit, known), credit));
+            }
+
+            var song = BuildSong(index, credited);
+            _database.Songs.Add(song);
+
+            try
+            {
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                results[index] = new SongAddResult(identities[index], SongAddOutcome.Added, song);
+
+                return null;
+            }
+            catch (DbUpdateException exception)
+            {
+                DetachNewRows();
+                known.RemoveRange(knownBefore, known.Count - knownBefore);
+
+                return exception;
+            }
+        }
+
         try
         {
             try
@@ -1085,43 +1118,44 @@ public sealed partial class SongService : ISongService
 
                 foreach (var index in pending)
                 {
-                    var known = storedArtists;
-                    var knownBefore = known.Count;
-                    var credited = new List<(Artist Artist, IdentityArtist Credit)>(identities[index].Artists.Count);
+                    var failure = await SaveOneAsync(index).ConfigureAwait(false);
 
-                    foreach (var credit in identities[index].Artists)
+                    // A racing add created one of this song's artists between the artist lookup and this
+                    // write, so the artist table's unique index refused the copy. The winner's row is
+                    // committed now: the song's artists are read again and the song is built and saved once
+                    // more. There is no second retry; what the second save throws is judged like any other.
+                    if (failure is not null && IsDuplicateArtistKey(failure))
                     {
-                        credited.Add((ResolveArtist(credit, known), credit));
+                        foreach (var artist in await LoadArtistsAsync(identities, [index], cancellationToken).ConfigureAwait(false))
+                        {
+                            if (!storedArtists.Contains(artist))
+                            {
+                                storedArtists.Add(artist);
+                            }
+                        }
+
+                        failure = await SaveOneAsync(index).ConfigureAwait(false);
                     }
 
-                    var song = BuildSong(index, credited);
-                    _database.Songs.Add(song);
-
-                    try
+                    if (failure is null)
                     {
-                        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                        results[index] = new SongAddResult(identities[index], SongAddOutcome.Added, song);
+                        continue;
                     }
-                    catch (DbUpdateException exception)
+
+                    // A racing add saved this recording between the existence check and the write: the
+                    // library holds the song now, which is the answer an add of a known song gives.
+                    var winner = IsDuplicateSongKey(failure)
+                        ? await FindStoredSongAsync(_database, identities[index], cancellationToken).ConfigureAwait(false)
+                        : null;
+
+                    if (winner is not null)
                     {
-                        DetachNewRows();
-                        known.RemoveRange(knownBefore, known.Count - knownBefore);
-
-                        // A racing add saved this recording between the existence check and the write: the
-                        // library holds the song now, which is the answer an add of a known song gives.
-                        var winner = IsDuplicateSongKey(exception)
-                            ? await FindStoredSongAsync(_database, identities[index], cancellationToken).ConfigureAwait(false)
-                            : null;
-
-                        if (winner is not null)
-                        {
-                            results[index] = new SongAddResult(identities[index], SongAddOutcome.AlreadyExists, winner);
-                        }
-                        else
-                        {
-                            failedIndexes.Add(index);
-                            results[index] = FailedResult(identities[index], exception.GetBaseException().Message);
-                        }
+                        results[index] = new SongAddResult(identities[index], SongAddOutcome.AlreadyExists, winner);
+                    }
+                    else
+                    {
+                        failedIndexes.Add(index);
+                        results[index] = FailedResult(identities[index], failure.GetBaseException().Message);
                     }
                 }
             }
@@ -1410,6 +1444,15 @@ public sealed partial class SongService : ISongService
         exception.InnerException is SqliteException { SqliteExtendedErrorCode: UniqueConstraintFailed } inner
         && (inner.Message.Contains("song.mb_recording_id", StringComparison.OrdinalIgnoreCase)
             || inner.Message.Contains("song.deezer_id", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Whether a failed save broke the unique index on an artist's MusicBrainz id (the only unique key
+    /// the artist table has: the Deezer id and the name are not), as against any other constraint. SQLite
+    /// names the column: <c>UNIQUE constraint failed: artist.mb_artist_id</c>.
+    /// </summary>
+    internal static bool IsDuplicateArtistKey(DbUpdateException exception) =>
+        exception.InnerException is SqliteException { SqliteExtendedErrorCode: UniqueConstraintFailed } inner
+        && inner.Message.Contains("artist.mb_artist_id", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The song the library holds for an identity, read fresh and untracked: the one with its MBID, else
