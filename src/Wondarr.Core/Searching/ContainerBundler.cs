@@ -102,7 +102,7 @@ public static class ContainerBundler
 
             var match = ContainerMatcher.Find(
                 files,
-                new ContainerMatchRequest(song.Title, VersionFlagNames.FromNames(song.VersionFlags), null, song.DurationMs, candidate.QualityId));
+                new ContainerMatchRequest(song.Title, VersionFlagNames.FromNames(song.VersionFlags), null, song.DurationMs, candidate.QualityId, candidate.Release.Song?.BitDepthStated ?? false));
 
             // Two songs never share a file, and the grabbed song's file is its own.
             if (match is not null && taken.Add(match.File.Index))
@@ -152,7 +152,8 @@ public static class ContainerBundler
                     VersionFlagNames.FromNames(bundled.Song.VersionFlags),
                     null,
                     bundled.Song.DurationMs,
-                    grabbed.QualityId),
+                    grabbed.QualityId,
+                    release.Song?.BitDepthStated ?? false),
             },
         };
     }

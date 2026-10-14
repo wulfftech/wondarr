@@ -88,6 +88,13 @@ public static class ReleaseQualityParser
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         MatchTimeout);
 
+    // Not Lidarr: whether a name states how deep its samples are, or names a CD source (16-bit), so a bare
+    // "[FLAC]" can be told from "FLAC 16-bit", "FLAC CD" and "FLAC 24-96". Token-bounded: "CDJ" and "ACDC" do not match.
+    private static readonly Regex StatedBitDepthRegex = new(
+        @"\b(?:(?:16|24)[-._ ]?bit|flac24|tr24|cd|cdda|hi[-._ ]?res|(?:16|24)[-/ ](?:44(?:\.1)?|48|88(?:\.2)?|96|176(?:\.4)?|192))\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase,
+        MatchTimeout);
+
     // Lidarr's codec regex, extended with an AIFF group (Wondarr has a seeded AIFF quality).
     private static readonly Regex CodecRegex = new(
         @"\b(?:(?<MP1>MPEG Version \d(.5)? Audio, Layer 1|MP1)|(?<MP2>MPEG Version \d(.5)? Audio, Layer 2|MP2)|(?<MP3VBR>MP3.*VBR|MPEG Version \d(.5)? Audio, Layer 3 vbr)|(?<MP3CBR>MP3|MPEG Version \d(.5)? Audio, Layer 3)|(?<FLAC>(web)?flac(?:24(?:[-._ ]?bit)?)?|TR24)|(?<WAVPACK>wavpack|wv)|(?<ALAC>alac)|(?<WMA>WMA\d?)|(?<WAV>WAV|PCM)|(?<AIFF>AIFF)|(?<AAC>M4A|M4P|M4B|AAC|mp4a|MPEG-4 Audio(?!.*alac))|(?<OGG>OGG|OGA|Vorbis))\b|(?<APE>monkey's audio|[\[|\(].*\bape\b.*[\]|\)])|(?<OPUS>Opus Version \d(.5)? Audio|[\[|\(].*\bopus\b.*[\]|\)])",
@@ -233,6 +240,24 @@ public static class ReleaseQualityParser
             default:
                 return QualityUnknown;
         }
+    }
+
+    /// <summary>
+    /// Whether a release name states a bit depth or a CD source ("16-bit", "24bit", "CD", "CDDA",
+    /// "Hi-Res", "24-96", "24/192", "24-44.1"). A name that only says "FLAC" does not, and its files may
+    /// be 24-bit. This reads the name only; it does not change what <see cref="Parse"/> returns.
+    /// </summary>
+    /// <param name="releaseName">The release name as the indexer reported it.</param>
+    /// <returns><see langword="true"/> when the name states a depth or a CD source.</returns>
+    public static bool StatesBitDepth(string releaseName)
+    {
+        if (string.IsNullOrWhiteSpace(releaseName))
+        {
+            return false;
+        }
+
+        // An underscore is a word character to the regex's word boundary; in a release name it separates words.
+        return StatedBitDepthRegex.IsMatch(releaseName.Replace('_', ' '));
     }
 
     private static Codec ParseCodec(string name)
