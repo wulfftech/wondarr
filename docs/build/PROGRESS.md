@@ -467,6 +467,8 @@ The review (`docs/reviews/CODE_REVIEW_2026-10-10.md`, 94 findings) is worked thr
 
 **0.1.4 (2026-10-14):** M-28 (email notifications) and the Singles shared-date revert. ch01's `wondarr-test` ran the `develop` image of `e7f79c1`: healthy; an email notification's test message went through a throwaway Mailpit server with SMTP login to two recipients, with HTML and plain-text parts; the password read back masked and appeared in neither the container log nor the log files; the notification and Mailpit were removed afterwards. Then `v0.1.4` was tagged.
 
+**Production (VM 177), 2026-10-14:** updated from 0.1.3 to 0.1.4 (queue empty). Healthy after 15 s; `wondarr_pre-0.1.3_2026.10.14_00.46.40.zip` written before the one migration (the first backup to carry a recorded version); all 16 Health checks OK; no warnings or errors.
+
 **Production (VM 177), 2026-10-13:** updated from 0.1.0 to 0.1.2 by `docker compose pull && up -d` on `:0.1`. Healthy after 15 s. `wondarr_pre-unknown_2026.10.13_02.18.17.zip` (34 MB, mode 600) was written before the 2 pending migrations. `config.yml` was tightened to 600. All 16 Health checks are OK: slskd 0.26 is logged in, Plex is up to date, and every import list was read in full. There were no warnings or errors in the log. The reverse-proxy route (`wondarr.apps.wulff.com.au`) sits behind the owner's forward-auth and sends proxy headers, so it was never covered by the local-address rule.
 
 Then `v0.1.1` was tagged.
