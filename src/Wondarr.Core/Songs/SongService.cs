@@ -209,7 +209,7 @@ public sealed partial class SongService : ISongService
             .ConfigureAwait(false);
 
         // 1. Duplicates: a song the library already holds, or an identity this batch already named.
-        var stored = await LoadStoredSongsAsync(identities, cancellationToken).ConfigureAwait(false);
+        var stored = await LoadStoredSongsAsync(_database, identities, cancellationToken).ConfigureAwait(false);
         var pending = new List<int>();
         var duplicateOf = new Dictionary<int, int>();
         var firstByKey = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -1110,7 +1110,7 @@ public sealed partial class SongService : ISongService
                         // A racing add saved this recording between the existence check and the write: the
                         // library holds the song now, which is the answer an add of a known song gives.
                         var winner = IsDuplicateSongKey(exception)
-                            ? await FindStoredSongAsync(identities[index], cancellationToken).ConfigureAwait(false)
+                            ? await FindStoredSongAsync(_database, identities[index], cancellationToken).ConfigureAwait(false)
                             : null;
 
                         if (winner is not null)
@@ -1406,15 +1406,25 @@ public sealed partial class SongService : ISongService
     /// Whether a failed save broke the unique index on a song's recording MBID or Deezer id, as against
     /// any other constraint. SQLite names the column: <c>UNIQUE constraint failed: song.mb_recording_id</c>.
     /// </summary>
-    private static bool IsDuplicateSongKey(DbUpdateException exception) =>
+    internal static bool IsDuplicateSongKey(DbUpdateException exception) =>
         exception.InnerException is SqliteException { SqliteExtendedErrorCode: UniqueConstraintFailed } inner
         && (inner.Message.Contains("song.mb_recording_id", StringComparison.OrdinalIgnoreCase)
             || inner.Message.Contains("song.deezer_id", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>The song the library holds for an identity's MBID or Deezer id, read fresh; <see langword="null"/> when none.</summary>
-    private async Task<Song?> FindStoredSongAsync(SongIdentity identity, CancellationToken cancellationToken)
+    /// <summary>
+    /// The song the library holds for an identity, read fresh and untracked: the one with its MBID, else
+    /// the one with its Deezer id; <see langword="null"/> when none.
+    /// </summary>
+    /// <param name="database">The Wondarr database.</param>
+    /// <param name="identity">The identity to look up.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The stored song, or <see langword="null"/>.</returns>
+    internal static async Task<Song?> FindStoredSongAsync(
+        WondarrDbContext database,
+        SongIdentity identity,
+        CancellationToken cancellationToken)
     {
-        var stored = await LoadStoredSongsAsync([identity], cancellationToken).ConfigureAwait(false);
+        var stored = await LoadStoredSongsAsync(database, [identity], cancellationToken).ConfigureAwait(false);
 
         return StoredKeys(identity)
             .Select(key => stored.GetValueOrDefault(key))
@@ -1422,7 +1432,8 @@ public sealed partial class SongService : ISongService
     }
 
     /// <summary>The songs the library already holds for the identities' MBIDs and Deezer ids.</summary>
-    private async Task<Dictionary<string, Song>> LoadStoredSongsAsync(
+    private static async Task<Dictionary<string, Song>> LoadStoredSongsAsync(
+        WondarrDbContext database,
         IReadOnlyList<SongIdentity> identities,
         CancellationToken cancellationToken)
     {
@@ -1452,7 +1463,7 @@ public sealed partial class SongService : ISongService
             return new Dictionary<string, Song>(StringComparer.Ordinal);
         }
 
-        var songs = await _database.Songs
+        var songs = await database.Songs
             .AsNoTracking()
             .Include(song => song.PrimaryArtist)
             .Include(song => song.AlbumContext)

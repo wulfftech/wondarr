@@ -208,7 +208,29 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         try
         {
-            song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
+            try
+            {
+                song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
+            }
+            catch (DbUpdateException exception) when (SongService.IsDuplicateSongKey(exception))
+            {
+                // Another add of this recording saved it between the existence check and the write. The
+                // user's choice stands: the file goes to the song that won, as if it had been there all along.
+                await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+                DiscardPendingChanges();
+
+                var winner = await SongService.FindStoredSongAsync(_database, identity, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (winner is null)
+                {
+                    throw;
+                }
+
+                song = winner;
+                await EnsureTransactionAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             var link = await LinkAsync(row, library, song, cancellationToken).ConfigureAwait(false);
 
             row.SongId = song.Id;
@@ -329,8 +351,49 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
             try
             {
-                var added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
-                    .ConfigureAwait(false);
+                IReadOnlyList<Song> added;
+
+                try
+                {
+                    added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (DbUpdateException duplicate) when (SongService.IsDuplicateSongKey(duplicate))
+                {
+                    // Another add saved one of these recordings between the existence check and the write.
+                    // The user's choice stands: a file whose recording now exists goes to that song, and
+                    // the others are added as a batch of their own.
+                    await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+                    DiscardPendingChanges();
+
+                    var songs = new Song?[batch.Count];
+
+                    for (var index = 0; index < batch.Count; index++)
+                    {
+                        songs[index] = await SongService.FindStoredSongAsync(_database, batch[index].Identity, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    var missing = Enumerable.Range(0, batch.Count).Where(index => songs[index] is null).ToList();
+
+                    if (missing.Count == batch.Count)
+                    {
+                        throw;
+                    }
+
+                    if (missing.Count > 0)
+                    {
+                        var rest = await AddAsync(batch[0].Library, [.. missing.Select(index => batch[index].Identity)], cancellationToken)
+                            .ConfigureAwait(false);
+
+                        for (var position = 0; position < missing.Count; position++)
+                        {
+                            songs[missing[position]] = rest[position];
+                        }
+                    }
+
+                    await EnsureTransactionAsync(cancellationToken).ConfigureAwait(false);
+                    added = [.. songs.Select(song => song!)];
+                }
 
                 for (var index = 0; index < batch.Count; index++)
                 {
@@ -386,7 +449,18 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     /// </summary>
     private void DiscardPendingChanges()
     {
-        foreach (var entry in _database.ChangeTracker.Entries().ToList())
+        // Dependents first: letting go of an artist or a song while rows that need it are still tracked
+        // would sever a required relationship.
+        var entries = _database.ChangeTracker.Entries()
+            .OrderBy(entry => entry.Entity switch
+            {
+                Artist => 2,
+                Song => 1,
+                _ => 0,
+            })
+            .ToList();
+
+        foreach (var entry in entries)
         {
             switch (entry.State)
             {
@@ -500,6 +574,18 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             .ConfigureAwait(false);
 
         return [.. results.Select(result => result.Song)];
+    }
+
+    /// <summary>
+    /// Opens the transaction the write lock is held under when the add did not leave one: a file linked to
+    /// a song that won a race commits through the same path as a freshly added song.
+    /// </summary>
+    private async Task EnsureTransactionAsync(CancellationToken cancellationToken)
+    {
+        if (_database.Database.CurrentTransaction is null)
+        {
+            await _database.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>A file's absolute path on this machine.</summary>

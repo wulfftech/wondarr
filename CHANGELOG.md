@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **Matching reference files by hand no longer fails when another add of the same recording wins the race.** Choosing a candidate, a MusicBrainz id or a Deezer id in the Match queue, or accepting the top candidates in bulk, returned an error (or lost the whole group of files) if the song was added a moment earlier by another request. The file is now linked to the song that was added first.
+
 ## [0.1.5] — 2026-10-14
 
 The backlog release: a "Download completed" notification event and a few notification-window fixes the owner asked for, song searches that wait for a free download slot instead of giving up, better matching on compilation folders and of which recording a song means, verification that no longer refuses the right file in two cases, and .NET's October security fixes. Update by pulling `:0.1` (or `:0.1.5`).
