@@ -20,7 +20,7 @@ public sealed class SystemTaskTests
     [Fact]
     public async Task Tasks_without_a_key_are_unauthorized()
     {
-        using var factory = new WondarrAppFactory();
+        using var factory = new WondarrAppFactory(runScheduledTasks: true);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync(new Uri(TaskEndpoint, UriKind.Relative));
@@ -29,9 +29,21 @@ public sealed class SystemTaskTests
     }
 
     [Fact]
+    public void A_test_host_schedules_nothing_unless_the_test_asks_for_it()
+    {
+        // The missing-song search would otherwise start ten seconds in and grab a seeded song behind the
+        // test's back; see WondarrAppFactory.
+        using var quiet = new WondarrAppFactory();
+        using var scheduled = new WondarrAppFactory(runScheduledTasks: true);
+
+        quiet.Services.GetRequiredService<IScheduledTaskCatalog>().Tasks.Should().BeEmpty();
+        scheduled.Services.GetRequiredService<IScheduledTaskCatalog>().Tasks.Should().NotBeEmpty();
+    }
+
+    [Fact]
     public async Task Tasks_list_the_scheduled_tasks_with_their_intervals()
     {
-        using var factory = new WondarrAppFactory();
+        using var factory = new WondarrAppFactory(runScheduledTasks: true);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", factory.ApiKey);
 
@@ -80,7 +92,7 @@ public sealed class SystemTaskTests
     [Fact]
     public async Task One_task_can_be_read_by_id()
     {
-        using var factory = new WondarrAppFactory();
+        using var factory = new WondarrAppFactory(runScheduledTasks: true);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", factory.ApiKey);
 
@@ -99,7 +111,7 @@ public sealed class SystemTaskTests
     [Fact]
     public async Task An_unknown_task_id_is_not_found()
     {
-        using var factory = new WondarrAppFactory();
+        using var factory = new WondarrAppFactory(runScheduledTasks: true);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", factory.ApiKey);
 
@@ -111,7 +123,7 @@ public sealed class SystemTaskTests
     [Fact]
     public async Task A_finished_command_gives_the_task_its_run_time()
     {
-        using var factory = new WondarrAppFactory();
+        using var factory = new WondarrAppFactory(runScheduledTasks: true);
         using var client = Authenticated(factory);
 
         var startedAt = TruncatedToSecond(DateTime.UtcNow.AddSeconds(-2));
@@ -148,7 +160,7 @@ public sealed class SystemTaskTests
     [Fact]
     public async Task A_task_without_commands_reports_the_fallbacks()
     {
-        using var factory = new WondarrAppFactory();
+        using var factory = new WondarrAppFactory(runScheduledTasks: true);
         using var client = Authenticated(factory);
 
         var lastRunAt = TruncatedToSecond(DateTime.UtcNow.AddMinutes(-5));
@@ -174,7 +186,7 @@ public sealed class SystemTaskTests
     [Fact]
     public async Task The_newest_finished_command_wins()
     {
-        using var factory = new WondarrAppFactory();
+        using var factory = new WondarrAppFactory(runScheduledTasks: true);
         using var client = Authenticated(factory);
 
         var startedAt = TruncatedToSecond(DateTime.UtcNow.AddSeconds(-30));
