@@ -18,6 +18,50 @@ public sealed class ActiveCommands
     /// </summary>
     internal SemaphoreSlim Gate { get; } = new(1, 1);
 
+    private readonly ConcurrentDictionary<long, CancellationTokenSource> _cancellable = new();
+
+    /// <summary>Records the token source of a running command whose handler lets a user cancel it.</summary>
+    /// <param name="id">The command row.</param>
+    /// <param name="source">What the handler's token comes from.</param>
+    internal void RegisterCancellable(long id, CancellationTokenSource source) => _cancellable[id] = source;
+
+    /// <summary>Forgets the token source; called before the executor disposes it.</summary>
+    /// <param name="id">The command row.</param>
+    internal void UnregisterCancellable(long id) => _cancellable.TryRemove(id, out _);
+
+    /// <summary>
+    /// Fires the cancellation of a running command, when its handler opted in to being cancelled.
+    /// </summary>
+    /// <param name="id">The command row.</param>
+    /// <returns><see langword="true"/> when the command was running and is now being cancelled.</returns>
+    internal bool TryCancelRunning(long id) => TryTakeRunning(id) is { } source && Fire(source);
+
+    /// <summary>Looks up the token source of a running command that can be cancelled, without firing it.</summary>
+    /// <param name="id">The command row.</param>
+    /// <returns>The source, or <see langword="null"/> when the command is not running or did not opt in.</returns>
+    internal CancellationTokenSource? TryTakeRunning(long id) => _cancellable.TryGetValue(id, out var source) ? source : null;
+
+    /// <summary>
+    /// Fires a token source from <see cref="TryTakeRunning"/>. Callbacks registered on the token run inline
+    /// on this thread, so a caller holding a lock fires it only after releasing the lock.
+    /// </summary>
+    /// <param name="source">The source to fire.</param>
+    /// <returns><see langword="false"/> when the command finished and the source is gone.</returns>
+    internal static bool Fire(CancellationTokenSource source)
+    {
+        try
+        {
+            source.Cancel();
+
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            // The command finished between the lookup and the cancel.
+            return false;
+        }
+    }
+
     /// <summary>Records that the process holds the command.</summary>
     /// <param name="id">The command row.</param>
     public void Add(long id) => _ids[id] = 0;

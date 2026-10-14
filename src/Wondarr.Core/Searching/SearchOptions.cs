@@ -46,10 +46,10 @@ public sealed class SearchOptions
     public int SlotWaitSeconds { get; set; } = 10;
 
     /// <summary>
-    /// How long a search that found something to grab waits for a download slot before it gives up and
-    /// leaves the song wanted for the next <c>MissingSearch</c>.
+    /// How long a search that found something to grab waits for a download slot before it ends and
+    /// leaves the song wanted for the next <c>MissingSearch</c> (2 hours).
     /// </summary>
-    public int SlotWaitMinutes { get; set; } = 30;
+    public int SlotWaitMinutes { get; set; } = 120;
 
     /// <summary>
     /// The largest usenet post, in MB, downloaded whole for one song (DECISIONS build session 8 #7). A

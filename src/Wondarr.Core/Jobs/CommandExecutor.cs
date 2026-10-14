@@ -155,7 +155,9 @@ public sealed partial class CommandExecutor : BackgroundService
         string? message = null;
         string? error = null;
         var aborted = false;
+        var cancelled = false;
         CommandHandlerLookup? lookup = null;
+        CancellationTokenSource? cancelSource = null;
 
         try
         {
@@ -177,12 +179,25 @@ public sealed partial class CommandExecutor : BackgroundService
             }
             else
             {
+                // Only a handler that opted in can be cancelled by the user. It gets the cancel as
+                // a token of its own and the stopping token as before, so it decides where a cancel may
+                // take effect; every other running command sees the stopping token alone.
+                var userCancellation = CancellationToken.None;
+
+                if (handler.CancelWhileRunning)
+                {
+                    cancelSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                    _activeCommands.RegisterCancellable(started.Id, cancelSource);
+                    userCancellation = cancelSource.Token;
+                }
+
                 var context = new CommandContext(
                     started.Id,
                     started.Body,
                     started.Trigger,
                     progress => ReportProgressAsync(started.Id, progress),
-                    place.Yield);
+                    place.Yield,
+                    userCancellation);
 
                 message = await handler.ExecuteAsync(context, stoppingToken).ConfigureAwait(false);
             }
@@ -191,6 +206,10 @@ public sealed partial class CommandExecutor : BackgroundService
         {
             aborted = true;
         }
+        catch (OperationCanceledException) when (cancelSource is { IsCancellationRequested: true })
+        {
+            cancelled = true;
+        }
         catch (Exception exception)
         {
             error = exception.Message;
@@ -198,6 +217,12 @@ public sealed partial class CommandExecutor : BackgroundService
         }
         finally
         {
+            if (cancelSource is not null)
+            {
+                _activeCommands.UnregisterCancellable(started.Id);
+                cancelSource.Dispose();
+            }
+
             // Only a handler built outside the scope's own tracking needs this.
             if (lookup is not null)
             {
@@ -205,7 +230,7 @@ public sealed partial class CommandExecutor : BackgroundService
             }
         }
 
-        var finished = await MarkFinishedAsync(id, aborted, message, error).ConfigureAwait(false);
+        var finished = await MarkFinishedAsync(id, aborted, cancelled, message, error).ConfigureAwait(false);
         if (finished is not null)
         {
             await _eventAggregator
@@ -375,7 +400,7 @@ public sealed partial class CommandExecutor : BackgroundService
         }
     }
 
-    private async Task<CommandRecord?> MarkFinishedAsync(long id, bool aborted, string? message, string? error)
+    private async Task<CommandRecord?> MarkFinishedAsync(long id, bool aborted, bool cancelled, string? message, string? error)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -390,9 +415,11 @@ public sealed partial class CommandExecutor : BackgroundService
 
                 record.Status = aborted
                     ? CommandStatus.Aborted
-                    : error is null ? CommandStatus.Completed : CommandStatus.Failed;
-                record.Result = error is null && !aborted ? CommandResult.Successful : CommandResult.Unsuccessful;
-                record.Message = message ?? record.Message;
+                    : cancelled
+                        ? CommandStatus.Cancelled
+                        : error is null ? CommandStatus.Completed : CommandStatus.Failed;
+                record.Result = error is null && !aborted && !cancelled ? CommandResult.Successful : CommandResult.Unsuccessful;
+                record.Message = cancelled ? "Cancelled" : message ?? record.Message;
                 record.Exception = error;
                 record.EndedAt = now;
 

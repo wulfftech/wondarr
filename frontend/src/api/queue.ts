@@ -40,7 +40,7 @@ export type QueueItemStateName =
 
 /** The wire spelling of `SearchOutcome`; see {@link QueueItemStateName}. */
 export type SearchOutcomeName =
-  'grabbed' | 'noAcceptableCandidate' | 'noResults' | 'sourceUnavailable' | 'failed' | 'cancelled';
+  'grabbed' | 'noAcceptableCandidate' | 'noResults' | 'sourceUnavailable' | 'failed' | 'cancelled' | 'noFreeSlot';
 
 /**
  * The queue's query as something the typed client accepts. The document describes only

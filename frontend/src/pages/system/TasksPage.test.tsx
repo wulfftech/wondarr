@@ -48,7 +48,7 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
   });
 }
 
-function install(): void {
+function install(commands: readonly object[] = COMMANDS): void {
   installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
@@ -63,7 +63,11 @@ function install(): void {
     }
 
     if (url.includes('/api/v1/command')) {
-      return init?.method === 'POST' ? jsonResponse({ id: 8 }, 201) : jsonResponse(COMMANDS);
+      return init?.method === 'POST'
+        ? jsonResponse({ id: 8 }, 201)
+        : init?.method === 'DELETE'
+          ? new Response(null, { status: 204 })
+          : jsonResponse(commands);
     }
 
     return new Response('not found', { status: 404 });
@@ -121,6 +125,44 @@ describe('TasksPage', () => {
     renderApp();
 
     expect(await screen.findByText('20 songs: 18 grabbed')).toBeInTheDocument();
+  });
+
+  it('offers Cancel for a running search and for a queued command, and no other running one', async () => {
+    const running = (id: number, name: string, status: string) => ({
+      ...COMMANDS[0],
+      id,
+      name,
+      commandName: name,
+      status,
+      ended: null,
+      message: `${name} ${status}`,
+    });
+
+    install([
+      running(9, 'SongSearch', 'started'),
+      running(10, 'MissingSearch', 'started'),
+      running(11, 'Backup', 'queued'),
+      COMMANDS[0],
+    ]);
+
+    renderApp();
+
+    const user = userEvent.setup();
+    const rows = await screen.findAllByRole('row');
+    const row = (text: string) => rows.find((candidate) => within(candidate).queryByText(text) !== null);
+
+    expect(within(row('SongSearch started')!).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(within(row('Backup queued')!).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(within(row('MissingSearch started')!).queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(within(row('20 songs: 18 grabbed')!).queryByRole('button', { name: 'Cancel' })).toBeNull();
+
+    await user.click(within(row('SongSearch started')!).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      const cancel = sent().find((call) => call.method === 'DELETE');
+
+      expect(cancel?.url).toContain('/api/v1/command/9');
+    });
   });
 
   it('shows an error state when the task list fails', async () => {

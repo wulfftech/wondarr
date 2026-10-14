@@ -91,10 +91,10 @@ public sealed class CommandController : ControllerBase
         return record is null ? NotFound() : Ok(record.ToResource());
     }
 
-    /// <summary>Cancels a command that has not started.</summary>
+    /// <summary>Cancels a command that has not started, or a running one that allows it (a search waiting for a download slot).</summary>
     /// <param name="id">The command row.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>204 when it was cancelled, 404 when it does not exist, 409 when it already ran.</returns>
+    /// <returns>204 when it was cancelled, 404 when it does not exist, 409 when it is running and cannot be cancelled or already ran.</returns>
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> CancelCommand(long id, CancellationToken cancellationToken)
     {

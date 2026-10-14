@@ -48,6 +48,10 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
     public string Name => CommandName;
 
     /// <inheritdoc />
+    /// <remarks>A search that waits for a download slot honours its token and releases everything it holds.</remarks>
+    public bool CancelWhileRunning => true;
+
+    /// <inheritdoc />
     public async Task<string?> ExecuteAsync(CommandContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -60,6 +64,7 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
         // this command and lends this command's executor worker meanwhile.
         _slotWait.ReportProgressAsync = context.ReportProgressAsync;
         _slotWait.YieldWorker = context.YieldWorker;
+        _slotWait.CancelWait = context.UserCancellation;
         _slotWait.WaitForSlot = true;
 
         // A user asking for this song must not be held back by the backoff, but the run still obeys
@@ -68,11 +73,14 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
             .SearchAsync(songId, SearchTrigger.Automatic, grab: true, cancellationToken)
             .ConfigureAwait(false);
 
+        // A search that waited for a slot without getting one, or whose song no longer needed the grab by
+        // the time one freed, is not a failed search: the command did its job and says "Completed". (The
+        // run itself is recorded as NoFreeSlot or Cancelled respectively.)
         return string.Concat(
             "Song ",
             songId.ToString(CultureInfo.InvariantCulture),
             ": ",
-            result.Outcome.ToString(),
+            result.SlotWaitExpired || result.SatisfiedDuringWait ? "Completed" : result.Outcome.ToString(),
             result.Message is { Length: > 0 } message ? string.Concat(" — ", message) : string.Empty);
     }
 
