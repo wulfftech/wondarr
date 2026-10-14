@@ -32,6 +32,27 @@ describe('StatusPage', () => {
     expect(within(table).getByText('Docker')).toBeInTheDocument();
   });
 
+  it.each([
+    ['none', 'None'],
+    ['forms', 'Forms'],
+    ['external', 'External'],
+  ])('names the %s authentication method %s in the Authentication row', async (method, name) => {
+    installFetch((url) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse({ ...SYSTEM_STATUS, authentication: method });
+      }
+
+      return jsonResponse(HEALTH_ENTRIES);
+    });
+
+    renderApp();
+
+    const table = await screen.findByTestId('system-status');
+    const row = within(table).getByText('Authentication').closest('tr');
+
+    expect(within(row!).getByText(name)).toBeInTheDocument();
+  });
+
   it('shows the health list with a badge per entry', async () => {
     installFetch((url) => {
       if (url.includes('/api/v1/system/status')) {

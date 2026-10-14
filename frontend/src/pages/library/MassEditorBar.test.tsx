@@ -86,4 +86,45 @@ describe('MassEditorBar', () => {
     expect(await within(document.body).findByText('Moved 2 songs.')).toBeInTheDocument();
     expect(client.getQueryState(songsKey)?.isInvalidated).toBe(true);
   });
+
+  it.each(['cancelled', 'orphaned'])('stops polling a library move that ended %s and reports it', async (status) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let polls = 0;
+    installFetch((url, init) => {
+      if (url.includes('/api/v1/song/editor') && init?.method === 'PUT') {
+        return jsonResponse({ songs: [], moveCommandIds: [40] });
+      }
+
+      if (url.includes('/api/v1/command/')) {
+        polls += 1;
+
+        return jsonResponse(command(status, `The move was ${status}`));
+      }
+
+      return new Response('not found', { status: 404 });
+    });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const libraries = [LIBRARIES[0], SECOND_LIBRARY] as unknown as LibraryResource[];
+
+    render(
+      <MantineProvider theme={theme} env="test">
+        <ApiProvider config={createTestConfig()}>
+          <QueryClientProvider client={client}>
+            <MassEditorBar selectedIds={[1, 2]} profiles={[]} libraries={libraries} knownTags={[]} onClear={() => {}} />
+          </QueryClientProvider>
+        </ApiProvider>
+      </MantineProvider>,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Library for the selection' }));
+    await user.click(await screen.findByRole('option', { name: 'Singles' }));
+    await user.click(screen.getByRole('button', { name: 'Apply library' }));
+
+    expect(await screen.findByText(`The move was ${status}`)).toBeInTheDocument();
+    const pollsWhenShown = polls;
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(polls).toBe(pollsWhenShown);
+  });
 });

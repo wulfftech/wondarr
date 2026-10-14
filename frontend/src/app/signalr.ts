@@ -5,7 +5,7 @@ import type { AppConfig } from '../api/bootstrap';
 import { HEALTH_QUERY_KEY, TASKS_QUERY_KEY } from '../api/hooks';
 import { QUEUE_QUERY_KEY } from '../api/queue';
 import { MATCH_QUEUE_QUERY_KEY } from '../api/references';
-import { COMMANDS_QUERY_KEY, invalidateLibrary, SONGS_QUERY_KEY } from '../api/songs';
+import { COMMANDS_QUERY_KEY, invalidateLibrary, isFinished, SONGS_QUERY_KEY } from '../api/songs';
 import { asHealthEntries } from '../api/types';
 import { UPDATE_QUERY_KEY } from '../api/update';
 import { HISTORY_QUERY_KEY, WANTED_QUERY_KEY } from '../api/wanted';
@@ -88,7 +88,7 @@ function applyCommandOutcome(queryClient: QueryClient, resource: unknown): void 
   const command = resource as { name?: unknown; status?: unknown };
   const status = typeof command.status === 'string' ? command.status.toLowerCase() : '';
 
-  if (status !== 'completed' && status !== 'failed' && status !== 'aborted') {
+  if (!isFinished(status)) {
     return;
   }
 

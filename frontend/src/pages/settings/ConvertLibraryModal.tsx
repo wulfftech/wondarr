@@ -4,13 +4,13 @@ import { CircleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   SONGS_QUERY_KEY,
+  isFinished,
+  isUnsuccessful,
   useCommand,
   useConvert,
   useConvertPreview,
-  type CommandStatusName,
   type ConvertSongResource,
 } from '../../api/songs';
-import { readEnum } from '../../api/profiles';
 import { ErrorState, LoadingState } from '../../components/DataState';
 
 /**
@@ -88,10 +88,9 @@ export function ConvertLibraryModal({
   const [commandId, setCommandId] = useState<number | null>(null);
   const command = useCommand(commandId, { poll: true });
 
-  const status = readEnum<CommandStatusName>(command.data?.status);
-  const finished =
-    command.data !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
-  const failed = status === 'failed' || status === 'aborted';
+  const status = command.data?.status;
+  const finished = command.data !== undefined && isFinished(status);
+  const failed = isUnsuccessful(status);
   const songs = plan.data?.songs ?? [];
   const shown = songs.slice(0, MAX_ROWS);
   const toConvert = Number(plan.data?.convert ?? 0);
