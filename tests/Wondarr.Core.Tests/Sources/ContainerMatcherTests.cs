@@ -218,7 +218,7 @@ public class ContainerMatcherTests
         var files = SlipRelease();
 
         // 253 s at 3,800 kbps is no 16-bit FLAC: the release said so itself.
-        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac, BitDepthStated: true))
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac, SixteenBitStated: true))
             .Should().BeNull();
     }
 
@@ -228,7 +228,7 @@ public class ContainerMatcherTests
         var files = SlipRelease();
         var flac24 = SeedData.Qualities.Single(quality => quality.Name == "FLAC 24-bit").Id;
 
-        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, flac24, BitDepthStated: true))
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, flac24, SixteenBitStated: false))
             .Should().NotBeNull();
         ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, flac24))
             .Should().NotBeNull();
@@ -249,6 +249,49 @@ public class ContainerMatcherTests
     {
         // 253 s at 12,000 kbps is not FLAC of any depth up to 24-bit/96 kHz.
         var files = new List<ContainerFile> { new(0, "Slip/03_letting_you.flac", Bytes(253, 12_000)) };
+
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void Two_copies_in_a_bare_flac_release_resolve_to_the_one_inside_the_16_bit_window()
+    {
+        // A release that carries a CD-quality FLAC and a hi-res FLAC of the same song: a bare "[FLAC]" lets
+        // both through, and the tie goes to the file that fits 16-bit.
+        var files = new List<ContainerFile>
+        {
+            new(0, "Slip [FLAC 24-96]/03 - Letting You.flac", Bytes(253, 3_800)),
+            new(1, "Slip [FLAC]/03 - Letting You.flac", Bytes(253, 900)),
+        };
+
+        var match = ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac));
+
+        match.Should().NotBeNull();
+        match!.File.Index.Should().Be(1);
+    }
+
+    [Fact]
+    public void Two_hi_res_copies_in_a_bare_flac_release_are_still_a_tie()
+    {
+        var files = new List<ContainerFile>
+        {
+            new(0, "Slip [FLAC A]/03 - Letting You.flac", Bytes(253, 3_800)),
+            new(1, "Slip [FLAC B]/03 - Letting You.flac", Bytes(253, 4_000)),
+        };
+
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void Two_16_bit_copies_in_a_bare_flac_release_are_still_a_tie()
+    {
+        var files = new List<ContainerFile>
+        {
+            new(0, "Slip [FLAC A]/03 - Letting You.flac", Bytes(253, 900)),
+            new(1, "Slip [FLAC B]/03 - Letting You.flac", Bytes(253, 950)),
+        };
 
         ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac))
             .Should().BeNull();

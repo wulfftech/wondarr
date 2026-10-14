@@ -26,9 +26,14 @@ public sealed class ContainerCandidatesTests
     [InlineData("Nine Inch Nails - The Slip (2008) FLAC", false, true)]
     [InlineData("Nine Inch Nails - The Slip (2008) FLAC 16-bit", true, false)]
     [InlineData("Nine Inch Nails - The Slip (2008) FLAC CD", true, false)]
-    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC 24-96]", true, true)]
-    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC 24bit]", true, true)]
-    public void A_flac_release_sets_its_size_window_by_what_its_name_states(string title, bool stated, bool accepted)
+    [InlineData("Nine Inch Nails - The Slip (2008) FLAC 16-44", true, false)]
+    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC 24-96]", false, true)]
+    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC 24bit]", false, true)]
+    // 24-bit spellings the quality parser reads as plain FLAC still get the wide window.
+    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC 24-88.2]", false, true)]
+    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC 24 96]", false, true)]
+    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC 24-176.4]", false, true)]
+    public void A_flac_release_sets_its_size_window_by_what_its_name_claims(string title, bool sixteenBit, bool accepted)
     {
         var listing = Listing(title, [new ContainerFile(0, "nine-inch-nails-the-slip/03_letting_you.flac", HiResBytes)]);
 
@@ -37,11 +42,11 @@ public sealed class ContainerCandidatesTests
         if (accepted)
         {
             candidate.Should().NotBeNull("a file of that size fits the window the name leaves open");
-            candidate!.Release!.Song!.BitDepthStated.Should().Be(stated);
+            candidate!.Release!.Song!.SixteenBitStated.Should().Be(sixteenBit);
         }
         else
         {
-            candidate.Should().BeNull("the release said 16-bit, and this file is not");
+            candidate.Should().BeNull("the release said 16-bit or CD, and this file is not");
         }
     }
 
