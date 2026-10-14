@@ -1,0 +1,22 @@
+{
+  "status": "ok",
+  "results": [
+    {
+      "id": "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "score": 0.97,
+      "recordings": [
+        {
+          "id": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+          "title": "MALAMENTE (Cap.1: Augurio)",
+          "duration": 150.2,
+          "artists": [
+            {
+              "id": "db2c5d28-9d5f-4a0b-8e6d-6c0e1a7b3f10",
+              "name": "ROSALÍA"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
