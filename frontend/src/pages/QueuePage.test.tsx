@@ -194,6 +194,27 @@ describe('QueuePage', () => {
     ).toBeInTheDocument();
   });
 
+  it('leaves the file out when the grab has no file list and the file is just the release again', async () => {
+    install(
+      paged([
+        {
+          ...QUEUE_ITEMS[0],
+          sourceType: 'newznab',
+          releaseTitle: 'Queen - Jazz (1978) [FLAC]',
+          containerFile: 'Queen - Jazz (1978) [FLAC]',
+          bundledWithCount: 0,
+        },
+      ]),
+    );
+
+    renderApp();
+
+    const line = await screen.findByText('Queen - Jazz (1978) [FLAC]');
+
+    // The full text rides along as the title for screens that cannot hover.
+    expect(line).toHaveAttribute('title', 'Queen - Jazz (1978) [FLAC]');
+  });
+
   it('keeps a long release name in a tooltip and lets it wrap rather than widen the page', async () => {
     const release = `Various Artists - ${'A very long release name '.repeat(8)}[FLAC]`;
     const user = userEvent.setup();

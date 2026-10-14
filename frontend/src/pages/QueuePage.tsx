@@ -219,13 +219,13 @@ function queueColumns(
       label: 'File',
       sortKey: null,
       render: (item) => (
-        <Tooltip label={item.remotePath} multiline w={420}>
-          <Stack gap={0}>
+        <Stack gap={0}>
+          <Tooltip label={item.remotePath} multiline w={420}>
             <Text size="sm">{item.displayName}</Text>
-            {/* One song's own queue has no Song column to carry the line, so it sits here. */}
-            {showSong ? null : <ReleaseLine item={item} />}
-          </Stack>
-        </Tooltip>
+          </Tooltip>
+          {/* One song's own queue has no Song column to carry the line, so it sits here, outside the path tooltip. */}
+          {showSong ? null : <ReleaseLine item={item} />}
+        </Stack>
       ),
     },
     {

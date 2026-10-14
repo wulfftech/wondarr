@@ -77,14 +77,16 @@ public sealed class QueueApiTests
         var candidateId = await SeedCandidateAsync(factory, songId, "Queen - A Night at the Opera (1975) [FLAC]");
         var plainSongId = await SeedSongAsync(factory, "Get Lucky");
         var plainCandidateId = await SeedCandidateAsync(factory, plainSongId, "Queen - Jazz (1978) [FLAC]");
+        var usenetSongId = await SeedSongAsync(factory, "Mustapha");
+        var usenetCandidateId = await SeedCandidateAsync(factory, usenetSongId, "Queen - Jazz (1978) [FLAC]");
 
         using (var scope = factory.Services.CreateScope())
         {
             await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
 
-            foreach (var record in await context.Candidates.Where(candidate => candidate.Id == candidateId || candidate.Id == plainCandidateId).ToListAsync())
+            foreach (var record in await context.Candidates.Where(candidate => candidate.Id == candidateId || candidate.Id == plainCandidateId || candidate.Id == usenetCandidateId).ToListAsync())
             {
-                record.SourceType = SourceTypes.Torznab;
+                record.SourceType = record.Id == usenetCandidateId ? SourceTypes.Newznab : SourceTypes.Torznab;
                 record.RemotePath = "05 - Love of My Life.flac";
                 record.Normalised = """{"release":{"title":"Queen - A Night at the Opera (1975) [FLAC]"}}""";
             }
@@ -94,6 +96,7 @@ public sealed class QueueApiTests
 
         await SeedQueueItemAsync(factory, songId, candidateId, QueueItemState.Queued);
         await SeedQueueItemAsync(factory, plainSongId, plainCandidateId, QueueItemState.Queued);
+        await SeedQueueItemAsync(factory, usenetSongId, usenetCandidateId, QueueItemState.Queued);
 
         using (var scope = factory.Services.CreateScope())
         {
@@ -101,10 +104,18 @@ public sealed class QueueApiTests
 
             foreach (var item in await context.QueueItems.ToListAsync())
             {
-                item.SourceType = SourceTypes.Torznab;
+                item.SourceType = item.SongId == usenetSongId ? SourceTypes.Newznab : SourceTypes.Torznab;
             }
 
+            // Rows are added in this order, so the ids run oldest to newest.
             context.History.AddRange(
+                new HistoryItem
+                {
+                    // An earlier grab of the same candidate: the newest row for the candidate wins.
+                    SongId = songId,
+                    EventType = HistoryEventType.Grabbed,
+                    Data = $$"""{"candidateId":{{candidateId}},"release":"Queen - A Night at the Opera (1975) [FLAC]","bundledWith":1}""",
+                },
                 new HistoryItem
                 {
                     SongId = songId,
@@ -113,19 +124,44 @@ public sealed class QueueApiTests
                 },
                 new HistoryItem
                 {
+                    // A later grab of the same song from another candidate does not change this one's count.
+                    SongId = songId,
+                    EventType = HistoryEventType.Grabbed,
+                    Data = $$"""{"candidateId":{{candidateId + 1000}},"bundledWith":9}""",
+                },
+                new HistoryItem
+                {
                     // A row from before bundling existed carries no count.
                     SongId = plainSongId,
                     EventType = HistoryEventType.Grabbed,
                     Data = $$"""{"candidateId":{{plainCandidateId}}}""",
+                },
+                new HistoryItem
+                {
+                    // A row that is not JSON at all is skipped, not an error on the queue page.
+                    SongId = plainSongId,
+                    EventType = HistoryEventType.Grabbed,
+                    Data = "not json {",
+                },
+                new HistoryItem
+                {
+                    SongId = usenetSongId,
+                    EventType = HistoryEventType.Grabbed,
+                    Data = $$"""{"candidateId":{{usenetCandidateId}},"bundledWith":2}""",
                 });
             await context.SaveChangesAsync();
         }
 
         using var response = await client.GetAsync(new Uri(QueueEndpoint, UriKind.Relative));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
         var records = (await ReadJsonAsync(response)).GetProperty("records").EnumerateArray().ToList();
 
-        records.Single(record => record.GetProperty("songId").GetInt64() == songId).GetProperty("bundledWithCount").GetInt32().Should().Be(3);
-        records.Single(record => record.GetProperty("songId").GetInt64() == plainSongId).GetProperty("bundledWithCount").GetInt32().Should().Be(0);
+        int CountOf(long song) =>
+            records.Single(record => record.GetProperty("songId").GetInt64() == song).GetProperty("bundledWithCount").GetInt32();
+
+        CountOf(songId).Should().Be(3);
+        CountOf(plainSongId).Should().Be(0);
+        CountOf(usenetSongId).Should().Be(2);
     }
 
     [Fact]

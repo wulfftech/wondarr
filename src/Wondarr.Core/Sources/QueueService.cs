@@ -257,12 +257,14 @@ public sealed class QueueService : IQueueService
         var rows = await _database.History
             .AsNoTracking()
             .Where(row => row.EventType == HistoryEventType.Grabbed && songIds.Contains(row.SongId))
+            .OrderBy(row => row.Id)
             .Select(row => row.Data)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         var counts = new Dictionary<long, int>();
 
+        // Oldest first, so when one candidate has more than one grab row the newest overwrites.
         foreach (var data in rows)
         {
             if (TryReadBundledWith(data, out var candidateId, out var bundledWith) && candidateIds.Contains(candidateId))
