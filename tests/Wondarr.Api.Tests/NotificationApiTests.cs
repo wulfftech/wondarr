@@ -282,6 +282,10 @@ public sealed class NotificationApiTests
         (await Errors(webhookId, "Webhook", new { url = "http://hooks.invalid/wondarr", password = "********" }, "url"))
             .GetProperty("url")[0].GetString().Should().Contain("not a secret");
 
+        // Clearing and replacing the same secret in one request.
+        (await Errors(webhookId, "Webhook", new { url = "http://hooks.invalid/wondarr", password = "typed-again" }, "password"))
+            .GetProperty("password")[0].GetString().Should().Be("Clear or replace the secret, not both.");
+
         using var fetched = await client.GetAsync(new Uri($"{Endpoint}/{webhookId}", UriKind.Relative));
         (await ReadJsonAsync(fetched)).GetProperty("settings").GetProperty("password").GetString().Should().Be("********");
     }

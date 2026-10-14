@@ -275,7 +275,7 @@ function NotificationForm({
       )}
 
       <Group justify="flex-end">
-        <Button variant="default" onClick={onRequestClose}>
+        <Button variant="default" disabled={save.isPending} onClick={onRequestClose}>
           Cancel
         </Button>
         <Button variant="light" loading={test.isPending} onClick={runTest}>
@@ -305,8 +305,19 @@ function NotificationFormModal({
   const [state, setState] = useState({ dirty: false, saving: false });
   const [confirming, setConfirming] = useState(false);
 
-  // Nothing is asked when there is nothing to lose, or while a save is already on its way.
-  const requestClose = () => (state.dirty && !state.saving ? setConfirming(true) : onClose());
+  // While a save is on its way the dialog stays open, so its result (the toast, or the error it came
+  // back with) is always seen. With nothing to lose it closes at once; otherwise it asks first.
+  const requestClose = () => {
+    if (state.saving) {
+      return;
+    }
+
+    if (state.dirty) {
+      setConfirming(true);
+    } else {
+      onClose();
+    }
+  };
 
   return (
     <>
