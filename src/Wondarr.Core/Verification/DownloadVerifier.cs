@@ -442,12 +442,15 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             return false;
         }
 
-        // The file already passed the song's length window (step 2), so the recording is held against the
-        // file's measured length, not the song's: a MusicBrainz duplicate of the same song can be several
-        // seconds longer or shorter than the song's own recording ("Little Lion Man": 238 s and 247 s). The
-        // title, the artist and the hard flags above already agree, so the window is the wider of the
-        // profile's tolerance and DuplicateLengthWindowMs.
-        var windowMs = Math.Max(request.DurationToleranceMs, DuplicateLengthWindowMs);
+        // A song with a stored length has had the file held against it already (step 2), so the recording is
+        // held against the file's measured length, not the song's: a MusicBrainz duplicate of the same song
+        // can be several seconds longer or shorter than the song's own recording ("Little Lion Man": 238 s
+        // and 247 s). The title, the artist and the hard flags above already agree, so the window is the
+        // wider of the profile's tolerance and DuplicateLengthWindowMs. A song without a stored length (a
+        // Deezer-only one) has had no such check, so the recording gets the plain profile tolerance.
+        var windowMs = request.SongDurationMs is null
+            ? request.DurationToleranceMs
+            : Math.Max(request.DurationToleranceMs, DuplicateLengthWindowMs);
 
         return probedDurationMs > 0
             && Math.Abs((durationSeconds * 1000) - probedDurationMs) <= windowMs;
@@ -516,8 +519,12 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     [GeneratedRegex(@"(?:\s*\((?<suffix>[^()]*)\)|\s*\[(?<suffix>[^\[\]]*)\]|\s+[-–—]\s+(?<suffix>(?:(?!\s[-–—]\s).)*))\s*$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex TrailingSuffix();
 
-    /// <summary>A chapter word (cap, capítulo, chapter, chap, act, acto; accents already folded) and a number or roman numeral.</summary>
-    [GeneratedRegex(@"^\s*(?:capitulo|chapter|chap|cap|acto|act)\.?\s*(?:\d+|[ivxlc]+)(?![a-z])", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    /// <summary>
+    /// A chapter word (cap, capítulo, chapter, chap, act, acto; accents already folded), then digits or a real
+    /// roman numeral (i, v, x only), then the end of the suffix or one of <c>: . - – — )</c>: "Cap.1: X",
+    /// "Act II", "Capítulo IV - X", but not "Act I Love You" or "Cap Civil".
+    /// </summary>
+    [GeneratedRegex(@"^\s*(?:capitulo|chapter|chap|cap|acto|act)\.?\s*(?:\d+|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3}))\s*(?:$|[:.\-–—)])", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex ChapterMarker();
 
     [GeneratedRegex(@"[^a-z0-9]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]

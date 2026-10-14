@@ -392,6 +392,9 @@ public sealed class DownloadVerifierTests
     [InlineData("Malamente (Chap. 12)")]
     [InlineData("Malamente (Act II)")]
     [InlineData("Malamente (Acto 1)")]
+    [InlineData("Malamente (ACTO 1)")]
+    [InlineData("Malamente (Capítulo 2)")]
+    [InlineData("Malamente (Capítulo IV: Augurio)")]
     public async Task Each_kind_of_chapter_suffix_is_dropped(string recordingTitle)
     {
         var (verifier, _, _, _) = Create(
@@ -440,6 +443,14 @@ public sealed class DownloadVerifierTests
     [InlineData("Get Lucky (Cap.1: Recorded at Home)")]
     [InlineData("Get Lucky (Cap.1: Intro)")]
     [InlineData("Get Lucky (Cap.1: Megamix)")]
+    // The chapter marker and the version word together: the parser and the strip rule agree.
+    [InlineData("Get Lucky (Act 1: Live)")]
+    [InlineData("Get Lucky (Cap 1 - Remix)")]
+    [InlineData("Get Lucky (Chapter 1) (Live)")]
+    // A chapter word followed by something that is not a number or a real roman numeral.
+    [InlineData("Get Lucky (Cap Civil)")]
+    [InlineData("Get Lucky (Act Clic)")]
+    [InlineData("Get Lucky (Act I Love You)")]
     // Not a chapter marker followed by a number.
     [InlineData("Get Lucky (Chapter)")]
     [InlineData("Get Lucky (Capital 1)")]
@@ -528,6 +539,35 @@ public sealed class DownloadVerifierTests
             CancellationToken.None);
 
         result.Outcome.Should().Be(passes ? VerificationOutcome.Passed : VerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task A_song_without_a_stored_length_gets_only_the_profile_tolerance_for_a_duplicate()
+    {
+        // 7 s off the file: inside the 10 s window of a song that has a length, outside the 3 s tolerance.
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 240_000 }),
+            lookup: Fixture("lookup-duplicate-of-another-length.json"));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: null, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: null),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task A_song_without_a_stored_length_still_takes_a_duplicate_inside_the_profile_tolerance()
+    {
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 245_000 }),
+            lookup: Fixture("lookup-duplicate-of-another-length.json"));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: null, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: null),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
     }
 
     [Fact]
