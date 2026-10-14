@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Security
+- **.NET 10.0.13 (Microsoft's October 2026 security release).** `System.Security.Cryptography.Pkcs`, which MailKit brings in for email notifications, is pinned to 10.0.13 (CVE-2026-70162, CVE-2026-84008, denial of service), and the Microsoft packages move from 10.0.12 to 10.0.13. The image is built on the patched ASP.NET Core runtime (CVE-2026-70159, a SignalR denial of service).
+
 **Upgrading:** this version records a new search-run outcome, `NoFreeSlot`, as a string in the database. Going back to an older version is not supported while such a run exists; they age out with the rest of the search history after 30 days (Housekeeping).
 
 ### Added
