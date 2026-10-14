@@ -6,17 +6,18 @@ namespace Wondarr.Core.ImportLists;
 /// One gate per import list, so two syncs of the same list never overlap (R-020). "Sync now" and the
 /// hourly run are different commands: a long first sync sets <c>LastSyncedAt</c> only at its end, so the
 /// hourly run would otherwise find the list due and read it again beside the first, creating a second
-/// Plex playlist and a second row for each item.
+/// Plex playlist and a second row for each item. One instance per host (a singleton in DI), so the gates
+/// are never shared between hosts that happen to share a process, whose lists can have the same ids.
 /// </summary>
-internal static class ImportListSyncGates
+public sealed class ImportListSyncGates
 {
-    private static readonly ConcurrentDictionary<long, SemaphoreSlim> Gates = new();
+    private readonly ConcurrentDictionary<long, SemaphoreSlim> _gates = new();
 
-    /// <summary>The gate of one list; the same instance for every caller in the process.</summary>
+    /// <summary>The gate of one list; the same instance for every caller in the host.</summary>
     /// <param name="importListId">The import list.</param>
     /// <returns>The gate, with a count of one.</returns>
-    internal static SemaphoreSlim For(long importListId) =>
-        Gates.GetOrAdd(importListId, _ => new SemaphoreSlim(1, 1));
+    public SemaphoreSlim For(long importListId) =>
+        _gates.GetOrAdd(importListId, _ => new SemaphoreSlim(1, 1));
 
     /// <summary>
     /// Takes the list's gate, waiting if a sync of the list is running. While it waits, the command's
@@ -27,7 +28,7 @@ internal static class ImportListSyncGates
     /// <param name="yieldWorker">The command's <c>YieldWorker</c>, or <see langword="null"/> outside the executor.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
     /// <returns>A handle that releases the gate when disposed.</returns>
-    internal static async Task<IDisposable> EnterAsync(
+    public async Task<IDisposable> EnterAsync(
         long importListId,
         Func<IAsyncDisposable?>? yieldWorker,
         CancellationToken cancellationToken)
@@ -57,7 +58,7 @@ internal static class ImportListSyncGates
     /// <summary>Takes the list's gate only if it is free right now.</summary>
     /// <param name="importListId">The import list.</param>
     /// <returns>A handle that releases the gate when disposed, or <see langword="null"/> when a sync of the list is running.</returns>
-    internal static IDisposable? TryEnter(long importListId)
+    public IDisposable? TryEnter(long importListId)
     {
         var gate = For(importListId);
 

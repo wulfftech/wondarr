@@ -236,6 +236,7 @@ public static class ServiceCollectionExtensions
 
         // The pasted-list pipeline: stored by the API, processed by the BulkAddSongs command.
         services.AddScoped<IPasteListService, PasteListService>();
+        services.AddSingleton<ImportListSyncGates>();
         services.AddScoped<IImportListService, ImportListService>();
         services.AddScoped<IPlaylistWriter, PlaylistWriter>();
         services.AddSingleton<CsvImportListProvider>();

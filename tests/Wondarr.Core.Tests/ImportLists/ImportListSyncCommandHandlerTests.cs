@@ -44,6 +44,7 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
         var listId = await CreateListAsync(services);
         var handler = new ImportListSyncCommandHandler(
             services.GetRequiredService<IServiceScopeFactory>(),
+            services.GetRequiredService<ImportListSyncGates>(),
             NullLogger<ImportListSyncCommandHandler>.Instance);
 
         _provider.Entries = [new("a", "A", "One"), new("b", "B", "Two"), new("c", "C", "Three")];
@@ -77,6 +78,7 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
         var listId = await CreateListAsync(services);
         var handler = new ImportListSyncCommandHandler(
             services.GetRequiredService<IServiceScopeFactory>(),
+            services.GetRequiredService<ImportListSyncGates>(),
             NullLogger<ImportListSyncCommandHandler>.Instance);
         _provider.Entries = [new("a", "A", "One")];
 
@@ -158,6 +160,7 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
         services.AddSingleton(_playlists);
         services.AddSingleton(_commands);
         services.AddSingleton<ISongFileLock>(_fileLock);
+        services.AddSingleton<ImportListSyncGates>();
         services.AddSingleton<IImportListProvider>(_provider);
         services.AddScoped(_ => _database.CreateContext(_time));
         services.AddScoped<IPasteListService>(provider => new PasteListService(
@@ -174,6 +177,7 @@ public sealed class ImportListSyncCommandHandlerTests : IDisposable
             _commands,
             searchOptions,
             _playlists,
+            provider.GetRequiredService<ImportListSyncGates>(),
             [_provider],
             _time,
             NullLogger<ImportListService>.Instance));

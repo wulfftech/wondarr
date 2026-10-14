@@ -39,6 +39,7 @@ public sealed class ImportListSyncSafetyTests : IDisposable
     private readonly IIdentityResolver _resolver = Substitute.For<IIdentityResolver>();
     private readonly ISongService _songs = Substitute.For<ISongService>();
     private readonly IPlaylistWriter _playlists = Substitute.For<IPlaylistWriter>();
+    private readonly ImportListSyncGates _gates = new();
     private readonly ICommandQueue _commands = Substitute.For<ICommandQueue>();
     private readonly HookedLock _fileLock = new();
     private readonly ScriptedProvider _provider = new();
@@ -712,7 +713,7 @@ public sealed class ImportListSyncSafetyTests : IDisposable
         var list = await service.CreateAsync(Draft("Mirror") with { PlexPlaylist = true }, CancellationToken.None);
 
         // A first sync is mid-way: it holds the gate and has not recorded a Plex playlist key yet.
-        using (ImportListSyncGates.TryEnter(list.Id))
+        using (_gates.TryEnter(list.Id))
         {
             (await service.RefreshPlaylistsAsync(CancellationToken.None)).Should().Be(0);
             await _playlists.DidNotReceive().WriteAsync(list.Id, Arg.Any<CancellationToken>());
@@ -1132,6 +1133,7 @@ public sealed class ImportListSyncSafetyTests : IDisposable
             _commands,
             OptionsMonitorOf(_searchValue),
             _playlists,
+            _gates,
             [_provider],
             _time,
             NullLogger<ImportListService>.Instance);
