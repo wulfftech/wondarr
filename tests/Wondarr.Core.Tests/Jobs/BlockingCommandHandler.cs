@@ -27,6 +27,9 @@ internal sealed class BlockingCommandHandler : ICommandHandler, IDisposable
     /// <inheritdoc />
     public bool CancelWhileRunning { get; init; }
 
+    /// <summary>Gets or sets what runs inline when the user's cancel fires, as a token callback does.</summary>
+    public Action? OnUserCancel { get; set; }
+
     /// <summary>Gets a value indicating whether the handler's token was cancelled while it waited.</summary>
     public bool SawCancellation { get; private set; }
 
@@ -59,9 +62,13 @@ internal sealed class BlockingCommandHandler : ICommandHandler, IDisposable
             }
         }
 
+        // The user's cancel arrives as its own token; only the stopping token comes in as `cancellationToken`.
+        using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, context.UserCancellation);
+        using var callback = context.UserCancellation.Register(() => OnUserCancel?.Invoke());
+
         try
         {
-            await _release.WaitAsync(cancellationToken);
+            await _release.WaitAsync(waiting.Token);
         }
         catch (OperationCanceledException)
         {

@@ -34,13 +34,21 @@ public sealed class ActiveCommands
     /// </summary>
     /// <param name="id">The command row.</param>
     /// <returns><see langword="true"/> when the command was running and is now being cancelled.</returns>
-    internal bool TryCancelRunning(long id)
-    {
-        if (!_cancellable.TryGetValue(id, out var source))
-        {
-            return false;
-        }
+    internal bool TryCancelRunning(long id) => TryTakeRunning(id) is { } source && Fire(source);
 
+    /// <summary>Looks up the token source of a running command that can be cancelled, without firing it.</summary>
+    /// <param name="id">The command row.</param>
+    /// <returns>The source, or <see langword="null"/> when the command is not running or did not opt in.</returns>
+    internal CancellationTokenSource? TryTakeRunning(long id) => _cancellable.TryGetValue(id, out var source) ? source : null;
+
+    /// <summary>
+    /// Fires a token source from <see cref="TryTakeRunning"/>. Callbacks registered on the token run inline
+    /// on this thread, so a caller holding a lock fires it only after releasing the lock.
+    /// </summary>
+    /// <param name="source">The source to fire.</param>
+    /// <returns><see langword="false"/> when the command finished and the source is gone.</returns>
+    internal static bool Fire(CancellationTokenSource source)
+    {
         try
         {
             source.Cancel();

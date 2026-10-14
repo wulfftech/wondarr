@@ -179,25 +179,27 @@ public sealed partial class CommandExecutor : BackgroundService
             }
             else
             {
-                var context = new CommandContext(
-                    started.Id,
-                    started.Body,
-                    started.Trigger,
-                    progress => ReportProgressAsync(started.Id, progress),
-                    place.Yield);
-
-                // Only a handler that opted in can be cancelled by the user; every other running command
-                // sees the stopping token alone, as before.
-                var token = stoppingToken;
+                // Only a handler that opted in can be cancelled by the user. It gets the cancel as
+                // a token of its own and the stopping token as before, so it decides where a cancel may
+                // take effect; every other running command sees the stopping token alone.
+                var userCancellation = CancellationToken.None;
 
                 if (handler.CancelWhileRunning)
                 {
                     cancelSource = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                     _activeCommands.RegisterCancellable(started.Id, cancelSource);
-                    token = cancelSource.Token;
+                    userCancellation = cancelSource.Token;
                 }
 
-                message = await handler.ExecuteAsync(context, token).ConfigureAwait(false);
+                var context = new CommandContext(
+                    started.Id,
+                    started.Body,
+                    started.Trigger,
+                    progress => ReportProgressAsync(started.Id, progress),
+                    place.Yield,
+                    userCancellation);
+
+                message = await handler.ExecuteAsync(context, stoppingToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

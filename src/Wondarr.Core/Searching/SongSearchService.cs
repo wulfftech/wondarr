@@ -337,9 +337,10 @@ public sealed partial class SongSearchService : ISongSearchService
             return await RunAsync(song, trigger, grab, run.Id, sources, queries, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken))
+        catch (Exception exception) when (CancellationRules.IsCallerCancellation(exception, cancellationToken)
+            || (exception is OperationCanceledException && _slotWait.CancelWait.IsCancellationRequested))
         {
-            // Whatever took the search away, the run must not be left open: unfinished runs are what
+            // Whatever took the search away (the host stopping, or a user's cancel of the slot wait), the run must not be left open: unfinished runs are what
             // the backoff and the history read. The finish itself ignores the cancelled token.
             await FinishQuietlyAsync(
                     run.Id,
@@ -799,11 +800,17 @@ public sealed partial class SongSearchService : ISongSearchService
         IAsyncDisposable? lease = null;
         var announced = false;
 
+        // A user's cancel ends the wait and nothing else: only the polling and the delay see it. The
+        // grab (the search before it and the transfer after) keeps the stopping token, so a cancel that
+        // lands while a grab is under way lets it finish and be recorded.
+        using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _slotWait.CancelWait);
+        var waitToken = waitCancellation.Token;
+
         try
         {
             while (true)
             {
-                if (lease is not null && await HasFreeSlotAsync(cancellationToken).ConfigureAwait(false))
+                if (lease is not null && await HasFreeSlotAsync(waitToken).ConfigureAwait(false))
                 {
                     // Work again only with a place of our own, and before anything is grabbed.
                     var held = lease;
@@ -835,6 +842,8 @@ public sealed partial class SongSearchService : ISongSearchService
                     return new SlotGrab(true, null);
                 }
 
+                waitToken.ThrowIfCancellationRequested();
+
                 // Inside a command the wait is spent without the executor place. When none can be spared
                 // (too many commands already wait), waiting while holding it would starve the rest: the
                 // search ends at once and the song stays wanted for the next Missing Search.
@@ -858,7 +867,7 @@ public sealed partial class SongSearchService : ISongSearchService
 
                 var pause = TimeSpan.FromSeconds(options.SlotWaitSeconds);
 
-                await Task.Delay(pause < remaining ? pause : remaining, _timeProvider, cancellationToken)
+                await Task.Delay(pause < remaining ? pause : remaining, _timeProvider, waitToken)
                     .ConfigureAwait(false);
             }
         }
@@ -1280,7 +1289,9 @@ public sealed partial class SongSearchService : ISongSearchService
 
         try
         {
-            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            // Not cancellable: the source has the release, so the handle, the history row and the flag are
+            // written down whatever happens to the caller's token from here on.
+            await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -1294,7 +1305,7 @@ public sealed partial class SongSearchService : ISongSearchService
         // Announce the grab only once it is on disk and the handle is recorded. Handlers are isolated
         // by the aggregator, so this cannot fail the grab, and it is deliberately the last thing here.
         await _events
-            .PublishAsync(new SongGrabbedEvent(item.Id, record.SongId), cancellationToken)
+            .PublishAsync(new SongGrabbedEvent(item.Id, record.SongId), CancellationToken.None)
             .ConfigureAwait(false);
 
         foreach (var song in bundled)

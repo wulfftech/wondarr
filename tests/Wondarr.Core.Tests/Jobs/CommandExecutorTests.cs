@@ -86,6 +86,36 @@ public class CommandExecutorTests
     }
 
     [Fact]
+    public async Task The_cancel_fires_its_callbacks_after_the_queue_has_let_go_of_its_gate()
+    {
+        using var handler = new BlockingCommandHandler("Waiter") { CancelWhileRunning = true };
+        await using var host = await JobTestHost.CreateAsync(services => services.AddSingleton<ICommandHandler>(handler));
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        // A callback registered on the token runs inline on the thread that fires it. This one uses the
+        // queue, which needs its gate: fired under the gate it would wait for itself forever.
+        handler.OnUserCancel = () => host.Queue
+            .EnqueueAsync("Heartbeat", null, CommandTrigger.Manual, CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        var queued = await host.Queue.EnqueueAsync("Waiter", null, CommandTrigger.Manual, CancellationToken.None);
+        (await TestWait.UntilAsync(() => Task.FromResult(handler.StartedCount == 1))).Should().BeTrue();
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Started)).Should().BeTrue();
+
+        var cancel = host.Queue.CancelAsync(queued.Id, CancellationToken.None);
+
+        (await Task.WhenAny(cancel, Task.Delay(TestWait.Timeout)))
+            .Should().BeSameAs(cancel, "the token is fired after the gate is released");
+        (await cancel).Should().BeTrue();
+
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Cancelled)).Should().BeTrue();
+
+        await executor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task Stopping_the_host_still_aborts_a_command_that_opted_in()
     {
         using var handler = new BlockingCommandHandler("Waiter") { CancelWhileRunning = true };
