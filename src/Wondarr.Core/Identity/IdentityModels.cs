@@ -115,6 +115,13 @@ public sealed record SongCandidate
 
     /// <summary>True when the candidate was reached through the ISRC bridge from a Deezer hit.</summary>
     public bool ViaIsrc { get; init; }
+
+    /// <summary>
+    /// True when the recording's earliest official release is an Official Album (not a compilation,
+    /// soundtrack or, unless the query asked for it, live album). The ranking puts such a recording
+    /// ahead of its same-titled namesakes.
+    /// </summary>
+    public bool OriginalAlbum { get; init; }
 }
 
 /// <summary>How a lookup ended.</summary>

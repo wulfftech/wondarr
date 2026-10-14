@@ -4,6 +4,11 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **Various Artists files no longer pass on a partial title.** A file on a compilation path ("Various Artists", "OST", a soundtrack folder) now needs the song's artist in its file name, or a full title match: its own title equals the song's title, not just part of it. A token of the artist's name in a folder ("Days" in "Days of Thunder OST") no longer counts as the artist, so "Story of a Girl" by Nine Days no longer picks up unrelated tracks from Various Artists folders. A full title match on such a path still passes, but scores below the same file in the artist's own folder.
+- **Add songs lists the original recording first.** Where MusicBrainz has several recordings of the same artist and title, the one whose earliest official release is an Official Album (not a compilation, soundtrack or, unless you asked for it, live album) now ranks first, then the earlier date, then the length that most of them share. A plain "Artist - Title" add resolves to it too, so the song's length is the album track's and not a compilation's. When the ISRC bridge returns several such recordings, up to five release lists are read to tell them apart.
+- **A song Deezer does not know takes its length from iTunes.** Without a Deezer hit the lookup had no length to check MusicBrainz against and could settle on a shortened edit ("Robyn - Dancing On My Own" at 218 s instead of 287 s). It now asks iTunes (singles and EPs passed over for the album, the longest length within 25 % of the MusicBrainz median, else the nearest) and searches MusicBrainz around that length. A Deezer length is never overridden, and iTunes being unavailable changes nothing.
+
 ## [0.1.4] — 2026-10-14
 
 Email notifications, and a correction to 0.1.3's Singles change. Update by pulling `:0.1` (or `:0.1.4`).
