@@ -236,7 +236,9 @@ public sealed class CommandQueue : ICommandQueue, IDisposable
             // conflict so the caller does not believe it stopped something that is running.
             if (changed == 0)
             {
-                return false;
+                // A command that is already running can be cancelled only when its handler opted in; the
+                // executor then writes the Cancelled row and publishes it.
+                return _activeCommands.TryCancelRunning(id);
             }
 
             _activeCommands.Remove(id);

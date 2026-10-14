@@ -33,6 +33,7 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
     private readonly Lock _applyingLock = new();
     private Task _applying = Task.CompletedTask;
     private IDisposable? _changeSubscription;
+    private int _disposed;
 
     /// <summary>Initialises a new instance of the <see cref="ScheduledTaskService"/> class.</summary>
     public ScheduledTaskService(
@@ -57,6 +58,24 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
 
     /// <inheritdoc />
     public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        // Listening starts before the first task is scheduled, so a setting that changes while the loop
+        // runs is not missed; the change is applied once the gate is free, after the loop has finished.
+        _changeSubscription = _catalog.OnChange(OnIntervalSettingChanged);
+
+        await _changeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await ScheduleAllAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _changeGate.Release();
+        }
+    }
+
+    private async Task ScheduleAllAsync(CancellationToken cancellationToken)
     {
         var scheduler = await _schedulerFactory.GetScheduler(cancellationToken).ConfigureAwait(false);
         var now = _timeProvider.GetUtcNow().UtcDateTime;
@@ -85,19 +104,22 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
 
             LogScheduled(definition.CommandName, definition.Interval, nextRunAt);
         }
-
-        // From here on a changed interval moves the schedule too, without a restart.
-        _changeSubscription = _catalog.OnChange(OnIntervalSettingChanged);
     }
 
     /// <summary>
-    /// Moves a task whose interval setting changed: its row takes the new interval and a next run of
-    /// last run plus that interval, never earlier than now (so the longest overdue task runs at once),
-    /// and Quartz gets a trigger to match.
+    /// Moves a task whose interval setting changed: Quartz gets a trigger with the new interval and a next
+    /// run of last run plus that interval, never earlier than now (so the longest overdue task runs at
+    /// once), and only then does the row take the same values. If Quartz refuses, the row still has the old
+    /// interval, so the next change (or restart) tries again.
     /// </summary>
     /// <param name="cancellationToken">Cancels the update.</param>
     private async Task ApplyIntervalChangesAsync(CancellationToken cancellationToken)
     {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return;
+        }
+
         await _changeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
@@ -113,25 +135,7 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
                     continue;
                 }
 
-                if (await MoveJobAsync(definition, now, cancellationToken).ConfigureAwait(false) is not { } nextRunAt)
-                {
-                    continue;
-                }
-
-                var trigger = TriggerBuilder.Create()
-                    .ForJob(definition.CommandName)
-                    .WithIdentity(TriggerKeyFor(definition.CommandName))
-                    .StartAt(new DateTimeOffset(nextRunAt, TimeSpan.Zero))
-                    .WithSimpleSchedule(schedule => schedule
-                        .WithInterval(definition.Interval)
-                        .RepeatForever())
-                    .Build();
-
-                await scheduler
-                    .RescheduleJob(TriggerKeyFor(definition.CommandName), trigger, cancellationToken)
-                    .ConfigureAwait(false);
-
-                LogRescheduled(definition.CommandName, definition.Interval, nextRunAt);
+                await MoveJobAsync(scheduler, definition, now, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -179,7 +183,23 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         _changeSubscription?.Dispose();
+
+        // An apply that is already running finishes before the gate goes; a later one sees _disposed.
+        try
+        {
+            ChangesApplied.Wait(TimeSpan.FromSeconds(5));
+        }
+        catch (AggregateException)
+        {
+            // The apply logged its own failure.
+        }
+
         _changeGate.Dispose();
     }
 
@@ -245,10 +265,11 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Gives a changed task's row its new interval and next run. Returns the next run, or
-    /// <see langword="null"/> when the row already has this interval (or there is no row yet).
+    /// Moves one task whose row has another interval than its definition: the trigger first, then the row.
+    /// Does nothing when the row already has this interval (or there is no row yet).
     /// </summary>
-    private async Task<DateTime?> MoveJobAsync(
+    private async Task MoveJobAsync(
+        IScheduler scheduler,
         ScheduledTaskDefinition definition,
         DateTime now,
         CancellationToken cancellationToken)
@@ -262,7 +283,7 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
 
         if (job is null || job.Interval == definition.Interval)
         {
-            return null;
+            return;
         }
 
         // A task that has run is due its last run plus the new interval; one that never has keeps the
@@ -270,12 +291,25 @@ public sealed partial class ScheduledTaskService : IHostedService, IDisposable
         var due = job.LastRunAt is { } lastRun ? lastRun + definition.Interval : job.NextRunAt ?? now;
         var nextRunAt = due > now ? due : now;
 
+        var trigger = TriggerBuilder.Create()
+            .ForJob(definition.CommandName)
+            .WithIdentity(TriggerKeyFor(definition.CommandName))
+            .StartAt(new DateTimeOffset(nextRunAt, TimeSpan.Zero))
+            .WithSimpleSchedule(schedule => schedule
+                .WithInterval(definition.Interval)
+                .RepeatForever())
+            .Build();
+
+        await scheduler
+            .RescheduleJob(TriggerKeyFor(definition.CommandName), trigger, cancellationToken)
+            .ConfigureAwait(false);
+
         job.Interval = definition.Interval;
         job.NextRunAt = nextRunAt;
 
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return nextRunAt;
+        LogRescheduled(definition.CommandName, definition.Interval, nextRunAt);
     }
 
     [LoggerMessage(

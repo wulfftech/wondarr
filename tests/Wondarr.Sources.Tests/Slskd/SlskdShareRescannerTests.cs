@@ -258,8 +258,9 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
     [Theory]
     [InlineData(SlskdState.Starting, "Nothing to do: slskd is starting")]
     [InlineData(SlskdState.Restarting, "Nothing to do: slskd is restarting")]
-    [InlineData(SlskdState.Crashed, "Nothing to do: slskd is crashed")]
-    [InlineData(SlskdState.BinaryMissing, "Nothing to do: slskd is binarymissing, not a process Wondarr runs")]
+    [InlineData(SlskdState.Crashed, "Nothing to do: slskd crashed and is being restarted")]
+    [InlineData(SlskdState.BinaryMissing, "Nothing to do: the slskd binary is missing")]
+    [InlineData(SlskdState.Stopped, "Nothing to do: slskd is stopped")]
     public async Task The_daily_task_does_nothing_when_slskd_is_not_up(SlskdState state, string expected)
     {
         _status.Set(new SlskdStatusSnapshot(state));
@@ -268,6 +269,29 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
 
         result.Should().Be(expected);
         Scans().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_daily_task_reports_a_slskd_that_does_not_answer_instead_of_failing()
+    {
+        _client.RescanSharesAsync(Arg.Any<CancellationToken>()).Returns<Task<SlskdRescanOutcome>>(
+            _ => throw new HttpRequestException("connection refused"));
+
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().Be("Nothing to do: slskd did not answer");
+        Scans().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task The_daily_task_still_stops_when_it_is_cancelled()
+    {
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        _client.RescanSharesAsync(Arg.Any<CancellationToken>()).Returns<Task<SlskdRescanOutcome>>(
+            _ => throw new OperationCanceledException(cancelled.Token));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _rescanner.RescanNowAsync(cancelled.Token));
     }
 
     [Fact]

@@ -24,6 +24,12 @@ internal sealed class BlockingCommandHandler : ICommandHandler, IDisposable
 
     public string Name { get; }
 
+    /// <inheritdoc />
+    public bool CancelWhileRunning { get; init; }
+
+    /// <summary>Gets a value indicating whether the handler's token was cancelled while it waited.</summary>
+    public bool SawCancellation { get; private set; }
+
     /// <summary>How many times <see cref="ExecuteAsync"/> was entered.</summary>
     public int StartedCount => Volatile.Read(ref _started);
 
@@ -56,6 +62,11 @@ internal sealed class BlockingCommandHandler : ICommandHandler, IDisposable
         try
         {
             await _release.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            SawCancellation = true;
+            throw;
         }
         finally
         {

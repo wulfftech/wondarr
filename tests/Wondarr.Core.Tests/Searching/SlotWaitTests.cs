@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Searching;
@@ -83,6 +84,9 @@ public sealed class SlotWaitTests
         var result = await AdvanceUntilAsync(host, search);
 
         result.QueueItemId.Should().BeNull();
+        result.Outcome.Should().Be(SearchOutcome.Cancelled, "a song that became the user's is not a failed search");
+        result.Message.Should().Be(SongSearchService.ReferenceOwnedMessage);
+        result.SatisfiedDuringWait.Should().BeTrue();
         host.Provider.Grabs.Should().BeEmpty("the song is the user's now, so nothing is grabbed for it");
 
         await using var context = host.Database.CreateContext(host.Time);
@@ -153,8 +157,7 @@ public sealed class SlotWaitTests
         await AdvanceByAsync(host, run, TimeSpan.FromMinutes(119));
         run.IsCompleted.Should().BeFalse("the wait is two hours");
 
-        await AdvanceByAsync(host, run, TimeSpan.FromMinutes(5));
-        run.IsCompleted.Should().BeTrue("two hours have passed");
+        await AdvanceUntilDoneAsync(host, run);
 
         var text = await run;
 
@@ -174,6 +177,168 @@ public sealed class SlotWaitTests
 
         searchRun.Outcome.Should().Be(SearchOutcome.NoFreeSlot, "the run is not a failed search, so the backoff ignores it");
         searchRun.Message.Should().Be("No free download slot after 2 h; the song stays wanted for the next Missing Search");
+    }
+
+    [Fact]
+    public async Task Cancelling_a_waiting_SongSearch_through_the_queue_ends_the_command_and_the_run_cancelled()
+    {
+        await using var host = await SearchTestHost.CreateAsync(withCommands: true);
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        await FillSlotsAsync(host);
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(Token);
+
+        var queued = await host.Commands.EnqueueAsync(
+            SongSearchCommandHandler.CommandName,
+            $"{{\"name\":\"SongSearch\",\"songId\":{songId}}}",
+            Wondarr.Core.Jobs.CommandTrigger.Manual,
+            Token);
+
+        (await Wondarr.Core.Tests.Jobs.TestWait.UntilAsync(async () =>
+            (await host.Commands.GetAsync(queued.Id, Token))?.Message == "Waiting for a free download slot"))
+            .Should().BeTrue("the search is parked waiting for a slot");
+
+        (await host.Commands.CancelAsync(queued.Id, Token)).Should().BeTrue("a running SongSearch can be cancelled");
+
+        (await Wondarr.Core.Tests.Jobs.TestWait.UntilAsync(async () =>
+            (await host.Commands.GetAsync(queued.Id, Token))?.Status == Wondarr.Core.Jobs.CommandStatus.Cancelled))
+            .Should().BeTrue("the cancel ends the wait");
+
+        var command = await host.Commands.GetAsync(queued.Id, Token);
+        command!.Result.Should().Be(Wondarr.Core.Jobs.CommandResult.Unsuccessful);
+        command.Message.Should().Be("Cancelled");
+
+        await using (var context = host.Database.CreateContext(host.Time))
+        {
+            var run = await context.SearchRuns.AsNoTracking().SingleAsync(row => row.SongId == songId, Token);
+
+            run.Outcome.Should().Be(SearchOutcome.Cancelled);
+            run.FinishedAt.Should().NotBeNull("the run is closed");
+            (await context.QueueItems.AsNoTracking().AnyAsync(item => item.SongId == songId, Token)).Should().BeFalse();
+        }
+
+        using (var scope = host.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<SlotWaiters>().IsWaiting(songId).Should().BeFalse();
+        }
+
+        host.Provider.Grabs.Should().BeEmpty();
+
+        await executor.StopAsync(Token);
+    }
+
+    [Fact]
+    public async Task A_song_removed_during_the_wait_ends_the_search_with_the_removed_message()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        host.SlotWait.WaitForSlot = true;
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var blockers = await FillSlotsAsync(host);
+        var progress = 0;
+        host.SlotWait.ReportProgressAsync = _ =>
+        {
+            Interlocked.Increment(ref progress);
+
+            return Task.CompletedTask;
+        };
+
+        var search = Task.Run(() => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
+
+        await WaitUntilAsync(() => Volatile.Read(ref progress) > 0);
+
+        await using (var context = host.Database.CreateContext(host.Time))
+        {
+            await context.Songs.Where(row => row.Id == songId).ExecuteDeleteAsync(Token);
+        }
+
+        await FinishItemAsync(host, blockers[0]);
+        var result = await AdvanceUntilAsync(host, search);
+
+        result.Outcome.Should().Be(SearchOutcome.Cancelled);
+        result.Message.Should().Be("The song was removed while the search waited for a download slot");
+        result.SatisfiedDuringWait.Should().BeTrue();
+        result.QueueItemId.Should().BeNull();
+        host.Provider.Grabs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_search_whose_place_cannot_be_handed_back_ends_at_once_instead_of_waiting_with_it()
+    {
+        await using var host = await SearchTestHost.CreateAsync(withCommands: true);
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        await FillSlotsAsync(host);
+        var progress = new List<string>();
+        var command = new SongSearchCommandHandler(
+            host.Search,
+            host.SlotWait,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SongSearchCommandHandler>.Instance);
+        var context = new Wondarr.Core.Jobs.CommandContext(
+            1,
+            $"{{\"name\":\"SongSearch\",\"songId\":{songId}}}",
+            Wondarr.Core.Jobs.CommandTrigger.Manual,
+            message =>
+            {
+                lock (progress)
+                {
+                    progress.Add(message);
+                }
+
+                return Task.CompletedTask;
+            },
+            () => null);
+
+        // No fake time is advanced: a search that waited would never end.
+        var text = await command.ExecuteAsync(context, Token);
+
+        text.Should().Be($"Song {songId}: Completed — No free download slot; the song stays wanted for the next Missing Search");
+        lock (progress)
+        {
+            progress.Should().BeEmpty("it never started waiting");
+        }
+
+        host.Provider.Grabs.Should().BeEmpty();
+
+        await using var database = host.Database.CreateContext(host.Time);
+        var run = await database.SearchRuns.AsNoTracking().SingleAsync(row => row.SongId == songId, Token);
+
+        run.Outcome.Should().Be(SearchOutcome.NoFreeSlot);
+        run.FinishedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task The_command_reports_a_song_that_met_its_cutoff_during_the_wait_as_completed()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var blockers = await FillSlotsAsync(host);
+        var progress = 0;
+        var command = new SongSearchCommandHandler(
+            host.Search,
+            host.SlotWait,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SongSearchCommandHandler>.Instance);
+        var context = new Wondarr.Core.Jobs.CommandContext(
+            1,
+            $"{{\"name\":\"SongSearch\",\"songId\":{songId}}}",
+            Wondarr.Core.Jobs.CommandTrigger.Manual,
+            _ =>
+            {
+                Interlocked.Increment(ref progress);
+
+                return Task.CompletedTask;
+            });
+
+        var run = Task.Run(() => command.ExecuteAsync(context, Token));
+
+        await WaitUntilAsync(() => Volatile.Read(ref progress) > 0);
+        await host.SeedFileAsync(songId, qualityId: 29);
+        await FinishItemAsync(host, blockers[0]);
+        await AdvanceUntilDoneAsync(host, run);
+
+        (await run).Should().StartWith($"Song {songId}: Completed — Already at the cutoff");
     }
 
     [Fact]
@@ -403,12 +568,11 @@ public sealed class SlotWaitTests
         await WaitUntilAsync(() => Volatile.Read(ref leaseTaken) > 0);
         await FinishItemAsync(host, blockers[0]);
 
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
-
-        while (Volatile.Read(ref leaseDisposing) == 0 && DateTime.UtcNow < deadline)
+        for (var step = 0; step < 5000 && Volatile.Read(ref leaseDisposing) == 0; step++)
         {
-            host.Time.Advance(TimeSpan.FromSeconds(host.Options.SlotWaitSeconds));
-            await Task.Delay(10);
+            await host.Time.AdvanceAndSettleAsync(
+                TimeSpan.FromSeconds(host.Options.SlotWaitSeconds),
+                () => Volatile.Read(ref leaseDisposing) > 0);
         }
 
         Volatile.Read(ref leaseDisposing).Should().BePositive("the search should take its place back once a slot frees");
@@ -539,9 +703,19 @@ public sealed class SlotWaitTests
     {
         for (var elapsed = TimeSpan.Zero; elapsed < span && !task.IsCompleted; elapsed += TimeSpan.FromMinutes(1))
         {
-            host.Time.Advance(TimeSpan.FromMinutes(1));
-            await Task.Delay(20);
+            await host.Time.AdvanceAndSettleAsync(TimeSpan.FromMinutes(1), () => task.IsCompleted);
         }
+    }
+
+    /// <summary>Moves the fake clock on a minute at a time until the task has ended.</summary>
+    private static async Task AdvanceUntilDoneAsync(SearchTestHost host, Task task)
+    {
+        for (var step = 0; step < 5000 && !task.IsCompleted; step++)
+        {
+            await host.Time.AdvanceAndSettleAsync(TimeSpan.FromMinutes(1), () => task.IsCompleted);
+        }
+
+        task.IsCompleted.Should().BeTrue("the task should have ended");
     }
 
     private sealed class CountingLease(Action onDispose) : IAsyncDisposable
@@ -557,12 +731,11 @@ public sealed class SlotWaitTests
     /// <summary>Moves the fake clock on in poll-sized steps until the search ends.</summary>
     private static async Task<SongSearchResult> AdvanceUntilAsync(SearchTestHost host, Task<SongSearchResult> search)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
-
-        while (!search.IsCompleted && DateTime.UtcNow < deadline)
+        // Each step moves the clock one poll on and returns once the search has run what that made due and
+        // is waiting on the clock again (or has ended): no real-time sleep decides anything.
+        for (var step = 0; step < 5000 && !search.IsCompleted; step++)
         {
-            host.Time.Advance(TimeSpan.FromSeconds(host.Options.SlotWaitSeconds));
-            await Task.Delay(10);
+            await host.Time.AdvanceAndSettleAsync(TimeSpan.FromSeconds(host.Options.SlotWaitSeconds), () => search.IsCompleted);
         }
 
         search.IsCompleted.Should().BeTrue("the search should have ended");
@@ -572,11 +745,12 @@ public sealed class SlotWaitTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        // Bounded by a stopwatch only so a hung test fails instead of hanging; the wait itself is a yield.
+        var waiting = System.Diagnostics.Stopwatch.StartNew();
 
-        while (!condition() && DateTime.UtcNow < deadline)
+        while (!condition() && waiting.Elapsed < TimeSpan.FromSeconds(20))
         {
-            await Task.Delay(10);
+            await Task.Yield();
         }
 
         condition().Should().BeTrue("the search should have started waiting");

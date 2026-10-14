@@ -18,6 +18,42 @@ public sealed class ActiveCommands
     /// </summary>
     internal SemaphoreSlim Gate { get; } = new(1, 1);
 
+    private readonly ConcurrentDictionary<long, CancellationTokenSource> _cancellable = new();
+
+    /// <summary>Records the token source of a running command whose handler lets a user cancel it.</summary>
+    /// <param name="id">The command row.</param>
+    /// <param name="source">What the handler's token comes from.</param>
+    internal void RegisterCancellable(long id, CancellationTokenSource source) => _cancellable[id] = source;
+
+    /// <summary>Forgets the token source; called before the executor disposes it.</summary>
+    /// <param name="id">The command row.</param>
+    internal void UnregisterCancellable(long id) => _cancellable.TryRemove(id, out _);
+
+    /// <summary>
+    /// Fires the cancellation of a running command, when its handler opted in to being cancelled.
+    /// </summary>
+    /// <param name="id">The command row.</param>
+    /// <returns><see langword="true"/> when the command was running and is now being cancelled.</returns>
+    internal bool TryCancelRunning(long id)
+    {
+        if (!_cancellable.TryGetValue(id, out var source))
+        {
+            return false;
+        }
+
+        try
+        {
+            source.Cancel();
+
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            // The command finished between the lookup and the cancel.
+            return false;
+        }
+    }
+
     /// <summary>Records that the process holds the command.</summary>
     /// <param name="id">The command row.</param>
     public void Add(long id) => _ids[id] = 0;
