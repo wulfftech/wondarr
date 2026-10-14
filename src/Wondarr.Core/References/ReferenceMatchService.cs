@@ -212,6 +212,16 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             {
                 song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
             }
+            catch (DbUpdateException exception) when (SongService.IsDuplicateArtistKey(exception))
+            {
+                // Another add created one of this song's artists between the artist lookup and the write.
+                // Its row is committed now: the add is made once more and reuses it. Whatever the second
+                // add throws is final.
+                await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+                DiscardPendingChanges();
+
+                song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
+            }
             catch (DbUpdateException exception) when (SongService.IsDuplicateSongKey(exception))
             {
                 // Another add of this recording saved it between the existence check and the write. The
@@ -355,6 +365,17 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
                 try
                 {
+                    added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (DbUpdateException racing) when (SongService.IsDuplicateArtistKey(racing))
+                {
+                    // Another add created one of the batch's artists between the artist lookup and the
+                    // write. Its row is committed now: the batch is added once more and reuses it. Whatever
+                    // the second add throws is final, and costs this group's files a line each.
+                    await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+                    DiscardPendingChanges();
+
                     added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
                         .ConfigureAwait(false);
                 }

@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **Two adds of different new songs by the same new artist at once no longer fail the second one.** Both adds looked the artist up before either saved, so both tried to create it and the second save was refused by the artist's unique MusicBrainz id: a single add answered 422, a bulk add or a pasted list lost that song's row, and a manual or bulk match in the Match queue returned an error. The add now reads the artist again, which the first request has saved by then, and saves once more, so both songs credit the one artist and nothing of the refused write is left behind. A second failure still fails the song as before.
+
 ## [0.1.6] — 2026-10-14
 
 A small follow-up to 0.1.5: one Match-queue fix and a test-suite fix. Update by pulling `:0.1` (or `:0.1.6`).
