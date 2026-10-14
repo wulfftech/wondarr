@@ -291,7 +291,7 @@ def torrent(args: argparse.Namespace) -> None:
         fail(f"files at priority > 0: {selected}, expected only {expected}")
     ok(f"one torrent grab, {len(downloaded)} of {len(files)} files downloaded: {downloaded}")
 
-    # Each song has its own grab on the one release; the first one says it brought the other along.
+    # Each song has its own grab on the one release, and each one names the other as the song it came with.
     grabs = []
     for record in wanted:
         grabbed = [event for event in history(api, record["id"]) if str(event.get("eventType", "")).lower() == "grabbed"]
@@ -300,9 +300,13 @@ def torrent(args: argparse.Namespace) -> None:
         grabs.append(grabbed[0]["data"])
     if {grab.get("release") for grab in grabs} != {title} or {grab.get("sourceType") for grab in grabs} != {"torznab"}:
         fail(f"the grabs were not both of {title!r} from the torrent source: {grabs}")
-    if sorted(grab.get("bundledWith", 0) for grab in grabs) != [0, 1]:
-        fail(f"expected one grab bundling the other song, got {[grab.get('bundledWith') for grab in grabs]}")
-    ok("each song has its own grab of the one torrent; the first brought the second along (bundling)")
+    for record, grab in zip(wanted, grabs):
+        others = [song.get("songId") for song in grab.get("bundledSongs") or []]
+        expected_others = [other["id"] for other in wanted if other is not record]
+        if grab.get("bundledWith", 0) != 1 or others != expected_others:
+            fail(f"{record['title']}: expected its grab to name the other song {expected_others}, got bundledWith "
+                 f"{grab.get('bundledWith')} and {grab.get('bundledSongs')}")
+    ok("each song has its own grab of the one torrent, and each names the other (bundling)")
 
 
 # ------------------------------------------------------------------------------------------ usenet
