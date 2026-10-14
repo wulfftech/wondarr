@@ -4,6 +4,7 @@ using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Wondarr.Core.Identity;
+using Wondarr.Core.ImportLists;
 using Xunit;
 
 namespace Wondarr.Api.Tests;
@@ -19,8 +20,7 @@ public sealed class ImportListApiTests
     private const string CommandEndpoint = "/api/v1/command";
 
     // Only a bound on a hang, never a speed requirement. A sync takes about a second alone, but in a full
-    // run the command waits its turn behind hundreds of tests' hosts and the process-wide per-list sync
-    // gate (ImportListSyncGates), and a 30 s wait was not always enough.
+    // run the command waits its turn behind hundreds of tests' hosts, and a 30 s wait was not always enough.
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(180);
 
     private const string Exportify =
@@ -137,7 +137,7 @@ public sealed class ImportListApiTests
         sync.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var commandId = (await SongApiTests.ReadJsonAsync(sync)).GetProperty("commandId").GetInt64();
 
-        var finished = await WaitForTerminalStatusAsync(client, commandId);
+        var finished = await WaitForTerminalStatusAsync(client, commandId, listId);
         finished.GetProperty("status").GetString().Should().Be("completed");
         finished.GetProperty("message").GetString().Should().StartWith("Read 2 items (2 new, 0 no longer in the list)");
 
@@ -151,6 +151,43 @@ public sealed class ImportListApiTests
         records[0].GetProperty("line").GetInt32().Should().Be(1);
         records[0].GetProperty("text").GetString().Should().Be("Daft Punk - Get Lucky");
         records[1].GetProperty("line").GetInt32().Should().Be(2);
+    }
+
+    // M-38: every host has its own database, so each starts its first list at id 1. The gate that keeps one
+    // list from being synced twice at once belongs to the host; hosts sharing a process must not queue
+    // behind each other's list 1.
+    [Fact]
+    public async Task A_sync_in_one_host_is_not_held_by_the_same_list_id_being_synced_in_another()
+    {
+        var resolver = Substitute.For<IIdentityResolver>();
+        resolver.ResolveAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ResolveResult { Status = ResolveStatus.Unresolved, Reason = "No match." }));
+
+        using var hostA = SongApiTests.FakeProviders(resolver);
+        using var hostB = SongApiTests.FakeProviders(resolver);
+        using var clientA = SongApiTests.Authenticated(hostA);
+        using var clientB = SongApiTests.Authenticated(hostB);
+
+        // Host A has a list 1 and is "syncing" it: its gate is held.
+        using var listA = await clientA.PostAsync(
+            new Uri(ListEndpoint, UriKind.Relative),
+            SongApiTests.Json(JsonSerializer.Serialize(new { type = "csv", name = "A", settings = new { }, sourceText = Exportify })));
+        var listAId = (await SongApiTests.ReadJsonAsync(listA)).GetProperty("id").GetInt64();
+        using var heldByA = hostA.Services.GetRequiredService<ImportListSyncGates>().TryEnter(listAId);
+
+        heldByA.Should().NotBeNull();
+
+        // Host B's own list 1 is synced meanwhile, and the sync finishes.
+        var (listBId, commandBId) = await CreateCsvListAndSyncAsync(clientB);
+
+        listBId.Should().Be(listAId);
+
+        var finished = await WaitForTerminalStatusAsync(clientB, commandBId, listBId, TimeSpan.FromSeconds(60));
+        finished.GetProperty("status").GetString().Should().Be("completed");
+
+        // And host B's gate for list 1 is free, which it would not be if the gates were shared.
+        using var gateB = hostB.Services.GetRequiredService<ImportListSyncGates>().TryEnter(listBId);
+        gateB.Should().NotBeNull();
     }
 
     [Fact]
@@ -212,9 +249,13 @@ public sealed class ImportListApiTests
         missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    private static async Task<JsonElement> WaitForTerminalStatusAsync(HttpClient client, long id)
+    private static async Task<JsonElement> WaitForTerminalStatusAsync(
+        HttpClient client,
+        long id,
+        long importListId,
+        TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow + Timeout;
+        var deadline = DateTime.UtcNow + (timeout ?? Timeout);
         var last = default(JsonElement);
 
         while (DateTime.UtcNow < deadline)
@@ -230,6 +271,32 @@ public sealed class ImportListApiTests
             await Task.Delay(25);
         }
 
-        throw new InvalidOperationException($"Command {id} never finished; last seen as {last}");
+        // The command row (status, message, started, ended) and the list's item states say where it stuck.
+        using var items = await client.GetAsync(new Uri($"{ItemEndpoint}?importListId={importListId}", UriKind.Relative));
+        var itemStates = await items.Content.ReadAsStringAsync();
+
+        throw new InvalidOperationException(
+            $"Command {id} never finished; its row was last seen as {last}. Items of list {importListId}: {itemStates}");
+    }
+
+    private static async Task<(long ListId, long CommandId)> CreateCsvListAndSyncAsync(HttpClient client)
+    {
+        using var created = await client.PostAsync(
+            new Uri(ListEndpoint, UriKind.Relative),
+            SongApiTests.Json(JsonSerializer.Serialize(new
+            {
+                type = "csv",
+                name = "Road trip",
+                settings = new { },
+                sourceText = Exportify,
+                syncIntervalHours = 0,
+            })));
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var listId = (await SongApiTests.ReadJsonAsync(created)).GetProperty("id").GetInt64();
+
+        using var sync = await client.PostAsync(new Uri($"{ListEndpoint}/{listId}/sync", UriKind.Relative), null);
+        sync.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        return (listId, (await SongApiTests.ReadJsonAsync(sync)).GetProperty("commandId").GetInt64());
     }
 }

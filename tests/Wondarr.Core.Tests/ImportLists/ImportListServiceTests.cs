@@ -32,6 +32,7 @@ public sealed class ImportListServiceTests : IDisposable
     private readonly ISongService _songs = Substitute.For<ISongService>();
     private readonly FakeProvider _provider = new();
     private readonly IPlaylistWriter _playlists = Substitute.For<IPlaylistWriter>();
+    private readonly ImportListSyncGates _gates = new();
 
     [Fact]
     public async Task Create_validates_the_type_the_policy_and_the_providers_settings()
@@ -502,6 +503,7 @@ public sealed class ImportListServiceTests : IDisposable
             Substitute.For<ICommandQueue>(),
             Options(),
             _playlists,
+            _gates,
             [_provider, new CsvImportListProvider()],
             _timeProvider,
             NullLogger<ImportListService>.Instance);
