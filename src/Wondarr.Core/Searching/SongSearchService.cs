@@ -1180,7 +1180,8 @@ public sealed partial class SongSearchService : ISongSearchService
                     candidate.Query,
                     item.Destination,
                     candidate.Release?.Title,
-                    bundled.Count),
+                    bundled.Count,
+                    bundled.Count == 0 ? null : [.. bundled.Select(song => new BundledSongData(song.Song.Id, song.Song.Title))]),
                 Json),
         });
 
@@ -1684,5 +1685,9 @@ public sealed partial class SongSearchService : ISongSearchService
         string? Query,
         string Destination,
         string? Release = null,
-        int BundledWith = 0);
+        int BundledWith = 0,
+        IReadOnlyList<BundledSongData>? BundledSongs = null);
+
+    /// <summary>One other song that rode along on a container grab, as the history shows it.</summary>
+    private sealed record BundledSongData(long SongId, string Title);
 }
