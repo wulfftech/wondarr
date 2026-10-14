@@ -30,6 +30,79 @@ public class CommandExecutorTests
     }
 
     [Fact]
+    public async Task A_running_command_that_did_not_opt_in_cannot_be_cancelled()
+    {
+        using var handler = new BlockingCommandHandler("Plain");
+        await using var host = await JobTestHost.CreateAsync(services => services.AddSingleton<ICommandHandler>(handler));
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        var queued = await host.Queue.EnqueueAsync("Plain", null, CommandTrigger.Manual, CancellationToken.None);
+        (await TestWait.UntilAsync(() => Task.FromResult(handler.StartedCount == 1))).Should().BeTrue();
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Started)).Should().BeTrue();
+
+        (await host.Queue.CancelAsync(queued.Id, CancellationToken.None))
+            .Should().BeFalse("only a handler that opts in can be cancelled while it runs");
+        handler.SawCancellation.Should().BeFalse();
+        (await StatusAsync(host, queued.Id)).Should().Be(CommandStatus.Started);
+
+        handler.Release();
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Completed)).Should().BeTrue();
+
+        await executor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_running_command_that_opted_in_is_cancelled_through_the_queue()
+    {
+        using var handler = new BlockingCommandHandler("Waiter") { CancelWhileRunning = true };
+        await using var host = await JobTestHost.CreateAsync(services => services.AddSingleton<ICommandHandler>(handler));
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        var queued = await host.Queue.EnqueueAsync("Waiter", null, CommandTrigger.Manual, CancellationToken.None);
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Started)).Should().BeTrue();
+        (await TestWait.UntilAsync(() => Task.FromResult(handler.StartedCount == 1))).Should().BeTrue();
+
+        (await host.Queue.CancelAsync(queued.Id, CancellationToken.None)).Should().BeTrue();
+
+        (await TestWait.UntilAsync(async () => await StatusAsync(host, queued.Id) == CommandStatus.Cancelled))
+            .Should().BeTrue("a cancelled run is not an abort or a failure");
+        handler.SawCancellation.Should().BeTrue();
+
+        var row = await host.Queue.GetAsync(queued.Id, CancellationToken.None);
+        row!.Result.Should().Be(CommandResult.Unsuccessful);
+        row.Message.Should().Be("Cancelled");
+        row.Exception.Should().BeNull();
+        row.EndedAt.Should().NotBeNull();
+
+        (await TestWait.UntilAsync(() => Task.FromResult(!host.Active.Contains(queued.Id))))
+            .Should().BeTrue("the executor lets go of the command");
+
+        // A second cancel finds nothing running.
+        (await host.Queue.CancelAsync(queued.Id, CancellationToken.None)).Should().BeFalse();
+
+        await executor.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Stopping_the_host_still_aborts_a_command_that_opted_in()
+    {
+        using var handler = new BlockingCommandHandler("Waiter") { CancelWhileRunning = true };
+        await using var host = await JobTestHost.CreateAsync(services => services.AddSingleton<ICommandHandler>(handler));
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(CancellationToken.None);
+
+        var queued = await host.Queue.EnqueueAsync("Waiter", null, CommandTrigger.Manual, CancellationToken.None);
+        (await TestWait.UntilAsync(() => Task.FromResult(handler.StartedCount == 1))).Should().BeTrue();
+
+        using var stopBudget = new CancellationTokenSource(TestWait.Timeout);
+        await executor.StopAsync(stopBudget.Token);
+
+        (await StatusAsync(host, queued.Id)).Should().Be(CommandStatus.Aborted);
+    }
+
+    [Fact]
     public async Task A_command_whose_handler_cannot_be_built_fails_once_and_the_next_command_still_runs()
     {
         await using var host = await JobTestHost.CreateAsync(

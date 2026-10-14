@@ -184,7 +184,7 @@ describe('InteractiveSearchModal', () => {
 
     await screen.findByText('Massive Attack - Teardrop.flac');
 
-    expect(screen.getByText('1 acceptable of 2 results.')).toBeInTheDocument();
+    expect(screen.getByText('1 acceptable of 2 results')).toBeInTheDocument();
     expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
   });
 

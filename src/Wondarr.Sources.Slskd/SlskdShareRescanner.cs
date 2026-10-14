@@ -252,7 +252,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         // supervisor is bringing up.
         if (state is SlskdState.Starting or SlskdState.Restarting or SlskdState.Crashed)
         {
-            return (RescanReadiness.Wait, string.Concat("slskd is ", state.ToString().ToLowerInvariant()));
+            return (RescanReadiness.Wait, StateText(state));
         }
 
         // No binary, or the host stopping: there is no slskd of ours to ask.
@@ -260,11 +260,24 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         {
             LogSkipped(_logger, state);
 
-            return (RescanReadiness.Drop, string.Concat("slskd is ", state.ToString().ToLowerInvariant(), ", not a process Wondarr runs"));
+            return (RescanReadiness.Drop, StateText(state));
         }
 
         return (RescanReadiness.Ask, null);
     }
+
+    /// <summary>The state of slskd as a short phrase for a task result.</summary>
+    private static string StateText(SlskdState state) => state switch
+    {
+        SlskdState.Starting => "slskd is starting",
+        SlskdState.Restarting => "slskd is restarting",
+        SlskdState.Crashed => "slskd crashed and is being restarted",
+        SlskdState.BinaryMissing => "the slskd binary is missing",
+        SlskdState.Stopped => "slskd is stopped",
+        SlskdState.Disabled => "slskd is not run by Wondarr",
+        SlskdState.NotConfigured => "slskd is not set up yet",
+        _ => "slskd is not running",
+    };
 
     /// <summary>
     /// Asks slskd for a rescan right now, for the daily <c>RescanSoulseekShares</c> task: the same call and the
@@ -290,7 +303,19 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         using var scope = _scopes.CreateScope();
         var client = scope.ServiceProvider.GetRequiredService<ISlskdClient>();
 
-        var outcome = await client.RescanSharesAsync(cancellationToken).ConfigureAwait(false);
+        SlskdRescanOutcome outcome;
+
+        try
+        {
+            outcome = await client.RescanSharesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // A slskd that does not answer is not a failure of the task: tomorrow's run asks again.
+            LogTaskFailed(_logger, exception.Message);
+
+            return "Nothing to do: slskd did not answer";
+        }
 
         return outcome == SlskdRescanOutcome.AlreadyScanning
             ? "slskd was already scanning its shares"
@@ -349,6 +374,9 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "slskd did not start a share rescan: {Reason}; trying again in a minute")]
     private static partial void LogFailed(ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The scheduled share rescan did not reach slskd: {Reason}")]
+    private static partial void LogTaskFailed(ILogger logger, string reason);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "slskd still did not start a share rescan: {Reason}")]
     private static partial void LogStillFailing(ILogger logger, string reason);

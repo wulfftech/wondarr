@@ -13,6 +13,7 @@ using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Persistence;
+using Wondarr.Testing;
 
 namespace Wondarr.Core.Tests.Searching;
 
@@ -30,7 +31,7 @@ internal sealed class SearchTestHost : IAsyncDisposable
         SqliteTestDatabase database,
         ServiceProvider services,
         IServiceScope scope,
-        FakeTimeProvider time,
+        TrackingTimeProvider time,
         FakeSourceProvider provider)
     {
         _database = database;
@@ -50,7 +51,7 @@ internal sealed class SearchTestHost : IAsyncDisposable
     public IOptionsMonitor<SearchOptions> Monitor { get; private init; } = null!;
 
     /// <summary>The fake clock every service reads.</summary>
-    public FakeTimeProvider Time { get; }
+    public TrackingTimeProvider Time { get; }
 
     /// <summary>The single scripted source the song is searched against.</summary>
     public FakeSourceProvider Provider { get; }
@@ -63,6 +64,18 @@ internal sealed class SearchTestHost : IAsyncDisposable
     /// service (another request, another worker) would have.
     /// </summary>
     public IServiceScope CreateScope() => _services.CreateScope();
+
+    /// <summary>The real command queue; only on a host made with <c>withCommands</c>.</summary>
+    public Wondarr.Core.Jobs.ICommandQueue Commands => _services.GetRequiredService<Wondarr.Core.Jobs.ICommandQueue>();
+
+    /// <summary>Builds the command executor over this host's services; only on a host made with <c>withCommands</c>.</summary>
+    public Wondarr.Core.Jobs.CommandExecutor CreateExecutor() => new(
+        _services.GetRequiredService<IServiceScopeFactory>(),
+        _services.GetRequiredService<IEventAggregator>(),
+        _services.GetRequiredService<System.Threading.Channels.Channel<long>>(),
+        Time,
+        _services.GetRequiredService<Wondarr.Core.Jobs.ActiveCommands>(),
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<Wondarr.Core.Jobs.CommandExecutor>.Instance);
 
     /// <summary>The search-and-grab service under test.</summary>
     public ISongSearchService Search => _scope.ServiceProvider.GetRequiredService<ISongSearchService>();
@@ -92,10 +105,15 @@ internal sealed class SearchTestHost : IAsyncDisposable
     public GrabbedEventRecorder Events => _services.GetRequiredService<GrabbedEventRecorder>();
 
     /// <summary>Builds a host over a fresh database.</summary>
-    public static async Task<SearchTestHost> CreateAsync(Action<SearchOptions>? configure = null)
+    /// <param name="configure">Changes the search limits before the services read them.</param>
+    /// <param name="withCommands">
+    /// Whether the real command queue and the <c>SongSearch</c> handler are registered too, so a test can
+    /// run the search through <see cref="CreateExecutor"/> as the application does.
+    /// </param>
+    public static async Task<SearchTestHost> CreateAsync(Action<SearchOptions>? configure = null, bool withCommands = false)
     {
         var database = new SqliteTestDatabase();
-        var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero));
+        var time = new TrackingTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero));
         await database.MigrateAsync(time);
 
         var options = new SearchOptions();
@@ -123,6 +141,14 @@ internal sealed class SearchTestHost : IAsyncDisposable
         services.AddScoped<SlotWaitContext>();
         services.AddSingleton<SlotWaiters>();
         services.AddScoped<ISongSearchService, SongSearchService>();
+
+        if (withCommands)
+        {
+            services.AddSingleton(System.Threading.Channels.Channel.CreateUnbounded<long>());
+            services.AddSingleton<Wondarr.Core.Jobs.ActiveCommands>();
+            services.AddSingleton<Wondarr.Core.Jobs.ICommandQueue, Wondarr.Core.Jobs.CommandQueue>();
+            services.AddScoped<Wondarr.Core.Jobs.ICommandHandler, SongSearchCommandHandler>();
+        }
 
         var built = services.BuildServiceProvider();
         var scope = built.CreateScope();
