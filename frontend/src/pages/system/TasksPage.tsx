@@ -1,8 +1,6 @@
 import { Button, Card, Stack, Table, Text, Title } from '@mantine/core';
 import { Play } from 'lucide-react';
 import { useCancelCommand, useRunCommand, useTasks } from '../../api/hooks';
-import { readEnum } from '../../api/profiles';
-import type { CommandStatusName } from '../../api/songs';
 import { useCommands, type CommandResource } from '../../api/system';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 
@@ -43,16 +41,22 @@ function formatDuration(value: string | null | undefined): string {
   return value === null || value === undefined || value === '' || value === '00:00:00' ? '—' : value;
 }
 
+/** A command's state as the Status column spells it: `cancelled` reads "Cancelled". */
+function statusLabel(status: CommandResource['status']): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 /** The colour a command's life-cycle state wears, so a failure stands out. */
 function statusColour(status: CommandResource['status']): string | undefined {
-  // The API sends the status as a camelCase string although the document types it as a number.
-  const name = readEnum<CommandStatusName>(status);
-
-  if (name === 'failed' || name === 'aborted') {
+  if (status === 'failed' || status === 'aborted' || status === 'orphaned') {
     return 'red';
   }
 
-  return name === 'queued' || name === 'started' ? 'blue' : undefined;
+  if (status === 'cancelled') {
+    return 'dimmed';
+  }
+
+  return status === 'queued' || status === 'started' ? 'blue' : undefined;
 }
 
 /**
@@ -60,9 +64,9 @@ function statusColour(status: CommandResource['status']): string | undefined {
  * running command the server lets be cancelled, because it only waits for a download slot).
  */
 function canCancel(command: CommandResource): boolean {
-  const name = readEnum<CommandStatusName>(command.status);
+  const status = command.status;
 
-  return name === 'queued' || (name === 'started' && command.name === 'SongSearch');
+  return status === 'queued' || (status === 'started' && command.name === 'SongSearch');
 }
 
 /** The scheduled tasks, with the interval, the runs and a way to run one now. */
@@ -157,7 +161,7 @@ export function TasksPage() {
                 <Table.Tr key={command.id}>
                   <Table.Td style={NOWRAP}>{command.commandName}</Table.Td>
                   <Table.Td>
-                    <Text c={statusColour(command.status)}>{command.status}</Text>
+                    <Text c={statusColour(command.status)}>{statusLabel(command.status)}</Text>
                   </Table.Td>
                   <Table.Td>{formatTimestamp(command.queued)}</Table.Td>
                   <Table.Td>{formatTimestamp(command.ended)}</Table.Td>

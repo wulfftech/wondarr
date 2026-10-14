@@ -10,8 +10,7 @@ import {
   type CompactAlbumResource,
   type CompactMoveResource,
 } from '../../api/compact';
-import { readEnum } from '../../api/profiles';
-import { type CommandStatusName } from '../../api/songs';
+import { isFinished, isUnsuccessful } from '../../api/songs';
 import { ErrorState, LoadingState } from '../../components/DataState';
 
 /**
@@ -88,10 +87,9 @@ export function CompactLibraryModal({
   const [commandId, setCommandId] = useState<number | null>(null);
   const command = useCompactCommand(commandId);
 
-  const status = readEnum<CommandStatusName>(command.data?.status);
-  const finished =
-    command.data !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
-  const failed = status === 'failed' || status === 'aborted';
+  const status = command.data?.status;
+  const finished = command.data !== undefined && isFinished(status);
+  const failed = isUnsuccessful(status);
   const moves = plan.data?.moves ?? [];
   const hasMoves = moves.length > 0;
   // A move that keeps the album only changes the folder: the library's naming template changed since the file was filed.

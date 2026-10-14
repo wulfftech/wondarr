@@ -4,7 +4,6 @@ import { notifications } from '@mantine/notifications';
 import { Check, Search, UserSearch, X } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import { ApiError } from '../api/errors';
-import { readEnum } from '../api/profiles';
 import {
   useGrabRelease,
   useInteractiveSearch,
@@ -84,7 +83,7 @@ function formatSpeed(bytesPerSecond: number | string | null): string {
 /** The one line above the table: how many candidates came back and how the run ended. */
 function summaryLine(result: InteractiveSearchResource): string {
   const count = result.releases.length;
-  const outcome = readEnum<SearchOutcomeName>(result.outcome);
+  const outcome = result.outcome;
   const message = result.message === null || result.message === '' ? null : result.message;
   const tail = message === null ? '.' : `: ${message}`;
 

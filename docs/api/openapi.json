@@ -4855,7 +4855,14 @@
         }
       },
       "AlbumContextKind": {
-        "type": "integer"
+        "enum": [
+          "album",
+          "single",
+          "ep",
+          "compilation",
+          "pseudoSingles"
+        ],
+        "type": "string"
       },
       "AlbumOptionResource": {
         "required": [
@@ -4971,7 +4978,14 @@
         }
       },
       "AlbumPolicy": {
-        "type": "integer"
+        "enum": [
+          "fewestAlbums",
+          "singlesOnly",
+          "originalAlbum",
+          "singleRelease",
+          "compilation"
+        ],
+        "type": "string"
       },
       "AlbumRefResource": {
         "required": [
@@ -5259,7 +5273,12 @@
         }
       },
       "AuthenticationMethod": {
-        "type": "integer"
+        "enum": [
+          "none",
+          "forms",
+          "external"
+        ],
+        "type": "string"
       },
       "BackupResource": {
         "required": [
@@ -5515,13 +5534,32 @@
         }
       },
       "CommandResult": {
-        "type": "integer"
+        "enum": [
+          "unknown",
+          "successful",
+          "unsuccessful"
+        ],
+        "type": "string"
       },
       "CommandStatus": {
-        "type": "integer"
+        "enum": [
+          "queued",
+          "started",
+          "completed",
+          "failed",
+          "aborted",
+          "cancelled",
+          "orphaned"
+        ],
+        "type": "string"
       },
       "CommandTrigger": {
-        "type": "integer"
+        "enum": [
+          "unspecified",
+          "manual",
+          "scheduled"
+        ],
+        "type": "string"
       },
       "CompactAlbumResource": {
         "required": [
@@ -6260,7 +6298,18 @@
         }
       },
       "HistoryEventType": {
-        "type": "integer"
+        "enum": [
+          "grabbed",
+          "imported",
+          "upgraded",
+          "failed",
+          "verified",
+          "rejected",
+          "deleted",
+          "renamed",
+          "converted"
+        ],
+        "type": "string"
       },
       "HistoryResource": {
         "required": [
@@ -6691,7 +6740,13 @@
         }
       },
       "ImportListItemState": {
-        "type": "integer"
+        "enum": [
+          "pending",
+          "added",
+          "unresolved",
+          "skipped"
+        ],
+        "type": "string"
       },
       "ImportListResource": {
         "required": [
@@ -7097,7 +7152,13 @@
       "JsonElement": {},
       "JsonNode": {},
       "LibraryLayout": {
-        "type": "integer"
+        "enum": [
+          "flat",
+          "artist",
+          "artistAlbum",
+          "plexamp"
+        ],
+        "type": "string"
       },
       "LibraryPreviewRequestResource": {
         "required": [
@@ -8698,7 +8759,17 @@
         }
       },
       "QueueItemState": {
-        "type": "integer"
+        "enum": [
+          "queued",
+          "remotelyQueued",
+          "downloading",
+          "completed",
+          "importing",
+          "imported",
+          "failed",
+          "cancelled"
+        ],
+        "type": "string"
       },
       "QueueResource": {
         "required": [
@@ -8980,7 +9051,17 @@
         }
       },
       "ReferenceFileState": {
-        "type": "integer"
+        "enum": [
+          "pending",
+          "identified",
+          "ambiguous",
+          "unmatched",
+          "adopted",
+          "unreadable",
+          "missing",
+          "skipped"
+        ],
+        "type": "string"
       },
       "ReferenceLibraryCountsResource": {
         "required": [
@@ -9712,7 +9793,16 @@
         }
       },
       "SearchOutcome": {
-        "type": "integer"
+        "enum": [
+          "grabbed",
+          "noAcceptableCandidate",
+          "noResults",
+          "sourceUnavailable",
+          "failed",
+          "cancelled",
+          "noFreeSlot"
+        ],
+        "type": "string"
       },
       "SongAddResource": {
         "required": [
