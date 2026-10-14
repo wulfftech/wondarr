@@ -105,13 +105,25 @@ public class CandidateTitleMatcherTests
     [InlineData("Story of a Girl", @"@@u\Va\X\05 Story of a Dream.flac", "Story of a Dream", false)]
     // Holding the title is not being the title: a longer file title is not the song.
     [InlineData("Story of a Girl", @"@@u\Va\X\05 Story of a Girl Part 2.flac", "Story of a Girl Part 2", false)]
-    // MusicBrainz lists both titles for one song, and either one is the song in full.
-    [InlineData("Absolutely (Story of a Girl)", @"@@u\Va\X\05 Story of a Girl.flac", "Story of a Girl", true)]
+    // The bracketed part of a title on its own is a partial match; only the whole title and the title without hints count.
+    [InlineData("Absolutely (Story of a Girl)", @"@@u\Va\X\05 Story of a Girl.flac", "Story of a Girl", false)]
+    [InlineData("Absolutely (Story of a Girl)", @"@@u\Va\X\05 Absolutely (Story of a Girl).flac", null, true)]
+    [InlineData("Story of a Girl (Remastered)", @"@@u\Va\X\05 Story of a Girl.flac", null, true)]
+    // A title that starts with a number is the title, with the track number as well as without it.
+    [InlineData("21 Guns", @"@@u\Va\X\21 Guns.flac", null, true)]
+    [InlineData("21 Guns", @"@@u\Va\X\05 - 21 Guns.flac", null, true)]
+    // A soft marker (remaster, explicit, clean) in the file title is not a different song.
+    [InlineData("Story of a Girl", @"@@u\Va\X\12 Story of a Girl (Remastered).flac", null, true)]
+    [InlineData("Story of a Girl", @"@@u\Va\X\12 Story of a Girl [Explicit].flac", null, true)]
+    [InlineData("Story of a Girl", @"@@u\Va\X\12 Story of a Girl (Remastered 2011).flac", null, true)]
+    // A hard marker the song does not have is.
+    [InlineData("Story of a Girl", @"@@u\Va\X\12 Story of a Girl (Live).flac", null, false)]
+    [InlineData("Story of a Girl", @"@@u\Va\X\12 Story of a Girl (Acoustic).flac", null, false)]
     public void Tells_a_full_title_match_from_a_partial_one(string song, string path, string? parsedTitle, bool expected)
     {
         var candidate = Candidate(path, parsedTitle);
 
-        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants(song), candidate, VersionFlags.None)
+        CandidateTitleMatcher.IsFullTitleMatch(song, candidate, VersionFlags.None)
             .Should().Be(expected);
     }
 
@@ -124,10 +136,16 @@ public class CandidateTitleMatcherTests
         };
 
         // The song is the radio edit, with or without the marker in its title: the file is the song.
-        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants("Story of a Girl (Radio Edit)"), candidate, VersionFlags.RadioEdit)
+        CandidateTitleMatcher.IsFullTitleMatch("Story of a Girl (Radio Edit)", candidate, VersionFlags.RadioEdit)
             .Should().BeTrue();
-        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants("Story of a Girl"), candidate, VersionFlags.RadioEdit)
+        CandidateTitleMatcher.IsFullTitleMatch("Story of a Girl", candidate, VersionFlags.RadioEdit)
             .Should().BeTrue();
+
+        // The song is not: the radio edit is another song, the parser's title and flags notwithstanding.
+        var withoutTitle = Candidate(@"@@u\Va\X\12 Story of a Girl (Radio Edit).flac", null);
+
+        CandidateTitleMatcher.IsFullTitleMatch("Story of a Girl", withoutTitle, VersionFlags.None).Should().BeFalse();
+        CandidateTitleMatcher.IsFullTitleMatch("Story of a Girl (Radio Edit)", withoutTitle, VersionFlags.RadioEdit).Should().BeTrue();
     }
 
     [Fact]
@@ -135,7 +153,7 @@ public class CandidateTitleMatcherTests
     {
         var release = Candidate("Nine Days - The Madding Crowd [FLAC]", null) with { Container = CandidateContainer.AlbumContainer };
 
-        CandidateTitleMatcher.IsFullTitleMatch(CandidateTitleMatcher.SongVariants("Story of a Girl"), release, VersionFlags.None)
+        CandidateTitleMatcher.IsFullTitleMatch("Story of a Girl", release, VersionFlags.None)
             .Should().BeFalse();
     }
 

@@ -420,6 +420,18 @@ public class DecisionEngineTests
         Judge(context, folderOnly).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
     }
 
+    [Theory]
+    [InlineData("12 Story of a Girl (Remastered).mp3", VersionFlags.Remaster)]
+    [InlineData("12 Story of a Girl [Explicit].mp3", VersionFlags.Explicit)]
+    public void A_compilation_path_passes_on_a_full_title_with_a_soft_marker(string fileName, VersionFlags flags)
+    {
+        var context = Context() with { SongTitle = "Story of a Girl", MainArtists = ["Nine Days"] };
+        var parsed = ParsedName.Empty with { Title = "Story of a Girl", TrackNo = 12, VersionFlags = flags };
+
+        Judge(context, NewCandidate(remotePath: @"@@b\Various Artists\Now 48\" + fileName, parsed: parsed))
+            .Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+    }
+
     [Fact]
     public void A_whole_artist_folder_above_a_soundtrack_album_is_the_artist()
     {

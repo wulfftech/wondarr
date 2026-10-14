@@ -117,11 +117,12 @@ public sealed record SongCandidate
     public bool ViaIsrc { get; init; }
 
     /// <summary>
-    /// True when the recording's earliest official release is an Official Album (not a compilation,
-    /// soundtrack or, unless the query asked for it, live album). The ranking puts such a recording
-    /// ahead of its same-titled namesakes.
+    /// The date of the recording's earliest Official Album release (not a compilation, soundtrack or,
+    /// unless the query asked for it, live album; singles, EPs and promos do not count), when its
+    /// length is acceptable against the reference length. The ranking puts the recording with the
+    /// earliest such date ahead of its same-titled namesakes.
     /// </summary>
-    public bool OriginalAlbum { get; init; }
+    public string? OfficialAlbumDate { get; init; }
 }
 
 /// <summary>How a lookup ended.</summary>

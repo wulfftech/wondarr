@@ -135,7 +135,7 @@ public sealed class DecisionEngine
         var score = Score(context, candidate, songBaseTitle);
         var similarity = CandidateTitleMatcher.Similarity(songVariants, candidate);
 
-        return new CandidateDecision(candidate, score, Rejections(context, candidate, score, similarity, songVariants));
+        return new CandidateDecision(candidate, score, Rejections(context, candidate, score, similarity));
     }
 
     /// <summary>Accepted before rejected, then by score, then by the tie-breaks of MATCHING_ENGINE §6.3.</summary>
@@ -188,8 +188,7 @@ public sealed class DecisionEngine
         DecisionContext context,
         Candidate candidate,
         ScoreBreakdown score,
-        double? similarity,
-        IReadOnlyList<string> songVariants)
+        double? similarity)
     {
         var rejections = new List<Rejection>();
         var quality = QualityOf(context, candidate.QualityId);
@@ -265,7 +264,7 @@ public sealed class DecisionEngine
         AddDurationRejection(context, candidate, rejections);
         AddVersionRejection(context, candidate, rejections);
         AddTitleRejection(context, candidate, similarity, rejections);
-        AddArtistRejection(context, candidate, similarity, songVariants, rejections);
+        AddArtistRejection(context, candidate, similarity, rejections);
         AddSizeRejection(context, candidate, quality, rejections);
         AddUntaggableRejection(context, candidate, rejections);
 
@@ -430,7 +429,6 @@ public sealed class DecisionEngine
         DecisionContext context,
         Candidate candidate,
         double? similarity,
-        IReadOnlyList<string> songVariants,
         List<Rejection> rejections)
     {
         if (context.MainArtists.Count == 0)
@@ -447,7 +445,7 @@ public sealed class DecisionEngine
         {
             if (CompilationPathNamesArtist(context, candidate) ||
                 similarity is null ||
-                CandidateTitleMatcher.IsFullTitleMatch(songVariants, candidate, context.SongFlags))
+                CandidateTitleMatcher.IsFullTitleMatch(context.SongTitle, candidate, context.SongFlags))
             {
                 return;
             }

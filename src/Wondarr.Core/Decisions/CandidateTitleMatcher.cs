@@ -141,17 +141,18 @@ public static class CandidateTitleMatcher
 
     /// <summary>
     /// Whether the candidate's own track title <em>is</em> the song's title, not merely close to it or
-    /// holding it: the folded file title equals a folded text of the song's title, or the song's title
-    /// plus a version marker the song also has (MATCHING_ENGINE.md §6.2). This is what a compilation
-    /// path needs when its file name does not name the artist.
+    /// holding it: the folded file title equals the song's title or the song's title without its
+    /// version hints, or is the song's title plus a hard version marker the song also has, or a soft
+    /// one (a remaster, explicit or clean mark) whether the song has it or not (MATCHING_ENGINE.md
+    /// §6.2). This is what a compilation path needs when its file name does not name the artist.
     /// </summary>
-    /// <param name="songVariants">The song title's comparison texts from <see cref="SongVariants"/>.</param>
+    /// <param name="songTitle">The song's title as MusicBrainz lists it.</param>
     /// <param name="candidate">The candidate.</param>
     /// <param name="songFlags">The version flags the song carries.</param>
     /// <returns><c>false</c> when the candidate carries no title of its own.</returns>
-    public static bool IsFullTitleMatch(IReadOnlyList<string> songVariants, Candidate candidate, VersionFlags songFlags)
+    public static bool IsFullTitleMatch(string songTitle, Candidate candidate, VersionFlags songFlags)
     {
-        ArgumentNullException.ThrowIfNull(songVariants);
+        ArgumentNullException.ThrowIfNull(songTitle);
         ArgumentNullException.ThrowIfNull(candidate);
 
         var parsedTitle = candidate.Parsed.Title;
@@ -162,7 +163,9 @@ public static class CandidateTitleMatcher
             return false;
         }
 
-        var songTexts = songVariants
+        // The song's whole title and its base title only: a bracketed part of the title on its own
+        // ("Story of a Girl" out of "Absolutely (Story of a Girl)") is a partial match, not a full one.
+        var songTexts = new[] { songTitle, VersionFlagParser.Parse(songTitle).BaseTitle }
             .Select(text => TextMatching.Normalize(text))
             .Where(text => text.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
@@ -181,14 +184,14 @@ public static class CandidateTitleMatcher
             candidateTexts.AddRange(JoinedSuffixes(DashParts(parsedTitle!)));
         }
 
-        for (var passes = 1; passes <= 2; passes++)
+        // Without a track number stripped as well: "21 Guns.flac" is the song "21 Guns".
+        for (var passes = 0; passes <= 2; passes++)
         {
             candidateTexts.AddRange(JoinedSuffixes(TitleSegments(candidate.RemotePath, passes)));
         }
 
-        // A version marker is only part of the title when the song has it too.
-        var markersAreTheSongs = (candidate.Parsed.VersionFlags & ~songFlags) == VersionFlags.None;
-
+        // A hard version marker is only part of the title when the song has it too; a soft one
+        // (remaster, explicit, clean) is not a different song and is left out of the comparison.
         foreach (var text in candidateTexts)
         {
             if (songTexts.Contains(TextMatching.Normalize(text)))
@@ -196,8 +199,10 @@ public static class CandidateTitleMatcher
                 return true;
             }
 
-            if (markersAreTheSongs &&
-                songTexts.Contains(TextMatching.Normalize(VersionFlagParser.Parse(text).BaseTitle)))
+            var info = VersionFlagParser.Parse(text);
+            var strangeMarkers = (info.Flags | candidate.Parsed.VersionFlags) & VersionFlagNames.HardFlags & ~songFlags;
+
+            if (strangeMarkers == VersionFlags.None && songTexts.Contains(TextMatching.Normalize(info.BaseTitle)))
             {
                 return true;
             }
