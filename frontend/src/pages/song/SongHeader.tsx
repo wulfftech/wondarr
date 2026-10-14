@@ -1,15 +1,12 @@
 import { Anchor, Badge, Button, Card, Flex, Group, Select, Stack, Switch, Text, Title } from '@mantine/core';
 import { ArrowRightLeft, Disc3, Search, Trash2, UserSearch, Wand2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { readEnum, type LibraryResource, type QualityProfileResource } from '../../api/profiles';
+import { type LibraryResource, type QualityProfileResource } from '../../api/profiles';
 import type { SongDetailsResource, SongResource } from '../../api/songs';
 import { PreviewButton } from '../../components/PreviewButton';
 import { formatDuration } from '../../components/SongCells';
 import { AlbumCover } from '../../components/song/AlbumOptionLabel';
 import { initCaps } from '../../components/text';
-
-/** The wire spelling of `AlbumContextKind`; the API serialises enums as camelCase strings. */
-type AlbumContextKindName = 'album' | 'single' | 'ep' | 'compilation' | 'pseudoSingles';
 
 /** The album line: `Album by Artist`, the track and disc, and the year. */
 function albumLine(song: SongResource): string | null {
@@ -21,7 +18,7 @@ function albumLine(song: SongResource): string | null {
 
   const parts: string[] = [];
 
-  if (readEnum<AlbumContextKindName>(context.kind) === 'pseudoSingles') {
+  if (context.kind === 'pseudoSingles') {
     parts.push(`Singles by ${context.albumArtist}`);
   } else {
     parts.push(`${context.albumTitle} by ${context.albumArtist}`);

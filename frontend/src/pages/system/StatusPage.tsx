@@ -31,18 +31,15 @@ function yesNo(value: boolean | undefined): string {
   return value === true ? 'Yes' : 'No';
 }
 
-/**
- * `AuthenticationMethod` arrives as a number: the OpenAPI document publishes the enum's underlying
- * type but not its values. The names are `Wondarr.Core.Configuration.AuthenticationMethod`.
- */
-const AUTHENTICATION_NAMES: Record<number, string> = {
-  0: 'None',
-  1: 'Forms',
-  2: 'External',
+/** How each `AuthenticationMethod` reads in the table. */
+const AUTHENTICATION_NAMES: Record<SystemStatus['authentication'], string> = {
+  none: 'None',
+  forms: 'Forms',
+  external: 'External',
 };
 
-function authenticationName(value: number): string {
-  return AUTHENTICATION_NAMES[value] ?? String(value);
+function authenticationName(value: SystemStatus['authentication']): string {
+  return AUTHENTICATION_NAMES[value] ?? value;
 }
 
 /** The fields the System → Status table shows, in order. */

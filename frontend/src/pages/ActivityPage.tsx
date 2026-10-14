@@ -26,7 +26,7 @@ import { initCaps } from '../components/text';
 type ActivityTab = 'queue' | 'history' | 'blocklist';
 
 /** The colour each event type wears, so a failure stands out in a scrolling list. */
-const EVENT_COLOURS: Record<string, MantineColor> = {
+const EVENT_COLOURS: Record<HistoryResource['eventType'], MantineColor> = {
   grabbed: 'blue',
   imported: 'green',
   upgraded: 'teal',
@@ -35,15 +35,14 @@ const EVENT_COLOURS: Record<string, MantineColor> = {
   rejected: 'orange',
   deleted: 'gray',
   renamed: 'yellow',
+  converted: 'grape',
 };
 
 /** Turns an event type the API serialised as a camelCase string into a badge. */
-function EventBadge({ eventType }: { eventType: unknown }) {
-  const name = typeof eventType === 'string' ? eventType : String(eventType);
-
+function EventBadge({ eventType }: { eventType: HistoryResource['eventType'] }) {
   return (
-    <Badge color={EVENT_COLOURS[name] ?? 'gray'} variant="light">
-      {initCaps(name)}
+    <Badge color={EVENT_COLOURS[eventType] ?? 'gray'} variant="light">
+      {initCaps(eventType)}
     </Badge>
   );
 }
@@ -104,7 +103,7 @@ function BundledSongs({ songs, total }: { songs: BundledSong[]; total: number })
  * (the event's display name) and the songs that rode along.
  */
 function GrabDetail({ item }: { item: HistoryResource }) {
-  if (String(item.eventType) !== 'grabbed') {
+  if (item.eventType !== 'grabbed') {
     return null;
   }
 

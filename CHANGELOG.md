@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Security
+- **.NET 10.0.13 (Microsoft's October 2026 security release).** `System.Security.Cryptography.Pkcs`, which MailKit brings in for email notifications, is pinned to 10.0.13 (CVE-2026-70162, CVE-2026-84008, denial of service), and the Microsoft packages move from 10.0.12 to 10.0.13. The image is built on the patched ASP.NET Core runtime (CVE-2026-70159, a SignalR denial of service).
+
 **Upgrading:** this version records a new search-run outcome, `NoFreeSlot`, as a string in the database. Going back to an older version is not supported while such a run exists; they age out with the rest of the search history after 30 days (Housekeeping).
 
 ### Added
@@ -18,6 +21,7 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 - **A stored optional secret can be cleared.** Next to an optional secret that holds a value (an email password, a webhook password) the notification form shows **Clear**; the field then reads "Will be cleared on save", with an Undo. The save request lists the field in the new `clearSecrets` array (`"clearSecrets": ["password"]`). A blank, `null`, omitted or masked secret keeps the stored one (under the same address rule), so existing API clients behave as before; only `clearSecrets` removes one. A name that is not a setting of the type is refused with a `400` on `clearSecrets`, a name that is not a secret or is required with a `400` on that field, and so is clearing a secret and sending a new value for it in one request. The notification schema now also carries `targetDefault` for the fields that have one.
 
 ### Fixed
+- **The OpenAPI document types enums as the strings the API sends.** `QueueItemState`, `SearchOutcome`, `HistoryEventType`, `CommandStatus`, `CommandResult`, `CommandTrigger`, `ImportListItemState`, `ReferenceFileState`, `LibraryLayout`, `AlbumPolicy`, `AlbumContextKind` and `AuthenticationMethod` were listed as integers in `docs/api/openapi.json`, so a client generated from it got the wrong types. Each is now a string enum of the camelCase names (`"remotelyQueued"`); the JSON the API sends is unchanged. The Authentication row of System → Status now reads "Forms", "None" or "External" instead of the raw lowercase name.
 - The interactive search header no longer says "The search was cancelled: Interactive search: N acceptable" for a search that finished normally; it reads "N acceptable of M results".
 - The import log line prints just the quality ("FLAC 24-bit"), no longer with the upgrade flag glued on ("FLAC 24-bitFalse").
 - The Media tools health check reads the fpcalc version from the "version" token ("1.5.1"), not the last word of the line ("SwR6.1.100)").
