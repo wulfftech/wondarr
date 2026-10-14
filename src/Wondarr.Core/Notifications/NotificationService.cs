@@ -14,13 +14,18 @@ namespace Wondarr.Core.Notifications;
 /// <param name="Events">The subscribed event names.</param>
 /// <param name="Settings">The provider's settings.</param>
 /// <param name="Id">The row a test is about, so a masked secret can be kept from it, or <see langword="null"/>.</param>
+/// <param name="ClearSecrets">
+/// The optional secret fields whose stored value is to be removed, or <see langword="null"/>. Read by an
+/// update and a test of a stored row; a create has nothing to remove and ignores it.
+/// </param>
 public sealed record NotificationDraft(
     string Name,
     string Implementation,
     bool Enabled,
     IReadOnlyList<string> Events,
     JsonElement Settings,
-    long? Id = null);
+    long? Id = null,
+    IReadOnlyList<string>? ClearSecrets = null);
 
 /// <summary>The outcome of a test send.</summary>
 /// <param name="Success">Whether the endpoint accepted the message.</param>
@@ -109,12 +114,16 @@ public sealed partial class NotificationService : INotificationService
     {
         var provider = await ValidateAsync(draft, excludingId: null, cancellationToken).ConfigureAwait(false);
 
+        // Merged before it is validated, so the mask never reaches the provider's checks or the row.
+        var settings = MergeSettings(draft.Settings, null, provider.Fields, null);
+        ValidateSettings(provider, settings);
+
         var notification = new Notification
         {
             Name = draft.Name.Trim(),
             Type = provider.Implementation,
             Enabled = draft.Enabled,
-            Settings = NotificationSecrets.Merge(draft.Settings, null, provider.Fields),
+            Settings = settings,
             Events = JsonSerializer.Serialize(draft.Events),
         };
 
@@ -142,7 +151,8 @@ public sealed partial class NotificationService : INotificationService
 
         var provider = await ValidateAsync(draft, excludingId: id, cancellationToken).ConfigureAwait(false);
 
-        var settings = MergeSettings(draft.Settings, notification.Settings, provider.Fields);
+        var settings = MergeSettings(draft.Settings, notification.Settings, provider.Fields, draft.ClearSecrets);
+        ValidateSettings(provider, settings);
 
         notification.Name = draft.Name.Trim();
         notification.Type = provider.Implementation;
@@ -151,6 +161,10 @@ public sealed partial class NotificationService : INotificationService
         notification.Events = JsonSerializer.Serialize(draft.Events);
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // A cleared secret stays in the redactor until the process restarts: the registry has no way to
+        // forget a value, and redacting a secret that is no longer in use only hides text that was
+        // sensitive once, so a stale entry is harmless. The startup registrar only reads what is stored.
         RegisterSecrets(settings, provider);
 
         LogSaved(_logger, notification.Id, notification.Type);
@@ -275,36 +289,106 @@ public sealed partial class NotificationService : INotificationService
             }
         }
 
-        if (provider.Validate(draft.Settings) is { Count: > 0 } failures)
+        // A create has no stored secret to remove, so a name it carries is ignored; a test with no row is the same.
+        if (excludingId is not null)
         {
-            throw new NotificationValidationException("settings", string.Join(" ", failures));
+            ValidateClearSecrets(draft.ClearSecrets, draft.Settings, provider);
         }
 
         return provider;
     }
 
     /// <summary>
-    /// The settings a send uses: the draft's own, with every masked secret replaced by the value stored
-    /// on <paramref name="draft"/>'s row when it has one.
+    /// Has the provider check the settings that will be stored or sent, after the masked secrets were
+    /// replaced by what is stored, so the mask itself is never judged as an address or stored.
+    /// </summary>
+    private static void ValidateSettings(INotificationProvider provider, string settings)
+    {
+        if (provider.Validate(NotificationSecrets.Read(settings)) is { Count: > 0 } failures)
+        {
+            throw new NotificationValidationException("settings", string.Join(" ", failures));
+        }
+    }
+
+    /// <summary>
+    /// Refuses a name that cannot be cleared: one that is not a field of the provider, one that is not a
+    /// secret, and one the notification cannot do without (a required secret can only be replaced). The
+    /// failure belongs to the named field, or to <c>clearSecrets</c> when no field has that name.
+    /// </summary>
+    private static void ValidateClearSecrets(
+        IReadOnlyList<string>? names,
+        JsonElement settings,
+        INotificationProvider provider)
+    {
+        foreach (var name in names ?? [])
+        {
+            var field = provider.Fields.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal));
+
+            if (field is null)
+            {
+                throw new NotificationValidationException(
+                    "clearSecrets",
+                    string.Concat("'", name, "' is not a setting of this notification type."));
+            }
+
+            if (!field.Secret)
+            {
+                throw new NotificationValidationException(
+                    field.Name,
+                    string.Concat(field.Label, " is not a secret, so there is nothing to clear."));
+            }
+
+            if (field.Required)
+            {
+                throw new NotificationValidationException(
+                    field.Name,
+                    string.Concat(field.Label, " is required: it can be replaced but not cleared."));
+            }
+
+            // Clearing a secret and sending a new value for it contradict each other.
+            if (HasNewValue(settings, field.Name))
+            {
+                throw new NotificationValidationException(
+                    field.Name,
+                    "Clear or replace the secret, not both.");
+            }
+        }
+    }
+
+    /// <summary>Whether the settings carry a value for a field that is neither blank nor the mask.</summary>
+    private static bool HasNewValue(JsonElement settings, string name)
+    {
+        if (settings.ValueKind != JsonValueKind.Object || !settings.TryGetProperty(name, out var value))
+        {
+            return false;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Undefined or JsonValueKind.Null => false,
+            JsonValueKind.String => value.GetString() is { Length: > 0 } text &&
+                !string.Equals(text, NotificationSecrets.Mask, StringComparison.Ordinal),
+            _ => true,
+        };
+    }
+
+    /// <summary>
+    /// The settings a send uses: the draft's own, with every masked or blank secret replaced by the value
+    /// stored on <paramref name="draft"/>'s row when it has one, and then validated.
     /// </summary>
     private async Task<JsonElement> ResolveSettingsAsync(
         NotificationDraft draft,
         INotificationProvider provider,
         CancellationToken cancellationToken)
     {
-        if (draft.Id is not { } id)
-        {
-            return draft.Settings;
-        }
+        var stored = draft.Id is { } id
+            ? await GetAsync(id, cancellationToken).ConfigureAwait(false)
+            : null;
 
-        var stored = await GetAsync(id, cancellationToken).ConfigureAwait(false);
+        // With no row there is nothing for a mask to stand for: it is dropped, never sent.
+        var merged = MergeSettings(draft.Settings, stored?.Settings, provider.Fields, stored is null ? null : draft.ClearSecrets);
 
-        if (stored is null)
-        {
-            return draft.Settings;
-        }
-
-        var merged = MergeSettings(draft.Settings, stored.Settings, provider.Fields);
+        ValidateSettings(provider, merged);
 
         return NotificationSecrets.Read(merged);
     }
@@ -313,11 +397,15 @@ public sealed partial class NotificationService : INotificationService
     /// Keeps the stored secrets a masked draft stands for, for the target they were saved for. A
     /// secret whose address changed is refused as a validation failure on that secret's field.
     /// </summary>
-    private static string MergeSettings(JsonElement incoming, string stored, IReadOnlyList<NotificationField> fields)
+    private static string MergeSettings(
+        JsonElement incoming,
+        string? stored,
+        IReadOnlyList<NotificationField> fields,
+        IReadOnlyCollection<string>? clear)
     {
         try
         {
-            return NotificationSecrets.Merge(incoming, stored, fields);
+            return NotificationSecrets.Merge(incoming, stored, fields, clear, blankKeeps: true);
         }
         catch (SecretReentryException exception)
         {

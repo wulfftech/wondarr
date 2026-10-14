@@ -70,3 +70,27 @@ export function updateSummary(status: UpdateStatus): string {
 
   return status.latestVersion === null ? 'Not checked yet' : 'Up to date';
 }
+
+/** The last segment of a path inside a container, whichever slash it was written with. */
+export function fileNameOf(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+/**
+ * What a torrent or usenet grab came in, as one line: the release, the file inside it and, when other
+ * songs rode along, how many. Plain text, so a tooltip and the visible line say the same thing.
+ */
+export function containerLineText(release: string, file: string | null, bundledCount: number): string {
+  const parts = [release];
+
+  // A release with no file list is its own file: the name would only repeat the release.
+  if (file !== null && file !== '' && fileNameOf(file) !== fileNameOf(release)) {
+    parts.push(file);
+  }
+
+  if (bundledCount > 0) {
+    parts.push(`with ${bundledCount} other ${bundledCount === 1 ? 'song' : 'songs'}`);
+  }
+
+  return parts.join(' · ');
+}

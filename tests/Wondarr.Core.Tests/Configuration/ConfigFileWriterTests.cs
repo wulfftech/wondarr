@@ -1,8 +1,10 @@
 using System.Collections;
+using System.Runtime.Versioning;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Configuration;
+using Wondarr.Testing;
 using Xunit;
 using YamlDotNet.RepresentationModel;
 
@@ -216,7 +218,8 @@ public sealed class ConfigFileWriterTests
         configuration["Soulseek:SharedFolders:0"].Should().Be("/x");
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public async Task UpdateSection_creates_the_file_owner_only_on_unix()
     {
         using var directory = new TemporaryConfigDirectory();
@@ -228,12 +231,6 @@ public sealed class ConfigFileWriterTests
             "soulseek",
             new Dictionary<string, object?> { ["share_library"] = false },
             CancellationToken.None);
-
-        if (OperatingSystem.IsWindows())
-        {
-            // Unix modes do not exist here; the assertion below is about the container.
-            return;
-        }
 
         // The file holds the API key and the Soulseek password: never world-readable, not even
         // for the instant between writing and chmod-ing it.

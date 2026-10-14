@@ -164,6 +164,7 @@ public sealed partial class DiscordProvider : INotificationProvider
     private static DiscordColors Color(NotificationMessage message) => message.Event switch
     {
         NotificationEventNames.Grab => DiscordColors.Standard,
+        NotificationEventNames.Download => DiscordColors.Standard,
         NotificationEventNames.Import => DiscordColors.Success,
         NotificationEventNames.Upgrade => DiscordColors.Success,
         NotificationEventNames.Failure => DiscordColors.Danger,

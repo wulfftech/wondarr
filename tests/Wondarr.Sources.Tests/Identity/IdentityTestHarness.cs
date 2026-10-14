@@ -3,6 +3,7 @@ using System.Text;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Core.Metadata.ITunes;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Sources.Tests.Metadata;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -86,10 +87,15 @@ internal sealed class FixtureRouteHandler : HttpMessageHandler
 /// <summary>The real MusicBrainz and Deezer clients over stub handlers, and the resolver on top of them.</summary>
 internal sealed class IdentityHarness
 {
-    private IdentityHarness(FixtureRouteHandler musicBrainz, FixtureRouteHandler deezer, IIdentityResolver resolver)
+    private IdentityHarness(
+        FixtureRouteHandler musicBrainz,
+        FixtureRouteHandler deezer,
+        FixtureRouteHandler iTunes,
+        IIdentityResolver resolver)
     {
         MusicBrainz = musicBrainz;
         Deezer = deezer;
+        ITunes = iTunes;
         Resolver = resolver;
     }
 
@@ -99,6 +105,9 @@ internal sealed class IdentityHarness
     /// <summary>The Deezer routes: unmapped searches answer empty, everything else answers code 800.</summary>
     internal FixtureRouteHandler Deezer { get; }
 
+    /// <summary>The iTunes routes: unmapped searches answer with no results.</summary>
+    internal FixtureRouteHandler ITunes { get; }
+
     /// <summary>The resolver under test.</summary>
     internal IIdentityResolver Resolver { get; }
 
@@ -107,6 +116,7 @@ internal sealed class IdentityHarness
     {
         var musicBrainz = new FixtureRouteHandler(_ => FixtureRouteHandler.MusicBrainzNotFound());
         var deezer = new FixtureRouteHandler(FixtureRouteHandler.DeezerUnmapped);
+        var iTunes = new FixtureRouteHandler(_ => FixtureRouteHandler.Json(HttpStatusCode.OK, """{"resultCount":0,"results":[]}"""));
 
         var musicBrainzClient = new MusicBrainzClient(
             new HttpClient(musicBrainz, disposeHandler: false) { BaseAddress = new Uri("https://musicbrainz.org/ws/2/") },
@@ -116,17 +126,25 @@ internal sealed class IdentityHarness
             new HttpClient(deezer, disposeHandler: false) { BaseAddress = new Uri("https://api.deezer.com/") },
             new InMemoryMetadataCache());
 
+        var iTunesClient = new ITunesClient(
+            new HttpClient(iTunes, disposeHandler: false) { BaseAddress = new Uri("https://itunes.apple.com/") },
+            new InMemoryMetadataCache());
+
         var resolver = new IdentityResolver(
             musicBrainzClient,
             deezerClient,
+            iTunesClient,
             Options.Create(new MetadataOptions()),
             NullLogger<IdentityResolver>.Instance);
 
-        return new IdentityHarness(musicBrainz, deezer, resolver);
+        return new IdentityHarness(musicBrainz, deezer, iTunes, resolver);
     }
 
     /// <summary>Every MusicBrainz request path the handler saw.</summary>
     internal IEnumerable<string> MusicBrainzPaths => MusicBrainz.Requests.Select(uri => uri.AbsolutePath);
+
+    /// <summary>Every request the iTunes handler saw, URL-decoded so assertions can read the query.</summary>
+    internal IEnumerable<string> ITunesRequests => ITunes.Requests.Select(Decode);
 
     /// <summary>Every request the Deezer handler saw, URL-decoded so assertions can read the query.</summary>
     internal IEnumerable<string> DeezerRequests => Deezer.Requests.Select(Decode);

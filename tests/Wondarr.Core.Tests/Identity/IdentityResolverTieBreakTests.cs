@@ -1,6 +1,7 @@
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Core.Metadata.ITunes;
 using Wondarr.Core.Metadata.MusicBrainz;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -23,6 +24,7 @@ public sealed class IdentityResolverTieBreakTests
 
     private readonly IMusicBrainzClient _musicBrainz = Substitute.For<IMusicBrainzClient>();
     private readonly IDeezerClient _deezer = Substitute.For<IDeezerClient>();
+    private readonly IITunesClient _iTunes = Substitute.For<IITunesClient>();
 
     [Fact]
     public async Task A_bare_isrc_with_an_undated_and_a_dated_recording_picks_the_dated_one()
@@ -72,8 +74,18 @@ public sealed class IdentityResolverTieBreakTests
             .Returns([]);
     }
 
+    /// <summary>The iTunes substitute, answering every search with no hits.</summary>
+    private IITunesClient NoITunesHits()
+    {
+        _iTunes
+            .SearchSongsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        return _iTunes;
+    }
+
     private IdentityResolver NewResolver() =>
-        new(_musicBrainz, _deezer, Options.Create(new MetadataOptions()), NullLogger<IdentityResolver>.Instance);
+        new(_musicBrainz, _deezer, NoITunesHits(), Options.Create(new MetadataOptions()), NullLogger<IdentityResolver>.Instance);
 
     private static MbRecording Recording(string id, string? firstReleaseDate) => new()
     {

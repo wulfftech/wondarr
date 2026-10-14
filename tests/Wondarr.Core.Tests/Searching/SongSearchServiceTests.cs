@@ -563,6 +563,25 @@ public async Task A_container_grab_takes_the_other_wanted_songs_of_the_same_arti
     items.Should().NotContain(item => item.SongId == stranger, "another artist's song is never bundled");
     var bundled = await context.Candidates.AsNoTracking().Where(candidate => candidate.SongId == beta).SingleAsync(Token);
     bundled.BlocklistKey.Should().Be(BlocklistKeys.Torrent("0123456789abcdef0123456789abcdef01234567", files[1].Path));
+
+    // Every song's own Grabbed event names the other songs in the bundle, itself excluded.
+    var titles = new Dictionary<long, string>
+    {
+        [alpha] = (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == alpha, Token)).Title,
+        [beta] = "Beta",
+        [gamma] = "Gamma",
+    };
+
+    foreach (var songId in new[] { alpha, beta, gamma })
+    {
+        var grabbed = await context.History.AsNoTracking().Where(row => row.SongId == songId).SingleAsync(Token);
+        using var data = JsonDocument.Parse(grabbed.Data);
+
+        data.RootElement.GetProperty("bundledWith").GetInt32().Should().Be(2);
+        data.RootElement.GetProperty("bundledSongs").EnumerateArray()
+            .Select(entry => (entry.GetProperty("songId").GetInt64(), entry.GetProperty("title").GetString()))
+            .Should().BeEquivalentTo(titles.Where(pair => pair.Key != songId).Select(pair => (pair.Key, (string?)pair.Value)));
+    }
 }
 
 [Fact]

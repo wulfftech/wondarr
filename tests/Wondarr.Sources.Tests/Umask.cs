@@ -4,7 +4,7 @@ namespace Wondarr.Sources.Tests;
 
 /// <summary>
 /// Sets the process umask for the length of a test, so a file-mode test runs under the same
-/// <c>UMASK=002</c> the container does. Linux only: callers return early elsewhere, because Unix
+/// <c>UMASK=002</c> the container does. Linux only: callers use [UnixFact], because Unix
 /// modes do not exist on Windows. The umask is process-wide, so the scope is short and restores
 /// whatever was there.
 /// </summary>

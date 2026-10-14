@@ -117,6 +117,107 @@ describe('ActivityPage', () => {
     expect(screen.getAllByText(/Queen - A Night/)).toHaveLength(1);
   });
 
+  describe('a grabbed event from a release', () => {
+    /** Serves the Activity shell and one history page holding `events`. */
+    function installHistory(events: unknown[]): void {
+      installFetch((url) => {
+        if (url.includes('/api/v1/system/status')) {
+          return jsonResponse(SYSTEM_STATUS);
+        }
+
+        if (url.includes('/api/v1/health')) {
+          return jsonResponse(HEALTH_ENTRIES);
+        }
+
+        if (url.includes('/api/v1/qualitydefinition')) {
+          return jsonResponse(QUALITY_DEFINITIONS);
+        }
+
+        if (url.includes('/api/v1/history')) {
+          return jsonResponse(paged(events));
+        }
+
+        return new Response('not found', { status: 404 });
+      });
+    }
+
+    const RELEASE = 'Queen - A Night at the Opera (1975) [FLAC]';
+
+    it('names the release and the file inside it, and leaves out "other songs" when none rode along', async () => {
+      installHistory([
+        {
+          ...HISTORY_ITEMS[0],
+          eventType: 'grabbed',
+          data: { release: RELEASE, displayName: '05 - Bohemian Rhapsody.flac', bundledWith: 0 },
+        },
+      ]);
+
+      renderApp();
+
+      expect(await screen.findByText(`${RELEASE} · 05 - Bohemian Rhapsody.flac`)).toBeInTheDocument();
+      expect(screen.queryByText(/other song/)).not.toBeInTheDocument();
+      expect(screen.queryByText('With:')).not.toBeInTheDocument();
+    });
+
+    it('lists the other songs by name, linked to their pages, and caps the list at ten', async () => {
+      const bundledSongs = Array.from({ length: 12 }, (_, index) => ({
+        songId: 100 + index,
+        title: `Bundled song ${index + 1}`,
+      }));
+      installHistory([
+        {
+          ...HISTORY_ITEMS[0],
+          eventType: 'grabbed',
+          // The payload as the search service writes it for a torrent grab that bundled twelve songs.
+          data: {
+            candidateId: 7,
+            searchRunId: 3,
+            sourceType: 'torznab',
+            provider: 'Indexer',
+            displayName: '05 - Bohemian Rhapsody.flac',
+            score: 640,
+            query: 'queen bohemian rhapsody',
+            destination: 'wondarr/0123456789abcdef0123456789abcdef',
+            release: RELEASE,
+            bundledWith: 12,
+            bundledSongs,
+          },
+        },
+      ]);
+
+      renderApp();
+
+      expect(
+        await screen.findByText(`${RELEASE} · 05 - Bohemian Rhapsody.flac · with 12 other songs`),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Bundled song 1' })).toHaveAttribute('href', '/song/100');
+      expect(screen.getByRole('link', { name: 'Bundled song 10' })).toHaveAttribute('href', '/song/109');
+      // Songs 11 and 12 are folded into "and 2 more".
+      expect(screen.queryByRole('link', { name: 'Bundled song 11' })).not.toBeInTheDocument();
+      expect(screen.getByText('and 2 more')).toBeInTheDocument();
+    });
+
+    it('shows exactly ten names without "and … more", and a song with no page as plain text', async () => {
+      const bundledSongs = [
+        ...Array.from({ length: 9 }, (_, index) => ({ songId: 200 + index, title: `Kept ${index + 1}` })),
+        { songId: null, title: 'Gone' },
+      ];
+      installHistory([
+        {
+          ...HISTORY_ITEMS[0],
+          eventType: 'grabbed',
+          data: { release: RELEASE, displayName: 'a.flac', bundledWith: 10, bundledSongs },
+        },
+      ]);
+
+      renderApp();
+
+      expect(await screen.findByText('Gone')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Gone' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/and \d+ more/)).not.toBeInTheDocument();
+    });
+  });
+
   it('removes a blocklist entry after the confirmation modal', async () => {
     resetLocation('/activity/blocklist');
     const mock = install();

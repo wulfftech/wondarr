@@ -157,6 +157,8 @@ interface Options {
   songStatus?: number;
   lyrics?: unknown;
   albumOptions?: unknown[];
+  /** Answers `DELETE /song/12`; a 200 when omitted. */
+  deleteResponse?: () => Response;
 }
 
 function install(options: Options = {}) {
@@ -219,6 +221,10 @@ function install(options: Options = {}) {
       return jsonResponse(options.albumOptions ?? ALBUM_OPTIONS);
     }
 
+    if (url.endsWith('/song/12') && method === 'DELETE') {
+      return options.deleteResponse?.() ?? new Response(null, { status: 200 });
+    }
+
     if (url.endsWith('/song/12') && method === 'GET') {
       return options.songStatus === undefined
         ? jsonResponse(options.song ?? SONG)
@@ -254,6 +260,37 @@ describe('SongPage', () => {
     expect(screen.getAllByLabelText('Quality profile')[0]).toHaveValue('Standard 320');
     expect(document.querySelector('img')).toHaveAttribute('src', expect.stringContaining('coverartarchive.org'));
     await waitFor(() => expect(document.title).toBe('Daft Punk - Get Lucky · Wondarr'));
+  });
+
+  it("shows the API's 409 message when the song cannot be deleted because it is downloading", async () => {
+    install({
+      deleteResponse: () =>
+        jsonResponse(
+          {
+            title: 'Songs in the queue',
+            detail: 'This song is queued, downloading or importing; remove it from the queue first.',
+            status: 409,
+            songIds: [12],
+          },
+          409,
+        ),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(
+      await within(dialog).findByText('This song is queued, downloading or importing; remove it from the queue first.'),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText('The song could not be deleted.')).not.toBeInTheDocument();
+    // The song page stays: nothing was deleted.
+    expect(screen.getByRole('heading', { name: 'Get Lucky' })).toBeInTheDocument();
   });
 
   it('falls back to the Deezer cover when the album has none', async () => {

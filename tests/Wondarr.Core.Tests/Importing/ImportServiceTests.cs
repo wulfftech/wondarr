@@ -8,6 +8,7 @@ using Wondarr.Core.Organizer;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Verification;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Importing;
@@ -666,15 +667,9 @@ public sealed class ImportServiceTests
         Directory.Exists(seed.DownloadDirectory).Should().BeTrue();
     }
 
-    [Fact]
+    [SymlinkFact]
     public async Task Refuses_to_delete_through_a_symlinked_download_folder()
     {
-        if (!!OperatingSystem.IsWindows())
-        {
-            // Creating a symlink on Windows needs privileges the test host cannot assume.
-            return;
-        }
-
         await using var host = await ImportTestHost.CreateAsync();
         host.Verifier.Result = NotOurRecording();
 

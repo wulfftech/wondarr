@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
@@ -59,6 +60,18 @@ public interface IQueueService
         PagingSpec paging,
         bool includeFinished,
         long? songId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// For the torrent and usenet items among <paramref name="items"/>, how many other songs rode
+    /// along on the same grab, read from each grab's history row (<c>bundledWith</c>). An item whose
+    /// grab row is missing or unreadable is absent from the answer, which reads as none.
+    /// </summary>
+    /// <param name="items">The items a page is about to show.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>Candidate id → other songs bundled with it.</returns>
+    Task<IReadOnlyDictionary<long, int>> GetBundledCountsAsync(
+        IReadOnlyCollection<QueueItem> items,
         CancellationToken cancellationToken);
 }
 
@@ -220,6 +233,78 @@ public sealed class QueueService : IQueueService
             .ConfigureAwait(false);
 
         return new PagedResult<QueueItem>(records, totalRecords);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<long, int>> GetBundledCountsAsync(
+        IReadOnlyCollection<QueueItem> items,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+
+        var containers = items
+            .Where(item => item.SourceType is SourceTypes.Torznab or SourceTypes.Newznab)
+            .ToList();
+
+        if (containers.Count == 0)
+        {
+            return new Dictionary<long, int>();
+        }
+
+        var songIds = containers.Select(item => item.SongId).Distinct().ToList();
+        var candidateIds = containers.Select(item => item.CandidateId).ToHashSet();
+
+        var rows = await _database.History
+            .AsNoTracking()
+            .Where(row => row.EventType == HistoryEventType.Grabbed && songIds.Contains(row.SongId))
+            .OrderBy(row => row.Id)
+            .Select(row => row.Data)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var counts = new Dictionary<long, int>();
+
+        // Oldest first, so when one candidate has more than one grab row the newest overwrites.
+        foreach (var data in rows)
+        {
+            if (TryReadBundledWith(data, out var candidateId, out var bundledWith) && candidateIds.Contains(candidateId))
+            {
+                counts[candidateId] = bundledWith;
+            }
+        }
+
+        return counts;
+    }
+
+    /// <summary>Reads <c>candidateId</c> and <c>bundledWith</c> out of a grab's history payload.</summary>
+    private static bool TryReadBundledWith(string data, out long candidateId, out int bundledWith)
+    {
+        candidateId = 0;
+        bundledWith = 0;
+
+        try
+        {
+            using var document = JsonDocument.Parse(data);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("candidateId", out var candidate)
+                || !candidate.TryGetInt64(out candidateId))
+            {
+                return false;
+            }
+
+            // A row from before bundling carries no count: none rode along.
+            bundledWith = root.TryGetProperty("bundledWith", out var count) && count.TryGetInt32(out var parsed)
+                ? Math.Max(0, parsed)
+                : 0;
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

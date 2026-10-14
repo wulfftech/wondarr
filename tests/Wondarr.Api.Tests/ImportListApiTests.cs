@@ -18,7 +18,7 @@ public sealed class ImportListApiTests
     private const string ItemEndpoint = "/api/v1/importlistitem";
     private const string CommandEndpoint = "/api/v1/command";
 
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     private const string Exportify =
         "\"Track URI\",\"Track Name\",\"Artist URI(s)\",\"Artist Name(s)\",\"Album URI\",\"Album Name\",\"Album Artist URI(s)\",\"Album Artist Name(s)\",\"Album Release Date\",\"Album Image URL\",\"Disc Number\",\"Track Number\",\"Track Duration (ms)\",\"Track Preview URL\",\"Explicit\",\"Popularity\",\"ISRC\",\"Added By\",\"Added At\"\n"

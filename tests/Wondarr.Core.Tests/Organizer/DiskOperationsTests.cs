@@ -1,6 +1,7 @@
 using Wondarr.Core.Organizer;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Organizer;
@@ -77,21 +78,21 @@ public class DiskOperationsTests : IDisposable
     }
 
     [Fact]
-    public void AreSameFile_reports_a_hard_link_as_one_file_where_the_platform_can_tell()
+    public void AreSameFile_tells_a_copy_from_the_file_itself()
     {
         var source = _temp.CreateFile("source.mp3", "one");
         var copy = _temp.CreateFile("copy.mp3", "one");
 
         _disk.AreSameFile(source, source).Should().BeTrue();
         _disk.AreSameFile(source, copy).Should().BeFalse("equal content is not the same file");
+    }
 
-        if (!OperatingSystem.IsLinux())
-        {
-            // Elsewhere only the full path decides, as the interface documents: two hard links at
-            // two paths read as two files there, which at worst costs a collision suffix.
-            return;
-        }
-
+    // Elsewhere only the full path decides, as the interface documents: two hard links at two paths
+    // read as two files there, which at worst costs a collision suffix.
+    [LinuxFact]
+    public void AreSameFile_reports_a_hard_link_as_one_file()
+    {
+        var source = _temp.CreateFile("source.mp3", "one");
         var link = _temp.Full("link.mp3");
 
         if (_disk.TryCreateHardLink(source, link))

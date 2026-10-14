@@ -301,6 +301,100 @@ public sealed class NotificationDigestTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task The_dispatcher_holds_back_a_completed_download_in_digest_mode()
+    {
+        var id = await SeedNotificationAsync(
+            delivery: "digest",
+            events: [NotificationEventNames.Download, NotificationEventNames.Update]);
+
+        var songId = await SeedSongAndFileAsync();
+        var queueItemId = await SeedQueueItemAsync(songId);
+
+        var dispatcher = new NotificationDispatcher(
+            _services.GetRequiredService<IServiceScopeFactory>(),
+            [_email],
+            _time,
+            NullLogger<NotificationDispatcher>.Instance);
+
+        await dispatcher.StartAsync(Token);
+
+        try
+        {
+            await dispatcher.HandleAsync(
+                new Wondarr.Core.Importing.QueueItemChangedEvent(queueItemId, songId, QueueItemState.Completed)
+                {
+                    PreviousState = QueueItemState.Downloading,
+                },
+                Token);
+            await dispatcher.HandleAsync(new UpdateAvailableEvent("0.1.3", "0.2.0", null), Token);
+
+            // The update is sent at once, and the download before it has been stored by then.
+            await _smtp.WaitForSendsAsync(1);
+        }
+        finally
+        {
+            await dispatcher.StopAsync(Token);
+        }
+
+        _smtp.Sent.Should().ContainSingle().Which.Message.Subject.Should().Be("Wondarr: Update available: Wondarr 0.2.0");
+
+        await using var database = _database.CreateContext(_time);
+        var entry = await database.NotificationDigestEntries.SingleAsync(Token);
+        entry.Event.Should().Be(NotificationEventNames.Download);
+        entry.SongId.Should().Be(songId);
+
+        var snapshot = JsonDocument.Parse(entry.Snapshot).RootElement;
+        snapshot.GetProperty("download").GetProperty("sourceType").GetString().Should().Be("soulseek");
+        snapshot.GetProperty("download").GetProperty("quality").GetString().Should().Be("FLAC");
+        snapshot.GetProperty("download").GetProperty("sizeBytes").GetInt64().Should().Be(30_000_000);
+
+        // The window ends: the digest has a Downloaded group.
+        _time.Advance(TimeSpan.FromMinutes(31));
+        await NewDigestService().FlushDueAsync(Token);
+
+        _smtp.Sent.Should().HaveCount(2);
+        _smtp.Sent[1].Message.Subject.Should().StartWith("Wondarr: 1 downloaded");
+        _smtp.Sent[1].Message.TextBody.Should().Contain("Downloaded (1)");
+    }
+
+    [Fact]
+    public async Task In_each_mode_the_dispatcher_sends_a_completed_download_at_once()
+    {
+        var id = await SeedNotificationAsync(delivery: "each", events: [NotificationEventNames.Download]);
+        var songId = await SeedSongAndFileAsync();
+        var queueItemId = await SeedQueueItemAsync(songId);
+
+        var dispatcher = new NotificationDispatcher(
+            _services.GetRequiredService<IServiceScopeFactory>(),
+            [_email],
+            _time,
+            NullLogger<NotificationDispatcher>.Instance);
+
+        await dispatcher.StartAsync(Token);
+
+        try
+        {
+            await dispatcher.HandleAsync(
+                new Wondarr.Core.Importing.QueueItemChangedEvent(queueItemId, songId, QueueItemState.Completed)
+                {
+                    PreviousState = QueueItemState.RemotelyQueued,
+                },
+                Token);
+            await _smtp.WaitForSendsAsync(1);
+        }
+        finally
+        {
+            await dispatcher.StopAsync(Token);
+        }
+
+        var mail = _smtp.Sent.Single().Message;
+        mail.Subject.Should().Be("Wondarr: downloaded Oasis – Wonderwall");
+        mail.TextBody.Should().Contain("Source: soulseek").And.Contain("Quality: FLAC").And.Contain("Size: 28.6 MB");
+        mail.HtmlBody.Should().Contain("src=\"https://img.example.com/morning-glory.jpg\"");
+        (await CountAsync(id)).Should().Be(0);
+    }
+
+    [Fact]
     public async Task In_each_mode_the_dispatcher_sends_the_import_at_once()
     {
         var id = await SeedNotificationAsync(delivery: "each");
@@ -534,6 +628,57 @@ public sealed class NotificationDigestTests : IAsyncDisposable
         await database.SaveChangesAsync(Token);
 
         return song.Id;
+    }
+
+    /// <summary>A grab of the song's candidate, as the dispatcher reads it back for a completed download.</summary>
+    private async Task<long> SeedQueueItemAsync(long songId)
+    {
+        await using var database = _database.CreateContext(_time);
+        var now = _time.GetUtcNow().UtcDateTime;
+
+        var run = new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = now,
+            Outcome = SearchOutcome.Grabbed,
+        };
+
+        database.SearchRuns.Add(run);
+        await database.SaveChangesAsync(Token);
+
+        var candidate = new CandidateRecord
+        {
+            SearchRunId = run.Id,
+            SongId = songId,
+            SourceType = "soulseek",
+            BlocklistKey = "slsk:peer:/music/Wonderwall.flac",
+            DisplayName = "Wonderwall.flac",
+            RemotePath = "/music/Wonderwall.flac",
+            QualityId = 36,
+            SizeBytes = 30_000_000,
+        };
+
+        database.Candidates.Add(candidate);
+        await database.SaveChangesAsync(Token);
+
+        var item = new QueueItem
+        {
+            SongId = songId,
+            CandidateId = candidate.Id,
+            SearchRunId = run.Id,
+            SourceType = "soulseek",
+            Destination = "wondarr/grab",
+            State = QueueItemState.Completed,
+            SizeBytes = 30_000_000,
+            StateChangedAt = now,
+            LastProgressAt = now,
+        };
+
+        database.QueueItems.Add(item);
+        await database.SaveChangesAsync(Token);
+
+        return item.Id;
     }
 
     private async Task<long> SeedFileIdAsync(long songId)

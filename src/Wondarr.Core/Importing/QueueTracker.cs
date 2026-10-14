@@ -536,6 +536,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var previous = item.State;
 
         item.State = QueueItemState.Completed;
         item.StateChangedAt = now;
@@ -544,7 +545,20 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         item.SizeBytes = status.SizeBytes ?? item.SizeBytes;
         item.Message = status.Message;
 
-        await SaveAsync(database, item, cancellationToken).ConfigureAwait(false);
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // The only place a source's "complete" becomes Completed, and an item is polled here only while it
+        // is not Completed yet, so this event, which says where the item came from, is published once per
+        // item. The notifications' "download completed" message is built from it.
+        await PublishAsync(
+                new QueueItemChangedEvent(item.Id, item.SongId, item.State)
+                {
+                    PreviousState = previous,
+                    Progress = item.Progress,
+                    Message = item.Message,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Moves an item to <c>Cancelled</c>: it was stopped at the source, not by us.</summary>
