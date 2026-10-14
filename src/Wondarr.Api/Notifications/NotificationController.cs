@@ -71,7 +71,8 @@ public sealed class NotificationController : ControllerBase
                     field.Options,
                     field.Secret,
                     field.Advanced,
-                    field.Target))]))
+                    field.Target,
+                    field.TargetDefault))]))
             .ToList());
 
     /// <summary>Adds a notification.</summary>

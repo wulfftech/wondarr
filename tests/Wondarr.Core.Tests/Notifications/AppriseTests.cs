@@ -47,6 +47,25 @@ public class AppriseTests
     }
 
     [Fact]
+    public async Task A_completed_download_is_sent_with_its_title_and_the_configured_info_type()
+    {
+        var (provider, handler) = CreateProvider();
+        var message = new NotificationMessage("download", "Downloaded: Oasis – Wonderwall", "Wonderwall.flac from soulseek (FLAC)")
+        {
+            Song = new NotificationSong(7, "Wonderwall", "Oasis", null, null),
+            Release = new NotificationRelease("Wonderwall.flac", "soulseek", "FLAC", 30_000_000),
+        };
+
+        await provider.SendAsync(message, KeyedSettings, CancellationToken.None);
+
+        var payload = handler.Payloads.Single();
+
+        payload.GetProperty("title").GetString().Should().Be("Downloaded: Oasis – Wonderwall");
+        payload.GetProperty("body").GetString().Should().Be("Wonderwall.flac from soulseek (FLAC)");
+        payload.GetProperty("type").GetString().Should().Be("info");
+    }
+
+    [Fact]
     public async Task Stateless_urls_post_to_notify_with_the_urls_in_the_body()
     {
         var (provider, handler) = CreateProvider();

@@ -32,13 +32,20 @@ public sealed record NotificationResource(
 /// <param name="Events">The subscribed event names.</param>
 /// <param name="Settings">The provider's settings.</param>
 /// <param name="Id">The row a test is about, or <see langword="null"/>.</param>
+/// <param name="ClearSecrets">
+/// The names of optional secret fields whose stored value is to be removed, or <see langword="null"/>.
+/// A blank or masked secret still means "keep"; only a name listed here removes it. An update and a test
+/// of a stored row read it; a create ignores it. A name that is not a secret field of the type, or that
+/// is a required field, is a <c>400</c>.
+/// </param>
 public sealed record NotificationInputResource(
     string? Name,
     string? Implementation,
     bool? Enabled,
     IReadOnlyList<string>? Events,
     JsonNode? Settings,
-    long? Id = null);
+    long? Id = null,
+    IReadOnlyList<string>? ClearSecrets = null);
 
 /// <summary>One field of a provider's settings form, as the UI needs it.</summary>
 /// <param name="Name">The settings key.</param>
@@ -50,6 +57,7 @@ public sealed record NotificationInputResource(
 /// <param name="Secret">Whether the value is masked on read.</param>
 /// <param name="Advanced">Whether the control belongs in the advanced section.</param>
 /// <param name="Target">Whether the value says where secrets are sent; changing it means a masked secret must be typed again.</param>
+/// <param name="TargetDefault">What an empty target value stands for (an empty port is 587), so the form compares an empty value and the default as the same target, or <see langword="null"/>.</param>
 public sealed record NotificationFieldResource(
     string Name,
     string Label,
@@ -59,7 +67,8 @@ public sealed record NotificationFieldResource(
     IReadOnlyList<string>? Options,
     bool Secret,
     bool Advanced,
-    bool Target);
+    bool Target,
+    string? TargetDefault = null);
 
 /// <summary>One registered provider and the form it wants.</summary>
 /// <param name="Implementation">The provider's implementation name.</param>
@@ -103,7 +112,8 @@ internal static class NotificationResourceMapper
             resource.Enabled ?? true,
             resource.Events ?? [],
             ToElement(resource.Settings),
-            resource.Id);
+            resource.Id,
+            resource.ClearSecrets);
     }
 
     /// <summary>Reads the stored subscription list; an unreadable column subscribes to nothing.</summary>

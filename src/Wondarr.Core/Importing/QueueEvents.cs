@@ -12,6 +12,14 @@ namespace Wondarr.Core.Importing;
 /// <param name="State">The item's state after the change.</param>
 public sealed record QueueItemChangedEvent(long QueueItemId, long SongId, QueueItemState State) : IEvent
 {
+    /// <summary>
+    /// Gets the state the item left, set only by the poll that saw the source report the file complete (so
+    /// <see cref="State"/> is <see cref="QueueItemState.Completed"/> and this is <c>Queued</c>,
+    /// <c>RemotelyQueued</c> or <c>Downloading</c>). It is <see langword="null"/> everywhere else, in
+    /// particular when an import hands an item back to <c>Completed</c> to be tried again.
+    /// </summary>
+    public QueueItemState? PreviousState { get; init; }
+
     /// <summary>How far the download has got, 0–1.</summary>
     public double Progress { get; init; }
 
