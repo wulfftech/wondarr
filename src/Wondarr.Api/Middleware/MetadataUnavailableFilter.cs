@@ -83,6 +83,45 @@ public sealed class MetadataUnavailableFilterAttribute : ExceptionFilterAttribut
         return Problem(httpContext, StatusCodes.Status503ServiceUnavailable, title, detail);
     }
 
+    /// <summary>
+    /// Whether a search failed only because a provider refused the request (a banned User-Agent, a bad
+    /// key): waiting will not help, so the answer is <see cref="Rejected"/>, not a busy 503.
+    /// </summary>
+    /// <param name="exception">The search's failure.</param>
+    /// <param name="rejected">The refusal, when it is one.</param>
+    public static bool IsRejection(ProvidersUnavailableException exception, out MetadataProviderException rejected)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+
+        if (exception.InnerException is MetadataProviderException { IsUnavailable: false } refusal)
+        {
+            rejected = refusal;
+
+            return true;
+        }
+
+        rejected = null!;
+
+        return false;
+    }
+
+    /// <summary>The 502 problem for a provider that refused the request. Nothing of its reply is repeated.</summary>
+    /// <param name="httpContext">The request being answered.</param>
+    /// <param name="rejected">The provider's refusal.</param>
+    public static ObjectResult Rejected(HttpContext httpContext, MetadataProviderException rejected)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+        ArgumentNullException.ThrowIfNull(rejected);
+
+        var name = NameOf(rejected.Provider);
+
+        return Problem(
+            httpContext,
+            StatusCodes.Status502BadGateway,
+            $"{name} returned an error",
+            $"{name} answered {(int)rejected.StatusCode}.");
+    }
+
     private static ObjectResult Problem(HttpContext httpContext, int status, string title, string detail)
     {
         var problem = httpContext.RequestServices
@@ -111,7 +150,9 @@ public sealed class MetadataUnavailableFilterAttribute : ExceptionFilterAttribut
         };
     }
 
-    private static string NameOf(string provider) => provider switch
+    /// <summary>The name a person knows a provider by.</summary>
+    /// <param name="provider">The provider key.</param>
+    public static string NameOf(string provider) => provider switch
     {
         ProviderKeys.MusicBrainz => "MusicBrainz",
         ProviderKeys.Deezer => "Deezer",
