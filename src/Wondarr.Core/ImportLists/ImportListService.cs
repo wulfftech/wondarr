@@ -1199,6 +1199,13 @@ public sealed partial class ImportListService : IImportListService
 
                 return DeleteOutcome.Busy;
             }
+            catch (SongsBusyException)
+            {
+                // A grab queued the song after the check above.
+                LogDeleteSkipped(_logger, songId, "a grab for it is in flight");
+
+                return DeleteOutcome.Busy;
+            }
         }
     }
 
