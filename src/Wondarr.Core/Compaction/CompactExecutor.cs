@@ -10,6 +10,7 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
+using Wondarr.Core.Songs;
 
 namespace Wondarr.Core.Compaction;
 
@@ -1739,9 +1740,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <summary>Loads the song with everything filing it needs, as <c>ImportService</c> loads it.</summary>
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
-            .Include(song => song.AlbumContext)
-            .Include(song => song.File).ThenInclude(file => file!.Quality)
-            .Include(song => song.Artists).ThenInclude(credit => credit.Artist)
+            .IncludeFilingGraphWithQuality()
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 

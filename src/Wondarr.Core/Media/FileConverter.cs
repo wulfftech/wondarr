@@ -8,6 +8,7 @@ using Wondarr.Core.Importing;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Profiles;
+using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Media;
@@ -709,9 +710,7 @@ public sealed partial class FileConverter : IFileConverter
 
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
-            .Include(song => song.AlbumContext)
-            .Include(song => song.File).ThenInclude(file => file!.Quality)
-            .Include(song => song.Artists).ThenInclude(credit => credit.Artist)
+            .IncludeFilingGraphWithQuality()
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 
