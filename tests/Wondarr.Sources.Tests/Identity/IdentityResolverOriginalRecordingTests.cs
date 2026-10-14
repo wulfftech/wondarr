@@ -124,6 +124,65 @@ public sealed class IdentityResolverOriginalRecordingTests
     }
 
     [Fact]
+    public async Task A_release_list_that_cannot_be_read_is_not_a_failed_provider()
+    {
+        var harness = IdentityHarness.Create();
+        var ids = ArrangeSevenIsrcRecordings(harness, failingRelease: 1);
+
+        var found = await harness.Resolver.SearchPartialAsync("Nine Days - Story of a Girl", 10);
+
+        // The ranking aid failing is invisible: the search still reports every provider as answering.
+        found.FailedProviders.Should().BeEmpty();
+        found.Items.Should().Contain(candidate => candidate.MbRecordingId == ids[0]);
+    }
+
+    [Fact]
+    public async Task A_recording_that_is_live_by_its_disambiguation_is_not_the_original_of_a_studio_query()
+    {
+        var harness = IdentityHarness.Create();
+        harness.MusicBrainz.Map(
+            "/ws/2/recording",
+            MbSearch(
+                MbHitOnAlbum("d3d3d3d3-0000-4000-8000-000000000001", 197600, "2007-03-06", "Rock Hits", "Compilation"),
+                MbHitOnAlbum("d3d3d3d3-0000-4000-8000-000000000002", 189000, "2000-05-30", "The Madding Crowd", null, disambiguation: "live")),
+            "artist:\"Nine Days\"");
+
+        var found = await harness.Resolver.SearchAsync("Nine Days - Story of a Girl", 10);
+
+        // The live take sits on a studio-looking album group, but it is a different version of the song.
+        found[0].MbRecordingId.Should().Be("d3d3d3d3-0000-4000-8000-000000000001");
+        found.Single(candidate => candidate.MbRecordingId == "d3d3d3d3-0000-4000-8000-000000000002").OfficialAlbumDate.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task One_recording_found_twice_keeps_the_album_date_whichever_copy_scored_higher()
+    {
+        const string id = "d4d4d4d4-0000-4000-8000-000000000001";
+        var harness = IdentityHarness.Create();
+        harness.Deezer.Map(
+            "/search",
+            SearchPage(DeezerHit(940001, "Story of a Girl", "Nine Days", 198, "USEP30000001")),
+            "nine days story of a girl");
+        harness.Deezer.Map("/album/940002", DeezerAlbum(940002));
+
+        // Through the ISRC the recording is 11 s off Deezer's length (not acceptable, but it scores 99.6 with
+        // the bridge bonus); in the search it is 9 s off and carries its releases (it scores 91.9).
+        harness.MusicBrainz.Map(
+            "/ws/2/isrc/USEP30000001",
+            MbIsrc("USEP30000001", [MbHit(id, "Story of a Girl", "Nine Days", 209000, "2000-05-30")]));
+        harness.MusicBrainz.Map(
+            "/ws/2/recording",
+            MbSearch(MbHitOnAlbum(id, 189000, "2000-05-30", "The Madding Crowd", null)),
+            "artist:\"Nine Days\"");
+
+        var found = await harness.Resolver.SearchAsync("Nine Days - Story of a Girl", 10);
+
+        var merged = found.Single(candidate => candidate.MbRecordingId == id);
+        merged.ViaIsrc.Should().BeTrue();
+        merged.OfficialAlbumDate.Should().Be("2000-05-30");
+    }
+
+    [Fact]
     public async Task A_lone_iTunes_length_no_musicbrainz_recording_agrees_with_is_not_taken()
     {
         var harness = SpreadHarness();
@@ -376,9 +435,15 @@ public sealed class IdentityResolverOriginalRecordingTests
          "artist-credit":[{"name":"{{{artist}}}","joinphrase":"","artist":{"id":"{{{ArtistId}}}","name":"{{{artist}}}","sort-name":"{{{artist}}}"}}]}
         """;
 
-    private static string MbHitOnAlbum(string id, int lengthMs, string firstReleaseDate, string album, string? secondaryType) =>
+    private static string MbHitOnAlbum(
+        string id,
+        int lengthMs,
+        string firstReleaseDate,
+        string album,
+        string? secondaryType,
+        string disambiguation = "") =>
         $$$"""
-        {"id":"{{{id}}}","title":"Story of a Girl","length":{{{lengthMs}}},"video":null,"disambiguation":"",
+        {"id":"{{{id}}}","title":"Story of a Girl","length":{{{lengthMs}}},"video":null,"disambiguation":"{{{disambiguation}}}",
          "first-release-date":"{{{firstReleaseDate}}}",
          "artist-credit":[{"name":"Nine Days","joinphrase":"","artist":{"id":"{{{ArtistId}}}","name":"Nine Days","sort-name":"Nine Days"}}],
          "releases":[{"id":"{{{id}}}","status":"Official","title":"{{{album}}}","date":"{{{firstReleaseDate}}}",
