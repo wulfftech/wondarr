@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata;
@@ -95,6 +96,20 @@ public interface IDownloadVerifier
 /// </remarks>
 public sealed partial class DownloadVerifier : IDownloadVerifier
 {
+    /// <summary>
+    /// How far a same-titled recording's stored length may be from the file's measured length when the
+    /// profile's tolerance is smaller (a MusicBrainz duplicate of the same song is often several seconds off).
+    /// </summary>
+    private const int DuplicateLengthWindowMs = 10_000;
+
+    /// <summary>Words (and word prefixes, accents folded) that make a chapter-style suffix a version after all.</summary>
+    private static readonly string[] ChapterBlockedWords =
+    [
+        "version", "versao", "take", "mix", "remix", "remezcla", "rework", "bootleg", "flip", "vip", "mashup",
+        "record", "session", "piano", "orchestr", "reprise", "interlude", "skit", "intro", "outro", "vivo",
+        "directo", "live", "acoustic", "acustic", "demo",
+    ];
+
     private readonly IMediaProbe _probe;
     private readonly IFingerprinter _fingerprinter;
     private readonly IAcoustIdClient _client;
@@ -406,7 +421,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
         var candidate = VersionFlagParser.Parse(recording.Title);
 
-        if (!string.Equals(TextMatching.Normalize(candidate.BaseTitle), songTitle, StringComparison.Ordinal))
+        if (!IsSongTitle(candidate.BaseTitle, songTitle))
         {
             return false;
         }
@@ -427,12 +442,93 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             return false;
         }
 
-        // A Deezer-only song often has no length of its own; the file's own duration is then what the
-        // candidate recording is held against, which is the same measurement the length rule already used.
-        var songMs = request.SongDurationMs ?? probedDurationMs;
+        // A song with a stored length has had the file held against it already (step 2), so the recording is
+        // held against the file's measured length, not the song's: a MusicBrainz duplicate of the same song
+        // can be several seconds longer or shorter than the song's own recording ("Little Lion Man": 238 s
+        // and 247 s). The title, the artist and the hard flags above already agree, so the window is the
+        // wider of the profile's tolerance and DuplicateLengthWindowMs. A song without a stored length (a
+        // Deezer-only one) has had no such check, so the recording gets the plain profile tolerance.
+        var windowMs = request.SongDurationMs is null
+            ? request.DurationToleranceMs
+            : Math.Max(request.DurationToleranceMs, DuplicateLengthWindowMs);
 
-        return songMs > 0 && Math.Abs((durationSeconds * 1000) - songMs) <= request.DurationToleranceMs;
+        return probedDurationMs > 0
+            && Math.Abs((durationSeconds * 1000) - probedDurationMs) <= windowMs;
     }
+
+    /// <summary>
+    /// Whether an AcoustID recording's title (version hints already removed) is the song's: equal, or
+    /// equal once <em>one</em> trailing chapter-style suffix is dropped ("MALAMENTE (Cap.1: Augurio)").
+    /// </summary>
+    /// <remarks>
+    /// The parser only knows some version markers ("(Taylor's Version)", "(En Vivo)", "(Reprise)" and "(Pt. 2)"
+    /// pass it unflagged), and a wrong match also teaches a Deezer-only song the wrong MusicBrainz id, so
+    /// the suffix is dropped only when it starts with a chapter marker and a number or roman numeral and
+    /// holds none of the version-ish words in <see cref="ChapterBlockedWords"/>.
+    /// </remarks>
+    private static bool IsSongTitle(string candidateBaseTitle, string songTitle)
+    {
+        if (string.Equals(TextMatching.Normalize(candidateBaseTitle), songTitle, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var match = TrailingSuffix().Match(candidateBaseTitle);
+
+        if (!match.Success || !IsChapterSuffix(match.Groups["suffix"].Value))
+        {
+            return false;
+        }
+
+        var stripped = candidateBaseTitle[..match.Index];
+
+        return stripped.Trim().Length > 0
+            && string.Equals(TextMatching.Normalize(stripped), songTitle, StringComparison.Ordinal);
+    }
+
+    /// <summary>A suffix like "Cap.1: Augurio", "Chapter 3" or "Capítulo IV" that names no version.</summary>
+    private static bool IsChapterSuffix(string suffix)
+    {
+        var folded = TextFolding.RemoveDiacritics(suffix).ToLowerInvariant();
+
+        if (!ChapterMarker().IsMatch(folded))
+        {
+            return false;
+        }
+
+        foreach (var word in NonWord().Split(folded))
+        {
+            if (word.Length > 3 && word.EndsWith("mix", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            foreach (var blocked in ChapterBlockedWords)
+            {
+                if (word.StartsWith(blocked, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>One trailing "(…)", "[…]" or " - …" suffix, its text in the <c>suffix</c> group.</summary>
+    [GeneratedRegex(@"(?:\s*\((?<suffix>[^()]*)\)|\s*\[(?<suffix>[^\[\]]*)\]|\s+[-–—]\s+(?<suffix>(?:(?!\s[-–—]\s).)*))\s*$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex TrailingSuffix();
+
+    /// <summary>
+    /// A chapter word (cap, capítulo, chapter, chap, act, acto; accents already folded), then digits or a real
+    /// roman numeral (i, v, x only), then the end of the suffix or one of <c>: . - – — )</c>: "Cap.1: X",
+    /// "Act II", "Capítulo IV - X", but not "Act I Love You" or "Cap Civil".
+    /// </summary>
+    [GeneratedRegex(@"^\s*(?:capitulo|chapter|chap|cap|acto|act)\.?\s*(?:\d+|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3}))\s*(?:$|[:.\-–—)])", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex ChapterMarker();
+
+    [GeneratedRegex(@"[^a-z0-9]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex NonWord();
 
     private static bool HasRecordings(AcoustIdLookupResult lookup) =>
         lookup.Results.Any(result => result.Recordings.Count > 0);
