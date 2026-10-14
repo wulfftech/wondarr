@@ -4,10 +4,19 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-10-14
+
+The backlog release: a "Download completed" notification event and a few notification-window fixes the owner asked for, song searches that wait for a free download slot instead of giving up, better matching on compilation folders and of which recording a song means, verification that no longer refuses the right file in two cases, and .NET's October security fixes. Update by pulling `:0.1` (or `:0.1.5`).
+
+**Upgrading from 0.1.4:**
+- **No database migration.** The search history gains a new outcome, `NoFreeSlot`, stored as text. Going back to 0.1.4 is not supported while such a run exists; they age out with the rest of the search history after 30 days (Housekeeping).
+- **Security:** the image is built on .NET 10.0.13, which fixes three denial-of-service advisories, one of them in a library email notifications use. Updating is recommended.
+- **Notifications** you already have are not subscribed to the new **On download completed** event; tick it in a notification's events if you want it.
+- **A song search now waits up to two hours** for a free download slot (`search.slot_wait_minutes`, default 120, was 30). A value you set yourself is kept.
+- **New scheduled task:** Rescan Soulseek Shares, daily (`soulseek.share_rescan_interval_hours`). It does nothing while sharing is off.
+
 ### Security
 - **.NET 10.0.13 (Microsoft's October 2026 security release).** `System.Security.Cryptography.Pkcs`, which MailKit brings in for email notifications, is pinned to 10.0.13 (CVE-2026-70162, CVE-2026-84008, denial of service), and the Microsoft packages move from 10.0.12 to 10.0.13. The image is built on the patched ASP.NET Core runtime (CVE-2026-70159, a SignalR denial of service).
-
-**Upgrading:** this version records a new search-run outcome, `NoFreeSlot`, as a string in the database. Going back to an older version is not supported while such a run exists; they age out with the rest of the search history after 30 days (Housekeeping).
 
 ### Added
 - **Rescan Soulseek Shares,** a new scheduled task (every 24 h, `soulseek.share_rescan_interval_hours`, 1 to 168). It asks slskd to rescan its shared folders, so files that reach them without an import (a reference library, your own copies) are shared too; the rescan after an import already covered Wondarr's own files. It does nothing, and its last result says why, when sharing is off or slskd is not running.
