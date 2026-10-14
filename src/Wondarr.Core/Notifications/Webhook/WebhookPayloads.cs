@@ -23,6 +23,9 @@ internal static class WebhookEventTypes
     public const string Test = "Test";
     public const string Grab = "Grab";
 
+    /// <summary>A source reported the file complete, before it is verified and imported. Lidarr has no equivalent, so the name is Wondarr's own.</summary>
+    public const string DownloadCompleted = "DownloadCompleted";
+
     /// <summary>Sent for both a first import and an upgrade; <c>isUpgrade</c> tells the two apart.</summary>
     public const string Download = "Download";
     public const string DownloadFailure = "DownloadFailure";

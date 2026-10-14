@@ -18,7 +18,9 @@ namespace Wondarr.Core.Notifications.Webhook;
 /// <remarks>
 /// The body follows Lidarr's webhook shape so an existing *arr consumer keeps working: <c>eventType</c>
 /// carries Lidarr's PascalCase values (<c>Test</c>, <c>Grab</c>, <c>Download</c> for an import or an
-/// upgrade, <c>DownloadFailure</c>, <c>Health</c>), <c>instanceName</c> is <c>Wondarr</c>, and
+/// upgrade, <c>DownloadFailure</c>, <c>Health</c>) and Wondarr's own <c>DownloadCompleted</c> (a source
+/// reported the file complete, before it is imported; it carries <c>song</c> and <c>release</c> as a
+/// grab does), <c>instanceName</c> is <c>Wondarr</c>, and
 /// <c>applicationUrl</c> is present and null until Wondarr knows its own URL. Where Lidarr sends an
 /// artist and an album, Wondarr sends its camelCase <c>song</c> object, plus <c>release</c> on a grab
 /// and <c>trackFile</c> on an import. An update payload (<c>eventType</c> <c>Update</c>) carries an
@@ -138,6 +140,13 @@ public sealed partial class WebhookProvider : INotificationProvider
     private static WebhookPayload Build(NotificationMessage message) => message.Event switch
     {
         NotificationEventNames.Grab => Payload(message, WebhookEventTypes.Grab) with
+        {
+            Release = message.Release is { } release
+                ? new WebhookRelease(release.Title, release.SourceType, release.Quality, release.SizeBytes)
+                : null,
+        },
+
+        NotificationEventNames.Download => Payload(message, WebhookEventTypes.DownloadCompleted) with
         {
             Release = message.Release is { } release
                 ? new WebhookRelease(release.Title, release.SourceType, release.Quality, release.SizeBytes)
