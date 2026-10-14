@@ -5,7 +5,7 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 ## [Unreleased]
 
 ### Fixed
-- **Matching a reference file by hand no longer fails when another add of the same recording wins the race.** Choosing a candidate, a MusicBrainz id or a Deezer id in the Match queue returned an error if the song was added a moment earlier by another request. The file is now linked to the song that was added first.
+- **Matching reference files by hand no longer fails when another add of the same recording wins the race.** Choosing a candidate, a MusicBrainz id or a Deezer id in the Match queue, or accepting the top candidates in bulk, returned an error (or lost the whole group of files) if the song was added a moment earlier by another request. The file is now linked to the song that was added first.
 
 ## [0.1.5] — 2026-10-14
 
