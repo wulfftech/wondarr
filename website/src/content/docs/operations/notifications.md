@@ -1,6 +1,6 @@
 ---
 title: Notifications
-description: Send a webhook, a Discord message, an Apprise notification or an email when Wondarr grabs, imports or fails.
+description: Send a webhook, a Discord message, an Apprise notification or an email when Wondarr grabs, downloads, imports or fails.
 ---
 
 Notifications are under **Settings → Notifications**. Press **Add notification**, choose a type, then fill in the form. Every notification has a **Name**, an **Enabled** switch and the **Events** it listens to. **Test** sends a test message so you can check the setup before relying on it.
@@ -10,6 +10,7 @@ Notifications are under **Settings → Notifications**. Press **Add notification
 | Label in the form | When it is sent |
 |---|---|
 | On grab | A candidate was handed to a download source. |
+| Download completed | A download source reported the file complete, once per download. This is before the file is verified and imported, so a song whose import then fails gets both this message and a failure. A notification you made earlier is not subscribed to it; tick it to opt in. |
 | On import | A downloaded file became a library file. |
 | On upgrade | A better file replaced the one a song already had. |
 | On download failure | A grab or an import failed. |
@@ -27,7 +28,7 @@ Sends a JSON body to a URL.
 - **Username** and **Password**: for HTTP basic authentication.
 - **Headers** (Advanced): extra headers as name and value pairs. Their values are shown in full, so put credentials in Username and Password, which are masked.
 
-The body uses Lidarr's `eventType` values, so tools that read Lidarr's webhook keep working: `Grab`, `Download` (for both a first import and an upgrade, with `isUpgrade` telling them apart), `DownloadFailure`, `Health`, `Update` and `Test`. It also carries `instanceName` (always `Wondarr`), `applicationUrl` and a `song` object. An `Update` body carries an `update` object with `currentVersion`, `latestVersion` and `releaseUrl` instead of a song.
+The body uses Lidarr's `eventType` values, so tools that read Lidarr's webhook keep working: `Grab`, `Download` (for both a first import and an upgrade, with `isUpgrade` telling them apart), `DownloadFailure`, `Health`, `Update` and `Test`. Wondarr adds `DownloadCompleted` for the Download completed event: the source has the whole file, but it is not imported yet. It carries a `song` and a `release` object, as `Grab` does. Every body also carries `instanceName` (always `Wondarr`), `applicationUrl` and, for a song, a `song` object. An `Update` body carries an `update` object with `currentVersion`, `latestVersion` and `releaseUrl` instead of a song.
 
 ### Discord
 
@@ -66,9 +67,9 @@ Sends email over SMTP. Each email is HTML with a plain-text alternative.
 
 **Test** sends a short test email.
 
-**What an email holds.** For each song: the artist, title, album, source, quality and file size; for a failure, the reason. The subject reads "Wondarr: imported Artist – Title" (or "upgraded", or "failed"). Grab, health and update messages are short: the same title and text the other types send.
+**What an email holds.** For each song: the artist, title, album, source, quality and file size; for a failure, the reason. The subject reads "Wondarr: imported Artist – Title" (or "downloaded", "upgraded", or "failed"). A "downloaded" email has no embedded cover, because the file is not in the library yet; it shows the album's cover as an image link when Wondarr has one. Grab, health and update messages are short: the same title and text the other types send.
 
-**Digest.** In digest mode the imports, upgrades and failures are held back and sent as one email when the window ends. A window starts at the first held event and lasts the number of minutes you set; it ends with one email such as "Wondarr: 12 imported, 1 failed (14:00–14:30)", whose body groups the songs into imported, upgraded and failed, in time order. A window with nothing in it sends nothing. Only **import**, **upgrade** and **failure** are batched; **grab**, **health** and **update** are always sent at once. Held events are stored in Wondarr's database, so a restart does not lose them. If the mail server cannot be reached the events are kept and tried again after a wait (2, 4, 8 minutes, and up to 30), and the log shows an error once it has failed three times in a row. A notification keeps at most 500 held events; past that the oldest are dropped, with a warning in the log. Switching a notification back to **each** sends what is held within half a minute, deleting a notification deletes what it was holding, and a notification you disable keeps what it holds and sends it when you enable it again. The subject shows the window's times, with dates when it crosses midnight or lasts over 12 hours.
+**Digest.** In digest mode the completed downloads, imports, upgrades and failures are held back and sent as one email when the window ends. A window starts at the first held event and lasts the number of minutes you set; it ends with one email such as "Wondarr: 3 downloaded, 12 imported, 1 failed (14:00–14:30)", whose body groups the songs into downloaded, imported, upgraded and failed, in time order. A window with nothing in it sends nothing. Only **download completed**, **import**, **upgrade** and **failure** are batched; **grab**, **health** and **update** are always sent at once. Held events are stored in Wondarr's database, so a restart does not lose them. If the mail server cannot be reached the events are kept and tried again after a wait (2, 4, 8 minutes, and up to 30), and the log shows an error once it has failed three times in a row. A notification keeps at most 500 held events; past that the oldest are dropped, with a warning in the log. Switching a notification back to **each** sends what is held within half a minute, deleting a notification deletes what it was holding, and a notification you disable keeps what it holds and sends it when you enable it again. The subject shows the window's times, with dates when it crosses midnight or lasts over 12 hours.
 
 **Covers.** When the song's album folder has a `cover.jpg` of at most 500 KB, the cover is embedded in the email, so it shows without loading anything from the internet. A digest embeds at most 25 covers, and songs from the same album share one. Any other song gets its cover as a normal image link instead (your mail client may block it until you allow images), or no image if Wondarr has no cover address for it.
 
@@ -78,4 +79,4 @@ Sends email over SMTP. Each email is HTML with a plain-text alternative.
 
 ## Secrets
 
-Secret fields show as `********`. Leave the mask in place when you save and the stored value is kept. Notifications never block Wondarr: a slow or failing target is given a limited time and then dropped, and no URL or credential is written to the log.
+Secret fields show as `********`. Leave the mask in place when you save and the stored value is kept. To remove a stored secret that is optional (an email password, a webhook password), press **Clear** next to it: the field shows "Will be cleared on save", with an **Undo**, and the secret is removed when you save. A required secret, such as a Discord webhook URL, can only be replaced. Through the API, a save request lists the fields to remove in `clearSecrets`, for example `"clearSecrets": ["password"]`; a name that is not an optional secret field of that type is refused with a `400`. Closing the Add or Edit window with changes you have not saved asks first ("Discard unsaved changes?"). Notifications never block Wondarr: a slow or failing target is given a limited time and then dropped, and no URL or credential is written to the log.

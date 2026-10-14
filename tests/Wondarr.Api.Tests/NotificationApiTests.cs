@@ -24,6 +24,7 @@ public sealed class NotificationApiTests
     private static readonly string[] ImportAndFailure = ["import", "failure"];
     private static readonly string[] HealthOnly = ["health"];
     private static readonly string[] ImportOnly = ["import"];
+    private static readonly string[] ClearPassword = ["password"];
 
     // Owner question 4: a row whose provider is no longer registered is masked by key name, not shown raw.
     [Fact]
@@ -184,6 +185,121 @@ public sealed class NotificationApiTests
         var listed = await ReadJsonAsync(page);
 
         listed[0].GetProperty("settings").GetProperty("password").GetString().Should().Be("********");
+    }
+
+    [Fact]
+    public async Task Clearing_an_optional_secret_removes_it_and_a_masked_value_without_the_name_keeps_it()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        var id = await CreateAsync(client, "Hooks", password: "wonderwall");
+
+        // The mask alone, as a client written before clearSecrets sends it: the secret stays.
+        using var kept = await client.PutAsync(
+            new Uri($"{Endpoint}/{id}", UriKind.Relative),
+            Body(new
+            {
+                name = "Hooks",
+                implementation = "Webhook",
+                enabled = true,
+                events = ImportOnly,
+                settings = new { url = "http://hooks.invalid/wondarr", password = "********" },
+            }));
+
+        kept.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReadJsonAsync(kept)).GetProperty("settings").GetProperty("password").GetString().Should().Be("********");
+
+        using var cleared = await client.PutAsync(
+            new Uri($"{Endpoint}/{id}", UriKind.Relative),
+            Body(new
+            {
+                name = "Hooks",
+                implementation = "Webhook",
+                enabled = true,
+                events = ImportOnly,
+                settings = new { url = "http://hooks.invalid/wondarr", password = "" },
+                clearSecrets = ClearPassword,
+            }));
+
+        cleared.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var settings = (await ReadJsonAsync(cleared)).GetProperty("settings");
+        settings.TryGetProperty("password", out var password).Should().BeFalse($"it was cleared, but read {password}");
+        settings.GetProperty("url").GetString().Should().Be("http://hooks.invalid/wondarr");
+
+        using var fetched = await client.GetAsync(new Uri($"{Endpoint}/{id}", UriKind.Relative));
+        (await ReadJsonAsync(fetched)).GetProperty("settings").TryGetProperty("password", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_name_that_cannot_be_cleared_is_a_validation_problem_on_its_field()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using var discord = await client.PostAsync(
+            new Uri(Endpoint, UriKind.Relative),
+            Body(new
+            {
+                name = "Discord",
+                implementation = "Discord",
+                enabled = true,
+                events = ImportOnly,
+                settings = new { webHookUrl = "https://discord.com/api/webhooks/123/token" },
+            }));
+
+        var discordId = (await ReadJsonAsync(discord)).GetProperty("id").GetInt64();
+        var webhookId = await CreateAsync(client, "Hooks", password: "wonderwall");
+
+        async Task<JsonElement> Errors(long id, string implementation, object settings, string name)
+        {
+            using var response = await client.PutAsync(
+                new Uri($"{Endpoint}/{id}", UriKind.Relative),
+                Body(new
+                {
+                    name = implementation == "Discord" ? "Discord" : "Hooks",
+                    implementation,
+                    enabled = true,
+                    events = ImportOnly,
+                    settings,
+                    clearSecrets = new[] { name },
+                }));
+
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+            return (await ReadJsonAsync(response)).GetProperty("errors");
+        }
+
+        // A required secret can only be replaced.
+        (await Errors(discordId, "Discord", new { webHookUrl = "********" }, "webHookUrl"))
+            .GetProperty("webHookUrl")[0].GetString().Should().Contain("required");
+
+        // A name that is no secret field of the type.
+        (await Errors(webhookId, "Webhook", new { url = "http://hooks.invalid/wondarr", password = "********" }, "nonsense"))
+            .GetProperty("clearSecrets")[0].GetString().Should().Contain("nonsense");
+
+        (await Errors(webhookId, "Webhook", new { url = "http://hooks.invalid/wondarr", password = "********" }, "url"))
+            .GetProperty("url")[0].GetString().Should().Contain("not a secret");
+
+        using var fetched = await client.GetAsync(new Uri($"{Endpoint}/{webhookId}", UriKind.Relative));
+        (await ReadJsonAsync(fetched)).GetProperty("settings").GetProperty("password").GetString().Should().Be("********");
+    }
+
+    [Fact]
+    public async Task The_schema_sends_what_an_empty_port_stands_for()
+    {
+        using var factory = Factory();
+        using var client = Authenticated(factory);
+
+        using var response = await client.GetAsync(new Uri($"{Endpoint}/schema", UriKind.Relative));
+
+        var email = (await ReadJsonAsync(response)).EnumerateArray()
+            .Single(entry => entry.GetProperty("implementation").GetString() == "Email")
+            .GetProperty("fields").EnumerateArray().ToList();
+
+        Field(email, "port").GetProperty("targetDefault").GetString().Should().Be("587");
+        Field(email, "host").GetProperty("targetDefault").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [Fact]

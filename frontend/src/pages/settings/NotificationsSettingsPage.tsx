@@ -16,7 +16,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { CircleAlert, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   NOTIFICATION_EVENTS,
   useCreateNotification,
@@ -51,15 +51,27 @@ function eventLabel(name: string): string {
   return NOTIFICATION_EVENTS.find((event) => event.value === name)?.label ?? name;
 }
 
+/** The events in a stable order, so two lists holding the same events compare equal. */
+function sortedEvents(events: readonly string[]): string {
+  return [...events].sort().join(',');
+}
+
 /** The add/edit dialog: the name, the events, and the settings the schema asks for. */
 function NotificationForm({
   notification,
   schema,
   onClose,
+  onRequestClose,
+  onDirtyChange,
 }: {
   notification: NotificationResource | null;
   schema: NotificationSchemaResource;
+  /** Closes the dialog for good: after a save. */
   onClose: () => void;
+  /** Asks to close it: Cancel. The dialog decides whether unsaved changes need a prompt first. */
+  onRequestClose: () => void;
+  /** Tells the dialog whether there is something to lose, and whether a save is in flight. */
+  onDirtyChange: (state: { dirty: boolean; saving: boolean }) => void;
 }) {
   const create = useCreateNotification();
   const update = useUpdateNotification();
@@ -74,6 +86,27 @@ function NotificationForm({
   const [events, setEvents] = useState<string[]>(notification?.events ?? []);
   const [values, setValues] = useState<Record<string, unknown>>(initial.values);
   const [tested, setTested] = useState<'sent' | 'failed' | null>(null);
+  // The stored secrets marked to be removed on save. They are sent as `clearSecrets`, by field name.
+  const [clearing, setClearing] = useState<string[]>([]);
+
+  // What the dialog opened with: "unsaved changes" is any difference from it.
+  const [opened] = useState(() => ({
+    name: notification?.name ?? '',
+    enabled: notification?.enabled ?? true,
+    events: sortedEvents(notification?.events ?? []),
+    values: JSON.stringify(initial.values),
+  }));
+
+  const dirty =
+    name !== opened.name ||
+    enabled !== opened.enabled ||
+    sortedEvents(events) !== opened.events ||
+    JSON.stringify(values) !== opened.values ||
+    clearing.length > 0;
+
+  useEffect(() => {
+    onDirtyChange({ dirty, saving: save.isPending });
+  }, [dirty, onDirtyChange, save.isPending]);
 
   // Which secrets the server masked. It never changes while the modal is open: an emptied field is
   // the untouched one again, and it is the mask — not the empty string — that goes back.
@@ -98,7 +131,10 @@ function NotificationForm({
     const settings: NotificationSettings = {};
 
     for (const field of schema.fields) {
-      settings[field.name] = wireValue(field, values[field.name], masked.has(field.name));
+      // A secret marked to be cleared goes as blank, not as the mask: nothing stored is to be kept.
+      settings[field.name] = clearing.includes(field.name)
+        ? ''
+        : wireValue(field, values[field.name], masked.has(field.name));
     }
 
     return {
@@ -108,8 +144,20 @@ function NotificationForm({
       events,
       settings,
       ...(id === undefined ? {} : { id }),
+      ...(clearing.length === 0 ? {} : { clearSecrets: clearing }),
     };
   };
+
+  // Clear and its undo are offered only for a secret the server holds a value for.
+  const clearProps = (field: (typeof schema.fields)[number]) => ({
+    cleared: clearing.includes(field.name),
+    onClear: () => {
+      // Whatever was typed over the stored value goes with it.
+      setValue(field, '');
+      setClearing((current) => [...current, field.name]);
+    },
+    onUndoClear: () => setClearing((current) => current.filter((entry) => entry !== field.name)),
+  });
 
   const toggleEvent = (value: string, checked: boolean) =>
     setEvents((current) => (checked ? [...current, value] : current.filter((event) => event !== value)));
@@ -169,6 +217,7 @@ function NotificationForm({
           reenter={reenter}
           error={serverFields[field.name] ?? testFields[field.name]}
           onChange={(next) => setValue(field, next)}
+          {...clearProps(field)}
         />
       ))}
 
@@ -185,6 +234,7 @@ function NotificationForm({
                 reenter={reenter}
                 error={serverFields[field.name] ?? testFields[field.name]}
                 onChange={(next) => setValue(field, next)}
+                {...clearProps(field)}
               />
             ))}
           </Stack>
@@ -225,7 +275,7 @@ function NotificationForm({
       )}
 
       <Group justify="flex-end">
-        <Button variant="default" onClick={onClose}>
+        <Button variant="default" onClick={onRequestClose}>
           Cancel
         </Button>
         <Button variant="light" loading={test.isPending} onClick={runTest}>
@@ -236,6 +286,65 @@ function NotificationForm({
         </Button>
       </Group>
     </Stack>
+  );
+}
+
+/**
+ * The add/edit dialog and the question it asks before throwing edits away. Every way of leaving it —
+ * the X, Escape, a click outside and Cancel — goes through one request; a saved dialog closes by itself.
+ */
+function NotificationFormModal({
+  notification,
+  schema,
+  onClose,
+}: {
+  notification: NotificationResource | null;
+  schema: NotificationSchemaResource;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState({ dirty: false, saving: false });
+  const [confirming, setConfirming] = useState(false);
+
+  // Nothing is asked when there is nothing to lose, or while a save is already on its way.
+  const requestClose = () => (state.dirty && !state.saving ? setConfirming(true) : onClose());
+
+  return (
+    <>
+      <Modal
+        opened
+        onClose={requestClose}
+        closeOnEscape={!confirming}
+        closeOnClickOutside={!confirming}
+        title={notification === null ? 'Add a notification' : 'Edit notification'}
+        size="lg"
+      >
+        <NotificationForm
+          notification={notification}
+          schema={schema}
+          onClose={onClose}
+          onRequestClose={requestClose}
+          onDirtyChange={setState}
+        />
+      </Modal>
+
+      <Modal
+        opened={confirming}
+        onClose={() => setConfirming(false)}
+        title="Discard unsaved changes?"
+        size="sm"
+        zIndex={400}
+        centered
+      >
+        <Group justify="flex-end">
+          <Button data-autofocus variant="default" onClick={() => setConfirming(false)}>
+            Keep editing
+          </Button>
+          <Button color="red" onClick={onClose}>
+            Discard
+          </Button>
+        </Group>
+      </Modal>
+    </>
   );
 }
 
@@ -389,26 +498,19 @@ export function NotificationsSettingsPage() {
         </Stack>
       </Modal>
 
-      <Modal
-        opened={form !== null}
-        onClose={() => setForm(null)}
-        title={form?.notification == null ? 'Add a notification' : 'Edit notification'}
-        size="lg"
-      >
-        {form !== null && (
-          <NotificationForm
-            key={form.notification?.id ?? form.implementation}
-            notification={form.notification}
-            schema={
-              (schema.data ?? []).find((entry) => entry.implementation === form.implementation) ?? {
-                implementation: form.implementation,
-                fields: [],
-              }
+      {form !== null && (
+        <NotificationFormModal
+          key={form.notification?.id ?? form.implementation}
+          notification={form.notification}
+          schema={
+            (schema.data ?? []).find((entry) => entry.implementation === form.implementation) ?? {
+              implementation: form.implementation,
+              fields: [],
             }
-            onClose={() => setForm(null)}
-          />
-        )}
-      </Modal>
+          }
+          onClose={() => setForm(null)}
+        />
+      )}
 
       <Modal opened={pendingDelete !== null} onClose={() => setPendingDelete(null)} title="Delete notification">
         <Stack gap="md">

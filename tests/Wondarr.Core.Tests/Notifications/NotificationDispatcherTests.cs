@@ -212,6 +212,80 @@ public sealed class NotificationDispatcherTests : IAsyncDisposable
         _webhook.Sent[0].Song!.Title.Should().Be("Wonderwall");
     }
 
+    [Theory]
+    [InlineData(QueueItemState.Queued)]
+    [InlineData(QueueItemState.RemotelyQueued)]
+    [InlineData(QueueItemState.Downloading)]
+    public async Task A_source_reporting_the_file_complete_sends_a_download_with_the_source_quality_and_size(
+        QueueItemState before)
+    {
+        var songId = await SeedSongAsync();
+        var queueItemId = await SeedQueueItemAsync(songId, QueueItemState.Completed, null);
+
+        await SeedNotificationAsync("Downloads", "Webhook", NotificationEventNames.Download);
+        await SeedNotificationAsync("Grabs", "Discord", NotificationEventNames.Grab);
+
+        await _aggregator.PublishAsync(
+            new QueueItemChangedEvent(queueItemId, songId, QueueItemState.Completed) { PreviousState = before },
+            Token);
+
+        await WaitUntilAsync(() => _webhook.Sent.Count == 1, "the download to be sent");
+        await FlushAsync();
+
+        var sent = _webhook.Sent.Should().ContainSingle().Subject;
+        sent.Event.Should().Be(NotificationEventNames.Download);
+        sent.Title.Should().Be("Downloaded: Oasis – Wonderwall");
+        sent.Body.Should().Be("Wonderwall.flac from soulseek (FLAC)");
+        sent.Song!.Title.Should().Be("Wonderwall");
+        sent.Release.Should().Be(new NotificationRelease("Wonderwall.flac", "soulseek", "FLAC", 30_000_000));
+        sent.Download.Should().NotBeNull();
+        sent.Download!.SourceType.Should().Be("soulseek");
+        sent.Download.Quality.Should().Be("FLAC");
+        sent.Download.SizeBytes.Should().Be(30_000_000);
+        sent.Download.CoverPath.Should().BeNull("the file is not in the library yet");
+        _discord.Sent.Should().BeEmpty("a notification that only wants grabs is not subscribed to the new event");
+    }
+
+    [Fact]
+    public async Task A_change_back_to_completed_that_did_not_come_from_a_source_sends_no_download()
+    {
+        var songId = await SeedSongAsync();
+        var queueItemId = await SeedQueueItemAsync(songId, QueueItemState.Completed, null);
+
+        await SeedNotificationAsync("Downloads", "Webhook", NotificationEventNames.Download);
+
+        // A deferred import hands the item back from Importing; a restart's recovery and a plain
+        // re-publication carry no previous state at all.
+        await _aggregator.PublishAsync(
+            new QueueItemChangedEvent(queueItemId, songId, QueueItemState.Completed) { PreviousState = QueueItemState.Importing },
+            Token);
+        await _aggregator.PublishAsync(new QueueItemChangedEvent(queueItemId, songId, QueueItemState.Completed), Token);
+        await _aggregator.PublishAsync(new QueueItemChangedEvent(queueItemId, songId, QueueItemState.Downloading), Token);
+        await FlushAsync();
+
+        _webhook.Sent.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_song_whose_import_fails_gets_both_a_download_and_a_failure()
+    {
+        var songId = await SeedSongAsync();
+        var queueItemId = await SeedQueueItemAsync(songId, QueueItemState.Failed, "the file failed verification");
+
+        await SeedNotificationAsync("Both", "Webhook", NotificationEventNames.Download);
+        await SeedNotificationAsync("Failures", "Discord", NotificationEventNames.Failure);
+
+        await _aggregator.PublishAsync(
+            new QueueItemChangedEvent(queueItemId, songId, QueueItemState.Completed) { PreviousState = QueueItemState.Downloading },
+            Token);
+        await _aggregator.PublishAsync(new QueueItemChangedEvent(queueItemId, songId, QueueItemState.Failed), Token);
+
+        await WaitUntilAsync(() => _webhook.Sent.Count == 1 && _discord.Sent.Count == 1, "both messages to be sent");
+
+        _webhook.Sent[0].Event.Should().Be(NotificationEventNames.Download);
+        _discord.Sent[0].Event.Should().Be(NotificationEventNames.Failure);
+    }
+
     [Fact]
     public async Task An_upgrade_goes_to_upgrade_subscribers_and_not_to_import_ones()
     {

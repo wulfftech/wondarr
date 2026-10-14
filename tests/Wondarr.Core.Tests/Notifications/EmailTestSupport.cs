@@ -108,6 +108,7 @@ internal static class EmailSamples
     {
         var verb = @event switch
         {
+            NotificationEventNames.Download => "Downloaded: ",
             NotificationEventNames.Upgrade => "Upgraded: ",
             NotificationEventNames.Failure => "Failed: ",
             _ => "Imported: ",

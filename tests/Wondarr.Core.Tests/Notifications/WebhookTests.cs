@@ -57,6 +57,34 @@ public class WebhookTests
     }
 
     [Fact]
+    public async Task A_completed_download_posts_downloadcompleted_with_the_song_and_the_release()
+    {
+        var (provider, handler) = CreateProvider();
+        var message = new NotificationMessage("download", "Downloaded: Oasis – Wonderwall", "Wonderwall.flac from soulseek (FLAC)")
+        {
+            Song = new NotificationSong(7, "Wonderwall", "Oasis", "(What's the Story) Morning Glory?", "mb-1"),
+            Release = new NotificationRelease("Wonderwall.flac", "soulseek", "FLAC", 30_000_000),
+        };
+
+        await provider.SendAsync(message, GrabSettings, CancellationToken.None);
+
+        var payload = handler.Payloads.Single();
+
+        payload.GetProperty("eventType").GetString().Should().Be("DownloadCompleted");
+        payload.GetProperty("instanceName").GetString().Should().Be("Wondarr");
+        payload.GetProperty("song").GetProperty("title").GetString().Should().Be("Wonderwall");
+        payload.GetProperty("song").GetProperty("mbRecordingId").GetString().Should().Be("mb-1");
+
+        var release = payload.GetProperty("release");
+        release.GetProperty("title").GetString().Should().Be("Wonderwall.flac");
+        release.GetProperty("sourceType").GetString().Should().Be("soulseek");
+        release.GetProperty("quality").GetString().Should().Be("FLAC");
+        release.GetProperty("size").GetInt64().Should().Be(30_000_000);
+        payload.TryGetProperty("trackFile", out _).Should().BeFalse();
+        payload.TryGetProperty("isUpgrade", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task An_import_posts_a_download_with_the_file()
     {
         var (provider, handler) = CreateProvider();
