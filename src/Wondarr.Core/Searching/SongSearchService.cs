@@ -572,9 +572,10 @@ public sealed partial class SongSearchService : ISongSearchService
 
             if (slotTimedOut)
             {
-                // The run's outcome stays Cancelled (it is not a failed search, and the backoff ignores it);
-                // the command that ran it reports it as completed, see SongSearchResult.SlotWaitExpired.
-                outcome = SearchOutcome.Cancelled;
+                // Not a failed search and not a cancel: the backoff ignores NoFreeSlot, so the song stays
+                // wanted for the next Missing Search. The command that ran it completes, see
+                // SongSearchResult.SlotWaitExpired.
+                outcome = SearchOutcome.NoFreeSlot;
                 message = _slotWait.WaitForSlot ? SlotWaitExpiredMessage() : "No free download slot";
                 slotWaitExpired = _slotWait.WaitForSlot;
             }

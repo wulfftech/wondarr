@@ -54,6 +54,7 @@ const OUTCOME_TEXT: Partial<Record<SearchOutcomeName, string>> = {
   sourceUnavailable: 'A source was unavailable',
   failed: 'The search failed',
   cancelled: 'The search was cancelled',
+  noFreeSlot: 'No free download slot',
 };
 
 /** `12.3 MB`, or an em dash when the source reported no size. */

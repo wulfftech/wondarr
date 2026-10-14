@@ -101,7 +101,7 @@ public sealed class SlotWaitTests
         var search = Task.Run(() => host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token));
         var result = await AdvanceUntilAsync(host, search);
 
-        result.Outcome.Should().Be(SearchOutcome.Cancelled, "the run is not a failed search, and the backoff ignores it");
+        result.Outcome.Should().Be(SearchOutcome.NoFreeSlot, "the run is not a failed search, and the backoff ignores it");
         result.SlotWaitExpired.Should().BeTrue();
         result.Message.Should().Be("No free download slot after 2 min; the song stays wanted for the next Missing Search");
         result.QueueItemId.Should().BeNull();
@@ -172,7 +172,7 @@ public sealed class SlotWaitTests
         await using var database = host.Database.CreateContext(host.Time);
         var searchRun = await database.SearchRuns.AsNoTracking().SingleAsync(row => row.SongId == songId, Token);
 
-        searchRun.Outcome.Should().Be(SearchOutcome.Cancelled, "the run is not a failed search, so the backoff ignores it");
+        searchRun.Outcome.Should().Be(SearchOutcome.NoFreeSlot, "the run is not a failed search, so the backoff ignores it");
         searchRun.Message.Should().Be("No free download slot after 2 h; the song stays wanted for the next Missing Search");
     }
 
@@ -374,7 +374,7 @@ public sealed class SlotWaitTests
 
         var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
 
-        result.Outcome.Should().Be(SearchOutcome.Cancelled);
+        result.Outcome.Should().Be(SearchOutcome.NoFreeSlot);
         result.Message.Should().Be("No free download slot");
         host.Provider.Grabs.Should().BeEmpty();
     }
