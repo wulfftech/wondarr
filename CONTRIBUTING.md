@@ -68,4 +68,4 @@ Any file adapted from another project needs a header comment naming the source r
 
 ## How decisions work
 
-Product decisions get a dated entry in [`docs/DECISIONS.md`](docs/DECISIONS.md); architectural ones get an ADR in [`docs/adr/`](docs/adr/), starting from `0000-template.md`. Both are binding: change them only with a new dated entry or ADR, never silently in code.
+Architectural decisions get an ADR in [`docs/adr/`](docs/adr/), starting from `0000-template.md`; product decisions are recorded by the maintainer. Both are binding: change them only with a new decision or ADR, never silently in code.

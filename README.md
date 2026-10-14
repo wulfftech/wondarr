@@ -94,13 +94,11 @@ C# / .NET 10 (ASP.NET Core, EF Core + SQLite) and a React 19 + Mantine front end
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Prerequisites, build/test commands, repository map and contribution rules |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 | [`NOTICE.md`](NOTICE.md) | Ported-code attributions and the third-party programs bundled in the image |
-| [`docs/HANDOVER.md`](docs/HANDOVER.md) | Where things stand and how to start the next session |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) · [`docs/adr/`](docs/adr/) | Every decision taken with the owner, and the architectural ones as ADRs |
+| [`docs/adr/`](docs/adr/) | The architectural decisions, as ADRs |
 | [`docs/product/PRODUCT.md`](docs/product/PRODUCT.md) · [`GOALS.md`](docs/product/GOALS.md) · [`RISKS.md`](docs/product/RISKS.md) | What we are building, what we are not, and the risk register |
 | [`docs/architecture/`](docs/architecture/) | Architecture, the matching engine, library output, stack, deployment, quality definitions |
-| [`docs/build/`](docs/build/) | Phases, progress, coding standards, repository layout |
+| [`docs/build/`](docs/build/) | Phases, coding standards, repository layout |
 | [`docs/research/FINDINGS.md`](docs/research/FINDINGS.md) | The URL-cited research behind every decision |
-| [`docs/PLAN.md`](docs/PLAN.md) | The original planning document, frozen |
 
 </details>
 

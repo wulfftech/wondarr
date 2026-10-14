@@ -65,3 +65,11 @@ scripts/worker_agent.py
 scripts/test_worker_agent.py
 scripts/openrouter_value.py
 git-backup/
+
+# internal development docs (kept on disk, never published)
+TLDR.md
+docs/HANDOVER.md
+docs/PLAN.md
+docs/DECISIONS.md
+docs/build/PROGRESS.md
+docs/reviews/
