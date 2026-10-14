@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.Persistence;
 using Xunit;
 
 namespace Wondarr.Api.Tests;
@@ -34,7 +36,7 @@ public sealed class OpenApiEnumSchemaTests : IDisposable
 
         schema.GetProperty("type").GetString().Should().Be("string");
 
-        var documented = schema.GetProperty("enum").EnumerateArray().Select(value => value.GetString()).ToList();
+        var documented = DocumentedNames(schema);
         var options = _factory.Services.GetRequiredService<IOptions<JsonOptions>>().Value.JsonSerializerOptions;
         var written = Enum.GetValues(enumType)
             .Cast<object>()
@@ -46,29 +48,139 @@ public sealed class OpenApiEnumSchemaTests : IDisposable
     }
 
     [Fact]
+    public async Task No_component_schema_is_a_bare_integer_enum()
+    {
+        using var document = await FetchDocumentAsync();
+        var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        var integerEnums = new List<string>();
+
+        foreach (var schema in schemas.EnumerateObject())
+        {
+            var isInteger = schema.Value.TryGetProperty("type", out var type) && type.ToString().Contains("integer", StringComparison.Ordinal);
+
+            // A real integer component schema would carry a format; the generator's enum fallback is a bare integer.
+            if (isInteger && (schema.Value.TryGetProperty("enum", out _) || !schema.Value.TryGetProperty("format", out _)))
+            {
+                integerEnums.Add(schema.Name);
+            }
+        }
+
+        integerEnums.Should().BeEmpty("every enum the API writes as a string is typed as one in the document");
+    }
+
+    [Fact]
     public async Task The_state_of_a_queue_item_the_api_returns_is_one_of_the_documented_names()
     {
-        var schema = await EnumSchemaAsync(nameof(QueueItemState));
-        var documented = schema.GetProperty("enum").EnumerateArray().Select(value => value.GetString()).ToList();
+        var documented = DocumentedNames(await EnumSchemaAsync(nameof(QueueItemState)));
 
-        var songId = await QueueApiTests.SeedSongAsync(_factory, "Bohemian Rhapsody");
-        var candidateId = await QueueApiTests.SeedCandidateAsync(_factory, songId, "Bohemian Rhapsody.flac");
-        await QueueApiTests.SeedQueueItemAsync(_factory, songId, candidateId, QueueItemState.RemotelyQueued);
+        // One live queue item per song, so each state gets its own song.
+        foreach (var state in Enum.GetValues<QueueItemState>())
+        {
+            var songId = await QueueApiTests.SeedSongAsync(_factory, $"Song {state}");
+            var candidateId = await QueueApiTests.SeedCandidateAsync(_factory, songId, $"Song {state}.flac");
+            await QueueApiTests.SeedQueueItemAsync(_factory, songId, candidateId, state);
+        }
 
         using var client = QueueApiTests.Authenticated(_factory);
-        using var response = await client.GetAsync(new Uri("/api/v1/queue", UriKind.Relative));
+        using var response = await client.GetAsync(new Uri("/api/v1/queue?includeFinished=true&pageSize=50", UriKind.Relative));
         response.EnsureSuccessStatusCode();
 
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var state = body.RootElement.GetProperty("records")[0].GetProperty("state").GetString();
+        var states = body.RootElement.GetProperty("records").EnumerateArray()
+            .Select(record => record.GetProperty("state").GetString())
+            .ToList();
 
-        state.Should().Be("remotelyQueued");
-        documented.Should().Contain(state);
+        states.Should().Contain("remotelyQueued");
+        states.Should().OnlyContain(state => documented.Contains(state));
+    }
+
+    [Fact]
+    public async Task The_event_type_of_a_history_row_the_api_returns_is_one_of_the_documented_names()
+    {
+        var documented = DocumentedNames(await EnumSchemaAsync(nameof(HistoryEventType)));
+
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Get Lucky");
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+            foreach (var eventType in Enum.GetValues<HistoryEventType>())
+            {
+                context.History.Add(new HistoryItem { SongId = songId, EventType = eventType, Data = "{}" });
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        using var client = QueueApiTests.Authenticated(_factory);
+        using var response = await client.GetAsync(new Uri("/api/v1/history?pageSize=50", UriKind.Relative));
+        response.EnsureSuccessStatusCode();
+
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var types = body.RootElement.GetProperty("records").EnumerateArray()
+            .Select(record => record.GetProperty("eventType").GetString())
+            .ToList();
+
+        types.Should().Contain("grabbed");
+        types.Should().BeEquivalentTo(documented);
+    }
+
+    [Fact]
+    public async Task The_status_of_a_command_the_api_returns_is_one_of_the_documented_names()
+    {
+        var documented = DocumentedNames(await EnumSchemaAsync(nameof(CommandStatus)));
+
+        using var client = QueueApiTests.Authenticated(_factory);
+        using var content = new StringContent("{\"name\":\"Heartbeat\"}", Encoding.UTF8, "application/json");
+        using var created = await client.PostAsync(new Uri("/api/v1/command", UriKind.Relative), content);
+        created.EnsureSuccessStatusCode();
+
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var id = createdBody.RootElement.GetProperty("id").GetInt64();
+
+        using var response = await client.GetAsync(new Uri($"/api/v1/command/{id}", UriKind.Relative));
+        response.EnsureSuccessStatusCode();
+
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var status = body.RootElement.GetProperty("status").GetString();
+
+        status.Should().NotBeNullOrEmpty();
+        documented.Should().Contain(status);
+    }
+
+    [Fact]
+    public async Task The_outcome_of_an_interactive_search_the_api_returns_is_one_of_the_documented_names()
+    {
+        var documented = DocumentedNames(await EnumSchemaAsync(nameof(SearchOutcome)));
+
+        using var factory = ReleaseApiTests.Factory();
+        var songId = await QueueApiTests.SeedSongAsync(factory, "Get Lucky");
+
+        using var client = QueueApiTests.Authenticated(factory);
+        using var response = await client.GetAsync(new Uri($"/api/v1/release?songId={songId}", UriKind.Relative));
+        response.EnsureSuccessStatusCode();
+
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var outcome = body.RootElement.GetProperty("outcome").GetString();
+
+        outcome.Should().NotBeNullOrEmpty();
+        documented.Should().Contain(outcome);
     }
 
     public void Dispose() => _factory.Dispose();
 
+    private static List<string?> DocumentedNames(JsonElement schema) =>
+        schema.GetProperty("enum").EnumerateArray().Select(value => value.GetString()).ToList();
+
     private async Task<JsonElement> EnumSchemaAsync(string name)
+    {
+        using var document = await FetchDocumentAsync();
+
+        return document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(name).Clone();
+    }
+
+    private async Task<JsonDocument> FetchDocumentAsync()
     {
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", _factory.ApiKey);
@@ -76,8 +188,6 @@ public sealed class OpenApiEnumSchemaTests : IDisposable
         using var response = await client.GetAsync(new Uri("/docs/v1/openapi.json", UriKind.Relative));
         response.EnsureSuccessStatusCode();
 
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-
-        return document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(name).Clone();
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
     }
 }
