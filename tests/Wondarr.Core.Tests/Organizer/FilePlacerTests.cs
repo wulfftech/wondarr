@@ -1,8 +1,10 @@
+using System.Runtime.Versioning;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Organizer;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Organizer;
@@ -89,13 +91,21 @@ public class FilePlacerTests : IDisposable
         result.ModeUsed.Should().Be(TransferMode.HardLinkOrCopy);
         File.ReadAllText(result.FinalPath!).Should().Be("audio");
         File.ReadAllText(source).Should().Be("audio");
+    }
 
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
-        {
-            // Nothing here can tell a link from a copy, so only the copy's outcome is asserted; the
-            // DiskOperations test covers the link itself.
-            return;
-        }
+    // Windows cannot tell a link from a copy here, so only the copy's outcome is asserted there (above);
+    // the DiskOperations test covers the link itself.
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
+    public async Task HardLinkOrCopy_shares_the_download_s_bytes_with_the_library_file()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+
+        var result = await Placer().PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.HardLinkOrCopy),
+            CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
 
         File.WriteAllText(source, "changed");
 
@@ -181,15 +191,10 @@ public class FilePlacerTests : IDisposable
         File.ReadAllText(result.RecycledPath!).Should().Be("old");
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public async Task Applies_the_configured_modes_to_the_file_and_the_folders_it_created()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            // Unix modes do not exist here; the placer deliberately does nothing.
-            return;
-        }
-
         _options.SetPermissions = true;
         _options.FileMode = "0644";
         _options.FolderMode = "0755";
@@ -206,14 +211,10 @@ public class FilePlacerTests : IDisposable
         File.GetUnixFileMode(_temp.Full("library/Artist/Album")).Should().Be(ImportOptions.ParseMode("0755"));
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public async Task Leaves_the_permissions_of_a_pre_existing_folder_alone()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var album = _temp.Full("library/Artist/Album");
         Directory.CreateDirectory(album);
         File.SetUnixFileMode(album, ImportOptions.ParseMode("0700"));
@@ -232,15 +233,10 @@ public class FilePlacerTests : IDisposable
         File.GetUnixFileMode(album).Should().Be(ImportOptions.ParseMode("0700"));
     }
 
-    [Fact]
+    [UnixFact]
+    [UnsupportedOSPlatform("windows")]
     public async Task Leaves_a_hard_link_s_mode_alone_and_still_sets_the_folders()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            // Unix modes do not exist here; the placer deliberately does nothing.
-            return;
-        }
-
         var source = _temp.CreateFile("downloads/track.mp3", "audio");
         File.SetUnixFileMode(source, ImportOptions.ParseMode("0600"));
 
