@@ -19,7 +19,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { useSongAlbum, type AlbumRefResource } from '../api/albums';
 import { filterEntries, useCustomFilters, type CustomFilterResource } from '../api/customFilters';
 import { firstPage, type Paging } from '../api/paging';
-import { readEnum, useLibraries, useQualityProfiles } from '../api/profiles';
+import { useLibraries, useQualityProfiles } from '../api/profiles';
 import { useArtists, useSongs, useUpdateSong, type SongResource } from '../api/songs';
 import { useTags } from '../api/tags';
 import { SongSearchButtons } from '../components/InteractiveSearchModal';
@@ -47,9 +47,6 @@ import { LIBRARY_VIEW_TYPE, SavedViewsMenu } from './library/SavedViewsMenu';
 
 /** Library: the songs Wondarr manages, with their album assignment and monitored flag. */
 
-/** The wire spelling of `AlbumContextKind`; the API serialises enums as camelCase strings. */
-type AlbumContextKindName = 'album' | 'single' | 'ep' | 'compilation' | 'pseudoSingles';
-
 /** How long the search box waits after a keystroke before it asks the server, in milliseconds. */
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -71,7 +68,7 @@ function AlbumCell({ song }: { song: SongResource }) {
     );
   }
 
-  if (readEnum<AlbumContextKindName>(context.kind) === 'pseudoSingles') {
+  if (context.kind === 'pseudoSingles') {
     return (
       <Badge variant="light" size="sm">
         Singles

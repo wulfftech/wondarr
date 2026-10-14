@@ -10,7 +10,7 @@ import { useCallback, useEffect } from 'react';
 import { useApiClient } from './context';
 import { ApiError } from './errors';
 import { pagingValues, type Paging } from './paging';
-import { readEnum, ValidationError, validationFields } from './profiles';
+import { ValidationError, validationFields } from './profiles';
 import type { components } from './schema';
 import { TAGS_QUERY_KEY } from './tags';
 import { WANTED_QUERY_KEY } from './wanted';
@@ -45,14 +45,11 @@ export const IMPORT_LIST_ITEMS_QUERY_KEY = ['import-list-items'] as const;
 /** How often a running command is polled, in milliseconds. */
 export const COMMAND_POLL_INTERVAL_MS = 1500;
 
-/**
- * The wire spelling of `CommandStatus`. The OpenAPI document types the enum as an integer, but the
- * API serialises enums as camelCase strings (see `readEnum`).
- */
-export type CommandStatusName = 'queued' | 'started' | 'completed' | 'failed' | 'aborted';
+/** The states a command goes through, as the document lists them (the API sends the camelCase names). */
+export type CommandStatusName = components['schemas']['CommandStatus'];
 
-/** The wire spelling of `ImportListItemState`; see {@link CommandStatusName}. */
-export type ImportListItemStateName = 'pending' | 'added' | 'unresolved' | 'skipped';
+/** The states an import list line is in, as the document lists them. */
+export type ImportListItemStateName = components['schemas']['ImportListItemState'];
 
 /** What `GET /api/v1/song` filters on. */
 export interface SongFilters {
@@ -793,7 +790,7 @@ export function useCommand(
         return false;
       }
 
-      const status = readEnum<CommandStatusName>(query.state.data?.status);
+      const status = query.state.data?.status;
 
       return status === 'completed' || status === 'failed' || status === 'aborted' ? false : COMMAND_POLL_INTERVAL_MS;
     },
@@ -817,7 +814,7 @@ export function useCommand(
  */
 export function useRefreshSongsWhenFinished(command: CommandResource | undefined): void {
   const queryClient = useQueryClient();
-  const status = readEnum<CommandStatusName>(command?.status);
+  const status = command?.status;
   const finished = command !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
 
   useEffect(() => {
@@ -844,8 +841,7 @@ export function useImportListItems(
       }
 
       if (filters.state !== undefined) {
-        // The document types the enum as an integer; the API binds the camelCase name from the
-        // query string, so the name is what travels.
+        // The API binds the camelCase name from the query string.
         query.state = filters.state;
       }
 

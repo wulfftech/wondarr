@@ -57,9 +57,7 @@ export const TASKS: TaskResource[] = [
 ];
 
 /**
- * The list endpoints all answer in the same envelope. The enum-carrying fixtures below (libraries
- * especially) are written in the wire shape: the API serialises enums as camelCase strings even
- * though the OpenAPI document types them as integers.
+ * The list endpoints all answer in the same envelope.
  */
 export function paged<T>(records: T[]): {
   page: number;

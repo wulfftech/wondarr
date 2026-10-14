@@ -31,16 +31,11 @@ export type ReleaseRejectionResource = components['schemas']['ReleaseRejectionRe
 export const QUEUE_QUERY_KEY = ['queue'] as const;
 export const QUEUE_STATUS_QUERY_KEY = ['queue', 'status'] as const;
 
-/**
- * The wire spelling of `QueueItemState`. The OpenAPI document types the enum as an integer, but the
- * API serialises enums as camelCase strings (the same shape the other pages read).
- */
-export type QueueItemStateName =
-  'queued' | 'remotelyQueued' | 'downloading' | 'completed' | 'importing' | 'imported' | 'failed' | 'cancelled';
+/** The states of a queue item, as the document lists them (the API sends the camelCase names). */
+export type QueueItemStateName = components['schemas']['QueueItemState'];
 
-/** The wire spelling of `SearchOutcome`; see {@link QueueItemStateName}. */
-export type SearchOutcomeName =
-  'grabbed' | 'noAcceptableCandidate' | 'noResults' | 'sourceUnavailable' | 'failed' | 'cancelled' | 'noFreeSlot';
+/** How a search run ended, as the document lists it. */
+export type SearchOutcomeName = components['schemas']['SearchOutcome'];
 
 /**
  * The queue's query as something the typed client accepts. The document describes only

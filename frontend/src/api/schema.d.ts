@@ -5231,7 +5231,8 @@ export interface components {
             qualityProfileId: null | number | string;
             monitored: null | boolean;
         };
-        AlbumContextKind: number;
+        /** @enum {string} */
+        AlbumContextKind: "album" | "single" | "ep" | "compilation" | "pseudoSingles";
         AlbumOptionResource: {
             key: string;
             mbReleaseId: null | string;
@@ -5253,7 +5254,8 @@ export interface components {
             /** Format: int32 */
             discNo: null | number | string;
         };
-        AlbumPolicy: number;
+        /** @enum {string} */
+        AlbumPolicy: "fewestAlbums" | "singlesOnly" | "originalAlbum" | "singleRelease" | "compilation";
         AlbumRefResource: {
             source: string;
             id: string;
@@ -5314,7 +5316,8 @@ export interface components {
             configured: boolean;
             username: null | string;
         };
-        AuthenticationMethod: number;
+        /** @enum {string} */
+        AuthenticationMethod: "none" | "forms" | "external";
         BackupResource: {
             id: string;
             name: string;
@@ -5375,9 +5378,12 @@ export interface components {
             /** Format: date-time */
             stateChangeTime: null | string;
         };
-        CommandResult: number;
-        CommandStatus: number;
-        CommandTrigger: number;
+        /** @enum {string} */
+        CommandResult: "unknown" | "successful" | "unsuccessful";
+        /** @enum {string} */
+        CommandStatus: "queued" | "started" | "completed" | "failed" | "aborted" | "cancelled" | "orphaned";
+        /** @enum {string} */
+        CommandTrigger: "unspecified" | "manual" | "scheduled";
         CompactAlbumResource: {
             albumKey: string;
             kind: components["schemas"]["AlbumContextKind"];
@@ -5534,7 +5540,8 @@ export interface components {
             /** Format: int64 */
             candidateId: number | string;
         };
-        HistoryEventType: number;
+        /** @enum {string} */
+        HistoryEventType: "grabbed" | "imported" | "upgraded" | "failed" | "verified" | "rejected" | "deleted" | "renamed" | "converted";
         HistoryResource: {
             /** Format: int64 */
             id: number | string;
@@ -5626,7 +5633,8 @@ export interface components {
             /** @default false */
             removed: boolean;
         };
-        ImportListItemState: number;
+        /** @enum {string} */
+        ImportListItemState: "pending" | "added" | "unresolved" | "skipped";
         ImportListResource: {
             /** Format: int64 */
             id: number | string;
@@ -5730,7 +5738,8 @@ export interface components {
         };
         JsonElement: unknown;
         JsonNode: unknown;
-        LibraryLayout: number;
+        /** @enum {string} */
+        LibraryLayout: "flat" | "artist" | "artistAlbum" | "plexamp";
         LibraryPreviewRequestResource: {
             /** Format: int64 */
             songId: null | number | string;
@@ -6078,7 +6087,8 @@ export interface components {
             durationToleranceMs: number | string;
             items: components["schemas"]["QualityProfileItemResource"][];
         };
-        QueueItemState: number;
+        /** @enum {string} */
+        QueueItemState: "queued" | "remotelyQueued" | "downloading" | "completed" | "importing" | "imported" | "failed" | "cancelled";
         QueueResource: {
             /** Format: int64 */
             id: number | string;
@@ -6141,7 +6151,8 @@ export interface components {
             unknownErrors: boolean;
             unknownWarnings: boolean;
         };
-        ReferenceFileState: number;
+        /** @enum {string} */
+        ReferenceFileState: "pending" | "identified" | "ambiguous" | "unmatched" | "adopted" | "unreadable" | "missing" | "skipped";
         ReferenceLibraryCountsResource: {
             /** Format: int32 */
             total: number | string;
@@ -6297,7 +6308,8 @@ export interface components {
             total: number | string;
             cappedForUnknownDuration: boolean;
         };
-        SearchOutcome: number;
+        /** @enum {string} */
+        SearchOutcome: "grabbed" | "noAcceptableCandidate" | "noResults" | "sourceUnavailable" | "failed" | "cancelled" | "noFreeSlot";
         SongAddResource: {
             mbRecordingId: null | string;
             /** Format: int64 */

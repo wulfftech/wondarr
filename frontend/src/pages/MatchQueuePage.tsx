@@ -18,7 +18,6 @@ import type { MantineColor } from '@mantine/core';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { firstPage, type Paging } from '../api/paging';
-import { readEnum } from '../api/profiles';
 import { partialNotice, useSongSearch, type SongLookupResource } from '../api/songs';
 import {
   useBulkAcceptMatches,
@@ -27,7 +26,6 @@ import {
   useResolveMatch,
   type MatchCandidateResource,
   type MatchQueueItemResource,
-  type ReferenceFileStateName,
   type MatchResolveInput,
 } from '../api/references';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
@@ -38,14 +36,14 @@ import { PagedTable, type PagedColumn } from '../components/PagedTable';
  * the top candidate for many at once.
  */
 
-/** What each state says on screen. */
-const STATE_LABELS: Record<ReferenceFileStateName, string> = {
+/** What each state says on screen. The resource carries the state as a plain string. */
+const STATE_LABELS: Record<string, string> = {
   ambiguous: 'Needs review',
   unmatched: 'No match',
 };
 
 /** How each state reads at a glance. */
-const STATE_COLOURS: Record<ReferenceFileStateName, MantineColor> = {
+const STATE_COLOURS: Record<string, MantineColor> = {
   ambiguous: 'yellow',
   unmatched: 'gray',
 };
@@ -135,11 +133,9 @@ function searchSeed(item: MatchQueueItemResource): string {
 
 /** The state as a badge. */
 function StateBadge({ state }: { state: string }) {
-  const named = readEnum<ReferenceFileStateName>(state);
-
   return (
-    <Badge color={(STATE_COLOURS as Record<string, MantineColor>)[named] ?? 'gray'} variant="light">
-      {(STATE_LABELS as Record<string, string>)[named] ?? state}
+    <Badge color={STATE_COLOURS[state] ?? 'gray'} variant="light">
+      {STATE_LABELS[state] ?? state}
     </Badge>
   );
 }

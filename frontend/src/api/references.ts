@@ -29,13 +29,10 @@ export type MatchBulkResource = components['schemas']['MatchBulkResource'];
 export type CommandResource = components['schemas']['CommandResource'];
 
 /**
- * The wire spelling of `ReferenceLibraryMode`. The OpenAPI document types the enum as a string here,
- * but the API serialises camelCase names, so these are the values that actually travel.
+ * The wire spelling of `ReferenceLibraryMode`. The document does not describe the mode as an enum
+ * (it is only a string there), so these names are written by hand.
  */
 export type ReferenceLibraryModeName = 'reference' | 'adopt';
-
-/** The wire spelling of `ReferenceFileState`; see {@link ReferenceLibraryModeName}. */
-export type ReferenceFileStateName = 'ambiguous' | 'unmatched';
 
 /** The query keys the reference screens invalidate. A resolve moves the counts and the queue together. */
 export const REFERENCE_LIBRARIES_QUERY_KEY = ['reference-libraries'] as const;

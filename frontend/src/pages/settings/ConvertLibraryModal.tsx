@@ -2,15 +2,7 @@ import { Alert, Button, Group, Modal, Stack, Table, Text } from '@mantine/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import {
-  SONGS_QUERY_KEY,
-  useCommand,
-  useConvert,
-  useConvertPreview,
-  type CommandStatusName,
-  type ConvertSongResource,
-} from '../../api/songs';
-import { readEnum } from '../../api/profiles';
+import { SONGS_QUERY_KEY, useCommand, useConvert, useConvertPreview, type ConvertSongResource } from '../../api/songs';
 import { ErrorState, LoadingState } from '../../components/DataState';
 
 /**
@@ -88,7 +80,7 @@ export function ConvertLibraryModal({
   const [commandId, setCommandId] = useState<number | null>(null);
   const command = useCommand(commandId, { poll: true });
 
-  const status = readEnum<CommandStatusName>(command.data?.status);
+  const status = command.data?.status;
   const finished =
     command.data !== undefined && (status === 'completed' || status === 'failed' || status === 'aborted');
   const failed = status === 'failed' || status === 'aborted';
