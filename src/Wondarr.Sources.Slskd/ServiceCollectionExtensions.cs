@@ -1,6 +1,7 @@
 using Wondarr.Core.Configuration;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Sources;
@@ -112,6 +113,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SlskdShareRescanner>();
         services.AddSingleton<IHandle<SongImportedEvent>>(provider => provider.GetRequiredService<SlskdShareRescanner>());
         services.AddHostedService(provider => provider.GetRequiredService<SlskdShareRescanner>());
+
+        // Files that reach a shared folder without an import are shared by a daily rescan task.
+        services.AddScoped<ICommandHandler, RescanSoulseekSharesCommandHandler>();
+        services.AddSingleton<IScheduledTaskSource, SlskdScheduledTasks>();
 
         return services;
     }

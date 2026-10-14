@@ -112,6 +112,9 @@ const SEARCH_RESULT = {
   releases: [ACCEPTED, REJECTED],
 };
 
+/** What the next search answers with; a test swaps it for another outcome. */
+const SEARCH_ANSWER = { current: SEARCH_RESULT as Record<string, unknown> };
+
 /** The route table: the search and the grab. */
 function handler(url: string, init?: RequestInit): Response | Promise<Response> {
   if (url.includes('/api/v1/release') && init?.method === 'POST') {
@@ -121,7 +124,7 @@ function handler(url: string, init?: RequestInit): Response | Promise<Response> 
   }
 
   if (url.includes('/api/v1/release')) {
-    return jsonResponse(SEARCH_RESULT);
+    return jsonResponse(SEARCH_ANSWER.current);
   }
 
   return new Response('not found', { status: 404 });
@@ -132,6 +135,7 @@ const POST_STATUS = { status: 200 };
 
 afterEach(() => {
   POST_STATUS.status = 200;
+  SEARCH_ANSWER.current = SEARCH_RESULT;
   vi.unstubAllGlobals();
 });
 
@@ -167,6 +171,33 @@ describe('InteractiveSearchModal', () => {
     expect(screen.getByText('durationOutOfTolerance')).toBeInTheDocument();
     expect(screen.getByText('versionMismatch')).toBeInTheDocument();
     expect(screen.getByText('2 candidates, none acceptable: Every candidate failed a rule.')).toBeInTheDocument();
+  });
+
+  it('says how many results were acceptable, not that the search was cancelled, when it only listed them', async () => {
+    // The server records a search that judged the candidates and grabbed nothing as `cancelled`.
+    SEARCH_ANSWER.current = {
+      ...SEARCH_RESULT,
+      outcome: 'cancelled',
+      message: '1 acceptable of 2 results',
+    };
+    renderModal();
+
+    await screen.findByText('Massive Attack - Teardrop.flac');
+
+    expect(screen.getByText('1 acceptable of 2 results.')).toBeInTheDocument();
+    expect(screen.queryByText(/cancelled/i)).not.toBeInTheDocument();
+  });
+
+  it('still says a search that returned nothing was cancelled', async () => {
+    SEARCH_ANSWER.current = {
+      searchRunId: 5,
+      outcome: 'cancelled',
+      message: 'The search was cancelled.',
+      releases: [],
+    };
+    renderModal();
+
+    expect(await screen.findByText('The search was cancelled: The search was cancelled.')).toBeInTheDocument();
   });
 
   it('expands the score breakdown when a row is clicked', async () => {

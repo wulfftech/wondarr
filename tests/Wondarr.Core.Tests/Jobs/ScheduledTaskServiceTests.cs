@@ -1,11 +1,13 @@
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Quartz;
@@ -126,6 +128,116 @@ public class ScheduledTaskServiceTests
         host.Triggers.Should().HaveCount(9, "no trigger is created for a name the catalog does not know");
     }
 
+    [Fact]
+    public async Task A_changed_interval_moves_the_row_and_the_trigger_to_last_run_plus_the_new_interval()
+    {
+        await using var host = await TaskHost.CreateAsync();
+        await host.InsertJobAsync("MissingSearch", TimeSpan.FromHours(6), host.Now - TimeSpan.FromHours(1), "successful: 3 songs");
+        var service = host.CreateService();
+        await service.StartAsync(CancellationToken.None);
+
+        host.Search.Set(new SearchOptions { MissingIntervalHours = 3 });
+        await service.ChangesApplied;
+
+        var row = (await host.ReadJobsAsync()).Single(job => job.Name == "MissingSearch");
+        row.Interval.Should().Be(TimeSpan.FromHours(3));
+        row.NextRunAt.Should().Be(host.Now + TimeSpan.FromHours(2), "an hour ago plus three hours");
+        row.LastRunAt.Should().Be(host.Now - TimeSpan.FromHours(1), "the run history is left alone");
+
+        var trigger = host.Rescheduled.Should().ContainSingle().Which;
+        trigger.Key.Name.Should().Be("MissingSearch.trigger");
+        trigger.StartTimeUtc.Should().Be(new DateTimeOffset(host.Now + TimeSpan.FromHours(2), TimeSpan.Zero));
+        ((ISimpleTrigger)trigger).RepeatInterval.Should().Be(TimeSpan.FromHours(3));
+    }
+
+    [Fact]
+    public async Task A_new_interval_shorter_than_the_time_since_the_last_run_runs_the_task_now_not_in_the_past()
+    {
+        await using var host = await TaskHost.CreateAsync();
+        await host.InsertJobAsync("MissingSearch", TimeSpan.FromHours(6), host.Now - TimeSpan.FromHours(5), "successful: 3 songs");
+        var service = host.CreateService();
+        await service.StartAsync(CancellationToken.None);
+
+        host.Search.Set(new SearchOptions { MissingIntervalHours = 1 });
+        await service.ChangesApplied;
+
+        var row = (await host.ReadJobsAsync()).Single(job => job.Name == "MissingSearch");
+        row.Interval.Should().Be(TimeSpan.FromHours(1));
+        row.NextRunAt.Should().Be(host.Now, "five hours ago plus one hour is in the past, so the most it can do is now");
+        host.Rescheduled.Should().ContainSingle().Which.StartTimeUtc
+            .Should().Be(new DateTimeOffset(host.Now, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public async Task A_longer_interval_pushes_the_next_run_out()
+    {
+        await using var host = await TaskHost.CreateAsync();
+        await host.InsertJobAsync("UpgradeSearch", TimeSpan.FromHours(24), host.Now - TimeSpan.FromHours(10), "successful: 0 songs");
+        var service = host.CreateService();
+        await service.StartAsync(CancellationToken.None);
+
+        host.Search.Set(new SearchOptions { UpgradeIntervalHours = 72 });
+        await service.ChangesApplied;
+
+        var row = (await host.ReadJobsAsync()).Single(job => job.Name == "UpgradeSearch");
+        row.NextRunAt.Should().Be(host.Now + TimeSpan.FromHours(62));
+    }
+
+    [Fact]
+    public async Task A_task_that_never_ran_keeps_the_time_it_was_waiting_for()
+    {
+        await using var host = await TaskHost.CreateAsync();
+        var service = host.CreateService();
+        await service.StartAsync(CancellationToken.None);
+
+        host.Search.Set(new SearchOptions { MissingIntervalHours = 12 });
+        await service.ChangesApplied;
+
+        var row = (await host.ReadJobsAsync()).Single(job => job.Name == "MissingSearch");
+        row.Interval.Should().Be(TimeSpan.FromHours(12));
+        row.NextRunAt.Should().Be(host.Now + ScheduledTaskService.StartupDelay);
+    }
+
+    [Fact]
+    public async Task A_setting_that_changed_nothing_about_the_intervals_moves_no_task()
+    {
+        await using var host = await TaskHost.CreateAsync();
+        var service = host.CreateService();
+        await service.StartAsync(CancellationToken.None);
+
+        host.Search.Set(new SearchOptions { MissingBatchSize = 10 });
+        await service.ChangesApplied;
+
+        host.Rescheduled.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_reloaded_setting_the_validator_would_refuse_leaves_the_working_schedule_alone()
+    {
+        await using var host = await TaskHost.CreateAsync();
+        var service = host.CreateService();
+        await service.StartAsync(CancellationToken.None);
+
+        host.Search.Set(new SearchOptions { MissingIntervalHours = 0 });
+        await service.ChangesApplied;
+
+        host.Rescheduled.Should().BeEmpty();
+        (await host.ReadJobsAsync()).Single(job => job.Name == "MissingSearch").Interval.Should().Be(TimeSpan.FromHours(6));
+    }
+
+    [Fact]
+    public async Task The_service_listens_for_setting_changes_from_start_to_stop()
+    {
+        await using var host = await TaskHost.CreateAsync();
+        var service = host.CreateService();
+
+        await service.StartAsync(CancellationToken.None);
+        host.Search.ListenerCount.Should().Be(1);
+
+        await service.StopAsync(CancellationToken.None);
+        host.Search.ListenerCount.Should().Be(0);
+    }
+
     /// <summary>
     /// The core container with the scheduler factory swapped out, so the service can be driven by hand.
     /// </summary>
@@ -145,7 +257,9 @@ public class ScheduledTaskServiceTests
             FakeTimeProvider timeProvider,
             ISchedulerFactory schedulerFactory,
             List<IJobDetail> jobs,
-            List<ITrigger> triggers)
+            List<ITrigger> triggers,
+            List<ITrigger> rescheduled,
+            MutableOptionsMonitor<SearchOptions> search)
         {
             _provider = provider;
             _directory = directory;
@@ -155,7 +269,15 @@ public class ScheduledTaskServiceTests
             TimeProvider = timeProvider;
             Jobs = jobs;
             Triggers = triggers;
+            Rescheduled = rescheduled;
+            Search = search;
         }
+
+        /// <summary>The search settings, which a test changes the way a reload would.</summary>
+        public MutableOptionsMonitor<SearchOptions> Search { get; }
+
+        /// <summary>The triggers the substituted scheduler was told to put in place of the running ones.</summary>
+        public List<ITrigger> Rescheduled { get; }
 
         public FakeTimeProvider TimeProvider { get; }
 
@@ -177,6 +299,8 @@ public class ScheduledTaskServiceTests
 
             var jobs = new List<IJobDetail>();
             var triggers = new List<ITrigger>();
+            var rescheduled = new List<ITrigger>();
+            var search = new MutableOptionsMonitor<SearchOptions>(new SearchOptions());
 
             var scheduler = Substitute.For<IScheduler>();
 
@@ -193,6 +317,15 @@ public class ScheduledTaskServiceTests
                     return new ValueTask<DateTimeOffset>(DateTimeOffset.UnixEpoch);
                 });
 
+            scheduler
+                .RescheduleJob(Arg.Any<TriggerKey>(), Arg.Any<ITrigger>(), Arg.Any<CancellationToken>())
+                .Returns(call =>
+                {
+                    rescheduled.Add(call.Arg<ITrigger>());
+
+                    return new ValueTask<DateTimeOffset?>(DateTimeOffset.UnixEpoch);
+                });
+
             var factory = Substitute.For<ISchedulerFactory>();
             factory.GetScheduler(Arg.Any<CancellationToken>()).Returns(_ => new ValueTask<IScheduler>(scheduler));
 #pragma warning restore CA2012
@@ -202,6 +335,9 @@ public class ScheduledTaskServiceTests
 
             // Registered before AddWondarrCore, whose TryAddSingleton would otherwise win.
             services.AddSingleton<TimeProvider>(timeProvider);
+
+            // A search-settings monitor the test can change, as a configuration reload would.
+            services.AddSingleton<IOptionsMonitor<SearchOptions>>(search);
             services.AddWondarrPersistence($"Data Source={databasePath}");
             services.AddWondarrCore();
 
@@ -215,21 +351,20 @@ public class ScheduledTaskServiceTests
                 await scope.ServiceProvider.GetRequiredService<DatabaseMigrator>().MigrateAsync(CancellationToken.None);
             }
 
-            return new TaskHost(provider, directory, timeProvider, factory, jobs, triggers);
+            return new TaskHost(provider, directory, timeProvider, factory, jobs, triggers, rescheduled, search);
         }
 
-        /// <summary>Runs the service's start-up as the host would, on the substituted scheduler.</summary>
-        public Task StartAsync()
-        {
-            var service = new ScheduledTaskService(
+        /// <summary>Builds the service on the substituted scheduler.</summary>
+        public ScheduledTaskService CreateService() =>
+            new(
                 _schedulerFactory,
                 _scopeFactory,
                 _catalog,
                 TimeProvider,
                 NullLogger<ScheduledTaskService>.Instance);
 
-            return service.StartAsync(CancellationToken.None);
-        }
+        /// <summary>Runs the service's start-up as the host would, on the substituted scheduler.</summary>
+        public Task StartAsync() => CreateService().StartAsync(CancellationToken.None);
 
         /// <summary>Writes a job row directly, as a previous run and restart would leave it.</summary>
         public async Task InsertJobAsync(string name, TimeSpan? interval, DateTime? lastRunAt, string? lastResult)

@@ -68,11 +68,13 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
             .SearchAsync(songId, SearchTrigger.Automatic, grab: true, cancellationToken)
             .ConfigureAwait(false);
 
+        // A search that waited the whole slot wait without a free slot is recorded as a cancelled run
+        // (it is not a failed search), but the command did its job and says so.
         return string.Concat(
             "Song ",
             songId.ToString(CultureInfo.InvariantCulture),
             ": ",
-            result.Outcome.ToString(),
+            result.SlotWaitExpired ? "Completed" : result.Outcome.ToString(),
             result.Message is { Length: > 0 } message ? string.Concat(" — ", message) : string.Empty);
     }
 

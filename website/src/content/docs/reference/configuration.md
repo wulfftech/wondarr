@@ -55,6 +55,7 @@ The usual settings are in **Settings → Soulseek**; see [Soulseek](/wondarr/sou
 | `listen_port` | `50300` | 1024 to 65535. |
 | `share_library` | `true` | Share your library. |
 | `shared_folders` | `/data/music` | Folders to share. Not `/`, `/config` or anything inside it: that would publish the API key and passwords. The same goes for `downloads_dir` and library roots; a folder that contains `/config` can't be shared either. `youtube.downloads_dir` is not refused, but Health shows an error if it points there. |
+| `share_rescan_interval_hours` | `24` | How often the **Rescan Soulseek Shares** task asks slskd to rescan its shares (1 to 168). |
 | `upload_slots` | `10` | Concurrent uploads. |
 | `upload_speed_limit_kib` | `2000` | KiB/s; `0` is unlimited. |
 | `distributed_network` | `true` | Join the distributed network. |
@@ -81,7 +82,7 @@ The `soulseek.search` limits are Soulseek's own, and Wondarr will not accept val
 | `upgrade_batch_size` | `50` | Songs per Upgrade Search run (1 to 500). |
 | `max_auto_attempts_per_search` | `4` | Candidates tried per search before giving up (1 to 10). |
 | `max_active_downloads` | `3` | Downloads in flight at once (1 to 5). |
-| `slot_wait_minutes` | `30` | How long a search that found a candidate waits for a free download slot (1 to 1440). |
+| `slot_wait_minutes` | `120` | How long a search that found a candidate waits for a free download slot (1 to 1440). |
 | `backoff_hours` | `[1, 6, 24, 72, 168]` | Wait before a song that found nothing is searched again. |
 | `max_container_size_mb` | `1500` | Largest usenet post downloaded whole. Torrents are not limited. |
 

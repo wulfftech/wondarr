@@ -91,6 +91,15 @@ function summaryLine(result: InteractiveSearchResource): string {
     return `${count} ${count === 1 ? 'candidate' : 'candidates'}, none acceptable${tail}`;
   }
 
+  // The server records a search that only listed its candidates, and found some acceptable, as
+  // `cancelled` (the outcome list has no "judged only"). A user cancel never gets here, because the
+  // request is aborted and no result is shown, so a result with releases finished normally.
+  if (outcome === 'cancelled' && count > 0) {
+    const acceptable = result.releases.filter((release) => release.accepted).length;
+
+    return `${acceptable} acceptable of ${count} results.`;
+  }
+
   return `${OUTCOME_TEXT[outcome] ?? 'The search finished'}${tail}`;
 }
 
