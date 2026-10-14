@@ -88,6 +88,20 @@ public static class ReleaseQualityParser
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         MatchTimeout);
 
+    // Not Lidarr: whether a name explicitly claims 16-bit or a CD source, so "FLAC 16-bit" and "FLAC CD" can be
+    // told from a bare "[FLAC]". Token-bounded: "CDJ" and "ACDC" do not match.
+    private static readonly Regex SixteenBitRegex = new(
+        @"\b(?:16[-._ ]?bit|cd|cdda|16[-/ ](?:44(?:\.1)?|48))\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase,
+        MatchTimeout);
+
+    // Not Lidarr: every spelling of a 24-bit (hi-res) claim, including the ones Parse does not map to FLAC 24-bit
+    // ("24-88.2", "24 96", "24-176.4"). A name that claims both is not a 16-bit release.
+    private static readonly Regex TwentyFourBitRegex = new(
+        @"\b(?:24[-._ ]?bit|flac24|tr24|hi[-._ ]?res|24[-/ ](?:44(?:\.1)?|48|88(?:\.2)?|96|176(?:\.4)?|192))\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase,
+        MatchTimeout);
+
     // Lidarr's codec regex, extended with an AIFF group (Wondarr has a seeded AIFF quality).
     private static readonly Regex CodecRegex = new(
         @"\b(?:(?<MP1>MPEG Version \d(.5)? Audio, Layer 1|MP1)|(?<MP2>MPEG Version \d(.5)? Audio, Layer 2|MP2)|(?<MP3VBR>MP3.*VBR|MPEG Version \d(.5)? Audio, Layer 3 vbr)|(?<MP3CBR>MP3|MPEG Version \d(.5)? Audio, Layer 3)|(?<FLAC>(web)?flac(?:24(?:[-._ ]?bit)?)?|TR24)|(?<WAVPACK>wavpack|wv)|(?<ALAC>alac)|(?<WMA>WMA\d?)|(?<WAV>WAV|PCM)|(?<AIFF>AIFF)|(?<AAC>M4A|M4P|M4B|AAC|mp4a|MPEG-4 Audio(?!.*alac))|(?<OGG>OGG|OGA|Vorbis))\b|(?<APE>monkey's audio|[\[|\(].*\bape\b.*[\]|\)])|(?<OPUS>Opus Version \d(.5)? Audio|[\[|\(].*\bopus\b.*[\]|\)])",
@@ -233,6 +247,28 @@ public static class ReleaseQualityParser
             default:
                 return QualityUnknown;
         }
+    }
+
+    /// <summary>
+    /// Whether a release name explicitly claims 16-bit or a CD source ("16-bit", "16bit", "16 bit", "16-44",
+    /// "16/44.1", "CD", "CDDA"). A bare "FLAC" does not, and neither does any 24-bit spelling ("24-bit",
+    /// "24-96", "24 96", "24-88.2", "24-176.4", "Hi-Res", "flac24", "tr24"): such a release may hold 24-bit
+    /// files, whatever <see cref="Parse"/> returns for it. This reads the name only; it does not change what
+    /// <see cref="Parse"/> returns.
+    /// </summary>
+    /// <param name="releaseName">The release name as the indexer reported it.</param>
+    /// <returns><see langword="true"/> when the name claims 16-bit or CD and no 24-bit form.</returns>
+    public static bool StatesSixteenBit(string releaseName)
+    {
+        if (string.IsNullOrWhiteSpace(releaseName))
+        {
+            return false;
+        }
+
+        // An underscore is a word character to the regex's word boundary; in a release name it separates words.
+        var name = releaseName.Replace('_', ' ');
+
+        return SixteenBitRegex.IsMatch(name) && !TwentyFourBitRegex.IsMatch(name);
     }
 
     private static Codec ParseCodec(string name)
