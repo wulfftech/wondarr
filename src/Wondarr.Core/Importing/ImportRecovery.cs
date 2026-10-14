@@ -7,6 +7,7 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
+using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Importing;
@@ -86,10 +87,7 @@ internal static partial class ImportRecovery
             return null;
         }
 
-        var credits = song.Artists
-            .OrderBy(credit => credit.Position)
-            .Select(credit => (credit.Artist, credit.Role))
-            .ToList();
+        var credits = song.OrderedCredits();
 
         var downloadExtension = Path.GetExtension(item.DownloadPath).TrimStart('.').ToLowerInvariant();
         var extensions = new HashSet<string>(StringComparer.Ordinal);

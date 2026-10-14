@@ -393,10 +393,7 @@ public sealed partial class FileConverter : IFileConverter
                 return new ConvertSongResult(songId, ConvertOutcome.Failed, "The song has no album context to file it under.", info.Codec);
             }
 
-            var credits = song.Artists
-                .OrderBy(credit => credit.Position)
-                .Select(credit => (credit.Artist, credit.Role))
-                .ToList();
+            var credits = song.OrderedCredits();
 
             // Encoding changes the peak (and a little of the loudness), so the converted file is
             // measured again; a failed measurement leaves it without the tags, never fails the conversion.

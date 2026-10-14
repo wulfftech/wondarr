@@ -340,7 +340,7 @@ public sealed partial class ReferenceAdopter(
         return new ReferenceAdoptResult(adopted, skipped, failed);
     }
 
-    /// <summary>Loads the song with everything filing it needs, as <c>ImportService</c> loads it.</summary>
+    /// <summary>Loads the song with its album context, file and artist credits, which is what filing it needs.</summary>
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await database.Songs
             .IncludeFilingGraph()
