@@ -168,7 +168,20 @@ describe('ActivityPage', () => {
         {
           ...HISTORY_ITEMS[0],
           eventType: 'grabbed',
-          data: { release: RELEASE, displayName: '05 - Bohemian Rhapsody.flac', bundledWith: 12, bundledSongs },
+          // The payload as the search service writes it for a torrent grab that bundled twelve songs.
+          data: {
+            candidateId: 7,
+            searchRunId: 3,
+            sourceType: 'torznab',
+            provider: 'Indexer',
+            displayName: '05 - Bohemian Rhapsody.flac',
+            score: 640,
+            query: 'queen bohemian rhapsody',
+            destination: 'wondarr/0123456789abcdef0123456789abcdef',
+            release: RELEASE,
+            bundledWith: 12,
+            bundledSongs,
+          },
         },
       ]);
 
