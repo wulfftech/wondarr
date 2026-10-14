@@ -453,10 +453,10 @@ describe('NotificationsSettingsPage', () => {
 
     const dialog = await addNotification(user, 'Webhook');
 
-    expect(within(dialog).getByLabelText('Download completed')).not.toBeChecked();
+    expect(within(dialog).getByLabelText('On download completed')).not.toBeChecked();
 
     await user.type(within(dialog).getByLabelText('URL *'), 'https://hooks.example.com/wondarr');
-    await user.click(within(dialog).getByLabelText('Download completed'));
+    await user.click(within(dialog).getByLabelText('On download completed'));
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
 
     await waitFor(async () => {

@@ -180,6 +180,80 @@ public sealed class NotificationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_discord_update_that_sends_the_masked_required_url_back_keeps_it()
+    {
+        var service = RealService();
+
+        var created = await service.CreateAsync(Discord(DiscordUrl), Token);
+        var updated = await service.UpdateAsync(created.Id, Discord(NotificationSecrets.Mask, name: "Renamed"), Token);
+
+        updated.Should().NotBeNull();
+        updated!.Name.Should().Be("Renamed");
+        NotificationSecrets.Read(updated.Settings).GetProperty("webHookUrl").GetString().Should().Be(DiscordUrl);
+    }
+
+    [Fact]
+    public async Task An_apprise_update_that_sends_the_masked_stateless_urls_back_keeps_them()
+    {
+        var service = RealService();
+
+        var created = await service.CreateAsync(Apprise("json://localhost/token-123"), Token);
+        var updated = await service.UpdateAsync(created.Id, Apprise(NotificationSecrets.Mask), Token);
+
+        NotificationSecrets.Read(updated!.Settings).GetProperty("statelessUrls").GetString()
+            .Should().Be("json://localhost/token-123");
+    }
+
+    [Fact]
+    public async Task A_blank_secret_means_keep_when_one_is_stored_and_stays_blank_when_none_is()
+    {
+        var service = RealService();
+
+        // Stored: blank keeps it, exactly like the mask.
+        var created = await service.CreateAsync(Discord(DiscordUrl), Token);
+        var kept = await service.UpdateAsync(created.Id, Discord(string.Empty, name: "Blank"), Token);
+
+        NotificationSecrets.Read(kept!.Settings).GetProperty("webHookUrl").GetString().Should().Be(DiscordUrl);
+
+        // Nothing stored: the blank stays blank, and the required-field validation still refuses it.
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => service.CreateAsync(Discord(string.Empty, name: "Empty"), Token));
+
+        failure.Field.Should().Be("settings");
+
+        // Optional secret with nothing stored: blank is stored as blank.
+        var plain = await _service.CreateAsync(Draft(name: "Plain", password: string.Empty), Token);
+
+        NotificationSecrets.Read(plain.Settings).GetProperty("password").GetString().Should().BeEmpty();
+
+        // Optional secret with a value stored: blank keeps it.
+        var held = await _service.CreateAsync(Draft(name: "Held", password: "wonderwall"), Token);
+        var after = await _service.UpdateAsync(held.Id, Draft(name: "Held", password: string.Empty), Token);
+
+        NotificationSecrets.Read(after!.Settings).GetProperty("password").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_blank_secret_is_not_kept_for_a_new_address_and_a_cleared_one_is_removed()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        // Blank is "keep", so it obeys the target rule like the mask does.
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.UpdateAsync(created.Id, Draft(url: "http://attacker.example/hook", password: string.Empty), Token));
+
+        failure.Field.Should().Be("password");
+
+        // The explicit way to clear is clearSecrets, with a blank alongside.
+        await _service.UpdateAsync(created.Id, Draft(password: string.Empty) with { ClearSecrets = ["password"] }, Token);
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).TryGetProperty("password", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Clearing_an_optional_secret_removes_it()
     {
         var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
@@ -394,6 +468,45 @@ public sealed class NotificationServiceTests : IDisposable
 
     /// <inheritdoc />
     public void Dispose() => _database.Dispose();
+
+    private const string DiscordUrl = "https://discord.com/api/webhooks/123/token";
+
+    /// <summary>A service over the real Discord and Apprise providers, which validate their own settings.</summary>
+    private NotificationService RealService()
+    {
+        var clients = NSubstitute.Substitute.For<IHttpClientFactory>();
+
+        return new NotificationService(
+            _database.CreateContext(_time),
+            [
+                new Wondarr.Core.Notifications.Discord.DiscordProvider(
+                    clients,
+                    _time,
+                    NullLogger<Wondarr.Core.Notifications.Discord.DiscordProvider>.Instance),
+                new Wondarr.Core.Notifications.Apprise.AppriseProvider(
+                    clients,
+                    _time,
+                    NullLogger<Wondarr.Core.Notifications.Apprise.AppriseProvider>.Instance),
+            ],
+            NullLogger<NotificationService>.Instance);
+    }
+
+    private static NotificationDraft Discord(string webHookUrl, string name = "Discord") =>
+        new(
+            name,
+            "Discord",
+            Enabled: true,
+            [NotificationEventNames.Import],
+            JsonSerializer.Deserialize<JsonElement>($$"""{"webHookUrl":"{{webHookUrl}}"}"""));
+
+    private static NotificationDraft Apprise(string statelessUrls) =>
+        new(
+            "Apprise",
+            "Apprise",
+            Enabled: true,
+            [NotificationEventNames.Import],
+            JsonSerializer.Deserialize<JsonElement>(
+                $$"""{"serverUrl":"http://apprise.local:8000","statelessUrls":"{{statelessUrls}}"}"""));
 
     private static NotificationDraft Draft(
         string name = "Hooks",

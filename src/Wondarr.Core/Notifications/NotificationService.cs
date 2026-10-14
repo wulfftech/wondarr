@@ -114,12 +114,16 @@ public sealed partial class NotificationService : INotificationService
     {
         var provider = await ValidateAsync(draft, excludingId: null, cancellationToken).ConfigureAwait(false);
 
+        // Merged before it is validated, so the mask never reaches the provider's checks or the row.
+        var settings = MergeSettings(draft.Settings, null, provider.Fields, null);
+        ValidateSettings(provider, settings);
+
         var notification = new Notification
         {
             Name = draft.Name.Trim(),
             Type = provider.Implementation,
             Enabled = draft.Enabled,
-            Settings = NotificationSecrets.Merge(draft.Settings, null, provider.Fields),
+            Settings = settings,
             Events = JsonSerializer.Serialize(draft.Events),
         };
 
@@ -148,6 +152,7 @@ public sealed partial class NotificationService : INotificationService
         var provider = await ValidateAsync(draft, excludingId: id, cancellationToken).ConfigureAwait(false);
 
         var settings = MergeSettings(draft.Settings, notification.Settings, provider.Fields, draft.ClearSecrets);
+        ValidateSettings(provider, settings);
 
         notification.Name = draft.Name.Trim();
         notification.Type = provider.Implementation;
@@ -290,12 +295,19 @@ public sealed partial class NotificationService : INotificationService
             ValidateClearSecrets(draft.ClearSecrets, provider);
         }
 
-        if (provider.Validate(draft.Settings) is { Count: > 0 } failures)
+        return provider;
+    }
+
+    /// <summary>
+    /// Has the provider check the settings that will be stored or sent, after the masked secrets were
+    /// replaced by what is stored, so the mask itself is never judged as an address or stored.
+    /// </summary>
+    private static void ValidateSettings(INotificationProvider provider, string settings)
+    {
+        if (provider.Validate(NotificationSecrets.Read(settings)) is { Count: > 0 } failures)
         {
             throw new NotificationValidationException("settings", string.Join(" ", failures));
         }
-
-        return provider;
     }
 
     /// <summary>
@@ -333,27 +345,22 @@ public sealed partial class NotificationService : INotificationService
     }
 
     /// <summary>
-    /// The settings a send uses: the draft's own, with every masked secret replaced by the value stored
-    /// on <paramref name="draft"/>'s row when it has one.
+    /// The settings a send uses: the draft's own, with every masked or blank secret replaced by the value
+    /// stored on <paramref name="draft"/>'s row when it has one, and then validated.
     /// </summary>
     private async Task<JsonElement> ResolveSettingsAsync(
         NotificationDraft draft,
         INotificationProvider provider,
         CancellationToken cancellationToken)
     {
-        if (draft.Id is not { } id)
-        {
-            return draft.Settings;
-        }
+        var stored = draft.Id is { } id
+            ? await GetAsync(id, cancellationToken).ConfigureAwait(false)
+            : null;
 
-        var stored = await GetAsync(id, cancellationToken).ConfigureAwait(false);
+        // With no row there is nothing for a mask to stand for: it is dropped, never sent.
+        var merged = MergeSettings(draft.Settings, stored?.Settings, provider.Fields, stored is null ? null : draft.ClearSecrets);
 
-        if (stored is null)
-        {
-            return draft.Settings;
-        }
-
-        var merged = MergeSettings(draft.Settings, stored.Settings, provider.Fields, draft.ClearSecrets);
+        ValidateSettings(provider, merged);
 
         return NotificationSecrets.Read(merged);
     }
@@ -364,13 +371,13 @@ public sealed partial class NotificationService : INotificationService
     /// </summary>
     private static string MergeSettings(
         JsonElement incoming,
-        string stored,
+        string? stored,
         IReadOnlyList<NotificationField> fields,
         IReadOnlyCollection<string>? clear)
     {
         try
         {
-            return NotificationSecrets.Merge(incoming, stored, fields, clear);
+            return NotificationSecrets.Merge(incoming, stored, fields, clear, blankKeeps: true);
         }
         catch (SecretReentryException exception)
         {
