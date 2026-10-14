@@ -221,6 +221,32 @@ public sealed class ImportListServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Mirror_unmonitors_a_song_whose_grab_started_between_the_check_and_the_delete()
+    {
+        await using var context = await ContextAsync();
+        var service = NewService(context);
+        var list = await service.CreateAsync(Draft(FakeProvider.FakeType) with { Policy = "Mirror" }, CancellationToken.None);
+        var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111", addedBy: $"list:{list.Id}");
+        StubIsrcs(queen, queen);
+
+        // The sync's own check found nothing in flight; the song service then finds a queue item that started since.
+        _songs.DeleteAsync(Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns<bool>(call => throw new SongsBusyException([call.Arg<long>()]));
+
+        _provider.Entries = [new("a", "Queen", "Bohemian Rhapsody", Isrc: "GBUM71029604")];
+        await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        _provider.Entries = [new("z", "Somebody", "Else")];
+        var message = await service.SyncAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        var kept = await context.Songs.SingleAsync(song => song.Id == queen.Id);
+        kept.Monitored.Should().BeFalse("a busy song is unmonitored, as Mirror does for a song it cannot delete");
+        message.Should().NotContain("Failed");
+        await _songs.Received(1).DeleteAsync(queen.Id, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Mirror_never_deletes_a_song_that_has_a_file_or_that_another_list_still_wants()
     {
         await using var context = await ContextAsync();
