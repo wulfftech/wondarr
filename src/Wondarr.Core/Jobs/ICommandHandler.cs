@@ -11,9 +11,11 @@ public interface ICommandHandler
 
     /// <summary>
     /// Gets a value indicating whether a user may cancel the command while it runs. Most handlers cannot
-    /// be stopped half way and keep the default; one that only waits and honours its
-    /// <see cref="CancellationToken"/> (a search waiting for a download slot) opts in. The executor then
-    /// gives it a token that a cancel request fires, and a cancelled run ends <see cref="CommandStatus.Cancelled"/>.
+    /// be stopped half way and keep the default; one that has a stretch where it only waits (a search
+    /// waiting for a download slot) opts in. The executor then fires <see cref="CommandContext.UserCancellation"/>
+    /// on a cancel request. The handler honours it only where stopping is safe and lets the
+    /// <see cref="OperationCanceledException"/> out; the run then ends <see cref="CommandStatus.Cancelled"/>. A
+    /// handler that ignores it simply completes.
     /// </summary>
     bool CancelWhileRunning => false;
 

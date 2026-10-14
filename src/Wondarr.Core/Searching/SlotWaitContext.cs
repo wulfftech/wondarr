@@ -23,6 +23,13 @@ public sealed class SlotWaitContext
     /// <see cref="Jobs.CommandContext.YieldWorker"/>), or <see langword="null"/> outside a command.
     /// </summary>
     public Func<IAsyncDisposable?>? YieldWorker { get; set; }
+
+    /// <summary>
+    /// Gets or sets the token a user's cancel of the command fires. Only the wait for a download slot
+    /// observes it: a search or a grab that is under way finishes, so a cancel can never leave a
+    /// transfer half recorded.
+    /// </summary>
+    public CancellationToken CancelWait { get; set; }
 }
 
 /// <summary>

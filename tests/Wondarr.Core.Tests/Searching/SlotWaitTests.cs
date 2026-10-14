@@ -229,6 +229,58 @@ public sealed class SlotWaitTests
     }
 
     [Fact]
+    public async Task A_cancel_that_arrives_during_the_grab_lets_the_transfer_be_recorded_and_the_command_completes()
+    {
+        await using var host = await SearchTestHost.CreateAsync(withCommands: true);
+        var songId = await host.SeedSongAsync("Alpha");
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var proceed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.Provider.GrabHook = async _ =>
+        {
+            entered.TrySetResult();
+            await proceed.Task;
+        };
+        var executor = host.CreateExecutor();
+        await executor.StartAsync(Token);
+
+        var queued = await host.Commands.EnqueueAsync(
+            SongSearchCommandHandler.CommandName,
+            $"{{\"name\":\"SongSearch\",\"songId\":{songId}}}",
+            Wondarr.Core.Jobs.CommandTrigger.Manual,
+            Token);
+
+        await entered.Task.WaitAsync(Wondarr.Core.Tests.Jobs.TestWait.Timeout);
+
+        // The source is mid-grab when the user cancels. The cancel is accepted, but only the slot wait
+        // listens to it, so the grab finishes and is recorded.
+        (await host.Commands.CancelAsync(queued.Id, Token)).Should().BeTrue();
+        proceed.SetResult();
+
+        (await Wondarr.Core.Tests.Jobs.TestWait.UntilAsync(async () =>
+            (await host.Commands.GetAsync(queued.Id, Token))?.Status is Wondarr.Core.Jobs.CommandStatus.Completed
+                or Wondarr.Core.Jobs.CommandStatus.Cancelled))
+            .Should().BeTrue();
+
+        var command = await host.Commands.GetAsync(queued.Id, Token);
+        command!.Status.Should().Be(
+            Wondarr.Core.Jobs.CommandStatus.Completed,
+            "a transfer had started, so the command is not cancelled: its bookkeeping was written");
+        command.Message.Should().StartWith($"Song {songId}: Grabbed");
+
+        await using var context = host.Database.CreateContext(host.Time);
+        var item = await context.QueueItems.AsNoTracking().SingleAsync(row => row.SongId == songId, Token);
+
+        item.Handle.Should().NotBeNullOrEmpty("the handle of the transfer is recorded");
+        (await context.Candidates.AsNoTracking().AnyAsync(row => row.SongId == songId && row.Grabbed, Token)).Should().BeTrue();
+        (await context.History.AsNoTracking().AnyAsync(row => row.SongId == songId && row.EventType == HistoryEventType.Grabbed, Token))
+            .Should().BeTrue();
+        host.Events.Grabs.Should().ContainSingle().Which.QueueItemId.Should().Be(item.Id);
+
+        await executor.StopAsync(Token);
+    }
+
+    [Fact]
     public async Task A_song_removed_during_the_wait_ends_the_search_with_the_removed_message()
     {
         await using var host = await SearchTestHost.CreateAsync();
