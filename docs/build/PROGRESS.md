@@ -499,3 +499,9 @@ Specs M-29 to M-36 (git-ignored, in the main checkout's `docs/build/tasks/`) cov
 - the new Rescan Soulseek Shares task ran and reported "Nothing to do: sharing is off".
 
 Then `v0.1.5` was tagged.
+
+## Maintenance — the two items logged during build session 13 (2026-10-14)
+
+| Task | State | Delegate | Continuations | Review | Notes |
+|---|---|---|---|---|---|
+| M-38 the import-list sync gate belongs to the host (a DI singleton), not the process | merged `b191cec` | sonnet subagent | 0 | orchestrator read the report | Backlog 2026-10-14-07. Every Api test host's first list is id 1, and the static gate made parallel hosts queue behind each other's "list 1" (a held gate in one host blocked another host's sync for 84 s in the worker's run). A two-host test fails on the static scope and passes now; a timed-out command wait now prints the command row and the list's items |
