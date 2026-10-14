@@ -70,8 +70,9 @@ public sealed class QueueController : ControllerBase
         var paging = Request.ToPagingSpec();
         var page = await _queue.GetPageAsync(paging, includeFinished, songId, cancellationToken).ConfigureAwait(false);
         var qualityNames = await QualityNamesAsync(cancellationToken).ConfigureAwait(false);
+        var bundledCounts = await _queue.GetBundledCountsAsync(page.Records, cancellationToken).ConfigureAwait(false);
 
-        return Ok(page.ToPagingResource(paging, DefaultSortKey, item => item.ToResource(qualityNames)));
+        return Ok(page.ToPagingResource(paging, DefaultSortKey, item => item.ToResource(qualityNames, bundledCounts)));
     }
 
     /// <summary>
