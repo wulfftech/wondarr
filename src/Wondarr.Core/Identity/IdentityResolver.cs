@@ -582,11 +582,29 @@ public sealed partial class IdentityResolver : IIdentityResolver
             return (unbounded, null);
         }
 
+        // A length no MusicBrainz recording agrees with is not trusted (a lone far hit, an extended mix):
+        // iTunes has to be within ten seconds of a length MusicBrainz lists, or it decides nothing.
+        if (!acceptable.Any(scored => IsNear(scored.Recording.Length, lengthMs.Value)))
+        {
+            return (unbounded, null);
+        }
+
         var bounded = await RunSearchAsync(BoundedQuery(unboundedQuery, lengthMs.Value), tracker, cancellationToken)
             .ConfigureAwait(false);
+        var merged = MergeRecordings(unbounded, bounded);
 
-        return (MergeRecordings(unbounded, bounded), lengthMs);
+        // And once the search is bounded around it, some acceptable recording has to lie there.
+        if (!RankAcceptable(merged, query, lengthMs, viaIsrc: false).Any(scored => IsNear(scored.Recording.Length, lengthMs.Value)))
+        {
+            return (unbounded, null);
+        }
+
+        return (merged, lengthMs);
     }
+
+    /// <summary>Whether a recording length is known and within <see cref="DurationAcceptanceMs"/> of a reference.</summary>
+    private static bool IsNear(int? lengthMs, int referenceMs) =>
+        lengthMs is { } length && Math.Abs(length - referenceMs) <= DurationAcceptanceMs;
 
     /// <summary>
     /// The song's length according to iTunes: the hits whose artist and title are the query's (the rule
@@ -691,25 +709,22 @@ public sealed partial class IdentityResolver : IIdentityResolver
         ProviderTracker? tracker,
         CancellationToken cancellationToken)
     {
-        var wanted = new List<string>();
+        // The earliest first release dates of the recordings that share a title with another one: those
+        // are the ones that can be the album recording, whatever order the score put them in.
+        var wanted = ranked
+            .GroupBy(scored => GroupKeyOf(scored.Recording), StringComparer.Ordinal)
+            .Where(group => group.Count() >= 2)
+            .SelectMany(group => group)
+            .Where(scored => scored.Recording.Releases.Count == 0)
+            .OrderBy(scored => string.IsNullOrWhiteSpace(scored.Recording.FirstReleaseDate))
+            .ThenBy(scored => scored.Recording.FirstReleaseDate, StringComparer.Ordinal)
+            .Take(OriginalRecordingLookups)
+            .Select(scored => scored.Recording.Id)
+            .ToList();
 
-        foreach (var group in ranked.GroupBy(scored => GroupKeyOf(scored.Recording), StringComparer.Ordinal))
-        {
-            if (group.Count() < 2)
-            {
-                continue;
-            }
-
-            foreach (var scored in group.Where(scored => scored.Recording.Releases.Count == 0))
-            {
-                if (wanted.Count < OriginalRecordingLookups)
-                {
-                    wanted.Add(scored.Recording.Id);
-                }
-            }
-        }
-
-        if (wanted.Count == 0)
+        // Only an aid to the ranking: a provider that is down already, or that fails now, leaves the
+        // order the scores gave and never fails the lookup.
+        if (wanted.Count == 0 || (tracker?.Failed.Contains(ProviderKeys.MusicBrainz) ?? false))
         {
             return recordings;
         }
@@ -718,13 +733,18 @@ public sealed partial class IdentityResolver : IIdentityResolver
 
         foreach (var id in wanted)
         {
-            releasesById[id] = await GuardedAsync<IReadOnlyList<MbRelease>>(
-                    ProviderKeys.MusicBrainz,
-                    tracker,
-                    () => _musicBrainz.GetReleasesForRecordingAsync(id, 1, cancellationToken),
-                    [],
-                    cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                releasesById[id] = await _musicBrainz
+                    .GetReleasesForRecordingAsync(id, 1, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (ProviderKeys.IsProviderFailure(exception, cancellationToken))
+            {
+                LogReleaseListFailed(_logger, id, exception.Message);
+
+                return recordings;
+            }
         }
 
         return
@@ -939,7 +959,7 @@ public sealed partial class IdentityResolver : IIdentityResolver
             .Select(scored => new OriginalRecordingRanking.Entry(
                 scored.Score.Total,
                 GroupKeyOf(scored.Recording),
-                OriginalRecordingRanking.IsOriginalAlbum(scored.Recording, askedLive),
+                OriginalRecordingRanking.OfficialAlbumDate(scored.Recording, askedLive),
                 scored.Recording.FirstReleaseDate,
                 scored.Recording.Length))
             .ToList();
@@ -1249,13 +1269,13 @@ public sealed partial class IdentityResolver : IIdentityResolver
             .ThenBy(candidate => candidate.DeezerId ?? 0)
             .ToList();
 
-        // Same-titled candidates: the original album recording first, but only one that is a candidate
-        // at all (a length far from the reference must not climb above the ones that fit).
+        // Same-titled candidates: the original album recording first. A candidate's album date is only
+        // set when its length fits the reference, so a wrong-length one never climbs above the others.
         var entries = byScore
             .Select(candidate => new OriginalRecordingRanking.Entry(
                 candidate.Score,
                 OriginalRecordingRanking.GroupKey(candidate.ArtistCredit, candidate.Title),
-                candidate.OriginalAlbum && candidate.Score >= AcceptScore,
+                candidate.OfficialAlbumDate,
                 candidate.FirstReleaseDate,
                 candidate.DurationMs))
             .ToList();
@@ -1325,12 +1345,20 @@ public sealed partial class IdentityResolver : IIdentityResolver
             }
 
             var keep = candidate.Score > existing.Score ? candidate : existing;
-            var merged = keep with { ViaIsrc = candidate.ViaIsrc || existing.ViaIsrc };
+            var merged = keep with
+            {
+                ViaIsrc = candidate.ViaIsrc || existing.ViaIsrc,
+                OfficialAlbumDate = EarlierDate(candidate.OfficialAlbumDate, existing.OfficialAlbumDate),
+            };
 
             byId[id] = merged;
             candidates[candidates.IndexOf(existing)] = merged;
         }
     }
+
+    /// <summary>The earlier of two optional dates, by their common prefix; the first when they tie.</summary>
+    private static string? EarlierDate(string? first, string? second) =>
+        first is null ? second : second is not null && OriginalRecordingRanking.IsEarlier(second, first) ? second : first;
 
     /// <summary>Turns a MusicBrainz recording into a candidate.</summary>
     private SongCandidate ToCandidate(
@@ -1360,7 +1388,9 @@ public sealed partial class IdentityResolver : IIdentityResolver
             Isrcs = recording.Isrcs,
             Score = ScoreRecording(query, recording, referenceDurationMs, viaIsrc).Total,
             ViaIsrc = viaIsrc,
-            OriginalAlbum = OriginalRecordingRanking.IsOriginalAlbum(recording, (query.Flags & VersionFlags.Live) != VersionFlags.None),
+            OfficialAlbumDate = ReferenceDurationOk(referenceDurationMs, recording.Length)
+                ? OriginalRecordingRanking.OfficialAlbumDate(recording, (query.Flags & VersionFlags.Live) != VersionFlags.None)
+                : null,
         };
     }
 
@@ -1671,6 +1701,9 @@ public sealed partial class IdentityResolver : IIdentityResolver
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Provider} did not answer the search, carrying on without it: {Reason}")]
     private static partial void LogProviderFailed(ILogger logger, string provider, string reason);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Could not read the releases of {RecordingId}, ranking without them: {Reason}")]
+    private static partial void LogReleaseListFailed(ILogger logger, string recordingId, string reason);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Resolved {Input} to the recording {RecordingId}")]
     private static partial void LogResolvedRecording(ILogger logger, string input, string recordingId);

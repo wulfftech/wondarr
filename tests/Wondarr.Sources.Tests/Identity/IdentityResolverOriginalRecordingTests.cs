@@ -52,36 +52,14 @@ public sealed class IdentityResolverOriginalRecordingTests
             "d0d0d0d0-0000-4000-8000-000000000002",
             "d0d0d0d0-0000-4000-8000-000000000003",
             "d0d0d0d0-0000-4000-8000-000000000001");
-        found.Select(candidate => candidate.OriginalAlbum).Should().Equal(true, false, false, false);
+        found.Select(candidate => candidate.OfficialAlbumDate).Should().Equal("2000-05-30", null, null, null);
     }
 
     [Fact]
     public async Task The_isrc_bridge_reads_a_few_release_lists_to_find_the_original_and_stops_at_five()
     {
         var harness = IdentityHarness.Create();
-        harness.Deezer.Map(
-            "/search",
-            SearchPage(DeezerHit(920001, "Story of a Girl", "Nine Days", 198, "USEP10000001")),
-            "nine days story of a girl");
-        harness.Deezer.Map("/album/920002", DeezerAlbum(920002));
-
-        // Seven recordings share the ISRC and the title; the ISRC lookup lists no releases. The third by
-        // date is the album one, and the first five by date are the ones whose releases are read.
-        var ids = Enumerable.Range(1, 7).Select(number => $"c1c1c1c1-0000-4000-8000-00000000000{number}").ToArray();
-        var years = new[] { "1996", "1997", "1998", "1999", "2000", "2001", "2002" };
-        harness.MusicBrainz.Map(
-            "/ws/2/isrc/USEP10000001",
-            MbIsrc("USEP10000001", ids.Select((id, index) => MbHit(id, "Story of a Girl", "Nine Days", index == 2 ? 189000 : 197600, years[index]))));
-
-        for (var index = 0; index < ids.Length; index++)
-        {
-            var original = index == 2;
-            MapRecording(harness, ids[index], "Story of a Girl", "Nine Days", original ? 189000 : 197600, years[index]);
-            MapReleases(
-                harness,
-                ids[index],
-                MbBrowse(MbRelease($"e1e1e1e1-0000-4000-8000-00000000000{index + 1}", original ? "The Madding Crowd" : "Hits Volume 1", years[index], "Album", original ? null : "Compilation")));
-        }
+        var ids = ArrangeSevenIsrcRecordings(harness, failingRelease: null);
 
         var result = await harness.Resolver.ResolveAsync("Nine Days - Story of a Girl");
 
@@ -91,6 +69,119 @@ public sealed class IdentityResolverOriginalRecordingTests
         var releaseRequests = harness.MusicBrainzRequests.Where(request => request.Contains("/ws/2/release?recording=", StringComparison.Ordinal)).ToList();
         releaseRequests.Should().HaveCount(5);
         releaseRequests.Should().NotContain(request => request.Contains(ids[5], StringComparison.Ordinal) || request.Contains(ids[6], StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_release_list_that_cannot_be_read_leaves_the_order_the_dates_gave_and_does_not_fail_the_lookup()
+    {
+        var harness = IdentityHarness.Create();
+        var ids = ArrangeSevenIsrcRecordings(harness, failingRelease: 1);
+
+        var result = await harness.Resolver.ResolveAsync("Nine Days - Story of a Girl");
+
+        // The second list fails with a 503: the ranking falls back to the earliest first release.
+        result.Status.Should().Be(ResolveStatus.Resolved);
+        result.Identity!.MbRecordingId.Should().Be(ids[0]);
+    }
+
+    /// <summary>
+    /// Seven recordings share the ISRC and the title; the ISRC lookup lists no releases. The third by
+    /// date is the album one, and the five earliest by date are the ones whose releases are read.
+    /// </summary>
+    private static string[] ArrangeSevenIsrcRecordings(IdentityHarness harness, int? failingRelease)
+    {
+        harness.Deezer.Map(
+            "/search",
+            SearchPage(DeezerHit(920001, "Story of a Girl", "Nine Days", 198, "USEP10000001")),
+            "nine days story of a girl");
+        harness.Deezer.Map("/album/920002", DeezerAlbum(920002));
+
+        // Listed latest first, so the order they are read in is not the order the ISRC lookup gave.
+        var ids = Enumerable.Range(1, 7).Select(number => $"c1c1c1c1-0000-4000-8000-00000000000{number}").ToArray();
+        var years = new[] { "1996", "1997", "1998", "1999", "2000", "2001", "2002" };
+        harness.MusicBrainz.Map(
+            "/ws/2/isrc/USEP10000001",
+            MbIsrc("USEP10000001", ids.Select((id, index) => MbHit(id, "Story of a Girl", "Nine Days", index == 2 ? 189000 : 197600, years[index])).Reverse()));
+
+        for (var index = 0; index < ids.Length; index++)
+        {
+            var original = index == 2;
+            MapRecording(harness, ids[index], "Story of a Girl", "Nine Days", original ? 189000 : 197600, years[index]);
+
+            if (index == failingRelease)
+            {
+                harness.MusicBrainz.Map("/ws/2/release", """{"error":"busy"}""", $"recording={ids[index]}", HttpStatusCode.ServiceUnavailable);
+                continue;
+            }
+
+            MapReleases(
+                harness,
+                ids[index],
+                MbBrowse(MbRelease($"e1e1e1e1-0000-4000-8000-00000000000{index + 1}", original ? "The Madding Crowd" : "Hits Volume 1", years[index], "Album", original ? null : "Compilation")));
+        }
+
+        return ids;
+    }
+
+    [Fact]
+    public async Task A_lone_iTunes_length_no_musicbrainz_recording_agrees_with_is_not_taken()
+    {
+        var harness = SpreadHarness();
+        harness.ITunes.Map(
+            "/search",
+            ITunesPage(ITunesHit("Story of a Girl", "Nine Days", 232000, "The Madding Crowd")),
+            "nine days story of a girl");
+
+        var result = await harness.Resolver.ResolveAsync("Nine Days - Story of a Girl");
+
+        // 232 s is within a quarter of the median (190 s) but 40 s from the nearest recording: the lookup
+        // is exactly what it was without iTunes, and the bounded search is never made.
+        result.Status.Should().Be(ResolveStatus.Resolved);
+        result.Identity!.MbRecordingId.Should().Be(SpreadIds[0]);
+        result.Identity.DurationMs.Should().Be(189000);
+        harness.ITunesRequests.Should().ContainSingle();
+        RecordingSearches(harness).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_lone_iTunes_length_far_above_every_musicbrainz_length_is_not_taken()
+    {
+        var harness = SpreadHarness();
+        harness.ITunes.Map(
+            "/search",
+            ITunesPage(ITunesHit("Story of a Girl", "Nine Days", 640000, "The Madding Crowd (Deluxe)")),
+            "nine days story of a girl");
+
+        var result = await harness.Resolver.ResolveAsync("Nine Days - Story of a Girl");
+
+        result.Status.Should().Be(ResolveStatus.Resolved);
+        result.Identity!.MbRecordingId.Should().Be(SpreadIds[0]);
+        RecordingSearches(harness).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task An_original_whose_length_is_off_the_reference_does_not_sort_first()
+    {
+        var harness = IdentityHarness.Create();
+        harness.Deezer.Map(
+            "/search",
+            SearchPage(DeezerHit(930001, "Story of a Girl", "Nine Days", 198, "USEP20000001")),
+            "nine days story of a girl");
+        harness.Deezer.Map("/album/930002", DeezerAlbum(930002));
+        harness.MusicBrainz.Map(
+            "/ws/2/recording",
+            MbSearch(
+                MbHitOnAlbum("d2d2d2d2-0000-4000-8000-000000000001", 197600, "2007-03-06", "Rock Hits", "Compilation"),
+                MbHitOnAlbum("d2d2d2d2-0000-4000-8000-000000000002", 167000, "2000-05-30", "The Madding Crowd", null)),
+            "artist:\"Nine Days\"");
+
+        var found = await harness.Resolver.SearchAsync("Nine Days - Story of a Girl", 10);
+
+        // The album recording is 31 s off Deezer's length: it is not a candidate for "original", so the
+        // one that fits comes first.
+        var musicBrainz = found.Where(candidate => candidate.MbRecordingId is not null).ToList();
+        musicBrainz[0].MbRecordingId.Should().Be("d2d2d2d2-0000-4000-8000-000000000001");
+        musicBrainz.Single(candidate => candidate.MbRecordingId == "d2d2d2d2-0000-4000-8000-000000000002").OfficialAlbumDate.Should().BeNull();
     }
 
     [Fact]
@@ -215,6 +306,30 @@ public sealed class IdentityResolverOriginalRecordingTests
         harness.ITunesRequests.Should().BeEmpty();
     }
 
+    private static readonly string[] SpreadIds =
+    [
+        "e3e3e3e3-0000-4000-8000-000000000001",
+        "e3e3e3e3-0000-4000-8000-000000000002",
+        "e3e3e3e3-0000-4000-8000-000000000003",
+    ];
+
+    /// <summary>MusicBrainz knows three Nine Days recordings of 189, 188 and 192 s; Deezer and iTunes know nothing.</summary>
+    private static IdentityHarness SpreadHarness()
+    {
+        var harness = IdentityHarness.Create();
+        harness.MusicBrainz.Map(
+            "/ws/2/recording",
+            MbSearch(
+                MbHit(SpreadIds[0], "Story of a Girl", "Nine Days", 189000, "2000-05-30"),
+                MbHit(SpreadIds[1], "Story of a Girl", "Nine Days", 188000, "2007-03-06"),
+                MbHit(SpreadIds[2], "Story of a Girl", "Nine Days", 192000, "2009-01-01")),
+            "artist:\"Nine Days\"");
+        MapRecording(harness, SpreadIds[0], "Story of a Girl", "Nine Days", 189000, "2000-05-30");
+        MapReleases(harness, SpreadIds[0], MbBrowse(MbRelease("f6f6f6f6-0000-4000-8000-000000000001", "The Madding Crowd", "2000-05-30", "Album")));
+
+        return harness;
+    }
+
     /// <summary>MusicBrainz knows a 218 s edit (dated earlier) and the 287 s album recording; Deezer and iTunes know nothing.</summary>
     private static IdentityHarness RobynHarness()
     {
@@ -259,6 +374,15 @@ public sealed class IdentityResolverOriginalRecordingTests
         {"id":"{{{id}}}","title":"{{{title}}}","length":{{{Length(lengthMs)}}},"video":null,"disambiguation":"",
          "first-release-date":"{{{firstReleaseDate}}}",
          "artist-credit":[{"name":"{{{artist}}}","joinphrase":"","artist":{"id":"{{{ArtistId}}}","name":"{{{artist}}}","sort-name":"{{{artist}}}"}}]}
+        """;
+
+    private static string MbHitOnAlbum(string id, int lengthMs, string firstReleaseDate, string album, string? secondaryType) =>
+        $$$"""
+        {"id":"{{{id}}}","title":"Story of a Girl","length":{{{lengthMs}}},"video":null,"disambiguation":"",
+         "first-release-date":"{{{firstReleaseDate}}}",
+         "artist-credit":[{"name":"Nine Days","joinphrase":"","artist":{"id":"{{{ArtistId}}}","name":"Nine Days","sort-name":"Nine Days"}}],
+         "releases":[{"id":"{{{id}}}","status":"Official","title":"{{{album}}}","date":"{{{firstReleaseDate}}}",
+          "release-group":{"id":"{{{id}}}","title":"{{{album}}}","primary-type":"Album","secondary-types":[{{{SecondaryTypesJson(secondaryType)}}}]}}]}
         """;
 
     private static string MbBrowse(params string[] releases) =>

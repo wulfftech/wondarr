@@ -6,71 +6,87 @@ using Xunit;
 namespace Wondarr.Core.Tests.Identity;
 
 /// <summary>
-/// The original-recording ranking (MATCHING_ENGINE.md §6.3): which recording counts as the original
-/// album one, and how same-titled recordings are ordered.
+/// The original-recording ranking (MATCHING_ENGINE.md §6.3): which Official Album a recording is on,
+/// and how same-titled recordings are ordered.
 /// </summary>
 public sealed class OriginalRecordingRankingTests
 {
     [Fact]
-    public void An_official_album_as_the_earliest_release_is_the_original()
+    public void An_official_album_gives_its_date()
     {
         var recording = Recording(Release("2000-05-30", "Official", "Album"));
 
-        OriginalRecordingRanking.IsOriginalAlbum(recording, queryAskedLive: false).Should().BeTrue();
+        OriginalRecordingRanking.OfficialAlbumDate(recording, queryAskedLive: false).Should().Be("2000-05-30");
     }
 
     [Theory]
     [InlineData("Compilation")]
     [InlineData("Soundtrack")]
     [InlineData("Live")]
-    public void A_compilation_soundtrack_or_live_album_is_not_the_original(string secondaryType)
+    public void A_compilation_soundtrack_or_live_album_is_not_an_official_album(string secondaryType)
     {
         var recording = Recording(Release("2000-05-30", "Official", "Album", secondaryType));
 
-        OriginalRecordingRanking.IsOriginalAlbum(recording, queryAskedLive: false).Should().BeFalse();
+        OriginalRecordingRanking.OfficialAlbumDate(recording, queryAskedLive: false).Should().BeNull();
     }
 
     [Fact]
-    public void A_live_album_is_the_original_when_the_query_asked_for_live()
+    public void A_live_album_counts_when_the_query_asked_for_live()
     {
         var recording = Recording(Release("2000-05-30", "Official", "Album", "Live"));
 
-        OriginalRecordingRanking.IsOriginalAlbum(recording, queryAskedLive: true).Should().BeTrue();
+        OriginalRecordingRanking.OfficialAlbumDate(recording, queryAskedLive: true).Should().Be("2000-05-30");
     }
 
-    [Fact]
-    public void A_single_is_not_an_album()
+    [Theory]
+    [InlineData("Single")]
+    [InlineData("EP")]
+    public void A_single_or_an_ep_is_not_an_album(string primaryType)
     {
-        var recording = Recording(Release("2000-05-30", "Official", "Single"));
+        var recording = Recording(Release("2000-05-30", "Official", primaryType));
 
-        OriginalRecordingRanking.IsOriginalAlbum(recording, queryAskedLive: false).Should().BeFalse();
+        OriginalRecordingRanking.OfficialAlbumDate(recording, queryAskedLive: false).Should().BeNull();
     }
 
     [Fact]
-    public void An_earlier_compilation_means_the_album_is_not_the_earliest_release()
-    {
-        var recording = Recording(
-            Release("1999-08-24", "Official", "Album", "Compilation"),
-            Release("2000-05-30", "Official", "Album"));
-
-        OriginalRecordingRanking.IsOriginalAlbum(recording, queryAskedLive: false).Should().BeFalse();
-    }
-
-    [Fact]
-    public void A_promo_single_or_an_undated_release_does_not_hide_the_album()
+    public void A_single_a_promo_or_a_compilation_before_the_album_does_not_hide_it()
     {
         var recording = Recording(
-            Release("2000-02-01", "Promotion", "Single"),
-            Release(null, "Official", "Album", "Compilation"),
+            Release("1999-08-24", "Official", "Single"),
+            Release("1999-09-01", "Official", "Album", "Compilation"),
+            Release("2000-02-01", "Promotion", "Album"),
+            Release(null, "Official", "Album"),
             Release("2000-05-30", "Official", "Album"));
 
-        OriginalRecordingRanking.IsOriginalAlbum(recording, queryAskedLive: false).Should().BeTrue();
+        OriginalRecordingRanking.OfficialAlbumDate(recording, queryAskedLive: false).Should().Be("2000-05-30");
     }
 
     [Fact]
-    public void A_recording_with_no_releases_is_not_the_original()
+    public void A_year_only_compilation_does_not_make_the_same_year_album_a_later_one()
     {
-        OriginalRecordingRanking.IsOriginalAlbum(Recording(), queryAskedLive: false).Should().BeFalse();
+        var album = Recording(Release("2000-05-30", "Official", "Album"), Release("2000", "Official", "Album", "Compilation"));
+        var compilationOnly = Recording(Release("2000", "Official", "Album", "Compilation"));
+
+        OriginalRecordingRanking.OfficialAlbumDate(album, queryAskedLive: false).Should().Be("2000-05-30");
+        OriginalRecordingRanking.OfficialAlbumDate(compilationOnly, queryAskedLive: false).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_recording_with_no_releases_is_on_no_album()
+    {
+        OriginalRecordingRanking.OfficialAlbumDate(Recording(), queryAskedLive: false).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("1999", "2000-05-30", true)]
+    [InlineData("2000-05-30", "2000-09-01", true)]
+    [InlineData("2000-09-01", "2000-05-30", false)]
+    [InlineData("2000", "2000-05-30", false)]
+    [InlineData("2000-05-30", "2000", false)]
+    [InlineData("2000-05-30", "2000-05-30", false)]
+    public void Compares_dates_by_their_common_prefix(string date, string other, bool earlier)
+    {
+        OriginalRecordingRanking.IsEarlier(date, other).Should().Be(earlier);
     }
 
     [Fact]
@@ -79,12 +95,52 @@ public sealed class OriginalRecordingRankingTests
         var key = OriginalRecordingRanking.GroupKey("Nine Days", "Story of a Girl");
         var order = OriginalRecordingRanking.Order(
         [
-            new OriginalRecordingRanking.Entry(100, key, false, "1999", 197_600),
-            new OriginalRecordingRanking.Entry(100, key, false, "2000", 197_600),
-            new OriginalRecordingRanking.Entry(92.5, key, true, "2000-05-30", 189_000),
+            new OriginalRecordingRanking.Entry(100, key, null, "1999", 197_600),
+            new OriginalRecordingRanking.Entry(100, key, null, "2000", 197_600),
+            new OriginalRecordingRanking.Entry(92.5, key, "2000-05-30", "2000-05-30", 189_000),
         ]);
 
         order.Should().Equal(2, 0, 1);
+    }
+
+    [Fact]
+    public void A_single_before_the_album_does_not_stop_the_album_recording_being_the_original()
+    {
+        var key = OriginalRecordingRanking.GroupKey("Nine Days", "Story of a Girl");
+        var order = OriginalRecordingRanking.Order(
+        [
+            new OriginalRecordingRanking.Entry(100, key, null, "1999-10", 189_000),
+            new OriginalRecordingRanking.Entry(95, key, "2000-05-30", "1999-10", 189_000),
+        ]);
+
+        order.Should().Equal(1, 0);
+    }
+
+    [Fact]
+    public void A_later_re_recording_on_a_later_album_is_not_the_original()
+    {
+        var key = OriginalRecordingRanking.GroupKey("Nine Days", "Story of a Girl");
+        var order = OriginalRecordingRanking.Order(
+        [
+            new OriginalRecordingRanking.Entry(100, key, "2010-01-01", "2010", 190_000),
+            new OriginalRecordingRanking.Entry(95, key, "2000-05-30", "2000", 189_000),
+        ]);
+
+        order.Should().Equal(1, 0);
+    }
+
+    [Fact]
+    public void A_year_only_date_ties_with_a_full_date_of_the_same_year()
+    {
+        var key = OriginalRecordingRanking.GroupKey("Nine Days", "Story of a Girl");
+        var order = OriginalRecordingRanking.Order(
+        [
+            new OriginalRecordingRanking.Entry(90, key, "2000-05-30", "2000", 189_000),
+            new OriginalRecordingRanking.Entry(100, key, "2000", "2000", 189_000),
+        ]);
+
+        // Neither is earlier, so both are original and the score decides.
+        order.Should().Equal(1, 0);
     }
 
     [Fact]
@@ -93,11 +149,11 @@ public sealed class OriginalRecordingRankingTests
         var key = OriginalRecordingRanking.GroupKey("Nine Days", "Story of a Girl");
         var order = OriginalRecordingRanking.Order(
         [
-            new OriginalRecordingRanking.Entry(100, key, true, "2001", 189_000),
-            new OriginalRecordingRanking.Entry(100, key, true, "2000", 150_000),
-            new OriginalRecordingRanking.Entry(100, key, true, "2000", 197_000),
-            new OriginalRecordingRanking.Entry(100, key, true, "2000", 198_500),
-            new OriginalRecordingRanking.Entry(100, key, true, "2000", 197_600),
+            new OriginalRecordingRanking.Entry(100, key, "2000", "2001", 189_000),
+            new OriginalRecordingRanking.Entry(100, key, "2000", "2000", 150_000),
+            new OriginalRecordingRanking.Entry(100, key, "2000", "2000", 197_000),
+            new OriginalRecordingRanking.Entry(100, key, "2000", "2000", 198_500),
+            new OriginalRecordingRanking.Entry(100, key, "2000", "2000", 197_600),
         ]);
 
         // The 2001 one is last on its date alone. Among the 2000 ones the most common length is 197.0 s
@@ -112,9 +168,9 @@ public sealed class OriginalRecordingRankingTests
         var absolutely = OriginalRecordingRanking.GroupKey("Nine Days", "Absolutely (Story of a Girl)");
         var order = OriginalRecordingRanking.Order(
         [
-            new OriginalRecordingRanking.Entry(100, story, false, "2007", 197_600),
-            new OriginalRecordingRanking.Entry(98, absolutely, false, "2000", 189_000),
-            new OriginalRecordingRanking.Entry(90, story, true, "2000", 189_000),
+            new OriginalRecordingRanking.Entry(100, story, null, "2007", 197_600),
+            new OriginalRecordingRanking.Entry(98, absolutely, null, "2000", 189_000),
+            new OriginalRecordingRanking.Entry(90, story, "2000-05-30", "2000", 189_000),
         ]);
 
         order.Should().Equal(2, 0, 1);
