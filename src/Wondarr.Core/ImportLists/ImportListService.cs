@@ -197,6 +197,7 @@ public sealed partial class ImportListService : IImportListService
     private readonly ICommandQueue _commands;
     private readonly IOptionsMonitor<SearchOptions> _searchOptions;
     private readonly IPlaylistWriter _playlists;
+    private readonly ImportListSyncGates _gates;
     private readonly IReadOnlyList<IImportListProvider> _providers;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ImportListService> _logger;
@@ -209,6 +210,7 @@ public sealed partial class ImportListService : IImportListService
     /// <param name="commands">The command queue, for the search that follows the first reference scan.</param>
     /// <param name="searchOptions">The search options; <c>search_on_add</c> off means no search is queued from here.</param>
     /// <param name="playlists">Writes the list's playlists after a sync.</param>
+    /// <param name="gates">The per-list sync gates of this host.</param>
     /// <param name="providers">Every registered provider.</param>
     /// <param name="timeProvider">The clock.</param>
     /// <param name="logger">The logger.</param>
@@ -220,6 +222,7 @@ public sealed partial class ImportListService : IImportListService
         ICommandQueue commands,
         IOptionsMonitor<SearchOptions> searchOptions,
         IPlaylistWriter playlists,
+        ImportListSyncGates gates,
         IEnumerable<IImportListProvider> providers,
         TimeProvider timeProvider,
         ILogger<ImportListService> logger)
@@ -231,6 +234,7 @@ public sealed partial class ImportListService : IImportListService
         ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(searchOptions);
         ArgumentNullException.ThrowIfNull(playlists);
+        ArgumentNullException.ThrowIfNull(gates);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
@@ -242,6 +246,7 @@ public sealed partial class ImportListService : IImportListService
         _commands = commands;
         _searchOptions = searchOptions;
         _playlists = playlists;
+        _gates = gates;
         _providers = [.. providers];
         _timeProvider = timeProvider;
         _logger = logger;
@@ -596,7 +601,7 @@ public sealed partial class ImportListService : IImportListService
 
             // A list being synced writes its own playlists at its end; writing here too could create
             // a second Plex playlist before the first has recorded its key.
-            using var gate = ImportListSyncGates.TryEnter(id);
+            using var gate = _gates.TryEnter(id);
 
             if (gate is null)
             {
