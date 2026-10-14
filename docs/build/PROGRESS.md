@@ -490,3 +490,12 @@ Specs M-29 to M-36 (git-ignored, in the main checkout's `docs/build/tasks/`) cov
 | M-32 the OpenAPI document types 12 enums as the camelCase strings the API sends; the frontend drops its enum casts; a finished command includes `cancelled` and `orphaned` | merged `c6d2d58` | sonnet subagent | 1 | sonnet review: nothing major in the transformer; it found that every "is this command finished" check (nine sites) ignored `cancelled`/`orphaned`, so a cancelled SongSearch (new in M-33) would poll for ever → one `isFinished` helper. Also: a guard test against bare integer enums, real-response checks for four enums, typed History colours, a Status fallback | Backlog 2026-10-07-08. Visible change: Status → Authentication reads "Forms", "None" or "External" |
 | Gate: replay recordings for M-34, Phase 7 bundling check for M-36 | merged | orchestrator | — | — | CI's smoke test failed after M-34 on 13 unrecorded MusicBrainz release lists and iTunes searches → "Record gate metadata" run 38523043112 added 21 recordings; Phase 1 accuracy 49/50 (was 48/50), Phases 0–6 PASS. Its Phase 7 failed on the old "one grab bundles the other" check, which M-36 deliberately changed → each bundled grab must name the other song |
 | M-37 the slskd settings-debounce test and the Plex retry tests wait for the work, not the fake clock; the CSV import-list test's command wait is 180 s | merged | sonnet subagent | 1 | orchestrator read the report; tests only | Both CI failures reproduced with an injected delay and the exact CI message, then fixed (bounded real-time waits after the debounce; `EventuallyAsync` before the Plex assertions, three Plex tests); each proven by a temporary break in `src`. The CSV test (2026-10-14-07) was not reproduced; its 30 s bound was raised, so the backlog item stays open |
+
+**0.1.5 (2026-10-14):** M-29 to M-37 and the .NET 10.0.13 security bump. CI green on `354c32a`, every phase gate included. ch01's `wondarr-test` was moved to the `develop` image of `354c32a` (`develop.223`) with a one-off Watchtower run:
+- healthy within seconds, no warnings or errors in the log; Health all OK apart from the expected "sharing is off" warning;
+- the ASP.NET runtime in the image is 10.0.13;
+- "Nine Days Story of a Girl" now lists the ~191 s album recording first (the 197.6 s compilation recordings led before);
+- a dry-run Compact plans the same 5 album and 49 template moves as the 0.1.3 check, and nothing for library 2's Singles;
+- the new Rescan Soulseek Shares task ran and reported "Nothing to do: sharing is off".
+
+Then `v0.1.5` was tagged.
