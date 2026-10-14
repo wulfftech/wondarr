@@ -268,7 +268,7 @@ describe('SongPage', () => {
         jsonResponse(
           {
             title: 'Songs in the queue',
-            detail: 'These songs are downloading or importing; remove them from the queue first: 12',
+            detail: 'This song is queued, downloading or importing; remove it from the queue first.',
             status: 409,
             songIds: [12],
           },
@@ -286,7 +286,7 @@ describe('SongPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(
-      await within(dialog).findByText('These songs are downloading or importing; remove them from the queue first: 12'),
+      await within(dialog).findByText('This song is queued, downloading or importing; remove it from the queue first.'),
     ).toBeInTheDocument();
     expect(within(dialog).queryByText('The song could not be deleted.')).not.toBeInTheDocument();
     // The song page stays: nothing was deleted.

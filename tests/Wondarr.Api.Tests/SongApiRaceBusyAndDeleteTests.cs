@@ -92,13 +92,15 @@ public sealed class SongApiRaceBusyAndDeleteTests
         deezer.SearchTracksAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns<DeezerSearchResult>(_ => throw Failure("deezer", HttpStatusCode.TooManyRequests, TimeSpan.FromSeconds(20)));
         musicBrainz.SearchRecordingsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns<MbRecordingSearchResult>(_ => throw Failure("musicbrainz", HttpStatusCode.ServiceUnavailable));
+            .Returns<MbRecordingSearchResult>(_ => throw Failure("musicbrainz", HttpStatusCode.ServiceUnavailable, TimeSpan.FromSeconds(20)));
 
         using var factory = RealResolverFactory(musicBrainz, deezer);
         using var client = SongApiTests.Authenticated(factory);
 
         using var response = await client.PostAsync(new Uri(LookupEndpoint, UriKind.Relative), SongApiTests.Json(LookupBody));
 
+        // The Retry-After comes from the first provider to fail, and which one that is depends on the
+        // resolver's call order, so both ask for the same 20 s.
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         response.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(20));
 
@@ -145,7 +147,8 @@ public sealed class SongApiRaceBusyAndDeleteTests
 
         var problem = await SongApiTests.ReadJsonAsync(refused);
         problem.GetProperty("title").GetString().Should().Be("Songs in the queue");
-        problem.GetProperty("detail").GetString().Should().Contain("downloading or importing");
+        problem.GetProperty("detail").GetString().Should().Be(
+            "This song is queued, downloading or importing; remove it from the queue first.");
         problem.GetProperty("songIds")[0].GetInt64().Should().Be(busyId);
 
         using (var scope = factory.Services.CreateScope())

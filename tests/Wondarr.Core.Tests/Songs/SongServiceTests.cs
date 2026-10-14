@@ -388,22 +388,25 @@ public class SongServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task A_save_failure_that_is_not_a_duplicate_recording_still_fails_the_song()
+    public async Task A_save_failure_that_is_not_a_duplicate_recording_still_fails_the_song_even_when_the_recording_exists()
     {
         await using var context = await ContextAsync();
-        StubCoverArt();
 
-        // Not the recording or Deezer index: the song fails as it always did.
+        // A song holding the recording appears after the existence check, so a handler that took any
+        // failed save for "somebody else added it" would answer AlreadyExists. This save fails for another
+        // reason (a trigger aborts it before any unique index is looked at), so the song must fail.
+        StubCoverArtThen(() => SaveWinnerAsync("Other", mbRecordingId: "m-b"));
         await context.Database.ExecuteSqlRawAsync(
             "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
             + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
 
         var results = await NewService(context).AddIdentitiesAsync(
-            [DeezerIdentity(44, "Poison", "m-b")],
+            [Identity("m-b", "Poison", Single("s-b", "Poison"))],
             new SongAddOptions { IsolateFailures = true },
             CancellationToken.None);
 
         results[0].Outcome.Should().Be(SongAddOutcome.Failed);
+        results[0].Error.Should().Contain("poison refused");
     }
 
     [Fact]
