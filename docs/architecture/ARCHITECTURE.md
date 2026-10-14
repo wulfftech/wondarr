@@ -52,7 +52,7 @@ The core is a single long-running process (one container). Soulseek access goes 
 5. **Decide.** Reject candidates that violate hard rules; score the rest; pick the best (section 6).
 6. **Grab.** Hand the candidate to its source's grab implementation (slskd enqueue, yt-dlp job, download-client add with file selection). Record a Queue item and a History "grabbed" event.
 7. **Track.** Poll/subscribe for progress. Handle stalls (Soulseek user went offline, torrent no seeds, yt-dlp bot-check) with per-source timeouts, then fall back to the next candidate.
-8. **Verify.** ffprobe (decodable, duration within tolerance, real codec/bitrate/sample rate). Chromaprint fingerprint → AcoustID → expected recording MBID (or a recording of the same work/title/artist). Reject → blocklist candidate → back to step 5 with the remaining candidates.
+8. **Verify.** ffprobe (decodable, duration within tolerance, real codec/bitrate/sample rate). Chromaprint fingerprint → AcoustID → expected recording MBID (or a recording of the same work/title/artist: a non-version subtitle such as "(Cap.1: Augurio)" is ignored, and a MusicBrainz duplicate's length is held against the file's, not the song's; MATCHING_ENGINE §6.5). Reject → blocklist candidate → back to step 5 with the remaining candidates.
 9. **Tag.** Write the full tag set (section 7.4), embed cover art, optionally write lyrics and ReplayGain.
 10. **Place.** Render the naming template for the library's layout, move/hardlink, set permissions, write sidecars (`cover.jpg`, `.lrc`) where the layout wants them.
 11. **Notify.** Plex partial scan, webhooks, Discord, etc. Emit history "imported" (or "upgraded", in which case the old file is recycled).

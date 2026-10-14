@@ -16,12 +16,17 @@ public sealed record ContainerFile(int Index, string Path, long Size);
 /// <param name="TrackNo">The track number on the release being searched, when known.</param>
 /// <param name="DurationMs">The song's length, when known.</param>
 /// <param name="QualityId">The quality the release claims, for the size window (1 = unknown: no window).</param>
+/// <param name="BitDepthStated">
+/// Whether the release name states a bit depth ("16-bit", "CD", "24-bit"). A bare "[FLAC]" does not, and
+/// its files may be 24-bit, so the size window of an unstated FLAC reaches up to hi-res.
+/// </param>
 public sealed record ContainerMatchRequest(
     string Title,
     VersionFlags VersionFlags,
     int? TrackNo,
     int? DurationMs,
-    long QualityId);
+    long QualityId,
+    bool BitDepthStated = false);
 
 /// <summary>The file the matcher chose.</summary>
 /// <param name="File">The file.</param>
@@ -73,7 +78,7 @@ public static partial class ContainerMatcher
         var song = VersionFlagParser.Parse(request.Title);
         var songTitle = song.BaseTitle;
         var songFlags = (request.VersionFlags | song.Flags) & VersionFlagNames.HardFlags;
-        var window = SizeWindow(request.QualityId, request.DurationMs);
+        var window = SizeWindow(request.QualityId, request.DurationMs, request.BitDepthStated);
         var claimedCodec = request.QualityId == 1
             ? null
             : SeedData.Qualities.FirstOrDefault(quality => quality.Id == request.QualityId)?.Codec;
@@ -164,8 +169,10 @@ public static partial class ContainerMatcher
     /// <summary>
     /// The sizes a file of the song's length can have at the claimed quality, as loose as the engine's
     /// own size check (MATCHING_ENGINE §2): 70 % of the lowest bitrate to 150 % of the highest.
+    /// A release that claims FLAC without a bit depth may hold 24-bit files, so its upper bound is the
+    /// hi-res one; "16-bit" or "CD" keeps the 16-bit bound, and the lower bound never moves.
     /// </summary>
-    private static (long Minimum, long Maximum)? SizeWindow(long qualityId, int? durationMs)
+    private static (long Minimum, long Maximum)? SizeWindow(long qualityId, int? durationMs, bool bitDepthStated)
     {
         if (durationMs is not { } milliseconds || milliseconds <= 0)
         {
@@ -179,11 +186,14 @@ public static partial class ContainerMatcher
             return null;
         }
 
+        var unstatedFlac = !bitDepthStated && quality.Codec == "flac" && quality.BitDepth == 16;
+
         (int Low, int High)? kbps = quality.Lossless
             ? (LosslessMinimumKbps, quality.Group switch
             {
                 "Hi-res lossless" => HiResMaximumKbps,
                 "Uncompressed" => UncompressedMaximumKbps,
+                _ when unstatedFlac => HiResMaximumKbps,
                 _ => LosslessMaximumKbps,
             })
             : quality.MinBitrate is { } low && quality.MaxBitrate is { } high ? (low, high) : null;

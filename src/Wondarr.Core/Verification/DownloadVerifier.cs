@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata;
@@ -406,7 +407,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
 
         var candidate = VersionFlagParser.Parse(recording.Title);
 
-        if (!string.Equals(TextMatching.Normalize(candidate.BaseTitle), songTitle, StringComparison.Ordinal))
+        if (!IsSongTitle(candidate.BaseTitle, songTitle))
         {
             return false;
         }
@@ -427,12 +428,37 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             return false;
         }
 
-        // A Deezer-only song often has no length of its own; the file's own duration is then what the
-        // candidate recording is held against, which is the same measurement the length rule already used.
-        var songMs = request.SongDurationMs ?? probedDurationMs;
-
-        return songMs > 0 && Math.Abs((durationSeconds * 1000) - songMs) <= request.DurationToleranceMs;
+        // The recording is held against the file's measured length, not the song's: the file already
+        // passed the song's window, and a MusicBrainz duplicate of the same song can be a few seconds
+        // longer or shorter than the song's own recording (a wrong recording cannot get in this way,
+        // because the fingerprint, the title, the artist and the hard flags still have to agree).
+        return probedDurationMs > 0
+            && Math.Abs((durationSeconds * 1000) - probedDurationMs) <= request.DurationToleranceMs;
     }
+
+    /// <summary>
+    /// Whether an AcoustID recording's title (version hints already removed) is the song's: equal, or
+    /// equal once <em>one</em> trailing bracketed or <c> - </c> suffix is dropped. A suffix that is a
+    /// version ("Live", "Radio Edit") was already taken out by the parser, so one that is still there
+    /// is a subtitle ("MALAMENTE (Cap.1: Augurio)") and says nothing about the recording being another take.
+    /// </summary>
+    private static bool IsSongTitle(string candidateBaseTitle, string songTitle)
+    {
+        if (string.Equals(TextMatching.Normalize(candidateBaseTitle), songTitle, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var stripped = TrailingSubtitle().Replace(candidateBaseTitle, string.Empty);
+
+        return stripped.Length < candidateBaseTitle.Length
+            && stripped.Trim().Length > 0
+            && string.Equals(TextMatching.Normalize(stripped), songTitle, StringComparison.Ordinal);
+    }
+
+    /// <summary>One trailing "(…)", "[…]" or " - …" suffix.</summary>
+    [GeneratedRegex(@"(?:\s*\([^()]*\)|\s*\[[^\[\]]*\]|\s+[-–—]\s+(?:(?!\s[-–—]\s).)*)\s*$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex TrailingSubtitle();
 
     private static bool HasRecordings(AcoustIdLookupResult lookup) =>
         lookup.Results.Any(result => result.Recordings.Count > 0);
