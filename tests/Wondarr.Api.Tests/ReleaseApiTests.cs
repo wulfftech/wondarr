@@ -198,7 +198,7 @@ public sealed class ReleaseApiTests
             release.GetProperty("displayName").GetString() == displayName);
 
     /// <summary>A factory whose only source is a scripted one, so no test reaches the network.</summary>
-    private static WondarrAppFactory Factory(Candidate? extra = null)
+    internal static WondarrAppFactory Factory(Candidate? extra = null)
     {
         var source = Substitute.For<ISourceProvider>();
         source.SourceType.Returns(SourceTypes.Soulseek);

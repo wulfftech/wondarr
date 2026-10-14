@@ -18,10 +18,10 @@ import { CircleAlert, Disc3, Plus } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useLibraries, useQualityProfiles } from '../api/profiles';
-import { readEnum } from '../api/profiles';
 import { AddAlbumTab, type AlbumPrefill } from './AddAlbumTab';
 import {
   candidateAddInput,
+  isFinished,
   useAddSong,
   useBulkAdd,
   useCommand,
@@ -29,7 +29,6 @@ import {
   partialNotice,
   useSongSearch,
   type BulkAddAcceptedResource,
-  type CommandStatusName,
   type SongLookupResource,
 } from '../api/songs';
 import { EmptyState, LoadingState } from '../components/DataState';
@@ -354,8 +353,8 @@ function PasteTab() {
   const selectedProfile = profileId ?? (firstProfile === undefined ? null : String(firstProfile.id));
 
   const progress = parseProgress(command.data?.message);
-  const status = readEnum<CommandStatusName>(command.data?.status);
-  const running = command.data !== undefined && status !== 'completed' && status !== 'failed' && status !== 'aborted';
+  const status = command.data?.status;
+  const running = command.data !== undefined && !isFinished(status);
   const counts = list.data?.counts;
 
   // The summary is first read while the command is still queued (every line pending); read it again
