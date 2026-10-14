@@ -8,6 +8,7 @@ using Wondarr.Core.Importing;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Profiles;
+using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Media;
@@ -392,10 +393,7 @@ public sealed partial class FileConverter : IFileConverter
                 return new ConvertSongResult(songId, ConvertOutcome.Failed, "The song has no album context to file it under.", info.Codec);
             }
 
-            var credits = song.Artists
-                .OrderBy(credit => credit.Position)
-                .Select(credit => (credit.Artist, credit.Role))
-                .ToList();
+            var credits = song.OrderedCredits();
 
             // Encoding changes the peak (and a little of the loudness), so the converted file is
             // measured again; a failed measurement leaves it without the tags, never fails the conversion.
@@ -709,9 +707,7 @@ public sealed partial class FileConverter : IFileConverter
 
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
-            .Include(song => song.AlbumContext)
-            .Include(song => song.File).ThenInclude(file => file!.Quality)
-            .Include(song => song.Artists).ThenInclude(credit => credit.Artist)
+            .IncludeFilingGraphWithQuality()
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 

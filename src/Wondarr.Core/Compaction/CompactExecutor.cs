@@ -10,6 +10,7 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
+using Wondarr.Core.Songs;
 
 namespace Wondarr.Core.Compaction;
 
@@ -1568,10 +1569,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
         var extension = Path.GetExtension(staged).TrimStart('.').ToLowerInvariant();
 
-        var credits = song.Artists
-            .OrderBy(credit => credit.Position)
-            .Select(credit => (credit.Artist, credit.Role))
-            .ToList();
+        var credits = song.OrderedCredits();
 
         OrganizeResult placement;
 
@@ -1736,12 +1734,10 @@ public sealed partial class CompactExecutor : ICompactExecutor
         return true;
     }
 
-    /// <summary>Loads the song with everything filing it needs, as <c>ImportService</c> loads it.</summary>
+    /// <summary>Loads the song with its album context, file (and the file's quality) and artist credits.</summary>
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
-            .Include(song => song.AlbumContext)
-            .Include(song => song.File).ThenInclude(file => file!.Quality)
-            .Include(song => song.Artists).ThenInclude(credit => credit.Artist)
+            .IncludeFilingGraphWithQuality()
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 

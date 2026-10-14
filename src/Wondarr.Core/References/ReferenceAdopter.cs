@@ -8,6 +8,7 @@ using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.References;
@@ -191,10 +192,7 @@ public sealed partial class ReferenceAdopter(
                 song.LibraryId = target.Id;
             }
 
-            var credits = song.Artists
-                .OrderBy(credit => credit.Position)
-                .Select(credit => (credit.Artist, credit.Role))
-                .ToList();
+            var credits = song.OrderedCredits();
 
             var extension = Path.GetExtension(absolutePath).TrimStart('.').ToLowerInvariant();
 
@@ -342,13 +340,10 @@ public sealed partial class ReferenceAdopter(
         return new ReferenceAdoptResult(adopted, skipped, failed);
     }
 
-    /// <summary>Loads the song with everything filing it needs, as <c>ImportService</c> loads it.</summary>
+    /// <summary>Loads the song with its album context, file and artist credits, which is what filing it needs.</summary>
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await database.Songs
-            .Include(song => song.AlbumContext)
-            .Include(song => song.File)
-            .Include(song => song.Artists)
-                .ThenInclude(credit => credit.Artist)
+            .IncludeFilingGraph()
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 

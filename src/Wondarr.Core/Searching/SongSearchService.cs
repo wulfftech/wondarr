@@ -1523,10 +1523,7 @@ public sealed partial class SongSearchService : ISongSearchService
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
             .AsNoTracking()
-            .Include(song => song.AlbumContext)
-            .Include(song => song.File)
-            .Include(song => song.Artists)
-                .ThenInclude(credit => credit.Artist)
+            .IncludeFilingGraph()
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 

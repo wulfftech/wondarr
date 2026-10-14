@@ -190,10 +190,7 @@ public sealed partial class SongRefiler : ISongRefiler
 
         var extension = Path.GetExtension(fromPath).TrimStart('.').ToLowerInvariant();
 
-        var credits = song.Artists
-            .OrderBy(credit => credit.Position)
-            .Select(credit => (credit.Artist, credit.Role))
-            .ToList();
+        var credits = song.OrderedCredits();
 
         OrganizeResult placement;
 

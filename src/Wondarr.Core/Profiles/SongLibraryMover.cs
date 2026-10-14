@@ -9,6 +9,7 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
+using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Profiles;
@@ -213,10 +214,7 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
         var extension = Path.GetExtension(file.Path).TrimStart('.').ToLowerInvariant();
 
-        var credits = song.Artists
-            .OrderBy(credit => credit.Position)
-            .Select(credit => (credit.Artist, credit.Role))
-            .ToList();
+        var credits = song.OrderedCredits();
 
         OrganizeResult placement;
 

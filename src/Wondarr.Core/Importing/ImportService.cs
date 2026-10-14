@@ -14,6 +14,7 @@ using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Searching;
+using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
 using Wondarr.Core.Verification;
@@ -600,10 +601,7 @@ public sealed partial class ImportService : IImportService
         }
 
         // --- Verify -----------------------------------------------------------------------------
-        var credits = song.Artists
-            .OrderBy(credit => credit.Position)
-            .Select(credit => (credit.Artist, credit.Role))
-            .ToList();
+        var credits = song.OrderedCredits();
 
         var verification = await _verifier
             .VerifyAsync(
@@ -1091,10 +1089,7 @@ public sealed partial class ImportService : IImportService
     /// <summary>Loads the song with everything the import needs.</summary>
     private async Task<Song?> LoadSongAsync(long songId, CancellationToken cancellationToken) =>
         await _database.Songs
-            .Include(song => song.AlbumContext)
-            .Include(song => song.File)
-            .Include(song => song.Artists)
-                .ThenInclude(credit => credit.Artist)
+            .IncludeFilingGraph()
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 
