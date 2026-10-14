@@ -4,6 +4,10 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **Verification no longer rejects the right file in two cases.** An AcoustID recording titled with a subtitle that is not a version ("MALAMENTE (Cap.1: Augurio)") now counts as the song "Malamente" (one trailing bracketed or ` - ` suffix is dropped; a version such as "(Live)" or "(Radio Edit)" still rejects, and so do a different title or artist). A same-titled MusicBrainz duplicate is now held against the **file's** length rather than the song's, so "Little Lion Man" (song 238 s, duplicate 247 s) is not refused when the file itself passed the length check.
+- **A torrent or usenet release titled only "[FLAC]" with 24-bit files** no longer finds none of its songs: when a release claims FLAC without a bit depth, the container size window reaches up to 24-bit/96 kHz (archive.org's *The Slip*). The matcher keeps the 16-bit window for a release that states its bit depth.
+
 ## [0.1.4] — 2026-10-14
 
 Email notifications, and a correction to 0.1.3's Singles change. Update by pulling `:0.1` (or `:0.1.4`).

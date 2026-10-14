@@ -167,4 +167,90 @@ public class ContainerMatcherTests
         match.Should().NotBeNull();
         match!.File.Index.Should().Be(0);
     }
+
+    /// <summary>
+    /// archive.org's <c>nine-inch-nails-the-slip_202607</c> as a "[FLAC]" release of 24-bit/96 kHz files.
+    /// The file list is a faithful approximation, not the real torrent (it is not in the fixtures): the
+    /// track names are the album's, the lengths are close to the real ones, and each size is the length
+    /// at about 3,800 kbps (24-bit/96 kHz FLAC), which is over the 16-bit bound of 2,700 kbps.
+    /// </summary>
+    private static readonly (string File, string Title, int Seconds)[] SlipTracks =
+    [
+        ("03_letting_you", "Letting You", 253),
+        ("04_discipline", "Discipline", 256),
+        ("05_echoplex", "Echoplex", 226),
+        ("06_head_down", "Head Down", 296),
+        ("07_lights_in_the_sky", "Lights in the Sky", 223),
+        ("08_corona_radiata", "Corona Radiata", 321),
+        ("09_the_four_of_us_are_dying", "The Four of Us Are Dying", 313),
+        ("10_demon_seed", "Demon Seed", 233),
+    ];
+
+    private static List<ContainerFile> SlipRelease()
+    {
+        var files = new List<ContainerFile> { new(0, "nine-inch-nails-the-slip_202607/cover.jpg", 600_000) };
+
+        foreach (var (file, _, seconds) in SlipTracks)
+        {
+            files.Add(new ContainerFile(files.Count, $"nine-inch-nails-the-slip_202607/{file}.flac", Bytes(seconds, 3_800)));
+        }
+
+        return files;
+    }
+
+    [Fact]
+    public void A_bare_flac_release_finds_every_song_of_a_24_bit_album()
+    {
+        var files = SlipRelease();
+
+        foreach (var (file, title, seconds) in SlipTracks)
+        {
+            var match = ContainerMatcher.Find(files, new ContainerMatchRequest(title, VersionFlags.None, null, seconds * 1000, Flac));
+
+            match.Should().NotBeNull($"\"{title}\" is in a release that says only [FLAC]");
+            match!.File.Path.Should().EndWith($"{file}.flac");
+        }
+    }
+
+    [Fact]
+    public void A_release_that_states_16_bit_keeps_the_16_bit_size_bound()
+    {
+        var files = SlipRelease();
+
+        // 253 s at 3,800 kbps is no 16-bit FLAC: the release said so itself.
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac, BitDepthStated: true))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void A_release_that_states_24_bit_takes_the_24_bit_bound()
+    {
+        var files = SlipRelease();
+        var flac24 = SeedData.Qualities.Single(quality => quality.Name == "FLAC 24-bit").Id;
+
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, flac24, BitDepthStated: true))
+            .Should().NotBeNull();
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, flac24))
+            .Should().NotBeNull();
+    }
+
+    [Fact]
+    public void The_lower_size_bound_does_not_move_for_a_bare_flac_release()
+    {
+        // 253 s of FLAC is never 2 MB, whatever the bit depth.
+        var files = new List<ContainerFile> { new(0, "Slip/03_letting_you.flac", 2_000_000) };
+
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac))
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void A_bare_flac_release_still_refuses_a_file_far_past_the_hi_res_bound()
+    {
+        // 253 s at 12,000 kbps is not FLAC of any depth up to 24-bit/96 kHz.
+        var files = new List<ContainerFile> { new(0, "Slip/03_letting_you.flac", Bytes(253, 12_000)) };
+
+        ContainerMatcher.Find(files, new ContainerMatchRequest("Letting You", VersionFlags.None, null, 253_000, Flac))
+            .Should().BeNull();
+    }
 }

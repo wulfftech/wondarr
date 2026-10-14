@@ -18,6 +18,7 @@ public sealed class DownloadVerifierTests
 {
     private const string GetLuckyId = "833f00e1-781f-4edd-90e4-e52712618862";
     private const string DuplicateId = "b7c6d5e4-f3a2-4b1c-9d8e-7f6a5b4c3d2e";
+    private const string LittleLionManId = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
     private const string LiveTakeId = "0f5c8b1e-6a3f-4c0a-8d8e-2b6f1a9c7d33";
 
     private static readonly MediaInfo Mp3 = new(
@@ -366,11 +367,146 @@ public sealed class DownloadVerifierTests
         result.Outcome.Should().Be(VerificationOutcome.Failed);
     }
 
+    [Fact]
+    public async Task A_non_version_subtitle_on_the_recording_is_still_the_song()
+    {
+        // Backlog 2026-09-29-19, case 1: AcoustID titles the recording "MALAMENTE (Cap.1: Augurio)".
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 150_000 }),
+            lookup: Fixture("lookup-non-version-subtitle.json"));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: null, title: "Malamente", artist: "Rosalía", durationMs: 150_000),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
+        result.FingerprintVerified.Should().BeTrue();
+        result.LearnedMbRecordingId.Should().Be("c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f");
+    }
+
+    [Theory]
+    [InlineData("Malamente [Cap.1: Augurio]")]
+    [InlineData("Malamente - Cap.1: Augurio")]
+    public async Task Each_kind_of_single_trailing_subtitle_is_dropped(string recordingTitle)
+    {
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 150_000 }),
+            lookup: Lookup(recordingTitle, "Rosalía", 150.2));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: null, title: "Malamente", artist: "Rosalía", durationMs: 150_000),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
+    }
+
+    [Theory]
+    [InlineData("Get Lucky (Live)")]
+    [InlineData("Get Lucky (Live at Coachella)")]
+    [InlineData("Get Lucky - Live")]
+    [InlineData("Get Lucky (Radio Edit)")]
+    [InlineData("Get Lucky (Cap.1: Augurio) (Live)")]
+    [InlineData("Get Lucky (Acoustic)")]
+    [InlineData("Get Lucky (Demo) (Cap.1)")]
+    public async Task A_subtitle_that_is_a_version_still_rejects_a_studio_song(string recordingTitle)
+    {
+        var (verifier, _, _, _) = Create(lookup: Lookup(recordingTitle, "Daft Punk", 369.0));
+
+        var result = await verifier.VerifyAsync(Request(mbid: null), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.Reason.Should().Contain("different recording");
+    }
+
+    [Fact]
+    public async Task A_version_song_does_not_take_the_subtitled_studio_recording()
+    {
+        // The song is the live take; the recording is a subtitled studio one: the hard flags differ.
+        var (verifier, _, _, _) = Create(lookup: Lookup("Get Lucky (Cap.1: Augurio)", "Daft Punk", 369.0));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: null, title: "Get Lucky (Live)", flags: VersionFlags.Live),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+    }
+
+    [Theory]
+    [InlineData("Other Song (Cap.1: Augurio)")]
+    [InlineData("Other Song - Cap.1")]
+    [InlineData("Get Lucky Tonight (Cap.1)")]
+    [InlineData("Get Lucky (Cap.1) (Cap.2)")]
+    [InlineData("Get Lucky (Cap.1) [Augurio]")]
+    [InlineData("Get Lucky - Cap.1 - Augurio")]
+    public async Task A_different_song_with_a_non_version_subtitle_rejects(string recordingTitle)
+    {
+        var (verifier, _, _, _) = Create(lookup: Lookup(recordingTitle, "Daft Punk", 369.0));
+
+        var result = await verifier.VerifyAsync(Request(mbid: null), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task A_subtitle_does_not_loosen_the_artist_rule()
+    {
+        var (verifier, _, _, _) = Create(lookup: Lookup("Get Lucky (Cap.1: Augurio)", "Somebody Else", 369.0));
+
+        var result = await verifier.VerifyAsync(Request(mbid: null), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task A_duplicate_is_held_against_the_files_length_not_the_songs()
+    {
+        // Backlog 2026-09-29-19, case 2: "Little Lion Man" is 238 s, the MusicBrainz duplicate 247 s and
+        // the file 246 s. The file passes the song's window (8 s); the duplicate is 1 s from the file but
+        // 9 s from the song, which a window of 8 s used to refuse.
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 246_000 }),
+            lookup: Fixture("lookup-duplicate-of-another-length.json"));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: LittleLionManId, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: 238_000, toleranceMs: 8000),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
+        result.FingerprintVerified.Should().BeTrue();
+        result.MatchedRecordingId.Should().Be("e5f6a7b8-c9d0-4e1f-a2b3-c4d5e6f7a8b9");
+    }
+
+    [Fact]
+    public async Task A_duplicate_far_from_the_files_length_rejects()
+    {
+        // The same duplicate (247 s) against a file that is 238 s: 9 s off the file, past the 8 s window.
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 238_000 }),
+            lookup: Fixture("lookup-duplicate-of-another-length.json"));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: LittleLionManId, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: 238_000, toleranceMs: 8000),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.Reason.Should().Contain("different recording");
+    }
+
+    /// <summary>One AcoustID result at 0.95 holding one recording.</summary>
+    private static AcoustIdLookupResult Lookup(string title, string artist, double durationSeconds) =>
+        new(
+            AcoustIdStatus.Ok,
+            [new AcoustIdResult("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", 0.95, [new AcoustIdRecording("f0e1d2c3-b4a5-4968-8776-655443322110", title, durationSeconds, [artist])])],
+            null);
+
     private static VerificationRequest Request(
         string? mbid = GetLuckyId,
         string title = "Get Lucky",
-        int? durationMs = 369000) =>
-        new("/downloads/Get Lucky.mp3", mbid, title, ["Daft Punk"], durationMs, VersionFlags.None, DurationToleranceMs: 3000);
+        int? durationMs = 369000,
+        string artist = "Daft Punk",
+        VersionFlags flags = VersionFlags.None,
+        int toleranceMs = 3000) =>
+        new("/downloads/Get Lucky.mp3", mbid, title, [artist], durationMs, flags, DurationToleranceMs: toleranceMs);
 
     private static MediaProbeResult Probed(MediaInfo info) => new(true, info, null);
 
