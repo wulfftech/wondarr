@@ -83,7 +83,8 @@ export function fileNameOf(path: string): string {
 export function containerLineText(release: string, file: string | null, bundledCount: number): string {
   const parts = [release];
 
-  if (file !== null && file !== '') {
+  // A release with no file list is its own file: the name would only repeat the release.
+  if (file !== null && file !== '' && fileNameOf(file) !== fileNameOf(release)) {
     parts.push(file);
   }
 

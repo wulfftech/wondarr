@@ -1035,16 +1035,18 @@ public sealed partial class SongSearchService : ISongSearchService
         long candidateRecordId,
         int attempt,
         CancellationToken cancellationToken) =>
-        GrabCandidateAsync(candidateRecordId, attempt, bundle: true, cancellationToken);
+        GrabCandidateAsync(candidateRecordId, attempt, bundle: true, siblings: null, cancellationToken);
 
     /// <summary>
     /// Grabs one candidate; a container grab with <paramref name="bundle"/> set also takes every other
-    /// wanted song the container holds (DECISIONS build session 8 #6).
+    /// wanted song the container holds (DECISIONS build session 8 #6). A bundled song's own grab passes
+    /// the grab's other songs as <paramref name="siblings"/>, so its history row names them too.
     /// </summary>
     private async Task<long> GrabCandidateAsync(
         long candidateRecordId,
         int attempt,
         bool bundle,
+        IReadOnlyList<BundledSongData>? siblings,
         CancellationToken cancellationToken)
     {
         var record = await _database.Candidates
@@ -1090,6 +1092,8 @@ public sealed partial class SongSearchService : ISongSearchService
                 Release = candidate.Release! with { AlsoWanted = [.. bundled.Select(song => song.Match.File.Path)] },
             };
         }
+
+        siblings ??= [.. bundled.Select(song => new BundledSongData(song.Song.Id, song.Song.Title))];
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -1180,8 +1184,8 @@ public sealed partial class SongSearchService : ISongSearchService
                     candidate.Query,
                     item.Destination,
                     candidate.Release?.Title,
-                    bundled.Count,
-                    bundled.Count == 0 ? null : [.. bundled.Select(song => new BundledSongData(song.Song.Id, song.Song.Title))]),
+                    siblings.Count,
+                    siblings.Count == 0 ? null : siblings),
                 Json),
         });
 
@@ -1204,9 +1208,22 @@ public sealed partial class SongSearchService : ISongSearchService
             .PublishAsync(new SongGrabbedEvent(item.Id, record.SongId), cancellationToken)
             .ConfigureAwait(false);
 
-        foreach (var song in bundled)
+        if (bundled.Count > 0)
         {
-            await GrabBundledAsync(record, candidate, song, attempt, cancellationToken).ConfigureAwait(false);
+            var leadTitle = await _database.Songs
+                .AsNoTracking()
+                .Where(song => song.Id == record.SongId)
+                .Select(song => song.Title)
+                .FirstAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var lead = new BundledSongData(record.SongId, leadTitle);
+
+            foreach (var song in bundled)
+            {
+                BundledSongData[] others = [lead, .. siblings.Where(other => other.SongId != song.Song.Id)];
+
+                await GrabBundledAsync(record, candidate, song, others, attempt, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return item.Id;
@@ -1221,6 +1238,7 @@ public sealed partial class SongSearchService : ISongSearchService
         CandidateRecord grabbed,
         Candidate container,
         BundledSong song,
+        IReadOnlyList<BundledSongData> siblings,
         int attempt,
         CancellationToken cancellationToken)
     {
@@ -1250,7 +1268,7 @@ public sealed partial class SongSearchService : ISongSearchService
             _database.Candidates.Add(record);
             await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            await GrabCandidateAsync(record.Id, attempt, bundle: false, cancellationToken).ConfigureAwait(false);
+            await GrabCandidateAsync(record.Id, attempt, bundle: false, siblings, cancellationToken).ConfigureAwait(false);
             LogBundled(_logger, song.Song.Id, grabbed.SongId, record.Id);
         }
         catch (Exception exception) when (exception is AlreadyDownloadingException or GrabFailedException or DbUpdateException)

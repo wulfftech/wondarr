@@ -4,7 +4,8 @@ import { containerLineText } from './text';
 /**
  * The muted second line the Queue and History pages put under a song that came out of a release. It
  * wraps and is cut off after two lines, with the whole text in a tooltip; the break-anywhere rule
- * keeps one long release name from pushing the table wider than a phone.
+ * keeps one long release name from pushing the table wider than a phone. The `title` attribute is the
+ * fallback where there is no hover (touch screens).
  */
 export function ContainerLine({
   release,
@@ -19,7 +20,7 @@ export function ContainerLine({
 
   return (
     <Tooltip label={text} multiline maw={420} openDelay={300}>
-      <Text size="xs" c="dimmed" lineClamp={2} maw={320} style={{ overflowWrap: 'anywhere' }}>
+      <Text size="xs" c="dimmed" lineClamp={2} maw={320} title={text} style={{ overflowWrap: 'anywhere' }}>
         {text}
       </Text>
     </Tooltip>
