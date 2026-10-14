@@ -71,7 +71,7 @@ Email notifications, and a correction to 0.1.3's Singles change. Update by pulli
 
 ## [0.1.3] — 2026-10-13
 
-The last round of fixes from the 0.1.0 code review (`docs/reviews/CODE_REVIEW_2026-10-10.md`): searches stop at the cutoff and back off properly, commands can no longer be stranded, metadata services are paced with a margin and their failures stay contained, live updates survive a restart, the UI works at phone width, album folders carry the year, and the source ranking follows the design. Update by pulling `:0.1` (or `:0.1.3`).
+The last round of fixes from the 0.1.0 code review: searches stop at the cutoff and back off properly, commands can no longer be stranded, metadata services are paced with a margin and their failures stay contained, live updates survive a restart, the UI works at phone width, album folders carry the year, and the source ranking follows the design. Update by pulling `:0.1` (or `:0.1.3`).
 
 **Upgrading from 0.1.2:**
 - **No database migration.** Nothing is moved or rewritten on disk by the update itself.
@@ -110,7 +110,7 @@ The last round of fixes from the 0.1.0 code review (`docs/reviews/CODE_REVIEW_20
 
 ## [0.1.2] — 2026-10-13
 
-The second round of fixes from the 0.1.0 code review (`docs/reviews/CODE_REVIEW_2026-10-10.md`): the no-login rule for local addresses only admits real local callers, stored secrets go only to the host they were saved for, files holding secrets are owner-only, torrents Wondarr did not add are never changed or removed, Gazelle freeleech tokens are spent only on grabs, and import lists never act on an empty or cut-short read. Update by pulling `:0.1` (or `:0.1.2`).
+The second round of fixes from the 0.1.0 code review: the no-login rule for local addresses only admits real local callers, stored secrets go only to the host they were saved for, files holding secrets are owner-only, torrents Wondarr did not add are never changed or removed, Gazelle freeleech tokens are spent only on grabs, and import lists never act on an empty or cut-short read. Update by pulling `:0.1` (or `:0.1.2`).
 
 **Upgrading from 0.1.1:**
 - **Everyone signs in once.** Sessions from before the update carry no credential stamp, so every browser is asked to sign in again.
@@ -168,7 +168,7 @@ The second round of fixes from the 0.1.0 code review (`docs/reviews/CODE_REVIEW_
 
 ## [0.1.1] — 2026-10-11
 
-Fixes from a full code review of 0.1.0 (`docs/reviews/CODE_REVIEW_2026-10-10.md`): files that move are always recorded, compaction can no longer get stuck, a slow slskd or indexer no longer stops the app or a search batch, and the release workflow publishes an image only after its tests and smoke checks pass. Update by pulling `:0.1` (or `:0.1.1`).
+Fixes from a full code review of 0.1.0: files that move are always recorded, compaction can no longer get stuck, a slow slskd or indexer no longer stops the app or a search batch, and the release workflow publishes an image only after its tests and smoke checks pass. Update by pulling `:0.1` (or `:0.1.1`).
 
 **Upgrading from 0.1.0:** the first start applies one database migration and, before it, writes a backup to `/config/backups/scheduled/` (named `wondarr_pre-unknown_…zip` this once, since 0.1.0 did not record its version). Leave about twice the database's size free in `/config`; if the backup cannot be written, Wondarr stops before changing anything and says why in the log.
 

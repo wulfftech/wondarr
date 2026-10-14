@@ -9,7 +9,7 @@ These apply to humans and AI workers alike. Workers are told to read this file b
 - **No secrets in the repo.** Keys live in `.env` (git-ignored) or the app's `/config`. Tests use fixtures, never live credentials.
 - **Attribution for ported code.** Any file adapted from Lidarr/Prowlarr/Sonarr (GPL-3.0), SoulSync or spotDL (MIT) carries a header comment naming the source repository, path and licence, and an entry in `NOTICE.md`. Sockseek (AGPL) is re-implemented from documented behaviour, never copied.
 - **Conventional Commits** (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `build:`, `ci:`, `chore:`), imperative mood, scope in parentheses when useful (`feat(slskd): …`). No model names or AI-session identifiers in commit messages.
-- **Docs move with code.** A change that alters behaviour described in `docs/architecture/*.md` updates that doc in the same change; a new decision gets a dated entry in `docs/DECISIONS.md` (and an ADR if architectural).
+- **Docs move with code.** A change that alters behaviour described in `docs/architecture/*.md` updates that doc in the same change; a new decision is recorded by the maintainer (and gets an ADR if architectural).
 
 ## C# (.NET 10)
 
@@ -40,5 +40,5 @@ These apply to humans and AI workers alike. Workers are told to read this file b
 
 1. Acceptance criteria in the task file are met and demonstrated (test or command output pasted in the done-report).
 2. Build, tests, lint and typecheck green locally.
-3. Docs updated where behaviour changed; `docs/build/PROGRESS.md` row updated.
+3. Docs updated where behaviour changed.
 4. Diff reviewed by the orchestrator (and, for risky areas, the reviewer agent) before merge.
