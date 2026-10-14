@@ -77,6 +77,10 @@ public sealed class AlbumController : ControllerBase
 
             return Ok(found.Items.Select(hit => hit.ToResource()).ToList());
         }
+        catch (ProvidersUnavailableException exception) when (MetadataUnavailableFilterAttribute.IsRejection(exception, out var rejected))
+        {
+            return MetadataUnavailableFilterAttribute.Rejected(HttpContext, rejected);
+        }
         catch (ProvidersUnavailableException exception)
         {
             return MetadataUnavailableFilterAttribute.Unavailable(

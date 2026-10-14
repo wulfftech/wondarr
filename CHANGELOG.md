@@ -4,6 +4,11 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- Two adds of the same recording at once no longer fail the loser: when another request saved the song between the check and the write, the add now answers as it does for any song the library already holds (409 with the existing song's id for a single add, "already in the library" in a bulk add or a pasted list), and nothing of the losing write is left behind.
+- A song-search lookup while MusicBrainz or Deezer is refusing the request (not just busy) answers with a 502 problem naming the provider, not a 503 "try again in a minute".
+- Deleting a song that is queued, downloading, completed or importing is refused with a 409 and the song stays; before, the delete went through and removed its queue item mid-transfer. The song page's Delete dialog shows the API's message.
+
 ## [0.1.4] — 2026-10-14
 
 Email notifications, and a correction to 0.1.3's Singles change. Update by pulling `:0.1` (or `:0.1.4`).
