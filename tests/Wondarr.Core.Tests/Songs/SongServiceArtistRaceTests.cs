@@ -1,3 +1,5 @@
+using System.Data.Common;
+using System.Globalization;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.ImportLists;
@@ -213,6 +215,101 @@ public class SongServiceArtistRaceTests : IDisposable
         await AssertOneSharedArtistAsync(artistId, songs: 2, artists: 1);
     }
 
+    // --- Rows written before the one that raced --------------------------------------------------
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_new_artist_inserted_before_the_raced_one_is_neither_left_behind_nor_written_twice(bool keepTransactionOpen)
+    {
+        var log = new ArtistInsertLog();
+
+        await using var context = await ContextAsync(log);
+        var artistId = 0L;
+
+        StubCoverArtThen(async () => artistId = await CommitWinnerAsync("Instant Crush"));
+
+        // The guest is listed before the main artist, so it is added to the context, and inserted, first.
+        // The main artist (Position 0) is the one the racing add committed.
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity(
+                "m-a",
+                "Fragments of Time",
+                new IdentityArtist("Todd Edwards", "Edwards, Todd", "g1", null, ArtistRole.Featured, 1),
+                DaftPunk));
+
+        // With the transaction kept open (the reference scan's options) the failed save has to be undone
+        // by EF's savepoint inside it; without, the save's own transaction is rolled back.
+        var result = await NewService(context).AddAsync(
+            "m-a",
+            null,
+            new SongAddOptions
+            {
+                IsolateFailures = true,
+                KeepTransactionOpen = keepTransactionOpen,
+                SearchOnAdd = !keepTransactionOpen,
+            },
+            CancellationToken.None);
+
+        // The guest went into the database before the refused main artist, in the batch's save and in the
+        // song's own first save: it was written, and then taken back.
+        log.Inserts.Should().HaveCountGreaterThanOrEqualTo(4);
+        log.Inserts[0].Should().Contain("g1");
+        log.Inserts[1].Should().Contain("a1");
+        log.Inserts[2].Should().Contain("g1");
+        log.Inserts[3].Should().Contain("a1");
+
+        result.Outcome.Should().Be(SongAddOutcome.Added);
+
+        if (keepTransactionOpen)
+        {
+            context.Database.CurrentTransaction.Should().NotBeNull("the caller commits what the add left open");
+
+            await context.Database.CurrentTransaction!.CommitAsync();
+        }
+
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        await AssertOneSharedArtistAsync(artistId, songs: 2, artists: 2);
+
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        var guest = await reader.Artists.AsNoTracking().SingleAsync(artist => artist.MbArtistId == "g1");
+        var credits = await reader.SongArtists.AsNoTracking().Where(credit => credit.SongId == result.Song.Id).ToListAsync();
+
+        credits.Select(credit => (credit.ArtistId, credit.Role)).Should().BeEquivalentTo(
+            new[] { (artistId, ArtistRole.Main), (guest.Id, ArtistRole.Featured) });
+        (await reader.SongArtists.CountAsync()).Should().Be(3, "the winner's one credit and this song's two");
+        (await reader.Songs.AsNoTracking().SingleAsync(song => song.Id == result.Song.Id)).PrimaryArtistId.Should().Be(artistId);
+    }
+
+    // --- The same song twice -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_same_new_song_by_the_same_new_artist_added_twice_at_once_answers_already_exists_with_the_winner()
+    {
+        await using var context = await ContextAsync();
+        var artistId = 0L;
+
+        // The double click: a second request adds this very recording, and its artist, after this one
+        // looked for both and before it writes. The first try meets the artist index, the retry the song's.
+        StubCoverArtThen(async () => artistId = await CommitWinnerAsync("Get Lucky", "m-a"));
+
+        var results = await NewService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky")],
+            new SongAddOptions { IsolateFailures = true },
+            CancellationToken.None);
+
+        results[0].Outcome.Should().Be(SongAddOutcome.AlreadyExists);
+        results[0].Song.MbRecordingId.Should().Be("m-a");
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        await using var reader = _database.CreateContext(_timeProvider);
+
+        results[0].Song.Id.Should().Be((await reader.Songs.AsNoTracking().SingleAsync()).Id);
+        await AssertOneSharedArtistAsync(artistId, songs: 1, artists: 1);
+    }
+
     // --- The retry is one retry ------------------------------------------------------------------
 
     [Fact]
@@ -259,8 +356,10 @@ public class SongServiceArtistRaceTests : IDisposable
         (await reader.AlbumContexts.CountAsync()).Should().Be(1);
     }
 
-    [Fact]
-    public async Task A_retry_that_fails_for_another_reason_fails_only_that_song()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task A_song_the_database_refuses_for_another_reason_fails_only_that_song(int poisonedPosition)
     {
         var hook = new BeforeSaveHook(_ => Task.CompletedTask);
 
@@ -269,29 +368,35 @@ public class SongServiceArtistRaceTests : IDisposable
 
         StubCoverArtThen(async () => artistId = await CommitWinnerAsync("Instant Crush"));
 
-        // The artist index refuses the first two tries; the retry reaches the song, which the trigger refuses.
         await context.Database.ExecuteSqlRawAsync(
             "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
             + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
 
+        var titles = new[] { "Get Lucky", "Lose Yourself to Dance", "Instant Crush Again" };
+        titles[poisonedPosition] = "Poison";
+
         var results = await NewService(context).AddIdentitiesAsync(
-            [Identity("m-a", "Get Lucky"), Identity("m-b", "Poison"), Identity("m-c", "Instant Crush Again")],
+            [Identity("m-a", titles[0]), Identity("m-b", titles[1]), Identity("m-c", titles[2])],
             new SongAddOptions { IsolateFailures = true },
             CancellationToken.None);
 
-        results.Select(result => result.Outcome)
-            .Should().Equal(SongAddOutcome.Added, SongAddOutcome.Failed, SongAddOutcome.Added);
-        results[1].Error.Should().Contain("poison refused");
+        results.Select(result => result.Outcome).Should().Equal(
+            Enumerable.Range(0, 3).Select(position => position == poisonedPosition ? SongAddOutcome.Failed : SongAddOutcome.Added));
+        results[poisonedPosition].Error.Should().Contain("poison refused").And.NotContain("artist.mb_artist_id");
 
-        // 1 the batch, then the first song: 2 on its own and 3 its retry; the poisoned song, 4, and the
-        // last, 5, find the artist among those known; none is tried twice.
+        // Position 0: the poisoned song is the one that meets the raced artist, so save 2 is its own
+        // first try (the artist index refuses it), save 3 its retry (which reaches the song, and the
+        // trigger refuses that), and the other two, 4 and 5, find the artist among those known.
+        // Position 1: the first song takes the artist index and the retry (2, 3); the poisoned song
+        // finds the artist known and is refused on its own first save (4); the last one is 5.
+        // Either way, nothing is tried twice but the one song the race hit.
         hook.Saves.Should().Be(5);
 
         await using var reader = _database.CreateContext(_timeProvider);
 
         (await reader.Artists.CountAsync()).Should().Be(1);
         (await reader.Songs.AsNoTracking().OrderBy(song => song.Id).Select(song => song.Title).ToListAsync())
-            .Should().Equal("Instant Crush", "Get Lucky", "Instant Crush Again");
+            .Should().Equal(titles.Where(title => title != "Poison").Prepend("Instant Crush"));
         (await reader.Songs.CountAsync(song => song.PrimaryArtistId == artistId)).Should().Be(3);
         (await reader.AlbumContexts.CountAsync()).Should().Be(3);
     }
@@ -326,15 +431,23 @@ public class SongServiceArtistRaceTests : IDisposable
     // --- Helpers ---------------------------------------------------------------------------------
 
     /// <summary>
-    /// Commits the artist Daft Punk (MusicBrainz id <c>a1</c>) and a song by it through a second context,
-    /// as a request that won the race would, and returns the artist's id.
+    /// Commits the artist Daft Punk (MusicBrainz id <c>a1</c>) and a song by it (with the recording
+    /// <paramref name="mbRecordingId"/>, when given) through a second context, as a request that won the
+    /// race would, and returns the artist's id.
     /// </summary>
-    private async Task<long> CommitWinnerAsync(string songTitle)
+    private async Task<long> CommitWinnerAsync(string songTitle, string? mbRecordingId = null)
     {
         var artistId = await CommitArtistAsync("a1", "Daft Punk");
 
         await using var other = _database.CreateContext(_timeProvider);
-        await SongSeed.AddAsync(other, songTitle);
+        var winner = await SongSeed.AddAsync(other, songTitle);
+
+        if (mbRecordingId is not null)
+        {
+            await other.Songs
+                .Where(song => song.Id == winner.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(song => song.MbRecordingId, mbRecordingId));
+        }
 
         return artistId;
     }
@@ -472,6 +585,46 @@ public class SongServiceArtistRaceTests : IDisposable
             await beforeSave(Saves).ConfigureAwait(false);
 
             return result;
+        }
+    }
+
+    /// <summary>Records the parameter values of every <c>INSERT INTO "artist"</c> the context runs, in order, failed ones included.</summary>
+    private sealed class ArtistInsertLog : DbCommandInterceptor
+    {
+        /// <summary>Gets the parameter values of each artist insert, in the order they were sent.</summary>
+        public List<string[]> Inserts { get; } = [];
+
+        /// <inheritdoc />
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Record(command);
+
+            return ValueTask.FromResult(result);
+        }
+
+        /// <inheritdoc />
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            Record(command);
+
+            return ValueTask.FromResult(result);
+        }
+
+        private void Record(DbCommand command)
+        {
+            if (command.CommandText.Contains("INSERT INTO \"artist\"", StringComparison.Ordinal))
+            {
+                Inserts.Add([.. command.Parameters.Cast<DbParameter>()
+                    .Select(parameter => Convert.ToString(parameter.Value, CultureInfo.InvariantCulture) ?? string.Empty)]);
+            }
         }
     }
 }
