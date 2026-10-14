@@ -349,8 +349,48 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
             try
             {
-                var added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
-                    .ConfigureAwait(false);
+                IReadOnlyList<Song> added;
+
+                try
+                {
+                    added = await AddAsync(batch[0].Library, [.. batch.Select(entry => entry.Identity)], cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (DbUpdateException duplicate) when (SongService.IsDuplicateSongKey(duplicate))
+                {
+                    // Another add saved one of these recordings between the existence check and the write.
+                    // The user's choice stands: a file whose recording now exists goes to that song, and
+                    // the others are added as a batch of their own.
+                    await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+                    DiscardPendingChanges();
+
+                    var songs = new Song?[batch.Count];
+
+                    for (var index = 0; index < batch.Count; index++)
+                    {
+                        songs[index] = await FindStoredSongAsync(batch[index].Identity, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    var missing = Enumerable.Range(0, batch.Count).Where(index => songs[index] is null).ToList();
+
+                    if (missing.Count == batch.Count)
+                    {
+                        throw;
+                    }
+
+                    if (missing.Count > 0)
+                    {
+                        var rest = await AddAsync(batch[0].Library, [.. missing.Select(index => batch[index].Identity)], cancellationToken)
+                            .ConfigureAwait(false);
+
+                        for (var position = 0; position < missing.Count; position++)
+                        {
+                            songs[missing[position]] = rest[position];
+                        }
+                    }
+
+                    added = [.. songs.Select(song => song!)];
+                }
 
                 for (var index = 0; index < batch.Count; index++)
                 {
