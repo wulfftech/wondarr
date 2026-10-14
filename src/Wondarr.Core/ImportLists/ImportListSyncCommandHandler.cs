@@ -27,6 +27,7 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
     };
 
     private readonly IServiceScopeFactory _scopes;
+    private readonly ImportListSyncGates _gates;
     private readonly ILogger<ImportListSyncCommandHandler> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="ImportListSyncCommandHandler"/> class.</summary>
@@ -34,13 +35,19 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
     /// Builds the scope the import-list service runs in (resolved when the command runs, not when the
     /// handler is built: it reaches Plex, the metadata providers and the database).
     /// </param>
+    /// <param name="gates">The per-list sync gates of this host.</param>
     /// <param name="logger">The logger.</param>
-    public ImportListSyncCommandHandler(IServiceScopeFactory scopes, ILogger<ImportListSyncCommandHandler> logger)
+    public ImportListSyncCommandHandler(
+        IServiceScopeFactory scopes,
+        ImportListSyncGates gates,
+        ILogger<ImportListSyncCommandHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(scopes);
+        ArgumentNullException.ThrowIfNull(gates);
         ArgumentNullException.ThrowIfNull(logger);
 
         _scopes = scopes;
+        _gates = gates;
         _logger = logger;
     }
 
@@ -59,7 +66,7 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
         {
             // One list, asked for by hand: a source that cannot be read fails the command, so the
             // user sees why.
-            using var gate = await ImportListSyncGates.EnterAsync(id, context.YieldWorker, cancellationToken)
+            using var gate = await _gates.EnterAsync(id, context.YieldWorker, cancellationToken)
                 .ConfigureAwait(false);
 
             return await lists.SyncAsync(id, context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
@@ -74,7 +81,7 @@ public sealed partial class ImportListSyncCommandHandler : ICommandHandler
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            using var gate = ImportListSyncGates.TryEnter(listId);
+            using var gate = _gates.TryEnter(listId);
 
             if (gate is null)
             {
