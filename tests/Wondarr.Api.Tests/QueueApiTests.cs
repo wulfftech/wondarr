@@ -67,6 +67,97 @@ public sealed class QueueApiTests
     }
 
     [Fact]
+    public async Task A_torrent_item_counts_the_other_songs_its_grab_carried_from_the_grab_history()
+    {
+        var source = ScriptedSource();
+        using var factory = Factory(source, out _);
+        using var client = Authenticated(factory);
+
+        var songId = await SeedSongAsync(factory, "Love of My Life");
+        var candidateId = await SeedCandidateAsync(factory, songId, "Queen - A Night at the Opera (1975) [FLAC]");
+        var plainSongId = await SeedSongAsync(factory, "Get Lucky");
+        var plainCandidateId = await SeedCandidateAsync(factory, plainSongId, "Queen - Jazz (1978) [FLAC]");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+            foreach (var record in await context.Candidates.Where(candidate => candidate.Id == candidateId || candidate.Id == plainCandidateId).ToListAsync())
+            {
+                record.SourceType = SourceTypes.Torznab;
+                record.RemotePath = "05 - Love of My Life.flac";
+                record.Normalised = """{"release":{"title":"Queen - A Night at the Opera (1975) [FLAC]"}}""";
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        await SeedQueueItemAsync(factory, songId, candidateId, QueueItemState.Queued);
+        await SeedQueueItemAsync(factory, plainSongId, plainCandidateId, QueueItemState.Queued);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+
+            foreach (var item in await context.QueueItems.ToListAsync())
+            {
+                item.SourceType = SourceTypes.Torznab;
+            }
+
+            context.History.AddRange(
+                new HistoryItem
+                {
+                    SongId = songId,
+                    EventType = HistoryEventType.Grabbed,
+                    Data = $$"""{"candidateId":{{candidateId}},"release":"Queen - A Night at the Opera (1975) [FLAC]","bundledWith":3}""",
+                },
+                new HistoryItem
+                {
+                    // A row from before bundling existed carries no count.
+                    SongId = plainSongId,
+                    EventType = HistoryEventType.Grabbed,
+                    Data = $$"""{"candidateId":{{plainCandidateId}}}""",
+                });
+            await context.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync(new Uri(QueueEndpoint, UriKind.Relative));
+        var records = (await ReadJsonAsync(response)).GetProperty("records").EnumerateArray().ToList();
+
+        records.Single(record => record.GetProperty("songId").GetInt64() == songId).GetProperty("bundledWithCount").GetInt32().Should().Be(3);
+        records.Single(record => record.GetProperty("songId").GetInt64() == plainSongId).GetProperty("bundledWithCount").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_soulseek_item_reports_no_bundled_songs()
+    {
+        var source = ScriptedSource();
+        using var factory = Factory(source, out _);
+        using var client = Authenticated(factory);
+
+        var songId = await SeedSongAsync(factory, "Bohemian Rhapsody");
+        var candidateId = await SeedCandidateAsync(factory, songId, "Bohemian Rhapsody.flac");
+        await SeedQueueItemAsync(factory, songId, candidateId, QueueItemState.Downloading);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            context.History.Add(new HistoryItem
+            {
+                SongId = songId,
+                EventType = HistoryEventType.Grabbed,
+                Data = $$"""{"candidateId":{{candidateId}},"bundledWith":5}""",
+            });
+            await context.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync(new Uri(QueueEndpoint, UriKind.Relative));
+        var record = (await ReadJsonAsync(response)).GetProperty("records")[0];
+
+        record.GetProperty("bundledWithCount").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
     public async Task Listing_the_queue_shows_only_the_active_grabs_by_default()
     {
         var source = ScriptedSource();

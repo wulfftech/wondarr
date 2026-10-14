@@ -142,6 +142,7 @@ describe('QueuePage', () => {
           sourceType: 'torznab',
           releaseTitle: 'Queen - A Night at the Opera (1975) [FLAC]',
           containerFile: 'CD1/05 - Bohemian Rhapsody.flac',
+          bundledWithCount: 0,
         },
         QUEUE_ITEMS[1],
       ]),
@@ -149,12 +150,79 @@ describe('QueuePage', () => {
 
     renderApp();
 
+    // N = 0: the line stops at the file and does not mention other songs.
     expect(
       await screen.findByText('Queen - A Night at the Opera (1975) [FLAC] · 05 - Bohemian Rhapsody.flac'),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/other song/)).not.toBeInTheDocument();
     // The Soulseek row (Xtal) adds no second line.
     expect(await screen.findByText('Xtal')).toBeInTheDocument();
     expect(screen.queryByText(/Aphex Twin - Xtal\.mp3 ·/)).not.toBeInTheDocument();
+  });
+
+  it('says how many other songs rode along on a torrent grab, in the song column under its title', async () => {
+    install(
+      paged([
+        {
+          ...QUEUE_ITEMS[0],
+          sourceType: 'torznab',
+          releaseTitle: 'Queen - A Night at the Opera (1975) [FLAC]',
+          containerFile: 'CD1/05 - Bohemian Rhapsody.flac',
+          bundledWithCount: 3,
+        },
+        {
+          ...QUEUE_ITEMS[1],
+          sourceType: 'newznab',
+          releaseTitle: 'Queen - Jazz (1978) [FLAC]',
+          containerFile: '01 - Mustapha.flac',
+          bundledWithCount: 1,
+        },
+      ]),
+    );
+
+    renderApp();
+
+    const line = await screen.findByText(
+      'Queen - A Night at the Opera (1975) [FLAC] · 05 - Bohemian Rhapsody.flac · with 3 other songs',
+    );
+
+    // It sits in the same cell as the song's title, not in the file column.
+    expect(within(line.closest('td') as HTMLElement).getByRole('link', { name: 'Teardrop' })).toBeInTheDocument();
+    // One other song is singular.
+    expect(
+      await screen.findByText('Queen - Jazz (1978) [FLAC] · 01 - Mustapha.flac · with 1 other song'),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps a long release name in a tooltip and lets it wrap rather than widen the page', async () => {
+    const release = `Various Artists - ${'A very long release name '.repeat(8)}[FLAC]`;
+    const user = userEvent.setup();
+    install(
+      paged([
+        {
+          ...QUEUE_ITEMS[0],
+          sourceType: 'torznab',
+          releaseTitle: release,
+          containerFile: '05 - Song.flac',
+          bundledWithCount: 2,
+        },
+      ]),
+    );
+
+    renderApp();
+
+    const full = `${release} · 05 - Song.flac · with 2 other songs`;
+    const line = await screen.findByText(full);
+
+    // At 375 px the line is clamped to two lines in a bounded box and may break inside a word, so it
+    // can never be wider than the box the table cell gives it.
+    expect(line).toHaveStyle({ overflowWrap: 'anywhere' });
+    expect(line.getAttribute('class')).toMatch(/lineClamp|Text-root/);
+
+    await user.hover(line);
+
+    // The tooltip repeats the whole text.
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(full);
   });
 
   it('removes an item straight away when Remove is picked', async () => {

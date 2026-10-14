@@ -66,6 +66,14 @@ Use the same ids as the other \*arr containers so they can all read each other's
 
 A torrent's file is hard-linked into `import.container_staging_path` (default `/data/downloads/containers`). A hard link cannot cross filesystems, so the torrent client's download folder and the staging folder must be on the same mount, as in the one-`/data` layout in [Install](/wondarr/getting-started/install/). When a link is not possible Wondarr copies the file instead. That still works, but it uses extra disk space while the torrent seeds.
 
+## A torrent stops at 98 or 99 %
+
+Wondarr asks qBittorrent for only the files it wants out of a release, so the rest of the torrent is never downloaded. A torrent is cut into pieces that do not line up with file boundaries, and the last piece of a wanted file can reach into the unselected file next to it. Peers that have the whole release will send that piece, but a swarm made of people who also only picked some files may have none who can complete it. The torrent then sits just short of done, and qBittorrent shows it as stalled.
+
+Wondarr shows such a grab as **Queued by peer** with the message "Waiting for peers". It gives up after 30 minutes (`queue.remote_queue_timeout_minutes`, see [Configuration](/wondarr/reference/configuration/)), fails the grab, and moves on to the next candidate for the song. This is by design: a release that cannot finish is not worth holding a download slot for. If you would rather wait longer, raise that setting. A better swarm (more seeders, or a release you know is well seeded) is the real fix.
+
+The **Queue** and **History** pages show which release a file came out of, the file's name inside it and how many other songs came with it, so you can see which release stalled.
+
 ## Where the logs are
 
 **Logs** in the web UI navigation, and the files in `/config/logs` (`wondarr-<date>.json`). Slskd's output is in the same log. Set `log.level` to `Debug` for more detail. See [Tasks, backups and logs](/wondarr/operations/tasks-backups-logs/).

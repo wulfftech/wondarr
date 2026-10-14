@@ -6124,6 +6124,8 @@ export interface components {
             statusMessages: string[];
             releaseTitle: null | string;
             containerFile: null | string;
+            /** Format: int32 */
+            bundledWithCount: number | string;
         };
         QueueStatusResource: {
             /** Format: int32 */
