@@ -9,6 +9,9 @@ public static class NotificationEventNames
     /// <summary>A candidate was handed to a download source.</summary>
     public const string Grab = "grab";
 
+    /// <summary>A source reported a grabbed file complete; it is not verified or imported yet.</summary>
+    public const string Download = "download";
+
     /// <summary>A downloaded file became a library file.</summary>
     public const string Import = "import";
 
@@ -28,5 +31,5 @@ public static class NotificationEventNames
     public const string Test = "test";
 
     /// <summary>Every event a user may subscribe to.</summary>
-    public static readonly IReadOnlyList<string> All = [Grab, Import, Upgrade, Failure, Health, Update];
+    public static readonly IReadOnlyList<string> All = [Grab, Download, Import, Upgrade, Failure, Health, Update];
 }

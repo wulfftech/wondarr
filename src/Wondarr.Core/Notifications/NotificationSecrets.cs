@@ -111,8 +111,23 @@ public static class NotificationSecrets
     /// <param name="incoming">The settings the caller sent.</param>
     /// <param name="stored">The settings on the row, as JSON text, or <see langword="null"/> for a new row.</param>
     /// <param name="fields">The provider's fields, which say what is secret.</param>
+    /// <param name="clear">
+    /// The secret fields to remove, whatever the incoming settings carry for them, or <see langword="null"/>.
+    /// Nothing stored is reused for a cleared field, so the target rule does not apply to it. Names that
+    /// are not secret fields are ignored here; the caller has already refused them.
+    /// </param>
+    /// <param name="blankKeeps">
+    /// Whether a blank string, a JSON null or an omitted key for a secret that has a stored value also
+    /// keeps it, like the mask. The same sent for a secret with nothing stored stays as sent.
+    /// The notifications set this; the other types do not.
+    /// </param>
     /// <exception cref="SecretReentryException">A masked secret would be sent to a target other than the one it was stored for.</exception>
-    public static string Merge(JsonElement incoming, string? stored, IReadOnlyList<NotificationField> fields)
+    public static string Merge(
+        JsonElement incoming,
+        string? stored,
+        IReadOnlyList<NotificationField> fields,
+        IReadOnlyCollection<string>? clear = null,
+        bool blankKeeps = false)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -126,25 +141,48 @@ public static class NotificationSecrets
                 continue;
             }
 
-            if (merged[field.Name] is JsonValue value &&
-                value.TryGetValue<string>(out var text) &&
-                string.Equals(text, Mask, StringComparison.Ordinal))
+            if (clear is not null && clear.Contains(field.Name, StringComparer.Ordinal))
             {
-                // The mask stands for what is stored; with nothing stored it stands for nothing, and
-                // must never become the secret itself.
-                if (existing?[field.Name] is { } kept)
-                {
-                    if (HasValue(kept) && !string.Equals(TargetOf(merged, fields), TargetOf(existing, fields), StringComparison.Ordinal))
-                    {
-                        throw new SecretReentryException(field.Name, field.Label);
-                    }
+                merged.Remove(field.Name);
 
-                    merged[field.Name] = kept.DeepClone();
-                }
-                else
+                continue;
+            }
+
+            // A JSON null and an omitted key both read as null here.
+            var node = merged[field.Name];
+            var isMask = false;
+            var isBlank = false;
+
+            if (node is null)
+            {
+                isBlank = blankKeeps;
+            }
+            else if (node is JsonValue value && value.TryGetValue<string>(out var text))
+            {
+                isMask = string.Equals(text, Mask, StringComparison.Ordinal);
+                isBlank = blankKeeps && text.Length == 0;
+            }
+
+            if (!isMask && !isBlank)
+            {
+                continue;
+            }
+
+            // The mask stands for what is stored; with nothing stored it stands for nothing, and must
+            // never become the secret itself. A blank, a null or an omitted key that keeps does the same
+            // when something is stored, and is just what it was sent as when nothing is.
+            if (existing?[field.Name] is { } kept && (isMask || HasValue(kept)))
+            {
+                if (HasValue(kept) && !string.Equals(TargetOf(merged, fields), TargetOf(existing, fields), StringComparison.Ordinal))
                 {
-                    merged.Remove(field.Name);
+                    throw new SecretReentryException(field.Name, field.Label);
                 }
+
+                merged[field.Name] = kept.DeepClone();
+            }
+            else if (isMask)
+            {
+                merged.Remove(field.Name);
             }
         }
 

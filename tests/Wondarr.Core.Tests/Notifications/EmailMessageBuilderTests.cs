@@ -19,6 +19,7 @@ public sealed class EmailMessageBuilderTests : IDisposable
     public void Dispose() => Directory.Delete(_directory, recursive: true);
 
     [Theory]
+    [InlineData(NotificationEventNames.Download, "Wondarr: downloaded Oasis – Wonderwall")]
     [InlineData(NotificationEventNames.Import, "Wondarr: imported Oasis – Wonderwall")]
     [InlineData(NotificationEventNames.Upgrade, "Wondarr: upgraded Oasis – Wonderwall")]
     [InlineData(NotificationEventNames.Failure, "Wondarr: failed Oasis – Wonderwall")]
@@ -193,6 +194,40 @@ public sealed class EmailMessageBuilderTests : IDisposable
         text.IndexOf("First", StringComparison.Ordinal).Should().BeLessThan(text.IndexOf("Second", StringComparison.Ordinal));
         text.Should().Contain("no peers").And.Contain("https://wondarr.example.com/song/3");
         mail.HtmlBody.Should().Contain("Imported (2)").And.Contain("Failed (1)").And.Contain("soulseek");
+    }
+
+    [Fact]
+    public void A_completed_download_shows_the_detail_table_and_the_cover_url_but_no_embedded_cover()
+    {
+        var mail = Single(EmailSamples.Song(NotificationEventNames.Download, coverUrl: "https://img.example.com/c.jpg"));
+
+        mail.Subject.Should().Be("Wondarr: downloaded Oasis – Wonderwall");
+        mail.TextBody.Should().Contain("Artist: Oasis").And.Contain("Title: Wonderwall").And.Contain("Album: Morning Glory");
+        mail.TextBody.Should().Contain("Source: soulseek").And.Contain("Quality: FLAC").And.Contain("Size: 30.0 MB");
+        mail.HtmlBody.Should().Contain("<table").And.Contain("Downloaded Oasis").And.Contain("src=\"https://img.example.com/c.jpg\"");
+        mail.BodyParts.OfType<MimePart>().Should().NotContain(part => part.ContentType.MediaType == "image");
+    }
+
+    [Fact]
+    public void A_digest_has_a_downloaded_group_before_the_imported_one_and_counts_it_in_the_subject()
+    {
+        var entries = new List<DigestEntry>
+        {
+            new(EmailSamples.Song(NotificationEventNames.Import, 1, title: "First"), Now.AddMinutes(1)),
+            new(EmailSamples.Song(NotificationEventNames.Download, 2, title: "Alpha"), Now.AddMinutes(2)),
+            new(EmailSamples.Song(NotificationEventNames.Download, 3, title: "Beta"), Now.AddMinutes(3)),
+            new(EmailSamples.Song(NotificationEventNames.Download, 4, title: "Gamma"), Now.AddMinutes(4)),
+            new(EmailSamples.Song(NotificationEventNames.Import, 5, title: "Second"), Now.AddMinutes(5)),
+        };
+
+        var mail = Digest(entries);
+
+        mail.Subject.Should().Be("Wondarr: 3 downloaded, 2 imported (14:00–14:30)");
+
+        var text = mail.TextBody!;
+        text.Should().Contain("Downloaded (3)").And.Contain("Imported (2)");
+        text.IndexOf("Downloaded (3)", StringComparison.Ordinal).Should().BeLessThan(text.IndexOf("Imported (2)", StringComparison.Ordinal));
+        mail.HtmlBody.Should().Contain("Downloaded (3)").And.Contain("Imported (2)");
     }
 
     [Fact]

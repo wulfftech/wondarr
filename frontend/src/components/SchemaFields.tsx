@@ -121,7 +121,11 @@ export function targetOf(fields: NotificationFieldResource[], values: Record<str
         return raw === true ? 'ssl' : 'plain';
       }
 
-      return urlTarget(typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '');
+      const text = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '';
+
+      // A blank value of a field that has a default is that default (an empty SMTP port is 587), the
+      // same rule the server applies, so blank and 587 are one target.
+      return urlTarget(text.trim() === '' && field.targetDefault ? field.targetDefault : text);
     })
     .join('|');
 }
@@ -236,18 +240,30 @@ export function SettingsField({
   value,
   masked,
   reenter = false,
+  cleared = false,
   error,
   pairLabels,
   onChange,
+  onClear,
+  onUndoClear,
 }: {
   field: NotificationFieldResource;
   value: unknown;
   masked: boolean;
   /** The saved address changed, so a masked secret must be typed again: the server will not reuse it. */
   reenter?: boolean;
+  /** The stored secret is marked to be removed on save; the field shows that instead of an input. */
+  cleared?: boolean;
   error?: string;
   pairLabels?: PairLabels;
   onChange: (value: unknown) => void;
+  /**
+   * Offers a "Clear" action next to an optional secret that holds a stored value. Only the notification
+   * form passes it; a form that does not has no way to clear a secret.
+   */
+  onClear?: () => void;
+  /** Takes the clear back. Passed with `onClear`. */
+  onUndoClear?: () => void;
 }) {
   const mustReenter = field.secret && masked && reenter;
   const label = field.required || mustReenter ? `${field.label} *` : field.label;
@@ -258,15 +274,55 @@ export function SettingsField({
   // A secret is always a password input, whatever the type says: the value is never shown, and the
   // mask is what the empty field stands for. Discord's webhook URL is a secret *and* a URL.
   if (field.secret) {
-    return (
+    // Only an optional secret that is stored can be cleared; a required one can only be replaced.
+    const clearable = onClear !== undefined && !field.required && masked;
+
+    if (clearable && cleared) {
+      return (
+        <Stack gap={4}>
+          <Text size="sm" fw={500}>
+            {label}
+          </Text>
+          <Group gap="xs">
+            <Text size="sm" c="dimmed">
+              Will be cleared on save
+            </Text>
+            <Button
+              variant="subtle"
+              size="compact-sm"
+              aria-label={`Undo clearing ${field.label}`}
+              onClick={onUndoClear}
+            >
+              Undo
+            </Button>
+          </Group>
+        </Stack>
+      );
+    }
+
+    const input = (
       <PasswordInput
         label={label}
         description={description}
         placeholder={masked && !mustReenter ? SECRET_MASK : undefined}
         value={typeof value === 'string' ? value : ''}
         error={error}
+        style={clearable ? { flex: 1 } : undefined}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
+    );
+
+    if (!clearable) {
+      return input;
+    }
+
+    return (
+      <Group align="flex-end" wrap="nowrap" gap="xs">
+        {input}
+        <Button variant="subtle" color="red" size="compact-sm" aria-label={`Clear ${field.label}`} onClick={onClear}>
+          Clear
+        </Button>
+      </Group>
     );
   }
 
