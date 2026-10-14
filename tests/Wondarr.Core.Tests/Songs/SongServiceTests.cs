@@ -334,6 +334,79 @@ public class SongServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_racing_add_of_the_same_recording_answers_already_exists_with_the_winner()
+    {
+        await using var context = await ContextAsync();
+
+        // The racing request saves the recording after this one checked for it and before it writes.
+        StubCoverArtThen(() => SaveWinnerAsync("Get Lucky", mbRecordingId: "m-a"));
+
+        var results = await NewService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", Single("s-a", "Get Lucky"))],
+            new SongAddOptions { IsolateFailures = true },
+            CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+
+        var stored = await context.Songs.AsNoTracking().SingleAsync();
+
+        results[0].Outcome.Should().Be(SongAddOutcome.AlreadyExists);
+        results[0].Song.Id.Should().Be(stored.Id);
+        results[0].Song.MbRecordingId.Should().Be("m-a");
+
+        // Nothing of the loser's write is left behind: one song, one artist, one album context.
+        (await context.Artists.CountAsync()).Should().Be(1);
+        (await context.AlbumContexts.CountAsync()).Should().Be(1);
+        (await context.SongArtists.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_racing_add_of_the_same_deezer_track_inside_a_batch_loses_only_that_song()
+    {
+        await using var context = await ContextAsync();
+
+        StubCoverArtThen(() => SaveWinnerAsync("Poison", deezerId: 44));
+
+        var results = await NewService(context).AddIdentitiesAsync(
+            [
+                DeezerIdentity(42, "Get Lucky"),
+                DeezerIdentity(44, "Poison"),
+                DeezerIdentity(43, "Instant Crush"),
+            ],
+            new SongAddOptions { IsolateFailures = true },
+            CancellationToken.None);
+
+        results.Select(result => result.Outcome)
+            .Should().Equal(SongAddOutcome.Added, SongAddOutcome.AlreadyExists, SongAddOutcome.Added);
+        results[1].Song.DeezerId.Should().Be(44);
+        results[1].Song.Id.Should().BeGreaterThan(0);
+
+        context.ChangeTracker.Clear();
+
+        (await context.Songs.Select(song => song.DeezerId).OrderBy(id => id).ToListAsync())
+            .Should().Equal(42L, 43L, 44L);
+    }
+
+    [Fact]
+    public async Task A_save_failure_that_is_not_a_duplicate_recording_still_fails_the_song()
+    {
+        await using var context = await ContextAsync();
+        StubCoverArt();
+
+        // Not the recording or Deezer index: the song fails as it always did.
+        await context.Database.ExecuteSqlRawAsync(
+            "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
+            + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
+
+        var results = await NewService(context).AddIdentitiesAsync(
+            [DeezerIdentity(44, "Poison", "m-b")],
+            new SongAddOptions { IsolateFailures = true },
+            CancellationToken.None);
+
+        results[0].Outcome.Should().Be(SongAddOutcome.Failed);
+    }
+
+    [Fact]
     public async Task Two_identities_of_one_batch_that_share_a_deezer_id_are_one_song()
     {
         await using var context = await ContextAsync();
@@ -751,6 +824,40 @@ public class SongServiceTests : IDisposable
         (await service.DeleteAsync(songId, CancellationToken.None)).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(QueueItemState.Queued)]
+    [InlineData(QueueItemState.RemotelyQueued)]
+    [InlineData(QueueItemState.Downloading)]
+    [InlineData(QueueItemState.Completed)]
+    [InlineData(QueueItemState.Importing)]
+    public async Task A_song_with_a_transfer_in_flight_cannot_be_deleted_and_its_queue_item_is_intact(QueueItemState state)
+    {
+        await using var context = await ContextAsync();
+        var song = await SongSeed.AddAsync(context, "Busy");
+        await AddQueueItemAsync(context, song.Id, state);
+
+        var delete = async () => await NewService(context).DeleteAsync(song.Id, CancellationToken.None);
+
+        (await delete.Should().ThrowAsync<SongsBusyException>()).Which.BusyIds.Should().Equal(song.Id);
+        context.ChangeTracker.Clear();
+        (await context.Songs.CountAsync()).Should().Be(1);
+        (await context.QueueItems.SingleAsync(item => item.SongId == song.Id)).State.Should().Be(state);
+    }
+
+    [Fact]
+    public async Task A_song_with_only_finished_queue_items_is_deleted_with_them()
+    {
+        await using var context = await ContextAsync();
+        var song = await SongSeed.AddAsync(context, "Done");
+        await AddQueueItemAsync(context, song.Id, QueueItemState.Imported);
+
+        (await NewService(context).DeleteAsync(song.Id, CancellationToken.None)).Should().BeTrue();
+
+        context.ChangeTracker.Clear();
+        (await context.Songs.CountAsync()).Should().Be(0);
+        (await context.QueueItems.CountAsync()).Should().Be(0);
+    }
+
     [Fact]
     public async Task Choosing_an_album_while_the_song_is_being_moved_is_refused_and_changes_nothing()
     {
@@ -832,6 +939,38 @@ public class SongServiceTests : IDisposable
         changed.Song.AlbumContext!.AlbumKey.Should().Be("r1", "only the database changes");
         await commands.DidNotReceive()
             .EnqueueAsync("RefileSong", Arg.Any<string?>(), Arg.Any<CommandTrigger>(), Arg.Any<CancellationToken>());
+    }
+
+    private async Task AddQueueItemAsync(WondarrDbContext context, long songId, QueueItemState state)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var run = new SearchRun { SongId = songId, StartedAt = now };
+        var candidate = new CandidateRecord
+        {
+            SearchRun = run,
+            SongId = songId,
+            SourceType = "soulseek",
+            BlocklistKey = "user/path/" + songId,
+            DisplayName = "file.flac",
+            RemotePath = "path/file.flac",
+        };
+
+        context.Candidates.Add(candidate);
+        await context.SaveChangesAsync();
+
+        context.QueueItems.Add(new QueueItem
+        {
+            SongId = songId,
+            CandidateId = candidate.Id,
+            SearchRunId = run.Id,
+            SourceType = "soulseek",
+            Destination = "wondarr/" + songId,
+            State = state,
+            StateChangedAt = now,
+            LastProgressAt = now,
+        });
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
     }
 
     private static async Task AddMoveAsync(
@@ -1089,6 +1228,41 @@ public class SongServiceTests : IDisposable
             commands ?? SearchOnAddOff.Commands,
             options ?? Queue().Options,
             NullLogger<SongService>.Instance);
+    }
+
+    /// <summary>
+    /// Stubs the cover archive like <see cref="StubCoverArt"/> and, on its first call (which comes after the
+    /// add checked what the library holds and before it writes), runs <paramref name="beforeWrite"/>: the
+    /// seam a racing request slips through.
+    /// </summary>
+    private void StubCoverArtThen(Func<Task> beforeWrite)
+    {
+        var fired = false;
+
+        _coverArt.ResolveAsync(Arg.Any<CoverArtRequest>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                if (!fired)
+                {
+                    fired = true;
+                    await beforeWrite();
+                }
+
+                return (CoverArt?)new CoverArt(CoverUrl, "coverartarchive");
+            });
+    }
+
+    /// <summary>Saves a song through a second context, as a request that won the race would.</summary>
+    private async Task SaveWinnerAsync(string title, string? mbRecordingId = null, long? deezerId = null)
+    {
+        await using var other = _database.CreateContext(_timeProvider);
+        var winner = await SongSeed.AddAsync(other, title);
+
+        await other.Songs
+            .Where(song => song.Id == winner.Id)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(song => song.MbRecordingId, mbRecordingId)
+                .SetProperty(song => song.DeezerId, deezerId));
     }
 
     private void StubCoverArt() =>

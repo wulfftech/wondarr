@@ -280,7 +280,7 @@ public sealed class SongController : ControllerBase
     /// <summary>Deletes a song.</summary>
     /// <param name="id">The song id.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>200 when it was deleted, 404 when the id is unknown.</returns>
+    /// <returns>200 when it was deleted, 404 when the id is unknown, 409 when a transfer or a compaction has it.</returns>
     [HttpDelete("{id:long}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -290,6 +290,21 @@ public sealed class SongController : ControllerBase
         try
         {
             return await _songs.DeleteAsync(id, cancellationToken).ConfigureAwait(false) ? Ok() : NotFound();
+        }
+        catch (SongsBusyException exception)
+        {
+            // The same 409 the library's mass delete answers for a song with a transfer in flight.
+            var problem = Problem(
+                title: "Songs in the queue",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status409Conflict);
+
+            if (problem.Value is ProblemDetails details)
+            {
+                details.Extensions["songIds"] = exception.BusyIds;
+            }
+
+            return problem;
         }
         catch (SongsCompactingException exception)
         {
@@ -344,6 +359,17 @@ public sealed class SongController : ControllerBase
         try
         {
             found = await _resolver.SearchPartialAsync(term, LookupLimit, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ProvidersUnavailableException exception) when (exception.InnerException is MetadataProviderException { IsUnavailable: false })
+        {
+            var rejected = (MetadataProviderException)exception.InnerException!;
+
+            // The provider refused the request (a banned User-Agent, a bad key): waiting will not help,
+            // so this is a bad gateway, not a busy one. Nothing of the provider's reply is repeated.
+            return Problem(
+                title: $"{MetadataUnavailableFilterAttribute.NameOf(rejected.Provider)} returned an error",
+                detail: $"{MetadataUnavailableFilterAttribute.NameOf(rejected.Provider)} answered {(int)rejected.StatusCode}.",
+                statusCode: StatusCodes.Status502BadGateway);
         }
         catch (ProvidersUnavailableException exception)
         {
