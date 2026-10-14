@@ -312,8 +312,11 @@ public sealed class SongEditorService : ISongEditorService
         ];
     }
 
-    /// <summary>Queue states in which a download or an import is still in flight.</summary>
-    private static readonly QueueItemState[] ActiveStates =
+    /// <summary>
+    /// Queue states in which a download or an import is still in flight. Shared with
+    /// <see cref="SongService.DeleteAsync"/>, which refuses a delete in the same states.
+    /// </summary>
+    internal static readonly QueueItemState[] ActiveStates =
     [
         QueueItemState.Queued,
         QueueItemState.RemotelyQueued,

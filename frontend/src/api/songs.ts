@@ -211,17 +211,17 @@ export function useUpdateSong(): UseMutationResult<
   });
 }
 
-/** Removes a song from the library. */
+/** Removes a song from the library; the API answers 409 while it is downloading, importing or being compacted. */
 export function useDeleteSong(): UseMutationResult<void, Error, number> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (id: number): Promise<void> => {
-      const { response } = await client.DELETE('/api/v1/song/{id}', { params: { path: { id } } });
+      const { error, response } = await client.DELETE('/api/v1/song/{id}', { params: { path: { id } } });
 
       if (!response.ok) {
-        throw new ApiError(response.status, 'The song could not be deleted.');
+        throw problemError(response.status, error, 'The song could not be deleted.');
       }
     },
     onSuccess: () => invalidateLibrary(queryClient),

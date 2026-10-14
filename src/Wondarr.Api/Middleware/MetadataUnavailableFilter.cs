@@ -111,7 +111,9 @@ public sealed class MetadataUnavailableFilterAttribute : ExceptionFilterAttribut
         };
     }
 
-    private static string NameOf(string provider) => provider switch
+    /// <summary>The name a person knows a provider by.</summary>
+    /// <param name="provider">The provider key.</param>
+    public static string NameOf(string provider) => provider switch
     {
         ProviderKeys.MusicBrainz => "MusicBrainz",
         ProviderKeys.Deezer => "Deezer",
