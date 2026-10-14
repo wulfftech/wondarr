@@ -26,8 +26,10 @@ import {
   type QueueResource,
   type RemoveQueueItemInput,
 } from '../api/queue';
+import { ContainerLine } from '../components/ContainerLine';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { SongLink } from '../components/song/SongLink';
+import { fileNameOf } from '../components/text';
 
 /** The queue: every grab in flight, how far it has got and why one failed (ARCHITECTURE §5.6). */
 
@@ -148,12 +150,25 @@ function ProgressCell({ item }: { item: QueueResource }) {
   );
 }
 
-/** The body of one removal: what the user asked for, as the endpoint reads it. */
-/** The last segment of a path inside a container, whichever slash it was written with. */
-function fileNameOf(path: string): string {
-  return path.split(/[\\/]/).pop() ?? path;
+/**
+ * The release line for a torrent or usenet row, or nothing for a single-file source. Soulseek and
+ * YouTube rows carry no release, so they stay as they were.
+ */
+function ReleaseLine({ item }: { item: QueueResource }) {
+  if (!item.releaseTitle) {
+    return null;
+  }
+
+  return (
+    <ContainerLine
+      release={item.releaseTitle}
+      file={item.containerFile ? fileNameOf(item.containerFile) : null}
+      bundledCount={Number(item.bundledWithCount)}
+    />
+  );
 }
 
+/** The body of one removal: what the user asked for, as the endpoint reads it. */
 function removeInput(item: QueueResource, action: ConfirmableAction): RemoveQueueItemInput {
   return {
     id: Number(item.id),
@@ -167,6 +182,7 @@ function removeInput(item: QueueResource, action: ConfirmableAction): RemoveQueu
 function queueColumns(
   onRemove: (item: QueueResource) => void,
   onConfirm: (item: QueueResource, action: ConfirmableAction) => void,
+  showSong: boolean,
 ): PagedColumn<QueueResource>[] {
   return [
     {
@@ -178,6 +194,7 @@ function queueColumns(
           <Text size="xs" c="dimmed">
             {item.artistCredit}
           </Text>
+          <ReleaseLine item={item} />
         </Stack>
       ),
     },
@@ -205,12 +222,8 @@ function queueColumns(
         <Tooltip label={item.remotePath} multiline w={420}>
           <Stack gap={0}>
             <Text size="sm">{item.displayName}</Text>
-            {item.releaseTitle ? (
-              <Text size="xs" c="dimmed">
-                {item.releaseTitle}
-                {item.containerFile ? ` · ${fileNameOf(item.containerFile)}` : ''}
-              </Text>
-            ) : null}
+            {/* One song's own queue has no Song column to carry the line, so it sits here. */}
+            {showSong ? null : <ReleaseLine item={item} />}
           </Stack>
         </Tooltip>
       ),
@@ -346,10 +359,14 @@ export function QueuePage({ songId }: { songId?: number } = {}) {
       )}
 
       <PagedTable
-        columns={queueColumns(removeNow, (item, action) => {
-          remove.reset();
-          setPending({ item, action });
-        }).filter((column) => songId === undefined || column.label !== 'Song')}
+        columns={queueColumns(
+          removeNow,
+          (item, action) => {
+            remove.reset();
+            setPending({ item, action });
+          },
+          songId === undefined,
+        ).filter((column) => songId === undefined || column.label !== 'Song')}
         rows={query.data?.records ?? []}
         totalRecords={Number(query.data?.totalRecords ?? 0)}
         paging={paging}
