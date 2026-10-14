@@ -49,20 +49,29 @@ public sealed class SongsNotFoundException : Exception
     public IReadOnlyList<long> MissingIds { get; }
 }
 
-/// <summary>Some of the songs a mass delete names are downloading or importing right now.</summary>
+/// <summary>Some of the songs a delete names are queued, downloading or importing right now.</summary>
 public sealed class SongsBusyException : Exception
 {
     /// <summary>Initialises a new instance of the <see cref="SongsBusyException"/> class.</summary>
     /// <param name="busyIds">The songs with a queue item still in flight.</param>
     public SongsBusyException(IReadOnlyList<long> busyIds)
-        : base("These songs are downloading or importing; remove them from the queue first: "
-            + string.Join(", ", busyIds.Take(10)) + (busyIds.Count > 10 ? ", ..." : string.Empty))
+        : base(MessageFor(busyIds))
     {
         BusyIds = busyIds;
     }
 
     /// <summary>Gets every song with a queue item in flight.</summary>
     public IReadOnlyList<long> BusyIds { get; }
+
+    private static string MessageFor(IReadOnlyList<long> busyIds)
+    {
+        ArgumentNullException.ThrowIfNull(busyIds);
+
+        return busyIds.Count <= 1
+            ? "This song is queued, downloading or importing; remove it from the queue first."
+            : "These songs are queued, downloading or importing; remove them from the queue first: "
+                + string.Join(", ", busyIds.Take(10)) + (busyIds.Count > 10 ? ", ..." : string.Empty);
+    }
 }
 
 /// <summary>The rules of the Library page's mass editor and its tag list.</summary>

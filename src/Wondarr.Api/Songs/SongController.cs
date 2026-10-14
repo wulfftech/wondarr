@@ -360,16 +360,9 @@ public sealed class SongController : ControllerBase
         {
             found = await _resolver.SearchPartialAsync(term, LookupLimit, cancellationToken).ConfigureAwait(false);
         }
-        catch (ProvidersUnavailableException exception) when (exception.InnerException is MetadataProviderException { IsUnavailable: false })
+        catch (ProvidersUnavailableException exception) when (MetadataUnavailableFilterAttribute.IsRejection(exception, out var rejected))
         {
-            var rejected = (MetadataProviderException)exception.InnerException!;
-
-            // The provider refused the request (a banned User-Agent, a bad key): waiting will not help,
-            // so this is a bad gateway, not a busy one. Nothing of the provider's reply is repeated.
-            return Problem(
-                title: $"{MetadataUnavailableFilterAttribute.NameOf(rejected.Provider)} returned an error",
-                detail: $"{MetadataUnavailableFilterAttribute.NameOf(rejected.Provider)} answered {(int)rejected.StatusCode}.",
-                statusCode: StatusCodes.Status502BadGateway);
+            return MetadataUnavailableFilterAttribute.Rejected(HttpContext, rejected);
         }
         catch (ProvidersUnavailableException exception)
         {

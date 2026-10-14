@@ -229,6 +229,32 @@ public sealed class MetadataUnavailableApiTests
             "MusicBrainz did not answer; try again in a minute.");
     }
 
+    [Fact]
+    public async Task An_album_lookup_where_the_providers_refuse_the_request_is_a_502_problem()
+    {
+        using var factory = SongApiTests.FakeProviders();
+        using (var scope = factory.Services.CreateScope())
+        {
+            scope.ServiceProvider.GetRequiredService<IMusicBrainzClient>()
+                .SearchReleaseGroupsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns<MbReleaseGroupSearchResult>(_ => throw new MetadataProviderException("musicbrainz", HttpStatusCode.Forbidden, "MusicBrainz answered 403."));
+            scope.ServiceProvider.GetRequiredService<IDeezerClient>()
+                .SearchAlbumsAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                .Returns<DeezerAlbumSearchResult>(_ => throw new MetadataProviderException("deezer", HttpStatusCode.Forbidden, "Deezer answered 403."));
+        }
+
+        using var client = SongApiTests.Authenticated(factory);
+
+        using var response = await client.GetAsync(new Uri(AlbumLookup, UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+        response.Headers.RetryAfter.Should().BeNull();
+
+        var problem = await SongApiTests.ReadJsonAsync(response);
+        problem.GetProperty("title").GetString().Should().EndWith("returned an error");
+        problem.GetProperty("status").GetInt32().Should().Be(502);
+    }
+
     private static MetadataProviderException Busy() =>
         new("musicbrainz", HttpStatusCode.ServiceUnavailable, "MusicBrainz answered 503 for a GET request.");
 
