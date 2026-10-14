@@ -200,6 +200,18 @@ describe('InteractiveSearchModal', () => {
     expect(await screen.findByText('The search was cancelled: The search was cancelled.')).toBeInTheDocument();
   });
 
+  it('labels a run that found no free download slot', async () => {
+    SEARCH_ANSWER.current = {
+      searchRunId: 6,
+      outcome: 'noFreeSlot',
+      message: 'No free download slot',
+      releases: [],
+    };
+    renderModal();
+
+    expect(await screen.findByText('No free download slot: No free download slot')).toBeInTheDocument();
+  });
+
   it('expands the score breakdown when a row is clicked', async () => {
     renderModal();
     const user = userEvent.setup();

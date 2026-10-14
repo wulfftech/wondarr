@@ -340,6 +340,46 @@ public async Task A_failed_run_neither_resets_nor_lengthens_the_backoff()
     message.Should().Be("1 songs: 1 grabbed, 0 without an acceptable result, 0 skipped");
 }
 
+[Fact]
+public async Task A_run_that_found_no_free_slot_neither_resets_nor_lengthens_the_backoff()
+{
+    await using var host = await SearchTestHost.CreateAsync();
+    var songId = await host.SeedSongAsync();
+    host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+    await using (var context = host.Database.CreateContext(host.Time))
+    {
+        var now = host.Time.GetUtcNow().UtcDateTime;
+
+        context.SearchRuns.Add(new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = now.AddHours(-2),
+            FinishedAt = now.AddHours(-2),
+            Outcome = SearchOutcome.NoResults,
+        });
+
+        // The song was found but never got a slot: that says nothing about the next search, so the wait
+        // still dates from the fruitless run two hours ago, not from this one 30 minutes ago.
+        context.SearchRuns.Add(new SearchRun
+        {
+            SongId = songId,
+            Trigger = SearchTrigger.Automatic,
+            StartedAt = now.AddMinutes(-30),
+            FinishedAt = now.AddMinutes(-30),
+            Outcome = SearchOutcome.NoFreeSlot,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
+    var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+    host.Provider.Requests.Should().ContainSingle("the song is searched again as soon as the first backoff step has passed");
+    message.Should().Be("1 songs: 1 grabbed, 0 without an acceptable result, 0 skipped");
+}
+
 /// <summary>Seeds the song's run history: <paramref name="fruitlessRuns"/> fruitless runs then an older good one.</summary>
     private static async Task SeedRunsAsync(
         SearchTestHost host,
