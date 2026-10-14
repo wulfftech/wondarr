@@ -41,6 +41,7 @@ namespace Wondarr.Api.Queue;
 /// <param name="StatusMessages">Lidarr's <c>statusMessages</c>; always empty.</param>
 /// <param name="ReleaseTitle">The torrent or NZB release the file is inside, or <see langword="null"/> for a single-file source.</param>
 /// <param name="ContainerFile">The file's path inside that release, or <see langword="null"/> for a single-file source.</param>
+/// <param name="BundledWithCount">How many other songs the same torrent or NZB grab carries, 0 for a single-file source.</param>
 public sealed record QueueResource(
     long Id,
     long SongId,
@@ -73,7 +74,8 @@ public sealed record QueueResource(
     long? ArtistId,
     IReadOnlyList<string> StatusMessages,
     string? ReleaseTitle,
-    string? ContainerFile);
+    string? ContainerFile,
+    int BundledWithCount);
 
 /// <summary>Maps a stored queue item onto the wire.</summary>
 public static class QueueResourceExtensions
@@ -87,10 +89,15 @@ public static class QueueResourceExtensions
     /// </summary>
     /// <param name="item">The item, with its song and candidate loaded.</param>
     /// <param name="qualityNames">Quality id → display name.</param>
-    public static QueueResource ToResource(this QueueItem item, IReadOnlyDictionary<long, string> qualityNames)
+    /// <param name="bundledCounts">Candidate id → other songs bundled on its grab, read once per request from the history.</param>
+    public static QueueResource ToResource(
+        this QueueItem item,
+        IReadOnlyDictionary<long, string> qualityNames,
+        IReadOnlyDictionary<long, int> bundledCounts)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(qualityNames);
+        ArgumentNullException.ThrowIfNull(bundledCounts);
 
         var candidate = item.Candidate;
         var qualityId = candidate?.QualityId ?? UnknownQualityId;
@@ -128,7 +135,8 @@ public static class QueueResourceExtensions
             item.Song?.PrimaryArtistId,
             [],
             releaseTitle,
-            releaseTitle is null ? null : candidate!.RemotePath);
+            releaseTitle is null ? null : candidate!.RemotePath,
+            releaseTitle is null ? 0 : bundledCounts.GetValueOrDefault(item.CandidateId));
     }
 
     /// <summary>

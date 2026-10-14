@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- The Queue and History show what a torrent or usenet grab came in. Under the song's title a muted line gives the release, the file inside it and, when other songs rode along, "with N other songs" (long names are cut off with the whole text in a tooltip, and wrap under the title on a phone). A Grabbed event in History shows the same, and lists the other songs by name when the event recorded them. Soulseek and YouTube rows are unchanged. The queue API gains `bundledWithCount`; the troubleshooting page explains why a torrent with only some files selected can stall at 98 to 99 % and why Wondarr fails it after 30 minutes and tries the next candidate.
+
 ### Fixed
 - Two adds of the same recording at once no longer fail the loser: when another request saved the song between the check and the write, the add now answers as it does for any song the library already holds (409 with the existing song's id for a single add, "already in the library" in a bulk add or a pasted list), and nothing of the losing write is left behind.
 - A song-search lookup while MusicBrainz or Deezer is refusing the request (not just busy) answers with a 502 problem naming the provider, not a 503 "try again in a minute".
