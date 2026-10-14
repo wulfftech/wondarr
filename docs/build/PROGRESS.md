@@ -472,3 +472,11 @@ The review (`docs/reviews/CODE_REVIEW_2026-10-10.md`, 94 findings) is worked thr
 **Production (VM 177), 2026-10-13:** updated from 0.1.0 to 0.1.2 by `docker compose pull && up -d` on `:0.1`. Healthy after 15 s. `wondarr_pre-unknown_2026.10.13_02.18.17.zip` (34 MB, mode 600) was written before the 2 pending migrations. `config.yml` was tightened to 600. All 16 Health checks are OK: slskd 0.26 is logged in, Plex is up to date, and every import list was read in full. There were no warnings or errors in the log. The reverse-proxy route (`wondarr.apps.wulff.com.au`) sits behind the owner's forward-auth and sends proxy headers, so it was never covered by the local-address rule.
 
 Then `v0.1.1` was tagged.
+
+## Maintenance — backlog and owner requests (build session 13, 2026-10-14)
+
+Specs M-29 to M-36 (git-ignored, in the main checkout's `docs/build/tasks/`) cover every open backlog item that needs no owner input, plus the owner's three email requests. Backlog 2026-09-29-16 (banned words, impossible per build session 12 #40) and 2026-09-30-19 (compaction vs upgrade, already handled by M-12/M-13) were closed without code.
+
+| Task | State | Delegate | Continuations | Review | Notes |
+|---|---|---|---|---|---|
+| M-31 the song API: a racing add of the same recording answers 409 "already exists"; a refused lookup is a 502; deleting a song in flight is refused | merged `f8abe6b` | sonnet subagent | 2 | sonnet review: nothing major. Fixed: the album search lacked the 502 branch (shared helper now); the non-duplicate negative test was vacuous (proved with `IsDuplicateSongKey => true`); the 503 test depended on provider order; a singular busy-delete message. Also: an import-list Mirror whose song's grab starts between its check and the delete treats it as busy | Backlog 2026-09-28-28, 2026-10-10-02 (lookup already fell back to Deezer and answered 503; wording kept), 2026-10-09-05. Manual reference-match race logged (2026-10-14-01) |
