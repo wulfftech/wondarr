@@ -19,7 +19,7 @@ public sealed class ContainerBundlerBitDepthTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     public async Task A_file_the_size_of_24_bit_rides_along_only_when_the_release_did_not_state_its_depth(
-        bool bitDepthStated,
+        bool sixteenBitStated,
         bool bundled)
     {
         await using var host = await SearchTestHost.CreateAsync();
@@ -54,7 +54,7 @@ public sealed class ContainerBundlerBitDepthTests
                 InfoHash = hash,
                 FileIndex = 0,
                 Files = files,
-                Song = new ContainerMatchRequest("Alpha", VersionFlags.None, null, 200_000, 36, bitDepthStated),
+                Song = new ContainerMatchRequest("Alpha", VersionFlags.None, null, 200_000, 36, sixteenBitStated),
             },
         };
 

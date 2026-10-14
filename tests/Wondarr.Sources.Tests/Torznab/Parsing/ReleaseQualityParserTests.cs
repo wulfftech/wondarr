@@ -83,36 +83,45 @@ public class ReleaseQualityParserTests
     }
 
     [Theory]
+    // Nothing claimed, or a 24-bit form in any spelling: not a 16-bit release.
     [InlineData("Artist - Album (2010) [FLAC]", false)]
     [InlineData("Artist - Album (2010) FLAC", false)]
     [InlineData("nine-inch-nails-the-slip_202607 [FLAC]", false)]
     [InlineData("Artist - Album (2010) MP3 320", false)]
     [InlineData("", false)]
+    [InlineData("Artist - Album FLAC 24-bit", false)]
+    [InlineData("Artist - Album [FLAC 24bit]", false)]
+    [InlineData("Artist - Album [FLAC 24 bit]", false)]
+    [InlineData("Artist - Album [FLAC Hi-Res]", false)]
+    [InlineData("Artist - Album FLAC HiRes", false)]
+    [InlineData("Artist - Album FLAC 24-96", false)]
+    [InlineData("Artist - Album FLAC 24/96", false)]
+    [InlineData("Artist - Album FLAC 24 96", false)]
+    [InlineData("Artist - Album [FLAC] [24-192]", false)]
+    [InlineData("Artist - Album FLAC 24-44.1", false)]
+    [InlineData("Artist - Album FLAC 24-88.2", false)]
+    [InlineData("Artist - Album FLAC 24-176.4", false)]
+    [InlineData("Artist - Album TR24-96", false)]
+    [InlineData("Artist - Album FLAC24", false)]
+    [InlineData("Artist - Album FLAC 16-bit and 24-bit", false)]
+    // An explicit 16-bit or CD claim.
     [InlineData("Artist - Album FLAC 16-bit", true)]
     [InlineData("Artist - Album FLAC 16bit", true)]
     [InlineData("Artist - Album [FLAC 16 bit]", true)]
-    [InlineData("Artist - Album FLAC 24-bit", true)]
-    [InlineData("Artist - Album [FLAC 24bit]", true)]
-    [InlineData("Artist - Album [FLAC 24 bit]", true)]
+    [InlineData("Artist - Album FLAC 16-44", true)]
+    [InlineData("Artist - Album FLAC 16/44.1", true)]
+    [InlineData("Artist_Album_FLAC_16-44", true)]
     [InlineData("Artist - Album FLAC CD", true)]
     [InlineData("Massive Attack-Mezzanine-CD-FLAC-1998-FATHEAD", true)]
     [InlineData("Artist - Album [CDDA] [FLAC]", true)]
     [InlineData("Artist - Album (cd) FLAC", true)]
-    [InlineData("Artist - Album [FLAC Hi-Res]", true)]
-    [InlineData("Artist - Album FLAC HiRes", true)]
-    [InlineData("Artist - Album FLAC 24-96", true)]
-    [InlineData("Artist - Album FLAC 24/96", true)]
-    [InlineData("Artist - Album [FLAC] [24-192]", true)]
-    [InlineData("Artist - Album FLAC 24-44.1", true)]
-    [InlineData("Artist_Album_FLAC_16-44", true)]
-    [InlineData("Artist - Album TR24-96", true)]
     // Token-bounded: a word that merely contains the letters is not a CD.
     [InlineData("Artist - CDJ Sessions [FLAC]", false)]
     [InlineData("ACDC - Back in Black [FLAC]", false)]
     [InlineData("Artist - Abcd [FLAC]", false)]
     [InlineData("Artist - Album 2416 [FLAC]", false)]
-    public void Reads_whether_the_release_name_states_a_bit_depth_or_a_cd_source(string releaseName, bool expected)
+    public void Reads_whether_the_release_name_claims_16_bit_or_a_cd_source(string releaseName, bool expected)
     {
-        ReleaseQualityParser.StatesBitDepth(releaseName).Should().Be(expected);
+        ReleaseQualityParser.StatesSixteenBit(releaseName).Should().Be(expected);
     }
 }

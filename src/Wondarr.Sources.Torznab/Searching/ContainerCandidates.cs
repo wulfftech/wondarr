@@ -48,7 +48,7 @@ public static class ContainerCandidates
         var claimed = ReleaseQualityParser.Parse(release.Title);
         var parsedRelease = ReleaseTitleParser.Parse(release.Title);
         var releaseFlags = VersionFlagParser.Parse(release.Title).Flags;
-        var song = wanted with { QualityId = claimed, BitDepthStated = ReleaseQualityParser.StatesBitDepth(release.Title) };
+        var song = wanted with { QualityId = claimed, SixteenBitStated = ReleaseQualityParser.StatesSixteenBit(release.Title) };
 
         if (listing.Files is not { } files)
         {

@@ -88,10 +88,17 @@ public static class ReleaseQualityParser
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         MatchTimeout);
 
-    // Not Lidarr: whether a name states how deep its samples are, or names a CD source (16-bit), so a bare
-    // "[FLAC]" can be told from "FLAC 16-bit", "FLAC CD" and "FLAC 24-96". Token-bounded: "CDJ" and "ACDC" do not match.
-    private static readonly Regex StatedBitDepthRegex = new(
-        @"\b(?:(?:16|24)[-._ ]?bit|flac24|tr24|cd|cdda|hi[-._ ]?res|(?:16|24)[-/ ](?:44(?:\.1)?|48|88(?:\.2)?|96|176(?:\.4)?|192))\b",
+    // Not Lidarr: whether a name explicitly claims 16-bit or a CD source, so "FLAC 16-bit" and "FLAC CD" can be
+    // told from a bare "[FLAC]". Token-bounded: "CDJ" and "ACDC" do not match.
+    private static readonly Regex SixteenBitRegex = new(
+        @"\b(?:16[-._ ]?bit|cd|cdda|16[-/ ](?:44(?:\.1)?|48))\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase,
+        MatchTimeout);
+
+    // Not Lidarr: every spelling of a 24-bit (hi-res) claim, including the ones Parse does not map to FLAC 24-bit
+    // ("24-88.2", "24 96", "24-176.4"). A name that claims both is not a 16-bit release.
+    private static readonly Regex TwentyFourBitRegex = new(
+        @"\b(?:24[-._ ]?bit|flac24|tr24|hi[-._ ]?res|24[-/ ](?:44(?:\.1)?|48|88(?:\.2)?|96|176(?:\.4)?|192))\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         MatchTimeout);
 
@@ -243,13 +250,15 @@ public static class ReleaseQualityParser
     }
 
     /// <summary>
-    /// Whether a release name states a bit depth or a CD source ("16-bit", "24bit", "CD", "CDDA",
-    /// "Hi-Res", "24-96", "24/192", "24-44.1"). A name that only says "FLAC" does not, and its files may
-    /// be 24-bit. This reads the name only; it does not change what <see cref="Parse"/> returns.
+    /// Whether a release name explicitly claims 16-bit or a CD source ("16-bit", "16bit", "16 bit", "16-44",
+    /// "16/44.1", "CD", "CDDA"). A bare "FLAC" does not, and neither does any 24-bit spelling ("24-bit",
+    /// "24-96", "24 96", "24-88.2", "24-176.4", "Hi-Res", "flac24", "tr24"): such a release may hold 24-bit
+    /// files, whatever <see cref="Parse"/> returns for it. This reads the name only; it does not change what
+    /// <see cref="Parse"/> returns.
     /// </summary>
     /// <param name="releaseName">The release name as the indexer reported it.</param>
-    /// <returns><see langword="true"/> when the name states a depth or a CD source.</returns>
-    public static bool StatesBitDepth(string releaseName)
+    /// <returns><see langword="true"/> when the name claims 16-bit or CD and no 24-bit form.</returns>
+    public static bool StatesSixteenBit(string releaseName)
     {
         if (string.IsNullOrWhiteSpace(releaseName))
         {
@@ -257,7 +266,9 @@ public static class ReleaseQualityParser
         }
 
         // An underscore is a word character to the regex's word boundary; in a release name it separates words.
-        return StatedBitDepthRegex.IsMatch(releaseName.Replace('_', ' '));
+        var name = releaseName.Replace('_', ' ');
+
+        return SixteenBitRegex.IsMatch(name) && !TwentyFourBitRegex.IsMatch(name);
     }
 
     private static Codec ParseCodec(string name)

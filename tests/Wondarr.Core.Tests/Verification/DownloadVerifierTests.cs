@@ -368,7 +368,7 @@ public sealed class DownloadVerifierTests
     }
 
     [Fact]
-    public async Task A_non_version_subtitle_on_the_recording_is_still_the_song()
+    public async Task A_chapter_style_subtitle_on_the_recording_is_still_the_song()
     {
         // Backlog 2026-09-29-19, case 1: AcoustID titles the recording "MALAMENTE (Cap.1: Augurio)".
         var (verifier, _, _, _) = Create(
@@ -385,9 +385,14 @@ public sealed class DownloadVerifierTests
     }
 
     [Theory]
-    [InlineData("Malamente [Cap.1: Augurio]")]
-    [InlineData("Malamente - Cap.1: Augurio")]
-    public async Task Each_kind_of_single_trailing_subtitle_is_dropped(string recordingTitle)
+    [InlineData("Malamente [Chapter 3]")]
+    [InlineData("Malamente - Capítulo IV: Augurio")]
+    [InlineData("Malamente (Capitulo 1: Augurio)")]
+    [InlineData("Malamente (CAP. 2)")]
+    [InlineData("Malamente (Chap. 12)")]
+    [InlineData("Malamente (Act II)")]
+    [InlineData("Malamente (Acto 1)")]
+    public async Task Each_kind_of_chapter_suffix_is_dropped(string recordingTitle)
     {
         var (verifier, _, _, _) = Create(
             probe: Probed(Mp3 with { DurationMs = 150_000 }),
@@ -401,6 +406,7 @@ public sealed class DownloadVerifierTests
     }
 
     [Theory]
+    // Versions the parser knows.
     [InlineData("Get Lucky (Live)")]
     [InlineData("Get Lucky (Live at Coachella)")]
     [InlineData("Get Lucky - Live")]
@@ -408,7 +414,37 @@ public sealed class DownloadVerifierTests
     [InlineData("Get Lucky (Cap.1: Augurio) (Live)")]
     [InlineData("Get Lucky (Acoustic)")]
     [InlineData("Get Lucky (Demo) (Cap.1)")]
-    public async Task A_subtitle_that_is_a_version_still_rejects_a_studio_song(string recordingTitle)
+    // Versions it does not know: none of these may pass for the studio song.
+    [InlineData("Get Lucky (Taylor's Version)")]
+    [InlineData("Get Lucky (8-bit version)")]
+    [InlineData("Get Lucky (En Vivo)")]
+    [InlineData("Get Lucky (Ao Vivo)")]
+    [InlineData("Get Lucky (Acústico)")]
+    [InlineData("Get Lucky (Remixed by X)")]
+    [InlineData("Get Lucky (Reprise)")]
+    [InlineData("Get Lucky (Interlude)")]
+    [InlineData("Get Lucky (Pt. 2)")]
+    [InlineData("Get Lucky (Part 2)")]
+    [InlineData("Get Lucky (Rework)")]
+    [InlineData("Get Lucky (Mashup)")]
+    [InlineData("Get Lucky (Session)")]
+    [InlineData("Get Lucky (Alternate Take)")]
+    // A chapter marker does not excuse a version word in the same suffix.
+    [InlineData("Get Lucky (Cap.1: Piano Version)")]
+    [InlineData("Get Lucky (Chapter 2: Reprise)")]
+    [InlineData("Get Lucky (Cap. 3 - Orchestral)")]
+    [InlineData("Get Lucky (Act II: Interlude)")]
+    [InlineData("Get Lucky [Capítulo 4: Directo]")]
+    [InlineData("Get Lucky (Cap.1: Remezcla)")]
+    [InlineData("Get Lucky (Cap.1: Bootleg)")]
+    [InlineData("Get Lucky (Cap.1: Recorded at Home)")]
+    [InlineData("Get Lucky (Cap.1: Intro)")]
+    [InlineData("Get Lucky (Cap.1: Megamix)")]
+    // Not a chapter marker followed by a number.
+    [InlineData("Get Lucky (Chapter)")]
+    [InlineData("Get Lucky (Capital 1)")]
+    [InlineData("Get Lucky (Actually 2)")]
+    public async Task A_subtitle_that_is_not_a_plain_chapter_marker_rejects_a_studio_song(string recordingTitle)
     {
         var (verifier, _, _, _) = Create(lookup: Lookup(recordingTitle, "Daft Punk", 369.0));
 
@@ -419,9 +455,9 @@ public sealed class DownloadVerifierTests
     }
 
     [Fact]
-    public async Task A_version_song_does_not_take_the_subtitled_studio_recording()
+    public async Task A_version_song_does_not_take_the_chapter_subtitled_studio_recording()
     {
-        // The song is the live take; the recording is a subtitled studio one: the hard flags differ.
+        // The song is the live take; the recording is a chapter-subtitled studio one: the hard flags differ.
         var (verifier, _, _, _) = Create(lookup: Lookup("Get Lucky (Cap.1: Augurio)", "Daft Punk", 369.0));
 
         var result = await verifier.VerifyAsync(
@@ -438,7 +474,7 @@ public sealed class DownloadVerifierTests
     [InlineData("Get Lucky (Cap.1) (Cap.2)")]
     [InlineData("Get Lucky (Cap.1) [Augurio]")]
     [InlineData("Get Lucky - Cap.1 - Augurio")]
-    public async Task A_different_song_with_a_non_version_subtitle_rejects(string recordingTitle)
+    public async Task A_different_song_with_a_chapter_subtitle_rejects(string recordingTitle)
     {
         var (verifier, _, _, _) = Create(lookup: Lookup(recordingTitle, "Daft Punk", 369.0));
 
@@ -448,7 +484,7 @@ public sealed class DownloadVerifierTests
     }
 
     [Fact]
-    public async Task A_subtitle_does_not_loosen_the_artist_rule()
+    public async Task A_chapter_subtitle_does_not_loosen_the_artist_rule()
     {
         var (verifier, _, _, _) = Create(lookup: Lookup("Get Lucky (Cap.1: Augurio)", "Somebody Else", 369.0));
 
@@ -458,17 +494,16 @@ public sealed class DownloadVerifierTests
     }
 
     [Fact]
-    public async Task A_duplicate_is_held_against_the_files_length_not_the_songs()
+    public async Task A_duplicate_ten_seconds_longer_than_the_song_passes_at_the_default_tolerance()
     {
-        // Backlog 2026-09-29-19, case 2: "Little Lion Man" is 238 s, the MusicBrainz duplicate 247 s and
-        // the file 246 s. The file passes the song's window (8 s); the duplicate is 1 s from the file but
-        // 9 s from the song, which a window of 8 s used to refuse.
+        // Backlog 2026-09-29-19, case 2: "Little Lion Man" is 238 s, the MusicBrainz duplicate 247 s. The
+        // file is 240 s, 2 s off the song (inside the default 3 s tolerance) and 7 s off the duplicate.
         var (verifier, _, _, _) = Create(
-            probe: Probed(Mp3 with { DurationMs = 246_000 }),
+            probe: Probed(Mp3 with { DurationMs = 240_000 }),
             lookup: Fixture("lookup-duplicate-of-another-length.json"));
 
         var result = await verifier.VerifyAsync(
-            Request(mbid: LittleLionManId, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: 238_000, toleranceMs: 8000),
+            Request(mbid: LittleLionManId, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: 238_000),
             CancellationToken.None);
 
         result.Outcome.Should().Be(VerificationOutcome.Passed);
@@ -476,20 +511,37 @@ public sealed class DownloadVerifierTests
         result.MatchedRecordingId.Should().Be("e5f6a7b8-c9d0-4e1f-a2b3-c4d5e6f7a8b9");
     }
 
-    [Fact]
-    public async Task A_duplicate_far_from_the_files_length_rejects()
+    [Theory]
+    [InlineData(250.0, true)]
+    [InlineData(230.0, true)]
+    [InlineData(250.5, false)]
+    [InlineData(260.0, false)]
+    [InlineData(200.0, false)]
+    public async Task A_duplicate_must_be_within_ten_seconds_of_the_files_length(double duplicateSeconds, bool passes)
     {
-        // The same duplicate (247 s) against a file that is 238 s: 9 s off the file, past the 8 s window.
         var (verifier, _, _, _) = Create(
-            probe: Probed(Mp3 with { DurationMs = 238_000 }),
-            lookup: Fixture("lookup-duplicate-of-another-length.json"));
+            probe: Probed(Mp3 with { DurationMs = 240_000 }),
+            lookup: Lookup("Little Lion Man", "Mumford & Sons", duplicateSeconds));
 
         var result = await verifier.VerifyAsync(
-            Request(mbid: LittleLionManId, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: 238_000, toleranceMs: 8000),
+            Request(mbid: LittleLionManId, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: 238_000),
             CancellationToken.None);
 
-        result.Outcome.Should().Be(VerificationOutcome.Failed);
-        result.Reason.Should().Contain("different recording");
+        result.Outcome.Should().Be(passes ? VerificationOutcome.Passed : VerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public async Task A_profile_tolerance_wider_than_ten_seconds_widens_the_duplicate_window()
+    {
+        var (verifier, _, _, _) = Create(
+            probe: Probed(Mp3 with { DurationMs = 240_000 }),
+            lookup: Lookup("Little Lion Man", "Mumford & Sons", 254.0));
+
+        var result = await verifier.VerifyAsync(
+            Request(mbid: LittleLionManId, title: "Little Lion Man", artist: "Mumford & Sons", durationMs: 238_000, toleranceMs: 15_000),
+            CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
     }
 
     /// <summary>One AcoustID result at 0.95 holding one recording.</summary>
