@@ -2,7 +2,7 @@
 
 > **Name:** the project was renamed from *Compilarr* to **Wondarr** on 2026-09-28 (Phase 1a, `docs/DECISIONS.md` build session 2 #10). Session log entries before Phase 1a use the old name and paths.
 
-**Updated:** 2026-10-09, end of build session 10 (Phase 8) · **For:** the next session, run locally from `D:\Code\wondarr` in Claude Code on Opus 5.5 (`/model claude-opus-5-5`), delegating to Claude Code subagents (DECISIONS build session 10 #1; OpenRouter paused).
+**Updated:** 2026-10-14, end of build session 13 · **For:** the next session, run from a worktree of `D:\Code\wondarr` in Claude Code on Opus 5.5, delegating to Sonnet subagents (`isolation: "worktree"`) with a separate Sonnet review per task.
 
 ## 1. Where things stand
 
@@ -15,8 +15,10 @@
 - **Phase 5 is done (2026-10-07)** — the upgrade loop (identity rule, fingerprint-confirmed upgrades, search on add), the per-song guard between imports and compaction, backups with a staged restore, the Tasks/Backup/Logs pages and APIs, external-slskd mode with its settings, `release/push`, Lidarr queue fields and `/docs`. The Phase 4 **and** Phase 5 gates pass in CI (Phases 0–5 green in one run) and live on `ch01` (backup → fresh container, three YouTube fills, real upgrades). See the build-session-6 entry.
 - **Phase 6 is done (2026-10-07)** — synced import lists (CSV/Exportify in any language, Deezer, YouTube Music, Last.fm, ListenBrainz, reference libraries) with sync policies and Plex playlists kept in place, plus the owner's additions: album add, several libraries with their own Plex sections, and conversion for every source and on demand. The gate passes in CI (Phases 0–6) and was checked live on `ch01`. See the build-session-7 entry.
 - **Phase 7 is done (2026-10-09)** — torrents and usenet (Torznab, Newznab, Prowlarr, Gazelle; qBittorrent with file selection, SABnzbd with trimming; bundling; `release/push`). See the build-session-9 entry.
-- **Phase 8 is done (2026-10-09)** — the spectral fake-lossless check, the library mass editor with tags, filters and saved views, ReplayGain, housekeeping, the queue's container display, Settings → General, the docs site (`website/`) and the Unraid template, release engineering (native amd64/arm64 smoke, GitHub Release from a tag), the Phase 0 upgrade test; the release gate passed live on `ch01`. **The release candidate `v0.1.0-rc.1` is published** (owner's choice: a pre-release first) — multi-arch image `ghcr.io/wulfftech/wondarr:0.1.0-rc.1`, a GitHub pre-release, the docs live at https://wulfftech.github.io/wondarr/; the final `v0.1.0` waits for the owner — see the build-session-10 entry.
-- The next unit of work is **cutting v0.1.0 with the owner, then maintenance and the backlog** (the Later list in `docs/build/PHASES.md`, the open items below).
+- **Phase 8 is done (2026-10-09)** — the spectral fake-lossless check, the library mass editor, ReplayGain, housekeeping, the docs site (`website/`) and the Unraid template, and release engineering (native amd64/arm64 smoke, a GitHub Release from each tag).
+- **Released:** 0.1.0 (2026-10-10), then 0.1.1 to 0.1.4 with every fix from the 2026-10-10 code review (build session 12; plan in `docs/reviews/REVIEW_PLAN_2026-10-10.md`), email notifications in 0.1.4, then 0.1.5 and 0.1.6 (build session 13: the open backlog, the owner's notification requests and .NET 10.0.13). Releases are at https://github.com/wulfftech/wondarr/releases; `:0.1` and `:latest` follow the newest.
+- **Production** (VM 177, `/srv/wondarr`, image `:0.1`) runs **0.1.6** since 2026-10-14, all 16 Health checks OK. The test instance `wondarr-test` on `ch01` follows `:develop` (Watchtower, daily at 01:10).
+- The next unit of work is the owner's choice from the open backlog (the cross-repo `agent-todo.json`, source `wondarr`) and the Later list in `docs/build/PHASES.md`. The per-task record is the last two Maintenance tables in `docs/build/PROGRESS.md`.
 
 ## 2. The product in one paragraph
 
@@ -38,14 +40,12 @@ Sanity check before delegating anything: `python scripts/worker.py --dry-run run
 
 ## 4. Things the owner still has to provide
 
-- A **dedicated Soulseek account** only if the current one starts getting kicked by duplicate logins (validated in Phase 2: no duplicate-login kick during any of the live runs).
-- A reachable **Plex server** and token for the Phase 3 live checks (the token is in `.env`); a throwaway unclaimed Plex Media Server on `ch01` served the grouping check in build session 4.
-- **A real folder of ~500 mixed music files** reachable from `ch01`, for the Phase 3 gate's live 500-file check.
-- **Raise the OpenRouter key's lifetime limit before Phase 7:** USD 21.64 of USD 25 used after build session 7 (USD 3.36 left). Phase 6 cost USD 3.93 with the orchestrator writing four backend tasks; T3 runs cost USD 0.4–0.9 and all ran out of turns.
-- **qBittorrent and SABnzbd test instances** (and indexer access through Prowlarr, if a live check needs real indexers) for Phase 7.
-- Deleting the old `ghcr.io/wulfftech/compilarr` package when convenient (the new one is public already).
-- Optional: qBittorrent/SABnzbd/Prowlarr test instances for Phase 7.
-- Provided already: AcoustID key, Plex token, Soulseek credentials (all in `.env`), worker model (DeepSeek V4.1 Flash), the OpenRouter key (lifetime limit USD 10 as of 2026-09-30; USD 9.77 used after build session 4), worker caps (100 turns / 60 min).
+- **A real folder of ~500 unedited album/single files** reachable from `ch01`, for the Phase 3 gate's live 500-file check (backlog 2026-09-30-17).
+- **A pass over the Match queue on `ch01`** (80 wedding-set files; about 13 top candidates are wrong, so no blind bulk accept; backlog 2026-09-30-18).
+- **A usenet provider and an NZB indexer** for a live SABnzbd check (backlog 2026-10-09-01; CI covers SABnzbd with a fake).
+- The Unraid Community Apps submission is on hold by the owner's choice.
+- Deleting the old `ghcr.io/wulfftech/compilarr` package when convenient.
+- Provided already: AcoustID key, Plex token, Soulseek credentials, qBittorrent for the Phase 7 checks.
 
 ## 5. What not to do (the short list; full list in `AGENTS.md`)
 
@@ -434,3 +434,17 @@ Do not embed Soulseek.NET; do not copy AGPL code; do not fork Lidarr; do not wri
 - **Still flaky:** an Api test failed once before the M-11 merge and passed on the rerun (backlog 2026-10-09-23).
 
 **Next:** the maintenance list in `NEXT_SESSION_PROMPT.md`; GitHub Pages and the Unraid CA submission are the owner's steps.
+
+### 2026-10-11 to 2026-10-14 — Build session 12: the 2026-10-10 code review (orchestrator on Opus 5.5; Sonnet subagents)
+
+**Outcome.** All 94 review findings fixed in nine tranches (M-12 to M-26 plus follow-ups) and shipped as 0.1.1 to 0.1.4; email (SMTP) notifications (M-28) in 0.1.4. Decisions: DECISIONS build session 12 #1–43. A Singles date change shipped in 0.1.3 misread the design and was reverted in 0.1.4 (#42): check the design docs before calling something a bug.
+
+### 2026-10-14 — Build session 13: the backlog, the owner's notification requests, 0.1.5 and 0.1.6 (orchestrator on Opus 5.5; Sonnet subagents)
+
+**Outcome.** Every open backlog item that needed no owner input was specified (M-29 to M-39), built, reviewed and merged; 0.1.5 and 0.1.6 were checked on `wondarr-test`, tagged and deployed to production. Decisions: DECISIONS build session 13 #1–18.
+
+- **Owner requests:** an "On download completed" notification event, a "Discard unsaved changes?" prompt on the notification window, and a Clear action for stored secrets (M-30). The reported missing upgrade email was the 5-minute digest working as configured.
+- **Found on the way:** updating a Discord notification with its masked webhook URL failed validation (fixed in M-30); Microsoft's 2026-10-13 .NET advisories made every fresh restore fail the NuGet audit (all packages to 10.0.13, Pkcs pinned); M-34's new lookups needed fresh gate replay recordings (the "Record gate metadata" workflow); three tests that flaked on Linux CI (M-37) and the process-wide import-list sync gate behind an Api flake (M-38).
+- **Reviews mattered again:** the M-35 review stopped a verification rule that would have accepted live and foreign-language versions as the studio recording; the M-34 review stopped an iTunes length from vetoing a correct lookup.
+
+**Next:** the owner's three live checks (section 4) and backlog 2026-10-14-15 (an artist-key race between two new songs).
