@@ -34,6 +34,7 @@ export const SECRET_MASK = '********';
  */
 export const NOTIFICATION_EVENTS: readonly { value: string; label: string }[] = [
   { value: 'grab', label: 'On grab' },
+  { value: 'download', label: 'Download completed' },
   { value: 'import', label: 'On import' },
   { value: 'upgrade', label: 'On upgrade' },
   { value: 'failure', label: 'On download failure' },
@@ -64,6 +65,11 @@ export interface NotificationInput {
   events: string[];
   settings: NotificationSettings;
   id?: number;
+  /**
+   * The optional secret fields whose stored value is to be removed. A blank or masked value still means
+   * "keep", so only a name listed here clears anything.
+   */
+  clearSecrets?: string[];
 }
 
 /**
@@ -220,5 +226,8 @@ function body(input: NotificationInput): components['schemas']['NotificationInpu
     events: input.events,
     settings: input.settings,
     ...(input.id === undefined ? {} : { id: input.id }),
+    ...(input.clearSecrets === undefined || input.clearSecrets.length === 0
+      ? {}
+      : { clearSecrets: input.clearSecrets }),
   };
 }

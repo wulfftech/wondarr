@@ -35,7 +35,9 @@ async function lastRequest(method: string, urlPart: string): Promise<Record<stri
  * The route table the page needs. The schema is matched before the collection, because its own URL
  * starts with the collection's.
  */
-function install(options: { create?: () => Response; test?: () => Response } = {}): FetchMock {
+function install(
+  options: { create?: () => Response; test?: () => Response; notifications?: unknown[] } = {},
+): FetchMock {
   return installFetch((url, init) => {
     const method = init?.method ?? 'GET';
 
@@ -68,12 +70,18 @@ function install(options: { create?: () => Response; test?: () => Response } = {
         return jsonResponse({});
       }
 
-      return jsonResponse(NOTIFICATIONS);
+      return jsonResponse(options.notifications ?? NOTIFICATIONS);
     }
 
     return new Response('not found', { status: 404 });
   });
 }
+
+/** The stored Home webhook, as the server hands it out once a password is saved: masked. */
+const WEBHOOK_WITH_PASSWORD = {
+  ...NOTIFICATIONS[0],
+  settings: { ...NOTIFICATIONS[0].settings, password: '********' },
+};
 
 /** Opens a Mantine Select by the label on its input and hands back the listbox it is showing. */
 async function openSelect(user: UserEvent, label: string): Promise<HTMLElement> {
@@ -328,6 +336,220 @@ describe('NotificationsSettingsPage', () => {
 
       expect(body).toMatchObject({ settings: { webHookUrl: 'https://discord.com/api/webhooks/1/token' } });
     });
+  });
+
+  it('asks before discarding edits: Keep editing keeps them and Discard closes the dialog', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.type(within(dialog).getByLabelText('Name'), ' (edited)');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    const confirm = await screen.findByRole('dialog', { name: 'Discard unsaved changes?' });
+
+    expect(within(confirm).getByRole('button', { name: 'Keep editing' })).toHaveFocus();
+
+    await user.click(within(confirm).getByRole('button', { name: 'Keep editing' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+    });
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('Home webhook (edited)');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await user.click(
+      within(await screen.findByRole('dialog', { name: 'Discard unsaved changes?' })).getByRole('button', {
+        name: 'Discard',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('Edit notification')).not.toBeInTheDocument();
+    });
+    expect(sent().some((request) => request.method === 'PUT')).toBe(false);
+  });
+
+  it('asks for Escape and the X as well, and for a changed event or switch', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.click(within(dialog).getByLabelText('On health issue'));
+    await user.keyboard('{Escape}');
+
+    expect(await screen.findByText('Discard unsaved changes?')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => {
+      expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+    });
+
+    // Changing the event back is no change at all; the switch is one.
+    await user.click(within(dialog).getByLabelText('On health issue'));
+    await user.click(within(dialog).getByLabelText('Enabled'));
+    await user.click(dialog.querySelector('button.mantine-Modal-close') as HTMLElement);
+
+    expect(await screen.findByText('Discard unsaved changes?')).toBeInTheDocument();
+  });
+
+  it('closes an unedited dialog without asking', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Edit notification')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+
+    const again = await editNotification(user, 'Home webhook');
+
+    // Typing and undoing the typing leaves nothing to lose.
+    await user.type(within(again).getByLabelText('Name'), 'x');
+    await user.type(within(again).getByLabelText('Name'), '{Backspace}');
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByText('Edit notification')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+  });
+
+  it('closes after a successful save without asking', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.type(within(dialog).getByLabelText('Name'), ' (edited)');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Edit notification')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
+    expect(sent().some((request) => request.method === 'PUT')).toBe(true);
+  });
+
+  it('offers the download completed event, not subscribed by default', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await addNotification(user, 'Webhook');
+
+    expect(within(dialog).getByLabelText('Download completed')).not.toBeChecked();
+
+    await user.type(within(dialog).getByLabelText('URL *'), 'https://hooks.example.com/wondarr');
+    await user.click(within(dialog).getByLabelText('Download completed'));
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      expect(await lastRequest('POST', '/api/v1/notification')).toMatchObject({ events: ['download'] });
+    });
+  });
+
+  it('Clear marks a stored optional secret, Undo takes it back, and an undone clear sends no clearSecrets', async () => {
+    install({ notifications: [WEBHOOK_WITH_PASSWORD, NOTIFICATIONS[1]] });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    expect(within(dialog).getByLabelText('Password')).toHaveAttribute('placeholder', '********');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Clear Password' }));
+
+    expect(within(dialog).getByText('Will be cleared on save')).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Password')).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Undo clearing Password' }));
+
+    expect(within(dialog).queryByText('Will be cleared on save')).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Password')).toHaveAttribute('placeholder', '********');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const body = await lastRequest('PUT', '/api/v1/notification/1');
+
+      expect(body).toMatchObject({ settings: { password: '********' } });
+      expect(body).not.toHaveProperty('clearSecrets');
+    });
+  });
+
+  it('sends the cleared secret by name when the dialog is saved', async () => {
+    install({ notifications: [WEBHOOK_WITH_PASSWORD, NOTIFICATIONS[1]] });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Clear Password' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const body = await lastRequest('PUT', '/api/v1/notification/1');
+
+      expect(body).toMatchObject({
+        clearSecrets: ['password'],
+        settings: { password: '', url: 'https://hooks.example.com/wondarr' },
+      });
+    });
+  });
+
+  it('counts a cleared secret as an unsaved change', async () => {
+    install({ notifications: [WEBHOOK_WITH_PASSWORD, NOTIFICATIONS[1]] });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const dialog = await editNotification(user, 'Home webhook');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Clear Password' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(await screen.findByText('Discard unsaved changes?')).toBeInTheDocument();
+  });
+
+  it('offers no Clear for a secret that holds nothing or is required', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    // Nothing stored: the Home webhook's password reads back empty.
+    const webhook = await editNotification(user, 'Home webhook');
+
+    expect(within(webhook).queryByRole('button', { name: 'Clear Password' })).not.toBeInTheDocument();
+
+    await user.click(within(webhook).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => {
+      expect(screen.queryByText('Edit notification')).not.toBeInTheDocument();
+    });
+
+    // Stored, but required: it can only be replaced.
+    const discord = await editNotification(user, 'Discord alerts');
+
+    expect(within(discord).getByLabelText('Webhook URL *')).toHaveAttribute('placeholder', '********');
+    expect(within(discord).queryByRole('button', { name: /^Clear/ })).not.toBeInTheDocument();
   });
 
   it('asks before deleting, then deletes', async () => {

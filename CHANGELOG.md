@@ -4,6 +4,16 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **A "Download completed" notification event.** It is sent once per download, when the source reports the file complete and before Wondarr verifies and imports it (so a song whose import then fails gets this message and a failure). It carries the song, the release name, source, quality and size: a webhook gets `eventType` `DownloadCompleted` with `song` and `release` objects as a grab does, Discord an embed in the standard colour, Apprise a plain message, and an email "Wondarr: downloaded Artist – Title" with the same detail table. An email notification in digest mode batches it with imports, upgrades and failures, in a "Downloaded" group before "Imported". Notifications you already have are not subscribed to it; tick it in the notification's events. No migration.
+
+### Changed
+- **Closing the Add or Edit notification window with unsaved changes asks first** ("Discard unsaved changes?", with "Keep editing" and "Discard"), whether you use the X, Escape, a click outside or Cancel. It does not ask when nothing changed, after a save, or while a save is on its way.
+- **A stored optional secret can be cleared.** Next to an optional secret that holds a value (an email password, a webhook password) the notification form shows **Clear**; the field then reads "Will be cleared on save", with an Undo. The save request lists the field in the new `clearSecrets` array (`"clearSecrets": ["password"]`). A blank or masked value still keeps the secret, so existing API clients behave as before; a name that is not an optional secret field of the type is refused with a `400` on that field. The notification schema now also carries `targetDefault` for the fields that have one.
+
+### Fixed
+- **A blank Email port and 587 are the same address.** Leaving the port empty and typing 587 no longer makes the form ask for the password again (the server already treated them as one).
+
 ## [0.1.4] — 2026-10-14
 
 Email notifications, and a correction to 0.1.3's Singles change. Update by pulling `:0.1` (or `:0.1.4`).

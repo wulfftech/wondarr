@@ -49,7 +49,7 @@ internal sealed class EmailMessageBuilder
 
         var builder = new EmailMessageBuilder();
         var songMessage = message.Song is not null &&
-            message.Event is NotificationEventNames.Import or NotificationEventNames.Upgrade or NotificationEventNames.Failure;
+            message.Event is NotificationEventNames.Download or NotificationEventNames.Import or NotificationEventNames.Upgrade or NotificationEventNames.Failure;
 
         string subject;
         string text;
@@ -123,6 +123,7 @@ internal sealed class EmailMessageBuilder
         var builder = new EmailMessageBuilder();
         var groups = new (string Event, string Verb, string Heading)[]
         {
+            (NotificationEventNames.Download, "downloaded", "Downloaded"),
             (NotificationEventNames.Import, "imported", "Imported"),
             (NotificationEventNames.Upgrade, "upgraded", "Upgraded"),
             (NotificationEventNames.Failure, "failed", "Failed"),
@@ -271,6 +272,7 @@ internal sealed class EmailMessageBuilder
 
     private static string Verb(string @event) => @event switch
     {
+        NotificationEventNames.Download => "downloaded",
         NotificationEventNames.Import => "imported",
         NotificationEventNames.Upgrade => "upgraded",
         _ => "failed",

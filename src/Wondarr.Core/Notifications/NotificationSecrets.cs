@@ -111,8 +111,17 @@ public static class NotificationSecrets
     /// <param name="incoming">The settings the caller sent.</param>
     /// <param name="stored">The settings on the row, as JSON text, or <see langword="null"/> for a new row.</param>
     /// <param name="fields">The provider's fields, which say what is secret.</param>
+    /// <param name="clear">
+    /// The secret fields to remove, whatever the incoming settings carry for them, or <see langword="null"/>.
+    /// Nothing stored is reused for a cleared field, so the target rule does not apply to it. Names that
+    /// are not secret fields are ignored here; the caller has already refused them.
+    /// </param>
     /// <exception cref="SecretReentryException">A masked secret would be sent to a target other than the one it was stored for.</exception>
-    public static string Merge(JsonElement incoming, string? stored, IReadOnlyList<NotificationField> fields)
+    public static string Merge(
+        JsonElement incoming,
+        string? stored,
+        IReadOnlyList<NotificationField> fields,
+        IReadOnlyCollection<string>? clear = null)
     {
         ArgumentNullException.ThrowIfNull(fields);
 
@@ -123,6 +132,13 @@ public static class NotificationSecrets
         {
             if (!field.Secret)
             {
+                continue;
+            }
+
+            if (clear is not null && clear.Contains(field.Name, StringComparer.Ordinal))
+            {
+                merged.Remove(field.Name);
+
                 continue;
             }
 

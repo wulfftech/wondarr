@@ -180,6 +180,156 @@ public sealed class NotificationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Clearing_an_optional_secret_removes_it()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        // What the form sends for a field marked to be cleared: the mask (or nothing) plus the name.
+        await _service.UpdateAsync(
+            created.Id,
+            Draft(password: NotificationSecrets.Mask) with { ClearSecrets = ["password"] },
+            Token);
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
+        var stored = NotificationSecrets.Read(row.Settings);
+
+        stored.TryGetProperty("password", out _).Should().BeFalse();
+        stored.GetProperty("url").GetString().Should().Be("http://hooks.local/webhook");
+        NotificationSecrets.Masked(stored, _provider.Fields).AsObject().ContainsKey("password").Should().BeFalse("nothing is stored to mask");
+    }
+
+    [Fact]
+    public async Task Clearing_a_secret_wins_over_a_value_sent_with_it_and_needs_no_target_rule()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        // A new host with the mask would be refused (the secret cannot follow it); clearing reuses nothing.
+        await _service.UpdateAsync(
+            created.Id,
+            Draft(url: "http://new.example/hook", password: NotificationSecrets.Mask) with { ClearSecrets = ["password"] },
+            Token);
+
+        var other = await _service.CreateAsync(Draft(name: "Other", password: "supernova"), Token);
+
+        await _service.UpdateAsync(
+            other.Id,
+            Draft(name: "Other", password: "typed-again") with { ClearSecrets = ["password"] },
+            Token);
+
+        await using var database = _database.CreateContext(_time);
+
+        foreach (var row in await database.Notifications.ToListAsync(Token))
+        {
+            NotificationSecrets.Read(row.Settings).TryGetProperty("password", out _).Should().BeFalse(row.Name);
+        }
+
+        (await database.Notifications.SingleAsync(row => row.Id == created.Id, Token)).Settings
+            .Should().Contain("http://new.example/hook");
+    }
+
+    [Fact]
+    public async Task A_secret_not_named_in_clearSecrets_is_kept_whether_the_list_is_absent_or_empty()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        await _service.UpdateAsync(created.Id, Draft(password: NotificationSecrets.Mask) with { ClearSecrets = [] }, Token);
+        await _service.UpdateAsync(created.Id, Draft(password: NotificationSecrets.Mask) with { ClearSecrets = null }, Token);
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).GetProperty("password").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_required_secret_cannot_be_cleared()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var failure = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.UpdateAsync(created.Id, Draft() with { ClearSecrets = ["token"] }, Token));
+
+        failure.Field.Should().Be("token");
+        failure.Detail.Should().Contain("required").And.Contain("replaced");
+    }
+
+    [Fact]
+    public async Task A_name_that_is_not_a_secret_field_cannot_be_cleared()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var unknown = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.UpdateAsync(created.Id, Draft() with { ClearSecrets = ["nonsense"] }, Token));
+
+        unknown.Field.Should().Be("clearSecrets");
+
+        var plain = await Assert.ThrowsAsync<NotificationValidationException>(
+            () => _service.UpdateAsync(created.Id, Draft() with { ClearSecrets = ["url"] }, Token));
+
+        plain.Field.Should().Be("url");
+
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).GetProperty("password").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_create_ignores_clearSecrets()
+    {
+        var created = await _service.CreateAsync(
+            Draft(password: "wonderwall") with { ClearSecrets = ["password", "token", "nonsense"] },
+            Token);
+
+        NotificationSecrets.Read(created.Settings).GetProperty("password").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_test_of_a_stored_row_sends_without_the_secret_marked_to_be_cleared()
+    {
+        var created = await _service.CreateAsync(Draft(password: "wonderwall"), Token);
+
+        var result = await _service.TestAsync(
+            Draft(password: NotificationSecrets.Mask) with { Id = created.Id, ClearSecrets = ["password"] },
+            Token);
+
+        result.Success.Should().BeTrue();
+        _provider.SentSettings.Single().TryGetProperty("password", out _).Should().BeFalse();
+
+        // Testing does not clear anything: that happens on save.
+        await using var database = _database.CreateContext(_time);
+        var row = await database.Notifications.SingleAsync(Token);
+
+        NotificationSecrets.Read(row.Settings).GetProperty("password").GetString().Should().Be("wonderwall");
+    }
+
+    [Fact]
+    public async Task A_cleared_secret_stays_in_the_redactor_until_a_restart_which_is_harmless()
+    {
+        var registry = new Wondarr.Core.Logging.SecretRegistry();
+        var service = new NotificationService(
+            _database.CreateContext(_time),
+            [_provider],
+            NullLogger<NotificationService>.Instance,
+            registry);
+
+        var created = await service.CreateAsync(Draft(password: "wonderwall"), Token);
+        registry.Redact("secret wonderwall here").Should().NotContain("wonderwall");
+
+        // The registry has no way to forget a value, so the old secret stays redacted until a restart:
+        // that over-redacts a string nobody uses any more and cannot leak anything.
+        var updated = await service.UpdateAsync(
+            created.Id,
+            Draft(password: NotificationSecrets.Mask) with { ClearSecrets = ["password"] },
+            Token);
+
+        updated.Should().NotBeNull();
+        NotificationSecrets.Read(updated!.Settings).TryGetProperty("password", out _).Should().BeFalse();
+        registry.Redact("secret wonderwall here").Should().NotContain("wonderwall");
+    }
+
+    [Fact]
     public void The_target_is_the_scheme_host_and_port_and_a_secret_url_is_never_part_of_it()
     {
         var plain = NotificationSecrets.Read("""{"url":"https://Example.com:443/a?b=c","password":"x"}""");
@@ -270,6 +420,7 @@ public sealed class NotificationServiceTests : IDisposable
         [
             new("url", "URL", "url", Required: true, Target: true),
             new("password", "Password", "password", Required: false, Secret: true),
+            new("token", "Token", "password", Required: true, Secret: true),
         ];
 
         /// <summary>Thrown by every send when set.</summary>

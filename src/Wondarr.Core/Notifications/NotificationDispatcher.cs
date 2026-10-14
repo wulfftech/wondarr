@@ -101,6 +101,15 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     {
         ArgumentNullException.ThrowIfNull(message);
 
+        // A source's "complete" is the only change that carries the state the item left. Any other change
+        // into Completed (an import handing the item back to be tried again) leaves it unset, and so does
+        // not announce the download a second time.
+        if (message.State == QueueItemState.Completed &&
+            message.PreviousState is QueueItemState.Queued or QueueItemState.RemotelyQueued or QueueItemState.Downloading)
+        {
+            return Enqueue(new WorkItem(NotificationEventNames.Download, message.SongId, QueueItemId: message.QueueItemId));
+        }
+
         return message.State == QueueItemState.Failed
             ? Enqueue(new WorkItem(NotificationEventNames.Failure, message.SongId, QueueItemId: message.QueueItemId))
             : Task.CompletedTask;
@@ -298,7 +307,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         }
     }
 
-    /// <summary>Builds the message for a grab, an import, an upgrade or a failure.</summary>
+    /// <summary>Builds the message for a grab, a completed download, an import, an upgrade or a failure.</summary>
     private static async Task<NotificationMessage?> BuildAsync(
         WondarrDbContext database,
         WorkItem item,
@@ -317,6 +326,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
         switch (item.Event)
         {
             case NotificationEventNames.Grab:
+            case NotificationEventNames.Download:
                 return await BuildGrabAsync(database, song, name, item, cancellationToken).ConfigureAwait(false);
 
             case NotificationEventNames.Import:
@@ -359,9 +369,12 @@ public sealed partial class NotificationDispatcher : BackgroundService,
                 .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false);
 
+        var downloaded = item.Event == NotificationEventNames.Download;
+        var size = queueItem.SizeBytes ?? candidate?.SizeBytes;
+
         return new NotificationMessage(
-            NotificationEventNames.Grab,
-            string.Concat("Grabbed: ", name),
+            item.Event,
+            string.Concat(downloaded ? "Downloaded: " : "Grabbed: ", name),
             string.Concat(
                 candidate?.DisplayName ?? "a file",
                 " from ",
@@ -373,7 +386,13 @@ public sealed partial class NotificationDispatcher : BackgroundService,
                 candidate?.DisplayName ?? name,
                 queueItem.SourceType,
                 quality ?? "Unknown",
-                queueItem.SizeBytes ?? candidate?.SizeBytes),
+                size),
+
+            // The file is not in the library yet, so there is no cover file to embed: the email shows the
+            // album's cover URL, when it has one.
+            Download = downloaded
+                ? new NotificationDownload(queueItem.SourceType, quality, size, CoverPath: null, CoverUrl: song.AlbumContext?.CoverUrl)
+                : null,
         };
     }
 
@@ -607,7 +626,7 @@ public sealed partial class NotificationDispatcher : BackgroundService,
     /// </summary>
     /// <param name="Event">The <see cref="NotificationEventNames"/> value to send.</param>
     /// <param name="SongId">The song, when the event has one.</param>
-    /// <param name="QueueItemId">The queue item, for a grab or a failure.</param>
+    /// <param name="QueueItemId">The queue item, for a grab, a completed download or a failure.</param>
     /// <param name="SongFileId">The library file, for an import.</param>
     /// <param name="IsUpgrade">Whether the import replaced a file.</param>
     /// <param name="Results">The health results, for a health event.</param>

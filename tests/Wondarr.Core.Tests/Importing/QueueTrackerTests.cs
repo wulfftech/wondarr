@@ -62,6 +62,30 @@ public sealed class QueueTrackerTests
         host.Events.Of<QueueItemChangedEvent>().Should().ContainSingle();
     }
 
+    [Theory]
+    [InlineData(QueueItemState.Queued)]
+    [InlineData(QueueItemState.RemotelyQueued)]
+    [InlineData(QueueItemState.Downloading)]
+    public async Task A_source_reporting_the_file_complete_publishes_the_change_once_with_the_state_it_left(
+        QueueItemState before)
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options => options.State = before);
+
+        host.Source.Status = new DownloadStatus(DownloadState.Completed, 1, 10_000, 10_000, null, null);
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        // The second cycle finds the item Completed and only hands it to the import.
+        var completed = host.Events.Of<QueueItemChangedEvent>()
+            .Where(change => change.State == QueueItemState.Completed)
+            .Should().ContainSingle().Subject;
+
+        completed.QueueItemId.Should().Be(seed.QueueItemId);
+        completed.PreviousState.Should().Be(before);
+    }
+
     [Fact]
     public async Task Imports_a_finished_download_once()
     {
