@@ -208,7 +208,27 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         try
         {
-            song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
+            try
+            {
+                song = (await AddAsync(library, [identity], cancellationToken).ConfigureAwait(false))[0];
+            }
+            catch (DbUpdateException exception) when (SongService.IsDuplicateSongKey(exception))
+            {
+                // Another add of this recording saved it between the existence check and the write. The
+                // user's choice stands: the file goes to the song that won, as if it had been there all along.
+                await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
+                DiscardPendingChanges();
+
+                var winner = await FindStoredSongAsync(identity, cancellationToken).ConfigureAwait(false);
+
+                if (winner is null)
+                {
+                    throw;
+                }
+
+                song = winner;
+            }
+
             var link = await LinkAsync(row, library, song, cancellationToken).ConfigureAwait(false);
 
             row.SongId = song.Id;
@@ -386,7 +406,18 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     /// </summary>
     private void DiscardPendingChanges()
     {
-        foreach (var entry in _database.ChangeTracker.Entries().ToList())
+        // Dependents first: letting go of an artist or a song while rows that need it are still tracked
+        // would sever a required relationship.
+        var entries = _database.ChangeTracker.Entries()
+            .OrderBy(entry => entry.Entity switch
+            {
+                Artist => 2,
+                Song => 1,
+                _ => 0,
+            })
+            .ToList();
+
+        foreach (var entry in entries)
         {
             switch (entry.State)
             {
@@ -500,6 +531,26 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             .ConfigureAwait(false);
 
         return [.. results.Select(result => result.Song)];
+    }
+
+    /// <summary>The song the library holds for an identity's MusicBrainz or Deezer id, read fresh; <see langword="null"/> when none.</summary>
+    private async Task<Song?> FindStoredSongAsync(SongIdentity identity, CancellationToken cancellationToken)
+    {
+        var mbRecordingId = string.IsNullOrWhiteSpace(identity.MbRecordingId) ? null : identity.MbRecordingId.ToLowerInvariant();
+        var deezerId = identity.DeezerId;
+
+        if (mbRecordingId is null && deezerId is null)
+        {
+            return null;
+        }
+
+        return await _database.Songs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                song => (mbRecordingId != null && song.MbRecordingId == mbRecordingId)
+                    || (deezerId != null && song.DeezerId == deezerId),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>A file's absolute path on this machine.</summary>
