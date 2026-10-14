@@ -219,7 +219,8 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
                 await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
                 DiscardPendingChanges();
 
-                var winner = await FindStoredSongAsync(identity, cancellationToken).ConfigureAwait(false);
+                var winner = await SongService.FindStoredSongAsync(_database, identity, cancellationToken)
+                    .ConfigureAwait(false);
 
                 if (winner is null)
                 {
@@ -227,6 +228,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
                 }
 
                 song = winner;
+                await EnsureTransactionAsync(cancellationToken).ConfigureAwait(false);
             }
 
             var link = await LinkAsync(row, library, song, cancellationToken).ConfigureAwait(false);
@@ -368,7 +370,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
                     for (var index = 0; index < batch.Count; index++)
                     {
-                        songs[index] = await FindStoredSongAsync(batch[index].Identity, cancellationToken).ConfigureAwait(false);
+                        songs[index] = await SongService.FindStoredSongAsync(_database, batch[index].Identity, cancellationToken).ConfigureAwait(false);
                     }
 
                     var missing = Enumerable.Range(0, batch.Count).Where(index => songs[index] is null).ToList();
@@ -389,6 +391,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
                         }
                     }
 
+                    await EnsureTransactionAsync(cancellationToken).ConfigureAwait(false);
                     added = [.. songs.Select(song => song!)];
                 }
 
@@ -573,24 +576,16 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         return [.. results.Select(result => result.Song)];
     }
 
-    /// <summary>The song the library holds for an identity's MusicBrainz or Deezer id, read fresh; <see langword="null"/> when none.</summary>
-    private async Task<Song?> FindStoredSongAsync(SongIdentity identity, CancellationToken cancellationToken)
+    /// <summary>
+    /// Opens the transaction the write lock is held under when the add did not leave one: a file linked to
+    /// a song that won a race commits through the same path as a freshly added song.
+    /// </summary>
+    private async Task EnsureTransactionAsync(CancellationToken cancellationToken)
     {
-        var mbRecordingId = string.IsNullOrWhiteSpace(identity.MbRecordingId) ? null : identity.MbRecordingId.ToLowerInvariant();
-        var deezerId = identity.DeezerId;
-
-        if (mbRecordingId is null && deezerId is null)
+        if (_database.Database.CurrentTransaction is null)
         {
-            return null;
+            await _database.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        return await _database.Songs
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                song => (mbRecordingId != null && song.MbRecordingId == mbRecordingId)
-                    || (deezerId != null && song.DeezerId == deezerId),
-                cancellationToken)
-            .ConfigureAwait(false);
     }
 
     /// <summary>A file's absolute path on this machine.</summary>
