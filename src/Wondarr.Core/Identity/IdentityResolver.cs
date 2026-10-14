@@ -485,7 +485,7 @@ public sealed partial class IdentityResolver : IIdentityResolver
             {
                 // The ISRC lookup lists no releases, so same-titled recordings are told apart (the album
                 // one from the compilation ones) by a few release lists, and ranked again with them.
-                var withReleases = await WithReleasesAsync(viaIsrc, bridged, tracker, cancellationToken).ConfigureAwait(false);
+                var withReleases = await WithReleasesAsync(viaIsrc, bridged, cancellationToken).ConfigureAwait(false);
                 if (!ReferenceEquals(withReleases, viaIsrc))
                 {
                     viaIsrc = withReleases;
@@ -706,7 +706,6 @@ public sealed partial class IdentityResolver : IIdentityResolver
     private async Task<IReadOnlyList<MbRecording>> WithReleasesAsync(
         IReadOnlyList<MbRecording> recordings,
         IReadOnlyList<ScoredRecording> ranked,
-        ProviderTracker? tracker,
         CancellationToken cancellationToken)
     {
         // The earliest first release dates of the recordings that share a title with another one: those
@@ -722,9 +721,9 @@ public sealed partial class IdentityResolver : IIdentityResolver
             .Select(scored => scored.Recording.Id)
             .ToList();
 
-        // Only an aid to the ranking: a provider that is down already, or that fails now, leaves the
-        // order the scores gave and never fails the lookup.
-        if (wanted.Count == 0 || (tracker?.Failed.Contains(ProviderKeys.MusicBrainz) ?? false))
+        // Only an aid to the ranking: a provider that fails here leaves the order the scores gave, is not
+        // recorded as a failed provider, and never fails the lookup.
+        if (wanted.Count == 0)
         {
             return recordings;
         }
@@ -755,6 +754,10 @@ public sealed partial class IdentityResolver : IIdentityResolver
                     : recording),
         ];
     }
+
+    /// <summary>The hard version flags of a recording's title and disambiguation.</summary>
+    private static VersionFlags HardFlagsOf(MbRecording recording) =>
+        FlagsOf(recording.Title, recording.Disambiguation) & VersionFlagNames.HardFlags;
 
     /// <summary>The key two recordings share when they have the same folded artist and title.</summary>
     private static string GroupKeyOf(MbRecording recording) =>
@@ -1389,6 +1392,7 @@ public sealed partial class IdentityResolver : IIdentityResolver
             Score = ScoreRecording(query, recording, referenceDurationMs, viaIsrc).Total,
             ViaIsrc = viaIsrc,
             OfficialAlbumDate = ReferenceDurationOk(referenceDurationMs, recording.Length)
+                && HardFlagsOf(recording) == (query.Flags & VersionFlagNames.HardFlags)
                 ? OriginalRecordingRanking.OfficialAlbumDate(recording, (query.Flags & VersionFlags.Live) != VersionFlags.None)
                 : null,
         };

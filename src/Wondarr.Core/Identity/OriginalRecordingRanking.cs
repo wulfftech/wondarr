@@ -15,7 +15,7 @@ internal static class OriginalRecordingRanking
     internal const int LengthBucketMs = 2000;
 
     /// <summary>Sorts after every real date.</summary>
-    private const string MissingDate = "￿";
+    private const string MissingDate = "\uFFFF";
 
     /// <summary>The secondary release-group types that make an album something other than the album.</summary>
     private static readonly string[] ExcludedSecondaryTypes = ["Compilation", "Soundtrack"];

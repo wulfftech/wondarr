@@ -163,9 +163,11 @@ public static class CandidateTitleMatcher
             return false;
         }
 
-        // The song's whole title and its base title only: a bracketed part of the title on its own
-        // ("Story of a Girl" out of "Absolutely (Story of a Girl)") is a partial match, not a full one.
+        // The song's whole title, its base title, and a bracketed part of it that is a title of its own
+        // ("Story of a Girl" out of "Absolutely (Story of a Girl)", which MusicBrainz lists both ways).
+        // A one-word part ("Reprise") or one that reads as a version ("Live at Home") is not.
         var songTexts = new[] { songTitle, VersionFlagParser.Parse(songTitle).BaseTitle }
+            .Concat(AlternativeTitles(songTitle))
             .Select(text => TextMatching.Normalize(text))
             .Where(text => text.Length > 0)
             .ToHashSet(StringComparer.Ordinal);
@@ -209,6 +211,31 @@ public static class CandidateTitleMatcher
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The bracketed parts of a song title that can stand for the whole of it: at least two words, and
+    /// read by <see cref="VersionFlagParser"/> as carrying no version hint.
+    /// </summary>
+    private static IEnumerable<string> AlternativeTitles(string songTitle)
+    {
+        foreach (Match group in BracketRegex.Matches(songTitle))
+        {
+            var inner = group.Groups[1].Success ? group.Groups[1].Value : group.Groups[2].Value;
+            var words = TextMatching.Normalize(inner).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (words.Length < 2)
+            {
+                continue;
+            }
+
+            var info = VersionFlagParser.Parse(string.Concat("Title (", inner, ")"));
+
+            if (info.Flags == VersionFlags.None && info.Hints.Count == 0)
+            {
+                yield return inner;
+            }
+        }
     }
 
     /// <summary>Whether a title is written in Latin letters, in others, or has no letters at all.</summary>
