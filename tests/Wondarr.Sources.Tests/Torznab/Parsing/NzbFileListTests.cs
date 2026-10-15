@@ -157,6 +157,58 @@ public class NzbFileListTests
         NzbFileList.IsClean(files).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("Album.vol00+1.PAR2")]
+    [InlineData("Album.Par2")]
+    [InlineData("album.par2")]
+    public void Reads_a_par2_volume_whatever_the_case_of_its_extension(string name)
+    {
+        var file = NzbFileList.FromFileName(0, name, 1_000);
+
+        file.IsPar2.Should().BeTrue();
+        file.IsArchive.Should().BeFalse();
+        NzbFileList.IsClean([file]).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Album.RAR")]
+    [InlineData("Album.Rar")]
+    [InlineData("Album.R00")]
+    [InlineData("Album.r01")]
+    [InlineData("Album.ZIP")]
+    [InlineData("Album.7Z")]
+    [InlineData("Album.001")]
+    public void Reads_an_archive_whatever_the_case_of_its_extension(string name)
+    {
+        var file = NzbFileList.FromFileName(0, name, 1_000_000);
+
+        file.IsArchive.Should().BeTrue();
+        NzbFileList.IsClean([file]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Reads_the_scene_mp3_fixture_with_its_upper_case_par2_volumes_as_clean()
+    {
+        var files = ParseFixture("scene-mp3-album.nzb");
+
+        files.Should().HaveCount(13);
+        files.Where(file => file.IsAudio).Should().HaveCount(6);
+        files.Where(file => file.IsPar2).Select(file => file.FileName).Should().Contain("Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH.vol00+1.PAR2");
+        files.Should().OnlyContain(file => !file.IsArchive && file.IsPlainName);
+        NzbFileList.IsClean(files).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Reads_the_scene_flac_fixture_as_clean()
+    {
+        var files = ParseFixture("scene-flac-album.nzb");
+
+        files.Should().HaveCount(13);
+        files.Where(file => file.IsAudio).Select(file => file.FileName).Should().OnlyContain(name => name!.EndsWith(".flac", StringComparison.Ordinal));
+        files.Where(file => file.IsPar2).Should().HaveCount(4);
+        NzbFileList.IsClean(files).Should().BeTrue();
+    }
+
     private static IReadOnlyList<NzbFile> ParseFixture(string name)
     {
         using var stream = File.OpenRead(FixturePath(name));

@@ -1,0 +1,418 @@
+{
+  "description": "Golden cases for ContainerMatcher over scene-style file names (M-42a): NN-artist_name-track_title[-group].ext, underscores for spaces, bare hyphens between the fields. 'song' is the wanted song (title as stored, version flags by wire name, track number and length); 'release' is what the release name gives (quality by seed name, whether it states 16-bit or CD, the artist, the scene group tag). A file has a 'path' and either a 'size' in bytes or 'seconds' at 'kbps'. 'expected' is the path of the file the matcher must choose, or null when it must find none; 'expectedTitle' is the title the match is read as. The names are file names only: no message-id of any real post is in here.",
+  "cases": [
+    {
+      "name": "FADA FLAC post: scene name without the group, the song title has a curly apostrophe",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "00-norah_jones-come_away_with_me-2002-fada.jpg", "size": 49955 },
+        { "path": "01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "02-norah_jones-seven_years.flac", "seconds": 144, "kbps": 780 },
+        { "path": "05-norah_jones-come_away_with_me.flac", "seconds": 198, "kbps": 830 }
+      ],
+      "expected": "01-norah_jones-dont_know_why.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "pH MP3 post: the group tag is the release's, in another case",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "Unknown", "sixteenBitStated": false, "artist": "Norah Jones", "group": "pH" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why-ph.mp3", "size": 4621323 },
+        { "path": "02-norah_jones-seven_years-ph.mp3", "size": 3605710 },
+        { "path": "15-norah_jones-what_am_i_to_you_bonus-ph.mp3", "size": 4032690 }
+      ],
+      "expected": "01-norah_jones-dont_know_why-ph.mp3",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "the same FADA names inside a folder, as a torrent lists them",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA/00-norah_jones-come_away_with_me-2002-fada.nfo", "size": 2180 },
+        { "path": "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA/01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA/02-norah_jones-seven_years.flac", "seconds": 144, "kbps": 780 }
+      ],
+      "expected": "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA/01-norah_jones-dont_know_why.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "a hyphenated artist: a-ha",
+      "song": { "title": "Take On Me", "flags": [], "trackNo": 1, "durationMs": 225000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "a-ha", "group": "GRP" },
+      "files": [
+        { "path": "01-a-ha-take_on_me-grp.flac", "seconds": 225, "kbps": 900 },
+        { "path": "02-a-ha-the_sun_always_shines_on_tv-grp.flac", "seconds": 238, "kbps": 900 }
+      ],
+      "expected": "01-a-ha-take_on_me-grp.flac",
+      "expectedTitle": "take on me"
+    },
+    {
+      "name": "a hyphenated artist: Jay-Z, and a title that starts with digits",
+      "song": { "title": "99 Problems", "flags": [], "trackNo": 3, "durationMs": 235000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Jay-Z", "group": "GRP" },
+      "files": [
+        { "path": "02-jay-z-dirt_off_your_shoulder-grp.flac", "seconds": 243, "kbps": 900 },
+        { "path": "03-jay-z-99_problems-grp.flac", "seconds": 235, "kbps": 900 }
+      ],
+      "expected": "03-jay-z-99_problems-grp.flac",
+      "expectedTitle": "99 problems"
+    },
+    {
+      "name": "a hyphenated artist with dots: Run-D.M.C.",
+      "song": { "title": "It’s Tricky", "flags": [], "trackNo": 4, "durationMs": 184000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Run-D.M.C.", "group": "GRP" },
+      "files": [
+        { "path": "03-run-d.m.c.-walk_this_way-grp.flac", "seconds": 311, "kbps": 900 },
+        { "path": "04-run-d.m.c.-its_tricky-grp.flac", "seconds": 184, "kbps": 900 }
+      ],
+      "expected": "04-run-d.m.c.-its_tricky-grp.flac",
+      "expectedTitle": "its tricky"
+    },
+    {
+      "name": "a title with hyphens of its own, a leading The on the artist and the group tag",
+      "song": { "title": "Ob-La-Di, Ob-La-Da", "flags": [], "trackNo": 7, "durationMs": 188000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "The Beatles", "group": "GRP" },
+      "files": [
+        { "path": "06-the_beatles-wild_honey_pie-grp.flac", "seconds": 62, "kbps": 900 },
+        { "path": "07-the_beatles-ob-la-di_ob-la-da-grp.flac", "seconds": 188, "kbps": 900 }
+      ],
+      "expected": "07-the_beatles-ob-la-di_ob-la-da-grp.flac",
+      "expectedTitle": "ob-la-di ob-la-da"
+    },
+    {
+      "name": "disc and track in one token: 101",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "101-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "102-norah_jones-seven_years.flac", "seconds": 144, "kbps": 780 }
+      ],
+      "expected": "101-norah_jones-dont_know_why.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "disc and track with a hyphen: 1-05",
+      "song": { "title": "Seven Years", "flags": [], "trackNo": 5, "durationMs": 144000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "1-01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "1-05-norah_jones-seven_years.flac", "seconds": 144, "kbps": 780 }
+      ],
+      "expected": "1-05-norah_jones-seven_years.flac",
+      "expectedTitle": "seven years"
+    },
+    {
+      "name": "vinyl side and track: a1, in lower case",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "a1-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "b1-norah_jones-seven_years.flac", "seconds": 144, "kbps": 780 }
+      ],
+      "expected": "a1-norah_jones-dont_know_why.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "a name and an extension in upper case",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "Unknown", "sixteenBitStated": false, "artist": "Norah Jones", "group": "pH" },
+      "files": [
+        { "path": "01-NORAH_JONES-DONT_KNOW_WHY-PH.MP3", "size": 4621323 },
+        { "path": "02-NORAH_JONES-SEVEN_YEARS-PH.MP3", "size": 3605710 }
+      ],
+      "expected": "01-NORAH_JONES-DONT_KNOW_WHY-PH.MP3",
+      "expectedTitle": "DONT KNOW WHY"
+    },
+    {
+      "name": "an artist written with & in the release and 'and' in the file name",
+      "song": { "title": "The Boxer", "flags": [], "trackNo": 2, "durationMs": 308000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Simon & Garfunkel", "group": "GRP" },
+      "files": [
+        { "path": "01-simon_and_garfunkel-bridge_over_troubled_water-grp.flac", "seconds": 295, "kbps": 900 },
+        { "path": "02-simon_and_garfunkel-the_boxer-grp.flac", "seconds": 308, "kbps": 900 }
+      ],
+      "expected": "02-simon_and_garfunkel-the_boxer-grp.flac",
+      "expectedTitle": "the boxer"
+    },
+    {
+      "name": "an artist with a diacritic in the release and none in the file name",
+      "song": { "title": "Halo", "flags": [], "trackNo": 4, "durationMs": 261000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Beyoncé", "group": "GRP" },
+      "files": [
+        { "path": "03-beyonce-if_i_were_a_boy-grp.flac", "seconds": 249, "kbps": 900 },
+        { "path": "04-beyonce-halo-grp.flac", "seconds": 261, "kbps": 900 }
+      ],
+      "expected": "04-beyonce-halo-grp.flac",
+      "expectedTitle": "halo"
+    },
+    {
+      "name": "a release name that gives no artist: there is none to drop",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "Unknown", "sixteenBitStated": false, "artist": null, "group": "pH" },
+      "files": [
+        { "path": "01-dont_know_why-ph.mp3", "size": 4621323 },
+        { "path": "02-seven_years-ph.mp3", "size": 3605710 }
+      ],
+      "expected": "01-dont_know_why-ph.mp3",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "a studio song takes the studio file when the post also holds a live one",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": null, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "15-norah_jones-dont_know_why-live.flac", "seconds": 190, "kbps": 810 }
+      ],
+      "expected": "01-norah_jones-dont_know_why.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "a live song takes the live scene file",
+      "song": { "title": "Don’t Know Why (Live)", "flags": ["live"], "trackNo": null, "durationMs": 190000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "15-norah_jones-dont_know_why-live.flac", "seconds": 190, "kbps": 810 }
+      ],
+      "expected": "15-norah_jones-dont_know_why-live.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "two scene files with the song's title: the track number decides",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "16-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 805 }
+      ],
+      "expected": "01-norah_jones-dont_know_why.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "NEGATIVE: a different track of the same album",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "02-norah_jones-seven_years.flac", "seconds": 144, "kbps": 780 },
+        { "path": "03-norah_jones-cold_cold_heart.flac", "seconds": 238, "kbps": 800 },
+        { "path": "05-norah_jones-come_away_with_me.flac", "seconds": 198, "kbps": 830 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a live file when the song is the studio version",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why-live.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a bracketed live file when the song is the studio version",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "GRP" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why_(live)-grp.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a remix file when the song is the studio version",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why-remix.flac", "seconds": 186, "kbps": 810 },
+        { "path": "02-norah_jones-dont_know_why_(dj_x_remix).flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: the file is too small for the song at that quality",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.flac", "size": 2000000 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: the file is too large for a CD-quality FLAC of that length",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.flac", "size": 80000000 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a group tag that is not the release's stays in the title",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "Unknown", "sixteenBitStated": false, "artist": "Norah Jones", "group": "pH" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why-xyz.mp3", "size": 4621323 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a release with no group tag leaves a trailing tag in the title",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "Unknown", "sixteenBitStated": false, "artist": "Norah Jones", "group": null },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why-ph.mp3", "size": 4621323 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: another artist's file with the song's title",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-someone_else-dont_know_why.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a sidecar named after the song is not a track",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.nfo", "size": 2180 },
+        { "path": "01-norah_jones-dont_know_why.m3u", "size": 1480 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a song whose title is only part of the file's title",
+      "song": { "title": "Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: two scene files with the song's title and no track number to tell them apart",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": null, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "FADA" },
+      "files": [
+        { "path": "01-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 810 },
+        { "path": "16-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 805 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a studio song never matches a file of a live release (Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP)",
+      "song": { "title": "Everlong", "flags": [], "trackNo": 4, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Foo Fighters", "group": "GRP", "versionFlags": ["live"] },
+      "files": [
+        { "path": "03-foo_fighters-times_like_these-grp.flac", "seconds": 270, "kbps": 900 },
+        { "path": "04-foo_fighters-everlong-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a live song takes its file from a live release",
+      "song": { "title": "Everlong (Live)", "flags": ["live"], "trackNo": 4, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Foo Fighters", "group": "GRP", "versionFlags": ["live"] },
+      "files": [
+        { "path": "03-foo_fighters-times_like_these-grp.flac", "seconds": 270, "kbps": 900 },
+        { "path": "04-foo_fighters-everlong-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": "04-foo_fighters-everlong-grp.flac",
+      "expectedTitle": "everlong"
+    },
+    {
+      "name": "NEGATIVE: a studio song never matches an ordinary-named file of a live release either",
+      "song": { "title": "Everlong", "flags": [], "trackNo": 4, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Foo Fighters", "group": null, "versionFlags": ["live"] },
+      "files": [
+        { "path": "Foo Fighters - Wembley 2008/04 - Everlong.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a trailing live field is the version, not the release's group, even when the group says so",
+      "song": { "title": "Seven Years", "flags": [], "trackNo": 2, "durationMs": 144000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "Live" },
+      "files": [
+        { "path": "02-norah_jones-seven_years-live.flac", "seconds": 144, "kbps": 780 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a hyphenated artist the release name parsed wrong (A-ha-Hunting_High_and_Low): the song's own artist is the second guess",
+      "song": { "title": "Take On Me", "flags": [], "trackNo": 1, "durationMs": 225000, "artist": "a-ha" },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "A", "group": "GRP" },
+      "files": [
+        { "path": "01-a-ha-take_on_me-grp.flac", "seconds": 225, "kbps": 900 },
+        { "path": "02-a-ha-the_sun_always_shines_on_tv-grp.flac", "seconds": 238, "kbps": 900 }
+      ],
+      "expected": "01-a-ha-take_on_me-grp.flac",
+      "expectedTitle": "take on me"
+    },
+    {
+      "name": "a hyphenated artist with dots the release name parsed wrong (Run-D.M.C.-Raising_Hell)",
+      "song": { "title": "It’s Tricky", "flags": [], "trackNo": 4, "durationMs": 184000, "artist": "Run-D.M.C." },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Run", "group": "GRP" },
+      "files": [
+        { "path": "03-run-d.m.c.-walk_this_way-grp.flac", "seconds": 311, "kbps": 900 },
+        { "path": "04-run-d.m.c.-its_tricky-grp.flac", "seconds": 184, "kbps": 900 }
+      ],
+      "expected": "04-run-d.m.c.-its_tricky-grp.flac",
+      "expectedTitle": "its tricky"
+    },
+    {
+      "name": "a featured artist in the artist field is not part of the artist (feat)",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "GRP" },
+      "files": [
+        { "path": "01-norah_jones_feat_dave_matthews-dont_know_why-grp.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": "01-norah_jones_feat_dave_matthews-dont_know_why-grp.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "a featured artist written ft in the artist field",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "GRP" },
+      "files": [
+        { "path": "01-norah_jones_ft_dave-dont_know_why-grp.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": "01-norah_jones_ft_dave-dont_know_why-grp.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "NEGATIVE: a long title with one more word on it that is a version word (live) is not the studio song",
+      "song": { "title": "Everybody Wants to Rule the World", "flags": [], "trackNo": 1, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Tears for Fears", "group": "GRP" },
+      "files": [
+        { "path": "01-tears_for_fears-everybody_wants_to_rule_the_world_live-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a long title with one more word on it that is a version word (remix) is not the studio song",
+      "song": { "title": "Everybody Wants to Rule the World", "flags": [], "trackNo": 1, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Tears for Fears", "group": "GRP" },
+      "files": [
+        { "path": "01-tears_for_fears-everybody_wants_to_rule_the_world_remix-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a long title with a version word the song carries (a live release, a live song) is the song",
+      "song": { "title": "Everybody Wants to Rule the World (Live)", "flags": ["live"], "trackNo": 1, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Tears for Fears", "group": "GRP", "versionFlags": ["live"] },
+      "files": [
+        { "path": "01-tears_for_fears-everybody_wants_to_rule_the_world_live-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": "01-tears_for_fears-everybody_wants_to_rule_the_world_live-grp.flac",
+      "expectedTitle": "everybody wants to rule the world live"
+    }
+  ]
+}

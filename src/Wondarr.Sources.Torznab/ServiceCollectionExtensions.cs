@@ -140,5 +140,6 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<ILogger<IndexerSourceProvider>>(),
             budget: null,
             nzbCache: provider.GetRequiredService<NzbCache>(),
-            secrets: provider.GetRequiredService<ISecretRegistry>());
+            secrets: provider.GetRequiredService<ISecretRegistry>(),
+            search: provider.GetService<IOptionsMonitor<SearchOptions>>());
 }

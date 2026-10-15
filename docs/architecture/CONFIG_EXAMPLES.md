@@ -84,7 +84,7 @@ search:                                     # the scheduled search loops (§5.5)
   upgrade_interval_hours: 24                # the Cutoff Unmet loop
   upgrade_batch_size: 50                    # songs per run, to be polite to the network
   search_on_add: true                       # queue a SongSearch the moment a song is added
-  max_container_size_mb: 1500               # a usenet post larger than this is rejected; a torrent downloads only its selected files
+  max_container_size_mb: 1500               # a usenet post that downloads whole larger than this is rejected; a post trimmed to the wanted tracks and a torrent are not held to it
 import:
   fake_lossless_check: reject               # reject | off: refuse a lossless file whose spectrum shows a lossy encoder's low-pass (an MP3 in a FLAC)
   container_staging_path: /data/downloads/containers  # a finished torrent file is hard-linked here (keep it on the client's filesystem), a usenet file moved here

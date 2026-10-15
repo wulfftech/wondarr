@@ -337,7 +337,7 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
 
                 if (status.State == DownloadState.Failed)
                 {
-                    await FailAsync(database, item, status.Message ?? DownloadFailed, cancellationToken)
+                    await FailAsync(database, item, status.Message ?? DownloadFailed, cancellationToken, status.BlocklistCandidate)
                         .ConfigureAwait(false);
 
                     continue;
@@ -584,17 +584,21 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
 
     /// <summary>
     /// Fails a grab, records it, drops the peer's reputation and — while the run has attempts left —
-    /// grabs its next candidate. The peer is at fault, not the file, so nothing is blocklisted.
+    /// grabs its next candidate. The peer is at fault, not the file, so nothing is blocklisted, unless the
+    /// source says the candidate itself is not the song (<paramref name="blocklist"/>): then it is
+    /// blocklisted for the song, and a run that has no candidate left is not a successful grab any more.
     /// </summary>
     /// <param name="database">The cycle's database context.</param>
     /// <param name="item">The item to fail.</param>
     /// <param name="message">Why it failed, as the user will read it.</param>
     /// <param name="cancellationToken">Cancels the writes and the next grab.</param>
+    /// <param name="blocklist">Whether the candidate is blocklisted for the song, with <paramref name="message"/> as the reason.</param>
     private async Task FailAsync(
         WondarrDbContext database,
         QueueItem item,
         string message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool blocklist = false)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var provider = item.Candidate?.Provider;
@@ -606,6 +610,19 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         item.FinishedAt = now;
         item.Message = message;
 
+        if (blocklist && item.Candidate is { } failed)
+        {
+            // Saved with the item, before the next grab: the search reads the blocklist to skip this one.
+            database.Blocklist.Add(new BlocklistItem
+            {
+                SongId = item.SongId,
+                SourceType = item.SourceType,
+                BlocklistKey = failed.BlocklistKey,
+                Reason = message,
+                ExpiresAt = null,
+            });
+        }
+
         // Saved before the next grab: the search refuses to grab for a song that still has a grab in
         // flight, and this item is that grab until the row says otherwise.
         await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -615,6 +632,11 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         if (next is null)
         {
             item.Message = string.Concat(message, " (", NoMoreCandidates, ")");
+
+            if (blocklist)
+            {
+                await UndoGrabbedRunAsync(database, item, message, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         database.History.Add(new HistoryItem
@@ -637,6 +659,32 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
                 },
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// A run whose grabbed candidate turned out not to be the song, with no candidate left to try, did not
+    /// find the song: it is recorded as fruitless, so the song's backoff counts it as a failed search and
+    /// does not treat it as a success that resets the wait to the shortest step.
+    /// </summary>
+    /// <param name="database">The cycle's database context; saved by the caller.</param>
+    /// <param name="item">The item that failed.</param>
+    /// <param name="reason">Why the grabbed candidate was not the song.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    private static async Task UndoGrabbedRunAsync(
+        WondarrDbContext database,
+        QueueItem item,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var run = await database.SearchRuns
+            .FirstOrDefaultAsync(entry => entry.Id == item.SearchRunId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (run is { Outcome: SearchOutcome.Grabbed })
+        {
+            run.Outcome = SearchOutcome.NoAcceptableCandidate;
+            run.Message = string.Concat(run.Message, " The grabbed release was not the song: ", reason);
+        }
     }
 
     /// <summary>Records the peer's failure for Soulseek; other sources have no reputation yet.</summary>

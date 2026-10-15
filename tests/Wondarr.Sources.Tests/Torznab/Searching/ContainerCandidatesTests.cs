@@ -60,7 +60,201 @@ public sealed class ContainerCandidatesTests
         ContainerCandidates.Build(DownloadProtocol.Torrent, listing, Wanted, "q", Now).Should().NotBeNull();
     }
 
-    private static ContainerListing Listing(string title, IReadOnlyList<ContainerFile> files) =>
+    [Theory]
+    [InlineData("Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "FADA")]
+    [InlineData("Norah.Jones-Come.Away.With.Me-JAPANESE.RETAIL-2002-pH", "Norah Jones", "pH")]
+    [InlineData("Imagine Dragons-Smoke And Mirrors-Deluxe Edition-2CD-FLAC-2015-JLM", "Imagine Dragons", "JLM")]
+    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC]", "Nine Inch Nails", null)]
+    [InlineData("Daft Punk - Discovery (2001) [FLAC]", "Daft Punk", null)]
+    public void The_matcher_is_told_the_release_s_artist_and_scene_group(string title, string artist, string? group)
+    {
+        var listing = Listing(title, null);
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Torrent, listing, Wanted, "q", Now);
+
+        var song = candidate!.Release!.Song!;
+        song.ReleaseArtist.Should().Be(artist);
+        song.ReleaseGroup.Should().Be(group);
+    }
+
+    [Fact]
+    public void A_file_list_unknown_candidate_keeps_the_song_with_the_release_s_artist_and_group_for_after_the_grab()
+    {
+        var listing = Listing("Velvet.Harbour-Paper.Lanterns-CD-FLAC-2002-FADA", null);
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Usenet, listing, Wanted, "q", Now)!;
+
+        candidate.Extension.Should().BeNull();
+        candidate.Release!.FileIndex.Should().BeNull();
+        candidate.Availability.FileListKnown.Should().BeFalse();
+
+        // The handle is saved as JSON and read back when the unpacked post is matched.
+        var handle = new ContainerGrab(1, 1, "guid-1", null, "job", null, "staging", candidate.Release.Song, true);
+        var song = ContainerGrab.Deserialize(handle.Serialize()).Song!;
+
+        song.ReleaseArtist.Should().Be("Velvet Harbour");
+        song.ReleaseGroup.Should().Be("FADA");
+    }
+
+    /// <summary>250 s at about 900 kbps.</summary>
+    private const long FlacTrack = 250 * 900 * 1000L / 8;
+
+    [Fact]
+    public void A_live_release_yields_a_live_song_and_never_the_studio_one()
+    {
+        var listing = Listing(
+            "Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP",
+            [
+                new ContainerFile(0, "03-foo_fighters-times_like_these-grp.flac", FlacTrack),
+                new ContainerFile(1, "04-foo_fighters-everlong-grp.flac", FlacTrack),
+            ]);
+        var studio = new ContainerMatchRequest("Everlong", VersionFlags.None, 4, 250_000, 1, SongArtist: "Foo Fighters");
+        var live = new ContainerMatchRequest("Everlong (Live)", VersionFlags.Live, 4, 250_000, 1, SongArtist: "Foo Fighters");
+
+        ContainerCandidates.Build(DownloadProtocol.Usenet, listing, studio, "q", Now).Should().BeNull();
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Usenet, listing, live, "q", Now);
+
+        candidate.Should().NotBeNull();
+        candidate!.RemotePath.Should().Be("04-foo_fighters-everlong-grp.flac");
+        candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.Live);
+        candidate.Parsed.VersionFlags.Should().HaveFlag(VersionFlags.Live, "the engine must see a live take for a live song");
+    }
+
+    [Theory]
+    [InlineData("Paul McCartney - Live and Let Die [FLAC]", "Live and Let Die", "Live and Let Die", "Live and Let Die.flac")]
+    [InlineData("Oasis - Live Forever [FLAC]", "Live Forever", "Definitely Maybe", "Live Forever.flac")]
+    [InlineData("Hole-Live_Through_This-CD-FLAC-1994-GRP", "Doll Parts", "Live Through This", "05-hole-doll_parts-grp.flac")]
+    [InlineData("Taylor Swift - Long Live [FLAC]", "Long Live", "Long Live", "Long Live.flac")]
+    [InlineData("Christina Aguilera - Stripped [FLAC]", "Beautiful", "Stripped", "05 - Beautiful.flac")]
+    public void A_release_named_after_the_song_or_its_album_is_not_a_version_of_it(string release, string song, string album, string file)
+    {
+        var listing = Listing(release, [new ContainerFile(0, file, FlacTrack), new ContainerFile(1, "99 - Something Else.flac", FlacTrack)]);
+
+        var candidate = ContainerCandidates.Build(
+            DownloadProtocol.Usenet,
+            listing,
+            new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1, SongAlbum: album),
+            "q",
+            Now);
+
+        candidate.Should().NotBeNull($"\"{release}\" is the song's own album or single, its name's words are its title");
+        candidate!.RemotePath.Should().Be(file);
+        candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.None);
+    }
+
+    [Theory]
+    [InlineData("Oasis - Live at Knebworth [FLAC]", "Live Forever", "Definitely Maybe", "Live Forever.flac")]
+    [InlineData("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", "Everlong", "The Colour and the Shape", "04-foo_fighters-everlong-grp.flac")]
+    [InlineData("Foo Fighters - Everlong (Live) [FLAC]", "Everlong", "The Colour and the Shape", "Everlong.flac")]
+    [InlineData("Foo.Fighters-Everlong-SINGLE-FLAC-1997-LIVE", "Everlong", "The Colour and the Shape", "01-foo_fighters-everlong.flac")]
+    public void A_live_release_that_is_not_the_songs_own_stays_a_live_release_for_the_studio_song(string release, string song, string album, string file)
+    {
+        var listing = Listing(release, [new ContainerFile(0, file, FlacTrack)]);
+
+        ContainerCandidates.Build(
+                DownloadProtocol.Usenet,
+                listing,
+                new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1, SongAlbum: album),
+                "q",
+                Now)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void A_live_album_still_yields_its_live_song_when_the_song_says_where_it_is_from()
+    {
+        var listing = Listing(
+            "Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP",
+            [new ContainerFile(0, "04-foo_fighters-everlong-grp.flac", FlacTrack)]);
+
+        var candidate = ContainerCandidates.Build(
+            DownloadProtocol.Usenet,
+            listing,
+            new ContainerMatchRequest("Everlong (Live)", VersionFlags.Live, 4, 250_000, 1, SongArtist: "Foo Fighters", SongAlbum: "Live at Wembley"),
+            "q",
+            Now);
+
+        candidate.Should().NotBeNull();
+        candidate!.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.Live);
+    }
+
+    [Fact]
+    public void A_release_named_after_the_song_with_an_unknown_file_list_carries_no_version_but_a_live_one_does()
+    {
+        var studio = new ContainerMatchRequest("Live Forever", VersionFlags.None, null, 250_000, 1, SongAlbum: "Definitely Maybe");
+
+        var own = ContainerCandidates.Build(DownloadProtocol.Usenet, Listing("Oasis - Live Forever [FLAC]", null), studio, "q", Now)!;
+        var knebworth = ContainerCandidates.Build(DownloadProtocol.Usenet, Listing("Oasis - Live at Knebworth [FLAC]", null), studio, "q", Now)!;
+
+        own.Parsed.VersionFlags.Should().Be(VersionFlags.None);
+        own.Parsed.PathVersionFlags.Should().Be(VersionFlags.None, "the engine must not even penalise the song's own single");
+        knebworth.Parsed.VersionFlags.Should().Be(VersionFlags.Live);
+    }
+
+    [Fact]
+    public void A_live_release_with_an_unknown_file_list_carries_its_version_in_the_path_flags_and_the_song_request()
+    {
+        var listing = Listing("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", null);
+        var studio = new ContainerMatchRequest("Everlong", VersionFlags.None, 4, 250_000, 1);
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Usenet, listing, studio, "q", Now)!;
+
+        candidate.Parsed.PathVersionFlags.Should().HaveFlag(VersionFlags.Live);
+        candidate.Parsed.VersionFlags.Should().Be(VersionFlags.Live, "the engine rejects it for a studio song and takes it for a live one");
+        candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.Live);
+    }
+
+    [Theory]
+    [InlineData("A-ha-Hunting_High_and_Low-CD-FLAC-1985-GRP", "Take On Me", "a-ha", "01-a-ha-take_on_me-grp.flac")]
+    [InlineData("Run-D.M.C.-Raising_Hell-CD-FLAC-1986-GRP", "It’s Tricky", "Run-D.M.C.", "04-run-d.m.c.-its_tricky-grp.flac")]
+    public void A_scene_release_with_a_hyphenated_artist_finds_its_track_through_the_songs_artist(
+        string release,
+        string song,
+        string artist,
+        string expected)
+    {
+        var listing = Listing(
+            release,
+            [
+                new ContainerFile(0, "02-a-ha-the_sun_always_shines_on_tv-grp.flac", FlacTrack),
+                new ContainerFile(1, "03-run-d.m.c.-walk_this_way-grp.flac", FlacTrack),
+                new ContainerFile(2, expected, FlacTrack),
+            ]);
+
+        var found = ContainerCandidates.Build(
+            DownloadProtocol.Usenet,
+            listing,
+            new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1, SongArtist: artist),
+            "q",
+            Now);
+
+        found.Should().NotBeNull();
+        found!.RemotePath.Should().Be(expected);
+
+        // The release name alone parses the artist as "A" or "Run": without the song's artist the track is lost.
+        ContainerCandidates.Build(
+                DownloadProtocol.Usenet,
+                listing,
+                new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1),
+                "q",
+                Now)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void A_handle_saved_before_the_artist_and_group_existed_still_reads()
+    {
+        const string json = """{"clientId":1,"indexerId":1,"releaseId":"guid-1","jobId":"job","stagingDir":"staging","song":{"title":"Letting You","versionFlags":0,"trackNo":3,"durationMs":253000,"qualityId":1,"sixteenBitStated":false}}""";
+
+        var song = ContainerGrab.Deserialize(json).Song!;
+
+        song.Title.Should().Be("Letting You");
+        song.ReleaseArtist.Should().BeNull();
+        song.ReleaseGroup.Should().BeNull();
+    }
+
+    private static ContainerListing Listing(string title, IReadOnlyList<ContainerFile>? files) =>
         new(
             new IndexerRelease(
                 title,

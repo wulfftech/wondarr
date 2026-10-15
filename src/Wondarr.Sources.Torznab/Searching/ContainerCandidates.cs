@@ -47,8 +47,18 @@ public static class ContainerCandidates
         var sourceType = protocol == DownloadProtocol.Torrent ? SourceTypes.Torznab : SourceTypes.Newznab;
         var claimed = ReleaseQualityParser.Parse(release.Title);
         var parsedRelease = ReleaseTitleParser.Parse(release.Title);
-        var releaseFlags = VersionFlagParser.Parse(release.Title).Flags;
-        var song = wanted with { QualityId = claimed, SixteenBitStated = ReleaseQualityParser.StatesSixteenBit(release.Title) };
+        var version = ReleaseNameTags.VersionOf(release.Title, wanted.Title, wanted.SongAlbum, wanted.VersionFlags);
+        var releaseVersion = version.Release;
+        var releaseFlags = version.Path;
+        var song = wanted with
+        {
+            QualityId = claimed,
+            SixteenBitStated = ReleaseQualityParser.StatesSixteenBit(release.Title),
+            // What a scene file name is read against (ContainerMatcher): it leads with the artist and may end with the group.
+            ReleaseArtist = parsedRelease?.Artist,
+            ReleaseGroup = ReleaseNameTags.GroupOf(release.Title),
+            ReleaseVersionFlags = releaseVersion,
+        };
 
         if (listing.Files is not { } files)
         {
@@ -66,6 +76,10 @@ public static class ContainerCandidates
                 {
                     Artist = parsedRelease?.Artist,
                     Album = parsedRelease?.Album,
+
+                    // A live or remix release is live or remix throughout: its name says what every file in
+                    // it is, so the engine compares it to the song's flags (a studio song is a mismatch).
+                    VersionFlags = releaseVersion,
                     PathVersionFlags = releaseFlags,
                 },
                 QualityId = claimed,

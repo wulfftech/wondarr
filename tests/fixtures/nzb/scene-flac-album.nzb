@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+  <head>
+    <meta type="name">Velvet.Harbour-Paper.Lanterns-CD-FLAC-2002-FADA</meta>
+  </head>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000001" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[01/13] - &quot;00-velvet_harbour-paper_lanterns-2002-fada.jpg&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="48700" number="1">vhf-01-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000002" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[02/13] - &quot;00-velvet_harbour-paper_lanterns-2002-fada.nfo&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="2180" number="1">vhf-02-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000003" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[03/13] - &quot;00-velvet_harbour-paper_lanterns-2002-fada.par2&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="12680" number="1">vhf-03-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000004" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[04/13] - &quot;00-velvet_harbour-paper_lanterns-2002-fada.sfv&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="840" number="1">vhf-04-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000005" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[05/13] - &quot;00-velvet_harbour-paper_lanterns-2002-fada.vol00+01.par2&quot; yEnc (1/2)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="395200" number="1">vhf-05-01@news.invalid</segment>
+      <segment bytes="395200" number="2">vhf-05-02@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000006" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[06/13] - &quot;00-velvet_harbour-paper_lanterns-2002-fada.vol01+02.par2&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="526966" number="1">vhf-06-01@news.invalid</segment>
+      <segment bytes="526966" number="2">vhf-06-02@news.invalid</segment>
+      <segment bytes="526968" number="3">vhf-06-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000007" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[07/13] - &quot;00-velvet_harbour-paper_lanterns-2002-fada.vol03+04.par2&quot; yEnc (1/5)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="632040" number="1">vhf-07-01@news.invalid</segment>
+      <segment bytes="632040" number="2">vhf-07-02@news.invalid</segment>
+      <segment bytes="632040" number="3">vhf-07-03@news.invalid</segment>
+      <segment bytes="632040" number="4">vhf-07-04@news.invalid</segment>
+      <segment bytes="632040" number="5">vhf-07-05@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000008" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[08/13] - &quot;01-velvet_harbour-dont_wait_up.flac&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="6493333" number="1">vhf-08-01@news.invalid</segment>
+      <segment bytes="6493333" number="2">vhf-08-02@news.invalid</segment>
+      <segment bytes="6493334" number="3">vhf-08-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000009" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[09/13] - &quot;02-velvet_harbour-salt_and_static.flac&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="4753333" number="1">vhf-09-01@news.invalid</segment>
+      <segment bytes="4753333" number="2">vhf-09-02@news.invalid</segment>
+      <segment bytes="4753334" number="3">vhf-09-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000010" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[10/13] - &quot;03-velvet_harbour-harbour_lights.flac&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="6303333" number="1">vhf-10-01@news.invalid</segment>
+      <segment bytes="6303333" number="2">vhf-10-02@news.invalid</segment>
+      <segment bytes="6303334" number="3">vhf-10-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000011" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[11/13] - &quot;04-velvet_harbour-paper_lanterns.flac&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="6783333" number="1">vhf-11-01@news.invalid</segment>
+      <segment bytes="6783333" number="2">vhf-11-02@news.invalid</segment>
+      <segment bytes="6783334" number="3">vhf-11-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000012" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[12/13] - &quot;05-velvet_harbour-low_tide_reprise.flac&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="3956666" number="1">vhf-12-01@news.invalid</segment>
+      <segment bytes="3956666" number="2">vhf-12-02@news.invalid</segment>
+      <segment bytes="3956668" number="3">vhf-12-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000013" subject="Velvet_Harbour-Paper_Lanterns-CD-FLAC-2002-FADA[13/13] - &quot;06-velvet_harbour-run-away_train.flac&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.flac</group></groups>
+    <segments>
+      <segment bytes="5573333" number="1">vhf-13-01@news.invalid</segment>
+      <segment bytes="5573333" number="2">vhf-13-02@news.invalid</segment>
+      <segment bytes="5573334" number="3">vhf-13-03@news.invalid</segment>
+    </segments>
+  </file>
+</nzb>

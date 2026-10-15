@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -91,7 +92,7 @@ public sealed partial class IndexerSourceProvider
             try
             {
                 return _protocol == DownloadProtocol.Torrent
-                    ? await TorrentStatusAsync(client, grab, cancellationToken).ConfigureAwait(false)
+                    ? await TorrentStatusAsync(services, client, grab, cancellationToken).ConfigureAwait(false)
                     : await UsenetStatusAsync(services, client, grab, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -364,7 +365,7 @@ public sealed partial class IndexerSourceProvider
         }
     }
 
-    private async Task<DownloadStatus> TorrentStatusAsync(DownloadClient client, ContainerGrab grab, CancellationToken cancellationToken)
+    private async Task<DownloadStatus> TorrentStatusAsync(IServiceProvider services, DownloadClient client, ContainerGrab grab, CancellationToken cancellationToken)
     {
         var hash = grab.InfoHash ?? throw new InvalidOperationException("A torrent grab without an info-hash.");
         var info = await _torrents.GetAsync(client, hash, cancellationToken).ConfigureAwait(false);
@@ -389,11 +390,28 @@ public sealed partial class IndexerSourceProvider
             ? files.FirstOrDefault(entry => SamePath(entry.Path, path))
             : await SelectAfterMetadataAsync(client, info, files, grab, cancellationToken).ConfigureAwait(false);
 
+        if (file is null && grab.FilePath is null && (files.Count == 0 || grab.Song is null))
+        {
+            // Nothing was compared: the client listed no files, or the handle has no song to look for. That
+            // says nothing about the release, so it is not blocklisted and nothing is removed.
+            return Failed(files.Count == 0 ? "The download client lists no files for this torrent." : "The song is not in this torrent.");
+        }
+
+        if (file is null && grab.FilePath is null)
+        {
+            // The release's files are known now and the song is not among them: this release is not the
+            // song, for good. What Wondarr added of it goes (a torrent it did not add is left as it is),
+            // and the candidate is blocklisted for the song so no later search grabs it again.
+            var shared = await IsSharedAsync(services, grab, cancellationToken).ConfigureAwait(false);
+
+            await CancelTorrentAsync(client, grab, shared, cancellationToken).ConfigureAwait(false);
+
+            return Failed("The song is not in this torrent.", blocklistCandidate: true);
+        }
+
         if (file is null)
         {
-            return Failed(grab.FilePath is null
-                ? "The song is not in this torrent."
-                : "The wanted file is no longer in the torrent.");
+            return Failed("The wanted file is no longer in the torrent.");
         }
 
         if (file.Progress >= 1)
@@ -617,14 +635,28 @@ public sealed partial class IndexerSourceProvider
 
         try
         {
+            // A post with no named file was never meant to be trimmed; the search already held its size to
+            // the limit. A named file means the search saw a clean post and priced it as trimmed.
+            var trimmed = wanted.Count == 0;
+
             try
             {
-                await TrimAsync(client, jobId, wanted, cancellationToken).ConfigureAwait(false);
+                trimmed = await TrimAsync(client, jobId, wanted, cancellationToken).ConfigureAwait(false);
             }
             catch (DownloadClientException exception)
             {
-                // Trimming is opportunistic: the post downloads whole instead.
+                // Trimming is opportunistic: the post downloads whole instead, if that is affordable.
                 LogTrimFailed(_logger, release.Title, exception);
+            }
+
+            if (!trimmed && release.Size is { } size && size > MaxContainerBytes)
+            {
+                // The job is paused, so nothing has been downloaded; the catch below removes it.
+                throw new DownloadClientException(
+                    string.Concat(
+                        "The post could not be trimmed and is larger than the ",
+                        (MaxContainerBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture),
+                        " MB limit."));
             }
 
             await _usenet.ResumeAsync(client, jobId, cancellationToken).ConfigureAwait(false);
@@ -719,12 +751,17 @@ public sealed partial class IndexerSourceProvider
         return false;
     }
 
-    /// <summary>Deletes the audio files no wanted song needs, when the post is clean (DECISIONS build session 8 #10).</summary>
-    private async Task TrimAsync(DownloadClient client, string jobId, List<string> wanted, CancellationToken cancellationToken)
+    /// <summary>
+    /// Deletes the audio files no wanted song needs, when the post is clean (DECISIONS build session 8 #10).
+    /// Tells whether the job now holds only what is wanted: false when the client listed nothing, listed
+    /// something that is not a clean post, or listed none of the wanted names, in which case the job is left
+    /// whole.
+    /// </summary>
+    private async Task<bool> TrimAsync(DownloadClient client, string jobId, List<string> wanted, CancellationToken cancellationToken)
     {
         if (wanted.Count == 0)
         {
-            return;
+            return true;
         }
 
         IReadOnlyList<UsenetFileInfo> files = [];
@@ -741,11 +778,23 @@ public sealed partial class IndexerSourceProvider
         }
 
         var names = wanted.Select(Path.GetFileName).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var entries = files.Select((file, index) => NzbFileList.FromFileName(index, file.FileName, file.SizeBytes)).ToList();
+
+        // The same tests the trimmer applies before it deletes anything: a trim that would delete nothing
+        // because the list is empty, is not a clean post, or holds none of the wanted names has not trimmed.
+        if (entries.Count == 0
+            || !NzbFileList.IsClean(entries)
+            || !entries.Any(entry => entry.IsAudio && names.Contains(Path.GetFileName(entry.FileName ?? string.Empty))))
+        {
+            return false;
+        }
 
         foreach (var fileId in NzbTrimmer.FilesToDelete(files, name => names.Contains(Path.GetFileName(name))))
         {
             await _usenet.DeleteFileAsync(client, jobId, fileId, cancellationToken).ConfigureAwait(false);
         }
+
+        return true;
     }
 
     private async Task<DownloadStatus> UsenetStatusAsync(
@@ -810,7 +859,17 @@ public sealed partial class IndexerSourceProvider
 
         if (source is null)
         {
-            return await FailedJobAsync(services, client, grab, jobId, "The song is not in the downloaded post.", cancellationToken).ConfigureAwait(false);
+            // A post listed by name that lost its file is the client's doing. So is a folder that holds no
+            // audio at all, archives left in it or nothing: the client did not unpack, which says nothing
+            // about the release. Only a post with no names that unpacked to audio without the song is not
+            // the song's release, for good.
+            var entries = files.Select(file => NzbFileList.FromFileName(0, Path.GetFileName(file), 0)).ToList();
+            var hasAudio = entries.Any(entry => entry.IsAudio);
+            var message = !hasAudio && entries.Any(entry => entry.IsArchive)
+                ? "The finished post holds archives and no audio: the download client did not unpack it."
+                : "The song is not in the downloaded post.";
+
+            return await FailedJobAsync(services, client, grab, jobId, message, cancellationToken, blocklistCandidate: grab.FilePath is null && hasAudio).ConfigureAwait(false);
         }
 
         var staged = Stage(source, grab.StagingDir, link: false);
@@ -835,14 +894,15 @@ public sealed partial class IndexerSourceProvider
         ContainerGrab grab,
         string jobId,
         string message,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool blocklistCandidate = false)
     {
         if (!await IsSharedAsync(services, grab, cancellationToken).ConfigureAwait(false))
         {
             await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false);
         }
 
-        return Failed(message);
+        return Failed(message, blocklistCandidate);
     }
 
     /// <summary>An unpacked post's file for the song, by the matcher over the files' paths below the job folder.</summary>
@@ -991,7 +1051,8 @@ public sealed partial class IndexerSourceProvider
 
     private static string ToLocal(string containerPath) => containerPath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
 
-    private static DownloadStatus Failed(string message) => new(DownloadState.Failed, 0, 0, Message: message);
+    private static DownloadStatus Failed(string message, bool blocklistCandidate = false) =>
+        new(DownloadState.Failed, 0, 0, Message: message, BlocklistCandidate: blocklistCandidate);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Trimming the usenet post {Title} failed; it downloads whole")]
     private static partial void LogTrimFailed(ILogger logger, string title, Exception exception);

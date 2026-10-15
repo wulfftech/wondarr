@@ -282,6 +282,157 @@ public class DecisionEngineTests
     }
 
     [Fact]
+    public void A_usenet_post_over_the_limit_is_rejected_only_while_it_downloads_whole()
+    {
+        var unknownList = UnlistedContainer(SourceTypes.Newznab, size: 2_000L * 1024 * 1024);
+        var matched = unknownList with
+        {
+            Extension = "flac",
+            Release = unknownList.Release! with { FileIndex = 2 },
+        };
+
+        // A RAR set or an obfuscated post downloads whole: the limit holds.
+        Judge(Context(), unknownList).Rejections
+            .Should().ContainSingle(rejection => rejection.Reason == RejectionReason.ContainerTooLarge);
+
+        // A clean post is trimmed to the wanted file by SABnzbd, so its size says nothing about the download.
+        Judge(Context(), matched).Rejections
+            .Should().NotContain(rejection => rejection.Reason == RejectionReason.ContainerTooLarge);
+    }
+
+    [Theory]
+    [InlineData(SourceTypes.Newznab)]
+    [InlineData(SourceTypes.Torznab)]
+    public void A_container_whose_file_list_is_unknown_is_not_rejected_as_not_audio(string sourceType)
+    {
+        var candidate = UnlistedContainer(sourceType, size: 500L * 1024 * 1024);
+
+        var decision = Judge(Context(), candidate);
+
+        decision.Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.NotAudio);
+        decision.Accepted.Should().BeTrue("a release whose file list is unknown stays a candidate; its file is found after the grab");
+    }
+
+    [Fact]
+    public void An_unknown_file_list_still_meets_every_other_rule()
+    {
+        var blocklisted = Context() with { IsBlocklisted = key => key == "release-key" };
+        var unknownQuality = UnlistedContainer(SourceTypes.Newznab) with { QualityId = 1 };
+        var noSeeders = UnlistedContainer(SourceTypes.Torznab) with { Availability = new CandidateAvailability(Seeders: 0) };
+        var tooLarge = UnlistedContainer(SourceTypes.Newznab, size: 2_000L * 1024 * 1024);
+
+        // Each one fails its own rule and is not turned away as not audio.
+        var blocklistedDecision = Judge(blocklisted, UnlistedContainer(SourceTypes.Newznab));
+        blocklistedDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.Blocklisted);
+
+        var unknownQualityDecision = Judge(Context(), unknownQuality);
+        unknownQualityDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.FormatNotAllowed);
+
+        var noSeedersDecision = Judge(Context(), noSeeders);
+        noSeedersDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.NoSeeders);
+
+        var tooLargeDecision = Judge(Context(), tooLarge);
+        tooLargeDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.ContainerTooLarge);
+    }
+
+    [Theory]
+    [InlineData("Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "Come Away with Me")]
+    [InlineData("Norah_Jones-Come_Away_With_Me-JAPANESE_RETAIL-2002-pH", "Norah Jones", "Come Away With Me")]
+    [InlineData("Norah Jones - Come Away With Me (2002) [FLAC]", "Norah Jones", "Come Away With Me")]
+    [InlineData("Norah.Jones-Dont.Know.Why-SINGLE-FLAC-2002-GRP", "Norah Jones", "Dont Know Why")]
+    public void An_unknown_file_list_of_the_songs_artist_and_album_is_accepted(string title, string artist, string album)
+    {
+        var decision = Judge(NorahContext(), UnlistedContainer(SourceTypes.Newznab, title, artist, album));
+
+        decision.Rejections.Should().BeEmpty();
+        decision.Accepted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_hyphenated_artist_the_release_name_parsed_wrong_is_still_the_artist_when_the_name_starts_with_it()
+    {
+        var context = NorahContext() with { SongTitle = "Take On Me", MainArtists = ["a-ha"], AlbumTitle = "Hunting High and Low" };
+        var candidate = UnlistedContainer(SourceTypes.Newznab, "A-ha-Hunting_High_and_Low-CD-FLAC-1985-GRP", "A", "ha-Hunting High and Low");
+
+        var decision = Judge(context, candidate);
+
+        decision.Rejections.Should().BeEmpty();
+        decision.Accepted.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Tom.Jones-Greatest.Hits-CD-FLAC-1999-GRP", "Tom Jones", "Greatest Hits", RejectionReason.ArtistMismatch)]
+    [InlineData("Jones-Whatever-CD-FLAC-2002-GRP", "Jones", "Whatever", RejectionReason.ArtistMismatch)]
+    [InlineData("Norah.Jones.and.Friends-Come.Away.with.Me-CD-FLAC-2002-GRP", "Norah Jones and Friends", "Come Away with Me", RejectionReason.ArtistMismatch)]
+    [InlineData("VA-Now.Thats.What.I.Call.Music-2CD-FLAC-2002-GRP", "VA", "Now Thats What I Call Music", RejectionReason.ArtistMismatch)]
+    [InlineData("Various.Artists-Come.Away.with.Me-CD-FLAC-2002-GRP", "Various Artists", "Come Away with Me", RejectionReason.ArtistMismatch)]
+    [InlineData("Norah.Jones-Dont.Know.Why-OST-FLAC-2002-GRP", "Norah Jones", "Dont Know Why", RejectionReason.ArtistMismatch)]
+    [InlineData("Norah.Jones-Feels.Like.Home-CD-FLAC-2004-GRP", "Norah Jones", "Feels Like Home", RejectionReason.TitleMismatch)]
+    [InlineData("Norah.Jones-Discography-1997-2013-FLAC-GRP", "Norah Jones", "Discography", RejectionReason.TitleMismatch)]
+    public void An_unknown_file_list_that_is_not_the_songs_artist_and_album_is_rejected(
+        string title,
+        string artist,
+        string album,
+        RejectionReason expected)
+    {
+        var decision = Judge(NorahContext(), UnlistedContainer(SourceTypes.Newznab, title, artist, album));
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(expected);
+    }
+
+    [Fact]
+    public void An_unknown_file_list_is_judged_the_same_for_a_torrent()
+    {
+        Judge(NorahContext(), UnlistedContainer(SourceTypes.Torznab, "Tom.Jones-Greatest.Hits-CD-FLAC-1999-GRP", "Tom Jones", "Greatest Hits"))
+            .Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+        Judge(NorahContext(), UnlistedContainer(SourceTypes.Torznab, "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "Come Away with Me"))
+            .Accepted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_unknown_file_list_keeps_its_lower_availability_score()
+    {
+        var unlisted = UnlistedContainer(SourceTypes.Newznab);
+        var listed = unlisted with { Availability = unlisted.Availability with { FileListKnown = true } };
+
+        Judge(Context(), listed).Score.Availability.Should().Be(Judge(Context(), unlisted).Score.Availability + 30);
+    }
+
+    [Theory]
+    [InlineData(SourceTypes.Soulseek, null)]
+    [InlineData(SourceTypes.Soulseek, "lrc")]
+    [InlineData(SourceTypes.YouTube, null)]
+    [InlineData(SourceTypes.YouTube, "webm")]
+    public void A_single_file_without_an_audio_extension_is_still_not_audio(string sourceType, string? extension)
+    {
+        var candidate = NewCandidate(extension: extension) with { SourceType = sourceType };
+
+        Judge(Context(), candidate).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.NotAudio);
+    }
+
+    [Fact]
+    public void A_container_whose_matched_file_is_not_audio_is_still_not_audio()
+    {
+        var matched = UnlistedContainer(SourceTypes.Newznab) with { Release = UnlistedContainer(SourceTypes.Newznab).Release! with { FileIndex = 3 } };
+
+        // The matcher only ever chooses audio, so a file that is named but has no audio extension is a fault.
+        Judge(Context(), matched with { Extension = "nfo" }).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.NotAudio);
+        Judge(Context(), matched with { Extension = null }).Rejections
+            .Should().Contain(rejection => rejection.Reason == RejectionReason.NotAudio);
+    }
+
+    [Fact]
+    public void A_single_file_candidate_with_a_release_but_no_container_is_still_not_audio()
+    {
+        // The exemption is for a container, not for any candidate that happens to carry a release.
+        var candidate = UnlistedContainer(SourceTypes.Newznab) with { Container = CandidateContainer.SingleFile };
+
+        Judge(Context(), candidate).Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.NotAudio);
+    }
+
+    [Fact]
     public void A_different_title_is_rejected_with_the_file_title_in_the_message()
     {
         var candidate = NewCandidate(
@@ -561,6 +712,51 @@ public class DecisionEngineTests
         Judge(Context(), NewCandidate(extension: extension)).Rejections
             .Should().NotContain(rejection => rejection.Reason == RejectionReason.UntaggableFormat);
     }
+
+    /// <summary>
+    /// What ContainerCandidates builds for a magnet, a RAR set or an obfuscated post: the release itself,
+    /// named after the artist, with no extension and no file index.
+    /// </summary>
+    private static Candidate UnlistedContainer(string sourceType, long size = 400L * 1024 * 1024) => new()
+    {
+        SourceType = sourceType,
+        BlocklistKey = "release-key",
+        DisplayName = "Daft Punk-Random Access Memories-CD-FLAC-2013-GRP",
+        RemotePath = "Daft Punk-Random Access Memories-CD-FLAC-2013-GRP",
+        Provider = "Indexer",
+        Parsed = ParsedName.Empty with { Artist = "Daft Punk", Album = "Random Access Memories" },
+        QualityId = 36,
+        Container = CandidateContainer.AlbumContainer,
+        Availability = new CandidateAvailability(Seeders: 10, AgeDays: 100, FileListKnown: false),
+        Release = new ContainerRelease
+        {
+            IndexerId = 1,
+            IndexerName = "Indexer",
+            Title = "Daft Punk-Random Access Memories-CD-FLAC-2013-GRP",
+            ReleaseId = "guid-1",
+            Size = size,
+        },
+    };
+
+    /// <summary>A release with an unknown file list, named as an indexer lists it and parsed as the search parses it.</summary>
+    private static Candidate UnlistedContainer(string sourceType, string title, string artist, string album) =>
+        UnlistedContainer(sourceType) with
+        {
+            DisplayName = title,
+            RemotePath = title,
+            Parsed = ParsedName.Empty with { Artist = artist, Album = album },
+            Release = UnlistedContainer(sourceType).Release! with { Title = title },
+        };
+
+    /// <summary>The song of "Come Away with Me": Norah Jones, "Don’t Know Why".</summary>
+    private static DecisionContext NorahContext() => Context() with
+    {
+        SongTitle = "Don’t Know Why",
+        MainArtists = ["Norah Jones"],
+        SongDurationMs = 186_000,
+        AlbumTitle = "Come Away with Me",
+        TrackNo = 1,
+    };
 
     private static CandidateDecision Judge(DecisionContext context, Candidate candidate) =>
         Engine.Evaluate(context, [candidate]).Single();
