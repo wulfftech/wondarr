@@ -390,6 +390,13 @@ public sealed partial class IndexerSourceProvider
             ? files.FirstOrDefault(entry => SamePath(entry.Path, path))
             : await SelectAfterMetadataAsync(client, info, files, grab, cancellationToken).ConfigureAwait(false);
 
+        if (file is null && grab.FilePath is null && (files.Count == 0 || grab.Song is null))
+        {
+            // Nothing was compared: the client listed no files, or the handle has no song to look for. That
+            // says nothing about the release, so it is not blocklisted and nothing is removed.
+            return Failed(files.Count == 0 ? "The download client lists no files for this torrent." : "The song is not in this torrent.");
+        }
+
         if (file is null && grab.FilePath is null)
         {
             // The release's files are known now and the song is not among them: this release is not the
@@ -852,9 +859,17 @@ public sealed partial class IndexerSourceProvider
 
         if (source is null)
         {
-            // A post listed by name that lost its file is the client's doing; one with no names, unpacked
-            // without the song, is not the song's release, for good.
-            return await FailedJobAsync(services, client, grab, jobId, "The song is not in the downloaded post.", cancellationToken, blocklistCandidate: grab.FilePath is null).ConfigureAwait(false);
+            // A post listed by name that lost its file is the client's doing. So is a folder that holds no
+            // audio at all, archives left in it or nothing: the client did not unpack, which says nothing
+            // about the release. Only a post with no names that unpacked to audio without the song is not
+            // the song's release, for good.
+            var entries = files.Select(file => NzbFileList.FromFileName(0, Path.GetFileName(file), 0)).ToList();
+            var hasAudio = entries.Any(entry => entry.IsAudio);
+            var message = !hasAudio && entries.Any(entry => entry.IsArchive)
+                ? "The finished post holds archives and no audio: the download client did not unpack it."
+                : "The song is not in the downloaded post.";
+
+            return await FailedJobAsync(services, client, grab, jobId, message, cancellationToken, blocklistCandidate: grab.FilePath is null && hasAudio).ConfigureAwait(false);
         }
 
         var staged = Stage(source, grab.StagingDir, link: false);

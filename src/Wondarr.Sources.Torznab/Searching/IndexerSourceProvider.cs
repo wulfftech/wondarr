@@ -234,7 +234,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                 var candidate = ContainerCandidates.Build(
                     _protocol,
                     container,
-                    new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, 1, SongArtist: request.ArtistCredit),
+                    new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, 1, SongArtist: request.ArtistCredit, SongAlbum: request.AlbumTitle),
                     text,
                     _time.GetUtcNow());
 

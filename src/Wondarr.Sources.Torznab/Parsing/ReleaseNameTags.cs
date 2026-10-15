@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Sources;
 
@@ -84,27 +85,104 @@ public static class ReleaseNameTags
     /// called Live is not a live album.
     /// </summary>
     /// <param name="title">The release name, as the indexer lists it.</param>
-    public static VersionFlags VersionFlagsOf(string title)
+    public static VersionFlags VersionFlagsOf(string title) => VersionOf(title, null, null, VersionFlags.None).Release;
+
+    /// <summary>What a release name says about its versions: for the files, and for the path.</summary>
+    /// <param name="Release">The flags every file in the release carries (<see cref="VersionFlagsOf"/>).</param>
+    /// <param name="Path">Every hard flag the name's brackets and dash suffixes give, and <paramref name="Release"/>; the engine only penalises these.</param>
+    public readonly record struct ReleaseVersion(VersionFlags Release, VersionFlags Path);
+
+    /// <summary>
+    /// <see cref="VersionFlagsOf"/> for a wanted song: a release that is the song's own album or the song's
+    /// own single is named after it, and its version words are its title, not its version
+    /// (<c>Paul McCartney - Live and Let Die</c> for "Live and Let Die", <c>Hole-Live_Through_This</c> for an
+    /// album track, <c>Christina Aguilera - Stripped</c> for "Stripped"). The words of that album part count
+    /// only as far as the song carries the flag itself (a live album's live song). Explicit tags still
+    /// count: <c>Everlong (Live)</c> is live for the studio "Everlong" too, and so is a <c>-LIVE</c> field.
+    /// </summary>
+    /// <param name="title">The release name, as the indexer lists it.</param>
+    /// <param name="songTitle">The wanted song's title, or null when none is known.</param>
+    /// <param name="songAlbum">The wanted song's album, or null when none is known.</param>
+    /// <param name="songFlags">The wanted song's own version flags.</param>
+    public static ReleaseVersion VersionOf(string title, string? songTitle, string? songAlbum, VersionFlags songFlags)
     {
         ArgumentNullException.ThrowIfNull(title);
 
         var name = ExtensionRegex.Replace(title.Trim(), string.Empty);
-        var flags = VersionFlagParser.Parse(name).Flags & ReleaseFlags;
+        var album = ReleaseTitleParser.Parse(name)?.Album;
+        var targets = new[] { songAlbum, songTitle is null ? null : VersionFlagParser.Parse(songTitle).BaseTitle }
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(text => text!)
+            .ToList();
+        var albumIsOwn = album is not null && IsOwn(targets, album);
 
-        if (ReleaseTitleParser.Parse(name)?.Album is { } album)
+        // "Artist - Album" reads the album as a dash suffix, so an own album is cut out before the tags are read.
+        var tagged = VersionFlagParser.Parse(albumIsOwn ? WithoutAlbum(name, album!) : name).Flags & VersionFlagNames.HardFlags;
+        var flags = tagged & ReleaseFlags;
+
+        if (album is not null)
         {
-            flags |= VersionWords.FlagsOf(album);
+            flags |= VersionWords.FlagsOf(album) & ReleaseFlags & (albumIsOwn ? songFlags : AnyFlag);
         }
 
         // A scene name has no spaces: its fields past the artist's are the album, the source, the year.
         if (!name.Any(char.IsWhiteSpace))
         {
-            foreach (var field in name.Split('-').Skip(1))
+            var fields = name.Split('-');
+            var ownFields = OwnFields(targets, fields);
+
+            for (var index = 1; index < fields.Length; index++)
             {
-                flags |= VersionWords.FlagsOf(field);
+                flags |= VersionWords.FlagsOf(fields[index]) & ReleaseFlags & (ownFields.Contains(index) ? songFlags : AnyFlag);
             }
         }
 
-        return flags & ReleaseFlags;
+        return new ReleaseVersion(flags, tagged | flags);
+    }
+
+    /// <summary>Every flag, as the mask that lets the words of a part of the name through.</summary>
+    private const VersionFlags AnyFlag = (VersionFlags)int.MaxValue;
+
+    /// <summary>How close a part of a release name must be to the song's album or title to be it.</summary>
+    private const double OwnThreshold = 0.85;
+
+    private static bool IsOwn(List<string> targets, string text) =>
+        targets.Any(target => TextMatching.Similarity(target, text) >= OwnThreshold);
+
+    /// <summary>The indexes of the hyphen fields that, alone or in a run of up to four, spell the song's album or title.</summary>
+    private static HashSet<int> OwnFields(List<string> targets, string[] fields)
+    {
+        var own = new HashSet<int>();
+
+        if (targets.Count == 0)
+        {
+            return own;
+        }
+
+        for (var start = 0; start < fields.Length; start++)
+        {
+            for (var length = 1; length <= 4 && start + length <= fields.Length; length++)
+            {
+                if (IsOwn(targets, string.Join(' ', fields.Skip(start).Take(length))))
+                {
+                    own.UnionWith(Enumerable.Range(start, length));
+                }
+            }
+        }
+
+        return own;
+    }
+
+    /// <summary>
+    /// The release name without its album. The album the parser read has its dots and underscores as spaces;
+    /// the name is searched with the same swap, character for character, so the cut falls on the right text.
+    /// The name unchanged when the album cannot be found in it.
+    /// </summary>
+    private static string WithoutAlbum(string name, string album)
+    {
+        var spaced = name.Replace('.', ' ').Replace('_', ' ');
+        var at = spaced.IndexOf(album, StringComparison.OrdinalIgnoreCase);
+
+        return at < 0 ? name : string.Concat(name.AsSpan(0, at), name.AsSpan(at + album.Length));
     }
 }

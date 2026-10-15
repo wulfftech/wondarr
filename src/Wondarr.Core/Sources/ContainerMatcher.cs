@@ -37,6 +37,11 @@ public sealed record ContainerFile(int Index, string Path, long Size);
 /// The wanted song's own artist, when known: a second guess at the artist a scene file name leads with, for
 /// the release names whose artist cannot be read back (<c>A-ha-Hunting_High_and_Low</c>).
 /// </param>
+/// <param name="SongAlbum">
+/// The wanted song's album, when known. A release named after it (or after the song) is that album: its
+/// name's version words ("Live Through This", "Stripped") are its title, not its version. Used when the
+/// candidate is built; the matcher itself reads <paramref name="ReleaseVersionFlags"/>.
+/// </param>
 public sealed record ContainerMatchRequest(
     string Title,
     VersionFlags VersionFlags,
@@ -47,7 +52,8 @@ public sealed record ContainerMatchRequest(
     string? ReleaseArtist = null,
     string? ReleaseGroup = null,
     VersionFlags ReleaseVersionFlags = VersionFlags.None,
-    string? SongArtist = null);
+    string? SongArtist = null,
+    string? SongAlbum = null);
 
 /// <summary>The file the matcher chose.</summary>
 /// <param name="File">The file.</param>

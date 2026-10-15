@@ -69,6 +69,31 @@ public sealed class ReleaseNameTagsTests
     }
 
     [Theory]
+    [InlineData("Paul McCartney - Live and Let Die [FLAC]", "Live and Let Die", null, VersionFlags.None, VersionFlags.None)]
+    [InlineData("Oasis - Live Forever [FLAC]", "Live Forever", "Definitely Maybe", VersionFlags.None, VersionFlags.None)]
+    [InlineData("Hole-Live_Through_This-CD-FLAC-1994-GRP", "Doll Parts", "Live Through This", VersionFlags.None, VersionFlags.None)]
+    [InlineData("Taylor Swift - Long Live [FLAC]", "Long Live", "Long Live", VersionFlags.None, VersionFlags.None)]
+    [InlineData("Christina Aguilera - Stripped [FLAC]", "Beautiful", "Stripped", VersionFlags.None, VersionFlags.None)]
+    [InlineData("Oasis - Live at Knebworth [FLAC]", "Live Forever", "Definitely Maybe", VersionFlags.None, VersionFlags.Live)]
+    [InlineData("Foo Fighters - Everlong (Live) [FLAC]", "Everlong", "The Colour and the Shape", VersionFlags.None, VersionFlags.Live)]
+    [InlineData("Foo.Fighters-Everlong-SINGLE-FLAC-1997-LIVE", "Everlong", "The Colour and the Shape", VersionFlags.None, VersionFlags.Live)]
+    [InlineData("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", "Everlong", "The Colour and the Shape", VersionFlags.None, VersionFlags.Live)]
+    [InlineData("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", "Everlong (Live)", "Live at Wembley", VersionFlags.Live, VersionFlags.Live)]
+    [InlineData("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", "Everlong", "Live at Wembley", VersionFlags.None, VersionFlags.None)]
+    public void A_release_named_after_the_song_or_its_album_keeps_its_words_out_of_the_version(
+        string title,
+        string song,
+        string? album,
+        VersionFlags songFlags,
+        VersionFlags expected)
+    {
+        var version = ReleaseNameTags.VersionOf(title, song, album, songFlags);
+
+        version.Release.Should().Be(expected);
+        version.Path.Should().HaveFlag(expected);
+    }
+
+    [Theory]
     [InlineData("Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA")]
     [InlineData("Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA.nzb")]
     [InlineData("Daft Punk - Discovery (2001) [FLAC]")]

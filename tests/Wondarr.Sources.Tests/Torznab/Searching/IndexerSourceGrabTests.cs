@@ -323,6 +323,43 @@ public sealed class IndexerSourceGrabTests : IDisposable
     }
 
     [Fact]
+    public async Task A_torrent_whose_file_list_is_empty_is_failed_plainly_and_nothing_is_removed()
+    {
+        var provider = Provider(DownloadProtocol.Torrent);
+        var handle = await provider.GrabAsync(UnlistedCandidate(DownloadProtocol.Torrent, SceneRelease, MagnetOf), "wondarr/one", CancellationToken.None);
+        var torrent = _torrents.Single();
+
+        // Metadata with no files in it: the client has told us nothing about the release.
+        torrent.HasMetadata = true;
+        torrent.Status = TorrentStatus.Stopped;
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.BlocklistCandidate.Should().BeFalse("nothing was compared");
+        _torrents.Removals.Should().BeEmpty();
+        torrent.Removed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_torrent_grab_with_no_song_to_look_for_is_failed_plainly_and_nothing_is_removed()
+    {
+        var provider = Provider(DownloadProtocol.Torrent);
+        var unlisted = UnlistedCandidate(DownloadProtocol.Torrent, SceneRelease, MagnetOf);
+        var handle = await provider.GrabAsync(unlisted with { Release = unlisted.Release! with { Song = null } }, "wondarr/one", CancellationToken.None);
+        var torrent = _torrents.Single();
+        torrent.DeliverMetadata(Album, Titles);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.BlocklistCandidate.Should().BeFalse("with no song, nothing was compared");
+        _torrents.Removals.Should().BeEmpty();
+    }
+
+    private const string MagnetOf = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Discovery";
+
+    [Fact]
     public async Task A_torrent_the_user_added_that_lacks_the_song_is_blocklisted_but_left_as_it_is()
     {
         var hash = SeedForeignTorrent(started: true);
@@ -1134,6 +1171,51 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         status.State.Should().Be(DownloadState.Completed);
         Path.GetFileName(status.CompletedPath).Should().Be("03-daft_punk-digital_love-grp.flac");
+    }
+
+    [Theory]
+    [InlineData("archives", new[] { "Daft.Punk-Discovery-CD-FLAC-2001-GRP.part01.rar", "Daft.Punk-Discovery-CD-FLAC-2001-GRP.r00", "00-daft_punk-discovery-2001-grp.nfo" })]
+    [InlineData("zip", new[] { "Daft.Punk-Discovery-CD-FLAC-2001-GRP.zip" })]
+    [InlineData("seven zip", new[] { "Daft.Punk-Discovery-CD-FLAC-2001-GRP.7z" })]
+    [InlineData("split archive", new[] { "Daft.Punk-Discovery-CD-FLAC-2001-GRP.001", "Daft.Punk-Discovery-CD-FLAC-2001-GRP.002" })]
+    public async Task A_finished_folder_with_archives_and_no_audio_is_the_clients_problem_not_the_releases(string label, string[] names)
+    {
+        _indexer.Download = new IndexerDownload(Nzb(("Daft.Punk-Discovery-CD-FLAC-2001-GRP.part01.rar", 900_000_000)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UnlistedCandidate(DownloadProtocol.Usenet, SceneRelease, magnet: null), "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", "not-unpacked-" + label.Replace(' ', '-'));
+
+        foreach (var name in names)
+        {
+            WriteFile(Path.Combine(folder, name), "x");
+        }
+
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.BlocklistCandidate.Should().BeFalse("the post was not unpacked, so nothing is known about the release");
+        status.Message.Should().Contain("did not unpack");
+
+        // What happens to the job is what always happened to a failed item (R-081): it is not extended.
+        _usenet.Single().Removed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_finished_folder_with_nothing_in_it_is_not_held_against_the_release_either()
+    {
+        _indexer.Download = new IndexerDownload(Nzb(("Daft.Punk-Discovery-CD-FLAC-2001-GRP.part01.rar", 900_000_000)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UnlistedCandidate(DownloadProtocol.Usenet, SceneRelease, magnet: null), "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", "empty");
+        Directory.CreateDirectory(folder);
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.BlocklistCandidate.Should().BeFalse();
     }
 
     [Fact]

@@ -121,6 +121,77 @@ public sealed class ContainerCandidatesTests
         candidate.Parsed.VersionFlags.Should().HaveFlag(VersionFlags.Live, "the engine must see a live take for a live song");
     }
 
+    [Theory]
+    [InlineData("Paul McCartney - Live and Let Die [FLAC]", "Live and Let Die", "Live and Let Die", "Live and Let Die.flac")]
+    [InlineData("Oasis - Live Forever [FLAC]", "Live Forever", "Definitely Maybe", "Live Forever.flac")]
+    [InlineData("Hole-Live_Through_This-CD-FLAC-1994-GRP", "Doll Parts", "Live Through This", "05-hole-doll_parts-grp.flac")]
+    [InlineData("Taylor Swift - Long Live [FLAC]", "Long Live", "Long Live", "Long Live.flac")]
+    [InlineData("Christina Aguilera - Stripped [FLAC]", "Beautiful", "Stripped", "05 - Beautiful.flac")]
+    public void A_release_named_after_the_song_or_its_album_is_not_a_version_of_it(string release, string song, string album, string file)
+    {
+        var listing = Listing(release, [new ContainerFile(0, file, FlacTrack), new ContainerFile(1, "99 - Something Else.flac", FlacTrack)]);
+
+        var candidate = ContainerCandidates.Build(
+            DownloadProtocol.Usenet,
+            listing,
+            new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1, SongAlbum: album),
+            "q",
+            Now);
+
+        candidate.Should().NotBeNull($"\"{release}\" is the song's own album or single, its name's words are its title");
+        candidate!.RemotePath.Should().Be(file);
+        candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.None);
+    }
+
+    [Theory]
+    [InlineData("Oasis - Live at Knebworth [FLAC]", "Live Forever", "Definitely Maybe", "Live Forever.flac")]
+    [InlineData("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", "Everlong", "The Colour and the Shape", "04-foo_fighters-everlong-grp.flac")]
+    [InlineData("Foo Fighters - Everlong (Live) [FLAC]", "Everlong", "The Colour and the Shape", "Everlong.flac")]
+    [InlineData("Foo.Fighters-Everlong-SINGLE-FLAC-1997-LIVE", "Everlong", "The Colour and the Shape", "01-foo_fighters-everlong.flac")]
+    public void A_live_release_that_is_not_the_songs_own_stays_a_live_release_for_the_studio_song(string release, string song, string album, string file)
+    {
+        var listing = Listing(release, [new ContainerFile(0, file, FlacTrack)]);
+
+        ContainerCandidates.Build(
+                DownloadProtocol.Usenet,
+                listing,
+                new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1, SongAlbum: album),
+                "q",
+                Now)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public void A_live_album_still_yields_its_live_song_when_the_song_says_where_it_is_from()
+    {
+        var listing = Listing(
+            "Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP",
+            [new ContainerFile(0, "04-foo_fighters-everlong-grp.flac", FlacTrack)]);
+
+        var candidate = ContainerCandidates.Build(
+            DownloadProtocol.Usenet,
+            listing,
+            new ContainerMatchRequest("Everlong (Live)", VersionFlags.Live, 4, 250_000, 1, SongArtist: "Foo Fighters", SongAlbum: "Live at Wembley"),
+            "q",
+            Now);
+
+        candidate.Should().NotBeNull();
+        candidate!.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.Live);
+    }
+
+    [Fact]
+    public void A_release_named_after_the_song_with_an_unknown_file_list_carries_no_version_but_a_live_one_does()
+    {
+        var studio = new ContainerMatchRequest("Live Forever", VersionFlags.None, null, 250_000, 1, SongAlbum: "Definitely Maybe");
+
+        var own = ContainerCandidates.Build(DownloadProtocol.Usenet, Listing("Oasis - Live Forever [FLAC]", null), studio, "q", Now)!;
+        var knebworth = ContainerCandidates.Build(DownloadProtocol.Usenet, Listing("Oasis - Live at Knebworth [FLAC]", null), studio, "q", Now)!;
+
+        own.Parsed.VersionFlags.Should().Be(VersionFlags.None);
+        own.Parsed.PathVersionFlags.Should().Be(VersionFlags.None, "the engine must not even penalise the song's own single");
+        knebworth.Parsed.VersionFlags.Should().Be(VersionFlags.Live);
+    }
+
     [Fact]
     public void A_live_release_with_an_unknown_file_list_carries_its_version_in_the_path_flags_and_the_song_request()
     {

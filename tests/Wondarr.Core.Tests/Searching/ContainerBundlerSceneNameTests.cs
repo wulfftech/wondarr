@@ -100,7 +100,9 @@ public sealed class ContainerBundlerSceneNameTests
         var found = await ContainerBundler.FindAsync(context, alpha, candidate, Token);
 
         found.Should().ContainSingle().Which.Song.Id.Should().Be(gamma);
-        ContainerBundler.CandidateFor(candidate, found[0]).Release!.Song!.SongArtist.Should().Be("Aphex Twin");
+        var partner = ContainerBundler.CandidateFor(candidate, found[0]).Release!.Song!;
+        partner.SongArtist.Should().Be("Aphex Twin");
+        partner.SongAlbum.Should().Be("Selected Ambient Works", "the partner song's own album, read with the song");
     }
 
     /// <summary>200 s at about 900 kbps.</summary>

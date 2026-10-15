@@ -54,6 +54,7 @@ public static class ContainerBundler
         var songs = await database.Songs
             .AsNoTracking()
             .Include(song => song.File)
+            .Include(song => song.AlbumContext)
             .Where(song => song.PrimaryArtistId == artistId && song.Id != songId && song.Monitored)
             .OrderBy(song => song.Id)
             .ToListAsync(cancellationToken)
@@ -114,7 +115,8 @@ public static class ContainerBundler
                     candidate.Release.Song?.ReleaseArtist,
                     candidate.Release.Song?.ReleaseGroup,
                     candidate.Release.Song?.ReleaseVersionFlags ?? VersionFlags.None,
-                    song.ArtistCredit));
+                    song.ArtistCredit,
+                    song.AlbumContext?.AlbumTitle));
 
             // Two songs never share a file, and the grabbed song's file is its own.
             if (match is not null && taken.Add(match.File.Index))
@@ -169,7 +171,8 @@ public static class ContainerBundler
                     release.Song?.ReleaseArtist,
                     release.Song?.ReleaseGroup,
                     release.Song?.ReleaseVersionFlags ?? VersionFlags.None,
-                    bundled.Song.ArtistCredit),
+                    bundled.Song.ArtistCredit,
+                    bundled.Song.AlbumContext?.AlbumTitle),
             },
         };
     }
