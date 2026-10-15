@@ -4,10 +4,20 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-10-15
+
+The usenet release: real music posts now go from the indexer through SABnzbd into the library, checked live against DOGnzb and SABnzbd 5.1.3 (scene file names, upper-case PAR2 files, RAR and obfuscated posts, posts trimmed to the one track the song needs). Wondarr also spends far fewer of an indexer's daily NZB downloads, cleans up what downloads leave behind, and no longer fails two adds by the same new artist. Update by pulling `:0.1` (or `:0.1.7`).
+
+**Upgrading from 0.1.6:**
+- **No database migration.**
+- **Leftover folders are cleaned up by default.** After an import Wondarr now deletes the folder of a usenet job it added, and its own `wondarr/<id>` download folders even when something is left in them. Torrent data is never touched. To keep the old behaviour, switch off **Settings → Download clients → Clean up leftover folders** (or set `import.clean_leftover_folders: false`).
+- **Usenet:** a post trimmed to the wanted track now downloads without its Par2 repair data (a damaged article is caught by the import's decode check instead). A SABnzbd category whose folder ends in `*` gets no folder cleanup.
+
 ### Added
 - **A setting to clean up what a download leaves behind (`import.clean_leftover_folders`, on by default).** After an import, Wondarr now removes the folder of a usenet job it added, and its own per-grab download folders (the Soulseek, YouTube and container staging folders, always named `wondarr/` and 32 lower-case hex digits) even when a partial or a cover is still in them; before, those folders went only while they were empty. A torrent's data is never touched: it stays as long as the client has the torrent, seeding included. Switch it off on **Settings → Download clients** ("Clean up leftover folders") or in `config.yml`; with it off Wondarr behaves as before. A value set with `APP__IMPORT__CLEAN_LEFTOVER_FOLDERS` shows as read-only in the UI. No migration.
 
 ### Changed
+- **Dependencies updated:** Scalar 2.18.0, Quartz.Extensions.Hosting 4.4.0, Mantine 9.7.1, @tanstack/react-query 5.104.1, lucide-react 1.55.0, and test and build tooling.
 - **Wondarr spends far fewer of a usenet indexer's daily NZB downloads, and says when the limit is reached.** One search used to read up to 8 NZBs per album (24 in all) to look inside the posts, then download a grabbed post's NZB again: a free DOGnzb account (10 a day) was gone after a single interactive search. Now a search reads at most 8 NZBs from each indexer in total, the posts that name a quality first and then the most grabbed, and the grab, a later search and a pushed release's grab reuse an NZB that was already read (kept in memory for 6 hours, up to 64 NZBs and 16 MB; a kept NZB costs no download and takes no slot of the 8). When an indexer answers a download with its limit message, an error about the account or its limits, or HTTP 429 or 403 (an error about a single removed post only skips that post), Wondarr stops reading from that indexer for the rest of the search, still reads the others, and shows the indexer's own words, such as "DogNZB: You already reached your daily restriction of 10 downloads.", in the interactive search and the run's history. A grab the indexer refuses that way now fails with the same words instead of handing SABnzbd something that is not an NZB. Torrents are unchanged. No migration.
 
 ### Fixed
