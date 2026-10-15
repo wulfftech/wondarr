@@ -707,7 +707,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
         var job = _usenet.Single();
         job.Paused.Should().BeFalse("it was added paused, trimmed, then resumed");
         job.AddedPaused.Should().BeTrue();
-        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "05 - Crescendolls.flac", "Discovery.par2");
+        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "05 - Crescendolls.flac");
         ContainerGrab.Deserialize(handle.Value).JobId.Should().Be(job.Id);
     }
 
@@ -793,7 +793,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         var job = _usenet.Single();
         job.Paused.Should().BeFalse();
-        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "Discovery.par2");
+        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac");
     }
 
     [Fact]
@@ -823,7 +823,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
         _indexer.Downloads.Should().Be(0, "the indexer counts every NZB download against its daily quota");
         var job = _usenet.Single();
         job.AddedPaused.Should().BeTrue();
-        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "Discovery.par2");
+        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac");
         ContainerGrab.Deserialize(handle.Value).JobId.Should().Be(job.Id);
     }
 
@@ -840,7 +840,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
         await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
 
         _indexer.Downloads.Should().Be(1);
-        _usenet.Single().Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "Discovery.par2");
+        _usenet.Single().Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac");
     }
 
     [Theory]

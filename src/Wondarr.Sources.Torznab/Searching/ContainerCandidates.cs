@@ -47,7 +47,7 @@ public static class ContainerCandidates
         var sourceType = protocol == DownloadProtocol.Torrent ? SourceTypes.Torznab : SourceTypes.Newznab;
         var claimed = ReleaseQualityParser.Parse(release.Title);
         var parsedRelease = ReleaseTitleParser.Parse(release.Title);
-        var version = ReleaseNameTags.VersionOf(release.Title, wanted.Title, wanted.SongAlbum, wanted.VersionFlags);
+        var version = ReleaseNameTags.VersionOf(release.Title, wanted.Title, wanted.SongAlbum, wanted.VersionFlags, wanted.TargetAlbum);
         var releaseVersion = version.Release;
         var releaseFlags = version.Path;
         var song = wanted with

@@ -168,7 +168,8 @@ internal sealed class SearchTestHost : IAsyncDisposable
         int? durationMs = 200_000,
         IReadOnlyList<string>? versionFlags = null,
         bool monitored = true,
-        long? artistId = null)
+        long? artistId = null,
+        AlbumContextKind albumKind = AlbumContextKind.Album)
     {
         await using var context = _database.CreateContext(Time);
 
@@ -209,7 +210,8 @@ internal sealed class SearchTestHost : IAsyncDisposable
         context.AlbumContexts.Add(new AlbumContext
         {
             SongId = song.Id,
-            AlbumTitle = "Selected Ambient Works",
+            Kind = albumKind,
+            AlbumTitle = albumKind == AlbumContextKind.PseudoSingles ? "Singles" : "Selected Ambient Works",
             AlbumArtist = artist.Name,
             AlbumKey = $"aphex-twin-{song.Id}",
             TrackNo = 1,

@@ -107,6 +107,13 @@ public static class ContainerStubApp
 
         /// <summary>The tracks, as scenario files: <c>path</c> is the file name, <c>audio</c> and <c>identity</c> what it is.</summary>
         public IReadOnlyList<ScenarioFile> Files { get; init; } = [];
+
+        /// <summary>
+        /// Usenet, plain names: the file names of the post's other files (<c>.par2</c> volumes, <c>.sfv</c>,
+        /// <c>.nfo</c>, <c>.jpg</c>). They are listed in the NZB and the job but never rendered. Like the real
+        /// SABnzbd, the fake fails a job that was trimmed and still holds a Par2 volume or an SFV.
+        /// </summary>
+        public IReadOnlyList<string> Sidecars { get; init; } = [];
     }
 
     /// <summary>Everything the stub holds, behind one lock.</summary>
@@ -175,6 +182,7 @@ public static class ContainerStubApp
                         files = job.Files.Where(file => !file.Deleted).Select(file => file.Name),
                         deleted = job.Files.Where(file => file.Deleted).Select(file => file.Name),
                         unpacked = job.Unpacked,
+                        failMessage = job.FailMessage,
                     }),
                 };
             }
@@ -630,8 +638,8 @@ public static class ContainerStubApp
                                 nzo_id = job.Id,
                                 name = job.Name,
                                 status = job.Status,
-                                fail_message = string.Empty,
-                                storage = job.Storage,
+                                fail_message = job.FailMessage ?? string.Empty,
+                                storage = job.Storage ?? string.Empty,
                                 bytes = job.Release.TotalSize,
                             }),
                     },
@@ -641,7 +649,10 @@ public static class ContainerStubApp
 
         /// <summary>
         /// Downloads and unpacks a job in the background: the audio files nobody deleted (a clean post)
-        /// or every track of the release (an obfuscated RAR set, whose tracks only exist unpacked).
+        /// or every track of the release (an obfuscated RAR set, whose tracks only exist unpacked). A post
+        /// trimmed with <c>delete_nzf</c> that still holds a Par2 volume or an SFV fails the way the real
+        /// SABnzbd 5.1 does: the Par2 set describes the deleted files, verification tries to rebuild them,
+        /// and nothing reaches the complete folder.
         /// </summary>
         private void Process(Job job)
         {
@@ -656,6 +667,18 @@ public static class ContainerStubApp
 
                 lock (_gate)
                 {
+                    var missing = job.Files.Count(file => file.Deleted);
+
+                    if (missing > 0 && job.Files.Any(file => !file.Deleted && IsRepairData(file.Name)))
+                    {
+                        job.FailMessage = string.Concat("Repair failed, not enough repair blocks (", missing.ToString(CultureInfo.InvariantCulture), " short)");
+                        job.Status = "Failed";
+                        job.Finished = true;
+                        FakeSlskdLog.Info($"Usenet job {job.Id} failed: {job.FailMessage}");
+
+                        return;
+                    }
+
                     job.Status = "Extracting";
                     folder = Path.Combine(UsenetCompleteDir, "music", job.Name);
                     tracks = job.Release.Spec.Obfuscated
@@ -677,6 +700,9 @@ public static class ContainerStubApp
                 }
             });
         }
+
+        private static bool IsRepairData(string name) =>
+            name.EndsWith(".par2", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".sfv", StringComparison.OrdinalIgnoreCase);
 
         private static void Remove(Job job, bool deleteFiles)
         {
@@ -715,7 +741,8 @@ public static class ContainerStubApp
             Spec = spec;
             IsTorrent = string.Equals(spec.Protocol, "torrent", StringComparison.OrdinalIgnoreCase);
             Sizes = [.. spec.Files.Select(DeclaredSize)];
-            TotalSize = Sizes.Sum();
+            Sidecars = IsTorrent || spec.Obfuscated ? [] : [.. spec.Sidecars];
+            TotalSize = Sizes.Sum() + (Sidecars.Count * SidecarSize);
 
             if (IsTorrent)
             {
@@ -724,7 +751,7 @@ public static class ContainerStubApp
             }
             else
             {
-                NzbBytes = BuildNzb(spec, Sizes);
+                NzbBytes = BuildNzb(spec, Sizes, Sidecars);
                 TorrentBytes = [];
                 InfoHash = string.Empty;
             }
@@ -738,6 +765,9 @@ public static class ContainerStubApp
 
         public long[] Sizes { get; }
 
+        /// <summary>The names of the post's non-audio files (Par2 volumes, SFV, NFO…): plain-named usenet posts only.</summary>
+        public IReadOnlyList<string> Sidecars { get; }
+
         public long TotalSize { get; }
 
         public byte[] TorrentBytes { get; }
@@ -745,6 +775,9 @@ public static class ContainerStubApp
         public string InfoHash { get; }
 
         public byte[] NzbBytes { get; }
+
+        /// <summary>What every sidecar file is listed with; small, like the real thing next to a few FLACs.</summary>
+        public const long SidecarSize = 20_000;
 
         /// <summary>The size a file is listed with: what the indexer would say, from its length and codec.</summary>
         private static long DeclaredSize(ScenarioFile file)
@@ -777,18 +810,18 @@ public static class ContainerStubApp
             return (torrent, hash);
         }
 
-        private static byte[] BuildNzb(ReleaseSpec spec, long[] sizes)
+        private static byte[] BuildNzb(ReleaseSpec spec, long[] sizes, IReadOnlyList<string> sidecars)
         {
             XNamespace nzb = "http://www.newzbin.com/DTD/2003/nzb";
             var root = new XElement(nzb + "nzb");
             var names = spec.Obfuscated
                 ? Enumerable.Range(1, 3).Select(part => $"{ObfuscatedStem(spec.Title)}.part{part.ToString("00", CultureInfo.InvariantCulture)}.rar").ToList()
-                : [.. spec.Files.Select(file => file.BareName)];
+                : [.. spec.Files.Select(file => file.BareName), .. sidecars];
             var total = sizes.Sum();
 
             for (var index = 0; index < names.Count; index++)
             {
-                var size = spec.Obfuscated ? total / names.Count : sizes[index];
+                var size = spec.Obfuscated ? total / names.Count : index < sizes.Length ? sizes[index] : SidecarSize;
                 root.Add(new XElement(
                     nzb + "file",
                     new XAttribute("poster", "fake"),
@@ -855,7 +888,11 @@ public static class ContainerStubApp
             Release = release;
             Files = release.Spec.Obfuscated
                 ? [.. Enumerable.Range(1, 3).Select(part => new JobFile($"nzf_{part.ToString(CultureInfo.InvariantCulture)}", $"part{part.ToString("00", CultureInfo.InvariantCulture)}.rar", release.TotalSize / 3))]
-                : [.. release.Spec.Files.Select((file, index) => new JobFile($"nzf_{(index + 1).ToString(CultureInfo.InvariantCulture)}", file.BareName, release.Sizes[index]))];
+                :
+                [
+                    .. release.Spec.Files.Select((file, index) => new JobFile($"nzf_{(index + 1).ToString(CultureInfo.InvariantCulture)}", file.BareName, release.Sizes[index])),
+                    .. release.Sidecars.Select((name, index) => new JobFile($"nzf_{(release.Sizes.Length + index + 1).ToString(CultureInfo.InvariantCulture)}", name, Release.SidecarSize)),
+                ];
         }
 
         public string Id { get; }
@@ -873,6 +910,9 @@ public static class ContainerStubApp
         public bool RemovedWithFiles { get; set; }
 
         public string? Storage { get; set; }
+
+        /// <summary>Why the job failed, when it did: SABnzbd's own wording.</summary>
+        public string? FailMessage { get; set; }
 
         public List<string> Unpacked { get; set; } = [];
 

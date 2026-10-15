@@ -1001,12 +1001,32 @@ public sealed class DecisionEngine
             return;
         }
 
-        if (!ReleaseNamesAlbumOrTitle(context, name, candidate.Parsed.Album))
+        if (!ReleaseNamesAlbumOrTitle(context, SongAlbums(context, candidate), name, candidate.Parsed.Album))
         {
             rejections.Add(new Rejection(
                 RejectionReason.TitleMismatch,
                 "Title mismatch: the release names neither the song's album nor the song, and its file list is unknown."));
         }
+    }
+
+    /// <summary>
+    /// The albums a release of unknown contents may be named after for this song. A container candidate carries
+    /// what its provider decided: the album of the MusicBrainz release the search targeted, and the song's album
+    /// context unless that is a pseudo-album. A song filed under "Singles" would otherwise have no album that any
+    /// release is named after. A provider that decided nothing (a candidate stored before the request carried
+    /// albums, a push that matched the release by the song's title) leaves the context's title as the album.
+    /// </summary>
+    private static List<string> SongAlbums(DecisionContext context, Candidate candidate)
+    {
+        var request = candidate.Release?.Song;
+        string?[] albums = [request?.SongAlbum, request?.TargetAlbum];
+
+        if (albums.All(string.IsNullOrWhiteSpace))
+        {
+            albums = [context.AlbumTitle];
+        }
+
+        return [.. albums.Where(album => !string.IsNullOrWhiteSpace(album)).Select(album => album!).Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>
@@ -1036,16 +1056,16 @@ public sealed class DecisionEngine
     }
 
     /// <summary>
-    /// Whether a release name is the song's album (a hyphen-separated field of it, or a run of up to four,
-    /// or its parsed album, as close as <see cref="AlbumThreshold"/>) or holds the song's title as a run of
-    /// whole words.
+    /// Whether a release name is one of the song's albums (a hyphen-separated field of it, or a run of up to
+    /// four, or its parsed album, as close as <see cref="AlbumThreshold"/>) or holds the song's title as a run
+    /// of whole words.
     /// </summary>
-    private static bool ReleaseNamesAlbumOrTitle(DecisionContext context, string releaseName, string? parsedAlbum)
+    private static bool ReleaseNamesAlbumOrTitle(DecisionContext context, List<string> albums, string releaseName, string? parsedAlbum)
     {
-        if (!string.IsNullOrWhiteSpace(context.AlbumTitle))
+        if (albums.Count > 0)
         {
             if (!string.IsNullOrWhiteSpace(parsedAlbum)
-                && TextMatching.Similarity(context.AlbumTitle, parsedAlbum) >= AlbumThreshold)
+                && albums.Any(album => TextMatching.Similarity(album, parsedAlbum) >= AlbumThreshold))
             {
                 return true;
             }
@@ -1056,7 +1076,9 @@ public sealed class DecisionEngine
             {
                 for (var length = 1; length <= 4 && start + length <= fields.Length; length++)
                 {
-                    if (TextMatching.Similarity(context.AlbumTitle, string.Join(' ', fields.Skip(start).Take(length))) >= AlbumThreshold)
+                    var run = string.Join(' ', fields.Skip(start).Take(length));
+
+                    if (albums.Any(album => TextMatching.Similarity(album, run) >= AlbumThreshold))
                     {
                         return true;
                     }

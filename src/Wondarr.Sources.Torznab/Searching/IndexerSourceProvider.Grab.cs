@@ -752,7 +752,8 @@ public sealed partial class IndexerSourceProvider
     }
 
     /// <summary>
-    /// Deletes the audio files no wanted song needs, when the post is clean (DECISIONS build session 8 #10).
+    /// Deletes the audio files no wanted song needs and, with them, the post's Par2 volumes and <c>.sfv</c>,
+    /// when the post is clean (DECISIONS build session 8 #10, build session 14 #15).
     /// Tells whether the job now holds only what is wanted: false when the client listed nothing, listed
     /// something that is not a clean post, or listed none of the wanted names, in which case the job is left
     /// whole.

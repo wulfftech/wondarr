@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
@@ -103,6 +104,27 @@ public sealed class ContainerBundlerSceneNameTests
         var partner = ContainerBundler.CandidateFor(candidate, found[0]).Release!.Song!;
         partner.SongArtist.Should().Be("Aphex Twin");
         partner.SongAlbum.Should().Be("Selected Ambient Works", "the partner song's own album, read with the song");
+    }
+
+    [Fact]
+    public async Task A_partner_song_filed_under_singles_carries_no_album_name()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var alpha = await host.SeedSongAsync("Alpha");
+        var gamma = await host.SeedSongAsync("Gamma", artistId: await ArtistOfAsync(host, alpha), albumKind: AlbumContextKind.PseudoSingles);
+        ContainerFile[] files =
+        [
+            new(0, "01-aphex_twin-alpha-grp.flac", SceneSize),
+            new(1, "03-aphex_twin-gamma-grp.flac", SceneSize),
+        ];
+        var candidate = SceneCandidate("Aphex Twin", "GRP", files);
+
+        await using var context = host.Database.CreateContext(host.Time);
+
+        var found = await ContainerBundler.FindAsync(context, alpha, candidate, Token);
+
+        found.Should().ContainSingle().Which.Song.Id.Should().Be(gamma);
+        ContainerBundler.CandidateFor(candidate, found[0]).Release!.Song!.SongAlbum.Should().BeNull("\"Singles\" is a pseudo-album, no release is named after it");
     }
 
     /// <summary>200 s at about 900 kbps.</summary>

@@ -234,7 +234,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                 var candidate = ContainerCandidates.Build(
                     _protocol,
                     container,
-                    new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, 1, SongArtist: request.ArtistCredit, SongAlbum: request.AlbumTitle),
+                    new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, 1, SongArtist: request.ArtistCredit, SongAlbum: ContextAlbum(request), TargetAlbum: target.Album),
                     text,
                     _time.GetUtcNow());
 
@@ -258,6 +258,14 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
 
         return new SourceSearchResult(candidates, queries, Message(state, budget.IsCancellationRequested));
     }
+
+    /// <summary>
+    /// The album context's title, unless the context is a pseudo-album. The request does not carry the
+    /// context's kind, but a pseudo-album ("Singles") is not a MusicBrainz release and has no release id,
+    /// while a real album has one; the release the search targets stands for the album otherwise.
+    /// </summary>
+    private static string? ContextAlbum(SongSearchRequest request) =>
+        string.IsNullOrWhiteSpace(request.AlbumMbReleaseId) || string.IsNullOrWhiteSpace(request.AlbumTitle) ? null : request.AlbumTitle;
 
     /// <summary>
     /// The enabled indexers of this protocol that have a client, in priority order — or none, with why,

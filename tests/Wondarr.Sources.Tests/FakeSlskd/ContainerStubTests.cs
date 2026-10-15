@@ -156,6 +156,74 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task A_post_trimmed_the_way_wondarr_does_it_completes_without_its_par2_volumes_and_sfv()
+    {
+        var (client, row, job) = await AddPostWithSidecarsAsync();
+
+        var files = await client.GetFilesAsync(row, job, CancellationToken.None);
+        files.Select(file => file.FileName).Should().Contain([$"{Title}.par2", $"{Title}.vol000+01.par2", $"{Title}.sfv", $"{Title}.nfo"]);
+
+        var deleted = NzbTrimmer.FilesToDelete(files, name => name.Contains("Lazing", StringComparison.Ordinal));
+        deleted.Should().HaveCount(5, "two tracks, the two Par2 files and the SFV; the NFO stays");
+
+        foreach (var fileId in deleted)
+        {
+            await client.DeleteFileAsync(row, job, fileId, CancellationToken.None);
+        }
+
+        await client.ResumeAsync(row, job, CancellationToken.None);
+
+        var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
+
+        finished.Status.Should().Be(UsenetStatus.Completed);
+        Directory.GetFiles(finished.StoragePath!).Select(Path.GetFileName).Should().Equal("02 - Lazing on a Sunday Afternoon.flac");
+        (await ReportAsync()).Should().Contain("\"failMessage\":null");
+    }
+
+    [Theory]
+    [InlineData(".par2")]
+    [InlineData(".sfv")]
+    public async Task A_trimmed_post_that_still_holds_par2_or_sfv_fails_like_sabnzbd_and_leaves_nothing_in_the_complete_folder(string kept)
+    {
+        var (client, row, job) = await AddPostWithSidecarsAsync();
+
+        // Only the audio files are dropped, and one repair file stays: its set describes the deleted tracks.
+        var files = await client.GetFilesAsync(row, job, CancellationToken.None);
+        var drop = files.Where(file =>
+            (file.FileName.EndsWith(".flac", StringComparison.Ordinal) && !file.FileName.Contains("Lazing", StringComparison.Ordinal))
+            || (kept != ".par2" && file.FileName.EndsWith(".par2", StringComparison.Ordinal))
+            || (kept != ".sfv" && file.FileName.EndsWith(".sfv", StringComparison.Ordinal)));
+
+        foreach (var file in drop)
+        {
+            await client.DeleteFileAsync(row, job, file.FileId, CancellationToken.None);
+        }
+
+        await client.ResumeAsync(row, job, CancellationToken.None);
+
+        var failed = await WaitAsync(async () => await FinishedAsync(client, row, job));
+
+        failed.Status.Should().Be(UsenetStatus.Failed);
+        failed.FailMessage.Should().MatchRegex(@"^Repair failed, not enough repair blocks \([1-9][0-9]* short\)$");
+        failed.StoragePath.Should().BeNull();
+        Directory.GetFileSystemEntries(Path.Combine(_root, "usenet", "complete", "music")).Should().BeEmpty("nothing reaches the complete folder");
+        (await ReportAsync()).Should().Contain("Repair failed, not enough repair blocks");
+    }
+
+    [Fact]
+    public async Task A_post_that_was_not_trimmed_completes_with_its_par2_set()
+    {
+        var (client, row, job) = await AddPostWithSidecarsAsync();
+
+        await client.ResumeAsync(row, job, CancellationToken.None);
+
+        var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
+
+        finished.Status.Should().Be(UsenetStatus.Completed);
+        Directory.GetFiles(finished.StoragePath!).Should().HaveCount(3, "every track is unpacked; the repair data and the NFO are not audio");
+    }
+
+    [Fact]
     public async Task The_client_types_pass_their_connection_tests_against_the_stub()
     {
         var qbittorrent = new QBittorrentClientType(new QBittorrentProxy(new StaticHttpClientFactory(_http), NullLogger<QBittorrentProxy>.Instance));
@@ -168,7 +236,45 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
         (await sabnzbd.TestAsync(sab.RootElement, CancellationToken.None)).Should().Be(new ProviderTestResult(true, null));
     }
 
-    private async Task<(int Id, string InfoHash)> RegisterAsync(string protocol, string title, bool obfuscated)
+    private const string Title = "Queen - A Night at the Opera (1975) [FLAC]";
+
+    /// <summary>A plain-named post of three tracks with a Par2 set, an SFV and an NFO, added to the fake SABnzbd paused.</summary>
+    private async Task<(SabnzbdClient Client, DownloadClient Row, string Job)> AddPostWithSidecarsAsync()
+    {
+        await RegisterAsync("usenet", Title, obfuscated: false, sidecars: [$"{Title}.par2", $"{Title}.vol000+01.par2", $"{Title}.sfv", $"{Title}.nfo"]);
+
+        var indexer = Indexer("newznab", DownloadProtocol.Usenet);
+        var newznab = TorznabTest.NewznabClient(_http);
+        var release = (await newznab.SearchAsync(indexer, new ReleaseQuery("Queen", "A Night at the Opera", null), CancellationToken.None)).Single();
+        var download = await newznab.DownloadAsync(indexer, release, CancellationToken.None);
+        using (var stream = new MemoryStream(download.Content!))
+        {
+            NzbFileList.IsClean(NzbFileList.Parse(stream)).Should().BeTrue();
+        }
+
+        var client = new SabnzbdClient(new SabnzbdProxy(new StaticHttpClientFactory(_http), new SecretRegistry(), NullLogger<SabnzbdProxy>.Instance));
+        var row = new DownloadClient { Id = 2, Name = "SABnzbd", Type = "sabnzbd", Protocol = DownloadProtocol.Usenet, Settings = $$"""{"host":"127.0.0.1","port":{{_port}},"urlBase":"sabnzbd","apiKey":"k"}""" };
+        var job = await client.AddAsync(row, new UsenetAddRequest(release.Title, download.Content, null, Paused: true), CancellationToken.None);
+
+        return (client, row, job);
+    }
+
+    /// <summary>The job once it has left the queue for the history, finished or failed.</summary>
+    private static async Task<UsenetJobInfo?> FinishedAsync(SabnzbdClient client, DownloadClient row, string job)
+    {
+        var current = await client.GetAsync(row, job, CancellationToken.None);
+
+        return current?.Status is UsenetStatus.Completed or UsenetStatus.Failed ? current : null;
+    }
+
+    private async Task<string> ReportAsync()
+    {
+        using var http = new HttpClient(_http, disposeHandler: false);
+
+        return await http.GetStringAsync(new Uri($"{Base}/fake/containers"));
+    }
+
+    private async Task<(int Id, string InfoHash)> RegisterAsync(string protocol, string title, bool obfuscated, string[]? sidecars = null)
     {
         using var http = new HttpClient(_http, disposeHandler: false);
         var tracks = new[] { "Death on Two Legs", "Lazing on a Sunday Afternoon", "I'm in Love With My Car" };
@@ -177,6 +283,7 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
             protocol,
             title,
             obfuscated,
+            sidecars = sidecars ?? [],
             files = tracks.Select((track, index) => new
             {
                 path = $"{index + 1:00} - {track}.flac",

@@ -180,13 +180,13 @@ public sealed class SabnzbdClientTests
     }
 
     [Fact]
-    public async Task Trims_a_clean_album_to_the_wanted_tracks_and_keeps_par2_and_sidecars()
+    public async Task Trims_a_clean_album_to_the_wanted_tracks_and_drops_par2_but_keeps_sidecars()
     {
         var files = await Client(new FakeSabnzbd { ["get_files"] = "get-files.json" }).GetFilesAsync(Row(), JobId, CancellationToken.None);
 
         var deleted = NzbTrimmer.FilesToDelete(files, name => name.Contains("Digital Love", StringComparison.Ordinal) || name.Contains("Aerodynamic", StringComparison.Ordinal));
 
-        deleted.Should().Equal("SABnzbd_nzf_a1");
+        deleted.Should().Equal("SABnzbd_nzf_p1", "SABnzbd_nzf_a1");
     }
 
     [Fact]

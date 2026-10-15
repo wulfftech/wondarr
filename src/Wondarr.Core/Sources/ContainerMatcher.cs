@@ -40,7 +40,14 @@ public sealed record ContainerFile(int Index, string Path, long Size);
 /// <param name="SongAlbum">
 /// The wanted song's album, when known. A release named after it (or after the song) is that album: its
 /// name's version words ("Live Through This", "Stripped") are its title, not its version. Used when the
-/// candidate is built; the matcher itself reads <paramref name="ReleaseVersionFlags"/>.
+/// candidate is built; the matcher itself reads <paramref name="ReleaseVersionFlags"/>. The title of the
+/// song's album context, and <see langword="null"/> when that is a pseudo-album ("Singles"), which no release
+/// is named after (<see cref="SongAlbumNames"/>).
+/// </param>
+/// <param name="TargetAlbum">
+/// The album of the MusicBrainz release the search targeted, when the candidate came from a search. It is
+/// the song's album as much as <paramref name="SongAlbum"/> is, and the only one a song filed under
+/// "Singles" has: either one naming the release is enough.
 /// </param>
 public sealed record ContainerMatchRequest(
     string Title,
@@ -53,7 +60,8 @@ public sealed record ContainerMatchRequest(
     string? ReleaseGroup = null,
     VersionFlags ReleaseVersionFlags = VersionFlags.None,
     string? SongArtist = null,
-    string? SongAlbum = null);
+    string? SongAlbum = null,
+    string? TargetAlbum = null);
 
 /// <summary>The file the matcher chose.</summary>
 /// <param name="File">The file.</param>
