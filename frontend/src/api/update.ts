@@ -103,7 +103,7 @@ export class UpdateSettingsError extends ApiError {
   }
 }
 
-function firstMessage(body: unknown): string | undefined {
+export function firstMessage(body: unknown): string | undefined {
   const errors = (body as { errors?: Record<string, unknown> } | undefined)?.errors;
 
   if (typeof errors !== 'object' || errors === null) {

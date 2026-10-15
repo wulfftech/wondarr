@@ -40,6 +40,15 @@ public sealed class ImportOptions
     public string ContainerStagingPath { get; set; } = "/data/downloads/containers";
 
     /// <summary>
+    /// Whether, after an import, Wondarr removes what the download left behind: the folder of a usenet
+    /// job it added, and its own per-grab download folders even when something is still in them
+    /// (<c>import.clean_leftover_folders</c>). A torrent's data is never touched: it stays for as long
+    /// as the client has the torrent. When off, only Wondarr's own folders are removed, and only while
+    /// they are empty.
+    /// </summary>
+    public bool CleanLeftoverFolders { get; set; } = true;
+
+    /// <summary>
     /// Whether a lossless download is checked for a lossy encoder's low-pass and refused when it has
     /// one (<c>import.fake_lossless_check</c>: <c>reject</c> or <c>off</c>).
     /// </summary>

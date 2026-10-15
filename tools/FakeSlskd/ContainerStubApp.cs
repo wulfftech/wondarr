@@ -182,6 +182,9 @@ public static class ContainerStubApp
                         files = job.Files.Where(file => !file.Deleted).Select(file => file.Name),
                         deleted = job.Files.Where(file => file.Deleted).Select(file => file.Name),
                         unpacked = job.Unpacked,
+                        extras = job.Extras,
+                        storage = job.Storage,
+                        storageExists = job.Storage is { } storage && Directory.Exists(storage),
                         failMessage = job.FailMessage,
                     }),
                 };
@@ -473,10 +476,15 @@ public static class ContainerStubApp
                 case "version":
                     return Results.Json(new { version = "4.5.3" });
 
+                case "fullstatus":
+                    // The real SABnzbd 5.1 answers the folder it uses in absolute form here, even where
+                    // misc.complete_dir is the relative default.
+                    return Results.Json(new { status = new { completedir = UsenetCompleteDir } });
+
                 case "get_config":
                     return query["section"] == "categories"
                         ? Results.Json(new { config = new { categories = new object[] { new { name = "*", dir = string.Empty }, new { name = "wondarr", dir = "music" } } } })
-                        : Results.Json(new { config = new { misc = new { complete_dir = UsenetCompleteDir } } });
+                        : Results.Json(new { config = new { misc = new { complete_dir = "Downloads/complete" } } }); // a stock install's relative default; fullstatus has the real folder
 
                 case "addfile":
                     return await AddJobAsync(context).ConfigureAwait(false);
@@ -663,6 +671,7 @@ public static class ContainerStubApp
                 await Task.Delay(1000).ConfigureAwait(false);
 
                 List<ScenarioFile> tracks;
+                List<string> notes;
                 string folder;
 
                 lock (_gate)
@@ -684,6 +693,10 @@ public static class ContainerStubApp
                     tracks = job.Release.Spec.Obfuscated
                         ? [.. job.Release.Spec.Files]
                         : [.. job.Release.Spec.Files.Where(track => job.Files.Any(file => file.Name == track.BareName && !file.Deleted))];
+
+                    // A plain-named post's small extras that nobody trimmed (an .nfo) land in the folder as
+                    // they do with the real SABnzbd; the repair data is consumed, a RAR set is all archive.
+                    notes = [.. job.Files.Where(file => !file.Deleted && file.Name.EndsWith(".nfo", StringComparison.OrdinalIgnoreCase)).Select(file => file.Name)];
                 }
 
                 foreach (var track in tracks)
@@ -691,8 +704,15 @@ public static class ContainerStubApp
                     await RenderAsync(track, Path.Combine(folder, track.BareName)).ConfigureAwait(false);
                 }
 
+                foreach (var note in notes)
+                {
+                    Directory.CreateDirectory(folder);
+                    await File.WriteAllTextAsync(Path.Combine(folder, note), "Fake release notes\n").ConfigureAwait(false);
+                }
+
                 lock (_gate)
                 {
+                    job.Extras = notes;
                     job.Unpacked = [.. tracks.Select(track => track.BareName)];
                     job.Storage = folder;
                     job.Status = "Completed";
@@ -709,11 +729,9 @@ public static class ContainerStubApp
             job.Removed = true;
             job.RemovedWithFiles = deleteFiles;
 
-            if (deleteFiles && job.Storage is { } folder && Directory.Exists(folder))
-            {
-                Directory.Delete(folder, recursive: true);
-            }
-
+            // Like the real SABnzbd, which deletes the files of a failed job only: a completed job's
+            // folder stays where it is (a failed job here never reached the complete folder), so the
+            // download's own cleanup is what the gate has to see.
             FakeSlskdLog.Info($"Usenet job {job.Id} removed (del_files={deleteFiles})");
         }
 
@@ -915,6 +933,9 @@ public static class ContainerStubApp
         public string? FailMessage { get; set; }
 
         public List<string> Unpacked { get; set; } = [];
+
+        /// <summary>The small extras (an .nfo) rendered into the job's folder beside the tracks.</summary>
+        public List<string> Extras { get; set; } = [];
 
         public List<JobFile> Files { get; }
     }

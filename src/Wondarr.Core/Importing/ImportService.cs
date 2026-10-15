@@ -972,7 +972,7 @@ public sealed partial class ImportService : IImportService
             DeleteDownloadedOriginal(item, downloadPath);
         }
 
-        DeleteEmptyDownloadFolder(item, downloadPath);
+        DeleteDownloadFolder(item, downloadPath);
 
         await PublishQueueItemAsync(item, cancellationToken).ConfigureAwait(false);
         await _events
@@ -1433,9 +1433,10 @@ public sealed partial class ImportService : IImportService
         _events.PublishAsync(new QueueItemChangedEvent(item.Id, item.SongId, item.State), cancellationToken);
 
     /// <summary>
-    /// Deletes the download and the per-grab folder it sits in, when that folder is left empty. A path
-    /// that is not the item's own download folder is refused with a line in the log and nothing else:
-    /// a file Wondarr did not download into that folder is not Wondarr's to delete.
+    /// Deletes the download and the per-grab folder it sits in: the folder goes with whatever else is in
+    /// it when <c>import.clean_leftover_folders</c> is on, and only when it is left empty otherwise. A
+    /// path that is not the item's own download folder is refused with a line in the log and nothing
+    /// else: a file Wondarr did not download into that folder is not Wondarr's to delete.
     /// </summary>
     private void DeleteDownload(QueueItem item, string? downloadPath)
     {
@@ -1455,7 +1456,7 @@ public sealed partial class ImportService : IImportService
                 File.Delete(path);
             }
 
-            RemoveFolderWhenEmpty(folder);
+            RemoveOwnFolder(item, folder);
         }
         catch (IOException exception)
         {
@@ -1470,10 +1471,11 @@ public sealed partial class ImportService : IImportService
     }
 
     /// <summary>
-    /// Removes the item's own download folder — the one the placed file moved out of — and only while
-    /// it is empty.
+    /// Removes the item's own download folder — the one the placed file moved out of. Whatever is left
+    /// in it (a partial, a sidecar) goes with it when <c>import.clean_leftover_folders</c> is on; when
+    /// it is off the folder is removed only while it is empty.
     /// </summary>
-    private void DeleteEmptyDownloadFolder(QueueItem item, string? downloadPath)
+    private void DeleteDownloadFolder(QueueItem item, string? downloadPath)
     {
         if (!IsOwnDownloadFolder(item, downloadPath, out var folder))
         {
@@ -1484,7 +1486,7 @@ public sealed partial class ImportService : IImportService
 
         try
         {
-            RemoveFolderWhenEmpty(folder);
+            RemoveOwnFolder(item, folder);
         }
         catch (IOException exception)
         {
@@ -1498,7 +1500,7 @@ public sealed partial class ImportService : IImportService
 
     /// <summary>
     /// Deletes the downloaded original a converted file was made from, once that file is placed and
-    /// recorded — the file only, never the folder, which <see cref="DeleteEmptyDownloadFolder"/>
+    /// recorded — the file only, never the folder, which <see cref="DeleteDownloadFolder"/>
     /// cleans up right after. The same own-download-folder check <see cref="DeleteDownload"/> uses
     /// applies: a file Wondarr did not download into that folder is not Wondarr's to delete.
     /// </summary>
@@ -1689,6 +1691,38 @@ public sealed partial class ImportService : IImportService
         }
     }
 
+    /// <summary>
+    /// Removes the item's own download folder (<paramref name="folder"/>, which <see cref="IsOwnDownloadFolder"/>
+    /// has approved). With <c>import.clean_leftover_folders</c> on it goes together with whatever is still in it —
+    /// but only when the item's destination is exactly what the search service writes
+    /// (<see cref="LeftoverFolder.IsGrabDestination"/>: <c>wondarr/</c> and 32 lower-case hex digits) and
+    /// <see cref="LeftoverFolder"/> finds no link in it; otherwise, and with the option off, only an empty
+    /// folder is removed. Never a parent.
+    /// </summary>
+    private void RemoveOwnFolder(QueueItem item, string folder)
+    {
+        if (!_importOptions.CurrentValue.CleanLeftoverFolders || !LeftoverFolder.IsGrabDestination(item.Destination))
+        {
+            RemoveFolderWhenEmpty(folder);
+
+            return;
+        }
+
+        if (LeftoverFolder.Refusal(folder) is { } reason)
+        {
+            LogLeftoverRefused(_logger, folder, reason);
+            RemoveFolderWhenEmpty(folder);
+
+            return;
+        }
+
+        if (Directory.Exists(folder))
+        {
+            LeftoverFolder.Delete(folder);
+            LogLeftoverRemoved(_logger, item.Id, folder);
+        }
+    }
+
     /// <summary>Deletes one folder, and only while it holds nothing at all; never a parent, never recursively.</summary>
     private static void RemoveFolderWhenEmpty(string folder)
     {
@@ -1736,6 +1770,12 @@ public sealed partial class ImportService : IImportService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Refusing to delete {Path}: it is not the own download folder of queue item {QueueItemId}")]
     private static partial void LogDeleteRefused(ILogger logger, long queueItemId, string? path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Removed the download folder {Path} of queue item {QueueItemId} and what was left in it")]
+    private static partial void LogLeftoverRemoved(ILogger logger, long queueItemId, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Not removing the leftovers of {Path}: {Reason}")]
+    private static partial void LogLeftoverRefused(ILogger logger, string path, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The import of queue item {QueueItemId} could not be recorded")]
     private static partial void LogRecordFailed(ILogger logger, long queueItemId, Exception exception);

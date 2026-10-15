@@ -85,4 +85,10 @@ Add a mapping when qBittorrent reports a path that is different inside Wondarr's
 
 Press **Test** before **Save**. It logs in, checks the version, creates the category if it is missing, and checks that the folder qBittorrent saves that category to exists where Wondarr can see it. If it does not, the message says "qBittorrent saves to … which Wondarr sees as … — that folder does not exist here; add a remote path mapping."
 
+### Clean up leftover folders
+
+The switch at the top of **Settings → Download clients** is `import.clean_leftover_folders` in `config.yml` (default on). After an import, Wondarr removes what the download left behind: [a usenet job's folder](/wondarr/sources/sabnzbd/#leftover-folders), and its own download folders (the Soulseek, YouTube and staging folders, `wondarr/<guid>`) even when a partial or a cover is still in them. With the switch off, those folders go only while they are empty.
+
+It never touches a torrent. The data stays for as long as qBittorrent has the torrent, seeding included: only the hard link or copy in Wondarr's staging folder goes. When Wondarr removes a torrent it added itself and nothing was downloaded, it deletes that torrent's (empty) data, as before. If the environment sets `APP__IMPORT__CLEAN_LEFTOVER_FOLDERS`, the switch is read-only.
+
 Torrents come from an indexer. Add one next: [Indexers](/wondarr/sources/indexers/).

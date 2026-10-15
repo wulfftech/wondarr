@@ -228,6 +228,42 @@ public sealed class SabnzbdClientTests
     }
 
     [Fact]
+    public async Task The_test_passes_for_a_stock_install_whose_misc_complete_dir_is_the_relative_default()
+    {
+        using var folder = new TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder.Path, "music"));
+        var server = Configured(misc: "config-misc-relative.json");
+
+        var result = await new SabnzbdClientType(Proxy(server)).TestAsync(Settings(mapping: ("/downloads/complete", folder.Path)), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        server.Requests.Select(request => request.Mode).Should().Contain("fullstatus");
+    }
+
+    [Fact]
+    public async Task The_test_falls_back_to_misc_when_the_status_does_not_answer()
+    {
+        using var folder = new TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder.Path, "music"));
+        var server = Configured(fullStatus: false);
+
+        var result = await new SabnzbdClientType(Proxy(server)).TestAsync(Settings(mapping: ("/downloads/complete", folder.Path)), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+    }
+
+    [Fact]
+    public async Task The_test_fails_clearly_when_neither_the_status_nor_misc_gives_an_absolute_folder()
+    {
+        var server = Configured(misc: "config-misc-relative.json", fullStatus: false);
+
+        var result = await new SabnzbdClientType(Proxy(server)).TestAsync(Settings(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Downloads/complete/music").And.Contain("relative path").And.Contain("Config → Folders");
+    }
+
+    [Fact]
     public async Task The_test_reports_a_wrong_key()
     {
         var server = new FakeSabnzbd { ["version"] = "version.json", ["get_config"] = "api-key-incorrect.json" };
@@ -254,6 +290,97 @@ public sealed class SabnzbdClientTests
 
         result.Success.Should().BeFalse();
         result.Error.Should().Contain("/downloads/complete/music").And.Contain("add a remote path mapping");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_is_the_categorys_folder_as_wondarr_sees_it()
+    {
+        var server = Configured();
+
+        var folder = await Client(server).GetCompletedFolderAsync(Row(mapping: ("/downloads/complete", "/mnt/usenet")), CancellationToken.None);
+
+        folder.Should().Be(Path.Combine("/mnt/usenet", "music"));
+        server.Requests.Where(request => request.Mode == "get_config").Select(request => request.Query["section"]).Should().Equal("categories");
+        server.Requests.Single(request => request.Mode == "fullstatus").Query["skip_dashboard"].Should().Be("1");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_comes_from_fullstatus_when_misc_complete_dir_is_the_relative_default()
+    {
+        var server = Configured(misc: "config-misc-relative.json");
+
+        var folder = await Client(server).GetCompletedFolderAsync(Row(), CancellationToken.None);
+
+        folder.Should().Be("/downloads/complete/music", "fullstatus resolves the folder SABnzbd really uses");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_falls_back_to_misc_when_fullstatus_does_not_answer()
+    {
+        var server = Configured(fullStatus: false);
+
+        var folder = await Client(server).GetCompletedFolderAsync(Row(), CancellationToken.None);
+
+        folder.Should().Be("/downloads/complete/music");
+        server.Requests.Select(request => request.Mode).Should().Contain("fullstatus");
+        server.Requests.Where(request => request.Mode == "get_config").Select(request => request.Query["section"]).Should().BeEquivalentTo("misc", "categories");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_is_null_when_fullstatus_does_not_answer_and_misc_is_relative()
+    {
+        var server = Configured(misc: "config-misc-relative.json", fullStatus: false);
+
+        var folder = await Client(server).GetCompletedFolderAsync(Row(), CancellationToken.None);
+
+        folder.Should().BeNull("a relative folder cannot be told from here, so nothing is cleaned");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_is_null_for_a_category_that_puts_files_straight_into_its_folder()
+    {
+        var server = Configured(categories: "config-categories-one-folder.json");
+
+        var folder = await Client(server).GetCompletedFolderAsync(Row(), CancellationToken.None);
+
+        folder.Should().BeNull("a category folder ending in * has no folder per job: it is shared by every job");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_is_unchanged_when_no_mapping_covers_it()
+    {
+        var folder = await Client(Configured()).GetCompletedFolderAsync(Row(), CancellationToken.None);
+
+        folder.Should().Be("/downloads/complete/music");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_is_null_when_the_category_is_not_in_sabnzbd()
+    {
+        var folder = await Client(Configured()).GetCompletedFolderAsync(Row(category: "songs"), CancellationToken.None);
+
+        folder.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("Downloads/complete", "wondarr", null)]
+    [InlineData("", "wondarr", null)]
+    [InlineData(null, "wondarr", null)]
+    [InlineData("/downloads/complete", "wondarr", "/downloads/complete/music")]
+    [InlineData("Downloads/complete", "absolute", "/elsewhere/music")]
+    [InlineData("/downloads/complete", "plain", "/downloads/complete")]
+    [InlineData("/downloads/complete", "missing", null)]
+    [InlineData("/downloads/complete", "star", null)]
+    [InlineData("/downloads/complete", "star-alone", null)]
+    [InlineData("/downloads/complete", "star-absolute", null)]
+    public void The_completed_folder_needs_an_absolute_path_and_a_folder_per_job(string? completeDir, string category, string? expected)
+    {
+        using var categories = JsonDocument.Parse("""
+            [{"name": "wondarr", "dir": "music"}, {"name": "absolute", "dir": "/elsewhere/music"}, {"name": "plain", "dir": ""},
+             {"name": "star", "dir": "music*"}, {"name": "star-alone", "dir": "*"}, {"name": "star-absolute", "dir": "/elsewhere/music*"}]
+            """);
+
+        SabnzbdClientType.CompletedFolder(completeDir, categories.RootElement, category).Should().Be(expected);
     }
 
     [Theory]
@@ -299,25 +426,39 @@ public sealed class SabnzbdClientTests
         logger.Lines.Should().NotBeEmpty().And.OnlyContain(line => !line.Contains(ApiKey, StringComparison.Ordinal));
     }
 
-    private static FakeSabnzbd Configured() => new()
+    /// <summary>A SABnzbd that answers the version, the settings and, unless told not to, <c>fullstatus</c>.</summary>
+    private static FakeSabnzbd Configured(
+        string misc = "config-misc.json",
+        string categories = "config-categories.json",
+        bool fullStatus = true)
     {
-        ["version"] = "version.json",
-        ["get_config:misc"] = "config-misc.json",
-        ["get_config:categories"] = "config-categories.json",
-    };
+        var server = new FakeSabnzbd
+        {
+            ["version"] = "version.json",
+            ["get_config:misc"] = misc,
+            ["get_config:categories"] = categories,
+        };
+
+        if (fullStatus)
+        {
+            server["fullstatus"] = "fullstatus.json";
+        }
+
+        return server;
+    }
 
     private static SabnzbdClient Client(FakeSabnzbd server) => new(Proxy(server));
 
     private static SabnzbdProxy Proxy(FakeSabnzbd server) =>
         new(new StaticHttpClientFactory(server), new SecretRegistry(), new CapturingLogger<SabnzbdProxy>());
 
-    private static DownloadClient Row((string Remote, string Local)? mapping = null) => new()
+    private static DownloadClient Row((string Remote, string Local)? mapping = null, string category = "wondarr") => new()
     {
         Id = 7,
         Name = "SABnzbd",
         Type = "sabnzbd",
         Protocol = DownloadProtocol.Usenet,
-        Settings = Settings(mapping: mapping).GetRawText(),
+        Settings = Settings(category, mapping).GetRawText(),
     };
 
     private static JsonElement Settings(string category = "wondarr", (string Remote, string Local)? mapping = null)

@@ -9,6 +9,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
@@ -637,6 +638,9 @@ internal sealed class QueueTestHost : IAsyncDisposable
     /// <summary>The attempt budget.</summary>
     public SearchOptions Search { get; private init; } = new();
 
+    /// <summary>The import options the queue actions read (<c>import.clean_leftover_folders</c>); a test may change them.</summary>
+    public ImportOptions ImportOptions { get; private init; } = null!;
+
     /// <summary>The scripted source.</summary>
     public FakeQueueSourceProvider Source { get; private init; } = null!;
 
@@ -689,6 +693,7 @@ internal sealed class QueueTestHost : IAsyncDisposable
         var import = new FakeQueueImportService();
         var searchService = new FakeQueueSearchService { Next = 99 };
         var events = new RecordingEventAggregator();
+        var importOptions = new ImportOptions();
 
         // The import service under test is a fake, but what it does to the item is not: it marks the
         // row Imported, which is what takes the item out of the queue.
@@ -716,6 +721,7 @@ internal sealed class QueueTestHost : IAsyncDisposable
         services.AddSingleton<TimeProvider>(time);
         services.AddSingleton<IOptionsMonitor<QueueOptions>>(new TestOptionsMonitor<QueueOptions>(options));
         services.AddSingleton<IOptionsMonitor<SearchOptions>>(new TestOptionsMonitor<SearchOptions>(search));
+        services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(importOptions));
         services.AddSingleton<ISourceProvider>(source);
         services.AddSingleton<IImportService>(import);
         services.AddSingleton<ISongSearchService>(searchService);
@@ -738,6 +744,7 @@ internal sealed class QueueTestHost : IAsyncDisposable
             Probe = probe,
             Options = options,
             Search = search,
+            ImportOptions = importOptions,
             Source = source,
             Import = import,
             SearchService = searchService,
@@ -863,6 +870,25 @@ internal sealed class QueueTestHost : IAsyncDisposable
         await context.SaveChangesAsync();
 
         return new QueueSeed(song.Id, item.Id, run.Id, candidate.Id, directory, downloadPath);
+    }
+
+    /// <summary>Gives one item a destination (and, when given, a download path) of the test's choosing.</summary>
+    /// <param name="queueItemId">The item's id.</param>
+    /// <param name="destination">The destination to store.</param>
+    /// <param name="downloadPath">The download path to store, or <see langword="null"/> to leave it as it is.</param>
+    public async Task SetDestinationAsync(long queueItemId, string destination, string? downloadPath = null)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var item = await context.QueueItems.SingleAsync(entry => entry.Id == queueItemId);
+        item.Destination = destination;
+
+        if (downloadPath is not null)
+        {
+            item.DownloadPath = downloadPath;
+        }
+
+        await context.SaveChangesAsync();
     }
 
     /// <summary>Reads one item back, untracked.</summary>

@@ -88,6 +88,21 @@ public sealed class SabnzbdClient : IUsenetClient
     }
 
     /// <inheritdoc />
+    public async Task<string?> GetCompletedFolderAsync(DownloadClient client, CancellationToken cancellationToken)
+    {
+        var settings = Settings(client);
+        var categories = await _proxy.GetConfigAsync(settings, "categories", cancellationToken).ConfigureAwait(false);
+
+        // The status gives the folder SABnzbd really uses, absolute even when misc.complete_dir is the
+        // relative default; the proxy falls back to misc for a SABnzbd that will not answer it.
+        var completeDir = await _proxy.GetCompletedDownloadsFolderAsync(settings, cancellationToken).ConfigureAwait(false);
+
+        return SabnzbdClientType.CompletedFolder(completeDir, categories, settings.Category) is { } remote
+            ? RemotePathMapper.Map(remote, settings.RemotePathMappings)
+            : null;
+    }
+
+    /// <inheritdoc />
     public async Task RemoveAsync(DownloadClient client, string jobId, bool deleteFiles, CancellationToken cancellationToken)
     {
         var settings = Settings(client);

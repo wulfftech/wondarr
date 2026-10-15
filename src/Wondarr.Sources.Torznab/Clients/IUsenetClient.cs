@@ -40,6 +40,15 @@ public interface IUsenetClient
     /// <param name="cancellationToken">Cancels the call.</param>
     Task<UsenetJobInfo?> GetAsync(DownloadClient client, string jobId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The folder the client finishes this row's category in, as Wondarr sees it (mapped through the row's
+    /// remote path mappings); <see langword="null"/> when the client does not say. A finished job's folder
+    /// is only ever cleaned up inside it, never the folder itself.
+    /// </summary>
+    /// <param name="client">The configured client row.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    Task<string?> GetCompletedFolderAsync(DownloadClient client, CancellationToken cancellationToken);
+
     /// <summary>Removes a job from the queue or the history. Only does what it is told.</summary>
     /// <param name="client">The configured client row.</param>
     /// <param name="jobId">The job's id.</param>

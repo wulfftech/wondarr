@@ -13,7 +13,9 @@ on Soulseek and YouTube is off, so the indexers are the only source.
 Subcommands (run in this order on one instance; each prints "ok ..." lines and exits non-zero on a
 failed check):
 
-  setup     Add the download clients and the indexers, and test each.
+  setup     Add the download clients and the indexers, and test each. The fake SABnzbd keeps the
+            stock relative misc.complete_dir ("Downloads/complete") and gives the real folder only in
+            fullstatus, so its test, and the cleanup in the usenet check, pass only through fullstatus.
   torrent   Add --album unmonitored, monitor two of its tracks (Lossless profile), register the album as
             one torrent on the fake (every track, the identities of the songs), run MissingSearch, and
             check: both songs imported from ONE torrent grab, and the fake downloaded exactly those two
@@ -22,8 +24,11 @@ failed check):
             (with a Par2 set, an SFV and an NFO) on the fake, run MissingSearch, and check: the song
             imported, the two other tracks were trimmed before the download (never rendered, never
             imported) together with the Par2 volumes and the SFV (the fake SABnzbd fails a trimmed job
-            that still holds either, like the real one), and the job was deleted from SABnzbd with its
-            files after the import.
+            that still holds either, like the real one), the job was deleted from SABnzbd with its
+            files after the import, and the folder the post finished in is gone. The fake renders the
+            post's NFO into that folder, so it is not empty once the wanted track has been moved out,
+            and the real SABnzbd never deletes a completed job's folder: only Wondarr's cleanup
+            (import.clean_leftover_folders) can remove it.
 
 Standard library only.
 
@@ -353,10 +358,11 @@ def usenet(args: argparse.Namespace) -> None:
     deadline = time.monotonic() + 120
     while True:
         jobs = [job for job in fake_get(args.fake_cmd, args.containers)["jobs"] if job["title"] == title]
-        if len(jobs) == 1 and jobs[0]["removed"]:
+        # The folder goes right after the job, in the same poll; waiting for both keeps the check below from racing it.
+        if len(jobs) == 1 and jobs[0]["removed"] and not jobs[0]["storageExists"]:
             break
         if time.monotonic() > deadline:
-            fail(f"the usenet job was not deleted: {jobs}")
+            fail(f"the usenet job was not deleted, or its folder is still there: {jobs}")
         time.sleep(3)
     job = jobs[0]
     if sorted(job["unpacked"]) != [files[0]["path"]]:
@@ -371,7 +377,17 @@ def usenet(args: argparse.Namespace) -> None:
         fail(f"SABnzbd failed the trimmed post: {job['failMessage']}")
     if not job["removedWithFiles"]:
         fail("the job was deleted without its files")
-    ok(f"the post was trimmed to {files[0]['path']} and its NFO (no Par2 or SFV left), unpacked, and deleted from SABnzbd with its files after the import")
+    # SABnzbd (the fake behaves like the real one) deletes the files of a failed job only, so the folder of
+    # this completed job is still there unless Wondarr removed it (import.clean_leftover_folders). It is
+    # not empty either: the fake rendered the post's NFO into it, and the wanted track was the only file
+    # Wondarr moved out. So a gone folder means a non-empty one was removed.
+    if not job["storage"]:
+        fail("the fake SABnzbd reports no folder for the finished job")
+    if job["extras"] != [f"{title}.nfo"]:
+        fail(f"the fake rendered {job['extras']} beside the track, expected only {title}.nfo")
+    if job["storageExists"]:
+        fail(f"the finished job's folder {job['storage']} is still there after the import")
+    ok(f"the post was trimmed to {files[0]['path']} and its NFO (no Par2 or SFV left), unpacked, deleted from SABnzbd, and its folder {job['storage']} (with the NFO still in it) removed after the import")
 
 
 def main() -> int:

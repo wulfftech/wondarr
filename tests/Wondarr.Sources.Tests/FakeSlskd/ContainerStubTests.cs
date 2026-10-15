@@ -113,7 +113,7 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
-    public async Task An_nzb_is_added_paused_trimmed_unpacked_and_deleted_with_its_files()
+    public async Task An_nzb_is_added_paused_trimmed_unpacked_and_removed_but_its_folder_stays_as_with_sabnzbd()
     {
         await RegisterAsync("usenet", "Queen - A Night at the Opera (1975) [FLAC]", obfuscated: false);
 
@@ -152,7 +152,23 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
 
         await client.RemoveAsync(row, job, deleteFiles: true, CancellationToken.None);
         (await client.GetAsync(row, job, CancellationToken.None)).Should().BeNull();
-        Directory.Exists(finished.StoragePath).Should().BeFalse();
+
+        // The real SABnzbd deletes the files of a failed job only: a completed job's folder stays.
+        Directory.Exists(finished.StoragePath).Should().BeTrue();
+        (await ReportAsync()).Should().Contain("\"storageExists\":true");
+    }
+
+    [Fact]
+    public async Task The_stub_says_where_the_wondarr_category_finishes_its_jobs_and_a_finished_job_is_inside_it()
+    {
+        var (client, row, job) = await AddPostWithSidecarsAsync();
+        await client.ResumeAsync(row, job, CancellationToken.None);
+
+        var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
+        var completed = await client.GetCompletedFolderAsync(row, CancellationToken.None);
+
+        completed.Should().Be(Path.Combine(_root, "usenet", "complete", "music"));
+        UsenetJobFolder.Refusal(finished.StoragePath!, completed, Path.Combine(_root, "staging", "wondarr", "one"), null).Should().BeNull();
     }
 
     [Fact]
@@ -176,8 +192,8 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
         var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
 
         finished.Status.Should().Be(UsenetStatus.Completed);
-        Directory.GetFiles(finished.StoragePath!).Select(Path.GetFileName).Should().Equal("02 - Lazing on a Sunday Afternoon.flac");
-        (await ReportAsync()).Should().Contain("\"failMessage\":null");
+        Directory.GetFiles(finished.StoragePath!).Select(Path.GetFileName).Should().BeEquivalentTo("02 - Lazing on a Sunday Afternoon.flac", $"{Title}.nfo");
+        (await ReportAsync()).Should().Contain("\"failMessage\":null").And.Contain($"\"extras\":[\"{Title}.nfo\"]");
     }
 
     [Theory]
@@ -220,7 +236,7 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
         var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
 
         finished.Status.Should().Be(UsenetStatus.Completed);
-        Directory.GetFiles(finished.StoragePath!).Should().HaveCount(3, "every track is unpacked; the repair data and the NFO are not audio");
+        Directory.GetFiles(finished.StoragePath!).Should().HaveCount(4, "every track is unpacked and the NFO is kept; the repair data is consumed");
     }
 
     [Fact]
@@ -234,6 +250,18 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
 
         (await qbittorrent.TestAsync(qbit.RootElement, CancellationToken.None)).Should().Be(new ProviderTestResult(true, null));
         (await sabnzbd.TestAsync(sab.RootElement, CancellationToken.None)).Should().Be(new ProviderTestResult(true, null));
+    }
+
+    [Fact]
+    public async Task The_stub_has_the_relative_default_in_misc_like_a_stock_sabnzbd_and_the_real_folder_in_fullstatus()
+    {
+        using var http = new HttpClient(_http, disposeHandler: false);
+
+        var misc = await http.GetStringAsync(new Uri($"{Base}/sabnzbd/api?mode=get_config&section=misc&apikey=k&output=json"));
+        var status = await http.GetStringAsync(new Uri($"{Base}/sabnzbd/api?mode=fullstatus&skip_dashboard=1&apikey=k&output=json"));
+
+        misc.Should().Contain("\"complete_dir\":\"Downloads/complete\"");
+        status.Should().Contain("\"completedir\":").And.Contain("complete").And.NotContain("Downloads/complete");
     }
 
     private const string Title = "Queen - A Night at the Opera (1975) [FLAC]";
