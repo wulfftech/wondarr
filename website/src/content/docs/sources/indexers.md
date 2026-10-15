@@ -15,6 +15,10 @@ An indexer cannot be searched for a recording directly, so Wondarr works through
 
 A release whose file list does not contain the song is rejected and blocklisted.
 
+File names don't have to be Wondarr's own. Scene names like `01-artist_name-track_title-GRP.flac` (underscores for spaces, hyphens between the fields) match too. Wondarr drops the track number, the release's artist and the release's group tag (the last part of the release name, `GRP` in `Artist-Album-CD-FLAC-2002-GRP`), then compares what's left. Same threshold, same version check (a live or remix file is never the studio song), same size window.
+
+A release whose file list can't be read before the grab (a magnet, a RAR set, obfuscated names) stays a candidate. It scores lower. Wondarr finds the song in it once the client has the file list or SABnzbd has unpacked the post.
+
 ## Settings → Indexers
 
 Press **Add indexer** (the button on the page), choose a type, and fill in the form. Every type has:

@@ -176,7 +176,7 @@ public sealed class IndexerSourceProviderTests
     }
 
     [Fact]
-    public async Task A_usenet_post_lists_its_plain_audio_files_and_the_engine_rejects_one_over_the_limit()
+    public async Task A_usenet_post_lists_its_plain_audio_files_and_the_engine_does_not_hold_its_size_against_it()
     {
         var nzb = AlbumNzb();
         var indexer = new FakeIndexerClient
@@ -213,8 +213,9 @@ public sealed class IndexerSourceProviderTests
             Qualities = SeedData.Qualities.ToDictionary(quality => quality.Id, quality => quality),
             MaxContainerSizeBytes = 1_500L * 1024 * 1024,
         };
+        // A clean post is trimmed to the wanted file by SABnzbd, so only a post that downloads whole is held to the limit.
         var decision = new DecisionEngine().Evaluate(context, [candidate]).Single();
-        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.ContainerTooLarge);
+        decision.Rejections.Select(rejection => rejection.Reason).Should().NotContain(RejectionReason.ContainerTooLarge);
     }
 
     [Fact]

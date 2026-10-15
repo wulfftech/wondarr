@@ -60,7 +60,55 @@ public sealed class ContainerCandidatesTests
         ContainerCandidates.Build(DownloadProtocol.Torrent, listing, Wanted, "q", Now).Should().NotBeNull();
     }
 
-    private static ContainerListing Listing(string title, IReadOnlyList<ContainerFile> files) =>
+    [Theory]
+    [InlineData("Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "FADA")]
+    [InlineData("Norah.Jones-Come.Away.With.Me-JAPANESE.RETAIL-2002-pH", "Norah Jones", "pH")]
+    [InlineData("Imagine Dragons-Smoke And Mirrors-Deluxe Edition-2CD-FLAC-2015-JLM", "Imagine Dragons", "JLM")]
+    [InlineData("Nine Inch Nails - The Slip (2008) [FLAC]", "Nine Inch Nails", null)]
+    [InlineData("Daft Punk - Discovery (2001) [FLAC]", "Daft Punk", null)]
+    public void The_matcher_is_told_the_release_s_artist_and_scene_group(string title, string artist, string? group)
+    {
+        var listing = Listing(title, null);
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Torrent, listing, Wanted, "q", Now);
+
+        var song = candidate!.Release!.Song!;
+        song.ReleaseArtist.Should().Be(artist);
+        song.ReleaseGroup.Should().Be(group);
+    }
+
+    [Fact]
+    public void A_file_list_unknown_candidate_keeps_the_song_with_the_release_s_artist_and_group_for_after_the_grab()
+    {
+        var listing = Listing("Velvet.Harbour-Paper.Lanterns-CD-FLAC-2002-FADA", null);
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Usenet, listing, Wanted, "q", Now)!;
+
+        candidate.Extension.Should().BeNull();
+        candidate.Release!.FileIndex.Should().BeNull();
+        candidate.Availability.FileListKnown.Should().BeFalse();
+
+        // The handle is saved as JSON and read back when the unpacked post is matched.
+        var handle = new ContainerGrab(1, 1, "guid-1", null, "job", null, "staging", candidate.Release.Song, true);
+        var song = ContainerGrab.Deserialize(handle.Serialize()).Song!;
+
+        song.ReleaseArtist.Should().Be("Velvet Harbour");
+        song.ReleaseGroup.Should().Be("FADA");
+    }
+
+    [Fact]
+    public void A_handle_saved_before_the_artist_and_group_existed_still_reads()
+    {
+        const string json = """{"clientId":1,"indexerId":1,"releaseId":"guid-1","jobId":"job","stagingDir":"staging","song":{"title":"Letting You","versionFlags":0,"trackNo":3,"durationMs":253000,"qualityId":1,"sixteenBitStated":false}}""";
+
+        var song = ContainerGrab.Deserialize(json).Song!;
+
+        song.Title.Should().Be("Letting You");
+        song.ReleaseArtist.Should().BeNull();
+        song.ReleaseGroup.Should().BeNull();
+    }
+
+    private static ContainerListing Listing(string title, IReadOnlyList<ContainerFile>? files) =>
         new(
             new IndexerRelease(
                 title,

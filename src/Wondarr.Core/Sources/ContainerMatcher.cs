@@ -20,13 +20,23 @@ public sealed record ContainerFile(int Index, string Path, long Size);
 /// Whether the release name explicitly claims 16-bit or a CD source. Any other FLAC release, a bare
 /// "[FLAC]" or one that names a 24-bit form, may hold 24-bit files, so its size window reaches up to hi-res.
 /// </param>
+/// <param name="ReleaseArtist">
+/// The artist the release name gives, when it names one. A scene file name leads with it
+/// ("01-artist_name-track_title"), and the scene reading drops it to get at the title.
+/// </param>
+/// <param name="ReleaseGroup">
+/// The scene group tag the release name ends with ("-FADA", "-pH"), when it has one. A scene file name often
+/// ends with it, and the scene reading drops it, whatever its case.
+/// </param>
 public sealed record ContainerMatchRequest(
     string Title,
     VersionFlags VersionFlags,
     int? TrackNo,
     int? DurationMs,
     long QualityId,
-    bool SixteenBitStated = false);
+    bool SixteenBitStated = false,
+    string? ReleaseArtist = null,
+    string? ReleaseGroup = null);
 
 /// <summary>The file the matcher chose.</summary>
 /// <param name="File">The file.</param>
@@ -45,7 +55,9 @@ public sealed record ContainerMatch(
 /// Finds the wanted song's file inside a container (DECISIONS build session 8 #3; MATCHING_ENGINE
 /// §6.4): an audio file whose title matches the song's, whose version flags agree with the song's,
 /// and whose size fits the song's length at the release's quality; the track number breaks ties.
-/// Two files that match equally well are no match — guessing would import the wrong song.
+/// Two files that match equally well are no match — guessing would import the wrong song. A file whose
+/// ordinary reading misses the title is read once more as a scene file name (<see cref="SceneFileName"/>),
+/// under the same threshold and the same checks.
 /// </summary>
 public static partial class ContainerMatcher
 {
@@ -100,29 +112,19 @@ public static partial class ContainerMatcher
                 continue;
             }
 
-            var parsed = path.Parsed;
-            var fileFlags = (parsed.VersionFlags | parsed.PathVersionFlags) & VersionFlagNames.HardFlags;
-
-            if (fileFlags != songFlags)
-            {
-                continue;
-            }
-
             if (window is { } bounds && (file.Size < bounds.Minimum || file.Size > bounds.Maximum))
             {
                 continue;
             }
 
-            var title = string.IsNullOrWhiteSpace(parsed.Title)
-                ? LeadingTrackNumber().Replace(System.IO.Path.GetFileNameWithoutExtension(file.Path), string.Empty)
-                : parsed.Title;
-            var similarity = TextMatching.Similarity(songTitle, title);
+            var reading = ReadTitle(file, path.Parsed, songTitle, songFlags, request);
 
-            if (similarity < TitleThreshold)
+            if (reading is null)
             {
                 continue;
             }
 
+            var (parsed, similarity) = reading.Value;
             var trackAgrees = request.TrackNo is { } wanted && parsed.TrackNo == wanted;
 
             var inNarrow = narrow is not { } tight || (file.Size >= tight.Minimum && file.Size <= tight.Maximum);
@@ -161,6 +163,52 @@ public static partial class ContainerMatcher
         }
 
         return best.Match;
+    }
+
+    /// <summary>
+    /// The file's name as the song's, or null when it is not: first the ordinary reading, then, only when
+    /// that misses the title, the scene reading. Each reading must reach <see cref="TitleThreshold"/> and
+    /// carry the song's own hard version flags, so a live or remix file never passes for the studio song.
+    /// </summary>
+    private static (ParsedName Parsed, double Similarity)? ReadTitle(
+        ContainerFile file,
+        ParsedName parsed,
+        string songTitle,
+        VersionFlags songFlags,
+        ContainerMatchRequest request)
+    {
+        var fileFlags = (parsed.VersionFlags | parsed.PathVersionFlags) & VersionFlagNames.HardFlags;
+
+        if (fileFlags == songFlags)
+        {
+            var title = string.IsNullOrWhiteSpace(parsed.Title)
+                ? LeadingTrackNumber().Replace(System.IO.Path.GetFileNameWithoutExtension(file.Path), string.Empty)
+                : parsed.Title;
+            var similarity = TextMatching.Similarity(songTitle, title);
+
+            if (similarity >= TitleThreshold)
+            {
+                return (parsed, similarity);
+            }
+        }
+
+        // "01-norah_jones-dont_know_why-ph.mp3": the ordinary parser sees one title, hyphens and all.
+        if (SceneFileName.Read(file.Path, request.ReleaseArtist, request.ReleaseGroup) is not { } scene
+            || ((parsed.VersionFlags | scene.Flags | parsed.PathVersionFlags) & VersionFlagNames.HardFlags) != songFlags)
+        {
+            return null;
+        }
+
+        var sceneSimilarity = TextMatching.Similarity(songTitle, scene.Title);
+
+        return sceneSimilarity < TitleThreshold
+            ? null
+            : (parsed with
+            {
+                Title = scene.Title,
+                VersionFlags = parsed.VersionFlags | scene.Flags,
+                VersionHints = [.. parsed.VersionHints, .. scene.Hints],
+            }, sceneSimilarity);
     }
 
     /// <summary>Whether a file's extension is the codec the release claims.</summary>

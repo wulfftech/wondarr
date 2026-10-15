@@ -200,7 +200,14 @@ public sealed class DecisionEngine
                 "Blocklisted: this file was rejected before."));
         }
 
-        if (candidate.Extension is null || !AudioExtensions.Contains(candidate.Extension))
+        // A container whose file list is unknown has no extension yet: the release itself is the candidate
+        // and the song's file is found once the client has the metadata or the post is unpacked (DECISIONS
+        // build session 8 #3). Every other candidate without an audio extension is not audio.
+        var isAudio = candidate.Extension is null
+            ? IsUnlistedContainer(candidate)
+            : AudioExtensions.Contains(candidate.Extension);
+
+        if (!isAudio)
         {
             rejections.Add(new Rejection(
                 RejectionReason.NotAudio,
@@ -275,8 +282,11 @@ public sealed class DecisionEngine
                 "No seeders: the indexer lists nobody sharing this torrent."));
         }
 
+        // Only a post that downloads whole is held to the limit. A clean post is trimmed to the wanted
+        // files by SABnzbd (DECISIONS build session 8 #10), and its matched file is already bounded by
+        // the matcher's size window.
         if (candidate.SourceType == SourceTypes.Newznab
-            && candidate.Release?.Size is { } postSize
+            && candidate.Release is { FileIndex: null, Size: { } postSize }
             && postSize > context.MaxContainerSizeBytes)
         {
             rejections.Add(new Rejection(
@@ -939,6 +949,15 @@ public sealed class DecisionEngine
 
         return false;
     }
+
+    /// <summary>
+    /// A torrent or NZB whose file list was not read before the grab (a magnet, a RAR set, an obfuscated
+    /// post): the release is the candidate and it names no file.
+    /// </summary>
+    private static bool IsUnlistedContainer(Candidate candidate) =>
+        candidate.SourceType is SourceTypes.Torznab or SourceTypes.Newznab
+        && candidate.Container == CandidateContainer.AlbumContainer
+        && candidate.Release is { FileIndex: null };
 
     private static bool IsLossless(DecisionContext context, long qualityId) =>
         context.Qualities.TryGetValue(qualityId, out var quality) && quality.Lossless;

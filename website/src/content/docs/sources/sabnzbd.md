@@ -7,14 +7,14 @@ SABnzbd is Wondarr's usenet client. It works with a [Newznab or Prowlarr indexer
 
 ## What Wondarr does with a post
 
-1. The job is added to SABnzbd paused. If every file in the post is a plain audio file or a `.par2` file, Wondarr removes the audio files that no wanted song matches, so only the wanted track is downloaded. If anything else is in the post (a RAR set, obfuscated file names), the whole post is downloaded: a trimmed RAR set cannot be repaired.
+1. The job is added to SABnzbd paused. If every file in the post is a plain audio file or a `.par2` file (in any letter case, so `.PAR2` counts too), Wondarr removes the audio files that no wanted song matches, so only the wanted track is downloaded. If anything else is in the post (a RAR set, obfuscated file names), the whole post is downloaded: a trimmed RAR set cannot be repaired. Wondarr then looks for the song among the unpacked files, by title, whether they are named `03 - Title.flac` or in the scene style, `03-artist_name-track_title-GRP.flac`.
 2. SABnzbd verifies, repairs and unpacks it as it normally does.
 3. Wondarr moves the wanted song's file out of SABnzbd's complete folder into its staging folder (`import.container_staging_path`, default `/data/downloads/containers`) and imports it.
 4. Once the wanted file is moved into staging and no other song still waiting on the job needs it, Wondarr deletes the job from SABnzbd's history together with its files. That happens before the import, not after it. A song that fails (SABnzbd reports the download as failed, or the file is not in the post) deletes its job the same way, and so does a job Wondarr added but could not resume.
 
 A job that was trimmed for one song is not reused for another song whose file the trim removed: Wondarr adds a fresh job instead.
 
-A post larger than `search.max_container_size_mb` (default 1500) is rejected.
+A post that is downloaded whole (a RAR set, obfuscated file names) and is larger than `search.max_container_size_mb` (default 1500) is rejected. A clean post is trimmed to the wanted tracks, so its size does not count against the limit.
 
 ## Create the category first
 

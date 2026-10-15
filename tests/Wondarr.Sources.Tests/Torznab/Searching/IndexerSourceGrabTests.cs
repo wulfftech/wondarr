@@ -317,6 +317,26 @@ public sealed class IndexerSourceGrabTests : IDisposable
     }
 
     [Fact]
+    public async Task A_magnet_is_matched_to_scene_named_files_once_its_metadata_arrives()
+    {
+        var provider = Provider(DownloadProtocol.Torrent);
+        const string magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Discovery";
+        var handle = await provider.GrabAsync(UnlistedCandidate(DownloadProtocol.Torrent, SceneRelease, magnet), "wondarr/one", CancellationToken.None);
+        var torrent = _torrents.Single();
+
+        // qBittorrent's stop condition: stopped, with the metadata and every file still wanted.
+        string[] names = ["00-daft_punk-discovery-2001-grp.nfo", "02-daft_punk-aerodynamic-grp.flac", "03-daft_punk-digital_love-grp.flac"];
+        torrent.Files.AddRange(names.Select((name, index) => new TorrentFileInfo(index, $"{SceneRelease}/{name}", TrackSize, 0, 1)));
+        torrent.HasMetadata = true;
+        torrent.Status = TorrentStatus.Stopped;
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().NotBe(DownloadState.Failed);
+        torrent.Files.Where(file => file.Priority > 0).Select(file => file.Path).Should().Equal($"{SceneRelease}/03-daft_punk-digital_love-grp.flac");
+    }
+
+    [Fact]
     public async Task Cancel_switches_the_file_off_and_removes_an_untouched_unshared_torrent()
     {
         _indexer.Download = new IndexerDownload(AlbumTorrent(), null);
@@ -825,6 +845,54 @@ public sealed class IndexerSourceGrabTests : IDisposable
     }
 
     [Fact]
+    public async Task A_whole_post_with_scene_named_files_is_matched_in_the_unpacked_folder()
+    {
+        // The candidate the search builds for a RAR set: the release itself, no file list, downloaded whole.
+        _indexer.Download = new IndexerDownload(Nzb(("Daft.Punk-Discovery-CD-FLAC-2001-GRP.part01.rar", 900_000_000)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var candidate = UnlistedCandidate(DownloadProtocol.Usenet, SceneRelease, magnet: null);
+
+        candidate.Release!.FileIndex.Should().BeNull();
+        candidate.Release.Song!.ReleaseArtist.Should().Be("Daft Punk");
+        candidate.Release.Song.ReleaseGroup.Should().Be("GRP");
+
+        var handle = await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        var job = _usenet.Single();
+        job.Files.Should().HaveCount(1, "a RAR set is never trimmed");
+        var folder = Path.Combine(_root, "usenet", "scene");
+        WriteFile(Path.Combine(folder, "00-daft_punk-discovery-2001-grp.nfo"), "nfo");
+        WriteFile(Path.Combine(folder, "02-daft_punk-aerodynamic-grp.flac"), new string('a', 100));
+        WriteFile(Path.Combine(folder, "03-daft_punk-digital_love-grp.flac"), new string('d', 100));
+        job.Complete(folder);
+
+        // The handle carries the song with its artist and group as JSON, and every poll reads it back.
+        ContainerGrab.Deserialize(handle.Value).Song!.ReleaseGroup.Should().Be("GRP");
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Completed);
+        Path.GetFileName(status.CompletedPath).Should().Be("03-daft_punk-digital_love-grp.flac");
+    }
+
+    [Fact]
+    public async Task A_post_unpacked_to_scene_names_without_the_song_fails_the_item()
+    {
+        _indexer.Download = new IndexerDownload(Nzb(("Daft.Punk-Discovery-CD-FLAC-2001-GRP.part01.rar", 900_000_000)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UnlistedCandidate(DownloadProtocol.Usenet, SceneRelease, magnet: null), "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", "scene-other");
+        WriteFile(Path.Combine(folder, "02-daft_punk-aerodynamic-grp.flac"), new string('a', 100));
+        WriteFile(Path.Combine(folder, "03-daft_punk-digital_love_(live)-grp.flac"), new string('l', 100));
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.Message.Should().Be("The song is not in the downloaded post.");
+    }
+
+    [Fact]
     public async Task A_failed_post_carries_the_client_s_message()
     {
         _indexer.Download = new IndexerDownload(AlbumNzb(), null);
@@ -899,6 +967,40 @@ public sealed class IndexerSourceGrabTests : IDisposable
                 Song = new ContainerMatchRequest("Digital Love", VersionFlags.None, 3, 301_000, 1),
             },
         };
+    }
+
+    /// <summary>The scene-named release the unknown-list tests grab; its group tag is GRP.</summary>
+    private const string SceneRelease = "Daft.Punk-Discovery-CD-FLAC-2001-GRP";
+
+    /// <summary>The candidate the search builds for a magnet or a RAR set: the release itself, wanting "Digital Love".</summary>
+    private static Candidate UnlistedCandidate(DownloadProtocol protocol, string title, string? magnet)
+    {
+        var release = new IndexerRelease(
+            title,
+            "guid-1",
+            magnet ?? "https://usenet.example/get/1",
+            magnet,
+            null,
+            900_000_000,
+            null,
+            5,
+            1,
+            5,
+            [3040],
+            1.0,
+            null,
+            protocol,
+            1,
+            "Indexer",
+            null);
+        var listing = new ContainerListing(release, null, magnet is null ? null : "0123456789abcdef0123456789abcdef01234567", 900_000_000);
+
+        return ContainerCandidates.Build(
+            protocol,
+            listing,
+            new ContainerMatchRequest("Digital Love", VersionFlags.None, 3, null, 1),
+            "daft punk discovery",
+            DateTimeOffset.UtcNow)!;
     }
 
     private static Candidate UsenetCandidate(string? file, string releaseId = "nzb-guid-1") => new()

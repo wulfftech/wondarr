@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+  <head>
+    <meta type="category">Audio &gt; MP3</meta>
+    <meta type="name">Velvet.Harbour-Paper.Lanterns-JAPANESE.RETAIL-2002-pH</meta>
+  </head>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000101" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[01/13] - &quot;00-velvet_harbour-paper_lanterns-japanese_retail-2002-ph.m3u&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="1480" number="1">vhm-01-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000102" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[02/13] - &quot;00-velvet_harbour-paper_lanterns-japanese_retail-2002-ph.nfo&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="12880" number="1">vhm-02-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000103" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[03/13] - &quot;00-velvet_harbour-paper_lanterns-japanese_retail-2002-ph.sfv&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="1670" number="1">vhm-03-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000104" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[04/13] - &quot;01-velvet_harbour-dont_wait_up-ph.mp3&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="1596666" number="1">vhm-04-01@news.invalid</segment>
+      <segment bytes="1596666" number="2">vhm-04-02@news.invalid</segment>
+      <segment bytes="1596668" number="3">vhm-04-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000105" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[05/13] - &quot;02-velvet_harbour-salt_and_static-ph.mp3&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="1206666" number="1">vhm-05-01@news.invalid</segment>
+      <segment bytes="1206666" number="2">vhm-05-02@news.invalid</segment>
+      <segment bytes="1206668" number="3">vhm-05-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000106" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[06/13] - &quot;03-velvet_harbour-harbour_lights-ph.mp3&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="1493333" number="1">vhm-06-01@news.invalid</segment>
+      <segment bytes="1493333" number="2">vhm-06-02@news.invalid</segment>
+      <segment bytes="1493334" number="3">vhm-06-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000107" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[07/13] - &quot;04-velvet_harbour-paper_lanterns-ph.mp3&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="1650000" number="1">vhm-07-01@news.invalid</segment>
+      <segment bytes="1650000" number="2">vhm-07-02@news.invalid</segment>
+      <segment bytes="1650000" number="3">vhm-07-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000108" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[08/13] - &quot;05-velvet_harbour-low_tide_reprise-ph.mp3&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="980000" number="1">vhm-08-01@news.invalid</segment>
+      <segment bytes="980000" number="2">vhm-08-02@news.invalid</segment>
+      <segment bytes="980000" number="3">vhm-08-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000109" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[09/13] - &quot;06-velvet_harbour-run-away_train-ph.mp3&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="1376666" number="1">vhm-09-01@news.invalid</segment>
+      <segment bytes="1376666" number="2">vhm-09-02@news.invalid</segment>
+      <segment bytes="1376668" number="3">vhm-09-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000110" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[10/13] - &quot;Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH.par2&quot; yEnc (1/1)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="8240" number="1">vhm-10-01@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000111" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[11/13] - &quot;Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH.vol00+1.PAR2&quot; yEnc (1/3)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="223466" number="1">vhm-11-01@news.invalid</segment>
+      <segment bytes="223466" number="2">vhm-11-02@news.invalid</segment>
+      <segment bytes="223468" number="3">vhm-11-03@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000112" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[12/13] - &quot;Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH.vol01+2.PAR2&quot; yEnc (1/4)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="335200" number="1">vhm-12-01@news.invalid</segment>
+      <segment bytes="335200" number="2">vhm-12-02@news.invalid</segment>
+      <segment bytes="335200" number="3">vhm-12-03@news.invalid</segment>
+      <segment bytes="335200" number="4">vhm-12-04@news.invalid</segment>
+    </segments>
+  </file>
+  <file poster="scene@example.invalid (Scene Poster)" date="1700000113" subject="[100001]-[#altbin@EFNet]-[Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH]-[13/13] - &quot;Velvet_Harbour-Paper_Lanterns-JAPANESE_RETAIL-2002-pH.vol03+4.PAR2&quot; yEnc (1/6)">
+    <groups><group>alt.binaries.sounds.mp3.complete_cd</group></groups>
+    <segments>
+      <segment bytes="445483" number="1">vhm-13-01@news.invalid</segment>
+      <segment bytes="445483" number="2">vhm-13-02@news.invalid</segment>
+      <segment bytes="445483" number="3">vhm-13-03@news.invalid</segment>
+      <segment bytes="445483" number="4">vhm-13-04@news.invalid</segment>
+      <segment bytes="445483" number="5">vhm-13-05@news.invalid</segment>
+      <segment bytes="445485" number="6">vhm-13-06@news.invalid</segment>
+    </segments>
+  </file>
+</nzb>

@@ -48,7 +48,8 @@ public static class NzbFileList
         RegexOptions.Compiled,
         MatchTimeout);
 
-    private static readonly Regex ArchiveExtensionRegex = new(@"^(?:rar|7z|zip|r\d{2}|\d{3})$", RegexOptions.Compiled, MatchTimeout);
+    // Scene groups post upper-case extensions (.RAR, .R00, .PAR2), so the archive check ignores case.
+    private static readonly Regex ArchiveExtensionRegex = new(@"^(?:rar|7z|zip|r\d{2}|\d{3})$", RegexOptions.Compiled | RegexOptions.IgnoreCase, MatchTimeout);
 
     private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -158,7 +159,7 @@ public static class NzbFileList
         var effective = fileName ?? subject ?? string.Empty;
         var extension = GetExtension(effective);
 
-        var isPar2 = extension == "par2" || (fileName is null && subject is not null && subject.Contains(".par2", StringComparison.OrdinalIgnoreCase));
+        var isPar2 = string.Equals(extension, "par2", StringComparison.OrdinalIgnoreCase) || (fileName is null && subject is not null && subject.Contains(".par2", StringComparison.OrdinalIgnoreCase));
         var isArchive = extension is not null && ArchiveExtensionRegex.IsMatch(extension);
         var isAudio = extension is not null && AudioExtensions.Contains(extension);
         var isPlainName = fileName is not null && !IsObfuscatedName(fileName);
