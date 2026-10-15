@@ -4249,6 +4249,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportSettingsResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ImportSettingsUpdateResource"];
+                    "application/*+json": components["schemas"]["ImportSettingsUpdateResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ImportSettingsResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/history": {
         parameters: {
             query?: never;
@@ -5685,6 +5744,13 @@ export interface components {
         ImportListSyncAcceptedResource: {
             /** Format: int64 */
             commandId: number | string;
+        };
+        ImportSettingsResource: {
+            cleanLeftoverFolders: boolean;
+            cleanLeftoverFoldersLocked: boolean;
+        };
+        ImportSettingsUpdateResource: {
+            cleanLeftoverFolders?: null | boolean;
         };
         IndexerFieldResource: {
             name: string;

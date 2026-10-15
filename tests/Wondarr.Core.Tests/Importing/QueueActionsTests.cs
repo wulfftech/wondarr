@@ -67,6 +67,79 @@ public sealed class QueueActionsTests
     }
 
     [Fact]
+    public async Task Removes_the_folder_of_a_finished_download_with_what_was_left_in_it()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Completed;
+            options.Progress = 1;
+            options.CreateDownload = true;
+        });
+        var partial = Leftover(seed.DownloadDirectory, "08 - Get Lucky.flac.incomplete");
+        var cover = Leftover(seed.DownloadDirectory, "cover.jpg");
+        var neighbour = Leftover(Path.Combine(Path.GetDirectoryName(seed.DownloadDirectory)!, "another-grab"), "keep.flac");
+
+        await host.Actions.RemoveAsync(seed.QueueItemId, blocklist: true, retry: false, CancellationToken.None);
+
+        Directory.Exists(seed.DownloadDirectory).Should().BeFalse();
+        File.Exists(partial).Should().BeFalse();
+        File.Exists(cover).Should().BeFalse();
+        File.Exists(neighbour).Should().BeTrue("another grab's folder is not this item's");
+        Directory.Exists(Path.GetDirectoryName(seed.DownloadDirectory)!).Should().BeTrue("never a parent");
+    }
+
+    [Fact]
+    public async Task Keeps_a_folder_that_is_not_empty_when_the_option_is_off()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        host.ImportOptions.CleanLeftoverFolders = false;
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Completed;
+            options.Progress = 1;
+            options.CreateDownload = true;
+        });
+        var partial = Leftover(seed.DownloadDirectory, "08 - Get Lucky.flac.incomplete");
+
+        await host.Actions.RemoveAsync(seed.QueueItemId, blocklist: true, retry: false, CancellationToken.None);
+
+        File.Exists(seed.DownloadPath).Should().BeFalse("the download itself is still deleted");
+        File.Exists(partial).Should().BeTrue();
+        Directory.Exists(seed.DownloadDirectory).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Keeps_what_is_left_when_the_destination_is_not_a_folder_of_its_own()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Completed;
+            options.Progress = 1;
+            options.CreateDownload = true;
+        });
+        var partial = Leftover(seed.DownloadDirectory, "08 - Get Lucky.flac.incomplete");
+
+        // One segment: the folder would be the item's destination and could be anything the source chose.
+        await host.SetDestinationAsync(seed.QueueItemId, Path.GetFileName(seed.DownloadDirectory));
+
+        await host.Actions.RemoveAsync(seed.QueueItemId, blocklist: true, retry: false, CancellationToken.None);
+
+        File.Exists(seed.DownloadPath).Should().BeFalse();
+        File.Exists(partial).Should().BeTrue("only a folder named wondarr/<guid> is removed with its contents");
+    }
+
+    private static string Leftover(string folder, string name)
+    {
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, name);
+        File.WriteAllText(path, "x");
+
+        return path;
+    }
+
+    [Fact]
     public async Task Grabs_the_next_candidate_when_the_user_asks_for_a_retry()
     {
         await using var host = await QueueTestHost.CreateAsync();

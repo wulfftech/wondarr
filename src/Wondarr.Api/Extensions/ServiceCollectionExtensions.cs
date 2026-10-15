@@ -9,6 +9,7 @@ using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Updates;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.OpenApi;
@@ -16,6 +17,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Wondarr.Api.Extensions;
 
@@ -62,6 +64,12 @@ public static class ServiceCollectionExtensions
         services.AddAppAuthentication();
         services.AddSingleton<DownloadTokenService>();
         services.AddLoginRateLimiting();
+
+        // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a service.
+        services.AddScoped<IImportSettingsService>(provider => new ImportSettingsService(
+            provider.GetRequiredService<IOptionsMonitor<ImportOptions>>(),
+            provider.GetRequiredService<IConfigFileWriter>(),
+            Environment.GetEnvironmentVariables()));
 
         AddSignalREvents(services);
 

@@ -136,6 +136,27 @@ public sealed class SabnzbdClientType : IDownloadClientType
     }
 
     /// <summary>
+    /// The folder SABnzbd finishes a category's jobs in, as SABnzbd sees it, read from its <c>misc</c> and
+    /// <c>categories</c> settings; <see langword="null"/> when the category is not there, SABnzbd has no
+    /// completed-downloads folder, or the folder is relative (it cannot be told from here).
+    /// </summary>
+    /// <param name="misc">SABnzbd's <c>misc</c> settings.</param>
+    /// <param name="categories">SABnzbd's <c>categories</c> settings.</param>
+    /// <param name="categoryName">The category the client row files its jobs under.</param>
+    public static string? CompletedFolder(JsonElement misc, JsonElement categories, string categoryName)
+    {
+        if (FindCategory(categories, categoryName) is not { } category
+            || Text(misc, "complete_dir") is not { Length: > 0 } completeDir)
+        {
+            return null;
+        }
+
+        var folder = CategoryFolder(completeDir, Text(category, "dir"));
+
+        return IsAbsolute(folder) ? folder : null;
+    }
+
+    /// <summary>
     /// The folder a category's jobs finish in: its own folder when absolute, else that folder inside
     /// the completed-downloads folder, else the completed-downloads folder itself. Joined with the
     /// separator SABnzbd's own paths use, since the path is on SABnzbd's machine.

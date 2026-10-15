@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.DownloadClients;
+using Wondarr.Core.Importing;
 using Wondarr.Core.Indexers;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -19,7 +20,9 @@ namespace Wondarr.Sources.Torznab.Searching;
 /// goes to the user's client and only as much of it downloads as the wanted songs need; a finished
 /// torrent file is hard-linked into the grab's staging folder (the torrent keeps seeding, its data is
 /// never moved or deleted), a finished usenet file is moved there and the job deleted once no queue
-/// item needs it any more.
+/// item needs it any more — and, with <c>import.clean_leftover_folders</c> on, the folder the post
+/// finished in goes with it (SABnzbd never deletes a completed job's folder). A torrent's data is never
+/// cleaned up: it stays for as long as the client has the torrent.
 /// </summary>
 public sealed partial class IndexerSourceProvider
 {
@@ -136,7 +139,13 @@ public sealed partial class IndexerSourceProvider
             }
             else if (!shared && grab.JobId is { } jobId)
             {
-                await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false);
+                // A job that has already finished leaves its folder behind when it is removed.
+                var folder = await FinishedFolderAsync(client, jobId, cancellationToken).ConfigureAwait(false);
+
+                if (await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false) && folder is not null)
+                {
+                    await CleanJobFolderAsync(client, grab, jobId, folder, null, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
     }
@@ -870,14 +879,18 @@ public sealed partial class IndexerSourceProvider
                 ? "The finished post holds archives and no audio: the download client did not unpack it."
                 : "The song is not in the downloaded post.";
 
-            return await FailedJobAsync(services, client, grab, jobId, message, cancellationToken, blocklistCandidate: grab.FilePath is null && hasAudio).ConfigureAwait(false);
+            return await FailedJobAsync(services, client, grab, jobId, message, cancellationToken, blocklistCandidate: grab.FilePath is null && hasAudio, finishedFolder: folder).ConfigureAwait(false);
         }
 
         var staged = Stage(source, grab.StagingDir, link: false);
 
-        if (!await IsSharedAsync(services, grab, cancellationToken).ConfigureAwait(false))
+        if (!await IsSharedAsync(services, grab, cancellationToken).ConfigureAwait(false)
+            && await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false))
         {
-            await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false);
+            // The wanted file is out of the job's folder and safe in staging, and the client no longer
+            // lists the job: what the post left beside it (the .nfo, the cover, a whole album's other
+            // tracks) is the last thing of this download still on disk. SABnzbd never deletes it.
+            await CleanJobFolderAsync(client, grab, jobId, folder, staged, cancellationToken).ConfigureAwait(false);
         }
 
         return new DownloadStatus(DownloadState.Completed, 1, _disk.GetFileSize(staged), CompletedPath: staged);
@@ -887,7 +900,9 @@ public sealed partial class IndexerSourceProvider
     /// A failed item whose job cannot be recovered (the client reports it failed, or the song is not in
     /// the post) leaves nothing behind (R-081): its job goes from the client, history included, once no
     /// other queue item uses it — the same rule as for a finished job. The job is Wondarr's own: only a
-    /// handle Wondarr wrote names it. A finished job whose folder Wondarr cannot see is kept.
+    /// handle Wondarr wrote names it. A finished job whose folder Wondarr cannot see is kept. A job that
+    /// finished and turned out not to hold the song also loses its folder (<paramref name="finishedFolder"/>),
+    /// which the client never deletes for a completed job.
     /// </summary>
     private async Task<DownloadStatus> FailedJobAsync(
         IServiceProvider services,
@@ -896,11 +911,14 @@ public sealed partial class IndexerSourceProvider
         string jobId,
         string message,
         CancellationToken cancellationToken,
-        bool blocklistCandidate = false)
+        bool blocklistCandidate = false,
+        string? finishedFolder = null)
     {
-        if (!await IsSharedAsync(services, grab, cancellationToken).ConfigureAwait(false))
+        if (!await IsSharedAsync(services, grab, cancellationToken).ConfigureAwait(false)
+            && await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false)
+            && finishedFolder is not null)
         {
-            await RemoveJobAsync(client, jobId, cancellationToken).ConfigureAwait(false);
+            await CleanJobFolderAsync(client, grab, jobId, finishedFolder, null, cancellationToken).ConfigureAwait(false);
         }
 
         return Failed(message, blocklistCandidate);
@@ -957,15 +975,101 @@ public sealed partial class IndexerSourceProvider
     private string? Staged(string stagingDir) =>
         _disk.DirectoryExists(stagingDir) ? _disk.EnumerateFiles(stagingDir).FirstOrDefault() : null;
 
-    private async Task RemoveJobAsync(DownloadClient client, string jobId, CancellationToken cancellationToken)
+    /// <summary>Removes the job from the client; false (and a Warning) when the client would not.</summary>
+    private async Task<bool> RemoveJobAsync(DownloadClient client, string jobId, CancellationToken cancellationToken)
     {
         try
         {
             await _usenet.RemoveAsync(client, jobId, deleteFiles: true, cancellationToken).ConfigureAwait(false);
+
+            return true;
         }
         catch (DownloadClientException exception)
         {
             LogJobRemoveFailed(_logger, jobId, exception);
+
+            return false;
+        }
+    }
+
+    /// <summary>The folder a job that has finished is in, as Wondarr sees it; null for any other state or when the client will not say.</summary>
+    private async Task<string?> FinishedFolderAsync(DownloadClient client, string jobId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var job = await _usenet.GetAsync(client, jobId, cancellationToken).ConfigureAwait(false);
+
+            return job is { Status: UsenetStatus.Completed, StoragePath: { Length: > 0 } folder } ? folder : null;
+        }
+        catch (DownloadClientException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Deletes a finished job's folder with everything the post left in it, after the client has removed
+    /// the job (<c>import.clean_leftover_folders</c>, on by default). SABnzbd deletes the files of a failed
+    /// job, never a completed job's folder. Only a job Wondarr added; only a folder
+    /// <see cref="UsenetJobFolder"/> accepts (below the folder the client finishes the category in, never
+    /// that folder itself, no link, not the staging folder, not the wanted file's); a folder that fails a
+    /// check is logged at Warning and kept. An I/O error is logged and never fails the item.
+    /// </summary>
+    /// <param name="client">The client the job was in.</param>
+    /// <param name="grab">The grab that owned the job.</param>
+    /// <param name="jobId">The job, for the log.</param>
+    /// <param name="folder">The job's folder as Wondarr sees it.</param>
+    /// <param name="staged">The wanted file, already moved out of the folder; null when the item has none.</param>
+    /// <param name="cancellationToken">Cancels the call to the client.</param>
+    private async Task CleanJobFolderAsync(
+        DownloadClient client,
+        ContainerGrab grab,
+        string jobId,
+        string folder,
+        string? staged,
+        CancellationToken cancellationToken)
+    {
+        if (!_import.CurrentValue.CleanLeftoverFolders || !grab.AddedByWondarr)
+        {
+            return;
+        }
+
+        string? completed;
+
+        try
+        {
+            completed = await _usenet.GetCompletedFolderAsync(client, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DownloadClientException exception)
+        {
+            LogJobFolderUnchecked(_logger, folder, jobId, exception);
+
+            return;
+        }
+
+        var refusal = UsenetJobFolder.Refusal(folder, completed, grab.StagingDir, staged)
+            ?? (staged is not null && !_disk.FileExists(staged) ? "the wanted file is not in staging" : null);
+
+        if (refusal is not null)
+        {
+            LogJobFolderRefused(_logger, folder, jobId, refusal);
+
+            return;
+        }
+
+        if (!_disk.DirectoryExists(folder))
+        {
+            return;
+        }
+
+        try
+        {
+            LeftoverFolder.Delete(folder);
+            LogJobFolderRemoved(_logger, folder, jobId);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            LogJobFolderFailed(_logger, folder, jobId, exception);
         }
     }
 
@@ -1066,4 +1170,16 @@ public sealed partial class IndexerSourceProvider
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The usenet job {JobId} could not be removed from the client")]
     private static partial void LogJobRemoveFailed(ILogger logger, string jobId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Removed the leftover folder {Path} of the usenet job {JobId}")]
+    private static partial void LogJobFolderRemoved(ILogger logger, string path, string jobId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Not removing {Path}, the folder of the usenet job {JobId}: {Reason}")]
+    private static partial void LogJobFolderRefused(ILogger logger, string path, string jobId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The leftover folder {Path} of the usenet job {JobId} could not be removed")]
+    private static partial void LogJobFolderFailed(ILogger logger, string path, string jobId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Not removing {Path}, the folder of the usenet job {JobId}: the download client would not say where it finishes jobs")]
+    private static partial void LogJobFolderUnchecked(ILogger logger, string path, string jobId, Exception exception);
 }

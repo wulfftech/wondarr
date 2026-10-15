@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Card,
+  Code,
   Group,
   Modal,
   NumberInput,
@@ -28,6 +29,7 @@ import {
   type DownloadClientResource,
   type DownloadClientSchemaResource,
 } from '../../api/downloadClients';
+import { useImportSettings, useSaveImportSettings } from '../../api/importSettings';
 import { ValidationError } from '../../api/profiles';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
 import { initialValues, SettingsField, targetOf, wireValue, type PairLabels } from '../../components/SchemaFields';
@@ -211,6 +213,45 @@ function DownloadClientForm({
   );
 }
 
+/**
+ * The import option that belongs with the clients (`import.clean_leftover_folders`): whether Wondarr removes
+ * what a download left behind once the song is imported. A setting the environment owns is shown read-only.
+ */
+function CleanLeftoverFoldersCard() {
+  const settings = useImportSettings();
+  const save = useSaveImportSettings();
+
+  return (
+    <Card withBorder padding="md">
+      {settings.isPending ? (
+        <LoadingState label="Loading the cleanup setting…" />
+      ) : settings.isError ? (
+        <ErrorState title="The cleanup setting could not be loaded" message={settings.error.message} />
+      ) : (
+        <Stack gap="xs">
+          <Switch
+            label="Clean up leftover folders"
+            description="After an import, remove what the download left behind: a usenet job's folder and Wondarr's own download folders. Torrent data that is still seeding is never touched."
+            checked={settings.data.cleanLeftoverFolders}
+            disabled={settings.data.cleanLeftoverFoldersLocked || save.isPending}
+            onChange={(event) => save.mutate(event.currentTarget.checked)}
+          />
+          {settings.data.cleanLeftoverFoldersLocked && (
+            <Text size="sm" c="dimmed">
+              This is set by <Code>APP__IMPORT__CLEAN_LEFTOVER_FOLDERS</Code> and cannot be changed here.
+            </Text>
+          )}
+          {save.isError && (
+            <Alert color="red" icon={<CircleAlert size={16} />}>
+              {save.error.message}
+            </Alert>
+          )}
+        </Stack>
+      )}
+    </Card>
+  );
+}
+
 /** The list of download clients, and the dialogs that add, edit and delete one. */
 export function DownloadClientsSettingsPage() {
   const list = useDownloadClients();
@@ -244,6 +285,8 @@ export function DownloadClientsSettingsPage() {
         The indexers&apos; grabs go to these clients. Wondarr never moves or deletes a torrent&apos;s data: the wanted
         file is linked into Wondarr&apos;s staging folder and the torrent keeps seeding.
       </Text>
+
+      <CleanLeftoverFoldersCard />
 
       <Group justify="flex-end">
         <Button

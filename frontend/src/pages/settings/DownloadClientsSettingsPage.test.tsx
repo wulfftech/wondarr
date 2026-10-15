@@ -28,9 +28,27 @@ async function lastRequest(method: string, urlPart: string): Promise<Record<stri
   return call === undefined ? null : (JSON.parse(await call.body) as Record<string, unknown>);
 }
 
-function install(options: { remove?: () => Response; test?: () => Response } = {}): FetchMock {
+interface ImportSettingsAnswer {
+  cleanLeftoverFolders: boolean;
+  cleanLeftoverFoldersLocked: boolean;
+}
+
+function install(
+  options: {
+    remove?: () => Response;
+    test?: () => Response;
+    importSettings?: ImportSettingsAnswer;
+    saveImportSettings?: () => Response;
+  } = {},
+): FetchMock {
   return installFetch((url, init) => {
     const method = init?.method ?? 'GET';
+
+    if (url.includes('/api/v1/config/import')) {
+      return method === 'PUT' && options.saveImportSettings !== undefined
+        ? options.saveImportSettings()
+        : jsonResponse(options.importSettings ?? { cleanLeftoverFolders: true, cleanLeftoverFoldersLocked: false });
+    }
 
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
@@ -145,6 +163,84 @@ describe('DownloadClientsSettingsPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Test' }));
 
     expect(await within(dialog).findByText('SABnzbd refused the API key.')).toBeInTheDocument();
+  });
+
+  it('loads the cleanup switch with its help text and saves a change', async () => {
+    const user = userEvent.setup();
+    install({
+      saveImportSettings: () => jsonResponse({ cleanLeftoverFolders: false, cleanLeftoverFoldersLocked: false }),
+    });
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: /Clean up leftover folders/ });
+
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    expect(
+      screen.getByText(
+        "After an import, remove what the download left behind: a usenet job's folder and Wondarr's own download folders. Torrent data that is still seeding is never touched.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(toggle);
+
+    await waitFor(() => expect(toggle).not.toBeChecked());
+    expect(await lastRequest('PUT', '/api/v1/config/import')).toEqual({ cleanLeftoverFolders: false });
+  });
+
+  it('shows the cleanup switch off when the file says so, and switches it on', async () => {
+    const user = userEvent.setup();
+    install({
+      importSettings: { cleanLeftoverFolders: false, cleanLeftoverFoldersLocked: false },
+      saveImportSettings: () => jsonResponse({ cleanLeftoverFolders: true, cleanLeftoverFoldersLocked: false }),
+    });
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: /Clean up leftover folders/ });
+
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+
+    await waitFor(() => expect(toggle).toBeChecked());
+    expect(await lastRequest('PUT', '/api/v1/config/import')).toEqual({ cleanLeftoverFolders: true });
+  });
+
+  it('shows a cleanup setting the environment owns as read-only', async () => {
+    install({ importSettings: { cleanLeftoverFolders: false, cleanLeftoverFoldersLocked: true } });
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: /Clean up leftover folders/ });
+
+    expect(toggle).toBeDisabled();
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText('APP__IMPORT__CLEAN_LEFTOVER_FOLDERS')).toBeInTheDocument();
+  });
+
+  it('says why the cleanup setting could not be saved', async () => {
+    const user = userEvent.setup();
+    install({
+      saveImportSettings: () =>
+        jsonResponse(
+          {
+            title: 'One or more validation errors occurred.',
+            status: 400,
+            errors: {
+              settings: ['cleanLeftoverFolders is set by the environment variable APP__IMPORT__CLEAN_LEFTOVER_FOLDERS'],
+            },
+          },
+          400,
+        ),
+    });
+    renderApp();
+
+    await user.click(await screen.findByRole('switch', { name: /Clean up leftover folders/ }));
+
+    expect(
+      await screen.findByText(
+        'cleanLeftoverFolders is set by the environment variable APP__IMPORT__CLEAN_LEFTOVER_FOLDERS',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('shows why a client still named by an indexer cannot be deleted', async () => {

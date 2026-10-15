@@ -3887,6 +3887,57 @@
         }
       }
     },
+    "/api/v1/config/import": {
+      "get": {
+        "tags": [
+          "ImportSettings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ImportSettings"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSettingsUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportSettingsUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/history": {
       "get": {
         "tags": [
@@ -6894,6 +6945,32 @@
               "string"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "ImportSettingsResource": {
+        "required": [
+          "cleanLeftoverFolders",
+          "cleanLeftoverFoldersLocked"
+        ],
+        "type": "object",
+        "properties": {
+          "cleanLeftoverFolders": {
+            "type": "boolean"
+          },
+          "cleanLeftoverFoldersLocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ImportSettingsUpdateResource": {
+        "type": "object",
+        "properties": {
+          "cleanLeftoverFolders": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -12327,6 +12404,9 @@
     },
     {
       "name": "ImportListItem"
+    },
+    {
+      "name": "ImportSettings"
     },
     {
       "name": "History"

@@ -256,6 +256,50 @@ public sealed class SabnzbdClientTests
         result.Error.Should().Contain("/downloads/complete/music").And.Contain("add a remote path mapping");
     }
 
+    [Fact]
+    public async Task The_completed_folder_is_the_categorys_folder_as_wondarr_sees_it()
+    {
+        var server = Configured();
+
+        var folder = await Client(server).GetCompletedFolderAsync(Row(mapping: ("/downloads/complete", "/mnt/usenet")), CancellationToken.None);
+
+        folder.Should().Be(Path.Combine("/mnt/usenet", "music"));
+        server.Requests.Where(request => request.Mode == "get_config").Select(request => request.Query["section"]).Should().BeEquivalentTo("misc", "categories");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_is_unchanged_when_no_mapping_covers_it()
+    {
+        var folder = await Client(Configured()).GetCompletedFolderAsync(Row(), CancellationToken.None);
+
+        folder.Should().Be("/downloads/complete/music");
+    }
+
+    [Fact]
+    public async Task The_completed_folder_is_null_when_the_category_is_not_in_sabnzbd()
+    {
+        var folder = await Client(Configured()).GetCompletedFolderAsync(Row(category: "songs"), CancellationToken.None);
+
+        folder.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("""{"complete_dir": "Downloads/complete"}""", "wondarr", null)]
+    [InlineData("""{"complete_dir": ""}""", "wondarr", null)]
+    [InlineData("""{}""", "wondarr", null)]
+    [InlineData("""{"complete_dir": "/downloads/complete"}""", "wondarr", "/downloads/complete/music")]
+    [InlineData("""{"complete_dir": "Downloads/complete"}""", "absolute", "/elsewhere/music")]
+    [InlineData("""{"complete_dir": "/downloads/complete"}""", "plain", "/downloads/complete")]
+    public void The_completed_folder_needs_an_absolute_path(string misc, string category, string? expected)
+    {
+        using var miscDocument = JsonDocument.Parse(misc);
+        using var categories = JsonDocument.Parse("""
+            [{"name": "wondarr", "dir": "music"}, {"name": "absolute", "dir": "/elsewhere/music"}, {"name": "plain", "dir": ""}]
+            """);
+
+        SabnzbdClientType.CompletedFolder(miscDocument.RootElement, categories.RootElement, category).Should().Be(expected);
+    }
+
     [Theory]
     [InlineData("/downloads/complete", "music", "/downloads/complete/music")]
     [InlineData("/downloads/complete/", "", "/downloads/complete/")]
@@ -311,13 +355,13 @@ public sealed class SabnzbdClientTests
     private static SabnzbdProxy Proxy(FakeSabnzbd server) =>
         new(new StaticHttpClientFactory(server), new SecretRegistry(), new CapturingLogger<SabnzbdProxy>());
 
-    private static DownloadClient Row((string Remote, string Local)? mapping = null) => new()
+    private static DownloadClient Row((string Remote, string Local)? mapping = null, string category = "wondarr") => new()
     {
         Id = 7,
         Name = "SABnzbd",
         Type = "sabnzbd",
         Protocol = DownloadProtocol.Usenet,
-        Settings = Settings(mapping: mapping).GetRawText(),
+        Settings = Settings(category, mapping).GetRawText(),
     };
 
     private static JsonElement Settings(string category = "wondarr", (string Remote, string Local)? mapping = null)

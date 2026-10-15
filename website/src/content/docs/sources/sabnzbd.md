@@ -11,6 +11,7 @@ SABnzbd is Wondarr's usenet client. It works with a [Newznab or Prowlarr indexer
 2. SABnzbd downloads and unpacks it as it normally does. A post downloaded whole is also verified and repaired from its `.par2` files.
 3. Wondarr moves the wanted song's file out of SABnzbd's complete folder into its staging folder (`import.container_staging_path`, default `/data/downloads/containers`) and imports it.
 4. Once the wanted file is moved into staging and no other song still waiting on the job needs it, Wondarr deletes the job from SABnzbd's history together with its files. That happens before the import, not after it. A song that fails (SABnzbd reports the download as failed, or the file is not in the post) deletes its job the same way, and so does a job Wondarr added but could not resume.
+5. SABnzbd deletes the files of a failed job. It never deletes the folder of a job that completed, so the post's `.nfo` and cover image stay behind, and a post downloaded whole leaves every unpacked track. With `import.clean_leftover_folders` on (the default) Wondarr deletes that folder itself, right after the client has removed the job. See [Leftover folders](#leftover-folders).
 
 A job that was trimmed for one song is not reused for another song whose file the trim removed: Wondarr adds a fresh job instead.
 
@@ -40,6 +41,19 @@ Press **Add download client**, choose **SABnzbd**, then **Continue**.
 ### The complete folder
 
 Wondarr reads the finished file from the folder SABnzbd finishes the category in: the category's own folder, or SABnzbd's completed-downloads folder (**Config → Folders**). That folder must be visible to Wondarr. The simplest way is to mount the same `/data` in both containers and keep SABnzbd's completed folder under it. If SABnzbd sees the folder at a different path, add a remote path mapping.
+
+### Leftover folders
+
+Wondarr deletes a finished job's folder, and everything in it, only when all of these hold:
+
+- Wondarr added the job.
+- No other song still waiting on the job needs it. With several songs from one post, the last one cleans up.
+- The folder is inside the folder SABnzbd finishes the category in (see above), and is not that folder itself. A folder outside it, or the complete folder itself, is never deleted.
+- The wanted file is already out of the folder and in staging, and the folder is not a link, a filesystem root or Wondarr's staging folder.
+
+A folder that fails a check stays, and the log says so (Warning, with the path). So does a folder Wondarr cannot delete, for example because it has no write access to SABnzbd's complete folder: that is a line in the log, not a failed import. Every folder removed is an Information line with its path.
+
+The checks and the delete use the path as Wondarr sees it: what SABnzbd reports, mapped through the client's remote path mappings. Turn the cleanup off with the **Clean up leftover folders** switch on **Settings → Download clients**, or `import.clean_leftover_folders: false`. Then a job's folder stays, as it does with any other SABnzbd client.
 
 ### Test
 

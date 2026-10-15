@@ -88,6 +88,18 @@ public sealed class SabnzbdClient : IUsenetClient
     }
 
     /// <inheritdoc />
+    public async Task<string?> GetCompletedFolderAsync(DownloadClient client, CancellationToken cancellationToken)
+    {
+        var settings = Settings(client);
+        var misc = await _proxy.GetConfigAsync(settings, "misc", cancellationToken).ConfigureAwait(false);
+        var categories = await _proxy.GetConfigAsync(settings, "categories", cancellationToken).ConfigureAwait(false);
+
+        return SabnzbdClientType.CompletedFolder(misc, categories, settings.Category) is { } remote
+            ? RemotePathMapper.Map(remote, settings.RemotePathMappings)
+            : null;
+    }
+
+    /// <inheritdoc />
     public async Task RemoveAsync(DownloadClient client, string jobId, bool deleteFiles, CancellationToken cancellationToken)
     {
         var settings = Settings(client);

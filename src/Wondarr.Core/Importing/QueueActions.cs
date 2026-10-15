@@ -2,8 +2,10 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
@@ -48,6 +50,7 @@ public sealed partial class QueueActions : IQueueActions
     private readonly IEventAggregator _events;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<QueueActions> _logger;
+    private readonly IOptionsMonitor<ImportOptions>? _importOptions;
 
     /// <summary>Initialises a new instance of the <see cref="QueueActions"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the blocklist entry and the history commit through it.</param>
@@ -56,13 +59,18 @@ public sealed partial class QueueActions : IQueueActions
     /// <param name="events">Publishes the queue item change.</param>
     /// <param name="timeProvider">The clock every timestamp comes from.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="importOptions">
+    /// Whether a removed download's folder goes with what is left in it (<c>import.clean_leftover_folders</c>);
+    /// the default (on) when null.
+    /// </param>
     public QueueActions(
         WondarrDbContext database,
         IEnumerable<ISourceProvider> sources,
         ISongSearchService search,
         IEventAggregator events,
         TimeProvider timeProvider,
-        ILogger<QueueActions> logger)
+        ILogger<QueueActions> logger,
+        IOptionsMonitor<ImportOptions>? importOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(sources);
@@ -77,6 +85,7 @@ public sealed partial class QueueActions : IQueueActions
         _events = events;
         _timeProvider = timeProvider;
         _logger = logger;
+        _importOptions = importOptions;
     }
 
     /// <inheritdoc />
@@ -235,7 +244,8 @@ public sealed partial class QueueActions : IQueueActions
     /// <summary>
     /// Deletes a finished download, and only while it really is the item's own: the file has to sit
     /// directly in a folder whose trailing segments are the item's <c>Destination</c>, with no <c>..</c>
-    /// in the path and no reparse point on the way. Anything else is left alone.
+    /// in the path and no reparse point on the way. Anything else is left alone. The folder goes too:
+    /// with whatever else is in it when <c>import.clean_leftover_folders</c> is on, only when empty otherwise.
     /// </summary>
     /// <param name="item">The item that owns the download.</param>
     private void DeleteDownload(QueueItem item)
@@ -251,10 +261,7 @@ public sealed partial class QueueActions : IQueueActions
         {
             File.Delete(path);
 
-            if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any())
-            {
-                Directory.Delete(folder);
-            }
+            RemoveOwnFolder(item, folder);
         }
         catch (IOException exception)
         {
@@ -263,6 +270,53 @@ public sealed partial class QueueActions : IQueueActions
         catch (UnauthorizedAccessException exception)
         {
             LogDeleteFailed(_logger, path, exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Removes the item's own download folder, which <see cref="IsOwnDownload"/> has approved: with what is
+    /// left in it when <c>import.clean_leftover_folders</c> is on, the destination names a folder of its own
+    /// (<c>wondarr/&lt;guid&gt;</c>, at least two segments) and <see cref="LeftoverFolder"/> finds no link on the
+    /// way or inside; otherwise only while it is empty.
+    /// </summary>
+    /// <param name="item">The item that owns the download.</param>
+    /// <param name="folder">The folder the download sat in.</param>
+    private void RemoveOwnFolder(QueueItem item, string folder)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
+        var segments = SplitSegments(item.Destination).Count;
+
+        if ((_importOptions?.CurrentValue.CleanLeftoverFolders ?? new ImportOptions().CleanLeftoverFolders) && segments >= 2)
+        {
+            // The folder above the destination's first segment: every level from the folder up to it is
+            // checked for being a link.
+            var above = folder;
+
+            for (var level = 0; level < segments; level++)
+            {
+                above = Path.GetDirectoryName(above) ?? string.Empty;
+            }
+
+            if (LeftoverFolder.Refusal(folder, above.Length == 0 ? null : above) is { } reason)
+            {
+                LogLeftoverRefused(_logger, folder, reason);
+            }
+            else
+            {
+                LeftoverFolder.Delete(folder);
+                LogLeftoverRemoved(_logger, item.Id, folder);
+
+                return;
+            }
+        }
+
+        if (!Directory.EnumerateFileSystemEntries(folder).Any())
+        {
+            Directory.Delete(folder);
         }
     }
 
@@ -395,6 +449,12 @@ public sealed partial class QueueActions : IQueueActions
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delete the download {Path}: {Reason}")]
     private static partial void LogDeleteFailed(ILogger logger, string path, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Removed the download folder {Path} of queue item {QueueItemId} and what was left in it")]
+    private static partial void LogLeftoverRemoved(ILogger logger, long queueItemId, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Not removing the leftovers of {Path}: {Reason}")]
+    private static partial void LogLeftoverRefused(ILogger logger, string path, string reason);
 
     /// <summary>The history payload of a removal by the user.</summary>
     /// <param name="RemovedByUser">Always true; the row only exists when the user removed something.</param>

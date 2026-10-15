@@ -182,6 +182,8 @@ public static class ContainerStubApp
                         files = job.Files.Where(file => !file.Deleted).Select(file => file.Name),
                         deleted = job.Files.Where(file => file.Deleted).Select(file => file.Name),
                         unpacked = job.Unpacked,
+                        storage = job.Storage,
+                        storageExists = job.Storage is { } storage && Directory.Exists(storage),
                         failMessage = job.FailMessage,
                     }),
                 };
@@ -709,11 +711,9 @@ public static class ContainerStubApp
             job.Removed = true;
             job.RemovedWithFiles = deleteFiles;
 
-            if (deleteFiles && job.Storage is { } folder && Directory.Exists(folder))
-            {
-                Directory.Delete(folder, recursive: true);
-            }
-
+            // Like the real SABnzbd, which deletes the files of a failed job only: a completed job's
+            // folder stays where it is (a failed job here never reached the complete folder), so the
+            // download's own cleanup is what the gate has to see.
             FakeSlskdLog.Info($"Usenet job {job.Id} removed (del_files={deleteFiles})");
         }
 

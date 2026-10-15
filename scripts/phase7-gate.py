@@ -22,8 +22,9 @@ failed check):
             (with a Par2 set, an SFV and an NFO) on the fake, run MissingSearch, and check: the song
             imported, the two other tracks were trimmed before the download (never rendered, never
             imported) together with the Par2 volumes and the SFV (the fake SABnzbd fails a trimmed job
-            that still holds either, like the real one), and the job was deleted from SABnzbd with its
-            files after the import.
+            that still holds either, like the real one), the job was deleted from SABnzbd with its
+            files after the import, and the folder the post finished in (the NFO is still in it, the
+            real SABnzbd never deletes a completed job's folder) is gone: Wondarr cleaned it up.
 
 Standard library only.
 
@@ -353,10 +354,11 @@ def usenet(args: argparse.Namespace) -> None:
     deadline = time.monotonic() + 120
     while True:
         jobs = [job for job in fake_get(args.fake_cmd, args.containers)["jobs"] if job["title"] == title]
-        if len(jobs) == 1 and jobs[0]["removed"]:
+        # The folder goes right after the job, in the same poll; waiting for both keeps the check below from racing it.
+        if len(jobs) == 1 and jobs[0]["removed"] and not jobs[0]["storageExists"]:
             break
         if time.monotonic() > deadline:
-            fail(f"the usenet job was not deleted: {jobs}")
+            fail(f"the usenet job was not deleted, or its folder is still there: {jobs}")
         time.sleep(3)
     job = jobs[0]
     if sorted(job["unpacked"]) != [files[0]["path"]]:
@@ -371,7 +373,13 @@ def usenet(args: argparse.Namespace) -> None:
         fail(f"SABnzbd failed the trimmed post: {job['failMessage']}")
     if not job["removedWithFiles"]:
         fail("the job was deleted without its files")
-    ok(f"the post was trimmed to {files[0]['path']} and its NFO (no Par2 or SFV left), unpacked, and deleted from SABnzbd with its files after the import")
+    # SABnzbd (the fake behaves like the real one) deletes the files of a failed job only, so the folder of
+    # this completed job, with its NFO, is still there unless Wondarr removed it (import.clean_leftover_folders).
+    if not job["storage"]:
+        fail("the fake SABnzbd reports no folder for the finished job")
+    if job["storageExists"]:
+        fail(f"the finished job's folder {job['storage']} is still there after the import")
+    ok(f"the post was trimmed to {files[0]['path']} and its NFO (no Par2 or SFV left), unpacked, deleted from SABnzbd, and its folder {job['storage']} removed after the import")
 
 
 def main() -> int:

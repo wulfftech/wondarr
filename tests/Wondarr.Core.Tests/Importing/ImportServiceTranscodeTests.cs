@@ -74,6 +74,9 @@ public class ImportServiceTranscodeTests
         await using var host = await ImportTestHost.CreateAsync();
         await host.SetLibraryOutputPolicyAsync("""{"codec":"keepOpus"}""");
 
+        // The fake placer leaves the file where it is, and this test looks at that file afterwards.
+        host.ImportOptions.CleanLeftoverFolders = false;
+
         var seed = await host.SeedAsync(options =>
         {
             options.SourceType = SourceTypes.YouTube;
@@ -102,6 +105,9 @@ public class ImportServiceTranscodeTests
     {
         await using var host = await ImportTestHost.CreateAsync();
         await host.SetLibraryOutputPolicyAsync("""{"version":2,"youtube":{"codec":"keep","opusContainer":"ogg"}}""");
+
+        // The fake placer leaves the file where it is, and this test looks at that file afterwards.
+        host.ImportOptions.CleanLeftoverFolders = false;
 
         var seed = await host.SeedAsync(options =>
         {

@@ -113,7 +113,7 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
-    public async Task An_nzb_is_added_paused_trimmed_unpacked_and_deleted_with_its_files()
+    public async Task An_nzb_is_added_paused_trimmed_unpacked_and_removed_but_its_folder_stays_as_with_sabnzbd()
     {
         await RegisterAsync("usenet", "Queen - A Night at the Opera (1975) [FLAC]", obfuscated: false);
 
@@ -152,7 +152,23 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
 
         await client.RemoveAsync(row, job, deleteFiles: true, CancellationToken.None);
         (await client.GetAsync(row, job, CancellationToken.None)).Should().BeNull();
-        Directory.Exists(finished.StoragePath).Should().BeFalse();
+
+        // The real SABnzbd deletes the files of a failed job only: a completed job's folder stays.
+        Directory.Exists(finished.StoragePath).Should().BeTrue();
+        (await ReportAsync()).Should().Contain("\"storageExists\":true");
+    }
+
+    [Fact]
+    public async Task The_stub_says_where_the_wondarr_category_finishes_its_jobs_and_a_finished_job_is_inside_it()
+    {
+        var (client, row, job) = await AddPostWithSidecarsAsync();
+        await client.ResumeAsync(row, job, CancellationToken.None);
+
+        var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
+        var completed = await client.GetCompletedFolderAsync(row, CancellationToken.None);
+
+        completed.Should().Be(Path.Combine(_root, "usenet", "complete", "music"));
+        UsenetJobFolder.Refusal(finished.StoragePath!, completed, Path.Combine(_root, "staging", "wondarr", "one"), null).Should().BeNull();
     }
 
     [Fact]

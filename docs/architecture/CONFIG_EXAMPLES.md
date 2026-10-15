@@ -88,6 +88,7 @@ search:                                     # the scheduled search loops (§5.5)
 import:
   fake_lossless_check: reject               # reject | off: refuse a lossless file whose spectrum shows a lossy encoder's low-pass (an MP3 in a FLAC)
   container_staging_path: /data/downloads/containers  # a finished torrent file is hard-linked here (keep it on the client's filesystem), a usenet file moved here
+  clean_leftover_folders: true               # after an import, remove what the download left behind: a usenet job's folder (SABnzbd never deletes a completed job's) and Wondarr's own download folders, even with a partial or sidecar still in them; a torrent's data is never touched. Also a switch on Settings > Download clients
 libraries:
   - name: Plexamp
     root: /data/music
