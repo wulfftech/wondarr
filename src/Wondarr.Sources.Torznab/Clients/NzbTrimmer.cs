@@ -14,7 +14,10 @@ namespace Wondarr.Sources.Torznab.Clients;
 /// </summary>
 public static class NzbTrimmer
 {
-    /// <summary>The ids of the files to delete; empty when the post must download whole.</summary>
+    /// <summary>
+    /// The ids of the files to delete, repair data first; empty when the post must download whole or
+    /// would lose nothing.
+    /// </summary>
     /// <param name="files">The job's files, as the client listed them.</param>
     /// <param name="isWanted">Whether a file name is one a wanted song needs.</param>
     public static IReadOnlyList<string> FilesToDelete(IReadOnlyList<UsenetFileInfo> files, Func<string, bool> isWanted)
@@ -46,10 +49,13 @@ public static class NzbTrimmer
             return [];
         }
 
+        // Repair data first: if a delete fails part-way and the job is resumed whole, an untrimmed post
+        // without its Par2 set still completes, while Par2 beside missing tracks fails the job.
         return
         [
             .. classified
-                .Where(pair => Unwanted(pair) || pair.Entry.IsPar2 || IsSfv(pair.File.FileName))
+                .Where(pair => pair.Entry.IsPar2 || IsSfv(pair.File.FileName))
+                .Concat(classified.Where(Unwanted))
                 .Select(pair => pair.File.FileId),
         ];
     }

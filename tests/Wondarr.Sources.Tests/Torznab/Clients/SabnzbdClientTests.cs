@@ -186,7 +186,7 @@ public sealed class SabnzbdClientTests
 
         var deleted = NzbTrimmer.FilesToDelete(files, name => name.Contains("Digital Love", StringComparison.Ordinal) || name.Contains("Aerodynamic", StringComparison.Ordinal));
 
-        deleted.Should().Equal("SABnzbd_nzf_a1", "SABnzbd_nzf_p1");
+        deleted.Should().Equal("SABnzbd_nzf_p1", "SABnzbd_nzf_a1");
     }
 
     [Fact]

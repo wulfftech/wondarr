@@ -11,7 +11,8 @@ public static class SongAlbumNames
 {
     /// <summary>
     /// The title of the song's album context, or <see langword="null"/> when the song has none, when it is
-    /// blank, or when the context is a pseudo-album (<see cref="AlbumContextKind.PseudoSingles"/>).
+    /// blank, or when the context is a pseudo-album (<see cref="AlbumContextKind.PseudoSingles"/>, or the
+    /// library-wide <see cref="AlbumContextKind.Compilation"/> the compilation policy titles after the library).
     /// </summary>
     /// <param name="context">The song's album context, when it has one.</param>
     public static string? Of(AlbumContext? context) =>
@@ -19,5 +20,5 @@ public static class SongAlbumNames
 
     /// <summary>Whether the album context kind is a synthetic album that gathers songs, not a release.</summary>
     /// <param name="kind">The album context's kind.</param>
-    public static bool IsPseudo(AlbumContextKind kind) => kind == AlbumContextKind.PseudoSingles;
+    public static bool IsPseudo(AlbumContextKind kind) => kind is AlbumContextKind.PseudoSingles or AlbumContextKind.Compilation;
 }

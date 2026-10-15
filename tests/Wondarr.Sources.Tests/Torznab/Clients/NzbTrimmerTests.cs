@@ -74,7 +74,8 @@ public sealed class NzbTrimmerTests
             new("11", "Album.txt", 2_000),
         ];
 
-        NzbTrimmer.FilesToDelete(files, name => name == "Album.flac").Should().Equal("2", "3", "4");
+        // Repair data first, so a delete that fails part-way never leaves Par2 beside missing tracks.
+        NzbTrimmer.FilesToDelete(files, name => name == "Album.flac").Should().Equal("3", "4", "2");
     }
 
     [Fact]
