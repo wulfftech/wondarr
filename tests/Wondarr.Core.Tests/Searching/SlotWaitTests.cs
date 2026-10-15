@@ -784,10 +784,20 @@ public sealed class SlotWaitTests
     private static async Task<SongSearchResult> AdvanceUntilAsync(SearchTestHost host, Task<SongSearchResult> search)
     {
         // Each step moves the clock one poll on and returns once the search has run what that made due and
-        // is waiting on the clock again (or has ended): no real-time sleep decides anything.
-        for (var step = 0; step < 5000 && !search.IsCompleted; step++)
+        // is waiting on the clock again (or has ended). Once the search is busy with real work (the grab,
+        // the database) and waits on no timer, a step returns at once, so a step count alone ran out in
+        // about a second on a slow CI runner: the bound is real time, and each step gives the search a
+        // moment to finish that work. The clock still decides every wait inside the search.
+        var waiting = System.Diagnostics.Stopwatch.StartNew();
+
+        while (!search.IsCompleted && waiting.Elapsed < TimeSpan.FromSeconds(30))
         {
             await host.Time.AdvanceAndSettleAsync(TimeSpan.FromSeconds(host.Options.SlotWaitSeconds), () => search.IsCompleted);
+
+            if (!search.IsCompleted)
+            {
+                await Task.WhenAny(search, Task.Delay(TimeSpan.FromMilliseconds(5)));
+            }
         }
 
         search.IsCompleted.Should().BeTrue("the search should have ended");
