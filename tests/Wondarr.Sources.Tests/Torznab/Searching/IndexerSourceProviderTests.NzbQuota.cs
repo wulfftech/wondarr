@@ -286,6 +286,77 @@ public sealed partial class IndexerSourceProviderTests
     }
 
     [Fact]
+    public async Task A_second_search_within_the_lifetime_downloads_nothing_for_the_posts_the_first_one_read()
+    {
+        var cache = new NzbCache(TimeProvider.System);
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => query.Album == "Discovery" ? UsenetReleases(indexer, query, 8) : [],
+            Download = (_, _) => new IndexerDownload(AlbumNzb(), null),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: cache);
+
+        var first = await provider.SearchAsync(Request(), CancellationToken.None);
+        client.DownloadLog.Should().HaveCount(8);
+
+        var second = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        client.DownloadLog.Should().HaveCount(8, "every post the second search listed was in the cache");
+        second.Candidates.Select(candidate => candidate.BlocklistKey).Should().BeEquivalentTo(first.Candidates.Select(candidate => candidate.BlocklistKey));
+        second.Candidates.Should().HaveCount(8);
+    }
+
+    [Fact]
+    public async Task A_post_in_the_cache_takes_no_slot_of_the_cap_of_8()
+    {
+        var nzb = AlbumNzb();
+        var cache = new NzbCache(TimeProvider.System);
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => query.Album == "Discovery" ? UsenetReleases(indexer, query, 12) : [],
+            Download = (_, _) => new IndexerDownload(nzb, null),
+        };
+
+        // Four of the twelve were read by an earlier search.
+        foreach (var cached in client.Answer(new Indexer { Id = 1, Name = "Indexer 1" }, new ReleaseQuery("Daft Punk", "Discovery", 2001)).Take(4))
+        {
+            cache.Put(NzbCache.KeyOf(1, cached.DownloadUrl, cached.ReleaseId), nzb);
+        }
+
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: cache);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        client.DownloadsFrom(1).Should().Be(8, "the cap is 8 downloads; the 4 cached posts were free");
+        result.Candidates.Should().HaveCount(12);
+    }
+
+    [Fact]
+    public async Task A_post_in_the_cache_is_still_read_when_its_indexer_has_refused()
+    {
+        var nzb = AlbumNzb();
+        var cache = new NzbCache(TimeProvider.System);
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => query.Album == "Discovery" ? UsenetReleases(indexer, query, 6) : [],
+            Download = (_, _) => Plain(DogLimit),
+        };
+
+        foreach (var cached in client.Answer(new Indexer { Id = 1, Name = "Indexer 1" }, new ReleaseQuery("Daft Punk", "Discovery", 2001)).Take(2))
+        {
+            cache.Put(NzbCache.KeyOf(1, cached.DownloadUrl, cached.ReleaseId), nzb);
+        }
+
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: cache);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        result.Candidates.Should().HaveCount(2, "the two posts held in the cache are listed without asking the indexer");
+        result.Message.Should().Be("Usenet: Indexer 1: " + DogLimit);
+        client.DownloadsFrom(1).Should().BeInRange(1, InFlightReads);
+    }
+
+    [Fact]
     public async Task A_broken_nzb_is_counted_unreadable_and_not_kept()
     {
         var cache = new NzbCache(TimeProvider.System);

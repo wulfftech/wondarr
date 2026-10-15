@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -655,6 +656,60 @@ public sealed class IndexerSourceGrabTests : IDisposable
         _usenet.Single().Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "Discovery.par2");
     }
 
+    [Theory]
+    [InlineData("You already reached your daily restriction of 10 downloads.", "Indexer: You already reached your daily restriction of 10 downloads.")]
+    [InlineData("<?xml version=\"1.0\"?><error code=\"500\" description=\"Daily download limit reached\"/>", "Indexer: Daily download limit reached")]
+    public async Task A_usenet_grab_the_indexer_answers_with_something_that_is_not_an_nzb_fails_with_its_words_and_adds_nothing_to_the_client(string body, string message)
+    {
+        _indexer.Download = new IndexerDownload(Encoding.UTF8.GetBytes(body), null);
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: new NzbCache(TimeProvider.System));
+
+        var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DownloadClientException>()).Which.Message.Should().Be(message);
+        _usenet.Count.Should().Be(0, "nothing that is not an NZB reaches SABnzbd");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task A_usenet_grab_the_indexer_answers_with_a_429_or_a_403_fails_with_the_indexer_s_name(HttpStatusCode status)
+    {
+        _indexer.Failure = new IndexerException($"The indexer answered {(int)status}.", status);
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: new NzbCache(TimeProvider.System));
+
+        var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DownloadClientException>()).Which.Message.Should().Be($"Indexer: The indexer answered {(int)status}.");
+        _usenet.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_failed_download_that_is_not_a_quota_answer_keeps_failing_the_way_it_did()
+    {
+        _indexer.Failure = new IndexerException("The indexer answered 503.", HttpStatusCode.ServiceUnavailable);
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: new NzbCache(TimeProvider.System));
+
+        var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+
+        await act.Should().ThrowAsync<IndexerException>().WithMessage("The indexer answered 503.");
+        _usenet.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_indexer_s_words_in_a_failed_grab_are_cleaned_of_the_api_key_the_registry_knows()
+    {
+        const string key = "S3cretIndexerKey";
+        var secrets = new SecretRegistry();
+        secrets.Register(key);
+        _indexer.Download = new IndexerDownload(Encoding.UTF8.GetBytes($"Invalid key {key} for this account"), null);
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: new NzbCache(TimeProvider.System), secrets: secrets);
+
+        var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DownloadClientException>()).Which.Message.Should().Be("Indexer: Invalid key (removed) for this account");
+    }
+
     [Fact]
     public async Task A_finished_post_s_file_is_moved_into_staging_and_the_job_deleted_after_the_last_item()
     {
@@ -882,7 +937,8 @@ public sealed class IndexerSourceGrabTests : IDisposable
         DownloadProtocol protocol,
         IIndexerClient? client = null,
         Microsoft.Extensions.Logging.ILogger<IndexerSourceProvider>? logger = null,
-        NzbCache? nzbCache = null)
+        NzbCache? nzbCache = null,
+        ISecretRegistry? secrets = null)
     {
         var import = Substitute.For<IOptionsMonitor<ImportOptions>>();
         import.CurrentValue.Returns(new ImportOptions { ContainerStagingPath = StagingRoot });
@@ -897,7 +953,8 @@ public sealed class IndexerSourceGrabTests : IDisposable
             import,
             TimeProvider.System,
             logger ?? NullLogger<IndexerSourceProvider>.Instance,
-            nzbCache: nzbCache);
+            nzbCache: nzbCache,
+            secrets: secrets);
     }
 
     /// <summary>A torrent the user added: all five files wanted, in the client already.</summary>
@@ -1037,6 +1094,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
     {
         public IndexerDownload Download { get; set; } = new(null, null);
 
+        /// <summary>Thrown by a download instead of answering, when set.</summary>
+        public Exception? Failure { get; set; }
+
         public int Downloads { get; private set; }
 
         public List<string?> Urls { get; } = [];
@@ -1048,7 +1108,8 @@ public sealed class IndexerSourceGrabTests : IDisposable
         {
             Downloads++;
             Urls.Add(release.DownloadUrl);
-            return Task.FromResult(Download);
+
+            return Failure is { } failure ? Task.FromException<IndexerDownload>(failure) : Task.FromResult(Download);
         }
     }
 

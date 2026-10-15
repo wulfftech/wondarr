@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -598,11 +599,7 @@ public sealed partial class IndexerSourceProvider
         // download against its daily quota, so a second one is spent only when the cache lost it.
         if (!_nzbCache.TryGet(NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId), out var nzb))
         {
-            var download = await _clients.GetClient(indexer)
-                .DownloadAsync(indexer, ToIndexerRelease(release, indexer), cancellationToken)
-                .ConfigureAwait(false);
-
-            nzb = download.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
+            nzb = await DownloadNzbAsync(indexer, release, cancellationToken).ConfigureAwait(false);
         }
 
         var jobId = await _usenet.AddAsync(client, new UsenetAddRequest(release.Title, nzb, null, Paused: true), cancellationToken).ConfigureAwait(false);
@@ -629,6 +626,36 @@ public sealed partial class IndexerSourceProvider
         }
 
         return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, null, jobId, filePath, staging, release.Song, AddedByWondarr: true);
+    }
+
+    /// <summary>
+    /// Downloads a release's NZB for a grab. An indexer whose quota is spent answers 200 with a sentence,
+    /// an error document, a 429 or a 403: that fails the grab with the indexer's own words (redacted),
+    /// so the download client is never handed something that is not an NZB and the user sees why.
+    /// </summary>
+    private async Task<byte[]> DownloadNzbAsync(Indexer indexer, ContainerRelease release, CancellationToken cancellationToken)
+    {
+        IndexerDownload download;
+
+        try
+        {
+            download = await _clients.GetClient(indexer)
+                .DownloadAsync(indexer, ToIndexerRelease(release, indexer), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (IndexerException exception) when (exception.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
+        {
+            throw new DownloadClientException(string.Concat(indexer.Name, ": ", NzbAnswer.Clean(exception.Message, Redact)), exception);
+        }
+
+        var nzb = download.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
+
+        if (NzbAnswer.Refusal(nzb, Redact) is { } refusal)
+        {
+            throw new DownloadClientException(string.Concat(indexer.Name, ": ", refusal));
+        }
+
+        return nzb;
     }
 
     /// <summary>

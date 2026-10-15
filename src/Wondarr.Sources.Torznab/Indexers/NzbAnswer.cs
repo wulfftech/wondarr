@@ -22,6 +22,10 @@ public static class NzbAnswer
 
     private static ReadOnlySpan<byte> Utf8Bom => [0xEF, 0xBB, 0xBF];
 
+    /// <summary>Whether the bytes are an NZB document rather than what an indexer says instead of one.</summary>
+    /// <param name="content">What a download returned.</param>
+    public static bool IsNzb(byte[] content) => Refusal(content, static text => text) is null;
+
     /// <summary>
     /// What the indexer said instead of an NZB: its text, redacted, on one line and cut to
     /// <see cref="MaxTextLength"/> characters. <see langword="null"/> when the bytes are an NZB: they

@@ -178,7 +178,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(_budget);
 
-        var state = new SearchState(_secrets);
+        var state = new SearchState(Redact);
         var queries = new List<string>();
         var candidates = new List<Candidate>();
 
@@ -201,12 +201,14 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             // Torrents: the best-seeded of each query. Usenet: every NZB read costs a download from the
             // indexer's daily quota, so the cap is per indexer for the whole search (not per query), and
             // the posts that name a quality are read first, the likeliest to hold the song in a form
-            // that can be grabbed.
+            // that can be grabbed. An NZB already in the cache costs no download and no slot.
             var fresh = _protocol == DownloadProtocol.Torrent
                 ? unseen.OrderByDescending(release => release.Seeders ?? 0).Take(ContainersPerQuery).ToList()
-                : state.TakeNzbReads(unseen
-                    .OrderByDescending(release => ReleaseQualityParser.Parse(release.Title) != UnknownQuality)
-                    .ThenByDescending(release => release.Grabs ?? 0));
+                : state.TakeNzbReads(
+                    unseen
+                        .OrderByDescending(release => ReleaseQualityParser.Parse(release.Title) != UnknownQuality)
+                        .ThenByDescending(release => release.Grabs ?? 0),
+                    release => _nzbCache.TryGet(NzbKey(release), out _));
 
             using var grace = budget.IsCancellationRequested
                 ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
@@ -386,8 +388,9 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
 
     /// <summary>
     /// The release's files: a Gazelle file list as given, a <c>.torrent</c>'s metainfo, an NZB's audio
-    /// files when every name in it is plain; a magnet or an obfuscated NZB has none yet. Null when an
-    /// indexer that already refused an NZB in this search is not asked again, or refuses this one.
+    /// files when every name in it is plain (from the cache when an earlier read of it is still there);
+    /// a magnet or an obfuscated NZB has none yet. Null when an indexer that already refused an NZB in
+    /// this search is not asked again, or refuses this one.
     /// </summary>
     private async Task<ContainerListing?> ReadContainerAsync(Indexer indexer, IndexerRelease release, SearchState state, CancellationToken token)
     {
@@ -406,6 +409,12 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             && (release.DownloadUrl is null || release.DownloadUrl.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)))
         {
             return new ContainerListing(release, null, hash, null);
+        }
+
+        if (_protocol == DownloadProtocol.Usenet && _nzbCache.TryGet(NzbKey(release), out var kept))
+        {
+            // An earlier search or a push already paid for this NZB, and it parsed then: no download.
+            return ListNzb(release, kept);
         }
 
         if (_protocol == DownloadProtocol.Usenet && state.IsRefused(indexer.Id))
@@ -452,12 +461,21 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             return null;
         }
 
+        var listing = ListNzb(release, content);
+
+        // The grab of this post, and the next search, reuse the bytes instead of spending another
+        // download. Kept only once they parsed, so a broken document is not handed to the download
+        // client later.
+        _nzbCache.Put(NzbKey(release), content);
+
+        return listing;
+    }
+
+    /// <summary>The audio files of an NZB's post when every name in it is plain; none yet otherwise.</summary>
+    private static ContainerListing ListNzb(IndexerRelease release, byte[] content)
+    {
         using var stream = new MemoryStream(content, writable: false);
         var files = NzbFileList.Parse(stream);
-
-        // The grab of this post reuses the bytes instead of spending a second download. Kept only once
-        // they parsed, so a broken document is not handed to the download client later.
-        _nzbCache.Put(NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId), content);
 
         // The whole post downloads, archives and Par2 volumes included: that is the size the
         // container-size limit is about, not the audio files' alone.
@@ -475,6 +493,13 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
             null,
             postSize);
     }
+
+    /// <summary>Where a release's NZB is kept: the search puts it there, the next search and the grab look there.</summary>
+    private static string NzbKey(IndexerRelease release) =>
+        NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId);
+
+    /// <summary>Removes the secrets Wondarr knows from text an indexer sent.</summary>
+    private string Redact(string text) => _secrets is null ? CleanseLogMessage.Cleanse(text) : _secrets.Redact(text);
 
     /// <summary>Stops the search reading NZBs from an indexer that said it will not hand out more.</summary>
     private void Refuse(Indexer indexer, SearchState state, string text)
@@ -540,7 +565,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         magnet is not null && MagnetLink.TryGetInfoHash(magnet, out var hex) ? hex : null;
 
     /// <summary>What one search collected besides candidates. Shared by the parallel indexer calls.</summary>
-    private sealed class SearchState(ISecretRegistry? secrets)
+    private sealed class SearchState(Func<string, string> redact)
     {
         private readonly Lock _gate = new();
 
@@ -588,7 +613,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         }
 
         /// <summary>Removes the secrets Wondarr knows from text an indexer sent.</summary>
-        public string Redact(string text) => secrets is null ? CleanseLogMessage.Cleanse(text) : secrets.Redact(text);
+        public string Redact(string text) => redact(text);
 
         public bool IsRefused(long indexerId)
         {
@@ -617,18 +642,26 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
 
         /// <summary>
         /// The releases of the order that may still be read: each indexer's first <see cref="ContainersPerQuery"/>
-        /// of the whole search, none from one that has refused. Decided up front and in order, so which
-        /// releases fit under the cap never depends on how the parallel reads happen to interleave.
+        /// of the whole search, none from one that has refused. A release whose NZB is cached is read from
+        /// there, so it takes no slot and is kept even for an indexer that has refused. Decided up front
+        /// and in order, so which releases fit under the cap never depends on how the parallel reads
+        /// happen to interleave.
         /// </summary>
-        public List<IndexerRelease> TakeNzbReads(IEnumerable<IndexerRelease> ordered)
+        public List<IndexerRelease> TakeNzbReads(IEnumerable<IndexerRelease> ordered, Func<IndexerRelease, bool> isCached)
         {
-            var inOrder = ordered.ToList();
+            var inOrder = ordered.Select(release => (Release: release, Cached: isCached(release))).ToList();
             var taken = new List<IndexerRelease>();
 
             lock (_gate)
             {
-                foreach (var release in inOrder)
+                foreach (var (release, cached) in inOrder)
                 {
+                    if (cached)
+                    {
+                        taken.Add(release);
+                        continue;
+                    }
+
                     _nzbReads.TryGetValue(release.IndexerId, out var reads);
 
                     if (reads >= ContainersPerQuery || _refused.Contains(release.IndexerId))
