@@ -33,12 +33,31 @@ public sealed class UsenetJobFolderTests : IDisposable
     }
 
     [Fact]
-    public void Accepts_a_folder_deeper_below_the_completed_folder_and_ignores_a_trailing_separator()
+    public void Accepts_a_direct_child_with_or_without_trailing_separators()
+    {
+        Directory.CreateDirectory(Job);
+
+        UsenetJobFolder.Refusal(Job + Path.DirectorySeparatorChar, Complete + Path.DirectorySeparatorChar, Staging, null).Should().BeNull();
+        UsenetJobFolder.Refusal(Job, Complete + Path.DirectorySeparatorChar, Staging, null).Should().BeNull();
+    }
+
+    [Fact]
+    public void Refuses_a_folder_deeper_than_a_direct_child()
     {
         var deeper = Path.Combine(Complete, "music", "Job");
         Directory.CreateDirectory(deeper);
 
-        UsenetJobFolder.Refusal(deeper + Path.DirectorySeparatorChar, Complete + Path.DirectorySeparatorChar, Staging, null).Should().BeNull();
+        UsenetJobFolder.Refusal(deeper, Complete, Staging, null).Should().Contain("not directly inside");
+        UsenetJobFolder.Refusal(deeper + Path.DirectorySeparatorChar, Complete + Path.DirectorySeparatorChar, Staging, null).Should().Contain("not directly inside");
+    }
+
+    [Fact]
+    public void Refuses_the_artist_and_album_folders_a_sabnzbd_sorter_makes_which_other_jobs_share()
+    {
+        var album = Path.Combine(Complete, "Daft Punk", "Discovery (2001)");
+        Directory.CreateDirectory(album);
+
+        UsenetJobFolder.Refusal(album, Complete, Staging, null).Should().Contain("not directly inside");
     }
 
     [Fact]

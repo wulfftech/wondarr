@@ -22,6 +22,7 @@ using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
 using Wondarr.Sources.Torznab.Parsing;
 using Wondarr.Sources.Torznab.Searching;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Sources.Tests.Torznab.Searching;
@@ -1081,6 +1082,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
     [Theory]
     [InlineData("completed folder itself")]
     [InlineData("outside the completed folder")]
+    [InlineData("a sorter's artist and album folders")]
     [InlineData("completed folder unknown")]
     [InlineData("client unreachable")]
     public async Task A_folder_that_fails_a_check_is_kept_and_the_refusal_is_logged_with_its_path(string kind)
@@ -1090,6 +1092,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
         {
             "completed folder itself" => CompleteDir,
             "outside the completed folder" => Path.Combine(_root, "elsewhere", "Job"),
+            "a sorter's artist and album folders" => Path.Combine(CompleteDir, "Daft Punk", "Discovery (2001)"),
             _ => Path.Combine(CompleteDir, Album),
         };
         var (provider, handle, job, _) = await FinishedPostAsync(logger, folder: folder);
@@ -1125,6 +1128,89 @@ public sealed class IndexerSourceGrabTests : IDisposable
         status.State.Should().Be(DownloadState.Failed);
         _usenet.Single().Removed.Should().BeTrue();
         Directory.Exists(folder).Should().BeFalse("the item failed and the job went; so does what it left behind");
+    }
+
+    [Fact]
+    public async Task A_link_inside_the_job_folder_keeps_the_folder_and_what_the_link_leads_to()
+    {
+        var logger = new LevelLogger();
+        var (provider, handle, job, folder) = await FinishedPostAsync(logger);
+        var elsewhere = WriteFile(Path.Combine(_root, "elsewhere", "keep.flac"), "keep");
+        var link = Path.Combine(folder, "link");
+        DirectoryLinks.Create(link, Path.GetDirectoryName(elsewhere)!);
+
+        try
+        {
+            var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+            status.State.Should().Be(DownloadState.Completed);
+            job.Removed.Should().BeTrue();
+            File.Exists(elsewhere).Should().BeTrue("deleting through a link would reach a folder that is not the job's");
+            File.Exists(Path.Combine(folder, "Discovery.nfo")).Should().BeTrue("a folder that holds a link is not deleted at all");
+            logger.Lines.Should().Contain(
+                line => line.Level == LogLevel.Warning && line.Message.Contains(folder, StringComparison.Ordinal) && line.Message.Contains("is a link", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DirectoryLinks.Remove(link);
+        }
+    }
+
+    [Fact]
+    public async Task A_job_the_client_would_not_remove_keeps_its_folder()
+    {
+        var logger = new LevelLogger();
+        var (provider, handle, job, folder) = await FinishedPostAsync(logger);
+        _usenet.FailRemove = true;
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Completed, "the wanted file is staged either way");
+        job.Removed.Should().BeFalse();
+        File.Exists(Path.Combine(folder, "Discovery.nfo")).Should().BeTrue("the folder goes only after the client has removed the job");
+        logger.Lines.Should().Contain(line => line.Level == LogLevel.Warning && line.Message.Contains("could not be removed from the client", StringComparison.Ordinal));
+        logger.Lines.Should().NotContain(line => line.Level == LogLevel.Information && line.Message.Contains("leftover folder", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_wanted_file_that_is_not_in_staging_keeps_the_folder()
+    {
+        var logger = new LevelLogger();
+        var (provider, handle, job, folder) = await FinishedPostAsync(logger, disk: new VanishingStagedFileDisk());
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Completed);
+        job.Removed.Should().BeTrue();
+        File.Exists(Path.Combine(folder, "Discovery.nfo")).Should().BeTrue("nothing is deleted until the wanted file is seen in staging");
+        logger.Lines.Should().Contain(
+            line => line.Level == LogLevel.Warning && line.Message.Contains(folder, StringComparison.Ordinal) && line.Message.Contains("not in staging", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_client_that_does_not_say_where_it_finishes_jobs_is_a_warning_once_and_a_debug_line_after_that()
+    {
+        var logger = new LevelLogger();
+        _usenet.CompletedFolder = null;
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet, logger: logger);
+        var folders = new List<string>();
+
+        foreach (var number in new[] { 1, 2 })
+        {
+            var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac", $"nzb-guid-{number}"), $"wondarr/{number}", CancellationToken.None);
+            var folder = Path.Combine(CompleteDir, $"{Album} {number}");
+            WriteFile(Path.Combine(folder, "03 - Digital Love.flac"), "three");
+            WriteFile(Path.Combine(folder, "Discovery.nfo"), "nfo");
+            _usenet[number - 1].Complete(folder);
+            folders.Add(folder);
+
+            (await provider.GetStatusAsync(handle, CancellationToken.None)).State.Should().Be(DownloadState.Completed);
+        }
+
+        folders.Should().OnlyContain(folder => File.Exists(Path.Combine(folder, "Discovery.nfo")));
+        logger.Lines.Count(line => line.Level == LogLevel.Warning && line.Message.Contains("does not say where", StringComparison.Ordinal)).Should().Be(1);
+        logger.Lines.Should().Contain(line => line.Level == LogLevel.Debug && line.Message.Contains(folders[1], StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1501,7 +1587,8 @@ public sealed class IndexerSourceGrabTests : IDisposable
         Microsoft.Extensions.Logging.ILogger<IndexerSourceProvider>? logger = null,
         NzbCache? nzbCache = null,
         ISecretRegistry? secrets = null,
-        bool cleanLeftoverFolders = true)
+        bool cleanLeftoverFolders = true,
+        IDiskOperations? disk = null)
     {
         var import = Substitute.For<IOptionsMonitor<ImportOptions>>();
         import.CurrentValue.Returns(new ImportOptions { ContainerStagingPath = StagingRoot, CleanLeftoverFolders = cleanLeftoverFolders });
@@ -1512,7 +1599,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
             new SingleClientFactory(client ?? _indexer),
             _torrents,
             _usenet,
-            new DiskOperations(),
+            disk ?? new DiskOperations(),
             import,
             TimeProvider.System,
             logger ?? NullLogger<IndexerSourceProvider>.Instance,
@@ -1527,10 +1614,11 @@ public sealed class IndexerSourceGrabTests : IDisposable
     private async Task<(IndexerSourceProvider Provider, GrabHandle Handle, FakeJob Job, string Folder)> FinishedPostAsync(
         Microsoft.Extensions.Logging.ILogger<IndexerSourceProvider>? logger = null,
         bool cleanLeftoverFolders = true,
-        string? folder = null)
+        string? folder = null,
+        IDiskOperations? disk = null)
     {
         _indexer.Download = new IndexerDownload(AlbumNzb(), null);
-        var provider = Provider(DownloadProtocol.Usenet, logger: logger, cleanLeftoverFolders: cleanLeftoverFolders);
+        var provider = Provider(DownloadProtocol.Usenet, logger: logger, cleanLeftoverFolders: cleanLeftoverFolders, disk: disk);
         var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
         var job = _usenet.Single();
         folder ??= Path.Combine(CompleteDir, Album);
@@ -1855,6 +1943,52 @@ public sealed class IndexerSourceGrabTests : IDisposable
         private FakeTorrent? Find(string hash) => this.FirstOrDefault(torrent => torrent.Hash == hash);
     }
 
+    /// <summary>
+    /// The real disk, except that a file just moved is not there for the next <see cref="FileExists"/>: the wanted
+    /// file vanishes from staging between the move and the cleanup.
+    /// </summary>
+    private sealed class VanishingStagedFileDisk : IDiskOperations
+    {
+        private readonly DiskOperations _real = new();
+        private readonly HashSet<string> _vanished = new(StringComparer.OrdinalIgnoreCase);
+
+        public bool FileExists(string path) => !_vanished.Contains(path) && _real.FileExists(path);
+
+        public bool DirectoryExists(string path) => _real.DirectoryExists(path);
+
+        public void CreateDirectory(string path) => _real.CreateDirectory(path);
+
+        public void CreateEmptyFile(string path) => _real.CreateEmptyFile(path);
+
+        public long GetFileSize(string path) => _real.GetFileSize(path);
+
+        public void MoveFile(string source, string target)
+        {
+            _real.MoveFile(source, target);
+            _vanished.Add(target);
+        }
+
+        public void CopyFile(string source, string target) => _real.CopyFile(source, target);
+
+        public bool TryCreateHardLink(string source, string target) => _real.TryCreateHardLink(source, target);
+
+        public void WriteAllBytes(string path, byte[] bytes) => _real.WriteAllBytes(path, bytes);
+
+        public void DeleteFile(string path) => _real.DeleteFile(path);
+
+        public void SetUnixFileMode(string path, UnixFileMode mode) => _real.SetUnixFileMode(path, mode);
+
+        public bool AreSameFile(string first, string second) => _real.AreSameFile(first, second);
+
+        public IEnumerable<string> EnumerateFiles(string directory) => _real.EnumerateFiles(directory);
+
+        public DateTime GetLastWriteTimeUtc(string path) => _real.GetLastWriteTimeUtc(path);
+
+        public void SetLastWriteTimeUtc(string path, DateTime utc) => _real.SetLastWriteTimeUtc(path, utc);
+
+        public void DeleteEmptyDirectory(string path) => _real.DeleteEmptyDirectory(path);
+    }
+
     /// <summary>A logger that keeps each line with its level, so a test can tell a Warning from an Information.</summary>
     private sealed class LevelLogger : Microsoft.Extensions.Logging.ILogger<IndexerSourceProvider>
     {
@@ -1914,6 +2048,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         /// <summary>The folder the fake SABnzbd finishes the category in, as Wondarr sees it; null when it does not say.</summary>
         public string? CompletedFolder { get; set; }
+
+        /// <summary>Makes every removal fail the way a client that refuses does.</summary>
+        public bool FailRemove { get; set; }
 
         /// <summary>Makes asking for the completed folder fail the way an unreachable client does.</summary>
         public bool FailCompletedFolder { get; set; }
@@ -1979,6 +2116,11 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         public Task RemoveAsync(DownloadClient client, string jobId, bool deleteFiles, CancellationToken cancellationToken)
         {
+            if (FailRemove)
+            {
+                throw new DownloadClientException("SABnzbd would not remove the job.");
+            }
+
             var job = Find(jobId)!;
             job.Removed = true;
             job.RemovedWithFiles = deleteFiles;

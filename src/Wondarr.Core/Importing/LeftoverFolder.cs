@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Wondarr.Core.Organizer;
 
 namespace Wondarr.Core.Importing;
@@ -9,9 +10,31 @@ namespace Wondarr.Core.Importing;
 /// and one that is, or holds, a symlink, junction or other reparse point — deleting through a link
 /// would leave the real files behind or take a folder somewhere else with it.
 /// </summary>
-public static class LeftoverFolder
+public static partial class LeftoverFolder
 {
     private static readonly char[] Separators = ['/', '\\'];
+
+    /// <summary>
+    /// Whether a queue item's destination is the per-grab folder Wondarr itself names: exactly
+    /// <c>wondarr/&lt;guid&gt;</c>, the guid as 32 lower-case hex digits, which is what the search service
+    /// writes. Only such a folder is deleted with its contents; a destination that is anything else — one
+    /// segment, two segments that read like a real path (<c>data/downloads</c>), another guid format —
+    /// is not a folder Wondarr made for this item and keeps the empty-only rule.
+    /// </summary>
+    /// <param name="destination">The item's <c>Destination</c>.</param>
+    public static bool IsGrabDestination(string? destination)
+    {
+        if (string.IsNullOrWhiteSpace(destination))
+        {
+            return false;
+        }
+
+        var segments = destination.Split(Separators);
+
+        return segments.Length == 2
+            && string.Equals(segments[0], "wondarr", StringComparison.Ordinal)
+            && GrabGuid().IsMatch(segments[1]);
+    }
 
     /// <summary>
     /// Tells why <paramref name="folder"/> may not be deleted with its contents, or <see langword="null"/>
@@ -177,4 +200,8 @@ public static class LeftoverFolder
             return true;
         }
     }
+
+    // 32 lower-case hex digits: Guid.ToString("N"). Anchored with \z, so a trailing newline cannot slip in.
+    [GeneratedRegex(@"^[0-9a-f]{32}\z")]
+    private static partial Regex GrabGuid();
 }

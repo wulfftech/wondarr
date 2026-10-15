@@ -8,8 +8,8 @@ namespace Wondarr.Sources.Torznab.Clients;
 /// SABnzbd never deletes the folder of a job that completed, so what the post left beside the wanted
 /// file — the <c>.nfo</c>, the cover, a whole album's other tracks — stays unless Wondarr removes it.
 /// The folder is the client's to name and the file system is Wondarr's to protect, so the client's word
-/// is not enough: the folder has to be below the folder the client finishes the category in, and never
-/// that folder itself.
+/// is not enough: the folder has to be a direct child of the folder the client finishes the category in
+/// (never that folder itself, never something deeper that other jobs may share).
 /// </summary>
 public static class UsenetJobFolder
 {
@@ -62,6 +62,15 @@ public static class UsenetJobFolder
             if (!PathRules.IsInside(completedFolder, folder))
             {
                 return $"it is outside the completed folder {completedFolder}";
+            }
+
+            // A job's folder is a direct child. Anything deeper is not one job's: a SABnzbd sorter files
+            // jobs into Artist/Album folders that other jobs share.
+            var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)));
+
+            if (parent is null || !PathRules.AreEqual(parent, completedFolder))
+            {
+                return $"it is not directly inside the completed folder {completedFolder}";
             }
 
             // The wanted file and its staging folder must not be in the way of the delete.

@@ -1694,13 +1694,14 @@ public sealed partial class ImportService : IImportService
     /// <summary>
     /// Removes the item's own download folder (<paramref name="folder"/>, which <see cref="IsOwnDownloadFolder"/>
     /// has approved). With <c>import.clean_leftover_folders</c> on it goes together with whatever is still in it —
-    /// but only when the item's destination names a folder of its own (<c>wondarr/&lt;guid&gt;</c>, at least two
-    /// segments) and <see cref="LeftoverFolder"/> finds no link in it; otherwise, and with the option off, only an
-    /// empty folder is removed. Never a parent.
+    /// but only when the item's destination is exactly what the search service writes
+    /// (<see cref="LeftoverFolder.IsGrabDestination"/>: <c>wondarr/</c> and 32 lower-case hex digits) and
+    /// <see cref="LeftoverFolder"/> finds no link in it; otherwise, and with the option off, only an empty
+    /// folder is removed. Never a parent.
     /// </summary>
     private void RemoveOwnFolder(QueueItem item, string folder)
     {
-        if (!_importOptions.CurrentValue.CleanLeftoverFolders || SplitSegments(item.Destination).Count < 2)
+        if (!_importOptions.CurrentValue.CleanLeftoverFolders || !LeftoverFolder.IsGrabDestination(item.Destination))
         {
             RemoveFolderWhenEmpty(folder);
 

@@ -192,8 +192,8 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
         var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
 
         finished.Status.Should().Be(UsenetStatus.Completed);
-        Directory.GetFiles(finished.StoragePath!).Select(Path.GetFileName).Should().Equal("02 - Lazing on a Sunday Afternoon.flac");
-        (await ReportAsync()).Should().Contain("\"failMessage\":null");
+        Directory.GetFiles(finished.StoragePath!).Select(Path.GetFileName).Should().BeEquivalentTo("02 - Lazing on a Sunday Afternoon.flac", $"{Title}.nfo");
+        (await ReportAsync()).Should().Contain("\"failMessage\":null").And.Contain($"\"extras\":[\"{Title}.nfo\"]");
     }
 
     [Theory]
@@ -236,7 +236,7 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
         var finished = await WaitAsync(async () => await FinishedAsync(client, row, job));
 
         finished.Status.Should().Be(UsenetStatus.Completed);
-        Directory.GetFiles(finished.StoragePath!).Should().HaveCount(3, "every track is unpacked; the repair data and the NFO are not audio");
+        Directory.GetFiles(finished.StoragePath!).Should().HaveCount(4, "every track is unpacked and the NFO is kept; the repair data is consumed");
     }
 
     [Fact]

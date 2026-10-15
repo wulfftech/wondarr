@@ -32,6 +32,9 @@ public sealed partial class IndexerSourceProvider
     /// <summary>How many times to look for a just-added container's files.</summary>
     private const int FileListTries = 20;
 
+    /// <summary>The usenet clients already warned about not saying where they finish jobs (once per client per process).</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, byte> _clientsWithoutCompletedFolder = new();
+
     /// <inheritdoc />
     public async Task<GrabHandle> GrabAsync(Candidate candidate, string destination, CancellationToken cancellationToken)
     {
@@ -1011,8 +1014,8 @@ public sealed partial class IndexerSourceProvider
     /// Deletes a finished job's folder with everything the post left in it, after the client has removed
     /// the job (<c>import.clean_leftover_folders</c>, on by default). SABnzbd deletes the files of a failed
     /// job, never a completed job's folder. Only a job Wondarr added; only a folder
-    /// <see cref="UsenetJobFolder"/> accepts (below the folder the client finishes the category in, never
-    /// that folder itself, no link, not the staging folder, not the wanted file's); a folder that fails a
+    /// <see cref="UsenetJobFolder"/> accepts (a direct child of the folder the client finishes the category in,
+    /// no link, not the staging folder, not the wanted file's); a folder that fails a
     /// check is logged at Warning and kept. An I/O error is logged and never fails the item.
     /// </summary>
     /// <param name="client">The client the job was in.</param>
@@ -1043,6 +1046,22 @@ public sealed partial class IndexerSourceProvider
         catch (DownloadClientException exception)
         {
             LogJobFolderUnchecked(_logger, folder, jobId, exception);
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(completed))
+        {
+            // Nothing job-specific to say, and it holds for every job of this client: one Warning per
+            // client per process, the rest at Debug.
+            if (_clientsWithoutCompletedFolder.TryAdd(client.Id, 0))
+            {
+                LogJobFolderRefused(_logger, folder, jobId, UsenetJobFolder.Refusal(folder, completed, grab.StagingDir, staged) + " (logged once for this client; it is a category folder ending in '*', a relative completed folder, or a category SABnzbd does not have)");
+            }
+            else
+            {
+                LogJobFolderKept(_logger, folder, jobId);
+            }
 
             return;
         }
@@ -1176,6 +1195,9 @@ public sealed partial class IndexerSourceProvider
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Not removing {Path}, the folder of the usenet job {JobId}: {Reason}")]
     private static partial void LogJobFolderRefused(ILogger logger, string path, string jobId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Not removing {Path}, the folder of the usenet job {JobId}: the download client does not say where it finishes jobs")]
+    private static partial void LogJobFolderKept(ILogger logger, string path, string jobId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The leftover folder {Path} of the usenet job {JobId} could not be removed")]
     private static partial void LogJobFolderFailed(ILogger logger, string path, string jobId, Exception exception);

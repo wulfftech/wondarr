@@ -66,37 +66,37 @@ public sealed class LeftoverFolderTests : IDisposable
         LeftoverFolder.Refusal(Path.Combine(_root, "grab", "..", "grab")).Should().Contain("'..'");
     }
 
-    [SymlinkFact]
+    [Fact]
     public void A_folder_that_is_itself_a_link_is_refused_and_what_it_points_at_survives()
     {
         var real = Write(Path.Combine(_root, "real", "keep.flac"));
         var link = Path.Combine(_root, "link");
-        Directory.CreateSymbolicLink(link, Path.GetDirectoryName(real)!);
+        DirectoryLinks.Create(link, Path.GetDirectoryName(real)!);
 
         LeftoverFolder.Refusal(link).Should().Contain("is a link");
         File.Exists(real).Should().BeTrue();
     }
 
-    [SymlinkFact]
+    [Fact]
     public void A_link_anywhere_inside_the_folder_refuses_it()
     {
         var folder = Path.Combine(_root, "grab");
         Write(Path.Combine(folder, "one.flac"));
         var real = Write(Path.Combine(_root, "real", "keep.flac"));
         Directory.CreateDirectory(Path.Combine(folder, "CD1"));
-        Directory.CreateSymbolicLink(Path.Combine(folder, "CD1", "link"), Path.GetDirectoryName(real)!);
+        DirectoryLinks.Create(Path.Combine(folder, "CD1", "link"), Path.GetDirectoryName(real)!);
 
         LeftoverFolder.Refusal(folder).Should().Contain("inside it is a link");
         File.Exists(real).Should().BeTrue();
     }
 
-    [SymlinkFact]
+    [Fact]
     public void A_link_between_the_folder_and_the_stop_is_refused_and_one_above_the_stop_is_not_looked_at()
     {
         var real = Path.Combine(_root, "real");
         Directory.CreateDirectory(Path.Combine(real, "wondarr", "guid"));
         var linked = Path.Combine(_root, "linked");
-        Directory.CreateSymbolicLink(linked, real);
+        DirectoryLinks.Create(linked, real);
         var folder = Path.Combine(linked, "wondarr", "guid");
 
         // The link is above the stop, which is the folder the caller vouches for: not looked at.
@@ -106,7 +106,40 @@ public sealed class LeftoverFolderTests : IDisposable
         LeftoverFolder.Refusal(folder, _root).Should().Contain("is a link");
     }
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    [Theory]
+    [InlineData("wondarr/0123456789abcdef0123456789abcdef", true)]
+    [InlineData("wondarr\\0123456789abcdef0123456789abcdef", true)]
+    [InlineData("wondarr/0123456789ABCDEF0123456789ABCDEF", false)]
+    [InlineData("Wondarr/0123456789abcdef0123456789abcdef", false)]
+    [InlineData("wondarr/0123456789abcdef0123456789abcde", false)]
+    [InlineData("wondarr/0123456789abcdef0123456789abcdef0", false)]
+    [InlineData("wondarr/0123456789abcdef0123456789abcdeg", false)]
+    [InlineData("wondarr/0123456789abcdef-0123456789abcdef", false)]
+    [InlineData("wondarr/0123456789abcdef0123456789abcdef\n", false)]
+    [InlineData("data/downloads", false)]
+    [InlineData("data/0123456789abcdef0123456789abcdef", false)]
+    [InlineData("wondarr/grab", false)]
+    [InlineData("/wondarr/0123456789abcdef0123456789abcdef", false)]
+    [InlineData("wondarr/0123456789abcdef0123456789abcdef/", false)]
+    [InlineData("a/wondarr/0123456789abcdef0123456789abcdef", false)]
+    [InlineData("0123456789abcdef0123456789abcdef", false)]
+    [InlineData("wondarr", false)]
+    [InlineData("downloads", false)]
+    [InlineData("", false)]
+    [InlineData("  ", false)]
+    [InlineData(null, false)]
+    public void Only_wondarr_slash_a_lower_case_guid_is_a_grab_destination(string? destination, bool expected)
+    {
+        LeftoverFolder.IsGrabDestination(destination).Should().Be(expected);
+    }
+
+    [Fact]
+    public void The_destination_the_search_service_writes_is_a_grab_destination()
+    {
+        LeftoverFolder.IsGrabDestination(string.Concat("wondarr/", Guid.NewGuid().ToString("N"))).Should().BeTrue();
+    }
+
+    public void Dispose() => DirectoryLinks.DeleteTree(_root);
 
     private static string Write(string path)
     {

@@ -232,6 +232,20 @@ public sealed partial class SabnzbdProxy
             : default;
     }
 
+    /// <summary>
+    /// The completed-downloads folder SABnzbd really uses: <c>mode=fullstatus&amp;skip_dashboard=1</c>, its
+    /// <c>status.completedir</c>. It is absolute even when <c>misc.complete_dir</c> is the relative default
+    /// (<c>Downloads/complete</c>). <see langword="null"/> when the answer carries none.
+    /// </summary>
+    public async Task<string?> GetCompleteDirAsync(SabnzbdSettings settings, CancellationToken cancellationToken)
+    {
+        using var document = await SendAsync(settings, "fullstatus", [("skip_dashboard", "1")], null, cancellationToken).ConfigureAwait(false);
+
+        return document.RootElement.TryGetProperty("status", out var status) && Text(status, "completedir") is { Length: > 0 } directory
+            ? directory
+            : null;
+    }
+
     /// <summary>Sends one API call and returns its JSON answer, or throws a <see cref="DownloadClientException"/>.</summary>
     private async Task<JsonDocument> SendAsync(
         SabnzbdSettings settings,

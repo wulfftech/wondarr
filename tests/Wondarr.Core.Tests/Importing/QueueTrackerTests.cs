@@ -872,15 +872,21 @@ internal sealed class QueueTestHost : IAsyncDisposable
         return new QueueSeed(song.Id, item.Id, run.Id, candidate.Id, directory, downloadPath);
     }
 
-    /// <summary>Gives one item a destination of the test's choosing.</summary>
+    /// <summary>Gives one item a destination (and, when given, a download path) of the test's choosing.</summary>
     /// <param name="queueItemId">The item's id.</param>
     /// <param name="destination">The destination to store.</param>
-    public async Task SetDestinationAsync(long queueItemId, string destination)
+    /// <param name="downloadPath">The download path to store, or <see langword="null"/> to leave it as it is.</param>
+    public async Task SetDestinationAsync(long queueItemId, string destination, string? downloadPath = null)
     {
         await using var context = _database.CreateContext(Time);
 
         var item = await context.QueueItems.SingleAsync(entry => entry.Id == queueItemId);
         item.Destination = destination;
+
+        if (downloadPath is not null)
+        {
+            item.DownloadPath = downloadPath;
+        }
 
         await context.SaveChangesAsync();
     }

@@ -23,8 +23,10 @@ failed check):
             imported, the two other tracks were trimmed before the download (never rendered, never
             imported) together with the Par2 volumes and the SFV (the fake SABnzbd fails a trimmed job
             that still holds either, like the real one), the job was deleted from SABnzbd with its
-            files after the import, and the folder the post finished in (the NFO is still in it, the
-            real SABnzbd never deletes a completed job's folder) is gone: Wondarr cleaned it up.
+            files after the import, and the folder the post finished in is gone. The fake renders the
+            post's NFO into that folder, so it is not empty once the wanted track has been moved out,
+            and the real SABnzbd never deletes a completed job's folder: only Wondarr's cleanup
+            (import.clean_leftover_folders) can remove it.
 
 Standard library only.
 
@@ -374,12 +376,16 @@ def usenet(args: argparse.Namespace) -> None:
     if not job["removedWithFiles"]:
         fail("the job was deleted without its files")
     # SABnzbd (the fake behaves like the real one) deletes the files of a failed job only, so the folder of
-    # this completed job, with its NFO, is still there unless Wondarr removed it (import.clean_leftover_folders).
+    # this completed job is still there unless Wondarr removed it (import.clean_leftover_folders). It is
+    # not empty either: the fake rendered the post's NFO into it, and the wanted track was the only file
+    # Wondarr moved out. So a gone folder means a non-empty one was removed.
     if not job["storage"]:
         fail("the fake SABnzbd reports no folder for the finished job")
+    if job["extras"] != [f"{title}.nfo"]:
+        fail(f"the fake rendered {job['extras']} beside the track, expected only {title}.nfo")
     if job["storageExists"]:
         fail(f"the finished job's folder {job['storage']} is still there after the import")
-    ok(f"the post was trimmed to {files[0]['path']} and its NFO (no Par2 or SFV left), unpacked, deleted from SABnzbd, and its folder {job['storage']} removed after the import")
+    ok(f"the post was trimmed to {files[0]['path']} and its NFO (no Par2 or SFV left), unpacked, deleted from SABnzbd, and its folder {job['storage']} (with the NFO still in it) removed after the import")
 
 
 def main() -> int:

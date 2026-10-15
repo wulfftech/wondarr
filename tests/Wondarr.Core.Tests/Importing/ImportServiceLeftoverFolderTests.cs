@@ -103,22 +103,32 @@ public sealed class ImportServiceLeftoverFolderTests
         Directory.Exists(seed.DownloadDirectory).Should().BeFalse();
     }
 
-    [Fact]
-    public async Task A_destination_that_is_not_a_folder_of_its_own_keeps_what_is_left()
+    [Theory]
+    [InlineData("downloads")]
+    [InlineData("data/downloads")]
+    [InlineData("wondarr/not-a-guid")]
+    [InlineData("wondarr/0123456789ABCDEF0123456789ABCDEF")]
+    [InlineData("elsewhere/0123456789abcdef0123456789abcdef")]
+    public async Task A_destination_that_is_not_wondarr_slash_a_guid_keeps_what_is_left(string destination)
     {
         await using var host = await ImportTestHost.CreateAsync();
-        var seed = await SeedAsync(host, SourceTypes.Soulseek);
-        var leftovers = Leave(seed, Partial);
+        var seed = await host.SeedAsync(options => options.CreateDownload = false);
 
-        // One segment: the folder would be whatever the destination names, which is not Wondarr's to empty.
+        // A destination that names a real-looking folder, with the download in exactly that folder: the old
+        // empty-only rule is all that applies, whatever the folder is called.
+        var folder = Path.Combine(DownloadsRoot(seed), destination.Replace('/', Path.DirectorySeparatorChar));
+        var download = Write(Path.Combine(folder, "08 - Get Lucky.flac"));
+        var leftover = Write(Path.Combine(folder, Partial));
         var item = await host.Context.QueueItems.SingleAsync(entry => entry.Id == seed.QueueItemId);
-        item.Destination = Path.GetFileName(seed.DownloadDirectory);
+        item.Destination = destination;
+        item.DownloadPath = download;
         await host.Context.SaveChangesAsync();
+        host.Placer.OnPlaceAsync = request => MoveAway(request.SourcePath);
 
         (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
 
-        leftovers.Should().OnlyContain(path => File.Exists(path));
-        Directory.Exists(seed.DownloadDirectory).Should().BeTrue();
+        File.Exists(leftover).Should().BeTrue("only wondarr/<32 lower-case hex> is removed with what is in it");
+        Directory.Exists(folder).Should().BeTrue();
     }
 
     [Theory]
@@ -143,20 +153,28 @@ public sealed class ImportServiceLeftoverFolderTests
         Directory.Exists(folder).Should().BeTrue();
     }
 
-    [SymlinkFact]
+    [Fact]
     public async Task A_link_in_the_folder_keeps_it_and_the_refusal_is_logged_with_the_path()
     {
         await using var host = await ImportTestHost.CreateAsync();
         var seed = await SeedAsync(host, SourceTypes.Soulseek);
         var leftovers = Leave(seed, Partial);
         var real = Write(Path.Combine(DownloadsRoot(seed), "real", "keep.flac"));
-        Directory.CreateSymbolicLink(Path.Combine(seed.DownloadDirectory, "link"), Path.GetDirectoryName(real)!);
+        var link = Path.Combine(seed.DownloadDirectory, "link");
+        DirectoryLinks.Create(link, Path.GetDirectoryName(real)!);
 
-        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+        try
+        {
+            (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
 
-        File.Exists(real).Should().BeTrue("deleting through a link would take a folder somewhere else with it");
-        leftovers.Should().OnlyContain(path => File.Exists(path));
-        host.LogMessages.Should().Contain(message => message.Contains(seed.DownloadDirectory, StringComparison.Ordinal) && message.Contains("Not removing", StringComparison.Ordinal));
+            File.Exists(real).Should().BeTrue("deleting through a link would take a folder somewhere else with it");
+            leftovers.Should().OnlyContain(path => File.Exists(path));
+            host.LogMessages.Should().Contain(message => message.Contains(seed.DownloadDirectory, StringComparison.Ordinal) && message.Contains("Not removing", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DirectoryLinks.Remove(link);
+        }
     }
 
     /// <summary>A seeded grab whose placement moves the downloaded file away, as the real placer does.</summary>

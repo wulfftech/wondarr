@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Importing;
@@ -109,8 +110,67 @@ public sealed class QueueActionsTests
         Directory.Exists(seed.DownloadDirectory).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("downloads")]
+    [InlineData("data/downloads")]
+    [InlineData("wondarr/not-a-guid")]
+    [InlineData("wondarr/0123456789ABCDEF0123456789ABCDEF")]
+    public async Task Keeps_what_is_left_when_the_destination_is_not_wondarr_slash_a_guid(string destination)
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Completed;
+            options.Progress = 1;
+            options.CreateDownload = false;
+        });
+
+        // The download sits in exactly the folder the destination names, so it is "the item's own", and
+        // whatever the folder is called, only an empty one may go.
+        var folder = Path.Combine(DownloadsRoot(seed), destination.Replace('/', Path.DirectorySeparatorChar));
+        var download = Leftover(folder, "08 - Get Lucky.flac");
+        var partial = Leftover(folder, "08 - Get Lucky.flac.incomplete");
+        await host.SetDestinationAsync(seed.QueueItemId, destination, download);
+
+        await host.Actions.RemoveAsync(seed.QueueItemId, blocklist: true, retry: false, CancellationToken.None);
+
+        File.Exists(download).Should().BeFalse("the download itself is still deleted");
+        File.Exists(partial).Should().BeTrue("only wondarr/<32 lower-case hex> is removed with what is in it");
+        Directory.Exists(folder).Should().BeTrue();
+    }
+
     [Fact]
-    public async Task Keeps_what_is_left_when_the_destination_is_not_a_folder_of_its_own()
+    public async Task Keeps_the_folder_and_what_a_link_inside_it_leads_to()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Completed;
+            options.Progress = 1;
+            options.CreateDownload = true;
+        });
+        var partial = Leftover(seed.DownloadDirectory, "08 - Get Lucky.flac.incomplete");
+        var elsewhere = Leftover(Path.Combine(DownloadsRoot(seed), "elsewhere"), "keep.flac");
+        var link = Path.Combine(seed.DownloadDirectory, "link");
+        DirectoryLinks.Create(link, Path.GetDirectoryName(elsewhere)!);
+
+        try
+        {
+            await host.Actions.RemoveAsync(seed.QueueItemId, blocklist: true, retry: false, CancellationToken.None);
+
+            File.Exists(seed.DownloadPath).Should().BeFalse("the download itself is still deleted");
+            File.Exists(elsewhere).Should().BeTrue("deleting through a link would reach a folder that is not the item's");
+            File.Exists(partial).Should().BeTrue("a folder that holds a link is not removed with its contents");
+            Directory.Exists(seed.DownloadDirectory).Should().BeTrue();
+        }
+        finally
+        {
+            DirectoryLinks.Remove(link);
+        }
+    }
+
+    [Fact]
+    public async Task Keeps_what_is_left_when_the_wondarr_folder_above_it_is_a_link()
     {
         await using var host = await QueueTestHost.CreateAsync();
         var seed = await host.SeedAsync(options =>
@@ -121,14 +181,29 @@ public sealed class QueueActionsTests
         });
         var partial = Leftover(seed.DownloadDirectory, "08 - Get Lucky.flac.incomplete");
 
-        // One segment: the folder would be the item's destination and could be anything the source chose.
-        await host.SetDestinationAsync(seed.QueueItemId, Path.GetFileName(seed.DownloadDirectory));
+        // <downloads>/wondarr is a link to a folder somewhere else; the item's path still reads wondarr/<guid>.
+        var wondarr = Path.GetDirectoryName(seed.DownloadDirectory)!;
+        var real = wondarr + "-real";
+        Directory.Move(wondarr, real);
+        DirectoryLinks.Create(wondarr, real);
 
-        await host.Actions.RemoveAsync(seed.QueueItemId, blocklist: true, retry: false, CancellationToken.None);
+        try
+        {
+            await host.Actions.RemoveAsync(seed.QueueItemId, blocklist: true, retry: false, CancellationToken.None);
 
-        File.Exists(seed.DownloadPath).Should().BeFalse();
-        File.Exists(partial).Should().BeTrue("only a folder named wondarr/<guid> is removed with its contents");
+            File.Exists(Path.Combine(real, Path.GetFileName(seed.DownloadDirectory), "08 - Get Lucky.flac.incomplete")).Should().BeTrue(
+                "nothing is removed with its contents through a link on the way");
+            Directory.Exists(Path.Combine(real, Path.GetFileName(seed.DownloadDirectory))).Should().BeTrue();
+            File.Exists(partial).Should().BeTrue();
+        }
+        finally
+        {
+            DirectoryLinks.Remove(wondarr);
+        }
     }
+
+    private static string DownloadsRoot(QueueSeed seed) =>
+        Path.GetDirectoryName(Path.GetDirectoryName(seed.DownloadDirectory)!)!;
 
     private static string Leftover(string folder, string name)
     {

@@ -275,9 +275,10 @@ public sealed partial class QueueActions : IQueueActions
 
     /// <summary>
     /// Removes the item's own download folder, which <see cref="IsOwnDownload"/> has approved: with what is
-    /// left in it when <c>import.clean_leftover_folders</c> is on, the destination names a folder of its own
-    /// (<c>wondarr/&lt;guid&gt;</c>, at least two segments) and <see cref="LeftoverFolder"/> finds no link on the
-    /// way or inside; otherwise only while it is empty.
+    /// left in it when <c>import.clean_leftover_folders</c> is on, the destination is exactly what the search
+    /// service writes (<see cref="LeftoverFolder.IsGrabDestination"/>: <c>wondarr/</c> and 32 lower-case hex
+    /// digits) and <see cref="LeftoverFolder"/> finds no link on the way or inside; otherwise only while it
+    /// is empty.
     /// </summary>
     /// <param name="item">The item that owns the download.</param>
     /// <param name="folder">The folder the download sat in.</param>
@@ -288,18 +289,11 @@ public sealed partial class QueueActions : IQueueActions
             return;
         }
 
-        var segments = SplitSegments(item.Destination).Count;
-
-        if ((_importOptions?.CurrentValue.CleanLeftoverFolders ?? new ImportOptions().CleanLeftoverFolders) && segments >= 2)
+        if ((_importOptions?.CurrentValue.CleanLeftoverFolders ?? new ImportOptions().CleanLeftoverFolders)
+            && LeftoverFolder.IsGrabDestination(item.Destination))
         {
-            // The folder above the destination's first segment: every level from the folder up to it is
-            // checked for being a link.
-            var above = folder;
-
-            for (var level = 0; level < segments; level++)
-            {
-                above = Path.GetDirectoryName(above) ?? string.Empty;
-            }
+            // The folder above wondarr/<guid>: every level from the folder up to it is checked for being a link.
+            var above = Path.GetDirectoryName(Path.GetDirectoryName(folder)) ?? string.Empty;
 
             if (LeftoverFolder.Refusal(folder, above.Length == 0 ? null : above) is { } reason)
             {

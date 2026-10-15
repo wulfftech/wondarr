@@ -34,6 +34,7 @@
     <!-- One fake clock that can tell when the code under test has caught up, shared with Core.Tests. -->
     <Compile Include="..\Wondarr.Core.Tests\Support\TrackingTimeProvider.cs" Link="Support\TrackingTimeProvider.cs" />
     <Compile Include="..\Wondarr.Core.Tests\Support\PlatformFactAttributes.cs" Link="Support\PlatformFactAttributes.cs" />
+    <Compile Include="..\Wondarr.Core.Tests\Support\DirectoryLinks.cs" Link="Support\DirectoryLinks.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -136,22 +136,34 @@ public sealed class SabnzbdClientType : IDownloadClientType
     }
 
     /// <summary>
-    /// The folder SABnzbd finishes a category's jobs in, as SABnzbd sees it, read from its <c>misc</c> and
-    /// <c>categories</c> settings; <see langword="null"/> when the category is not there, SABnzbd has no
-    /// completed-downloads folder, or the folder is relative (it cannot be told from here).
+    /// The folder SABnzbd finishes a category's jobs in, as SABnzbd sees it: the category's own folder when
+    /// absolute, else that folder inside the completed-downloads folder, else the completed-downloads folder
+    /// itself. <see langword="null"/> when the category is not there, when SABnzbd names no completed folder,
+    /// when the result is relative (it cannot be told from here), or when the category's folder contains
+    /// <c>*</c>: SABnzbd then puts a job's files straight into the category folder with no folder of their own,
+    /// so the folder is shared by every job and is never a job's to delete.
     /// </summary>
-    /// <param name="misc">SABnzbd's <c>misc</c> settings.</param>
+    /// <param name="completeDir">
+    /// The completed-downloads folder: <c>status.completedir</c> of SABnzbd's <c>fullstatus</c>, which is
+    /// always absolute, or <c>misc.complete_dir</c> as the last resort, which may be relative.
+    /// </param>
     /// <param name="categories">SABnzbd's <c>categories</c> settings.</param>
     /// <param name="categoryName">The category the client row files its jobs under.</param>
-    public static string? CompletedFolder(JsonElement misc, JsonElement categories, string categoryName)
+    public static string? CompletedFolder(string? completeDir, JsonElement categories, string categoryName)
     {
-        if (FindCategory(categories, categoryName) is not { } category
-            || Text(misc, "complete_dir") is not { Length: > 0 } completeDir)
+        if (FindCategory(categories, categoryName) is not { } category || string.IsNullOrWhiteSpace(completeDir))
         {
             return null;
         }
 
-        var folder = CategoryFolder(completeDir, Text(category, "dir"));
+        var categoryDir = Text(category, "dir");
+
+        if (categoryDir is not null && categoryDir.Contains('*', StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var folder = CategoryFolder(completeDir, categoryDir);
 
         return IsAbsolute(folder) ? folder : null;
     }
