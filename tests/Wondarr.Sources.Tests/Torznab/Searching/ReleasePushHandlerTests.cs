@@ -89,6 +89,45 @@ public sealed class ReleasePushHandlerTests
     }
 
     [Fact]
+    public async Task The_nzb_read_for_the_file_list_is_kept_for_the_grab_under_the_key_the_candidate_gives()
+    {
+        _container = AlbumNzb();
+        var cache = new NzbCache(TimeProvider.System);
+
+        await Handler(cache).PushAsync(Push("usenet", "https://usenet.example/get/1"), CancellationToken.None);
+
+        _downloads.Should().ContainSingle("the push read the NZB once");
+        var release = _judged.Should().ContainSingle().Which.Candidate.Release!;
+        cache.Count.Should().Be(1);
+        cache.TryGet(NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId), out var kept)
+            .Should().BeTrue("the grab that follows looks the NZB up with the fields of the release it carries");
+        kept.Should().Equal(AlbumNzb());
+    }
+
+    [Fact]
+    public async Task A_torrent_is_not_put_in_the_nzb_cache()
+    {
+        var cache = new NzbCache(TimeProvider.System);
+
+        await Handler(cache).PushAsync(Push("torrent", "https://tracker.example/dl/1"), CancellationToken.None);
+
+        cache.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_answer_that_is_not_an_nzb_is_not_kept()
+    {
+        // Well-formed XML, so the NZB parser reads it without complaint: only the guard keeps it out.
+        _container = Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><error code=\"500\" description=\"x\"/>");
+        var cache = new NzbCache(TimeProvider.System);
+
+        var outcome = await Handler(cache).PushAsync(Push("usenet", "https://usenet.example/get/1"), CancellationToken.None);
+
+        outcome.Approved.Should().BeFalse();
+        cache.Count.Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_magnet_push_is_a_file_list_unknown_candidate()
     {
         var outcome = await Handler().PushAsync(
@@ -205,7 +244,7 @@ public sealed class ReleasePushHandlerTests
         outcome.Rejections.Should().Equal("Format not allowed: FLAC");
     }
 
-    private ReleasePushHandler Handler()
+    private ReleasePushHandler Handler(NzbCache? nzbCache = null)
     {
         var handler = new RecordingHandler(request =>
         {
@@ -215,7 +254,7 @@ public sealed class ReleasePushHandlerTests
         });
         var factory = TorznabTest.Factory(handler);
 
-        return new ReleasePushHandler(_wanted, _search, _queue, _clients, factory, TimeProvider.System, NullLogger<ReleasePushHandler>.Instance);
+        return new ReleasePushHandler(_wanted, _search, _queue, _clients, factory, TimeProvider.System, NullLogger<ReleasePushHandler>.Instance, nzbCache);
     }
 
     private static PushedRelease Push(string protocol, string? url, string title = Album, string? magnet = null) =>

@@ -15,6 +15,12 @@ An indexer cannot be searched for a recording directly, so Wondarr works through
 
 A release whose file list does not contain the song is rejected and blocklisted.
 
+### Usenet download limits
+
+Reading a usenet post's file list means downloading its NZB, and most indexers cap NZB downloads per day (free plans allow 5 to 20). Wondarr reads at most 8 NZBs from each usenet indexer in one search, the posts that name a quality in their title first and then the most grabbed. It keeps each NZB it read for 6 hours, so grabbing that post, searching again, or a release pushed to Wondarr does not download it again, and a post that is already kept does not count towards the 8.
+
+When an indexer says its limit is reached (a sentence such as "You already reached your daily restriction of 10 downloads.", or an error answer about your account or its limits), Wondarr stops reading from that indexer for the rest of the search, keeps using the others, and shows the indexer's own words in the search message and in the run's history. An error about a single post, such as a removed one, only skips that post. A grab whose download is not an NZB fails with the indexer's words, and nothing is added to SABnzbd.
+
 ## Settings → Indexers
 
 Press **Add indexer** (the button on the page), choose a type, and fill in the form. Every type has:

@@ -1,5 +1,6 @@
 using System.Net;
 using Wondarr.Core.Indexers;
+using Wondarr.Core.Logging;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -111,6 +112,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IUsenetClient, SabnzbdClient>();
         services.AddSingleton<IDownloadClientType, SabnzbdClientType>();
 
+        // The NZBs a search downloads for their file lists, kept so a grab does not download them
+        // again: indexers cap NZB downloads per day. Process-wide, so every search and grab shares it.
+        services.AddSingleton(provider => new NzbCache(provider.GetRequiredService<TimeProvider>()));
+
         // One source per protocol, tier 3 (DECISIONS build session 8 #7): torrents through the
         // Torznab indexers, usenet through the Newznab ones.
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Torrent));
@@ -132,5 +137,8 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IDiskOperations>(),
             provider.GetRequiredService<IOptionsMonitor<ImportOptions>>(),
             provider.GetService<TimeProvider>() ?? TimeProvider.System,
-            provider.GetRequiredService<ILogger<IndexerSourceProvider>>());
+            provider.GetRequiredService<ILogger<IndexerSourceProvider>>(),
+            budget: null,
+            nzbCache: provider.GetRequiredService<NzbCache>(),
+            secrets: provider.GetRequiredService<ISecretRegistry>());
 }
