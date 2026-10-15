@@ -241,6 +241,69 @@ public sealed partial class IndexerSourceProviderTests
     }
 
     [Fact]
+    public async Task A_song_filed_under_singles_is_judged_against_the_album_the_search_targeted()
+    {
+        // The Plexamp preset files a lone song under the pseudo-album "Singles" (no MusicBrainz release id);
+        // its releases still come from the recording, and the first is the album it is on.
+        var nzb = Nzb(("a1b2c3d4e5f6a7b8c9d0e1f2.rar", 900_000_000), ("a1b2c3d4e5f6a7b8c9d0e1f2.par2", 40_000));
+        var indexer = new FakeIndexerClient
+        {
+            Answer = query => query.Album == "Discovery"
+                ?
+                [
+                    Release("Daft.Punk-Discovery-CD-FLAC-2001-GRP", "nzb-guid-3", downloadUrl: "https://usenet.example/get/3", protocol: DownloadProtocol.Usenet),
+                    Release("Daft.Punk-Human.After.All-CD-FLAC-2005-GRP", "nzb-guid-4", downloadUrl: "https://usenet.example/get/4", protocol: DownloadProtocol.Usenet),
+                ]
+                : [],
+            Download = _ => new IndexerDownload(nzb, null),
+        };
+        var provider = Provider(indexer, out _, protocol: DownloadProtocol.Usenet);
+
+        var result = await provider.SearchAsync(Request() with { AlbumTitle = "Singles", AlbumMbReleaseId = null }, CancellationToken.None);
+
+        result.Candidates.Should().HaveCount(2);
+        result.Candidates.Select(candidate => candidate.Release!.Song!.SongAlbum).Should().OnlyContain(album => album == null, "no release is named \"Singles\"");
+        result.Candidates.Select(candidate => candidate.Release!.Song!.TargetAlbum).Should().OnlyContain(album => album == "Discovery");
+
+        var context = new DecisionContext
+        {
+            SongTitle = "Digital Love",
+            MainArtists = ["Daft Punk"],
+            SongDurationMs = DurationMs,
+            AlbumTitle = "Singles",
+            Profile = SeedData.QualityProfiles.Single(profile => profile.Id == SeedData.LosslessProfileId),
+            Qualities = SeedData.Qualities.ToDictionary(quality => quality.Id, quality => quality),
+            MaxContainerSizeBytes = 2_000L * 1024 * 1024,
+        };
+        var decisions = new DecisionEngine().Evaluate(context, result.Candidates);
+
+        var own = decisions.Single(decision => decision.Candidate.Release!.Title.Contains("Discovery", StringComparison.Ordinal));
+        var other = decisions.Single(decision => decision.Candidate.Release!.Title.Contains("Human", StringComparison.Ordinal));
+        own.Rejections.Select(rejection => rejection.Reason).Should().NotContain([RejectionReason.TitleMismatch, RejectionReason.ArtistMismatch]);
+        other.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public async Task A_song_filed_under_a_real_album_carries_the_album_and_the_release_the_search_targeted()
+    {
+        var nzb = Nzb(("a1b2c3d4e5f6a7b8c9d0e1f2.rar", 900_000_000), ("a1b2c3d4e5f6a7b8c9d0e1f2.par2", 40_000));
+        var indexer = new FakeIndexerClient
+        {
+            Answer = query => query.Album == "Digital Love"
+                ? [Release("Daft.Punk-Digital.Love-SINGLE-FLAC-2001-GRP", "nzb-guid-5", downloadUrl: "https://usenet.example/get/5", protocol: DownloadProtocol.Usenet)]
+                : [],
+            Download = _ => new IndexerDownload(nzb, null),
+        };
+        var provider = Provider(indexer, out _, protocol: DownloadProtocol.Usenet);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        var song = result.Candidates.Should().ContainSingle().Subject.Release!.Song!;
+        song.SongAlbum.Should().Be("Discovery", "the album context is a real release");
+        song.TargetAlbum.Should().Be("Digital Love", "the search that found the single targeted the single");
+    }
+
+    [Fact]
     public async Task A_file_whose_extension_names_another_codec_takes_the_file_s_quality()
     {
         // The release claims FLAC; the matched file is an MP3 at about 320 kbps.

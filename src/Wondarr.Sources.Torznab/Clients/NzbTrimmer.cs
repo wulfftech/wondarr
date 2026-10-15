@@ -6,7 +6,11 @@ namespace Wondarr.Sources.Torznab.Clients;
 /// Opportunistic trimming of a usenet job (DECISIONS build session 8 #10): when every file of the
 /// post has a plain name and is audio, a Par2 volume or a small sidecar, the audio files no wanted
 /// song needs are dropped before the job starts. Anything else — an archive, an obfuscated name —
-/// downloads whole, because a trimmed RAR set cannot be repaired.
+/// downloads whole, because a trimmed RAR set cannot be repaired. A trimmed post goes without its
+/// Par2 volumes and its <c>.sfv</c> too: they describe the whole set, so with tracks missing the
+/// client's verification tries to rebuild them and fails the job ("not enough repair blocks"). The
+/// price is that a damaged article in a wanted file is caught by the import's decode check instead
+/// of being repaired. A post that loses nothing keeps its Par2 set and its repair power.
 /// </summary>
 public static class NzbTrimmer
 {
@@ -34,11 +38,21 @@ public static class NzbTrimmer
             return [];
         }
 
+        bool Unwanted((UsenetFileInfo File, NzbFile Entry) pair) => pair.Entry.IsAudio && !isWanted(pair.File.FileName);
+
+        // Every audio file is wanted: nothing is trimmed, so the Par2 set stays complete and keeps its repair power.
+        if (!classified.Any(Unwanted))
+        {
+            return [];
+        }
+
         return
         [
             .. classified
-                .Where(pair => pair.Entry.IsAudio && !pair.Entry.IsPar2 && !isWanted(pair.File.FileName))
+                .Where(pair => Unwanted(pair) || pair.Entry.IsPar2 || IsSfv(pair.File.FileName))
                 .Select(pair => pair.File.FileId),
         ];
     }
+
+    private static bool IsSfv(string fileName) => fileName.EndsWith(".sfv", StringComparison.OrdinalIgnoreCase);
 }

@@ -390,6 +390,61 @@ public class DecisionEngineTests
             .Accepted.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "Come Away with Me")]
+    [InlineData("Norah_Jones-Come_Away_With_Me-JAPANESE_RETAIL-2002-pH", "Norah Jones", "Come Away With Me")]
+    [InlineData("Norah Jones - Come Away With Me (2002) [FLAC]", "Norah Jones", "Come Away With Me")]
+    public void A_song_filed_under_singles_accepts_an_unknown_file_list_of_the_album_the_search_targeted(string title, string artist, string album)
+    {
+        // The Plexamp preset files a lone song under the pseudo-album "Singles", which no release is named after.
+        var candidate = Searched(UnlistedContainer(SourceTypes.Newznab, title, artist, album), songAlbum: null, targetAlbum: "Come Away with Me");
+
+        var decision = Judge(SinglesContext(), candidate);
+
+        decision.Rejections.Should().BeEmpty();
+        decision.Accepted.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Norah.Jones-Feels.Like.Home-CD-FLAC-2004-GRP", "Norah Jones", "Feels Like Home", RejectionReason.TitleMismatch)]
+    [InlineData("Tom.Jones-Come.Away.with.Me-CD-FLAC-2002-GRP", "Tom Jones", "Come Away with Me", RejectionReason.ArtistMismatch)]
+    [InlineData("Tom.Jones-Greatest.Hits-CD-FLAC-1999-GRP", "Tom Jones", "Greatest Hits", RejectionReason.ArtistMismatch)]
+    [InlineData("VA-Now.Thats.What.I.Call.Music-2CD-FLAC-2002-GRP", "VA", "Now Thats What I Call Music", RejectionReason.ArtistMismatch)]
+    [InlineData("Various.Artists-Come.Away.with.Me-CD-FLAC-2002-GRP", "Various Artists", "Come Away with Me", RejectionReason.ArtistMismatch)]
+    [InlineData("Norah.Jones-Singles-CD-FLAC-2005-GRP", "Norah Jones", "Singles", RejectionReason.TitleMismatch)]
+    public void A_song_filed_under_singles_still_rejects_an_unknown_file_list_that_is_not_its_album(
+        string title,
+        string artist,
+        string album,
+        RejectionReason expected)
+    {
+        var candidate = Searched(UnlistedContainer(SourceTypes.Newznab, title, artist, album), songAlbum: null, targetAlbum: "Come Away with Me");
+
+        var decision = Judge(SinglesContext(), candidate);
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(expected);
+    }
+
+    [Fact]
+    public void Either_the_targeted_album_or_the_real_album_context_names_the_release()
+    {
+        var comeAway = UnlistedContainer(SourceTypes.Newznab, "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "Come Away with Me");
+        var feelsLike = UnlistedContainer(SourceTypes.Newznab, "Norah.Jones-Feels.Like.Home-CD-FLAC-2004-GRP", "Norah Jones", "Feels Like Home");
+
+        // The search targeted one release of the song and the song is filed under another: a release named after either is its album.
+        Judge(NorahContext(), Searched(comeAway, songAlbum: "Come Away with Me", targetAlbum: "Feels Like Home")).Accepted.Should().BeTrue();
+        Judge(NorahContext(), Searched(feelsLike, songAlbum: "Come Away with Me", targetAlbum: "Feels Like Home")).Accepted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_candidate_whose_request_names_no_album_falls_back_to_the_context_title()
+    {
+        var comeAway = UnlistedContainer(SourceTypes.Newznab, "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "Come Away with Me");
+
+        Judge(NorahContext(), Searched(comeAway, songAlbum: null, targetAlbum: null)).Accepted.Should().BeTrue();
+    }
+
     [Fact]
     public void An_unknown_file_list_keeps_its_lower_availability_score()
     {
@@ -757,6 +812,19 @@ public class DecisionEngineTests
         AlbumTitle = "Come Away with Me",
         TrackNo = 1,
     };
+
+    /// <summary>The same song filed under the artist's pseudo-album, as the Plexamp preset does for a lone song.</summary>
+    private static DecisionContext SinglesContext() => NorahContext() with { AlbumTitle = "Singles" };
+
+    /// <summary>The candidate as a search builds it: carrying the song request with the albums the provider judged to be the song's.</summary>
+    private static Candidate Searched(Candidate candidate, string? songAlbum, string? targetAlbum) =>
+        candidate with
+        {
+            Release = candidate.Release! with
+            {
+                Song = new ContainerMatchRequest("Don’t Know Why", VersionFlags.None, 1, 186_000, 1, SongArtist: "Norah Jones", SongAlbum: songAlbum, TargetAlbum: targetAlbum),
+            },
+        };
 
     private static CandidateDecision Judge(DecisionContext context, Candidate candidate) =>
         Engine.Evaluate(context, [candidate]).Single();

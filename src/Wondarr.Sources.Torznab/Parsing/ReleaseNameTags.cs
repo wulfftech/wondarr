@@ -104,13 +104,14 @@ public static class ReleaseNameTags
     /// <param name="songTitle">The wanted song's title, or null when none is known.</param>
     /// <param name="songAlbum">The wanted song's album, or null when none is known.</param>
     /// <param name="songFlags">The wanted song's own version flags.</param>
-    public static ReleaseVersion VersionOf(string title, string? songTitle, string? songAlbum, VersionFlags songFlags)
+    /// <param name="targetAlbum">The album of the release the search targeted, or null: a second album the song is on, either one makes a release its own.</param>
+    public static ReleaseVersion VersionOf(string title, string? songTitle, string? songAlbum, VersionFlags songFlags, string? targetAlbum = null)
     {
         ArgumentNullException.ThrowIfNull(title);
 
         var name = ExtensionRegex.Replace(title.Trim(), string.Empty);
         var album = ReleaseTitleParser.Parse(name)?.Album;
-        var targets = new[] { songAlbum, songTitle is null ? null : VersionFlagParser.Parse(songTitle).BaseTitle }
+        var targets = new[] { songAlbum, targetAlbum, songTitle is null ? null : VersionFlagParser.Parse(songTitle).BaseTitle }
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .Select(text => text!)
             .ToList();

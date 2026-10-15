@@ -19,9 +19,11 @@ failed check):
             check: both songs imported from ONE torrent grab, and the fake downloaded exactly those two
             files (every other file at priority 0, never rendered).
   usenet    Disable the torrent side, monitor a third track, register a three-track post of the album
-            on the fake, run MissingSearch, and check: the song imported, the two other tracks were
-            trimmed before the download (never rendered, never imported), and the job was deleted from
-            SABnzbd with its files after the import.
+            (with a Par2 set, an SFV and an NFO) on the fake, run MissingSearch, and check: the song
+            imported, the two other tracks were trimmed before the download (never rendered, never
+            imported) together with the Par2 volumes and the SFV (the fake SABnzbd fails a trimmed job
+            that still holds either, like the real one), and the job was deleted from SABnzbd with its
+            files after the import.
 
 Standard library only.
 
@@ -331,8 +333,12 @@ def usenet(args: argparse.Namespace) -> None:
 
     files = [track_file(target, number, 8000)] + [track_file(record, songs.index(record) + 1, 8001 + index) for index, record in enumerate(others)]
     title = f"{args.album} (1975) [FLAC] (usenet)"
-    fake_register(args.fake_cmd, args.containers, {"protocol": "usenet", "title": title, "files": files})
-    ok(f"the fake indexer offers a {len(files)}-track post with plain names")
+    # A real music post carries a Par2 set and an SFV that describe every track. The fake SABnzbd fails a
+    # trimmed job that still holds either, as the real one does, so the trim has to take them out.
+    par2_and_sfv = [f"{title}.par2", f"{title}.vol000+01.par2", f"{title}.vol001+02.par2", f"{title}.sfv"]
+    sidecars = par2_and_sfv + [f"{title}.nfo"]
+    fake_register(args.fake_cmd, args.containers, {"protocol": "usenet", "title": title, "files": files, "sidecars": sidecars})
+    ok(f"the fake indexer offers a {len(files)}-track post with plain names, a Par2 set, an SFV and an NFO")
 
     run_command(api, "MissingSearch", args.timeout_s)
     wait_for_queue(api, args.timeout_s)
@@ -355,11 +361,17 @@ def usenet(args: argparse.Namespace) -> None:
     job = jobs[0]
     if sorted(job["unpacked"]) != [files[0]["path"]]:
         fail(f"SABnzbd unpacked {job['unpacked']}, expected only {files[0]['path']}")
-    if sorted(job["deleted"]) != sorted(entry["path"] for entry in files[1:]):
+    # The Par2 volumes and the SFV go with the unwanted tracks (a trimmed post cannot be repaired, and a
+    # client that tries fails the job); the small NFO stays.
+    if sorted(job["deleted"]) != sorted([entry["path"] for entry in files[1:]] + par2_and_sfv):
         fail(f"the trimmed files were {job['deleted']}")
+    if sorted(job["files"]) != sorted([files[0]["path"], f"{title}.nfo"]):
+        fail(f"the job still held {job['files']}")
+    if job["failMessage"]:
+        fail(f"SABnzbd failed the trimmed post: {job['failMessage']}")
     if not job["removedWithFiles"]:
         fail("the job was deleted without its files")
-    ok(f"the post was trimmed to {files[0]['path']}, unpacked, and deleted from SABnzbd with its files after the import")
+    ok(f"the post was trimmed to {files[0]['path']} and its NFO (no Par2 or SFV left), unpacked, and deleted from SABnzbd with its files after the import")
 
 
 def main() -> int:

@@ -143,6 +143,37 @@ public sealed class ContainerCandidatesTests
         candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.None);
     }
 
+    [Fact]
+    public void A_song_filed_under_singles_finds_its_track_in_a_release_named_after_the_album_the_search_targeted()
+    {
+        var listing = Listing(
+            "Hole-Live_Through_This-CD-FLAC-1994-GRP",
+            [new ContainerFile(0, "05-hole-doll_parts-grp.flac", FlacTrack), new ContainerFile(1, "99 - Something Else.flac", FlacTrack)]);
+
+        // The song is filed under "Singles" (no album name is carried for it); its MusicBrainz album is "Live Through This".
+        var singles = new ContainerMatchRequest("Doll Parts", VersionFlags.None, null, 250_000, 1, SongAlbum: null, TargetAlbum: "Live Through This");
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Usenet, listing, singles, "q", Now);
+
+        candidate.Should().NotBeNull("the release is named after the album the song is on, its name's words are its title");
+        candidate!.RemotePath.Should().Be("05-hole-doll_parts-grp.flac");
+        candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.None);
+
+        // Without the targeted album the same release is a live release, and a studio song is not in it.
+        ContainerCandidates.Build(DownloadProtocol.Usenet, listing, singles with { TargetAlbum = null }, "q", Now).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_live_release_that_is_not_the_targeted_album_stays_live_for_a_song_filed_under_singles()
+    {
+        var listing = Listing(
+            "Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP",
+            [new ContainerFile(0, "04-foo_fighters-everlong-grp.flac", FlacTrack)]);
+
+        var singles = new ContainerMatchRequest("Everlong", VersionFlags.None, null, 250_000, 1, SongArtist: "Foo Fighters", SongAlbum: null, TargetAlbum: "The Colour and the Shape");
+
+        ContainerCandidates.Build(DownloadProtocol.Usenet, listing, singles, "q", Now).Should().BeNull();
+    }
+
     [Theory]
     [InlineData("Oasis - Live at Knebworth [FLAC]", "Live Forever", "Definitely Maybe", "Live Forever.flac")]
     [InlineData("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", "Everlong", "The Colour and the Shape", "04-foo_fighters-everlong-grp.flac")]

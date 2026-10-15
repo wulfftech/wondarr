@@ -130,7 +130,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
             songs = [.. byArtist.Where(match => ContainerCandidates.Build(
                     known,
                     listing,
-                    new ContainerMatchRequest(match.Song.Title, VersionFlagNames.FromNames(match.Song.VersionFlags), null, match.Song.DurationMs, 1, SongArtist: match.Song.ArtistCredit, SongAlbum: match.Song.AlbumContext?.AlbumTitle),
+                    new ContainerMatchRequest(match.Song.Title, VersionFlagNames.FromNames(match.Song.VersionFlags), null, match.Song.DurationMs, 1, SongArtist: match.Song.ArtistCredit, SongAlbum: SongAlbumNames.Of(match.Song.AlbumContext)),
                     release.Title,
                     _time.GetUtcNow()) is not null)];
 
@@ -156,7 +156,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
                 continue;
             }
 
-            var wanted = new ContainerMatchRequest(song.Title, VersionFlagNames.FromNames(song.VersionFlags), trackNo, song.DurationMs, 1, SongArtist: song.ArtistCredit, SongAlbum: song.AlbumContext?.AlbumTitle);
+            var wanted = new ContainerMatchRequest(song.Title, VersionFlagNames.FromNames(song.VersionFlags), trackNo, song.DurationMs, 1, SongArtist: song.ArtistCredit, SongAlbum: SongAlbumNames.Of(song.AlbumContext));
             var candidate = ContainerCandidates.Build(known, listing, wanted, release.Title, _time.GetUtcNow());
 
             if (candidate is null)

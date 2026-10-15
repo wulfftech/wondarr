@@ -116,7 +116,7 @@ public static class ContainerBundler
                     candidate.Release.Song?.ReleaseGroup,
                     candidate.Release.Song?.ReleaseVersionFlags ?? VersionFlags.None,
                     song.ArtistCredit,
-                    song.AlbumContext?.AlbumTitle));
+                    SongAlbumNames.Of(song.AlbumContext)));
 
             // Two songs never share a file, and the grabbed song's file is its own.
             if (match is not null && taken.Add(match.File.Index))
@@ -172,7 +172,7 @@ public static class ContainerBundler
                     release.Song?.ReleaseGroup,
                     release.Song?.ReleaseVersionFlags ?? VersionFlags.None,
                     bundled.Song.ArtistCredit,
-                    bundled.Song.AlbumContext?.AlbumTitle),
+                    SongAlbumNames.Of(bundled.Song.AlbumContext)),
             },
         };
     }

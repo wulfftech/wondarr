@@ -176,6 +176,24 @@ public sealed class ReleasePushHandlerTests
     }
 
     [Fact]
+    public async Task The_judged_candidate_names_the_real_album_but_never_the_pseudo_album()
+    {
+        Wanted(Song(1, "Digital Love", 3), Song(4, "Aerodynamic", 1, album: "Singles", kind: AlbumContextKind.PseudoSingles));
+
+        await Handler().PushAsync(Push("torrent", "https://tracker.example/dl/1"), CancellationToken.None);
+
+        _judged.Should().ContainSingle().Which.Candidate.Release!.Song!.SongAlbum.Should().Be("Discovery");
+
+        _judged.Clear();
+        _active.Clear();
+        Wanted(Song(4, "Aerodynamic", 1, album: "Singles", kind: AlbumContextKind.PseudoSingles));
+
+        await Handler().PushAsync(Push("torrent", "https://tracker.example/dl/1"), CancellationToken.None);
+
+        _judged.Should().ContainSingle().Which.Candidate.Release!.Song!.SongAlbum.Should().BeNull("no release is named \"Singles\"");
+    }
+
+    [Fact]
     public async Task A_single_is_not_matched_by_artist_alone_when_the_file_list_is_unknown()
     {
         Wanted(Song(4, "Digital Love", 1, album: "Singles"));
@@ -268,14 +286,14 @@ public sealed class ReleasePushHandlerTests
             .Returns(new PagedResult<Song>([], 0));
     }
 
-    private static Song Song(long id, string title, int trackNo, string album = "Discovery") => new()
+    private static Song Song(long id, string title, int trackNo, string album = "Discovery", AlbumContextKind kind = AlbumContextKind.Album) => new()
     {
         Id = id,
         Title = title,
         ArtistCredit = "Daft Punk",
         PrimaryArtist = new Artist { Name = "Daft Punk", SortName = "Daft Punk" },
         DurationMs = 301_000,
-        AlbumContext = new AlbumContext { AlbumTitle = album, AlbumArtist = "Daft Punk", AlbumKey = "k", TrackNo = trackNo },
+        AlbumContext = new AlbumContext { Kind = kind, AlbumTitle = album, AlbumArtist = "Daft Punk", AlbumKey = "k", TrackNo = trackNo },
     };
 
     private static byte[] AlbumTorrent(string[]? titles = null)
