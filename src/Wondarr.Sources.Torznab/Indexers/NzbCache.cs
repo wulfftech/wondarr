@@ -89,15 +89,16 @@ public sealed class NzbCache
     /// <summary>
     /// The cache key of a release's NZB: the indexer and the download link, or the guid when the
     /// release has no link. The link carries the API key, so only a hash of it is kept; the key is
-    /// still never to be logged.
+    /// still never to be logged. The hashed text says which of the two it is, so a guid that happens
+    /// to equal some release's link can never collide with it.
     /// </summary>
     /// <param name="indexerId">The indexer row the release came from.</param>
     /// <param name="downloadUrl">The release's download link.</param>
     /// <param name="releaseId">The release's guid.</param>
     public static string KeyOf(long indexerId, string? downloadUrl, string releaseId)
     {
-        var link = string.IsNullOrWhiteSpace(downloadUrl) ? releaseId : downloadUrl;
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(link)));
+        var identity = string.IsNullOrWhiteSpace(downloadUrl) ? string.Concat("g:", releaseId) : string.Concat("l:", downloadUrl);
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
 
         return string.Concat(indexerId.ToString(CultureInfo.InvariantCulture), ":", hash);
     }

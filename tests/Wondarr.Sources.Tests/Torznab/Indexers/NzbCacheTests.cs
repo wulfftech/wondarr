@@ -167,6 +167,15 @@ public sealed class NzbCacheTests
         NzbCache.KeyOf(1, link + "2", "guid-1").Should().NotBe(key);
     }
 
+    [Fact]
+    public void A_guid_that_equals_some_release_s_link_does_not_collide_with_that_release()
+    {
+        const string link = "https://dog.example/getnzb/abc.nzb";
+
+        NzbCache.KeyOf(1, null, link).Should().NotBe(NzbCache.KeyOf(1, link, "guid-1"), "the first is keyed by a guid, the second by a link");
+        NzbCache.KeyOf(1, " ", link).Should().NotBe(NzbCache.KeyOf(1, link, link));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

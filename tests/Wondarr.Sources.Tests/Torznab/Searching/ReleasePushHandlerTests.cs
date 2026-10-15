@@ -117,7 +117,8 @@ public sealed class ReleasePushHandlerTests
     [Fact]
     public async Task An_answer_that_is_not_an_nzb_is_not_kept()
     {
-        _container = Encoding.UTF8.GetBytes("You already reached your daily restriction of 10 downloads.");
+        // Well-formed XML, so the NZB parser reads it without complaint: only the guard keeps it out.
+        _container = Encoding.UTF8.GetBytes("<?xml version=\"1.0\"?><error code=\"500\" description=\"x\"/>");
         var cache = new NzbCache(TimeProvider.System);
 
         var outcome = await Handler(cache).PushAsync(Push("usenet", "https://usenet.example/get/1"), CancellationToken.None);

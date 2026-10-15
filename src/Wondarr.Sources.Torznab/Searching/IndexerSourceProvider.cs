@@ -454,11 +454,20 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                 metainfo.TotalSize);
         }
 
-        if (NzbAnswer.Refusal(content, state.Redact) is { } refusal)
+        var verdict = NzbAnswer.Check(content, state.Redact);
+
+        if (verdict.Kind == NzbAnswerKind.AccountRefusal)
         {
             // Not an NZB, so never parsed as one; the indexer's own words are what the user is shown.
-            Refuse(indexer, state, refusal);
+            Refuse(indexer, state, verdict.Text);
             return null;
+        }
+
+        if (verdict.Kind == NzbAnswerKind.ReleaseFailure)
+        {
+            // An error about this one post (removed, bad parameters): the indexer is fine, so it is
+            // counted unreadable like a broken NZB and the other posts are still read.
+            throw new IndexerException(verdict.Text);
         }
 
         var listing = ListNzb(release, content);

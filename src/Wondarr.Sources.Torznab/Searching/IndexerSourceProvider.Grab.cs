@@ -597,12 +597,23 @@ public sealed partial class IndexerSourceProvider
 
         // The search read this post's file list from the same NZB: the indexer already counted that
         // download against its daily quota, so a second one is spent only when the cache lost it.
-        if (!_nzbCache.TryGet(NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId), out var nzb))
+        var nzbKey = NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId);
+        var downloaded = false;
+
+        if (!_nzbCache.TryGet(nzbKey, out var nzb))
         {
             nzb = await DownloadNzbAsync(indexer, release, cancellationToken).ConfigureAwait(false);
+            downloaded = true;
         }
 
         var jobId = await _usenet.AddAsync(client, new UsenetAddRequest(release.Title, nzb, null, Paused: true), cancellationToken).ConfigureAwait(false);
+
+        if (downloaded)
+        {
+            // The client took it, so it is a real NZB: kept, so that a grab of the same post for
+            // another song (this one retried, or a bundle partner) does not spend another download.
+            _nzbCache.Put(nzbKey, nzb);
+        }
 
         try
         {
@@ -650,9 +661,10 @@ public sealed partial class IndexerSourceProvider
 
         var nzb = download.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
 
-        if (NzbAnswer.Refusal(nzb, Redact) is { } refusal)
+        // Any error answer fails the grab, whatever its code: this release is the one wanted.
+        if (NzbAnswer.Check(nzb, Redact) is { IsNzb: false } verdict)
         {
-            throw new DownloadClientException(string.Concat(indexer.Name, ": ", refusal));
+            throw new DownloadClientException(string.Concat(indexer.Name, ": ", verdict.Text));
         }
 
         return nzb;

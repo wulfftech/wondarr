@@ -100,6 +100,81 @@ public sealed partial class IndexerSourceProviderTests
     }
 
     [Theory]
+    [InlineData("102", "Insufficient privileges")]
+    [InlineData("501", "Download limit reached")]
+    public async Task An_account_level_error_code_cuts_the_indexer_off(string code, string words)
+    {
+        var cache = new NzbCache(TimeProvider.System);
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => UsenetReleases(indexer, query, 8),
+            Download = (_, _) => Plain($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><error code=\"{code}\" description=\"{words}\"/>"),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: cache);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        client.DownloadsFrom(1).Should().BeInRange(1, InFlightReads);
+        result.Message.Should().Be("Usenet: Indexer 1: " + words);
+        cache.Count.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("300", "No such item")]
+    [InlineData("201", "Incorrect parameter")]
+    public async Task A_release_level_error_code_fails_that_release_and_the_indexer_is_still_read(string code, string words)
+    {
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => UsenetReleases(indexer, query, 8),
+            Download = (_, release) => release.ReleaseId.EndsWith("-0", StringComparison.Ordinal)
+                ? Plain($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><error code=\"{code}\" description=\"{words}\"/>")
+                : new IndexerDownload(AlbumNzb(), null),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        client.DownloadsFrom(1).Should().Be(8, "a removed post says nothing about the other seven");
+        result.Candidates.Should().HaveCount(7);
+        result.Message.Should().Contain("1 release(s) could not be read").And.NotContain("Indexer 1:");
+    }
+
+    [Fact]
+    public async Task Release_level_errors_on_every_post_are_all_counted_unreadable_and_none_cuts_the_indexer_off()
+    {
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => UsenetReleases(indexer, query, 8),
+            Download = (_, _) => Plain("<error code=\"300\" description=\"No such item\"/>"),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        client.DownloadsFrom(1).Should().Be(8);
+        result.Message.Should().Be("Usenet: 8 release(s) could not be read");
+    }
+
+    [Fact]
+    public async Task A_web_page_is_a_refusal_with_a_fixed_sentence_and_is_not_kept()
+    {
+        var cache = new NzbCache(TimeProvider.System);
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => UsenetReleases(indexer, query, 8),
+            Download = (_, _) => Plain("<?xml version=\"1.0\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><body>Maintenance</body></html>"),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: cache);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        client.DownloadsFrom(1).Should().BeInRange(1, InFlightReads);
+        result.Message.Should().Be("Usenet: Indexer 1: The indexer answered with a web page, not an NZB.");
+        cache.Count.Should().Be(0, "it is well-formed XML, but not an NZB");
+    }
+
+    [Theory]
     [InlineData("dropped")]
     [InlineData("http")]
     [InlineData("server")]

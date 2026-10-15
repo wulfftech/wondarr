@@ -659,15 +659,55 @@ public sealed class IndexerSourceGrabTests : IDisposable
     [Theory]
     [InlineData("You already reached your daily restriction of 10 downloads.", "Indexer: You already reached your daily restriction of 10 downloads.")]
     [InlineData("<?xml version=\"1.0\"?><error code=\"500\" description=\"Daily download limit reached\"/>", "Indexer: Daily download limit reached")]
+    [InlineData("<?xml version=\"1.0\"?><error code=\"102\" description=\"Insufficient privileges\"/>", "Indexer: Insufficient privileges")]
+    [InlineData("<?xml version=\"1.0\"?><error code=\"300\" description=\"No such item\"/>", "Indexer: No such item")]
+    [InlineData("<?xml version=\"1.0\"?><error code=\"201\" description=\"Incorrect parameter\"/>", "Indexer: Incorrect parameter")]
+    [InlineData("<html><body>Maintenance</body></html>", "Indexer: The indexer answered with a web page, not an NZB.")]
     public async Task A_usenet_grab_the_indexer_answers_with_something_that_is_not_an_nzb_fails_with_its_words_and_adds_nothing_to_the_client(string body, string message)
     {
         _indexer.Download = new IndexerDownload(Encoding.UTF8.GetBytes(body), null);
-        var provider = Provider(DownloadProtocol.Usenet, nzbCache: new NzbCache(TimeProvider.System));
+        var cache = new NzbCache(TimeProvider.System);
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: cache);
 
         var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
 
-        (await act.Should().ThrowAsync<DownloadClientException>()).Which.Message.Should().Be(message);
+        (await act.Should().ThrowAsync<DownloadClientException>()).Which.Message.Should().Be(message, "any error answer fails the grab, whatever its code");
         _usenet.Count.Should().Be(0, "nothing that is not an NZB reaches SABnzbd");
+        cache.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_usenet_grab_that_had_to_download_keeps_the_nzb_for_the_next_grab_of_the_same_post()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var cache = new NzbCache(TimeProvider.System);
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: cache);
+        var candidate = UsenetCandidate("03 - Digital Love.flac");
+
+        await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        _indexer.Downloads.Should().Be(1);
+        cache.TryGet(NzbCache.KeyOf(candidate.Release!.IndexerId, candidate.Release.DownloadUrl, candidate.Release.ReleaseId), out _)
+            .Should().BeTrue("the client took it, so it is kept");
+
+        await provider.GrabAsync(UsenetCandidate("05 - Crescendolls.flac"), "wondarr/two", CancellationToken.None);
+
+        _indexer.Downloads.Should().Be(1, "the second song of the post took the NZB from the cache");
+        _usenet.Count.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_usenet_grab_the_client_refuses_keeps_nothing_in_the_cache()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        _usenet.FailAdd = true;
+        var cache = new NzbCache(TimeProvider.System);
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: cache);
+
+        var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+
+        await act.Should().ThrowAsync<DownloadClientException>();
+        cache.Count.Should().Be(0);
     }
 
     [Theory]
@@ -1270,8 +1310,16 @@ public sealed class IndexerSourceGrabTests : IDisposable
         /// <summary>Makes listing a job's files fail once the first job is in.</summary>
         public bool FailGetFiles { get; set; }
 
+        /// <summary>Makes every add fail the way a refused NZB does.</summary>
+        public bool FailAdd { get; set; }
+
         public Task<string> AddAsync(DownloadClient client, UsenetAddRequest request, CancellationToken cancellationToken)
         {
+            if (FailAdd)
+            {
+                throw new DownloadClientException("SABnzbd refused the NZB.");
+            }
+
             var job = new FakeJob($"SABnzbd_nzo_{Count + 1}") { AddedPaused = request.Paused, Paused = request.Paused };
             using var stream = new MemoryStream(request.NzbFile!);
             job.Files.AddRange(NzbFileList.Parse(stream).Select(file => new UsenetFileInfo($"nzf_{file.Index}", file.FileName ?? "?", file.Size)));
