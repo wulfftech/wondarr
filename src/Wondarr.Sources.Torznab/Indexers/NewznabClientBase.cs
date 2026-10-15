@@ -138,7 +138,7 @@ public abstract partial class NewznabClientBase : IIndexerClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new IndexerException($"The indexer answered {(int)response.StatusCode}.");
+            throw new IndexerException($"The indexer answered {(int)response.StatusCode}.", response.StatusCode);
         }
 
         var content = await IndexerHttp.ReadCappedAsync(response, cancellationToken).ConfigureAwait(false);

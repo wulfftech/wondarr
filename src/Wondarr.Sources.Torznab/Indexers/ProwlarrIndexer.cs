@@ -243,7 +243,7 @@ public sealed partial class ProwlarrSearchClient : IIndexerClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new IndexerException($"Prowlarr answered {(int)response.StatusCode} to the download.");
+            throw new IndexerException($"Prowlarr answered {(int)response.StatusCode} to the download.", response.StatusCode);
         }
 
         return new IndexerDownload(await IndexerHttp.ReadCappedAsync(response, cancellationToken).ConfigureAwait(false), null);

@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace Wondarr.Sources.Torznab.Indexers;
 
 /// <summary>
@@ -20,4 +22,19 @@ public sealed class IndexerException : Exception
         : base(message, inner)
     {
     }
+
+    /// <summary>Initialises a new instance of the <see cref="IndexerException"/> class.</summary>
+    /// <param name="message">The sentence to show the user.</param>
+    /// <param name="statusCode">The status the indexer answered with.</param>
+    public IndexerException(string message, HttpStatusCode statusCode)
+        : base(message)
+    {
+        StatusCode = statusCode;
+    }
+
+    /// <summary>
+    /// Gets the status the indexer answered with, when the failure is an answer rather than a
+    /// transport error. A 429 or 403 to an NZB download is how an indexer says its quota is spent.
+    /// </summary>
+    public HttpStatusCode? StatusCode { get; }
 }

@@ -32,6 +32,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     private readonly IIndexerClientFactory _indexers;
     private readonly TimeProvider _time;
     private readonly ILogger<ReleasePushHandler> _logger;
+    private readonly NzbCache _nzbCache;
 
     /// <summary>Initialises a new instance of the <see cref="ReleasePushHandler"/> class.</summary>
     /// <param name="wanted">The wanted lists a push is matched against.</param>
@@ -41,6 +42,10 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     /// <param name="indexers">Reaches the pushed link through the push pseudo-indexer.</param>
     /// <param name="time">The clock a post's age is measured with.</param>
     /// <param name="logger">Logs the title and the outcome, never the links.</param>
+    /// <param name="nzbCache">
+    /// Keeps the NZB read for the file list so the grab that follows does not download it again; the
+    /// host shares one with the searches. A private one when null.
+    /// </param>
     public ReleasePushHandler(
         IWantedService wanted,
         ISongSearchService search,
@@ -48,7 +53,8 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
         IDownloadClientService clients,
         IIndexerClientFactory indexers,
         TimeProvider time,
-        ILogger<ReleasePushHandler> logger)
+        ILogger<ReleasePushHandler> logger,
+        NzbCache? nzbCache = null)
     {
         ArgumentNullException.ThrowIfNull(wanted);
         ArgumentNullException.ThrowIfNull(search);
@@ -65,6 +71,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
         _indexers = indexers;
         _time = time;
         _logger = logger;
+        _nzbCache = nzbCache ?? new NzbCache(time);
     }
 
     /// <inheritdoc />
@@ -284,6 +291,14 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
         using var stream = new MemoryStream(content, writable: false);
         var files = NzbFileList.Parse(stream);
         var size = files.Sum(file => file.Size);
+
+        // The grab of this release (the next step) takes the NZB from here: the indexer counted this
+        // download against its daily quota already. The grab looks it up by the fields of the release
+        // this method built. Only a real NZB is kept, never an indexer's error document.
+        if (NzbAnswer.IsNzb(content))
+        {
+            _nzbCache.Put(NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId), content);
+        }
 
         return NzbFileList.IsClean(files)
             ? new ContainerListing(
