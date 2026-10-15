@@ -252,6 +252,18 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
         (await sabnzbd.TestAsync(sab.RootElement, CancellationToken.None)).Should().Be(new ProviderTestResult(true, null));
     }
 
+    [Fact]
+    public async Task The_stub_has_the_relative_default_in_misc_like_a_stock_sabnzbd_and_the_real_folder_in_fullstatus()
+    {
+        using var http = new HttpClient(_http, disposeHandler: false);
+
+        var misc = await http.GetStringAsync(new Uri($"{Base}/sabnzbd/api?mode=get_config&section=misc&apikey=k&output=json"));
+        var status = await http.GetStringAsync(new Uri($"{Base}/sabnzbd/api?mode=fullstatus&skip_dashboard=1&apikey=k&output=json"));
+
+        misc.Should().Contain("\"complete_dir\":\"Downloads/complete\"");
+        status.Should().Contain("\"completedir\":").And.Contain("complete").And.NotContain("Downloads/complete");
+    }
+
     private const string Title = "Queen - A Night at the Opera (1975) [FLAC]";
 
     /// <summary>A plain-named post of three tracks with a Par2 set, an SFV and an NFO, added to the fake SABnzbd paused.</summary>

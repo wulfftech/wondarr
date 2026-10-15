@@ -246,6 +246,35 @@ public sealed partial class SabnzbdProxy
             : null;
     }
 
+    /// <summary>
+    /// SABnzbd's completed-downloads folder, as SABnzbd sees it: <see cref="GetCompleteDirAsync"/> first, which
+    /// is absolute, and <c>misc.complete_dir</c> only when the status gives none (an older SABnzbd, a refused
+    /// call), which may be the relative default. <see langword="null"/> when neither names a folder.
+    /// </summary>
+    public async Task<string?> GetCompletedDownloadsFolderAsync(SabnzbdSettings settings, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (await GetCompleteDirAsync(settings, cancellationToken).ConfigureAwait(false) is { } fromStatus)
+            {
+                return fromStatus;
+            }
+        }
+        catch (DownloadClientException)
+        {
+            // Not an answer to rely on; the settings below are the fallback, and fail the same way when SABnzbd is down.
+        }
+
+        var misc = await GetConfigAsync(settings, "misc", cancellationToken).ConfigureAwait(false);
+
+        return misc.ValueKind == JsonValueKind.Object
+            && misc.TryGetProperty("complete_dir", out var configured)
+            && configured.ValueKind == JsonValueKind.String
+            && configured.GetString() is { Length: > 0 } directory
+                ? directory
+                : null;
+    }
+
     /// <summary>Sends one API call and returns its JSON answer, or throws a <see cref="DownloadClientException"/>.</summary>
     private async Task<JsonDocument> SendAsync(
         SabnzbdSettings settings,

@@ -62,3 +62,5 @@ The checks and the delete use the path as Wondarr sees it: what SABnzbd reports,
 ### Test
 
 **Test** checks the connection and API key, that the category exists, and that the category's complete folder exists where Wondarr can see it. A failure says what to fix, for example "Create the category 'wondarr' in SABnzbd's settings (Config → Categories); SABnzbd's API cannot create one."
+
+Wondarr asks SABnzbd for the folder it really uses, so a stock install, whose **Config → Folders** shows the relative `Downloads/complete`, passes. Only if SABnzbd gives no full path and the setting is relative does **Test** fail, and it asks for an absolute completed-downloads folder.

@@ -228,6 +228,42 @@ public sealed class SabnzbdClientTests
     }
 
     [Fact]
+    public async Task The_test_passes_for_a_stock_install_whose_misc_complete_dir_is_the_relative_default()
+    {
+        using var folder = new TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder.Path, "music"));
+        var server = Configured(misc: "config-misc-relative.json");
+
+        var result = await new SabnzbdClientType(Proxy(server)).TestAsync(Settings(mapping: ("/downloads/complete", folder.Path)), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+        server.Requests.Select(request => request.Mode).Should().Contain("fullstatus");
+    }
+
+    [Fact]
+    public async Task The_test_falls_back_to_misc_when_the_status_does_not_answer()
+    {
+        using var folder = new TempFolder();
+        Directory.CreateDirectory(Path.Combine(folder.Path, "music"));
+        var server = Configured(fullStatus: false);
+
+        var result = await new SabnzbdClientType(Proxy(server)).TestAsync(Settings(mapping: ("/downloads/complete", folder.Path)), CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.Error);
+    }
+
+    [Fact]
+    public async Task The_test_fails_clearly_when_neither_the_status_nor_misc_gives_an_absolute_folder()
+    {
+        var server = Configured(misc: "config-misc-relative.json", fullStatus: false);
+
+        var result = await new SabnzbdClientType(Proxy(server)).TestAsync(Settings(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Downloads/complete/music").And.Contain("relative path").And.Contain("Config → Folders");
+    }
+
+    [Fact]
     public async Task The_test_reports_a_wrong_key()
     {
         var server = new FakeSabnzbd { ["version"] = "version.json", ["get_config"] = "api-key-incorrect.json" };

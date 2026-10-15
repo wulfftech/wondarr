@@ -13,7 +13,9 @@ on Soulseek and YouTube is off, so the indexers are the only source.
 Subcommands (run in this order on one instance; each prints "ok ..." lines and exits non-zero on a
 failed check):
 
-  setup     Add the download clients and the indexers, and test each.
+  setup     Add the download clients and the indexers, and test each. The fake SABnzbd keeps the
+            stock relative misc.complete_dir ("Downloads/complete") and gives the real folder only in
+            fullstatus, so its test, and the cleanup in the usenet check, pass only through fullstatus.
   torrent   Add --album unmonitored, monitor two of its tracks (Lossless profile), register the album as
             one torrent on the fake (every track, the identities of the songs), run MissingSearch, and
             check: both songs imported from ONE torrent grab, and the fake downloaded exactly those two

@@ -484,7 +484,7 @@ public static class ContainerStubApp
                 case "get_config":
                     return query["section"] == "categories"
                         ? Results.Json(new { config = new { categories = new object[] { new { name = "*", dir = string.Empty }, new { name = "wondarr", dir = "music" } } } })
-                        : Results.Json(new { config = new { misc = new { complete_dir = UsenetCompleteDir } } });
+                        : Results.Json(new { config = new { misc = new { complete_dir = "Downloads/complete" } } }); // a stock install's relative default; fullstatus has the real folder
 
                 case "addfile":
                     return await AddJobAsync(context).ConfigureAwait(false);

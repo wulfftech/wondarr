@@ -98,7 +98,6 @@ public sealed class SabnzbdClientType : IDownloadClientType
             await _proxy.GetVersionAsync(parsed, cancellationToken).ConfigureAwait(false);
 
             // The version needs no key; the settings do, so this is the key's test.
-            var misc = await _proxy.GetConfigAsync(parsed, "misc", cancellationToken).ConfigureAwait(false);
             var categories = await _proxy.GetConfigAsync(parsed, "categories", cancellationToken).ConfigureAwait(false);
 
             var category = FindCategory(categories, parsed.Category);
@@ -110,7 +109,9 @@ public sealed class SabnzbdClientType : IDownloadClientType
                     $"Create the category '{parsed.Category}' in SABnzbd's settings (Config → Categories); SABnzbd's API cannot create one.");
             }
 
-            var completeDir = Text(misc, "complete_dir");
+            // The status gives the absolute folder SABnzbd really uses; a stock install's misc.complete_dir is
+            // the relative "Downloads/complete", which is only the fallback.
+            var completeDir = await _proxy.GetCompletedDownloadsFolderAsync(parsed, cancellationToken).ConfigureAwait(false);
 
             if (string.IsNullOrWhiteSpace(completeDir))
             {
@@ -118,6 +119,14 @@ public sealed class SabnzbdClientType : IDownloadClientType
             }
 
             var remote = CategoryFolder(completeDir, Text(found, "dir"));
+
+            if (!IsAbsolute(remote))
+            {
+                return new ProviderTestResult(
+                    false,
+                    $"SABnzbd finishes '{parsed.Category}' jobs in {remote}, a relative path, and its status does not give the full one. Set an absolute completed-downloads folder in SABnzbd (Config → Folders).");
+            }
+
             var local = RemotePathMapper.Map(remote, parsed.RemotePathMappings);
 
             if (!Directory.Exists(local))
