@@ -27,7 +27,7 @@ namespace Wondarr.Sources.Tests.Torznab.Searching;
 /// The indexer sources' search (P7-04): the releases asked for, the budget, de-duplication, the file
 /// lists, the matcher's candidates. Every indexer, client and MusicBrainz answer is a fake.
 /// </summary>
-public sealed class IndexerSourceProviderTests
+public sealed partial class IndexerSourceProviderTests
 {
     private const string Recording = "rec-digital-love";
     private const string AlbumRelease = "rel-discovery";
@@ -371,7 +371,9 @@ public sealed class IndexerSourceProviderTests
         DownloadProtocol protocol = DownloadProtocol.Torrent,
         TimeSpan? budget = null,
         string? indexerType = null,
-        string? indexerSettings = null)
+        string? indexerSettings = null,
+        NzbCache? nzbCache = null,
+        ISecretRegistry? secrets = null)
     {
         rows = new Rows(
             [.. Enumerable.Range(1, indexerCount).Select(id => new Indexer
@@ -401,7 +403,9 @@ public sealed class IndexerSourceProviderTests
             Substitute.For<IOptionsMonitor<ImportOptions>>(),
             TimeProvider.System,
             NullLogger<IndexerSourceProvider>.Instance,
-            budget);
+            budget,
+            nzbCache,
+            secrets);
     }
 
     private static IndexerRelease Release(

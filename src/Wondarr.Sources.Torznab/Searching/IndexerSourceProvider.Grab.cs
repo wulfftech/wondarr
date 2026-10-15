@@ -594,11 +594,17 @@ public sealed partial class IndexerSourceProvider
             }
         }
 
-        var download = await _clients.GetClient(indexer)
-            .DownloadAsync(indexer, ToIndexerRelease(release, indexer), cancellationToken)
-            .ConfigureAwait(false);
+        // The search read this post's file list from the same NZB: the indexer already counted that
+        // download against its daily quota, so a second one is spent only when the cache lost it.
+        if (!_nzbCache.TryGet(NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId), out var nzb))
+        {
+            var download = await _clients.GetClient(indexer)
+                .DownloadAsync(indexer, ToIndexerRelease(release, indexer), cancellationToken)
+                .ConfigureAwait(false);
 
-        var nzb = download.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
+            nzb = download.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
+        }
+
         var jobId = await _usenet.AddAsync(client, new UsenetAddRequest(release.Title, nzb, null, Paused: true), cancellationToken).ConfigureAwait(false);
 
         try

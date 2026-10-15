@@ -623,6 +623,39 @@ public sealed class IndexerSourceGrabTests : IDisposable
     }
 
     [Fact]
+    public async Task A_usenet_grab_of_a_post_the_search_read_takes_the_nzb_from_the_cache_without_a_second_download()
+    {
+        var candidate = UsenetCandidate("03 - Digital Love.flac");
+        var cache = new NzbCache(TimeProvider.System);
+        cache.Put(NzbCache.KeyOf(candidate.Release!.IndexerId, candidate.Release.DownloadUrl, candidate.Release.ReleaseId), AlbumNzb());
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: cache);
+
+        var handle = await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        _indexer.Downloads.Should().Be(0, "the indexer counts every NZB download against its daily quota");
+        var job = _usenet.Single();
+        job.AddedPaused.Should().BeTrue();
+        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "Discovery.par2");
+        ContainerGrab.Deserialize(handle.Value).JobId.Should().Be(job.Id);
+    }
+
+    [Fact]
+    public async Task A_usenet_grab_downloads_the_nzb_when_the_cache_does_not_have_that_release()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var candidate = UsenetCandidate("03 - Digital Love.flac");
+        var cache = new NzbCache(TimeProvider.System);
+        cache.Put(NzbCache.KeyOf(candidate.Release!.IndexerId, "https://usenet.example/get/2", candidate.Release.ReleaseId), Nzb(("other.flac", 1)));
+        cache.Put(NzbCache.KeyOf(candidate.Release.IndexerId + 1, candidate.Release.DownloadUrl, candidate.Release.ReleaseId), Nzb(("other.flac", 1)));
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: cache);
+
+        await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        _indexer.Downloads.Should().Be(1);
+        _usenet.Single().Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "Discovery.par2");
+    }
+
+    [Fact]
     public async Task A_finished_post_s_file_is_moved_into_staging_and_the_job_deleted_after_the_last_item()
     {
         _indexer.Download = new IndexerDownload(AlbumNzb(), null);
@@ -845,7 +878,11 @@ public sealed class IndexerSourceGrabTests : IDisposable
         Directory.Delete(_root, recursive: true);
     }
 
-    private IndexerSourceProvider Provider(DownloadProtocol protocol, IIndexerClient? client = null, Microsoft.Extensions.Logging.ILogger<IndexerSourceProvider>? logger = null)
+    private IndexerSourceProvider Provider(
+        DownloadProtocol protocol,
+        IIndexerClient? client = null,
+        Microsoft.Extensions.Logging.ILogger<IndexerSourceProvider>? logger = null,
+        NzbCache? nzbCache = null)
     {
         var import = Substitute.For<IOptionsMonitor<ImportOptions>>();
         import.CurrentValue.Returns(new ImportOptions { ContainerStagingPath = StagingRoot });
@@ -859,7 +896,8 @@ public sealed class IndexerSourceGrabTests : IDisposable
             new DiskOperations(),
             import,
             TimeProvider.System,
-            logger ?? NullLogger<IndexerSourceProvider>.Instance);
+            logger ?? NullLogger<IndexerSourceProvider>.Instance,
+            nzbCache: nzbCache);
     }
 
     /// <summary>A torrent the user added: all five files wanted, in the client already.</summary>
