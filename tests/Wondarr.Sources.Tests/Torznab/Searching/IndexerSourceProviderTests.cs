@@ -201,6 +201,7 @@ public sealed partial class IndexerSourceProviderTests
 
         var candidate = result.Candidates.Should().ContainSingle().Subject;
         candidate.SourceType.Should().Be(SourceTypes.Newznab);
+        candidate.Release!.Song!.SongArtist.Should().Be("Daft Punk", "the matcher is told the song's own artist");
         candidate.RemotePath.Should().Be("03 - Digital Love.flac");
         candidate.BlocklistKey.Should().Be(BlocklistKeys.Usenet("nzb-guid-1", "03 - Digital Love.flac"));
 

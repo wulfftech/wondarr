@@ -28,6 +28,15 @@ public sealed record ContainerFile(int Index, string Path, long Size);
 /// The scene group tag the release name ends with ("-FADA", "-pH"), when it has one. A scene file name often
 /// ends with it, and the scene reading drops it, whatever its case.
 /// </param>
+/// <param name="ReleaseVersionFlags">
+/// The hard version flags the release name carries ("Live.at.Wembley" is live, a "Remixes" album is remixes).
+/// They count as every file's own flags, so a studio song never matches a file of a live release, and a
+/// live song can.
+/// </param>
+/// <param name="SongArtist">
+/// The wanted song's own artist, when known: a second guess at the artist a scene file name leads with, for
+/// the release names whose artist cannot be read back (<c>A-ha-Hunting_High_and_Low</c>).
+/// </param>
 public sealed record ContainerMatchRequest(
     string Title,
     VersionFlags VersionFlags,
@@ -36,7 +45,9 @@ public sealed record ContainerMatchRequest(
     long QualityId,
     bool SixteenBitStated = false,
     string? ReleaseArtist = null,
-    string? ReleaseGroup = null);
+    string? ReleaseGroup = null,
+    VersionFlags ReleaseVersionFlags = VersionFlags.None,
+    string? SongArtist = null);
 
 /// <summary>The file the matcher chose.</summary>
 /// <param name="File">The file.</param>
@@ -177,7 +188,9 @@ public static partial class ContainerMatcher
         VersionFlags songFlags,
         ContainerMatchRequest request)
     {
-        var fileFlags = (parsed.VersionFlags | parsed.PathVersionFlags) & VersionFlagNames.HardFlags;
+        // A live release makes every file in it live: the flags of the name count as the file's own.
+        var releaseFlags = request.ReleaseVersionFlags & VersionFlagNames.HardFlags;
+        var fileFlags = (parsed.VersionFlags | parsed.PathVersionFlags | releaseFlags) & VersionFlagNames.HardFlags;
 
         if (fileFlags == songFlags)
         {
@@ -188,27 +201,51 @@ public static partial class ContainerMatcher
 
             if (similarity >= TitleThreshold)
             {
-                return (parsed, similarity);
+                return (WithReleaseFlags(parsed, releaseFlags), similarity);
             }
         }
 
         // "01-norah_jones-dont_know_why-ph.mp3": the ordinary parser sees one title, hyphens and all.
-        if (SceneFileName.Read(file.Path, request.ReleaseArtist, request.ReleaseGroup) is not { } scene
-            || ((parsed.VersionFlags | scene.Flags | parsed.PathVersionFlags) & VersionFlagNames.HardFlags) != songFlags)
+        if (SceneFileName.Read(file.Path, request.ReleaseArtist, request.SongArtist, request.ReleaseGroup) is not { } scene
+            || ((parsed.VersionFlags | scene.Flags | parsed.PathVersionFlags | releaseFlags) & VersionFlagNames.HardFlags) != songFlags)
         {
             return null;
         }
 
         var sceneSimilarity = TextMatching.Similarity(songTitle, scene.Title);
 
-        return sceneSimilarity < TitleThreshold
-            ? null
-            : (parsed with
+        if (sceneSimilarity < TitleThreshold || CarriesOtherVersionWord(scene.Title, songTitle, songFlags))
+        {
+            return null;
+        }
+
+        return (WithReleaseFlags(
+            parsed with
             {
                 Title = scene.Title,
                 VersionFlags = parsed.VersionFlags | scene.Flags,
                 VersionHints = [.. parsed.VersionHints, .. scene.Hints],
-            }, sceneSimilarity);
+            },
+            releaseFlags), sceneSimilarity);
+    }
+
+    /// <summary>The file's parsed name with the release's version flags added, so the engine sees the file as the live take it is.</summary>
+    private static ParsedName WithReleaseFlags(ParsedName parsed, VersionFlags releaseFlags) =>
+        releaseFlags == VersionFlags.None ? parsed : parsed with { VersionFlags = parsed.VersionFlags | releaseFlags };
+
+    /// <summary>
+    /// Whether a scene title has a word the song's title has not that is a hard version word the song does not
+    /// carry. A long title reaches the similarity threshold with one more word on it ("…_live", "…_remix"),
+    /// and a scene name has no brackets or spaced dashes to tell the version parser so.
+    /// </summary>
+    private static bool CarriesOtherVersionWord(string sceneTitle, string songTitle, VersionFlags songFlags)
+    {
+        var songWords = TextMatching.Normalize(songTitle).Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+
+        return TextMatching.Normalize(sceneTitle)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => !songWords.Contains(word))
+            .Any(word => (VersionWords.FlagsOf(word) & ~songFlags) != VersionFlags.None);
     }
 
     /// <summary>Whether a file's extension is the codec the release claims.</summary>

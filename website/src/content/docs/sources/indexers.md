@@ -17,7 +17,9 @@ A release whose file list does not contain the song is rejected and blocklisted.
 
 File names don't have to be Wondarr's own. Scene names like `01-artist_name-track_title-GRP.flac` (underscores for spaces, hyphens between the fields) match too. Wondarr drops the track number, the release's artist and the release's group tag (the last part of the release name, `GRP` in `Artist-Album-CD-FLAC-2002-GRP`), then compares what's left. Same threshold, same version check (a live or remix file is never the studio song), same size window.
 
-A release whose file list can't be read before the grab (a magnet, a RAR set, obfuscated names) stays a candidate. It scores lower. Wondarr finds the song in it once the client has the file list or SABnzbd has unpacked the post.
+A release whose file list can't be read before the grab (a magnet, a RAR set, obfuscated names) stays a candidate. It scores lower, and its name has to carry the song: it starts with the song's artist, whole (a surname in common doesn't count), and it names the song's album or the song itself. Compilations, soundtracks and various-artists sets are turned away. Wondarr finds the song in it once the client has the file list or SABnzbd has unpacked the post. If it isn't there, the release is blocklisted for that song, what Wondarr added to the client is removed, and the next candidate is tried.
+
+A release name can also say what every track is. `Live.at.Wembley`, `Unplugged`, `The.Remixes`, a `-LIVE` field or a bootleg make every file in it a live (or remix, or demo, or instrumental) take, so a studio song never matches it and a live song can.
 
 ### Usenet download limits
 

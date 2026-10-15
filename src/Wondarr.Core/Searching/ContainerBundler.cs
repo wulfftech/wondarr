@@ -100,7 +100,8 @@ public static class ContainerBundler
                 continue;
             }
 
-            // The grabbed song's request knows the release's artist and group, which a scene file name needs.
+            // The grabbed song's request knows what the release name says (its artist, group and version),
+            // which a scene file name and a live album need; the song's own artist is the bundled song's.
             var match = ContainerMatcher.Find(
                 files,
                 new ContainerMatchRequest(
@@ -111,7 +112,9 @@ public static class ContainerBundler
                     candidate.QualityId,
                     candidate.Release.Song?.SixteenBitStated ?? false,
                     candidate.Release.Song?.ReleaseArtist,
-                    candidate.Release.Song?.ReleaseGroup));
+                    candidate.Release.Song?.ReleaseGroup,
+                    candidate.Release.Song?.ReleaseVersionFlags ?? VersionFlags.None,
+                    song.ArtistCredit));
 
             // Two songs never share a file, and the grabbed song's file is its own.
             if (match is not null && taken.Add(match.File.Index))
@@ -164,7 +167,9 @@ public static class ContainerBundler
                     grabbed.QualityId,
                     release.Song?.SixteenBitStated ?? false,
                     release.Song?.ReleaseArtist,
-                    release.Song?.ReleaseGroup),
+                    release.Song?.ReleaseGroup,
+                    release.Song?.ReleaseVersionFlags ?? VersionFlags.None,
+                    bundled.Song.ArtistCredit),
             },
         };
     }

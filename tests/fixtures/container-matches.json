@@ -304,6 +304,115 @@
         { "path": "16-norah_jones-dont_know_why.flac", "seconds": 186, "kbps": 805 }
       ],
       "expected": null
+    },
+    {
+      "name": "NEGATIVE: a studio song never matches a file of a live release (Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP)",
+      "song": { "title": "Everlong", "flags": [], "trackNo": 4, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Foo Fighters", "group": "GRP", "versionFlags": ["live"] },
+      "files": [
+        { "path": "03-foo_fighters-times_like_these-grp.flac", "seconds": 270, "kbps": 900 },
+        { "path": "04-foo_fighters-everlong-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a live song takes its file from a live release",
+      "song": { "title": "Everlong (Live)", "flags": ["live"], "trackNo": 4, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Foo Fighters", "group": "GRP", "versionFlags": ["live"] },
+      "files": [
+        { "path": "03-foo_fighters-times_like_these-grp.flac", "seconds": 270, "kbps": 900 },
+        { "path": "04-foo_fighters-everlong-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": "04-foo_fighters-everlong-grp.flac",
+      "expectedTitle": "everlong"
+    },
+    {
+      "name": "NEGATIVE: a studio song never matches an ordinary-named file of a live release either",
+      "song": { "title": "Everlong", "flags": [], "trackNo": 4, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Foo Fighters", "group": null, "versionFlags": ["live"] },
+      "files": [
+        { "path": "Foo Fighters - Wembley 2008/04 - Everlong.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a trailing live field is the version, not the release's group, even when the group says so",
+      "song": { "title": "Seven Years", "flags": [], "trackNo": 2, "durationMs": 144000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "Live" },
+      "files": [
+        { "path": "02-norah_jones-seven_years-live.flac", "seconds": 144, "kbps": 780 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a hyphenated artist the release name parsed wrong (A-ha-Hunting_High_and_Low): the song's own artist is the second guess",
+      "song": { "title": "Take On Me", "flags": [], "trackNo": 1, "durationMs": 225000, "artist": "a-ha" },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "A", "group": "GRP" },
+      "files": [
+        { "path": "01-a-ha-take_on_me-grp.flac", "seconds": 225, "kbps": 900 },
+        { "path": "02-a-ha-the_sun_always_shines_on_tv-grp.flac", "seconds": 238, "kbps": 900 }
+      ],
+      "expected": "01-a-ha-take_on_me-grp.flac",
+      "expectedTitle": "take on me"
+    },
+    {
+      "name": "a hyphenated artist with dots the release name parsed wrong (Run-D.M.C.-Raising_Hell)",
+      "song": { "title": "It’s Tricky", "flags": [], "trackNo": 4, "durationMs": 184000, "artist": "Run-D.M.C." },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Run", "group": "GRP" },
+      "files": [
+        { "path": "03-run-d.m.c.-walk_this_way-grp.flac", "seconds": 311, "kbps": 900 },
+        { "path": "04-run-d.m.c.-its_tricky-grp.flac", "seconds": 184, "kbps": 900 }
+      ],
+      "expected": "04-run-d.m.c.-its_tricky-grp.flac",
+      "expectedTitle": "its tricky"
+    },
+    {
+      "name": "a featured artist in the artist field is not part of the artist (feat)",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "GRP" },
+      "files": [
+        { "path": "01-norah_jones_feat_dave_matthews-dont_know_why-grp.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": "01-norah_jones_feat_dave_matthews-dont_know_why-grp.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "a featured artist written ft in the artist field",
+      "song": { "title": "Don’t Know Why", "flags": [], "trackNo": 1, "durationMs": 186000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Norah Jones", "group": "GRP" },
+      "files": [
+        { "path": "01-norah_jones_ft_dave-dont_know_why-grp.flac", "seconds": 186, "kbps": 810 }
+      ],
+      "expected": "01-norah_jones_ft_dave-dont_know_why-grp.flac",
+      "expectedTitle": "dont know why"
+    },
+    {
+      "name": "NEGATIVE: a long title with one more word on it that is a version word (live) is not the studio song",
+      "song": { "title": "Everybody Wants to Rule the World", "flags": [], "trackNo": 1, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Tears for Fears", "group": "GRP" },
+      "files": [
+        { "path": "01-tears_for_fears-everybody_wants_to_rule_the_world_live-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "NEGATIVE: a long title with one more word on it that is a version word (remix) is not the studio song",
+      "song": { "title": "Everybody Wants to Rule the World", "flags": [], "trackNo": 1, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Tears for Fears", "group": "GRP" },
+      "files": [
+        { "path": "01-tears_for_fears-everybody_wants_to_rule_the_world_remix-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a long title with a version word the song carries (a live release, a live song) is the song",
+      "song": { "title": "Everybody Wants to Rule the World (Live)", "flags": ["live"], "trackNo": 1, "durationMs": 250000 },
+      "release": { "quality": "FLAC", "sixteenBitStated": true, "artist": "Tears for Fears", "group": "GRP", "versionFlags": ["live"] },
+      "files": [
+        { "path": "01-tears_for_fears-everybody_wants_to_rule_the_world_live-grp.flac", "seconds": 250, "kbps": 900 }
+      ],
+      "expected": "01-tears_for_fears-everybody_wants_to_rule_the_world_live-grp.flac",
+      "expectedTitle": "everybody wants to rule the world live"
     }
   ]
 }

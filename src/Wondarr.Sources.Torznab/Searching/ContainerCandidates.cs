@@ -47,14 +47,16 @@ public static class ContainerCandidates
         var sourceType = protocol == DownloadProtocol.Torrent ? SourceTypes.Torznab : SourceTypes.Newznab;
         var claimed = ReleaseQualityParser.Parse(release.Title);
         var parsedRelease = ReleaseTitleParser.Parse(release.Title);
-        var releaseFlags = VersionFlagParser.Parse(release.Title).Flags;
+        var releaseVersion = ReleaseNameTags.VersionFlagsOf(release.Title);
+        var releaseFlags = VersionFlagParser.Parse(release.Title).Flags | releaseVersion;
         var song = wanted with
         {
             QualityId = claimed,
             SixteenBitStated = ReleaseQualityParser.StatesSixteenBit(release.Title),
             // What a scene file name is read against (ContainerMatcher): it leads with the artist and may end with the group.
             ReleaseArtist = parsedRelease?.Artist,
-            ReleaseGroup = ReleaseGroup(release.Title),
+            ReleaseGroup = ReleaseNameTags.GroupOf(release.Title),
+            ReleaseVersionFlags = releaseVersion,
         };
 
         if (listing.Files is not { } files)
@@ -73,6 +75,10 @@ public static class ContainerCandidates
                 {
                     Artist = parsedRelease?.Artist,
                     Album = parsedRelease?.Album,
+
+                    // A live or remix release is live or remix throughout: its name says what every file in
+                    // it is, so the engine compares it to the song's flags (a studio song is a mismatch).
+                    VersionFlags = releaseVersion,
                     PathVersionFlags = releaseFlags,
                 },
                 QualityId = claimed,
@@ -114,24 +120,6 @@ public static class ContainerCandidates
             Query = query,
             Release = Release(release, listing, match.File.Index, song),
         };
-    }
-
-    /// <summary>
-    /// The scene group tag a release name ends with: its last hyphen-separated token ("...-2002-FADA" is
-    /// "FADA"). A token with a space in it ("Artist - Album [FLAC]" ends in " Album [FLAC]") is no tag.
-    /// </summary>
-    private static string? ReleaseGroup(string title)
-    {
-        var hyphen = title.LastIndexOf('-');
-
-        if (hyphen < 0)
-        {
-            return null;
-        }
-
-        var token = title[(hyphen + 1)..].Trim();
-
-        return token.Length == 0 || token.Any(char.IsWhiteSpace) ? null : token;
     }
 
     /// <summary>

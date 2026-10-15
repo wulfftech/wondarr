@@ -315,6 +315,37 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         status.State.Should().Be(DownloadState.Failed);
         status.Message.Should().Be("The song is not in this torrent.");
+
+        // This release is not the song, for good: it is blocklisted for the song, and what Wondarr added
+        // of it (the stopped magnet, which has no data) is gone from the client.
+        status.BlocklistCandidate.Should().BeTrue();
+        _torrents.Removals.Should().ContainSingle().Which.Should().Be(("0123456789abcdef0123456789abcdef01234567", true));
+    }
+
+    [Fact]
+    public async Task A_torrent_the_user_added_that_lacks_the_song_is_blocklisted_but_left_as_it_is()
+    {
+        var hash = SeedForeignTorrent(started: true);
+        var provider = Provider(DownloadProtocol.Torrent);
+        var unlisted = TorrentCandidate(fileIndex: null);
+        var candidate = unlisted with
+        {
+            Release = unlisted.Release! with
+            {
+                Files = null,
+                FileIndex = null,
+                InfoHash = hash,
+                Song = new ContainerMatchRequest("Not On This Album", VersionFlags.None, null, null, 1),
+            },
+        };
+        var handle = await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.BlocklistCandidate.Should().BeTrue();
+        _torrents.Removals.Should().BeEmpty("the torrent is the user's");
+        _torrents.Single().Removed.Should().BeFalse();
     }
 
     [Fact]
@@ -643,6 +674,105 @@ public sealed class IndexerSourceGrabTests : IDisposable
         ContainerGrab.Deserialize(handle.Value).JobId.Should().Be(job.Id);
     }
 
+    /// <summary>The ways a trim ends up deleting nothing it should have deleted.</summary>
+    public enum NoOpTrim
+    {
+        /// <summary>SABnzbd cannot list the job's files.</summary>
+        ListingFails,
+
+        /// <summary>SABnzbd lists no files, not even after the retries.</summary>
+        EmptyListing,
+
+        /// <summary>SABnzbd lists files, none of them the wanted ones.</summary>
+        NamesDoNotMatch,
+
+        /// <summary>SABnzbd lists a post that holds an archive: not a clean post.</summary>
+        ListIsNotClean,
+    }
+
+    private static byte[] NzbFor(NoOpTrim path) => path switch
+    {
+        NoOpTrim.NamesDoNotMatch => Nzb(("99 - Something Else.flac", TrackSize), ("Discovery.par2", 40_000L)),
+        NoOpTrim.ListIsNotClean => Nzb(("03 - Digital Love.flac", TrackSize), ("Discovery.part01.rar", 900_000_000L)),
+        _ => AlbumNzb(),
+    };
+
+    [Theory]
+    [InlineData(NoOpTrim.ListingFails)]
+    [InlineData(NoOpTrim.EmptyListing)]
+    [InlineData(NoOpTrim.NamesDoNotMatch)]
+    [InlineData(NoOpTrim.ListIsNotClean)]
+    public async Task A_post_that_could_not_be_trimmed_and_is_over_the_limit_is_removed_and_fails_the_grab(NoOpTrim path)
+    {
+        _indexer.Download = new IndexerDownload(NzbFor(path), null);
+        _usenet.FailGetFiles = path == NoOpTrim.ListingFails;
+        _usenet.HideFiles = path == NoOpTrim.EmptyListing;
+        var provider = Provider(DownloadProtocol.Usenet);
+        var named = UsenetCandidate("03 - Digital Love.flac");
+        var candidate = named with { Release = named.Release! with { Size = 2_000L * 1024 * 1024 } };
+
+        var grab = () => provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        await grab.Should().ThrowAsync<DownloadClientException>()
+            .WithMessage("The post could not be trimmed and is larger than the 1500 MB limit.");
+
+        var job = _usenet.Single();
+        job.Removed.Should().BeTrue("the paused job would sit in SABnzbd for ever");
+        job.RemovedWithFiles.Should().BeTrue();
+        job.Paused.Should().BeTrue("it was never resumed, so nothing was downloaded");
+    }
+
+    [Theory]
+    [InlineData(NoOpTrim.ListingFails)]
+    [InlineData(NoOpTrim.EmptyListing)]
+    [InlineData(NoOpTrim.NamesDoNotMatch)]
+    [InlineData(NoOpTrim.ListIsNotClean)]
+    public async Task A_post_that_could_not_be_trimmed_but_is_under_the_limit_downloads_whole(NoOpTrim path)
+    {
+        _indexer.Download = new IndexerDownload(NzbFor(path), null);
+        _usenet.FailGetFiles = path == NoOpTrim.ListingFails;
+        _usenet.HideFiles = path == NoOpTrim.EmptyListing;
+        var provider = Provider(DownloadProtocol.Usenet);
+        var named = UsenetCandidate("03 - Digital Love.flac");
+        var candidate = named with { Release = named.Release! with { Size = 200L * 1024 * 1024 } };
+
+        var handle = await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        var job = _usenet.Single();
+        job.Removed.Should().BeFalse();
+        job.Paused.Should().BeFalse("it downloads whole, as it always did");
+        ContainerGrab.Deserialize(handle.Value).JobId.Should().Be(job.Id);
+    }
+
+    [Fact]
+    public async Task A_clean_post_that_was_trimmed_is_not_held_to_the_limit()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var named = UsenetCandidate("03 - Digital Love.flac");
+        var candidate = named with { Release = named.Release! with { Size = 2_000L * 1024 * 1024 } };
+
+        await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        var job = _usenet.Single();
+        job.Paused.Should().BeFalse();
+        job.Files.Select(file => file.FileName).Should().Equal("03 - Digital Love.flac", "Discovery.par2");
+    }
+
+    [Fact]
+    public async Task A_post_with_no_named_file_is_not_failed_by_the_trim_check_whatever_its_size()
+    {
+        // An obfuscated or RAR'd post was never going to be trimmed; the search held its size to the limit.
+        _indexer.Download = new IndexerDownload(Nzb(("a1b2c3d4e5f6a7b8c9d0e1f2.rar", 900_000_000L)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var unnamed = UsenetCandidate(null);
+        var candidate = unnamed with { Release = unnamed.Release! with { Size = 2_000L * 1024 * 1024 } };
+
+        await provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        _usenet.Single().Paused.Should().BeFalse();
+    }
+
     [Fact]
     public async Task A_usenet_grab_of_a_post_the_search_read_takes_the_nzb_from_the_cache_without_a_second_download()
     {
@@ -914,6 +1044,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         status.State.Should().Be(DownloadState.Failed);
         _usenet.Single().Removed.Should().BeTrue();
+
+        // The file was named in the listing: the client lost it, the release is not shown to be wrong.
+        status.BlocklistCandidate.Should().BeFalse();
     }
 
     [Fact]
@@ -1018,6 +1151,12 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
         status.State.Should().Be(DownloadState.Failed);
         status.Message.Should().Be("The song is not in the downloaded post.");
+
+        // An unlisted post that was unpacked without the song is not the song's release, for good; the
+        // job and what it downloaded go from SABnzbd.
+        status.BlocklistCandidate.Should().BeTrue();
+        _usenet.Single().Removed.Should().BeTrue();
+        _usenet.Single().RemovedWithFiles.Should().BeTrue();
     }
 
     [Fact]
@@ -1412,6 +1551,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
         /// <summary>Makes listing a job's files fail once the first job is in.</summary>
         public bool FailGetFiles { get; set; }
 
+        /// <summary>Makes every job's file list come back empty, as SABnzbd's does before it has read the NZB.</summary>
+        public bool HideFiles { get; set; }
+
         /// <summary>Makes every add fail the way a refused NZB does.</summary>
         public bool FailAdd { get; set; }
 
@@ -1432,7 +1574,7 @@ public sealed class IndexerSourceGrabTests : IDisposable
         public Task<IReadOnlyList<UsenetFileInfo>> GetFilesAsync(DownloadClient client, string jobId, CancellationToken cancellationToken) =>
             FailGetFiles
                 ? throw new DownloadClientException("SABnzbd did not answer.")
-                : Task.FromResult<IReadOnlyList<UsenetFileInfo>>([.. Find(jobId)!.Files]);
+                : Task.FromResult<IReadOnlyList<UsenetFileInfo>>(HideFiles ? [] : [.. Find(jobId)!.Files]);
 
         public Task DeleteFileAsync(DownloadClient client, string jobId, string fileId, CancellationToken cancellationToken)
         {

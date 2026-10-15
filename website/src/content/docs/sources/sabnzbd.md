@@ -14,7 +14,9 @@ SABnzbd is Wondarr's usenet client. It works with a [Newznab or Prowlarr indexer
 
 A job that was trimmed for one song is not reused for another song whose file the trim removed: Wondarr adds a fresh job instead.
 
-A post that is downloaded whole (a RAR set, obfuscated file names) and is larger than `search.max_container_size_mb` (default 1500) is rejected. A clean post is trimmed to the wanted tracks, so its size does not count against the limit.
+A post that is downloaded whole (a RAR set, obfuscated file names) and is larger than `search.max_container_size_mb` (default 1500) is rejected. A clean post is trimmed to the wanted tracks, so its size does not count against the limit. If the trim fails (SABnzbd would not list the job's files, or listed something else) and the post is larger than the limit, Wondarr removes the job before it downloads anything and the grab fails with "The post could not be trimmed and is larger than the 1500 MB limit." Under the limit it downloads whole.
+
+If the unpacked post turns out not to hold the song, Wondarr blocklists the release for that song, deletes the job and its files, and tries the next candidate. It will not grab that release for that song again.
 
 ## Create the category first
 

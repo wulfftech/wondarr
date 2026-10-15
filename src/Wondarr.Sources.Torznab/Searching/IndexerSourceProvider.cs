@@ -11,6 +11,7 @@ using Wondarr.Core.Logging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Organizer;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
@@ -61,6 +62,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     private readonly TimeSpan _budget;
     private readonly NzbCache _nzbCache;
     private readonly ISecretRegistry? _secrets;
+    private readonly IOptionsMonitor<SearchOptions>? _search;
 
     /// <summary>Initialises a new instance of the <see cref="IndexerSourceProvider"/> class.</summary>
     /// <param name="protocol">Torrents (Torznab) or usenet (Newznab).</param>
@@ -84,6 +86,10 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     /// Removes the API keys it knows from what an indexer says about its limit; only the pattern
     /// based cleansing when null.
     /// </param>
+    /// <param name="search">
+    /// The search settings; <c>search.max_container_size_mb</c> is the largest post a grab downloads whole
+    /// when it could not be trimmed. The default limit when null.
+    /// </param>
     public IndexerSourceProvider(
         DownloadProtocol protocol,
         IServiceScopeFactory scopes,
@@ -96,7 +102,8 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         ILogger<IndexerSourceProvider> logger,
         TimeSpan? budget = null,
         NzbCache? nzbCache = null,
-        ISecretRegistry? secrets = null)
+        ISecretRegistry? secrets = null,
+        IOptionsMonitor<SearchOptions>? search = null)
     {
         ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(clients);
@@ -119,7 +126,11 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         _budget = budget ?? DefaultBudget;
         _nzbCache = nzbCache ?? new NzbCache(time);
         _secrets = secrets;
+        _search = search;
     }
+
+    /// <summary>The largest usenet post (bytes) worth downloading whole; <c>search.max_container_size_mb</c>.</summary>
+    private long MaxContainerBytes => (_search?.CurrentValue.MaxContainerSizeMb ?? new SearchOptions().MaxContainerSizeMb) * 1024L * 1024L;
 
     /// <inheritdoc />
     public string SourceType => _protocol == DownloadProtocol.Torrent ? SourceTypes.Torznab : SourceTypes.Newznab;
@@ -223,7 +234,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                 var candidate = ContainerCandidates.Build(
                     _protocol,
                     container,
-                    new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, 1),
+                    new ContainerMatchRequest(request.Title, request.VersionFlags, target.TrackNo, request.DurationMs, 1, SongArtist: request.ArtistCredit),
                     text,
                     _time.GetUtcNow());
 

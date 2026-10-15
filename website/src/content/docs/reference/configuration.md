@@ -84,7 +84,7 @@ The `soulseek.search` limits are Soulseek's own, and Wondarr will not accept val
 | `max_active_downloads` | `3` | Downloads in flight at once (1 to 5). |
 | `slot_wait_minutes` | `120` | How long a search that found a candidate waits for a free download slot (1 to 1440). |
 | `backoff_hours` | `[1, 6, 24, 72, 168]` | Wait before a song that found nothing is searched again. |
-| `max_container_size_mb` | `1500` | Largest usenet post downloaded whole (a RAR set or obfuscated names). A clean post is trimmed to the wanted tracks and is not held to it. Torrents are not limited. |
+| `max_container_size_mb` | `1500` | Largest usenet post downloaded whole (a RAR set, obfuscated names, or a clean post SABnzbd could not trim). A post that is trimmed to the wanted tracks is not held to it. Torrents are not limited. |
 
 ## import
 

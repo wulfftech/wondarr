@@ -57,6 +57,55 @@ public sealed class ContainerBundlerSceneNameTests
         (await ContainerBundler.FindAsync(context, alpha, candidate, Token)).Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_live_release_bundles_its_live_songs_and_leaves_the_studio_ones_out()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var alpha = await host.SeedSongAsync("Alpha (Live)", versionFlags: ["live"]);
+        var artist = await ArtistOfAsync(host, alpha);
+        await host.SeedSongAsync("Gamma", artistId: artist);
+        var delta = await host.SeedSongAsync("Delta (Live)", versionFlags: ["live"], artistId: artist);
+        ContainerFile[] files =
+        [
+            new(0, "01-aphex_twin-alpha-grp.flac", SceneSize),
+            new(1, "03-aphex_twin-gamma-grp.flac", SceneSize),
+            new(2, "04-aphex_twin-delta-grp.flac", SceneSize),
+        ];
+        var candidate = SceneCandidate("Aphex Twin", "GRP", files, VersionFlags.Live, VersionFlags.Live);
+
+        await using var context = host.Database.CreateContext(host.Time);
+
+        var found = await ContainerBundler.FindAsync(context, alpha, candidate, Token);
+
+        found.Should().ContainSingle("the live release holds Delta live; Gamma is a studio song").Which.Song.Id.Should().Be(delta);
+    }
+
+    [Fact]
+    public async Task A_hyphenated_artist_the_release_name_got_wrong_bundles_through_the_partner_songs_own_artist()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var alpha = await host.SeedSongAsync("Alpha");
+        var gamma = await host.SeedSongAsync("Gamma", artistId: await ArtistOfAsync(host, alpha));
+        ContainerFile[] files =
+        [
+            new(0, "01-aphex-twin-alpha-grp.flac", SceneSize),
+            new(1, "03-aphex-twin-gamma-grp.flac", SceneSize),
+        ];
+
+        // The release name parsed the artist as "Aphex"; the song's credit is "Aphex Twin".
+        var candidate = SceneCandidate("Aphex", "GRP", files);
+
+        await using var context = host.Database.CreateContext(host.Time);
+
+        var found = await ContainerBundler.FindAsync(context, alpha, candidate, Token);
+
+        found.Should().ContainSingle().Which.Song.Id.Should().Be(gamma);
+        ContainerBundler.CandidateFor(candidate, found[0]).Release!.Song!.SongArtist.Should().Be("Aphex Twin");
+    }
+
+    /// <summary>200 s at about 900 kbps.</summary>
+    private const long SceneSize = 200 * 900 * 1000L / 8;
+
     private static async Task<long> ArtistOfAsync(SearchTestHost host, long songId)
     {
         await using var context = host.Database.CreateContext(host.Time);
@@ -65,21 +114,27 @@ public sealed class ContainerBundlerSceneNameTests
     }
 
     /// <summary>A clean FLAC post named the scene way, grabbed for track one.</summary>
-    private static Candidate SceneCandidate(string? releaseArtist, string? releaseGroup)
-    {
-        // 200 s at about 900 kbps each.
-        const long size = 200 * 900 * 1000L / 8;
-        ContainerFile[] files =
-        [
-            new(0, "01-aphex_twin-alpha-grp.flac", size),
-            new(1, "02-aphex_twin-beta-grp.flac", size),
-            new(2, "03-aphex_twin-gamma-grp.flac", size),
-        ];
+    private static Candidate SceneCandidate(string? releaseArtist, string? releaseGroup) =>
+        SceneCandidate(
+            releaseArtist,
+            releaseGroup,
+            [
+                new(0, "01-aphex_twin-alpha-grp.flac", SceneSize),
+                new(1, "02-aphex_twin-beta-grp.flac", SceneSize),
+                new(2, "03-aphex_twin-gamma-grp.flac", SceneSize),
+            ]);
 
-        return SearchTestHost.Candidate("01-aphex_twin-alpha-grp.flac") with
+    private static Candidate SceneCandidate(
+        string? releaseArtist,
+        string? releaseGroup,
+        ContainerFile[] files,
+        VersionFlags songFlags = VersionFlags.None,
+        VersionFlags releaseFlags = VersionFlags.None)
+    {
+        return SearchTestHost.Candidate(files[0].Path) with
         {
             Container = CandidateContainer.AlbumContainer,
-            BlocklistKey = BlocklistKeys.Torrent(Hash, "01-aphex_twin-alpha-grp.flac"),
+            BlocklistKey = BlocklistKeys.Torrent(Hash, files[0].Path),
             Release = new ContainerRelease
             {
                 IndexerId = 1,
@@ -89,7 +144,7 @@ public sealed class ContainerBundlerSceneNameTests
                 InfoHash = Hash,
                 FileIndex = 0,
                 Files = files,
-                Song = new ContainerMatchRequest("Alpha", VersionFlags.None, null, 200_000, 36, true, releaseArtist, releaseGroup),
+                Song = new ContainerMatchRequest("Alpha", songFlags, null, 200_000, 36, true, releaseArtist, releaseGroup, releaseFlags),
             },
         };
     }

@@ -121,7 +121,7 @@ public sealed class SceneNamedPostTests
         candidate.Release!.FileIndex.Should().BeNull();
         candidate.Availability.FileListKnown.Should().BeFalse();
 
-        var context = Context("Xtal", "Aphex Twin") with { MaxContainerSizeBytes = postSize + 1 };
+        var context = Context("Xtal", "Aphex Twin") with { AlbumTitle = "Selected Ambient Works 85-92", MaxContainerSizeBytes = postSize + 1 };
         var accepted = new DecisionEngine().Evaluate(context, [candidate]).Single();
 
         accepted.Rejections.Select(rejection => rejection.Reason).Should().NotContain(RejectionReason.NotAudio);
@@ -131,6 +131,26 @@ public sealed class SceneNamedPostTests
         var tooLarge = new DecisionEngine().Evaluate(context with { MaxContainerSizeBytes = postSize - 1 }, [candidate]).Single();
 
         tooLarge.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.ContainerTooLarge);
+    }
+
+    [Fact]
+    public void A_live_release_with_an_unknown_file_list_is_turned_away_for_the_studio_song_and_taken_for_a_live_one()
+    {
+        const string release = "Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP";
+        var engine = new DecisionEngine();
+        var studio = Build(release, "rar-album.nzb", Wanted("Everlong", null))!;
+        var live = Build(release, "rar-album.nzb", Wanted("Everlong (Live)", null))!;
+
+        // The studio song's album is another one; its title is not in the name either, so identity alone
+        // turns it away, and the version says why a live album is never the studio recording.
+        var studioDecision = engine.Evaluate(Context("Everlong", "Foo Fighters") with { AlbumTitle = "The Colour and the Shape" }, [studio]).Single();
+        studioDecision.Accepted.Should().BeFalse();
+        studioDecision.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.VersionMismatch);
+
+        var liveContext = Context("Everlong (Live)", "Foo Fighters") with { AlbumTitle = "Live at Wembley", SongFlags = VersionFlags.Live };
+        var liveDecision = engine.Evaluate(liveContext, [live]).Single();
+        liveDecision.Rejections.Select(rejection => rejection.Reason).Should().NotContain(RejectionReason.VersionMismatch);
+        liveDecision.Accepted.Should().BeTrue();
     }
 
     [Fact]

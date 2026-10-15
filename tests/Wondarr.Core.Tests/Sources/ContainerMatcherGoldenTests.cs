@@ -49,7 +49,9 @@ public class ContainerMatcherGoldenTests
             quality.Id,
             testCase.Release.SixteenBitStated,
             testCase.Release.Artist,
-            testCase.Release.Group);
+            testCase.Release.Group,
+            VersionFlagNames.FromNames(testCase.Release.VersionFlags ?? []),
+            testCase.Song.Artist);
 
         var match = ContainerMatcher.Find(files, request);
 
@@ -94,9 +96,9 @@ public class ContainerMatcherGoldenTests
         string? Expected,
         string? ExpectedTitle = null);
 
-    private sealed record SongSpec(string Title, List<string> Flags, int? TrackNo, int? DurationMs);
+    private sealed record SongSpec(string Title, List<string> Flags, int? TrackNo, int? DurationMs, string? Artist = null);
 
-    private sealed record ReleaseSpec(string Quality, bool SixteenBitStated, string? Artist, string? Group);
+    private sealed record ReleaseSpec(string Quality, bool SixteenBitStated, string? Artist, string? Group, List<string>? VersionFlags = null);
 
     private sealed record FileSpec(string Path, long? Size = null, int? Seconds = null, int? Kbps = null);
 }

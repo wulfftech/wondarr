@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Wondarr.Core.Blocklisting;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
@@ -141,6 +142,73 @@ public sealed class QueueTrackerTests
         await host.Tracker.RunCycleAsync(CancellationToken.None);
 
         await host.ShouldHaveFailedAsync(seed, "Peer did not respond");
+    }
+
+    [Fact]
+    public async Task A_container_that_is_not_the_song_is_blocklisted_and_a_run_with_nothing_left_stops_counting_as_a_grab()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        host.SearchService.Next = null;
+        host.Source.SourceType = SourceTypes.Newznab;
+        var seed = await host.SeedAsync(options => options.SourceType = SourceTypes.Newznab);
+        await host.SetRunOutcomeAsync(seed.SearchRunId, SearchOutcome.Grabbed);
+        host.Source.Status = new DownloadStatus(
+            DownloadState.Failed, 0, 0, Message: "The song is not in the downloaded post.", BlocklistCandidate: true);
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        var item = await host.ItemAsync(seed.QueueItemId);
+        item.State.Should().Be(QueueItemState.Failed);
+
+        // Blocklisted for this song, for good, with the reason the user reads.
+        var blocklist = (await host.BlocklistAsync()).Should().ContainSingle().Subject;
+        blocklist.SongId.Should().Be(seed.SongId);
+        blocklist.SourceType.Should().Be(SourceTypes.Newznab);
+        blocklist.BlocklistKey.Should().Be(await host.CandidateKeyAsync(seed.CandidateId));
+        blocklist.Reason.Should().Be("The song is not in the downloaded post.");
+        blocklist.ExpiresAt.Should().BeNull();
+
+        // A second search skips it: the search reads exactly these keys before it judges anything.
+        (await host.ActiveBlocklistKeysAsync(SourceTypes.Newznab, seed.SongId)).Should().Contain(blocklist.BlocklistKey);
+
+        // The one grab the run made did not find the song, and nothing else is left to try: a fruitless run,
+        // not a success that would reset the song's backoff to its shortest step.
+        var run = await host.SearchRunAsync(seed.SearchRunId);
+        run.Outcome.Should().Be(SearchOutcome.NoAcceptableCandidate);
+        run.Message.Should().Contain("The song is not in the downloaded post.");
+    }
+
+    [Fact]
+    public async Task A_run_that_grabbed_a_next_candidate_after_a_container_that_was_not_the_song_is_still_a_grab()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        host.Source.SourceType = SourceTypes.Newznab;
+        var seed = await host.SeedAsync(options => options.SourceType = SourceTypes.Newznab);
+        await host.SetRunOutcomeAsync(seed.SearchRunId, SearchOutcome.Grabbed);
+        host.Source.Status = new DownloadStatus(
+            DownloadState.Failed, 0, 0, Message: "The song is not in this torrent.", BlocklistCandidate: true);
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        (await host.BlocklistAsync()).Should().ContainSingle();
+        host.SearchService.Grabs.Should().Equal((seed.SearchRunId, 2));
+        (await host.SearchRunAsync(seed.SearchRunId)).Outcome.Should().Be(SearchOutcome.Grabbed, "the next candidate is on its way");
+    }
+
+    [Fact]
+    public async Task A_failure_that_is_the_transfers_and_not_the_candidates_blocklists_nothing_and_leaves_the_run_a_grab()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        host.SearchService.Next = null;
+        host.Source.SourceType = SourceTypes.Newznab;
+        var seed = await host.SeedAsync(options => options.SourceType = SourceTypes.Newznab);
+        await host.SetRunOutcomeAsync(seed.SearchRunId, SearchOutcome.Grabbed);
+        host.Source.Status = new DownloadStatus(DownloadState.Failed, 0, 0, Message: "Repair failed");
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        (await host.BlocklistAsync()).Should().BeEmpty();
+        (await host.SearchRunAsync(seed.SearchRunId)).Outcome.Should().Be(SearchOutcome.Grabbed);
     }
 
     [Fact]
@@ -660,6 +728,7 @@ internal sealed class QueueTestHost : IAsyncDisposable
         services.AddScoped<IQueueService, QueueService>();
         services.AddScoped<IQueueActions, QueueActions>();
         services.AddScoped<ISoulseekUserService, SoulseekUserService>();
+        services.AddScoped<IBlocklistService, BlocklistService>();
         services.AddSingleton<QueueTracker>();
         services.AddSingleton<IQueueTracker>(provider => provider.GetRequiredService<QueueTracker>());
 
@@ -894,6 +963,48 @@ internal sealed class QueueTestHost : IAsyncDisposable
         await using var context = _database.CreateContext(Time);
 
         return await context.Blocklist.AsNoTracking().ToListAsync();
+    }
+
+    /// <summary>The blocklist key a candidate row carries.</summary>
+    /// <param name="candidateId">The candidate's id.</param>
+    public async Task<string> CandidateKeyAsync(long candidateId)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        return (await context.Candidates.AsNoTracking().SingleAsync(candidate => candidate.Id == candidateId)).BlocklistKey;
+    }
+
+    /// <summary>One search run, read back.</summary>
+    /// <param name="searchRunId">The run's id.</param>
+    public async Task<SearchRun> SearchRunAsync(long searchRunId)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        return await context.SearchRuns.AsNoTracking().SingleAsync(run => run.Id == searchRunId);
+    }
+
+    /// <summary>Gives a seeded run the outcome its search ended with.</summary>
+    /// <param name="searchRunId">The run's id.</param>
+    /// <param name="outcome">How the run ended.</param>
+    public async Task SetRunOutcomeAsync(long searchRunId, SearchOutcome outcome)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var run = await context.SearchRuns.SingleAsync(entry => entry.Id == searchRunId);
+        run.Outcome = outcome;
+        run.Message = "Grabbed candidate.";
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>The keys a search for this song reads as blocked, as the search service asks for them.</summary>
+    /// <param name="sourceType">The source the keys belong to.</param>
+    /// <param name="songId">The song being searched for.</param>
+    public async Task<IReadOnlySet<string>> ActiveBlocklistKeysAsync(string sourceType, long songId)
+    {
+        await using var scope = _services.CreateAsyncScope();
+
+        return await scope.ServiceProvider.GetRequiredService<IBlocklistService>()
+            .GetActiveKeysAsync(sourceType, songId, CancellationToken.None);
     }
 
     /// <summary>The peer rows, keyed by username.</summary>

@@ -321,13 +321,73 @@ public class DecisionEngineTests
         var noSeeders = UnlistedContainer(SourceTypes.Torznab) with { Availability = new CandidateAvailability(Seeders: 0) };
         var tooLarge = UnlistedContainer(SourceTypes.Newznab, size: 2_000L * 1024 * 1024);
 
-        Judge(blocklisted, UnlistedContainer(SourceTypes.Newznab)).Rejections
-            .Should().Contain(rejection => rejection.Reason == RejectionReason.Blocklisted);
-        Judge(Context(), unknownQuality).Rejections
-            .Should().Contain(rejection => rejection.Reason == RejectionReason.FormatNotAllowed);
-        Judge(Context(), noSeeders).Rejections
-            .Should().Contain(rejection => rejection.Reason == RejectionReason.NoSeeders);
-        Judge(Context(), tooLarge).Accepted.Should().BeFalse();
+        // Each one fails its own rule and is not turned away as not audio.
+        var blocklistedDecision = Judge(blocklisted, UnlistedContainer(SourceTypes.Newznab));
+        blocklistedDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.Blocklisted);
+
+        var unknownQualityDecision = Judge(Context(), unknownQuality);
+        unknownQualityDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.FormatNotAllowed);
+
+        var noSeedersDecision = Judge(Context(), noSeeders);
+        noSeedersDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.NoSeeders);
+
+        var tooLargeDecision = Judge(Context(), tooLarge);
+        tooLargeDecision.Rejections.Select(rejection => rejection.Reason).Should().Equal(RejectionReason.ContainerTooLarge);
+    }
+
+    [Theory]
+    [InlineData("Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "Come Away with Me")]
+    [InlineData("Norah_Jones-Come_Away_With_Me-JAPANESE_RETAIL-2002-pH", "Norah Jones", "Come Away With Me")]
+    [InlineData("Norah Jones - Come Away With Me (2002) [FLAC]", "Norah Jones", "Come Away With Me")]
+    [InlineData("Norah.Jones-Dont.Know.Why-SINGLE-FLAC-2002-GRP", "Norah Jones", "Dont Know Why")]
+    public void An_unknown_file_list_of_the_songs_artist_and_album_is_accepted(string title, string artist, string album)
+    {
+        var decision = Judge(NorahContext(), UnlistedContainer(SourceTypes.Newznab, title, artist, album));
+
+        decision.Rejections.Should().BeEmpty();
+        decision.Accepted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_hyphenated_artist_the_release_name_parsed_wrong_is_still_the_artist_when_the_name_starts_with_it()
+    {
+        var context = NorahContext() with { SongTitle = "Take On Me", MainArtists = ["a-ha"], AlbumTitle = "Hunting High and Low" };
+        var candidate = UnlistedContainer(SourceTypes.Newznab, "A-ha-Hunting_High_and_Low-CD-FLAC-1985-GRP", "A", "ha-Hunting High and Low");
+
+        var decision = Judge(context, candidate);
+
+        decision.Rejections.Should().BeEmpty();
+        decision.Accepted.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Tom.Jones-Greatest.Hits-CD-FLAC-1999-GRP", "Tom Jones", "Greatest Hits", RejectionReason.ArtistMismatch)]
+    [InlineData("Jones-Whatever-CD-FLAC-2002-GRP", "Jones", "Whatever", RejectionReason.ArtistMismatch)]
+    [InlineData("Norah.Jones.and.Friends-Come.Away.with.Me-CD-FLAC-2002-GRP", "Norah Jones and Friends", "Come Away with Me", RejectionReason.ArtistMismatch)]
+    [InlineData("VA-Now.Thats.What.I.Call.Music-2CD-FLAC-2002-GRP", "VA", "Now Thats What I Call Music", RejectionReason.ArtistMismatch)]
+    [InlineData("Various.Artists-Come.Away.with.Me-CD-FLAC-2002-GRP", "Various Artists", "Come Away with Me", RejectionReason.ArtistMismatch)]
+    [InlineData("Norah.Jones-Dont.Know.Why-OST-FLAC-2002-GRP", "Norah Jones", "Dont Know Why", RejectionReason.ArtistMismatch)]
+    [InlineData("Norah.Jones-Feels.Like.Home-CD-FLAC-2004-GRP", "Norah Jones", "Feels Like Home", RejectionReason.TitleMismatch)]
+    [InlineData("Norah.Jones-Discography-1997-2013-FLAC-GRP", "Norah Jones", "Discography", RejectionReason.TitleMismatch)]
+    public void An_unknown_file_list_that_is_not_the_songs_artist_and_album_is_rejected(
+        string title,
+        string artist,
+        string album,
+        RejectionReason expected)
+    {
+        var decision = Judge(NorahContext(), UnlistedContainer(SourceTypes.Newznab, title, artist, album));
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(expected);
+    }
+
+    [Fact]
+    public void An_unknown_file_list_is_judged_the_same_for_a_torrent()
+    {
+        Judge(NorahContext(), UnlistedContainer(SourceTypes.Torznab, "Tom.Jones-Greatest.Hits-CD-FLAC-1999-GRP", "Tom Jones", "Greatest Hits"))
+            .Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
+        Judge(NorahContext(), UnlistedContainer(SourceTypes.Torznab, "Norah.Jones-Come.Away.with.Me-CD-FLAC-2002-FADA", "Norah Jones", "Come Away with Me"))
+            .Accepted.Should().BeTrue();
     }
 
     [Fact]
@@ -676,6 +736,26 @@ public class DecisionEngineTests
             ReleaseId = "guid-1",
             Size = size,
         },
+    };
+
+    /// <summary>A release with an unknown file list, named as an indexer lists it and parsed as the search parses it.</summary>
+    private static Candidate UnlistedContainer(string sourceType, string title, string artist, string album) =>
+        UnlistedContainer(sourceType) with
+        {
+            DisplayName = title,
+            RemotePath = title,
+            Parsed = ParsedName.Empty with { Artist = artist, Album = album },
+            Release = UnlistedContainer(sourceType).Release! with { Title = title },
+        };
+
+    /// <summary>The song of "Come Away with Me": Norah Jones, "Don’t Know Why".</summary>
+    private static DecisionContext NorahContext() => Context() with
+    {
+        SongTitle = "Don’t Know Why",
+        MainArtists = ["Norah Jones"],
+        SongDurationMs = 186_000,
+        AlbumTitle = "Come Away with Me",
+        TrackNo = 1,
     };
 
     private static CandidateDecision Judge(DecisionContext context, Candidate candidate) =>

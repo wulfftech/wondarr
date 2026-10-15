@@ -57,6 +57,9 @@ public sealed class DecisionEngine
     /// </summary>
     public const double TitleFloor = 0.6;
 
+    /// <summary>How close a release's album must be to the song's album for a release with an unknown file list.</summary>
+    private const double AlbumThreshold = 0.85;
+
     /// <summary>Below this a file cannot be the song, whatever the source claims.</summary>
     private const long MinimumSizeBytes = 500_000;
 
@@ -271,7 +274,16 @@ public sealed class DecisionEngine
         AddDurationRejection(context, candidate, rejections);
         AddVersionRejection(context, candidate, rejections);
         AddTitleRejection(context, candidate, similarity, rejections);
-        AddArtistRejection(context, candidate, similarity, rejections);
+
+        if (IsUnlistedContainer(candidate))
+        {
+            AddUnlistedIdentityRejection(context, candidate, rejections);
+        }
+        else
+        {
+            AddArtistRejection(context, candidate, similarity, rejections);
+        }
+
         AddSizeRejection(context, candidate, quality, rejections);
         AddUntaggableRejection(context, candidate, rejections);
 
@@ -958,6 +970,105 @@ public sealed class DecisionEngine
         candidate.SourceType is SourceTypes.Torznab or SourceTypes.Newznab
         && candidate.Container == CandidateContainer.AlbumContainer
         && candidate.Release is { FileIndex: null };
+
+    /// <summary>
+    /// Identity for a release whose file list is unknown. No file name has been seen, so the release name is
+    /// all there is, and it must carry the song: it starts with the song's artist, whole (not a surname in
+    /// common, not a word of it), and it names the song's album or the song itself. A compilation, a
+    /// soundtrack or a various-artists set is turned away outright, since it could hold anyone's song. Such a
+    /// release is a whole-album download; grabbing the wrong one costs the album, so the bar is high.
+    /// </summary>
+    private static void AddUnlistedIdentityRejection(DecisionContext context, Candidate candidate, List<Rejection> rejections)
+    {
+        var name = candidate.Release?.Title ?? candidate.RemotePath;
+
+        if (ContainsCompilationMarker(name))
+        {
+            rejections.Add(new Rejection(
+                RejectionReason.ArtistMismatch,
+                "Artist mismatch: a compilation or soundtrack release whose file list is unknown could hold anyone's song."));
+
+            return;
+        }
+
+        if (context.MainArtists.Count > 0
+            && !context.MainArtists.Any(artist => ReleaseNamesArtist(artist, name, candidate.Parsed.Artist)))
+        {
+            rejections.Add(new Rejection(
+                RejectionReason.ArtistMismatch,
+                "Artist mismatch: the release name does not start with the song's artist, in full."));
+
+            return;
+        }
+
+        if (!ReleaseNamesAlbumOrTitle(context, name, candidate.Parsed.Album))
+        {
+            rejections.Add(new Rejection(
+                RejectionReason.TitleMismatch,
+                "Title mismatch: the release names neither the song's album nor the song, and its file list is unknown."));
+        }
+    }
+
+    /// <summary>
+    /// Whether a release name starts with the artist as a whole: its parsed artist is the artist, or the text
+    /// before some hyphen is (<c>A-ha-Hunting_High_and_Low</c> parses the artist as "A", but "A-ha" is the text
+    /// before the second hyphen).
+    /// </summary>
+    private static bool ReleaseNamesArtist(string artist, string releaseName, string? parsedArtist)
+    {
+        var wanted = SceneFileName.ArtistKey(artist);
+
+        // An artist with no letters or digits (a name made of punctuation) cannot be compared.
+        if (wanted.Length == 0 || (parsedArtist is not null && SceneFileName.ArtistKey(parsedArtist) == wanted))
+        {
+            return true;
+        }
+
+        for (var index = releaseName.IndexOf('-', StringComparison.Ordinal); index > 0; index = releaseName.IndexOf('-', index + 1))
+        {
+            if (SceneFileName.ArtistKey(releaseName[..index]) == wanted)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a release name is the song's album (a hyphen-separated field of it, or a run of up to four,
+    /// or its parsed album, as close as <see cref="AlbumThreshold"/>) or holds the song's title as a run of
+    /// whole words.
+    /// </summary>
+    private static bool ReleaseNamesAlbumOrTitle(DecisionContext context, string releaseName, string? parsedAlbum)
+    {
+        if (!string.IsNullOrWhiteSpace(context.AlbumTitle))
+        {
+            if (!string.IsNullOrWhiteSpace(parsedAlbum)
+                && TextMatching.Similarity(context.AlbumTitle, parsedAlbum) >= AlbumThreshold)
+            {
+                return true;
+            }
+
+            var fields = releaseName.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            for (var start = 0; start < fields.Length; start++)
+            {
+                for (var length = 1; length <= 4 && start + length <= fields.Length; length++)
+                {
+                    if (TextMatching.Similarity(context.AlbumTitle, string.Join(' ', fields.Skip(start).Take(length))) >= AlbumThreshold)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        var title = TextMatching.Normalize(VersionFlagParser.Parse(context.SongTitle).BaseTitle);
+
+        return title.Length > 0
+            && string.Concat(" ", TextMatching.Normalize(releaseName), " ").Contains(string.Concat(" ", title, " "), StringComparison.Ordinal);
+    }
 
     private static bool IsLossless(DecisionContext context, long qualityId) =>
         context.Qualities.TryGetValue(qualityId, out var quality) && quality.Lossless;

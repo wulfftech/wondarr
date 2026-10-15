@@ -81,6 +81,11 @@ public enum DownloadState
 /// <param name="PlaceInQueue">Position in the peer's queue, when remotely queued and known.</param>
 /// <param name="Message">Human-readable detail (the source's error text on failure).</param>
 /// <param name="CompletedPath">Local path of the finished file (only when <see cref="DownloadState.Completed"/>).</param>
+/// <param name="BlocklistCandidate">
+/// Only for <see cref="DownloadState.Failed"/>: the candidate itself is certainly not the song (a container
+/// that turned out not to hold it), as opposed to a transfer that went wrong. The queue blocklists it for the
+/// song, with <paramref name="Message"/> as the reason, so no later search grabs it again.
+/// </param>
 public sealed record DownloadStatus(
     DownloadState State,
     double Progress,
@@ -88,7 +93,8 @@ public sealed record DownloadStatus(
     long? SizeBytes = null,
     int? PlaceInQueue = null,
     string? Message = null,
-    string? CompletedPath = null);
+    string? CompletedPath = null,
+    bool BlocklistCandidate = false);
 
 /// <summary>
 /// One source type (ARCHITECTURE §5.3). Implementations are singletons and must be safe for concurrent

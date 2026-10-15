@@ -96,6 +96,81 @@ public sealed class ContainerCandidatesTests
         song.ReleaseGroup.Should().Be("FADA");
     }
 
+    /// <summary>250 s at about 900 kbps.</summary>
+    private const long FlacTrack = 250 * 900 * 1000L / 8;
+
+    [Fact]
+    public void A_live_release_yields_a_live_song_and_never_the_studio_one()
+    {
+        var listing = Listing(
+            "Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP",
+            [
+                new ContainerFile(0, "03-foo_fighters-times_like_these-grp.flac", FlacTrack),
+                new ContainerFile(1, "04-foo_fighters-everlong-grp.flac", FlacTrack),
+            ]);
+        var studio = new ContainerMatchRequest("Everlong", VersionFlags.None, 4, 250_000, 1, SongArtist: "Foo Fighters");
+        var live = new ContainerMatchRequest("Everlong (Live)", VersionFlags.Live, 4, 250_000, 1, SongArtist: "Foo Fighters");
+
+        ContainerCandidates.Build(DownloadProtocol.Usenet, listing, studio, "q", Now).Should().BeNull();
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Usenet, listing, live, "q", Now);
+
+        candidate.Should().NotBeNull();
+        candidate!.RemotePath.Should().Be("04-foo_fighters-everlong-grp.flac");
+        candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.Live);
+        candidate.Parsed.VersionFlags.Should().HaveFlag(VersionFlags.Live, "the engine must see a live take for a live song");
+    }
+
+    [Fact]
+    public void A_live_release_with_an_unknown_file_list_carries_its_version_in_the_path_flags_and_the_song_request()
+    {
+        var listing = Listing("Foo.Fighters-Live.at.Wembley-2CD-FLAC-2008-GRP", null);
+        var studio = new ContainerMatchRequest("Everlong", VersionFlags.None, 4, 250_000, 1);
+
+        var candidate = ContainerCandidates.Build(DownloadProtocol.Usenet, listing, studio, "q", Now)!;
+
+        candidate.Parsed.PathVersionFlags.Should().HaveFlag(VersionFlags.Live);
+        candidate.Parsed.VersionFlags.Should().Be(VersionFlags.Live, "the engine rejects it for a studio song and takes it for a live one");
+        candidate.Release!.Song!.ReleaseVersionFlags.Should().Be(VersionFlags.Live);
+    }
+
+    [Theory]
+    [InlineData("A-ha-Hunting_High_and_Low-CD-FLAC-1985-GRP", "Take On Me", "a-ha", "01-a-ha-take_on_me-grp.flac")]
+    [InlineData("Run-D.M.C.-Raising_Hell-CD-FLAC-1986-GRP", "It’s Tricky", "Run-D.M.C.", "04-run-d.m.c.-its_tricky-grp.flac")]
+    public void A_scene_release_with_a_hyphenated_artist_finds_its_track_through_the_songs_artist(
+        string release,
+        string song,
+        string artist,
+        string expected)
+    {
+        var listing = Listing(
+            release,
+            [
+                new ContainerFile(0, "02-a-ha-the_sun_always_shines_on_tv-grp.flac", FlacTrack),
+                new ContainerFile(1, "03-run-d.m.c.-walk_this_way-grp.flac", FlacTrack),
+                new ContainerFile(2, expected, FlacTrack),
+            ]);
+
+        var found = ContainerCandidates.Build(
+            DownloadProtocol.Usenet,
+            listing,
+            new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1, SongArtist: artist),
+            "q",
+            Now);
+
+        found.Should().NotBeNull();
+        found!.RemotePath.Should().Be(expected);
+
+        // The release name alone parses the artist as "A" or "Run": without the song's artist the track is lost.
+        ContainerCandidates.Build(
+                DownloadProtocol.Usenet,
+                listing,
+                new ContainerMatchRequest(song, VersionFlags.None, null, 250_000, 1),
+                "q",
+                Now)
+            .Should().BeNull();
+    }
+
     [Fact]
     public void A_handle_saved_before_the_artist_and_group_existed_still_reads()
     {

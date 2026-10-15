@@ -26,11 +26,24 @@ internal static partial class SceneFileName
     [GeneratedRegex(@"^(?:\d-\d{2}|\d{2,3}|[a-d]\d{1,2})(?:\s*-\s*|\s+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, 100)]
     private static partial Regex LeadingTrackToken();
 
+    /// <summary>A <c>feat.</c> clause in an artist field, from the keyword to the end of the field.</summary>
+    [GeneratedRegex(@"\b(?:feat|ft|featuring)\b\.?.*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline, 100)]
+    private static partial Regex FeaturedClause();
+
+    /// <summary>
+    /// The text two artist names are compared as: no <c>feat.</c> clause, no case, punctuation, diacritics
+    /// or leading "The", <c>&amp;</c> as <c>and</c>.
+    /// </summary>
+    /// <param name="artist">An artist field or name.</param>
+    internal static string ArtistKey(string artist) =>
+        TextMatching.NormalizeArtist(FeaturedClause().Replace(artist, string.Empty));
+
     /// <summary>Reads the file name of <paramref name="path"/>; null when nothing is left of the title.</summary>
     /// <param name="path">The file's path inside its container, either separator.</param>
     /// <param name="releaseArtist">The artist the release name gives, or null when it names none.</param>
+    /// <param name="songArtist">The wanted song's own artist, or null: a second guess at what the leading field is.</param>
     /// <param name="releaseGroup">The scene group tag the release name ends with, or null when it has none.</param>
-    public static SceneReading? Read(string path, string? releaseArtist, string? releaseGroup)
+    public static SceneReading? Read(string path, string? releaseArtist, string? songArtist, string? releaseGroup)
     {
         var separator = path.LastIndexOfAny(['/', '\\']);
         var name = separator < 0 ? path : path[(separator + 1)..];
@@ -51,7 +64,7 @@ internal static partial class SceneFileName
             text = text[track.Length..];
         }
 
-        text = DropArtist(text, releaseArtist);
+        text = DropArtist(text, releaseArtist, songArtist);
         text = DropGroup(text, releaseGroup);
 
         // The fields are dash segments to the version parser, so a "-live" or "-remix" field is a version
@@ -63,32 +76,63 @@ internal static partial class SceneFileName
     }
 
     /// <summary>
-    /// Drops the leading field when it is the release's artist. Every hyphen is tried as the end of the
-    /// field, so an artist that has hyphens of its own (<c>a-ha</c>, <c>Jay-Z</c>) is still recognised.
+    /// Drops the leading field when it is one of the known artists. Every hyphen is tried as the end of the
+    /// field, so an artist that has hyphens of its own (<c>a-ha</c>, <c>Jay-Z</c>) is still recognised, and
+    /// the longest such field wins: a release name that parsed <c>A-ha-Hunting_High_and_Low</c> as the artist
+    /// "A" must not cost the song its "ha". A field with a <c>feat.</c> clause counts as its artist, and
+    /// then the shortest one wins, since the clause runs to the end of whatever follows it.
     /// </summary>
-    private static string DropArtist(string text, string? artist)
+    private static string DropArtist(string text, string? releaseArtist, string? songArtist)
     {
-        var wanted = string.IsNullOrWhiteSpace(artist) ? string.Empty : TextMatching.NormalizeArtist(artist);
+        var known = new[] { releaseArtist, songArtist }
+            .Where(artist => !string.IsNullOrWhiteSpace(artist))
+            .Select(artist => ArtistKey(artist!))
+            .Where(key => key.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
 
-        if (wanted.Length == 0)
+        if (known.Count == 0)
         {
             return text;
         }
 
+        var plain = -1;
+        var featured = -1;
+
         for (var index = text.IndexOf('-', StringComparison.Ordinal); index > 0; index = text.IndexOf('-', index + 1))
         {
-            if (string.Equals(TextMatching.NormalizeArtist(text[..index]), wanted, StringComparison.Ordinal))
-            {
-                var rest = text[(index + 1)..].Trim(' ', '-');
+            var field = text[..index];
 
-                return rest.Length == 0 ? text : rest;
+            if (!known.Contains(ArtistKey(field)))
+            {
+                continue;
+            }
+
+            if (FeaturedClause().IsMatch(field))
+            {
+                featured = featured < 0 ? index : featured;
+            }
+            else
+            {
+                plain = index;
             }
         }
 
-        return text;
+        var cut = plain >= 0 ? plain : featured;
+
+        if (cut < 0)
+        {
+            return text;
+        }
+
+        var rest = text[(cut + 1)..].Trim(' ', '-');
+
+        return rest.Length == 0 ? text : rest;
     }
 
-    /// <summary>Drops the trailing field when it is the release's group tag, whatever its case.</summary>
+    /// <summary>
+    /// Drops the trailing field when it is the release's group tag, whatever its case. A field that says
+    /// "live" or "remix" is the version, not a tag, so it is never dropped.
+    /// </summary>
     private static string DropGroup(string text, string? group)
     {
         if (string.IsNullOrWhiteSpace(group))
@@ -98,7 +142,9 @@ internal static partial class SceneFileName
 
         var cut = text.LastIndexOf('-');
 
-        if (cut > 0 && string.Equals(text[(cut + 1)..].Trim(), group.Trim(), StringComparison.OrdinalIgnoreCase))
+        if (cut > 0
+            && string.Equals(text[(cut + 1)..].Trim(), group.Trim(), StringComparison.OrdinalIgnoreCase)
+            && !VersionWords.IsHardKeyword(group))
         {
             var rest = text[..cut].Trim(' ', '-');
 
