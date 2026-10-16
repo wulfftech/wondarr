@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **The first-login page says why it refuses a caller on your own network.** Opening Wondarr by an internal domain name such as `http://wondarr.ad.example.com:1077` with no login yet showed "Create it from a device on the same network as Wondarr", although the browser was on that network: the name, not the address, was what Wondarr did not trust (a name must be an IP address, `localhost`, a name with no dot, one ending in `.local`, `.lan`, `.home.arpa` or `.internal`, or listed in `server.allowed_hosts`). The page now tells the two cases apart. For a name it does not trust, it names the one you used (without the port) and says to open Wondarr by its IP address or a `.lan`/`.local` name, or to add that name to `server.allowed_hosts` in `config.yml` and reload. A caller that is not on a local network, or comes through a reverse proxy, gets the old text. The rule for who counts as local is unchanged. No migration.
+
 ## [0.1.7] — 2026-10-15
 
 The usenet release: real music posts now go from the indexer through SABnzbd into the library, checked live against DOGnzb and SABnzbd 5.1.3 (scene file names, upper-case PAR2 files, RAR and obfuscated posts, posts trimmed to the one track the song needs). Wondarr also spends far fewer of an indexer's daily NZB downloads, cleans up what downloads leave behind, and no longer fails two adds by the same new artist. Update by pulling `:0.1` (or `:0.1.7`).

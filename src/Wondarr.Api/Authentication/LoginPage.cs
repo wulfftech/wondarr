@@ -77,6 +77,12 @@ internal static class LoginPage
     private const string RemoteHint =
         """<p class="hint">No login exists yet. Create it from a device on the same network as Wondarr, or under Settings → General.</p>""";
 
+    // Settings → General is not offered here: a caller whose Host is not trusted gets no login-free UI either.
+    private const string UntrustedHostHint =
+        """<p class="hint">No login exists yet. You opened Wondarr as <strong>__HOST__</strong>, a name it does not trust for setting up the first login. Open it by its IP address or a <code>.lan</code>/<code>.local</code> name, or add <code>__HOST__</code> to <code>server.allowed_hosts</code> in <code>config.yml</code>, then reload.</p>""";
+
+    private const string HostToken = "__HOST__";
+
     /// <summary>What <c>GET /login</c> shows, depending on whether a login exists and who is asking.</summary>
     public enum Variant
     {
@@ -88,16 +94,20 @@ internal static class LoginPage
 
         /// <summary>No login exists and the caller is not local: an explanation and no form.</summary>
         CreateFromLocalNetwork,
+
+        /// <summary>No login exists, the caller is on the local network, but the <c>Host</c> it used is not trusted: an explanation and no form.</summary>
+        CreateWithUntrustedHost,
     }
 
     /// <summary>Renders the page for the given URL base and state.</summary>
     /// <param name="urlBase">The URL base the app is served under.</param>
     /// <param name="loginFailed">Whether to show the "incorrect username or password" error.</param>
-    /// <param name="variant">Which of the three pages to render.</param>
+    /// <param name="variant">Which of the four pages to render.</param>
     /// <param name="returnUrl">An already validated local URL to land on after signing in.</param>
     /// <param name="error">An error to show in place of the login-failed one.</param>
     /// <param name="username">The username to keep filled in on the create form. A password is never echoed.</param>
     /// <param name="notice">A plain notice to show above the sign-in form.</param>
+    /// <param name="host">The <c>Host</c> the caller used, without a port. Only the untrusted-host page shows it.</param>
     public static string Render(
         string urlBase,
         bool loginFailed,
@@ -105,7 +115,8 @@ internal static class LoginPage
         string? returnUrl = null,
         string? error = null,
         string? username = null,
-        string? notice = null)
+        string? notice = null,
+        string? host = null)
     {
         // Carry returnUrl through the form so a retry still lands on the page first asked for;
         // POST /login and POST /login/setup re-validate it as a local URL before redirecting.
@@ -129,6 +140,14 @@ internal static class LoginPage
             case Variant.CreateFromLocalNetwork:
                 heading = "Create your login";
                 body = RemoteHint;
+                break;
+            case Variant.CreateWithUntrustedHost:
+                heading = "Create your login";
+
+                // Nothing to name when the request carried no Host: the network hint is the best that can be said.
+                body = string.IsNullOrWhiteSpace(host)
+                    ? RemoteHint
+                    : UntrustedHostHint.Replace(HostToken, encoder.Encode(host.Trim()), StringComparison.Ordinal);
                 break;
             default:
                 body = SignInForm.Replace(FormActionToken, encoder.Encode($"{urlBase}/login{query}"), StringComparison.Ordinal);

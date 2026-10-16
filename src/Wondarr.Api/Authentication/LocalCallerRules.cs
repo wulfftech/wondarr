@@ -15,7 +15,8 @@ namespace Wondarr.Api.Authentication;
 /// <item>its <c>Host</c> is a LAN-style name (<see cref="IsLocalHost"/>), so a page reaching the app
 /// through a rebound public name is not trusted (R-009).</item>
 /// </list>
-/// A request that fails the rule is not refused: it simply needs a login.
+/// A request that fails the rule is not refused: it simply needs a login. <see cref="Evaluate"/>
+/// reports which kind of rule failed, so the first-login page can give advice that fits.
 /// </summary>
 public static class LocalCallerRules
 {
@@ -40,15 +41,27 @@ public static class LocalCallerRules
     private static readonly string[] LanSuffixes = [".local", ".lan", ".home.arpa", ".internal"];
 
     /// <summary>Whether the request comes from the local network, by all three rules.</summary>
-    public static bool IsLocalCaller(HttpContext context, ServerOptions options)
+    public static bool IsLocalCaller(HttpContext context, ServerOptions options) =>
+        Evaluate(context, options) == LocalCallerVerdict.Local;
+
+    /// <summary>
+    /// Applies the three rules and says which one failed. The network rules (proxy header, socket
+    /// address) are checked before the <c>Host</c> rule, so <see cref="LocalCallerVerdict.HostNotTrusted"/>
+    /// is only ever reported for a caller that is otherwise on the local network.
+    /// </summary>
+    public static LocalCallerVerdict Evaluate(HttpContext context, ServerOptions options)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(options);
 
-        return !HasProxyHeader(context.Request) &&
-            context.GetRemoteIp() is { } remoteIp &&
-            remoteIp.IsLocalAddress() &&
-            IsLocalHost(context.Request.Host.Host, options.AllowedHosts);
+        if (HasProxyHeader(context.Request) || context.GetRemoteIp() is not { } remoteIp || !remoteIp.IsLocalAddress())
+        {
+            return LocalCallerVerdict.NotOnLocalNetwork;
+        }
+
+        return IsLocalHost(context.Request.Host.Host, options.AllowedHosts)
+            ? LocalCallerVerdict.Local
+            : LocalCallerVerdict.HostNotTrusted;
     }
 
     /// <summary>Whether the request carries any header a reverse proxy adds.</summary>

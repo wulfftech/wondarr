@@ -51,7 +51,8 @@ public sealed partial class AuthenticationController : Controller
                 loginFailed,
                 VariantFor(configured),
                 Url.IsLocalUrl(returnUrl) ? returnUrl : null,
-                notice: configured && Request.Query.ContainsKey("exists") ? "A login already exists. Sign in with it." : null),
+                notice: configured && Request.Query.ContainsKey("exists") ? "A login already exists. Sign in with it." : null,
+                host: Request.Host.Host),
             "text/html; charset=utf-8");
     }
 
@@ -108,13 +109,15 @@ public sealed partial class AuthenticationController : Controller
             return LoginExistsRedirect(options.UrlBase, safeReturnUrl);
         }
 
-        if (!IsLocalRequest())
+        var verdict = LocalCallerRules.Evaluate(HttpContext, options);
+
+        if (verdict != LocalCallerVerdict.Local)
         {
             LogSetupRefused(_logger, remoteAddress);
 
             return Page(
                 StatusCodes.Status403Forbidden,
-                LoginPage.Render(options.UrlBase, false, LoginPage.Variant.CreateFromLocalNetwork, safeReturnUrl));
+                LoginPage.Render(options.UrlBase, false, CreateVariantFor(verdict), safeReturnUrl, host: Request.Host.Host));
         }
 
         var username = resource?.Username;
@@ -169,17 +172,11 @@ public sealed partial class AuthenticationController : Controller
     private static ContentResult Page(int statusCode, string html) =>
         new() { StatusCode = statusCode, Content = html, ContentType = "text/html; charset=utf-8" };
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Refused to create the first login from {RemoteAddress}: it is not a local address")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Refused to create the first login from {RemoteAddress}: it is not a local caller")]
     private static partial void LogSetupRefused(ILogger logger, IPAddress? remoteAddress);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "The first login was created from {RemoteAddress}")]
     private static partial void LogSetupCompleted(ILogger logger, IPAddress? remoteAddress);
-
-    /// <summary>
-    /// Whether the caller is on the local network, by <see cref="LocalCallerRules"/>: the same rule
-    /// <see cref="UiAuthorizationHandler"/> applies for <c>disabledForLocalAddresses</c>.
-    /// </summary>
-    private bool IsLocalRequest() => LocalCallerRules.IsLocalCaller(HttpContext, _serverOptions.CurrentValue);
 
     /// <summary>
     /// Whether the <c>Origin</c> header, when there is one, names this host. A missing header (curl,
@@ -213,8 +210,17 @@ public sealed partial class AuthenticationController : Controller
             return LoginPage.Variant.SignIn;
         }
 
-        return IsLocalRequest() ? LoginPage.Variant.Create : LoginPage.Variant.CreateFromLocalNetwork;
+        return CreateVariantFor(LocalCallerRules.Evaluate(HttpContext, _serverOptions.CurrentValue));
     }
+
+    // The local rule is the one UiAuthorizationHandler applies for disabledForLocalAddresses; the verdict
+    // picks the page whose advice fits the rule that failed.
+    private static LoginPage.Variant CreateVariantFor(LocalCallerVerdict verdict) => verdict switch
+    {
+        LocalCallerVerdict.Local => LoginPage.Variant.Create,
+        LocalCallerVerdict.HostNotTrusted => LoginPage.Variant.CreateWithUntrustedHost,
+        _ => LoginPage.Variant.CreateFromLocalNetwork,
+    };
 
     private async Task<IActionResult> SignInAndRedirectAsync(
         string username,
