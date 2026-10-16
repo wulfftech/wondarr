@@ -149,7 +149,7 @@ public sealed partial class IndexerSourceProviderTests
 
         client.DownloadsFrom(1).Should().Be(spent, "the indexer is cooling down: searched, but not one NZB asked of it");
         second.Candidates.Should().BeEmpty("none of its posts is cached, and a post listed without a file list would only fail at the grab");
-        second.Message.Should().Be("Usenet: Indexer 1 is cooling down until 14:00 after refusing NZB downloads");
+        second.Message.Should().Be("Usenet: Indexer 1 is cooling down until 14:00 UTC+00:00 after refusing NZB downloads");
 
         time.Advance(TimeSpan.FromMinutes(90));
         await provider.SearchAsync(Request(), CancellationToken.None);
@@ -172,7 +172,7 @@ public sealed partial class IndexerSourceProviderTests
         await provider.SearchAsync(Request(), CancellationToken.None);
         var second = await provider.SearchAsync(Request(), CancellationToken.None);
 
-        second.Message.Should().Be("Usenet: Indexer 1 is cooling down until 17 Oct 12:00 after refusing NZB downloads", "a day at most, whatever the indexer asked for");
+        second.Message.Should().Be("Usenet: Indexer 1 is cooling down until 17 Oct 12:00 UTC+00:00 after refusing NZB downloads", "a day at most, whatever the indexer asked for");
     }
 
     [Fact]
@@ -187,7 +187,7 @@ public sealed partial class IndexerSourceProviderTests
 
         var result = await provider.SearchAsync(Request(), CancellationToken.None);
 
-        result.Message.Should().Be("Usenet: Indexer 1 is cooling down until 15:00 after refusing NZB downloads", "14:00 UTC, read in the host's own zone");
+        result.Message.Should().Be("Usenet: Indexer 1 is cooling down until 15:00 UTC+01:00 after refusing NZB downloads", "14:00 UTC, read in the host's own zone and labelled with its offset");
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public sealed partial class IndexerSourceProviderTests
         client.DownloadsFrom(1).Should().Be(0);
         result.Candidates.Should().HaveCount(2, "the two held in the cache are read for free; the other four are dropped");
         result.Candidates.Should().OnlyContain(candidate => candidate.Availability.FileListKnown);
-        result.Message.Should().Be("Usenet: Indexer 1 is cooling down until 13:00 after refusing NZB downloads");
+        result.Message.Should().Be("Usenet: Indexer 1 is cooling down until 13:00 UTC+00:00 after refusing NZB downloads");
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public sealed partial class IndexerSourceProviderTests
 
         client.DownloadLog.Count.Should().Be(downloads, "one upstream is cooling down and the other's NZBs are all in the cache");
         second.Candidates.Should().HaveCount(6).And.OnlyContain(candidate => candidate.Provider == "Prowlarr (NZBgeek)" && candidate.Availability.FileListKnown);
-        second.Message.Should().Be("Usenet: Prowlarr (DOGnzb) is cooling down until 13:00 after refusing NZB downloads");
+        second.Message.Should().Be("Usenet: Prowlarr (DOGnzb) is cooling down until 13:00 UTC+00:00 after refusing NZB downloads");
     }
 
     [Fact]
@@ -375,6 +375,78 @@ public sealed partial class IndexerSourceProviderTests
     }
 
     [Fact]
+    public async Task A_cooling_indexer_is_logged_once_per_search_whatever_the_search_message_shows()
+    {
+        var time = new FakeTimeProvider(CooldownStart);
+        var cooldowns = new NzbCooldowns(time);
+        cooldowns.Start(FirstIndexer, TimeSpan.FromHours(2));
+        var logger = new CapturingLogger<IndexerSourceProvider>();
+        var client = new QuotaIndexerClient { Answer = (indexer, query) => UsenetReleases(indexer, query, 12) };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: new NzbCache(time), time: time, cooldowns: cooldowns, logger: logger);
+
+        await provider.SearchAsync(Request(), CancellationToken.None);
+
+        logger.Lines.Count(line => line.Contains("Indexer 1 is cooling down until", StringComparison.Ordinal))
+            .Should().Be(1, "12 posts dropped in each of three queries are one line for the search");
+
+        await provider.SearchAsync(Request(), CancellationToken.None);
+
+        logger.Lines.Count(line => line.Contains("Indexer 1 is cooling down until", StringComparison.Ordinal)).Should().Be(2, "one more for the second search");
+    }
+
+    [Fact]
+    public async Task An_indexer_that_refused_in_this_search_is_not_also_reported_as_cooling_down()
+    {
+        var time = new FakeTimeProvider(CooldownStart);
+        var cooldowns = new NzbCooldowns(time);
+        var logger = new CapturingLogger<IndexerSourceProvider>();
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => UsenetReleases(indexer, query, 8),
+            Download = (_, _) => throw Quota(),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: new NzbCache(time), time: time, cooldowns: cooldowns, logger: logger);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        result.Message.Should().NotContain("cooling down");
+        logger.Lines.Should().NotContain(line => line.Contains("cooling down", StringComparison.Ordinal));
+        logger.Lines.Should().ContainSingle(line => line.Contains("refused an NZB download", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Two_searches_sharing_a_refused_download_are_both_refused_and_the_indexer_cools_down_once()
+    {
+        var time = new FakeTimeProvider(CooldownStart);
+        var cooldowns = new NzbCooldowns(time);
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new SemaphoreSlim(0);
+        var sharing = new SignalLogger<IndexerSourceProvider>("sharing that download");
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => query.Album == "Discovery" ? UsenetReleases(indexer, query, 1) : [],
+            Download = (_, _) => throw Quota(retryAfter: new RetryConditionHeaderValue(TimeSpan.FromHours(2))),
+            Hold = hold.Task,
+            OnDownload = _ => started.Release(),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: new NzbCache(time), time: time, cooldowns: cooldowns, logger: sharing);
+
+        var first = provider.SearchAsync(Request(), CancellationToken.None);
+        await DownloadStartedAsync(started);
+
+        var second = provider.SearchAsync(Request(), CancellationToken.None);
+        await sharing.Seen.WaitAsync(Guard);
+
+        hold.SetResult();
+        var results = await Task.WhenAll(first, second).WaitAsync(Guard);
+
+        client.DownloadLog.Should().ContainSingle();
+        results.Should().OnlyContain(result => result.Message == "Usenet: Indexer 1: The indexer answered 429.");
+        cooldowns.TryGetUntil(FirstIndexer, out var until).Should().BeTrue();
+        until.Should().Be(CooldownStart.AddHours(2));
+    }
+
+    [Fact]
     public async Task A_429_from_a_real_indexer_client_is_one_request_per_post_and_cuts_the_indexer_off_for_two_hours()
     {
         var time = new FakeTimeProvider(CooldownStart);
@@ -399,18 +471,15 @@ public sealed partial class IndexerSourceProviderTests
             time: time,
             cooldowns: cooldowns);
 
-        var pending = provider.SearchAsync(Request(), CancellationToken.None);
-        await NzbDownloadRetryTests.DriveAsync(time, pending);
-        var result = await pending;
+        // A 429 is not retried, so nothing waits on the clock; the guard only turns a retry (which would wait for it) into a failure.
+        var result = await provider.SearchAsync(Request(), CancellationToken.None).WaitAsync(Guard);
 
         var downloads = handler.Requests.Where(uri => uri.AbsolutePath.StartsWith("/nzb/", StringComparison.Ordinal)).ToList();
         downloads.Should().HaveCountGreaterThanOrEqualTo(1).And.HaveCountLessThanOrEqualTo(InFlightReads);
         downloads.Should().OnlyHaveUniqueItems("a 429 to an NZB download is not retried");
         result.Message.Should().Be("Usenet: Indexer 1: The indexer answered 429.");
         cooldowns.TryGetUntil(FirstIndexer, out var until).Should().BeTrue();
-
-        // The clock is driven forward while the search runs, so the end is two hours from some instant in it.
-        until.Should().BeOnOrAfter(CooldownStart.AddHours(2)).And.BeOnOrBefore(time.GetUtcNow().AddHours(2));
+        until.Should().Be(CooldownStart.AddHours(2));
     }
 
     /// <summary>Waits for the next download to start; a semaphore's timed wait answers false instead of throwing.</summary>

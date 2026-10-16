@@ -263,6 +263,8 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        LogCoolings(state);
+
         return new SourceSearchResult(candidates, queries, Message(state, budget.IsCancellationRequested));
     }
 
@@ -601,13 +603,14 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         /// <summary>Removes the secrets Wondarr knows from text an indexer sent.</summary>
         public string Redact(string text) => redact(text);
 
+        /// <summary>The cooling sources that did not also refuse in this search, whose refusal already says it.</summary>
         public IReadOnlyList<KeyValuePair<NzbSource, DateTimeOffset>> Coolings
         {
             get
             {
                 lock (_gate)
                 {
-                    return [.. _cooling];
+                    return [.. _cooling.Where(entry => !_refused.Contains(entry.Key))];
                 }
             }
         }

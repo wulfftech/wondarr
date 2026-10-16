@@ -85,7 +85,7 @@ public sealed partial class IndexerSourceProvider
 
             if (fetch.Refusal is { } words)
             {
-                Refuse(source, state, words, fetch.RetryAfter);
+                Refuse(source, state, words, fetch.CooldownUntil);
 
                 return null;
             }
@@ -103,7 +103,8 @@ public sealed partial class IndexerSourceProvider
 
     /// <summary>
     /// Downloads one NZB and keeps it in the cache once it parsed, then lets go of the entry the readers
-    /// share. What it throws is every sharing reader's failure.
+    /// share. A refusal starts the indexer's cool-down first, so no search can find the entry gone and the
+    /// indexer not yet cooling. What it throws is every sharing reader's failure.
     /// </summary>
     private async Task<NzbFetch> FetchNzbAsync(Indexer indexer, IndexerRelease release, string key, CancellationToken token)
     {
@@ -119,7 +120,7 @@ public sealed partial class IndexerSourceProvider
             {
                 // 429 and 403 are how some indexers say "no more downloads today". A dropped connection or
                 // a 5xx carries no status like these and does not cut the indexer off.
-                return NzbFetch.Refused(NzbAnswer.Clean(exception.Message, Redact), exception.RetryAfter);
+                return NzbFetch.Refused(NzbAnswer.Clean(exception.Message, Redact), CoolDown(release, exception.RetryAfter));
             }
 
             if (download.Content is not { } content)
@@ -132,7 +133,7 @@ public sealed partial class IndexerSourceProvider
             if (verdict.Kind == NzbAnswerKind.AccountRefusal)
             {
                 // Not an NZB, so never parsed as one; the indexer's own words are what the user is shown.
-                return NzbFetch.Refused(verdict.Text, null);
+                return NzbFetch.Refused(verdict.Text, CoolDown(release, null));
             }
 
             if (verdict.Kind == NzbAnswerKind.ReleaseFailure)
@@ -160,17 +161,29 @@ public sealed partial class IndexerSourceProvider
         }
     }
 
+    /// <summary>Starts the cool-down of the source a release comes from, after its refusal.</summary>
+    /// <returns>The instant the cool-down ends.</returns>
+    private DateTimeOffset CoolDown(IndexerRelease release, RetryConditionHeaderValue? retryAfter) =>
+        _nzbCooldowns.Start(NzbSource.Of(release), WaitOf(retryAfter));
+
     /// <summary>
-    /// Stops the search reading NZBs from a source that said it will not hand out more, and keeps later
-    /// searches from trying until its cool-down is over.
+    /// Stops the search reading NZBs from a source that said it will not hand out more; the cool-down that
+    /// keeps later searches away was started by the download that was refused.
     /// </summary>
-    private void Refuse(NzbSource source, SearchState state, string text, RetryConditionHeaderValue? retryAfter)
+    private void Refuse(NzbSource source, SearchState state, string text, DateTimeOffset until)
     {
         if (state.Refuse(source, text))
         {
-            var until = _nzbCooldowns.Start(source, WaitOf(retryAfter));
-
             LogIndexerRefused(_logger, source.Name, until);
+        }
+    }
+
+    /// <summary>Tells the log, once per search, of each source whose posts were dropped because it is cooling down.</summary>
+    private void LogCoolings(SearchState state)
+    {
+        foreach (var (source, until) in state.Coolings)
+        {
+            LogIndexerCooling(_logger, source.Name, until);
         }
     }
 
@@ -182,32 +195,35 @@ public sealed partial class IndexerSourceProvider
         _ => null,
     };
 
-    /// <summary>An instant as the local time of day, with the date when it is not today.</summary>
+    /// <summary>An instant as the host's local time of day with its UTC offset, and the date when it is not today.</summary>
     private string LocalTime(DateTimeOffset instant)
     {
         var zone = _time.LocalTimeZone;
         var local = TimeZoneInfo.ConvertTime(instant, zone);
         var today = TimeZoneInfo.ConvertTime(_time.GetUtcNow(), zone).Date;
 
-        return local.ToString(local.Date == today ? "HH:mm" : "d MMM HH:mm", CultureInfo.InvariantCulture);
+        return local.ToString(local.Date == today ? "HH:mm 'UTC'zzz" : "d MMM HH:mm 'UTC'zzz", CultureInfo.InvariantCulture);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Indexer} refused an NZB download; no more NZBs are read from it until {Until}")]
     private static partial void LogIndexerRefused(ILogger logger, string indexer, DateTimeOffset until);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Indexer} is cooling down until {Until} after refusing NZB downloads; its uncached posts are not read")]
+    private static partial void LogIndexerCooling(ILogger logger, string indexer, DateTimeOffset until);
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "{Indexer}: this NZB is already being downloaded for another read; sharing that download")]
     private static partial void LogNzbShared(ILogger logger, string indexer);
 
     /// <summary>What one NZB download came to, shared by every read that waited for it.</summary>
-    private sealed record NzbFetch(ContainerListing? Listing, string? Magnet, string? Refusal, RetryConditionHeaderValue? RetryAfter)
+    private sealed record NzbFetch(ContainerListing? Listing, string? Magnet, string? Refusal, DateTimeOffset CooldownUntil)
     {
         /// <summary>An NZB that parsed (and is in the cache).</summary>
-        public static NzbFetch Listed(ContainerListing listing) => new(listing, null, null, null);
+        public static NzbFetch Listed(ContainerListing listing) => new(listing, null, null, default);
 
         /// <summary>A link that led to a magnet instead.</summary>
-        public static NzbFetch Linked(string? magnet) => new(null, magnet, null, null);
+        public static NzbFetch Linked(string? magnet) => new(null, magnet, null, default);
 
-        /// <summary>The indexer will not hand out NZBs: its words, and how long it asked to be left alone.</summary>
-        public static NzbFetch Refused(string words, RetryConditionHeaderValue? retryAfter) => new(null, null, words, retryAfter);
+        /// <summary>The indexer will not hand out NZBs: its words, and when the cool-down it started ends.</summary>
+        public static NzbFetch Refused(string words, DateTimeOffset until) => new(null, null, words, until);
     }
 }
