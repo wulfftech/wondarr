@@ -234,7 +234,9 @@ public sealed partial class ProwlarrSearchClient : IIndexerClient
             throw new IndexerException("The release's download URL is not an absolute address.");
         }
 
-        using var response = await IndexerHttp.GetAsync(_clients.CreateClient(IndexerHttp.ClientName), url, cancellationToken).ConfigureAwait(false);
+        using var response = await IndexerHttp
+            .GetAsync(_clients.CreateClient(IndexerHttp.ClientName), url, release.Protocol == DownloadProtocol.Usenet, cancellationToken)
+            .ConfigureAwait(false);
 
         if (IndexerHttp.TryGetMagnetRedirect(response, out var magnet))
         {
@@ -243,7 +245,7 @@ public sealed partial class ProwlarrSearchClient : IIndexerClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new IndexerException($"Prowlarr answered {(int)response.StatusCode} to the download.", response.StatusCode);
+            throw new IndexerException($"Prowlarr answered {(int)response.StatusCode} to the download.", response.StatusCode, response.Headers.RetryAfter);
         }
 
         return new IndexerDownload(await IndexerHttp.ReadCappedAsync(response, cancellationToken).ConfigureAwait(false), null);

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 
 namespace Wondarr.Sources.Torznab.Indexers;
 
@@ -26,10 +27,12 @@ public sealed class IndexerException : Exception
     /// <summary>Initialises a new instance of the <see cref="IndexerException"/> class.</summary>
     /// <param name="message">The sentence to show the user.</param>
     /// <param name="statusCode">The status the indexer answered with.</param>
-    public IndexerException(string message, HttpStatusCode statusCode)
+    /// <param name="retryAfter">The answer's <c>Retry-After</c> header, when it had one.</param>
+    public IndexerException(string message, HttpStatusCode statusCode, RetryConditionHeaderValue? retryAfter = null)
         : base(message)
     {
         StatusCode = statusCode;
+        RetryAfter = retryAfter;
     }
 
     /// <summary>
@@ -37,4 +40,7 @@ public sealed class IndexerException : Exception
     /// transport error. A 429 or 403 to an NZB download is how an indexer says its quota is spent.
     /// </summary>
     public HttpStatusCode? StatusCode { get; }
+
+    /// <summary>Gets the answer's <c>Retry-After</c> header: how long the indexer asked to be left alone.</summary>
+    public RetryConditionHeaderValue? RetryAfter { get; }
 }

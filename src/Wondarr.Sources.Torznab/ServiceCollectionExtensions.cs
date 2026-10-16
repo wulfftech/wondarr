@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
+using Polly.Retry;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Organizer;
@@ -60,12 +61,16 @@ public static class ServiceCollectionExtensions
             .AddResilienceHandler("indexer", builder => builder.AddRetry(new HttpRetryStrategyOptions
             {
                 // Indexers, Prowlarr included, answer 502/503 when an upstream tracker hiccups; two
-                // retries with jitter, and a Retry-After is obeyed.
+                // retries with jitter, and a Retry-After is obeyed. A 429 to an NZB download is not
+                // retried: it is how an indexer says its daily quota is spent, and a retry is another
+                // doomed download (and a long Retry-After would outlast the request timeout).
                 MaxRetryAttempts = 2,
                 BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 Delay = TimeSpan.FromSeconds(2),
                 ShouldRetryAfterHeader = true,
+                ShouldHandle = args => new ValueTask<bool>(
+                    HttpClientResiliencePredicates.IsTransient(args.Outcome) && !IsNzbQuotaAnswer(args)),
             }));
 
         // Gazelle has its own client with no retry handler (R-024): its limiter counts one turn per
@@ -116,6 +121,10 @@ public static class ServiceCollectionExtensions
         // again: indexers cap NZB downloads per day. Process-wide, so every search and grab shares it.
         services.AddSingleton(provider => new NzbCache(provider.GetRequiredService<TimeProvider>()));
 
+        // Which indexers refused NZB downloads and until when, so a later search does not try again.
+        // Process-wide for the same reason; memory only, so a restart forgets.
+        services.AddSingleton(provider => new NzbCooldowns(provider.GetRequiredService<TimeProvider>()));
+
         // One source per protocol, tier 3 (DECISIONS build session 8 #7): torrents through the
         // Torznab indexers, usenet through the Newznab ones.
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Torrent));
@@ -141,5 +150,13 @@ public static class ServiceCollectionExtensions
             budget: null,
             nzbCache: provider.GetRequiredService<NzbCache>(),
             secrets: provider.GetRequiredService<ISecretRegistry>(),
-            search: provider.GetService<IOptionsMonitor<SearchOptions>>());
+            search: provider.GetService<IOptionsMonitor<SearchOptions>>(),
+            nzbCooldowns: provider.GetRequiredService<NzbCooldowns>());
+
+    /// <summary>Whether the answer is a 429 to an NZB download (<see cref="IndexerHttp.NzbDownload"/>).</summary>
+    private static bool IsNzbQuotaAnswer(RetryPredicateArguments<HttpResponseMessage> args) =>
+        args.Outcome.Result is { StatusCode: HttpStatusCode.TooManyRequests }
+        && args.Context.GetRequestMessage() is { } request
+        && request.Options.TryGetValue(IndexerHttp.NzbDownload, out var nzbDownload)
+        && nzbDownload;
 }

@@ -23,6 +23,12 @@ public static class IndexerHttp
     /// <summary>The most redirects one request follows.</summary>
     public const int MaxRedirects = 10;
 
+    /// <summary>
+    /// The option an NZB download request carries. The resilience handler does not retry a 429 on such a
+    /// request: an indexer answers a spent daily quota that way, and every retry is another doomed download.
+    /// </summary>
+    public static readonly HttpRequestOptionsKey<bool> NzbDownload = new("Wondarr.NzbDownload");
+
     /// <summary>Gets the User-Agent every request carries.</summary>
     public static string UserAgent { get; } = BuildUserAgent();
 
@@ -46,7 +52,19 @@ public static class IndexerHttp
     /// <param name="url">The URL to ask for.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The final answer, or the redirect whose target is a magnet.</returns>
-    public static async Task<HttpResponseMessage> GetAsync(HttpClient client, Uri url, CancellationToken cancellationToken)
+    public static Task<HttpResponseMessage> GetAsync(HttpClient client, Uri url, CancellationToken cancellationToken) =>
+        GetAsync(client, url, nzbDownload: false, cancellationToken);
+
+    /// <summary>
+    /// Sends one GET like <see cref="GetAsync(HttpClient, Uri, CancellationToken)"/>, marking it as an NZB
+    /// download when asked, so the resilience handler leaves a 429 to the caller instead of retrying it.
+    /// </summary>
+    /// <param name="client">The client to send through.</param>
+    /// <param name="url">The URL to ask for.</param>
+    /// <param name="nzbDownload">Whether the request downloads an NZB (<see cref="NzbDownload"/>).</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The final answer, or the redirect whose target is a magnet.</returns>
+    public static async Task<HttpResponseMessage> GetAsync(HttpClient client, Uri url, bool nzbDownload, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(url);
@@ -59,6 +77,11 @@ public static class IndexerHttp
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+            if (nzbDownload)
+            {
+                request.Options.Set(NzbDownload, true);
+            }
 
             HttpResponseMessage response;
 

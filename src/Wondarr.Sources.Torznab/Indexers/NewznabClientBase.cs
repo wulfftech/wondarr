@@ -138,7 +138,7 @@ public abstract partial class NewznabClientBase : IIndexerClient
 
         var client = _clients.CreateClient(IndexerHttp.ClientName);
 
-        using var response = await IndexerHttp.GetAsync(client, url, cancellationToken).ConfigureAwait(false);
+        using var response = await IndexerHttp.GetAsync(client, url, Protocol == DownloadProtocol.Usenet, cancellationToken).ConfigureAwait(false);
 
         if (IndexerHttp.TryGetMagnetRedirect(response, out var magnet))
         {
@@ -147,7 +147,7 @@ public abstract partial class NewznabClientBase : IIndexerClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new IndexerException($"The indexer answered {(int)response.StatusCode}.", response.StatusCode);
+            throw new IndexerException($"The indexer answered {(int)response.StatusCode}.", response.StatusCode, response.Headers.RetryAfter);
         }
 
         var content = await IndexerHttp.ReadCappedAsync(response, cancellationToken).ConfigureAwait(false);
