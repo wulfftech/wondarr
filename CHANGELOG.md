@@ -4,6 +4,10 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **A RAR or obfuscated post named with dots is matched to the song's album.** `Norah.Jones.-.Come.Away.With.Me.24bit.192Khz.hdtracks.FLAC` was turned away as a title mismatch for a song on *Come Away with Me*. The name has one hyphen, so the album and its tags sat in one field, and only a whole hyphen-separated field was compared with the album. Wondarr now also takes the album as a run of whole words anywhere after the artist. An album of one short word (under six letters, like "Love" or "1") is still only matched as a whole field, since it would be in half the names there are. The artist's own part of the name no longer counts as the album, so an album named like its artist (Boston's "Boston") stops matching every release by that artist. A version word still decides the version: `Norah.Jones.-.Come.Away.With.Me.Live.2003.FLAC` is the live album, not the studio one. No migration.
+- **A real album that only Deezer knows is no longer treated as "Singles".** The indexer search took an album with no MusicBrainz release id for a pseudo-album and dropped it from the albums a post may be named after. The search and the decision now carry the album's kind instead. A pseudo-album ("Singles", or the library-wide title of the compilation policy) is never an album a release is named after, and is not a release to search for when MusicBrainz knows nothing of the song. No migration.
+
 ## [0.1.7] — 2026-10-15
 
 The usenet release: real music posts now go from the indexer through SABnzbd into the library, checked live against DOGnzb and SABnzbd 5.1.3 (scene file names, upper-case PAR2 files, RAR and obfuscated posts, posts trimmed to the one track the song needs). Wondarr also spends far fewer of an indexer's daily NZB downloads, cleans up what downloads leave behind, and no longer fails two adds by the same new artist. Update by pulling `:0.1` (or `:0.1.7`).
