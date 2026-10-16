@@ -226,8 +226,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                     unseen
                         .OrderByDescending(release => ReleaseQualityParser.Parse(release.Title) != UnknownQuality)
                         .ThenByDescending(release => release.Grabs ?? 0),
-                    release => _nzbCache.TryGet(NzbKey(release), out _),
-                    release => _nzbCooldowns.TryGetUntil(NzbSource.Of(release), out _));
+                    release => _nzbCache.TryGet(NzbKey(release), out _));
 
             using var grace = budget.IsCancellationRequested
                 ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
@@ -416,9 +415,9 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     /// <summary>
     /// The release's files: a Gazelle file list as given, a <c>.torrent</c>'s metainfo, an NZB's audio
     /// files when every name in it is plain (from the cache, or from a download another search has under
-    /// way, when there is one); a magnet or an obfuscated NZB has none yet, and neither has a post of an
-    /// indexer that is cooling down from an earlier search. Null when an indexer that already refused an
-    /// NZB in this search is not asked again, or refuses this one, or has had its 8 reads.
+    /// way, when there is one); a magnet or an obfuscated NZB has none yet. Null when an indexer that
+    /// already refused an NZB in this search, or is cooling down from an earlier one, is not asked again,
+    /// or refuses this one, or has had its 8 reads.
     /// </summary>
     private async Task<ContainerListing?> ReadContainerAsync(Indexer indexer, IndexerRelease release, SearchState state, CancellationToken token)
     {
@@ -559,8 +558,8 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         private readonly HashSet<NzbSource> _refused = [];
         private readonly List<string> _refusals = [];
 
-        // The sources found cooling down from an earlier search whose posts were therefore not opened,
-        // and until when, in the order they were found.
+        // The sources found cooling down from an earlier search whose posts were therefore dropped, and
+        // until when, in the order they were found.
         private readonly Dictionary<NzbSource, DateTimeOffset> _cooling = [];
 
         public HashSet<string> Releases { get; } = new(StringComparer.Ordinal);
@@ -634,31 +633,28 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         /// The releases of the order that are worth a turn at the reads: each source's first
         /// <see cref="ContainersPerQuery"/> downloads of the whole search (the ones already made count,
         /// the ones planned here are counted as they are listed), none from one that has refused. A release
-        /// whose NZB is cached or whose source is cooling down costs no download, so it takes no slot and
-        /// is kept even for a source that has refused. Decided up front and in order, so which releases are
-        /// read never depends on how the parallel reads happen to interleave; <see cref="BeginNzbRead"/>
-        /// then settles each one again at the moment its read begins.
+        /// whose NZB is cached costs no download, so it takes no slot and is kept even for a source that
+        /// has refused. Decided up front and in order, so which releases are read never depends on how the
+        /// parallel reads happen to interleave; <see cref="BeginNzbRead"/> then settles each one again at
+        /// the moment its read begins.
         /// </summary>
-        public List<IndexerRelease> PlanNzbReads(
-            IEnumerable<IndexerRelease> ordered,
-            Func<IndexerRelease, bool> isCached,
-            Func<IndexerRelease, bool> isCooling)
+        public List<IndexerRelease> PlanNzbReads(IEnumerable<IndexerRelease> ordered, Func<IndexerRelease, bool> isCached)
         {
-            var inOrder = ordered.Select(release => (Release: release, Cached: isCached(release), Cooling: isCooling(release))).ToList();
+            var inOrder = ordered.Select(release => (Release: release, Cached: isCached(release))).ToList();
             var taken = new List<IndexerRelease>();
             var planned = new Dictionary<NzbSource, int>();
 
             lock (_gate)
             {
-                foreach (var (release, cached, cooling) in inOrder)
+                foreach (var (release, cached) in inOrder)
                 {
-                    var source = NzbSource.Of(release);
-
-                    if (cached || (cooling && !_refused.Contains(source)))
+                    if (cached)
                     {
                         taken.Add(release);
                         continue;
                     }
+
+                    var source = NzbSource.Of(release);
 
                     _nzbReads.TryGetValue(source, out var reads);
                     planned.TryGetValue(source, out var also);
@@ -738,7 +734,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
         /// <summary>Nothing is read: the source has refused in this search, or its 8 downloads are made.</summary>
         Skipped,
 
-        /// <summary>The source refused in an earlier search and is cooling down: the post is listed unread.</summary>
+        /// <summary>The source refused in an earlier search and is cooling down: nothing is read, and the search says so.</summary>
         Cooling,
 
         /// <summary>Another read is downloading this NZB: wait for its answer; no slot.</summary>

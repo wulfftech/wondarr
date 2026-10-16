@@ -32,9 +32,10 @@ public sealed partial class IndexerSourceProviderTests
 
     [Theory]
     [InlineData(null, 3600)]
+    [InlineData(0, 3600)]
     [InlineData(7200, 7200)]
     [InlineData(259_200, 86_400)]
-    public async Task A_429_cools_the_indexer_down_for_its_retry_after_up_to_a_day_and_for_an_hour_without_one(int? retryAfterSeconds, int expectedSeconds)
+    public async Task A_429_cools_the_indexer_down_for_its_retry_after_up_to_a_day_and_for_an_hour_without_a_usable_one(int? retryAfterSeconds, int expectedSeconds)
     {
         var time = new FakeTimeProvider(CooldownStart);
         var cooldowns = new NzbCooldowns(time);
@@ -67,6 +68,24 @@ public sealed partial class IndexerSourceProviderTests
 
         cooldowns.TryGetUntil(FirstIndexer, out var until).Should().BeTrue();
         until.Should().Be(CooldownStart.AddMinutes(90));
+    }
+
+    [Fact]
+    public async Task A_retry_after_date_that_has_passed_counts_as_absent_and_cools_the_indexer_down_for_an_hour()
+    {
+        var time = new FakeTimeProvider(CooldownStart);
+        var cooldowns = new NzbCooldowns(time);
+        var client = new QuotaIndexerClient
+        {
+            Answer = (indexer, query) => UsenetReleases(indexer, query, 6),
+            Download = (_, _) => throw Quota(retryAfter: new RetryConditionHeaderValue(CooldownStart.AddMinutes(-5))),
+        };
+        var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: new NzbCache(time), time: time, cooldowns: cooldowns);
+
+        await provider.SearchAsync(Request(), CancellationToken.None);
+
+        cooldowns.TryGetUntil(FirstIndexer, out var until).Should().BeTrue();
+        until.Should().Be(CooldownStart.AddHours(1));
     }
 
     [Theory]
@@ -107,7 +126,7 @@ public sealed partial class IndexerSourceProviderTests
     }
 
     [Fact]
-    public async Task A_second_search_in_the_cooldown_makes_no_download_from_the_indexer_lists_its_posts_and_says_when_it_is_over()
+    public async Task A_second_search_in_the_cooldown_makes_no_download_from_the_indexer_drops_its_uncached_posts_and_says_when_it_is_over()
     {
         var time = new FakeTimeProvider(CooldownStart);
         var cooldowns = new NzbCooldowns(time);
@@ -129,8 +148,7 @@ public sealed partial class IndexerSourceProviderTests
         var second = await provider.SearchAsync(Request(), CancellationToken.None);
 
         client.DownloadsFrom(1).Should().Be(spent, "the indexer is cooling down: searched, but not one NZB asked of it");
-        second.Candidates.Should().HaveCount(12, "its posts are still listed, without a file list");
-        second.Candidates.Should().OnlyContain(candidate => !candidate.Availability.FileListKnown && candidate.Release!.Files == null);
+        second.Candidates.Should().BeEmpty("none of its posts is cached, and a post listed without a file list would only fail at the grab");
         second.Message.Should().Be("Usenet: Indexer 1 is cooling down until 14:00 after refusing NZB downloads");
 
         time.Advance(TimeSpan.FromMinutes(90));
@@ -196,8 +214,9 @@ public sealed partial class IndexerSourceProviderTests
         var result = await provider.SearchAsync(Request(), CancellationToken.None);
 
         client.DownloadsFrom(1).Should().Be(0);
-        result.Candidates.Should().HaveCount(6);
-        result.Candidates.Count(candidate => candidate.Availability.FileListKnown).Should().Be(2, "the two held in the cache are read for free");
+        result.Candidates.Should().HaveCount(2, "the two held in the cache are read for free; the other four are dropped");
+        result.Candidates.Should().OnlyContain(candidate => candidate.Availability.FileListKnown);
+        result.Message.Should().Be("Usenet: Indexer 1 is cooling down until 13:00 after refusing NZB downloads");
     }
 
     [Fact]
@@ -249,9 +268,7 @@ public sealed partial class IndexerSourceProviderTests
         var second = await provider.SearchAsync(Request(), CancellationToken.None);
 
         client.DownloadLog.Count.Should().Be(downloads, "one upstream is cooling down and the other's NZBs are all in the cache");
-        second.Candidates.Should().HaveCount(12);
-        second.Candidates.Where(candidate => candidate.Provider == "Prowlarr (NZBgeek)").Should().OnlyContain(candidate => candidate.Availability.FileListKnown);
-        second.Candidates.Where(candidate => candidate.Provider == "Prowlarr (DOGnzb)").Should().OnlyContain(candidate => !candidate.Availability.FileListKnown);
+        second.Candidates.Should().HaveCount(6).And.OnlyContain(candidate => candidate.Provider == "Prowlarr (NZBgeek)" && candidate.Availability.FileListKnown);
         second.Message.Should().Be("Usenet: Prowlarr (DOGnzb) is cooling down until 13:00 after refusing NZB downloads");
     }
 

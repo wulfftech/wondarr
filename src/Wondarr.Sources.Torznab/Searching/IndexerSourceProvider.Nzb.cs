@@ -58,15 +58,11 @@ public sealed partial class IndexerSourceProvider
                 return ListNzb(release, kept!);
             }
 
-            if (turn == NzbTurn.Skipped)
+            if (turn is NzbTurn.Skipped or NzbTurn.Cooling)
             {
+                // Dropped, as a refusal in this search drops it: a post listed without a file list would be
+                // grabbable, and its grab downloads the NZB from an indexer that is sure to refuse.
                 return null;
-            }
-
-            if (turn == NzbTurn.Cooling)
-            {
-                // Searched, not read: the post is listed as a "file list unknown" candidate.
-                return new ContainerListing(release, null, null, null);
             }
 
             if (turn == NzbTurn.Shared)

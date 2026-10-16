@@ -57,13 +57,13 @@ public sealed class NzbCooldownsTests
     [Theory]
     [InlineData(0)]
     [InlineData(-30)]
-    public void A_retry_after_that_is_not_in_the_future_leaves_no_cooldown(int seconds)
+    public void A_retry_after_of_zero_or_less_counts_as_absent(int seconds)
     {
         var cooldowns = new NzbCooldowns(new FakeTimeProvider(Start));
 
-        cooldowns.Start(Dog, TimeSpan.FromSeconds(seconds)).Should().Be(Start);
+        cooldowns.Start(Dog, TimeSpan.FromSeconds(seconds)).Should().Be(Start.AddHours(1));
 
-        cooldowns.TryGetUntil(Dog, out _).Should().BeFalse("it ended the moment it began");
+        cooldowns.TryGetUntil(Dog, out _).Should().BeTrue();
     }
 
     [Fact]

@@ -55,13 +55,13 @@ public sealed class NzbCooldowns
     /// <param name="source">The refusing source.</param>
     /// <param name="retryAfter">
     /// How long the indexer asked to be left alone, when its answer said so: the cool-down lasts that long
-    /// (at most <see cref="MaxCooldown"/>), else <see cref="DefaultCooldown"/>.
+    /// (at most <see cref="MaxCooldown"/>), else <see cref="DefaultCooldown"/>. Zero or less counts as absent.
     /// </param>
     /// <returns>The instant the cool-down ends.</returns>
     public DateTimeOffset Start(NzbSource source, TimeSpan? retryAfter)
     {
-        var length = retryAfter is { } asked
-            ? TimeSpan.FromTicks(Math.Clamp(asked.Ticks, 0, MaxCooldown.Ticks))
+        var length = retryAfter is { } asked && asked > TimeSpan.Zero
+            ? TimeSpan.FromTicks(Math.Min(asked.Ticks, MaxCooldown.Ticks))
             : DefaultCooldown;
 
         lock (_gate)
