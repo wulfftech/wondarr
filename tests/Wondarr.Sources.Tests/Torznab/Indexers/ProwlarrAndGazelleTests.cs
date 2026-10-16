@@ -89,7 +89,7 @@ public sealed class ProwlarrAndGazelleTests
     public void Prowlarr_offers_the_same_minimum_seeders_field_as_torznab()
     {
         var prowlarr = new ProwlarrIndexerType(new StaticHttpClientFactory(new HeaderHandler(_ => Fixture("prowlarr-search.json"))), new SecretRegistry());
-        var torznab = new TorznabIndexerType(TorznabTest.CapsHandler());
+        var torznab = TorznabTest.TorznabType(RecordingHandler.Serving("caps-prowlarr.xml"));
 
         prowlarr.Fields.Single(field => field.Name == "minimumSeeders")
             .Should().BeEquivalentTo(torznab.Fields.Single(field => field.Name == "minimumSeeders"));

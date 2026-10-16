@@ -189,6 +189,69 @@ public sealed class NzbAnswerTests
     }
 
     [Fact]
+    public void A_key_across_the_old_1024_byte_cut_is_redacted_whole()
+    {
+        const string key = "S3cretIndexerKey";
+        var secrets = new SecretRegistry();
+        secrets.Register(key);
+
+        // Whitespace is collapsed, so the key is near the start of what is shown while its bytes run
+        // from 1018 to 1034: cut at 1024 bytes first, "S3cret" would have survived the redaction.
+        var body = "Refused " + new string(' ', 1010) + key + " is not valid";
+
+        var text = NzbAnswer.Check(Encoding.UTF8.GetBytes(body), secrets.Redact).Text;
+
+        text.Should().Be("Refused (removed) is not valid");
+    }
+
+    [Fact]
+    public void A_key_near_the_end_of_a_6_KiB_body_is_redacted()
+    {
+        const string key = "S3cretIndexerKey";
+        var secrets = new SecretRegistry();
+        secrets.Register(key);
+
+        var tail = key + " is not valid";
+        var body = "Rejected" + new string(' ', (6 * 1024) - "Rejected".Length - tail.Length) + tail;
+
+        body.Length.Should().Be(6 * 1024);
+
+        var text = NzbAnswer.Check(Encoding.UTF8.GetBytes(body), secrets.Redact).Text;
+
+        text.Should().Be("Rejected (removed) is not valid");
+    }
+
+    [Fact]
+    public void A_percent_encoded_key_in_a_refusal_that_quotes_the_request_is_redacted()
+    {
+        const string key = "Ab+c/d=Ef12";
+        var secrets = new SecretRegistry();
+        secrets.Register(key);
+
+        // Whitespace in front of the quote, so the key is past the old 1024-byte cut as well.
+        var body = "Refused" + new string(' ', 2000) + "Bad request: /api?t=get&k=Ab%2Bc%2Fd%3DEf12&q=x";
+
+        var text = NzbAnswer.Check(Encoding.UTF8.GetBytes(body), secrets.Redact).Text;
+
+        text.Should().Be("Refused Bad request: /api?t=get&k=(removed)&q=x");
+    }
+
+    [Theory]
+    [InlineData(1024)]
+    [InlineData(6 * 1024)]
+    [InlineData(20 * 1024)]
+    public void What_is_shown_is_still_at_most_200_characters_however_long_the_body_is(int length)
+    {
+        var body = string.Concat(Enumerable.Repeat("Sorry, no. ", (length / 11) + 1));
+
+        var text = NzbAnswer.Check(Encoding.UTF8.GetBytes(body), NoRedaction).Text;
+
+        NzbAnswer.MaxTextLength.Should().Be(200);
+        text.Length.Should().Be(200);
+        text.Should().StartWith("Sorry, no. Sorry, no.");
+    }
+
+    [Fact]
     public void An_api_key_in_a_url_the_indexer_quotes_is_removed_even_when_nobody_registered_it()
     {
         var body = "Bad request: https://dog.example/api?t=get&apikey=abcdef0123456789&id=1";

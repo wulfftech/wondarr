@@ -10,6 +10,7 @@ using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Logging;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Sources.Torznab.Indexers;
@@ -37,13 +38,16 @@ public abstract partial class RssParser
         Logger = logger;
     }
 
+    /// <summary>The most bytes of a non-success answer's body that are read looking for an <c>&lt;error/&gt;</c>.</summary>
+    private const long MaxErrorBodyBytes = 64 * 1024;
+
     /// <summary>
     /// Turns an <c>&lt;error code="…" description="…"/&gt;</c> answer into an
-    /// <see cref="IndexerException"/>. A code from 100 to 199 is an API key problem, so the message
-    /// says so.
+    /// <see cref="IndexerException"/> that carries the indexer's own code and description. A code from
+    /// 100 to 199 is an API key problem, so the message says so.
     /// </summary>
     /// <param name="document">The answer's XML.</param>
-    /// <param name="redact">Optional scrubber applied to the description, so a server that echoes the API key cannot leak it.</param>
+    /// <param name="redact">Optional scrubber applied to the message, so a server that echoes the API key cannot leak it.</param>
     public static void CheckError(XDocument document, Func<string, string>? redact = null)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -60,17 +64,63 @@ public abstract partial class RssParser
             description = "the indexer reported an error";
         }
 
+        var hasCode = int.TryParse(error.Attribute("code")?.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var code);
+        var detail = hasCode ? $"{code.ToString(CultureInfo.InvariantCulture)}: {description}" : description;
+
         if (redact is not null)
         {
-            description = redact(description);
+            detail = redact(detail);
         }
 
-        if (int.TryParse(error.Attribute("code")?.Value, out var code) && code is >= 100 and <= 199)
+        throw new IndexerException(hasCode && code is >= 100 and <= 199
+            ? $"The indexer rejected the API key ({detail})."
+            : $"The indexer answered an error ({detail}).");
+    }
+
+    /// <summary>
+    /// Throws the indexer's own error when a non-success answer carries one. An indexer says why it
+    /// refused a request in the body (NZBFinder answers a free account's search with HTTP 401 and
+    /// <c>&lt;error code="102" description="…"/&gt;</c>), and the status alone hides that. A body that is
+    /// not such an error (empty, an HTML page, other XML) is left alone and the method returns, so the
+    /// caller throws its own status message.
+    /// </summary>
+    /// <param name="response">The non-success answer.</param>
+    /// <param name="redact">Optional scrubber applied to the message, so a server that echoes the API key cannot leak it.</param>
+    /// <param name="cancellationToken">Cancels the read of the body.</param>
+    public static async Task ThrowIfErrorBodyAsync(HttpResponseMessage response, Func<string, string>? redact, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+
+        string content;
+
+        try
         {
-            throw new IndexerException($"The indexer rejected the API key: {description}");
+            // The status is already known to be bad, so a body that is too big or never arrives only
+            // means the indexer's reason stays unknown.
+            await response.Content.LoadIntoBufferAsync(MaxErrorBodyBytes, cancellationToken).ConfigureAwait(false);
+            content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!CancellationRules.IsCallerCancellation(exception, cancellationToken))
+        {
+            return;
         }
 
-        throw new IndexerException($"The indexer answered an error: {description}");
+        XDocument document;
+
+        try
+        {
+            document = LoadXmlDocument(content);
+        }
+        catch (XmlException)
+        {
+            return;
+        }
+
+        if (document.Root is { Name.LocalName: "error" } error &&
+            (error.Attribute("description") is not null || error.Attribute("code") is not null))
+        {
+            CheckError(document, redact);
+        }
     }
 
     /// <summary>Parses a feed's answer into the releases it lists.</summary>
@@ -83,17 +133,7 @@ public abstract partial class RssParser
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(indexer);
 
-        XDocument document;
-        try
-        {
-            document = LoadXmlDocument(content);
-        }
-        catch (XmlException exception)
-        {
-            throw new IndexerException("The indexer's answer is not valid XML.", exception);
-        }
-
-        CheckError(document, _secrets.Redact);
+        var document = LoadAnswer(content);
 
         var releases = new List<IndexerRelease>();
 
@@ -110,6 +150,39 @@ public abstract partial class RssParser
         }
 
         return releases;
+    }
+
+    /// <summary>
+    /// Checks that an answer is usable without reading its items: it must be XML and must not be an
+    /// <c>&lt;error/&gt;</c>, the two failures <see cref="Parse"/> throws for. A connection test sends
+    /// one search and asks no more of the answer than this.
+    /// </summary>
+    /// <param name="content">The answer's body.</param>
+    /// <exception cref="IndexerException">The answer is not XML, or is an error answer.</exception>
+    public void Check(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        _ = LoadAnswer(content);
+    }
+
+    /// <summary>Loads an answer as XML and turns an <c>&lt;error/&gt;</c> answer into an exception.</summary>
+    /// <param name="content">The answer's body.</param>
+    private XDocument LoadAnswer(string content)
+    {
+        XDocument document;
+        try
+        {
+            document = LoadXmlDocument(content);
+        }
+        catch (XmlException exception)
+        {
+            throw new IndexerException("The indexer's answer is not valid XML.", exception);
+        }
+
+        CheckError(document, _secrets.Redact);
+
+        return document;
     }
 
     /// <summary>Reads the answer as XML, ignoring any DTD and resolving nothing.</summary>
