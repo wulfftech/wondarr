@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Security
+- **A key with a reserved character is now redacted from the log and from an indexer's refusal in its percent-encoded and HTML-encoded forms too.** An indexer that refuses a request often quotes its URL or query back (`…&apikey=ab%2Bcd%3D…`) or answers with an HTML page, and Wondarr shows that text to the user and writes it to the log. A secret (API key, password, token) containing `+`, `/`, `=`, `&`, a space or a similar character used to be removed only as it was typed, so its encoded form got through. Wondarr now also removes it percent-encoded (upper- and lower-case hex, `%20` or `+` for a space), HTML-encoded, and as the JSON log writes each of those. The indexer's answer to an NZB link is now read up to 8 KiB (it was 1 KiB) and redacted whole before the 200 characters that are shown are cut, so a key that straddled the old cut can no longer leave half of itself in the text. No migration.
+
 ## [0.1.7] — 2026-10-15
 
 The usenet release: real music posts now go from the indexer through SABnzbd into the library, checked live against DOGnzb and SABnzbd 5.1.3 (scene file names, upper-case PAR2 files, RAR and obfuscated posts, posts trimmed to the one track the song needs). Wondarr also spends far fewer of an indexer's daily NZB downloads, cleans up what downloads leave behind, and no longer fails two adds by the same new artist. Update by pulling `:0.1` (or `:0.1.7`).
