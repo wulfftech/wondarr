@@ -27,6 +27,8 @@ Reading a usenet post's file list means downloading its NZB, and most indexers c
 
 When an indexer says its limit is reached (a sentence such as "You already reached your daily restriction of 10 downloads.", or an error answer about your account or its limits), Wondarr stops reading from that indexer for the rest of the search, keeps using the others, and shows the indexer's own words in the search message and in the run's history. An error about a single post, such as a removed one, only skips that post. A grab whose download is not an NZB fails with the indexer's words, and nothing is added to SABnzbd.
 
+An indexer that refused is also left alone after the search ends, for as long as its answer asked (`Retry-After`, 24 hours at most) or else for 1 hour: later searches still ask it for releases but read none of its NZBs, so its posts are listed without a file list and the search message says when the cool-down ends, in the server's local time. A restart of Wondarr forgets it. Behind a Prowlarr row each indexer counts on its own, with its own 8 reads and its own cool-down, so one that refuses does not stop the others.
+
 ## Settings → Indexers
 
 Press **Add indexer** (the button on the page), choose a type, and fill in the form. Every type has:

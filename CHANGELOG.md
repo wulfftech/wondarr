@@ -4,6 +4,12 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **An indexer that has refused NZB downloads is left alone for a while, not tried again by every later search.** The live run that spent DOGnzb's 10 daily downloads kept making one to four doomed downloads in every search after it. Now a refusal (its limit message, an account error, HTTP 429 or 403) starts a cool-down: for what the indexer's `Retry-After` asked, at most 24 hours, else 1 hour. While it lasts, searches still ask that indexer for releases but read none of its NZBs. Its posts are listed as "file list unknown" candidates (an NZB already kept in memory is still read), and the search message says "DOGnzb is cooling down until 14:05 after refusing NZB downloads". The cool-down is kept in memory: a restart forgets it. No migration.
+- **A 429 to an NZB download is no longer retried.** Indexers answer a spent quota that way, so each retry was another doomed download, and a long `Retry-After` outlasted the 30-second request timeout and ended as "could not be reached", which never cut the indexer off. The 429 now goes straight to the search, which stops reading that indexer. Searches and capability requests are retried as before, and so is a 5xx on a download. No migration.
+- **A Prowlarr row is no longer cut off whole when one of its indexers refuses.** The cap of 8 NZBs per search, the refusal and the cool-down are now kept per indexer behind the row ("Prowlarr (DOGnzb)"), so the others keep being read and the message names the one that refused. A plain Newznab row is unchanged. No migration.
+- **Two searches that need the same NZB at once download it once, and the cap of 8 cannot be overshot.** An NZB kept in memory that expired or was pushed out while a search was running used to be downloaded on top of the 8 the search had planned; each read now checks the cache, the refusal, the cool-down and the cap again at the moment it starts, and a slot is only used up by a real download. No migration.
+
 ## [0.1.7] — 2026-10-15
 
 The usenet release: real music posts now go from the indexer through SABnzbd into the library, checked live against DOGnzb and SABnzbd 5.1.3 (scene file names, upper-case PAR2 files, RAR and obfuscated posts, posts trimmed to the one track the song needs). Wondarr also spends far fewer of an indexer's daily NZB downloads, cleans up what downloads leave behind, and no longer fails two adds by the same new artist. Update by pulling `:0.1` (or `:0.1.7`).

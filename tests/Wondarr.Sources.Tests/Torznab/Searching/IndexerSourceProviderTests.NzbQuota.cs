@@ -500,17 +500,28 @@ public sealed partial class IndexerSourceProviderTests
 
         public Func<Indexer, IndexerRelease, IndexerDownload> Download { get; init; } = (_, _) => throw new IndexerException("no download");
 
+        /// <summary>The name a release carries, when it is not its row's: a Prowlarr row's upstream indexers have their own.</summary>
+        public Func<IndexerRelease, string?> NameOf { get; init; } = _ => null;
+
+        /// <summary>Every download waits for this before it answers; a test completes it to let the answers go.</summary>
+        public Task Hold { get; init; } = Task.CompletedTask;
+
+        /// <summary>Called as each download starts, before it waits for <see cref="Hold"/>.</summary>
+        public Action<IndexerRelease>? OnDownload { get; init; }
+
         public ConcurrentQueue<(long IndexerId, string Guid)> DownloadLog { get; } = new();
 
         public int DownloadsFrom(long indexerId) => DownloadLog.Count(entry => entry.IndexerId == indexerId);
 
         public Task<IReadOnlyList<IndexerRelease>> SearchAsync(Indexer indexer, ReleaseQuery query, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<IndexerRelease>>(
-                [.. Answer(indexer, query).Select(release => release with { IndexerId = indexer.Id, IndexerName = indexer.Name })]);
+                [.. Answer(indexer, query).Select(release => release with { IndexerId = indexer.Id, IndexerName = NameOf(release) ?? indexer.Name })]);
 
         public async Task<IndexerDownload> DownloadAsync(Indexer indexer, IndexerRelease release, CancellationToken cancellationToken)
         {
             DownloadLog.Enqueue((indexer.Id, release.ReleaseId));
+            OnDownload?.Invoke(release);
+            await Hold.WaitAsync(cancellationToken).ConfigureAwait(false);
             await Task.Yield();
 
             return Download(indexer, release);

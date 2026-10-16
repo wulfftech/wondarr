@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -438,7 +439,10 @@ public sealed partial class IndexerSourceProviderTests
         string? indexerType = null,
         string? indexerSettings = null,
         NzbCache? nzbCache = null,
-        ISecretRegistry? secrets = null)
+        ISecretRegistry? secrets = null,
+        TimeProvider? time = null,
+        NzbCooldowns? cooldowns = null,
+        ILogger<IndexerSourceProvider>? logger = null)
     {
         rows = new Rows(
             [.. Enumerable.Range(1, indexerCount).Select(id => new Indexer
@@ -466,11 +470,12 @@ public sealed partial class IndexerSourceProviderTests
             Substitute.For<IUsenetClient>(),
             Substitute.For<IDiskOperations>(),
             Substitute.For<IOptionsMonitor<ImportOptions>>(),
-            TimeProvider.System,
-            NullLogger<IndexerSourceProvider>.Instance,
+            time ?? TimeProvider.System,
+            logger ?? NullLogger<IndexerSourceProvider>.Instance,
             budget,
             nzbCache,
-            secrets);
+            secrets,
+            nzbCooldowns: cooldowns);
     }
 
     private static IndexerRelease Release(
