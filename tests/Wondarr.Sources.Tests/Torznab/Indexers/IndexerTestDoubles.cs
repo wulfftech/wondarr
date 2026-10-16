@@ -164,9 +164,6 @@ internal static class TorznabTest
         secrets ?? new SecretRegistry(),
         logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<NewznabCapabilitiesReader>.Instance);
 
-    /// <summary>A caps reader no request is ever sent to, for tests that only validate settings.</summary>
-    public static NewznabCapabilitiesReader CapsHandler() => CapsReader(RecordingHandler.Serving("caps-prowlarr.xml"));
-
     /// <summary>A Torznab client over the given handler.</summary>
     /// <param name="handler">The handler its requests go to.</param>
     /// <param name="capabilities">The caps reader it asks.</param>
@@ -196,6 +193,28 @@ internal static class TorznabTest
         capabilities ?? CapsReader(handler, secrets: secrets),
         secrets ?? new SecretRegistry(),
         logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<NewznabIndexerClient>.Instance);
+
+    /// <summary>A Torznab indexer type over the given handler, its caps reader and client sharing one cache and registry.</summary>
+    /// <param name="handler">The handler every request of its connection test goes to.</param>
+    /// <param name="secrets">The secret registry its API key is registered with.</param>
+    public static TorznabIndexerType TorznabType(HttpMessageHandler handler, ISecretRegistry? secrets = null)
+    {
+        secrets ??= new SecretRegistry();
+        var capabilities = CapsReader(handler, secrets: secrets);
+
+        return new TorznabIndexerType(capabilities, TorznabClient(handler, capabilities, secrets));
+    }
+
+    /// <summary>A Newznab indexer type over the given handler, its caps reader and client sharing one cache and registry.</summary>
+    /// <param name="handler">The handler every request of its connection test goes to.</param>
+    /// <param name="secrets">The secret registry its API key is registered with.</param>
+    public static NewznabIndexerType NewznabType(HttpMessageHandler handler, ISecretRegistry? secrets = null)
+    {
+        secrets ??= new SecretRegistry();
+        var capabilities = CapsReader(handler, secrets: secrets);
+
+        return new NewznabIndexerType(capabilities, NewznabClient(handler, capabilities, secrets));
+    }
 
     /// <summary>The factory with every indexer client over one handler.</summary>
     /// <param name="handler">The handler every client's requests go to.</param>
