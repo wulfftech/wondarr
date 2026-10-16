@@ -152,6 +152,12 @@ public sealed record DecisionContext
     /// <summary>The album the song belongs to, when it has one.</summary>
     public string? AlbumTitle { get; init; }
 
+    /// <summary>
+    /// The kind of the song's album context, when it has one. A pseudo-album's title ("Singles") is never an
+    /// album a release is named after (<see cref="SongAlbumNames"/>); a kind that is not known counts as a release.
+    /// </summary>
+    public AlbumContextKind? AlbumKind { get; init; }
+
     /// <summary>The song's track number on <see cref="AlbumTitle"/>, when known.</summary>
     public int? TrackNo { get; init; }
 

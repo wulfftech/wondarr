@@ -15,8 +15,16 @@ public static class SongAlbumNames
     /// library-wide <see cref="AlbumContextKind.Compilation"/> the compilation policy titles after the library).
     /// </summary>
     /// <param name="context">The song's album context, when it has one.</param>
-    public static string? Of(AlbumContext? context) =>
-        context is null || IsPseudo(context.Kind) || string.IsNullOrWhiteSpace(context.AlbumTitle) ? null : context.AlbumTitle;
+    public static string? Of(AlbumContext? context) => context is null ? null : Of(context.Kind, context.AlbumTitle);
+
+    /// <summary>
+    /// The same decision for an album context that travels as its kind and title (a search request, a decision
+    /// context). A kind that is not known counts as a release: only a context known to be a pseudo-album does not.
+    /// </summary>
+    /// <param name="kind">The album context's kind, when it is known.</param>
+    /// <param name="title">The album context's title, when the song has one.</param>
+    public static string? Of(AlbumContextKind? kind, string? title) =>
+        (kind is { } known && IsPseudo(known)) || string.IsNullOrWhiteSpace(title) ? null : title;
 
     /// <summary>Whether the album context kind is a synthetic album that gathers songs, not a release.</summary>
     /// <param name="kind">The album context's kind.</param>
