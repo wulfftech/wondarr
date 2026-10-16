@@ -868,6 +868,7 @@ public sealed partial class IndexerSourceProvider
         var files = _disk.EnumerateFiles(folder).ToList();
         var source = grab.FilePath is { } path
             ? files.FirstOrDefault(file => string.Equals(Path.GetFileName(file), Path.GetFileName(path), StringComparison.OrdinalIgnoreCase))
+                ?? await FindRenamedAsync(services, grab, job, folder, files, path, cancellationToken).ConfigureAwait(false)
             : MatchUnpacked(folder, files, grab);
 
         if (source is null)
@@ -925,6 +926,63 @@ public sealed partial class IndexerSourceProvider
         }
 
         return Failed(message, blocklistCandidate);
+    }
+
+    /// <summary>
+    /// The listed file of a finished job, under the name SABnzbd's <i>Deobfuscate final filenames</i> gave it.
+    /// That step renames a job's one big file, which after a trim is the wanted one, to the job's name plus
+    /// the file's own extension when the name reads as obfuscated; an all-lower-case scene name with few
+    /// separators does. Only called when the listed name is not in the folder. The job's name as the client
+    /// reports it and the folder's own name are both tried (the client's final name can differ from the folder
+    /// by a <c>.1</c>-style suffix), with the listed file's extension, and nothing else. A file that is the
+    /// listed name of another queue item of the same job is that item's, never taken here. The client renames
+    /// one file at most, but two items of one job whose files are both missing could still both reach for the
+    /// renamed one: the first to poll stages it, and the fingerprint check that follows fails a wrong recording.
+    /// A file already staged by another item has left the folder and is not found at all.
+    /// </summary>
+    private async Task<string?> FindRenamedAsync(
+        IServiceProvider services,
+        ContainerGrab grab,
+        UsenetJobInfo job,
+        string folder,
+        List<string> files,
+        string listed,
+        CancellationToken cancellationToken)
+    {
+        var extension = Path.GetExtension(listed);
+        var stems = new[] { job.Name, Path.GetFileName(folder.TrimEnd('/', '\\')) }
+            .Where(stem => !string.IsNullOrWhiteSpace(stem))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        var renamed = stems
+            .Select(stem => files.FirstOrDefault(file => string.Equals(Path.GetFileName(file), stem + extension, StringComparison.OrdinalIgnoreCase)))
+            .FirstOrDefault(file => file is not null);
+
+        if (renamed is null)
+        {
+            return null;
+        }
+
+        var actual = Path.GetFileName(renamed);
+        var jobId = grab.JobId;
+        var siblings = await ActiveGrabsAsync(
+            services,
+            other => other.ClientId == grab.ClientId
+                && other.JobId == jobId
+                && !string.Equals(other.StagingDir, grab.StagingDir, StringComparison.Ordinal)
+                && other.FilePath is not null,
+            cancellationToken).ConfigureAwait(false);
+
+        if (siblings.Any(other => string.Equals(Path.GetFileName(other.FilePath), actual, StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        var wanted = Path.GetFileName(listed);
+
+        LogRenamedFileUsed(_logger, wanted, actual);
+
+        return renamed;
     }
 
     /// <summary>An unpacked post's file for the song, by the matcher over the files' paths below the job folder.</summary>
@@ -1198,6 +1256,9 @@ public sealed partial class IndexerSourceProvider
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Not removing {Path}, the folder of the usenet job {JobId}: the download client does not say where it finishes jobs")]
     private static partial void LogJobFolderKept(ILogger logger, string path, string jobId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "SABnzbd renamed {Listed} to {Actual}; using it")]
+    private static partial void LogRenamedFileUsed(ILogger logger, string listed, string actual);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The leftover folder {Path} of the usenet job {JobId} could not be removed")]
     private static partial void LogJobFolderFailed(ILogger logger, string path, string jobId, Exception exception);

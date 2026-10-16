@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **A usenet song no longer fails because SABnzbd's "Deobfuscate final filenames" renamed its file.** SABnzbd treats an all-lower-case scene name with fewer than three spaces, dots and underscores as obfuscated, so after Wondarr trimmed a post to one track, SABnzbd renamed that track to the job's name (`102-norah_jones-seven_years.flac` became `<job>.flac`). Wondarr looked for the listed name only, reported "The song is not in the downloaded post.", removed the job and moved on to the next candidate, so whether a song imported depended on how many words its title had. Wondarr now takes `<job name>.<extension>` (the job's name as SABnzbd reports it, or the finished folder's name, with the listed file's extension) when the listed name is missing, and logs "SABnzbd renamed … to …; using it". It leaves the file alone when another queued song of the same job lists that name, and the import still checks the file's length and fingerprint, so a wrong recording fails as before. Posts without a file list are unchanged. There is no need to switch the option off. No migration.
+
 ## [0.1.7] — 2026-10-15
 
 The usenet release: real music posts now go from the indexer through SABnzbd into the library, checked live against DOGnzb and SABnzbd 5.1.3 (scene file names, upper-case PAR2 files, RAR and obfuscated posts, posts trimmed to the one track the song needs). Wondarr also spends far fewer of an indexer's daily NZB downloads, cleans up what downloads leave behind, and no longer fails two adds by the same new artist. Update by pulling `:0.1` (or `:0.1.7`).
