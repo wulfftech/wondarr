@@ -1406,6 +1406,137 @@ public sealed class IndexerSourceGrabTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_the_client_renamed_to_the_job_s_name_is_imported_and_the_job_and_its_folder_go()
+    {
+        var logger = new LevelLogger();
+        var (provider, handle, job, folder) = await RenamedPostAsync(Album, Album + ".flac", logger);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Completed);
+        File.ReadAllText(status.CompletedPath!).Should().Be("three");
+        job.Removed.Should().BeTrue();
+        Directory.Exists(folder).Should().BeFalse("the renamed file is out of the folder, so the sidecars go with it");
+        logger.Lines.Should().Contain(
+            line => line.Level == LogLevel.Information
+                && line.Message.Contains("03 - Digital Love.flac", StringComparison.Ordinal)
+                && line.Message.Contains(Album + ".flac", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(Album + ".1", Album + ".flac")]
+    [InlineData(Album + ".1", Album + ".1.flac")]
+    [InlineData(Album, "DAFT PUNK - DISCOVERY (2001) [FLAC].FLAC")]
+    public async Task A_renamed_file_is_found_by_the_job_s_name_or_the_folder_s_name_in_any_case(string folderName, string renamed)
+    {
+        var (provider, handle, job, folder) = await RenamedPostAsync(folderName, renamed);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Completed);
+        File.ReadAllText(status.CompletedPath!).Should().Be("three");
+        job.Removed.Should().BeTrue();
+        Directory.Exists(folder).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(Album + ".mp3")]
+    [InlineData("other-name.flac")]
+    [InlineData(Album + " - bonus.flac")]
+    public async Task A_file_that_is_not_the_job_s_name_with_the_listed_extension_is_not_taken(string other)
+    {
+        var (provider, handle, job, folder) = await RenamedPostAsync(Album, other);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.Message.Should().Be("The song is not in the downloaded post.");
+        status.BlocklistCandidate.Should().BeFalse("the song was named in the listing: the client lost it, the release is not shown to be wrong");
+        job.Removed.Should().BeTrue();
+        Directory.Exists(folder).Should().BeFalse("the item failed and the job went; so does what it left behind");
+    }
+
+    [Fact]
+    public async Task The_listed_name_wins_over_a_file_named_after_the_job()
+    {
+        var logger = new LevelLogger();
+        var (provider, handle, _, folder) = await RenamedPostAsync(Album, Album + ".flac", logger);
+        WriteFile(Path.Combine(folder, "03 - Digital Love.flac"), "listed");
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Completed);
+        File.ReadAllText(status.CompletedPath!).Should().Be("listed");
+        logger.Lines.Should().NotContain(line => line.Message.Contains("renamed", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_bundled_job_with_one_renamed_file_gives_each_song_its_own(bool renamedSongPollsFirst)
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var bundled = UsenetCandidate("03 - Digital Love.flac") is var candidate
+            ? candidate with { Release = candidate.Release! with { AlsoWanted = ["05 - Crescendolls.flac"] } }
+            : null!;
+        var first = await provider.GrabAsync(bundled, "wondarr/one", CancellationToken.None);
+        await SeedQueueItemAsync(SourceTypes.Newznab, ContainerGrab.Deserialize(first.Value));
+        var second = await provider.GrabAsync(UsenetCandidate("05 - Crescendolls.flac"), "wondarr/two", CancellationToken.None);
+        await SeedQueueItemAsync(SourceTypes.Newznab, ContainerGrab.Deserialize(second.Value));
+
+        // The client renamed the second song's file; the first song's is intact.
+        var job = _usenet.Single();
+        var folder = Path.Combine(CompleteDir, Album);
+        WriteFile(Path.Combine(folder, "03 - Digital Love.flac"), "three");
+        WriteFile(Path.Combine(folder, Album + ".flac"), "five");
+        WriteFile(Path.Combine(folder, "Discovery.nfo"), "nfo");
+        job.Complete(folder);
+
+        var (early, late) = renamedSongPollsFirst ? (second, first) : (first, second);
+        var (earlyText, lateText) = renamedSongPollsFirst ? ("five", "three") : ("three", "five");
+
+        var one = await provider.GetStatusAsync(early, CancellationToken.None);
+
+        one.State.Should().Be(DownloadState.Completed);
+        File.ReadAllText(one.CompletedPath!).Should().Be(earlyText);
+        job.Removed.Should().BeFalse("the other song still needs the job");
+
+        await MarkDoneAsync(ContainerGrab.Deserialize(early.Value));
+        var two = await provider.GetStatusAsync(late, CancellationToken.None);
+
+        two.State.Should().Be(DownloadState.Completed);
+        File.ReadAllText(two.CompletedPath!).Should().Be(lateText);
+        job.Removed.Should().BeTrue();
+        Directory.Exists(folder).Should().BeFalse("the last item cleans up");
+    }
+
+    [Fact]
+    public async Task A_file_another_item_of_the_job_lists_by_that_name_is_not_taken_for_a_missing_one()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var first = await provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+        await SeedQueueItemAsync(SourceTypes.Newznab, ContainerGrab.Deserialize(first.Value));
+
+        // A second item of the same job, whose listed file happens to be named after the job.
+        var sibling = ContainerGrab.Deserialize(first.Value) with { FilePath = Album + ".flac", StagingDir = Path.Combine(StagingRoot, "wondarr", "two") };
+        await SeedQueueItemAsync(SourceTypes.Newznab, sibling);
+
+        var job = _usenet.Single();
+        var folder = Path.Combine(CompleteDir, Album);
+        var theirs = WriteFile(Path.Combine(folder, Album + ".flac"), "theirs");
+        job.Complete(folder);
+
+        var status = await provider.GetStatusAsync(first, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.Message.Should().Be("The song is not in the downloaded post.");
+        File.ReadAllText(theirs).Should().Be("theirs", "the other item's file stays where it is");
+        job.Removed.Should().BeFalse("the other item still needs the job");
+    }
+
+    [Fact]
     public async Task A_job_whose_files_cannot_be_listed_is_not_reused()
     {
         _indexer.Download = new IndexerDownload(AlbumNzb(), null);
@@ -1625,6 +1756,31 @@ public sealed class IndexerSourceGrabTests : IDisposable
         WriteFile(Path.Combine(folder, "03 - Digital Love.flac"), "three");
         WriteFile(Path.Combine(folder, "Discovery.nfo"), "nfo");
         WriteFile(Path.Combine(folder, "cover.jpg"), "jpg");
+        job.Complete(folder);
+
+        return (provider, handle, job, folder);
+    }
+
+    /// <summary>
+    /// A usenet grab of "03 - Digital Love.flac" whose job has finished in <paramref name="folderName"/> below
+    /// the completed folder with the wanted file under another name, <paramref name="renamed"/>, the way
+    /// SABnzbd's deobfuscation leaves it, and the post's playlist, .nfo and covers beside it.
+    /// </summary>
+    private async Task<(IndexerSourceProvider Provider, GrabHandle Handle, FakeJob Job, string Folder)> RenamedPostAsync(
+        string folderName,
+        string renamed,
+        Microsoft.Extensions.Logging.ILogger<IndexerSourceProvider>? logger = null)
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var provider = Provider(DownloadProtocol.Usenet, logger: logger);
+        var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+        var job = _usenet.Single();
+        var folder = Path.Combine(CompleteDir, folderName);
+        WriteFile(Path.Combine(folder, renamed), "three");
+        WriteFile(Path.Combine(folder, "Discovery.m3u"), "m3u");
+        WriteFile(Path.Combine(folder, "Discovery.nfo"), "nfo");
+        WriteFile(Path.Combine(folder, "front.jpg"), "jpg");
+        WriteFile(Path.Combine(folder, "back.jpg"), "jpg");
         job.Complete(folder);
 
         return (provider, handle, job, folder);
