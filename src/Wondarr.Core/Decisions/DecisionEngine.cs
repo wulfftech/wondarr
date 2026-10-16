@@ -60,6 +60,13 @@ public sealed class DecisionEngine
     /// <summary>How close a release's album must be to the song's album for a release with an unknown file list.</summary>
     private const double AlbumThreshold = 0.85;
 
+    /// <summary>
+    /// The shortest album, in letters and digits, that a release with an unknown file list may be judged to name
+    /// as a run of words inside a longer part of its name, unless the album has two words or more. An album called
+    /// "Love" or "1" would be in half the names there are.
+    /// </summary>
+    private const int MinimumAlbumRunLength = 6;
+
     /// <summary>Below this a file cannot be the song, whatever the source claims.</summary>
     private const long MinimumSizeBytes = 500_000;
 
@@ -1001,7 +1008,7 @@ public sealed class DecisionEngine
             return;
         }
 
-        if (!ReleaseNamesAlbumOrTitle(context, SongAlbums(context, candidate), name, candidate.Parsed.Album))
+        if (!ReleaseNamesAlbumOrTitle(context, SongAlbums(context, candidate), name, ArtistPrefixEnd(context.MainArtists, name), candidate.Parsed.Album))
         {
             rejections.Add(new Rejection(
                 RejectionReason.TitleMismatch,
@@ -1014,7 +1021,8 @@ public sealed class DecisionEngine
     /// what its provider decided: the album of the MusicBrainz release the search targeted, and the song's album
     /// context unless that is a pseudo-album. A song filed under "Singles" would otherwise have no album that any
     /// release is named after. A provider that decided nothing (a candidate stored before the request carried
-    /// albums, a push that matched the release by the song's title) leaves the context's title as the album.
+    /// albums, a push that matched the release by the song's title) leaves the context's title as the album,
+    /// unless that is a pseudo-album's, which no release is named after.
     /// </summary>
     private static List<string> SongAlbums(DecisionContext context, Candidate candidate)
     {
@@ -1023,7 +1031,7 @@ public sealed class DecisionEngine
 
         if (albums.All(string.IsNullOrWhiteSpace))
         {
-            albums = [context.AlbumTitle];
+            albums = [SongAlbumNames.Of(context.AlbumKind, context.AlbumTitle)];
         }
 
         return [.. albums.Where(album => !string.IsNullOrWhiteSpace(album)).Select(album => album!).Distinct(StringComparer.OrdinalIgnoreCase)];
@@ -1044,23 +1052,48 @@ public sealed class DecisionEngine
             return true;
         }
 
-        for (var index = releaseName.IndexOf('-', StringComparison.Ordinal); index > 0; index = releaseName.IndexOf('-', index + 1))
-        {
-            if (SceneFileName.ArtistKey(releaseName[..index]) == wanted)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return ArtistPrefixEnd([artist], releaseName) >= 0;
     }
 
     /// <summary>
-    /// Whether a release name is one of the song's albums (a hyphen-separated field of it, or a run of up to
-    /// four, or its parsed album, as close as <see cref="AlbumThreshold"/>) or holds the song's title as a run
-    /// of whole words.
+    /// The index of the hyphen that ends the artist a release name starts with: the last one with the text
+    /// before it spelling one of the artists (<see cref="ReleaseNamesArtist"/>), or -1 when none does.
     /// </summary>
-    private static bool ReleaseNamesAlbumOrTitle(DecisionContext context, List<string> albums, string releaseName, string? parsedAlbum)
+    private static int ArtistPrefixEnd(IReadOnlyList<string> artists, string releaseName)
+    {
+        var wanted = artists
+            .Select(SceneFileName.ArtistKey)
+            .Where(key => key.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+        var end = -1;
+
+        for (var index = releaseName.IndexOf('-', StringComparison.Ordinal); index > 0; index = releaseName.IndexOf('-', index + 1))
+        {
+            if (wanted.Contains(SceneFileName.ArtistKey(releaseName[..index])))
+            {
+                end = index;
+            }
+        }
+
+        return end;
+    }
+
+    /// <summary>
+    /// Whether a release name is one of the song's albums (a hyphen-separated field of it after the artist, or a
+    /// run of up to four, or its parsed album, as close as <see cref="AlbumThreshold"/>; or the album as a run of
+    /// whole words anywhere after the artist, for the names whose album shares a field with its tags) or holds
+    /// the song's title as a run of whole words.
+    /// </summary>
+    /// <param name="context">The wanted song.</param>
+    /// <param name="albums">The albums the release may be named after.</param>
+    /// <param name="releaseName">The release name.</param>
+    /// <param name="artistEnd">
+    /// The index of the hyphen that ends the artist the name starts with, or -1 when that is not known. The
+    /// artist is left out of the album's search: an album named like its artist (Boston's "Boston") must be
+    /// found after the artist, not in it.
+    /// </param>
+    /// <param name="parsedAlbum">The album the release name parses to.</param>
+    private static bool ReleaseNamesAlbumOrTitle(DecisionContext context, List<string> albums, string releaseName, int artistEnd, string? parsedAlbum)
     {
         if (albums.Count > 0)
         {
@@ -1070,7 +1103,8 @@ public sealed class DecisionEngine
                 return true;
             }
 
-            var fields = releaseName.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var afterArtist = artistEnd >= 0 ? releaseName[(artistEnd + 1)..] : releaseName;
+            var fields = afterArtist.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
             for (var start = 0; start < fields.Length; start++)
             {
@@ -1084,12 +1118,35 @@ public sealed class DecisionEngine
                     }
                 }
             }
+
+            // "Norah.Jones.-.Come.Away.With.Me.24bit.192Khz.hdtracks.FLAC" has one hyphen, and what follows it is the
+            // album and its tags in one field. Only where the artist was found, so there is something to leave out.
+            if (artistEnd >= 0 && albums.Any(album => NamesAlbumAsWords(album, afterArtist)))
+            {
+                return true;
+            }
         }
 
         var title = TextMatching.Normalize(VersionFlagParser.Parse(context.SongTitle).BaseTitle);
 
         return title.Length > 0
             && string.Concat(" ", TextMatching.Normalize(releaseName), " ").Contains(string.Concat(" ", title, " "), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Whether the album occurs as a run of whole words in the part of a release name after its artist. An album
+    /// of one short word is never looked for this way, since it would match any name that holds the word.
+    /// </summary>
+    private static bool NamesAlbumAsWords(string album, string afterArtist)
+    {
+        var wanted = TextMatching.Normalize(album);
+
+        if (!wanted.Contains(' ') && wanted.Length < MinimumAlbumRunLength)
+        {
+            return false;
+        }
+
+        return string.Concat(" ", TextMatching.Normalize(afterArtist), " ").Contains(string.Concat(" ", wanted, " "), StringComparison.Ordinal);
     }
 
     private static bool IsLossless(DecisionContext context, long qualityId) =>

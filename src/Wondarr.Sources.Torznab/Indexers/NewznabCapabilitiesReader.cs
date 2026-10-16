@@ -104,6 +104,8 @@ public sealed partial class NewznabCapabilitiesReader
 
         if (!response.IsSuccessStatusCode)
         {
+            await RssParser.ThrowIfErrorBodyAsync(response, _secrets.Redact, cancellationToken).ConfigureAwait(false);
+
             throw StatusError(response);
         }
 

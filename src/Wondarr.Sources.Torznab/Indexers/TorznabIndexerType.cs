@@ -12,14 +12,18 @@ namespace Wondarr.Sources.Torznab.Indexers;
 public sealed class TorznabIndexerType : IIndexerType
 {
     private readonly NewznabCapabilitiesReader _capabilities;
+    private readonly TorznabIndexerClient _client;
 
     /// <summary>Initialises a new instance of the <see cref="TorznabIndexerType"/> class.</summary>
     /// <param name="capabilities">The caps reader a connection test goes through.</param>
-    public TorznabIndexerType(NewznabCapabilitiesReader capabilities)
+    /// <param name="client">The client whose search a connection test sends after the caps read.</param>
+    public TorznabIndexerType(NewznabCapabilitiesReader capabilities, TorznabIndexerClient client)
     {
         ArgumentNullException.ThrowIfNull(capabilities);
+        ArgumentNullException.ThrowIfNull(client);
 
         _capabilities = capabilities;
+        _client = client;
     }
 
     /// <inheritdoc />
@@ -48,7 +52,11 @@ public sealed class TorznabIndexerType : IIndexerType
 
         try
         {
-            await _capabilities.ReadAsync(endpoint, cancellationToken).ConfigureAwait(false);
+            // Some indexers answer caps without looking at the key and refuse every search, so the
+            // caps read alone proves nothing: one real search must succeed too.
+            var capabilities = await _capabilities.ReadAsync(endpoint, cancellationToken).ConfigureAwait(false);
+
+            await _client.TestSearchAsync(endpoint, capabilities, cancellationToken).ConfigureAwait(false);
 
             return new ProviderTestResult(true, null);
         }

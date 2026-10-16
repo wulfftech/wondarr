@@ -65,22 +65,7 @@ public abstract partial class NewznabClientBase : IIndexerClient
 
         var url = NewznabQuery.Build(endpoint, capabilities, query);
 
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            var path = IndexerHttp.WithoutQuery(url);
-            LogSearching(_logger, path);
-        }
-
-        var client = _clients.CreateClient(IndexerHttp.ClientName);
-
-        using var response = await IndexerHttp.GetAsync(client, url, cancellationToken).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new IndexerException($"The indexer answered {(int)response.StatusCode}.");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var content = await SendSearchAsync(url, cancellationToken).ConfigureAwait(false);
 
         var releases = _parser.Parse(content, indexer, Protocol);
 
@@ -96,6 +81,30 @@ public abstract partial class NewznabClientBase : IIndexerClient
         LogFound(_logger, releases.Count, indexer.Name);
 
         return releases;
+    }
+
+    /// <summary>
+    /// Sends the one small search a connection test makes after the caps read, through the same
+    /// request, status check and answer check a real search goes through. Zero results is a pass; an
+    /// indexer that refuses the search (a key that reads caps but may not search, say) throws an
+    /// <see cref="IndexerException"/> carrying its own reason. Nothing is downloaded.
+    /// </summary>
+    /// <param name="endpoint">The indexer's settings.</param>
+    /// <param name="capabilities">What the indexer's caps said it supports.</param>
+    /// <param name="cancellationToken">Cancels the search.</param>
+    /// <exception cref="IndexerException">The indexer could not be reached or refused the search.</exception>
+    public async Task TestSearchAsync(IndexerEndpoint endpoint, NewznabCapabilities capabilities, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentNullException.ThrowIfNull(capabilities);
+
+        _secrets.Register(endpoint.ApiKey);
+
+        var url = NewznabQuery.BuildTest(endpoint, capabilities);
+
+        var content = await SendSearchAsync(url, cancellationToken).ConfigureAwait(false);
+
+        _parser.Check(content);
     }
 
     /// <inheritdoc />
@@ -144,6 +153,34 @@ public abstract partial class NewznabClientBase : IIndexerClient
         var content = await IndexerHttp.ReadCappedAsync(response, cancellationToken).ConfigureAwait(false);
 
         return new IndexerDownload(content, null);
+    }
+
+    /// <summary>
+    /// Sends one search and returns the answer's body. A non-success answer throws; when its body is
+    /// the indexer's own <c>&lt;error/&gt;</c> the exception carries the indexer's reason.
+    /// </summary>
+    /// <param name="url">The search's URL.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    private async Task<string> SendSearchAsync(Uri url, CancellationToken cancellationToken)
+    {
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            var path = IndexerHttp.WithoutQuery(url);
+            LogSearching(_logger, path);
+        }
+
+        var client = _clients.CreateClient(IndexerHttp.ClientName);
+
+        using var response = await IndexerHttp.GetAsync(client, url, cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await RssParser.ThrowIfErrorBodyAsync(response, _secrets.Redact, cancellationToken).ConfigureAwait(false);
+
+            throw new IndexerException($"The indexer answered {(int)response.StatusCode}.");
+        }
+
+        return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Searching {Url}")]

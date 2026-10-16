@@ -84,11 +84,12 @@ public static class ReleaseTargets
             }
         }
 
-        // No MusicBrainz identity: the album context's title is still a release to ask for.
-        if (targets.Count == 0 && !string.IsNullOrWhiteSpace(request.AlbumTitle))
+        // No MusicBrainz identity: the album context's title is still a release to ask for, unless it is a
+        // pseudo-album's ("Singles" is no release, whatever an indexer would answer to it).
+        if (targets.Count == 0 && SongAlbumNames.Of(request.AlbumKind, request.AlbumTitle) is { } albumTitle)
         {
             var artist = request.MainArtists.Count > 0 ? request.MainArtists[0] : request.ArtistCredit;
-            targets.Add(new ReleaseTarget(artist, request.AlbumTitle, null, request.AlbumTrackNo));
+            targets.Add(new ReleaseTarget(artist, albumTitle, null, request.AlbumTrackNo));
         }
 
         return targets;

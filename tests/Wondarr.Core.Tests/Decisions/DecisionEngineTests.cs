@@ -445,6 +445,136 @@ public class DecisionEngineTests
         Judge(NorahContext(), Searched(comeAway, songAlbum: null, targetAlbum: null)).Accepted.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(AlbumContextKind.PseudoSingles, "Singles")]
+    [InlineData(AlbumContextKind.Compilation, "My Music Library")]
+    public void A_pseudo_album_is_never_the_album_a_release_is_named_after(AlbumContextKind kind, string pseudoTitle)
+    {
+        var context = NorahContext() with { AlbumTitle = pseudoTitle, AlbumKind = kind };
+        var title = $"Norah.Jones-{pseudoTitle.Replace(' ', '.')}-CD-FLAC-2005-GRP";
+        var named = UnlistedContainer(SourceTypes.Newznab, title, "Norah Jones", pseudoTitle);
+
+        // The request carries no album at all (a candidate stored before requests carried them, or a push that
+        // found none), so the context's title was the album: and the pseudo-album's title is no release's.
+        Judge(context, Searched(named, songAlbum: null, targetAlbum: null)).Rejections
+            .Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+        Judge(context, named).Rejections
+            .Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void A_pseudo_album_does_not_stop_the_songs_title_from_naming_the_release()
+    {
+        var single = UnlistedContainer(SourceTypes.Newznab, "Norah.Jones-Dont.Know.Why-SINGLE-FLAC-2002-GRP", "Norah Jones", "Dont Know Why");
+
+        Judge(SinglesContext(), Searched(single, songAlbum: null, targetAlbum: null)).Accepted.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Norah.Jones.-.Come.Away.With.Me.24bit.192Khz.hdtracks.FLAC")]
+    [InlineData("Norah Jones - Come Away With Me 24bit 192Khz hdtracks FLAC")]
+    [InlineData("Norah.Jones-Come.Away.With.Me.Remastered.Deluxe.Edition-WEB-FLAC-2022-GRP")]
+    public void An_album_in_one_field_with_its_tags_is_found_as_a_run_of_words_after_the_artist(string title)
+    {
+        // The release parses to no album: only the words of the name say which one it is.
+        var release = UnlistedContainer(SourceTypes.Newznab, title, "Norah Jones", "Norah Jones") with { Parsed = ParsedName.Empty };
+
+        var asSongAlbum = Judge(NorahContext(), Searched(release, songAlbum: "Come Away with Me", targetAlbum: null));
+        var asTargetAlbum = Judge(SinglesContext(), Searched(release, songAlbum: null, targetAlbum: "Come Away with Me"));
+
+        asSongAlbum.Rejections.Should().BeEmpty();
+        asSongAlbum.Accepted.Should().BeTrue();
+        asTargetAlbum.Rejections.Should().BeEmpty();
+        asTargetAlbum.Accepted.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Norah.Jones.-.Another.Album.24bit.192Khz.hdtracks.FLAC")]
+    [InlineData("Norah.Jones.-.Come.Away.24bit.192Khz.hdtracks.FLAC")]
+    [InlineData("Norah.Jones.-.Come.Away.With.Meat.24bit.192Khz.hdtracks.FLAC")]
+    public void A_run_of_words_that_is_not_the_whole_album_after_the_artist_is_no_match(string title)
+    {
+        var release = UnlistedContainer(SourceTypes.Newznab, title, "Norah Jones", "Norah Jones") with { Parsed = ParsedName.Empty };
+
+        var decision = Judge(NorahContext(), Searched(release, songAlbum: "Come Away with Me", targetAlbum: null));
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void The_run_of_words_path_leaves_the_release_s_version_to_the_version_rule()
+    {
+        // What ContainerCandidates reads from the name (ReleaseNameTags.VersionOf): "Live" makes every track live.
+        var release = UnlistedContainer(SourceTypes.Newznab, "Norah.Jones.-.Come.Away.With.Me.Live.2003.FLAC", "Norah Jones", "Norah Jones") with
+        {
+            Parsed = ParsedName.Empty with { VersionFlags = VersionFlags.Live, PathVersionFlags = VersionFlags.Live },
+        };
+
+        var decision = Judge(NorahContext(), Searched(release, songAlbum: "Come Away with Me", targetAlbum: null));
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.VersionMismatch);
+        decision.Rejections.Select(rejection => rejection.Reason).Should().NotContain(RejectionReason.TitleMismatch, "the words are the album's; the version is what is wrong");
+    }
+
+    [Theory]
+    [InlineData("Love", "X.-.Love.Songs.Collection.FLAC")]
+    [InlineData("1", "X.-.1.Bit.At.A.Time.FLAC")]
+    [InlineData("Love", "X.-.Songs.Of.Love.And.Hate.FLAC")]
+    public void A_short_album_is_never_looked_for_as_a_run_of_words(string album, string title)
+    {
+        var context = NorahContext() with { SongTitle = "Johnny Hit and Run Pauline", MainArtists = ["X"], AlbumTitle = album };
+        var release = UnlistedContainer(SourceTypes.Newznab, title, "X", "X") with { Parsed = ParsedName.Empty };
+
+        var decision = Judge(context, Searched(release, songAlbum: album, targetAlbum: null));
+
+        decision.Accepted.Should().BeFalse();
+        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+    }
+
+    [Theory]
+    [InlineData("X-Love-CD-FLAC-1985-GRP")]
+    [InlineData("X - Love (1985) [FLAC]")]
+    public void A_short_album_is_still_found_as_a_whole_field(string title)
+    {
+        var context = NorahContext() with { SongTitle = "Johnny Hit and Run Pauline", MainArtists = ["X"], AlbumTitle = "Love" };
+        var release = UnlistedContainer(SourceTypes.Newznab, title, "X", "Love");
+
+        Judge(context, Searched(release, songAlbum: "Love", targetAlbum: null)).Accepted.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Boston.-.Third.Stage.FLAC", false)]
+    [InlineData("Boston-Third.Stage-CD-FLAC-1986-GRP", false)]
+    [InlineData("Boston.-.Boston.Remastered.Edition.FLAC", true)]
+    [InlineData("Boston-Boston-CD-FLAC-1976-GRP", true)]
+    public void An_album_named_like_the_artist_is_looked_for_after_the_artist_not_in_it(string title, bool accepted)
+    {
+        var context = NorahContext() with { SongTitle = "More Than a Feeling", MainArtists = ["Boston"], AlbumTitle = "Boston" };
+        var release = UnlistedContainer(SourceTypes.Newznab, title, "Boston", "Boston") with { Parsed = ParsedName.Empty };
+
+        var decision = Judge(context, Searched(release, songAlbum: "Boston", targetAlbum: null));
+
+        decision.Accepted.Should().Be(accepted);
+
+        if (!accepted)
+        {
+            decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+        }
+    }
+
+    [Fact]
+    public void The_run_of_words_path_needs_an_artist_to_leave_out()
+    {
+        // Without a known artist nothing says where the album could start.
+        var release = UnlistedContainer(SourceTypes.Newznab, "Norah.Jones.-.Come.Away.With.Me.24bit.192Khz.hdtracks.FLAC", "Norah Jones", "Norah Jones") with { Parsed = ParsedName.Empty };
+
+        var decision = Judge(NorahContext() with { MainArtists = [] }, Searched(release, songAlbum: "Come Away with Me", targetAlbum: null));
+
+        decision.Rejections.Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+    }
+
     [Fact]
     public void An_unknown_file_list_keeps_its_lower_availability_score()
     {
@@ -814,7 +944,7 @@ public class DecisionEngineTests
     };
 
     /// <summary>The same song filed under the artist's pseudo-album, as the Plexamp preset does for a lone song.</summary>
-    private static DecisionContext SinglesContext() => NorahContext() with { AlbumTitle = "Singles" };
+    private static DecisionContext SinglesContext() => NorahContext() with { AlbumTitle = "Singles", AlbumKind = AlbumContextKind.PseudoSingles };
 
     /// <summary>The candidate as a search builds it: carrying the song request with the albums the provider judged to be the song's.</summary>
     private static Candidate Searched(Candidate candidate, string? songAlbum, string? targetAlbum) =>
