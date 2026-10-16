@@ -2,6 +2,8 @@ using System.Net;
 using System.Text;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Deezer;
+using Wondarr.Sources.Tests.Slskd;
+using Wondarr.Testing;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +20,8 @@ public sealed class DeezerClientTests
 {
     private const long BohemianRhapsodyTrackId = 3541552051;
     private const long BohemianRhapsodyAlbumId = 816377711;
+
+    private static readonly DateTimeOffset Start = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>Deezer reports a quota as HTTP 200 with an error object carrying code 4.</summary>
     private const string QuotaBody =
@@ -278,26 +282,60 @@ public sealed class DeezerClientTests
     [Fact]
     public async Task A_quota_error_is_retried_and_the_second_answer_wins()
     {
+        // The pipeline waits out the Retry-After the quota handler adds (5 s), not its base delay, so on
+        // the system clock this test slept for five real seconds. The pipeline reads its clock from the
+        // container: give it one the test moves.
+        var time = new TrackingTimeProvider(Start);
+        var retryAfter = TimeSpan.FromSeconds(DeezerQuotaHandler.RetryAfterSeconds);
+        var attemptedAt = new List<DateTimeOffset>();
+
         var handler = new ScriptedHttpMessageHandler(
-            _ => DeezerFixtures.Json(QuotaBody),
-            _ => DeezerFixtures.Json(DeezerFixtures.Read("track-isrc-GBUM71029604.json")));
+            _ =>
+            {
+                attemptedAt.Add(time.GetUtcNow());
 
-        await using var provider = BuildProvider(handler, TimeSpan.FromMilliseconds(10));
+                return DeezerFixtures.Json(QuotaBody);
+            },
+            _ =>
+            {
+                attemptedAt.Add(time.GetUtcNow());
 
-        var track = await provider.GetRequiredService<IDeezerClient>().GetTrackAsync(BohemianRhapsodyTrackId);
+                return DeezerFixtures.Json(DeezerFixtures.Read("track-isrc-GBUM71029604.json"));
+            });
+
+        await using var provider = BuildProvider(handler, time, TimeSpan.FromMilliseconds(10));
+
+        var pending = provider.GetRequiredService<IDeezerClient>().GetTrackAsync(BohemianRhapsodyTrackId);
+
+        // The clock only moves once the pipeline is parked on its retry wait: a step taken before it has
+        // armed the delay is lost, and the call then waits for a retry that never comes.
+        await SlskdHostHarness.AwaitAsync(
+            () => pending.IsCompleted || time.AnyTimerDueWithin(retryAfter),
+            "the retry wait",
+            30_000);
+
+        pending.IsCompleted.Should().BeFalse("the quota answer is retried, not returned");
+
+        await time.AdvanceAndSettleAsync(retryAfter, () => pending.IsCompleted);
+
+        var track = await pending.WaitAsync(TimeSpan.FromSeconds(30));
 
         track.Should().NotBeNull();
         track!.Id.Should().Be(BohemianRhapsodyTrackId);
 
         // Exactly two attempts: the 429 the quota handler produced, then the real answer.
         handler.Timestamps.Should().HaveCount(2);
+        (attemptedAt[1] - attemptedAt[0]).Should().BeGreaterThanOrEqualTo(retryAfter);
     }
 
-    private static ServiceProvider BuildProvider(HttpMessageHandler primaryHandler, TimeSpan retryBaseDelay)
+    private static ServiceProvider BuildProvider(HttpMessageHandler primaryHandler, TimeProvider time, TimeSpan retryBaseDelay)
     {
         var services = new ServiceCollection();
 
         services.AddLogging();
+
+        // Before AddWondarrMetadata, which only adds the system clock when none is registered.
+        services.AddSingleton(time);
         services.AddWondarrMetadata(new ConfigurationBuilder().Build());
         services.AddSingleton<IMetadataCache, InMemoryMetadataCache>();
 
