@@ -1,3 +1,4 @@
+using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
 
 namespace Wondarr.Core.Sources;
@@ -28,6 +29,13 @@ public sealed record SongSearchRequest(
 
     /// <summary>The song's MusicBrainz recording, when known (indexers search for the releases it is on).</summary>
     public string? MbRecordingId { get; init; }
+
+    /// <summary>
+    /// The kind of the song's album context, when it has one: whether <see cref="AlbumTitle"/> names a release
+    /// or only a pseudo-album such as "Singles" (<see cref="SongAlbumNames"/>). A context with no MusicBrainz
+    /// release can still be a real album (one only Deezer knows).
+    /// </summary>
+    public AlbumContextKind? AlbumKind { get; init; }
 
     /// <summary>The MusicBrainz release of the song's album context, when it has one.</summary>
     public string? AlbumMbReleaseId { get; init; }

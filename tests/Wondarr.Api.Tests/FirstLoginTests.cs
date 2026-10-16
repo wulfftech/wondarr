@@ -43,6 +43,84 @@ public sealed class FirstLoginTests : IDisposable
     }
 
     [Fact]
+    public async Task The_login_page_names_an_untrusted_host_to_a_local_address_and_offers_no_form()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        browser.DefaultRequestHeaders.Host = "wondarr.ad.example.com:1077";
+        var page = await browser.GetStringAsync(new Uri("/login", UriKind.Relative));
+
+        page.Should().Contain("You opened Wondarr as <strong>wondarr.ad.example.com</strong>, a name it does not trust for setting up the first login.");
+        page.Should().Contain("Open it by its IP address or a <code>.lan</code>/<code>.local</code> name, or add <code>wondarr.ad.example.com</code> to <code>server.allowed_hosts</code> in <code>config.yml</code>, then reload.");
+        page.Should().NotContain("1077");
+        page.Should().NotContain("same network as Wondarr");
+        page.Should().NotContain("Settings → General");
+        page.Should().NotContain("<form");
+    }
+
+    [Theory]
+    [InlineData("192.168.1.20:1077")]
+    [InlineData("nas.lan:1077")]
+    [InlineData("mediaserver")]
+    [InlineData("wondarr.ad.example.com:1077")]
+    public async Task The_login_page_offers_the_create_form_to_a_local_address_with_a_trusted_host(string host)
+    {
+        using var factory = Create(("Server:AllowedHosts:0", "wondarr.ad.example.com"));
+
+        using var browser = factory.CreateClient(LocalAddress);
+        browser.DefaultRequestHeaders.Host = host;
+        var page = await browser.GetStringAsync(new Uri("/login", UriKind.Relative));
+
+        page.Should().Contain("<h1>Create your login</h1>");
+        page.Should().Contain("action=\"/login/setup\"");
+        page.Should().NotContain("does not trust");
+    }
+
+    [Fact]
+    public async Task The_login_page_gives_the_network_hint_to_a_public_address_even_with_an_untrusted_host()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(RemoteAddress);
+        browser.DefaultRequestHeaders.Host = "wondarr.ad.example.com:1077";
+        var page = await browser.GetStringAsync(new Uri("/login", UriKind.Relative));
+
+        page.Should().Contain("No login exists yet. Create it from a device on the same network as Wondarr, or under Settings → General.");
+        page.Should().NotContain("does not trust");
+        page.Should().NotContain("wondarr.ad.example.com");
+        page.Should().NotContain("<form");
+    }
+
+    [Fact]
+    public async Task The_login_page_gives_the_network_hint_behind_a_proxy_even_with_an_untrusted_host()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        browser.DefaultRequestHeaders.Host = "wondarr.ad.example.com";
+        browser.DefaultRequestHeaders.Add("X-Forwarded-For", RemoteAddress);
+        var page = await browser.GetStringAsync(new Uri("/login", UriKind.Relative));
+
+        page.Should().Contain("Create it from a device on the same network as Wondarr");
+        page.Should().NotContain("does not trust");
+    }
+
+    [Fact]
+    public async Task The_login_page_encodes_an_untrusted_host()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        browser.DefaultRequestHeaders.TryAddWithoutValidation("Host", "<script>alert(1)</script>.example.com");
+        var page = await browser.GetStringAsync(new Uri("/login", UriKind.Relative));
+
+        page.Should().Contain("does not trust");
+        page.Should().NotContain("<script>");
+        page.Should().Contain("&lt;script&gt;alert(1)&lt;/script&gt;.example.com");
+    }
+
+    [Fact]
     public async Task The_login_page_does_not_offer_the_create_form_behind_a_proxy()
     {
         using var factory = Create();
@@ -120,6 +198,22 @@ public sealed class FirstLoginTests : IDisposable
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         response.Headers.Contains("Set-Cookie").Should().BeFalse();
         page.Should().Contain("Create it from a device on the same network as Wondarr");
+        (await StoredUsernameAsync(factory)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Setup_from_a_local_address_with_an_untrusted_host_is_forbidden_names_the_host_and_stores_nothing()
+    {
+        using var factory = Create();
+
+        using var browser = factory.CreateClient(LocalAddress);
+        browser.DefaultRequestHeaders.Host = "wondarr.ad.example.com:1077";
+        using var response = await browser.PostAsync(new Uri("/login/setup", UriKind.Relative), SetupForm(Username, Password, Password));
+        var page = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+        page.Should().Contain("You opened Wondarr as <strong>wondarr.ad.example.com</strong>");
         (await StoredUsernameAsync(factory)).Should().BeNull();
     }
 

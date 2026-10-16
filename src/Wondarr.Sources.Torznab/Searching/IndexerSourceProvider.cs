@@ -269,12 +269,11 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
     }
 
     /// <summary>
-    /// The album context's title, unless the context is a pseudo-album. The request does not carry the
-    /// context's kind, but a pseudo-album ("Singles") is not a MusicBrainz release and has no release id,
-    /// while a real album has one; the release the search targets stands for the album otherwise.
+    /// The album context's title, unless the context is a pseudo-album. The request carries the context's
+    /// kind: a real album that only Deezer knows has no MusicBrainz release id and is still an album.
     /// </summary>
     private static string? ContextAlbum(SongSearchRequest request) =>
-        string.IsNullOrWhiteSpace(request.AlbumMbReleaseId) || string.IsNullOrWhiteSpace(request.AlbumTitle) ? null : request.AlbumTitle;
+        SongAlbumNames.Of(request.AlbumKind, request.AlbumTitle);
 
     /// <summary>
     /// The enabled indexers of this protocol that have a client, in priority order — or none, with why,

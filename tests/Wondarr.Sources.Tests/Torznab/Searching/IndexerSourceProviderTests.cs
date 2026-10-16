@@ -260,7 +260,7 @@ public sealed partial class IndexerSourceProviderTests
         };
         var provider = Provider(indexer, out _, protocol: DownloadProtocol.Usenet);
 
-        var result = await provider.SearchAsync(Request() with { AlbumTitle = "Singles", AlbumMbReleaseId = null }, CancellationToken.None);
+        var result = await provider.SearchAsync(Request() with { AlbumTitle = "Singles", AlbumKind = AlbumContextKind.PseudoSingles, AlbumMbReleaseId = null }, CancellationToken.None);
 
         result.Candidates.Should().HaveCount(2);
         result.Candidates.Select(candidate => candidate.Release!.Song!.SongAlbum).Should().OnlyContain(album => album == null, "no release is named \"Singles\"");
@@ -272,6 +272,7 @@ public sealed partial class IndexerSourceProviderTests
             MainArtists = ["Daft Punk"],
             SongDurationMs = DurationMs,
             AlbumTitle = "Singles",
+            AlbumKind = AlbumContextKind.PseudoSingles,
             Profile = SeedData.QualityProfiles.Single(profile => profile.Id == SeedData.LosslessProfileId),
             Qualities = SeedData.Qualities.ToDictionary(quality => quality.Id, quality => quality),
             MaxContainerSizeBytes = 2_000L * 1024 * 1024,
@@ -302,6 +303,28 @@ public sealed partial class IndexerSourceProviderTests
         var song = result.Candidates.Should().ContainSingle().Subject.Release!.Song!;
         song.SongAlbum.Should().Be("Discovery", "the album context is a real release");
         song.TargetAlbum.Should().Be("Digital Love", "the search that found the single targeted the single");
+    }
+
+    [Theory]
+    [InlineData(AlbumContextKind.Album, "Discovery")]
+    [InlineData(AlbumContextKind.PseudoSingles, null)]
+    [InlineData(AlbumContextKind.Compilation, null)]
+    public async Task The_album_context_kind_decides_whether_its_title_is_the_songs_album_not_the_release_id(AlbumContextKind kind, string? expected)
+    {
+        // A real album that only Deezer knows has no MusicBrainz release id and is still the song's album.
+        var nzb = Nzb(("a1b2c3d4e5f6a7b8c9d0e1f2.rar", 900_000_000), ("a1b2c3d4e5f6a7b8c9d0e1f2.par2", 40_000));
+        var indexer = new FakeIndexerClient
+        {
+            Answer = query => query.Album == "Digital Love"
+                ? [Release("Daft.Punk-Digital.Love-SINGLE-FLAC-2001-GRP", "nzb-guid-6", downloadUrl: "https://usenet.example/get/6", protocol: DownloadProtocol.Usenet)]
+                : [],
+            Download = _ => new IndexerDownload(nzb, null),
+        };
+        var provider = Provider(indexer, out _, protocol: DownloadProtocol.Usenet);
+
+        var result = await provider.SearchAsync(Request() with { AlbumKind = kind, AlbumMbReleaseId = null }, CancellationToken.None);
+
+        result.Candidates.Should().ContainSingle().Which.Release!.Song!.SongAlbum.Should().Be(expected);
     }
 
     [Fact]
@@ -424,6 +447,7 @@ public sealed partial class IndexerSourceProviderTests
         new(1, "Digital Love", "Daft Punk", ["Daft Punk"], "Discovery", DurationMs, VersionFlags.None)
         {
             MbRecordingId = Recording,
+            AlbumKind = AlbumContextKind.Album,
             AlbumMbReleaseId = AlbumRelease,
             AlbumTrackNo = 3,
         };

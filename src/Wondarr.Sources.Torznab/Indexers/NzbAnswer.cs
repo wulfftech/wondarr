@@ -44,9 +44,10 @@ public static class NzbAnswer
     /// <summary>The most characters of an indexer's own words that are kept.</summary>
     public const int MaxTextLength = 200;
 
-    // Enough for a sentence; the text is cut to MaxTextLength after the secrets are removed, which a
-    // key split by this limit could never reach.
-    private const int MaxBytesRead = 1024;
+    // Far more than the MaxTextLength characters that are shown, so a key that sits anywhere in a
+    // refusal that quotes the request is whole when it is redacted; the text is cut to MaxTextLength
+    // only after the redaction, which a key split by this limit could never reach.
+    private const int MaxBytesRead = 8 * 1024;
 
     private const string Fallback = "The indexer did not answer with an NZB.";
 

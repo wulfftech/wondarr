@@ -512,6 +512,7 @@ public sealed partial class SongSearchService : ISongSearchService
                     // automatic run stops early once a candidate is good enough (MATCHING_ENGINE §6.4).
                     IsPoolGoodEnough = trigger == SearchTrigger.Manual ? null : PoolIsGoodEnough(context),
                     MbRecordingId = song.MbRecordingId,
+                    AlbumKind = song.AlbumContext?.Kind,
                     AlbumMbReleaseId = song.AlbumContext?.MbReleaseId,
                     AlbumTrackNo = song.AlbumContext?.TrackNo,
                 };
@@ -1594,6 +1595,7 @@ public sealed partial class SongSearchService : ISongSearchService
             SongDurationMs = song.DurationMs,
             SongFlags = ParseFlags(song.VersionFlags),
             AlbumTitle = song.AlbumContext?.AlbumTitle,
+            AlbumKind = song.AlbumContext?.Kind,
             TrackNo = song.AlbumContext?.TrackNo,
             Profile = profile,
             Qualities = qualities,
