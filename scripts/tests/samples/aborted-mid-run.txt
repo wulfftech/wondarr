@@ -1,0 +1,17 @@
+
+Passed!  - Failed:     0, Passed:   532, Skipped:     0, Total:   532, Duration: 1 m 49 s - Wondarr.Api.Tests.dll (net10.0)
+Test run for D:\Code\wondarr\tests\Wondarr.Sources.Tests\bin\Debug\net10.0\Wondarr.Sources.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+The active test run was aborted. Reason: Unable to communicate with test host process.
+
+Passed!  - Failed:     0, Passed:     5, Skipped:     1, Total:     6, Duration: 12 s - Wondarr.Sources.Tests.dll (net10.0)
+Test Run Aborted.
+
+The active Test Run was aborted because the host process exited unexpectedly. Please inspect the call stack above, if available, to get more information about where the exception originated from.
+The test running when the crash occurred: 
+Wondarr.Sources.Tests.Torznab.Searching.IndexerSourceGrabTests.A_job_is_found_by_the_release_id_even_when_the_id_is_escaped_in_the_handle
+Wondarr.Sources.Tests.FakeSlskd.InnertubeStubTests.An_isrc_query_answers_the_recorded_card
+Wondarr.Sources.Tests.Slskd.SlskdConfigRendererTests.Omits_the_soulseek_credentials_when_none_are_configured
+Wondarr.Sources.Tests.Slskd.SlskdHostTests.A_settings_write_that_fails_while_slskd_runs_is_retried_and_never_fakes_a_crash
+Wondarr.Sources.Tests.Torznab.Searching.IndexerSourceProviderTests.Among_posts_that_all_name_a_quality_or_all_do_not_the_most_grabbed_are_read_first
+Wondarr.Sources.Tests.Identity.IdentityResolverRankingTests.A_recording_with_no_official_release_is_still_returned_when_it_is_all_there_is

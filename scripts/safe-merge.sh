@@ -55,6 +55,14 @@ projects_passed() {
     grep -cE '^Passed! ' "$1" || true
 }
 
+# True when a test host died while tests were still running: vstest then prints "Test Run Aborted." and names
+# the tests that were running. A project cut short like that still prints a "Passed!" line for the few tests
+# it ran (6 of ~1,500 in the M-50 merge, 2026-10-16), so its summary cannot be trusted. A host that only drops
+# the socket after an all-green run prints neither marker.
+run_aborted_mid_run() {
+    grep -qE '^Test Run Aborted\.|The tests? running when the crash occurred' "$1"
+}
+
 # How many projects ended with any summary line (Passed! or Failed!). A project whose test host crashed prints none.
 projects_reported() {
     grep -cE '^(Passed|Failed)! ' "$1" || true
@@ -109,6 +117,11 @@ check() {
             # code came from vstest's own plumbing (its data collector dropping the socket on a starved
             # machine), not a test.
             expected="$(count_test_projects)"
+            if run_aborted_mid_run "${log}"; then
+                echo "safe-merge: a test host crashed while tests were running; that project's summary covers only part of it, so the run is red (re-run the merge)" >&2
+                rm -f "${log}"
+                return 1
+            fi
             if grep -q 'Failed!' "${log}" || [[ "$(summary_failed_total "${log}")" -gt 0 ]] \
                 || [[ "${expected}" -lt 1 ]] || [[ "$(projects_passed "${log}")" -lt "${expected}" ]]; then
                 echo "safe-merge: the test run failed and no failed test is named (${expected} test projects expected, $(projects_passed "${log}") passed)" >&2
@@ -118,8 +131,8 @@ check() {
             echo "safe-merge: every test project passed; the non-zero exit came from the test host plumbing"
         else
             expected="$(count_test_projects)"
-            if [[ "${expected}" -lt 1 || "$(projects_reported "${log}")" -ne "${expected}" ]]; then
-                echo "safe-merge: refusing the re-run — $(projects_reported "${log}") of ${expected} test projects reported a summary; a project that printed none (its host crashed) cannot be vouched for" >&2
+            if [[ "${expected}" -lt 1 || "$(projects_reported "${log}")" -ne "${expected}" ]] || run_aborted_mid_run "${log}"; then
+                echo "safe-merge: refusing the re-run — $(projects_reported "${log}") of ${expected} test projects reported a summary, or a test host crashed mid-run; a project whose host crashed cannot be vouched for" >&2
                 rm -f "${log}"
                 return 1
             fi

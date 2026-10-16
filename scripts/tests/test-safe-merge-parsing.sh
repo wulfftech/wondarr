@@ -79,6 +79,13 @@ expect_eq "plumbing: no failures in the summaries" "0" "$(summary_failed_total "
 expect_eq "plumbing: three projects passed" "3" "$(projects_passed "${log}")"
 expect_false "plumbing: nothing to account for" failures_accounted_for "${log}"
 
+# --- a test host that died mid-run still prints "Passed!" for the few tests it ran (M-50 merge, 2026-10-16) ----
+log="${samples}/aborted-mid-run.txt"
+expect_eq "aborted mid-run: the cut-short project still prints a Passed! line" "2" "$(projects_passed "${log}")"
+expect_true "aborted mid-run: detected" run_aborted_mid_run "${log}"
+expect_false "plumbing: a host that crashed after an all-green run is not an abort mid-run" run_aborted_mid_run "${samples}/host-plumbing.txt"
+expect_false "silent project: not an abort mid-run either" run_aborted_mid_run "${samples}/silent-project.txt"
+
 # --- the project count comes from the solution -------------------------------------------------------
 if command -v dotnet >/dev/null 2>&1; then
     root="$(cd "${here}/../.." && pwd)"
