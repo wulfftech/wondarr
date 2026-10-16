@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **A Torznab or Newznab indexer's Test now runs a real search, and shows the indexer's own reason when it refuses one.** The Test only read the indexer's caps, and some indexers answer caps without looking at the key: NZBFinder passed the Test on a free account while every search failed with HTTP 401 and `<error code="102" description="You need to be a premium member to use the API"/>`. Now, after the caps, the Test sends one search for a single result (`t=search&q=test&limit=1` with the row's categories; an indexer whose caps offer no text search gets the request a normal search would send instead). No results is a pass; a refusal, an error answer or an answer that is not XML fails the Test with the indexer's words. Nothing is downloaded, so no NZB quota is spent. Separately, when an indexer refuses a request (caps, Test or a real search) with an error status and an `<error code= description=/>` body, the message now carries the indexer's code and description, for example "The indexer rejected the API key (102: You need to be a premium member to use the API).", instead of only "The indexer answered 401." A status without such a body keeps its old message. An error answered with HTTP 200 shows its code too. Prowlarr and Gazelle indexers are unchanged. No migration.
+
 ## [0.1.7] — 2026-10-15
 
 The usenet release: real music posts now go from the indexer through SABnzbd into the library, checked live against DOGnzb and SABnzbd 5.1.3 (scene file names, upper-case PAR2 files, RAR and obfuscated posts, posts trimmed to the one track the song needs). Wondarr also spends far fewer of an indexer's daily NZB downloads, cleans up what downloads leave behind, and no longer fails two adds by the same new artist. Update by pulling `:0.1` (or `:0.1.7`).
