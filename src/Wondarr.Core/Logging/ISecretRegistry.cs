@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace Wondarr.Core.Logging;
 
 /// <summary>
@@ -8,7 +10,9 @@ public interface ISecretRegistry
 {
     /// <summary>
     /// Registers a secret. Null, empty and values shorter than six characters are ignored, because
-    /// replacing them would mangle unrelated text.
+    /// replacing them would mangle unrelated text. The secret is replaced as it is and in the forms
+    /// a server echoes it back in: percent-encoded (upper- and lower-case hex, <c>%20</c> and
+    /// <c>+</c> for a space), HTML-encoded, and as the JSON log writes each of those.
     /// </summary>
     void Register(string? secret);
 
@@ -43,24 +47,70 @@ public sealed class SecretRegistry : ISecretRegistry
             return;
         }
 
+        // An indexer that refuses a request often echoes its URL or query back, percent-encoded, or
+        // in an HTML page, so a key with a reserved character (+ / = & and the like) comes back in
+        // one of those forms. A form equal to one already registered adds nothing.
+        var percentEncoded = Uri.EscapeDataString(secret);
+        var urlEncoded = WebUtility.UrlEncode(secret);
+
         lock (_gate)
         {
-            // The JSON log writes the text already escaped, where a quote or a backslash in the
-            // secret no longer matches its raw form, so the escaped form is registered with it.
-            var added = _secrets.Add(secret);
-
-            var escaped = JsonEscape(secret);
-
-            if (escaped != secret)
-            {
-                added |= _secrets.Add(escaped);
-            }
+            var added = AddWithJsonForm(secret);
+            added |= AddWithJsonForm(percentEncoded);
+            added |= AddWithJsonForm(LowerCasePercentHex(percentEncoded));
+            added |= AddWithJsonForm(urlEncoded);
+            added |= AddWithJsonForm(LowerCasePercentHex(urlEncoded));
+            added |= AddWithJsonForm(WebUtility.HtmlEncode(secret));
 
             if (added)
             {
                 _snapshot = [.. _secrets.OrderByDescending(value => value.Length)];
             }
         }
+    }
+
+    // The JSON log writes the text already escaped, where a quote or a backslash in the secret no
+    // longer matches its form as it was, so the escaped form is registered with every form.
+    private bool AddWithJsonForm(string form)
+    {
+        var added = _secrets.Add(form);
+        var escaped = JsonEscape(form);
+
+        if (escaped != form)
+        {
+            added |= _secrets.Add(escaped);
+        }
+
+        return added;
+    }
+
+    /// <summary>
+    /// The percent-encoded text with the hex digits of every <c>%XX</c> in lower case, as some servers
+    /// write them (<c>%2b</c> for <c>%2B</c>). Text without a <c>%</c> comes back as it is.
+    /// </summary>
+    private static string LowerCasePercentHex(string encoded)
+    {
+        var first = encoded.IndexOf('%', StringComparison.Ordinal);
+
+        if (first < 0)
+        {
+            return encoded;
+        }
+
+        var characters = encoded.ToCharArray();
+
+        // A literal % is always written %25, so every % starts an escape of two hex digits.
+        for (var index = first; index < characters.Length - 2; index++)
+        {
+            if (characters[index] == '%')
+            {
+                characters[index + 1] = char.ToLowerInvariant(characters[index + 1]);
+                characters[index + 2] = char.ToLowerInvariant(characters[index + 2]);
+                index += 2;
+            }
+        }
+
+        return new string(characters);
     }
 
     /// <summary>
