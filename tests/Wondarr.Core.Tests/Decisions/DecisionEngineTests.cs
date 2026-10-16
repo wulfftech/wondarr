@@ -445,6 +445,31 @@ public class DecisionEngineTests
         Judge(NorahContext(), Searched(comeAway, songAlbum: null, targetAlbum: null)).Accepted.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(AlbumContextKind.PseudoSingles, "Singles")]
+    [InlineData(AlbumContextKind.Compilation, "My Music Library")]
+    public void A_pseudo_album_is_never_the_album_a_release_is_named_after(AlbumContextKind kind, string pseudoTitle)
+    {
+        var context = NorahContext() with { AlbumTitle = pseudoTitle, AlbumKind = kind };
+        var title = $"Norah.Jones-{pseudoTitle.Replace(' ', '.')}-CD-FLAC-2005-GRP";
+        var named = UnlistedContainer(SourceTypes.Newznab, title, "Norah Jones", pseudoTitle);
+
+        // The request carries no album at all (a candidate stored before requests carried them, or a push that
+        // found none), so the context's title was the album: and the pseudo-album's title is no release's.
+        Judge(context, Searched(named, songAlbum: null, targetAlbum: null)).Rejections
+            .Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+        Judge(context, named).Rejections
+            .Select(rejection => rejection.Reason).Should().Contain(RejectionReason.TitleMismatch);
+    }
+
+    [Fact]
+    public void A_pseudo_album_does_not_stop_the_songs_title_from_naming_the_release()
+    {
+        var single = UnlistedContainer(SourceTypes.Newznab, "Norah.Jones-Dont.Know.Why-SINGLE-FLAC-2002-GRP", "Norah Jones", "Dont Know Why");
+
+        Judge(SinglesContext(), Searched(single, songAlbum: null, targetAlbum: null)).Accepted.Should().BeTrue();
+    }
+
     [Fact]
     public void An_unknown_file_list_keeps_its_lower_availability_score()
     {
@@ -814,7 +839,7 @@ public class DecisionEngineTests
     };
 
     /// <summary>The same song filed under the artist's pseudo-album, as the Plexamp preset does for a lone song.</summary>
-    private static DecisionContext SinglesContext() => NorahContext() with { AlbumTitle = "Singles" };
+    private static DecisionContext SinglesContext() => NorahContext() with { AlbumTitle = "Singles", AlbumKind = AlbumContextKind.PseudoSingles };
 
     /// <summary>The candidate as a search builds it: carrying the song request with the albums the provider judged to be the song's.</summary>
     private static Candidate Searched(Candidate candidate, string? songAlbum, string? targetAlbum) =>

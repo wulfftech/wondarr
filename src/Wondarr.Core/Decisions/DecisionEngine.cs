@@ -1014,7 +1014,8 @@ public sealed class DecisionEngine
     /// what its provider decided: the album of the MusicBrainz release the search targeted, and the song's album
     /// context unless that is a pseudo-album. A song filed under "Singles" would otherwise have no album that any
     /// release is named after. A provider that decided nothing (a candidate stored before the request carried
-    /// albums, a push that matched the release by the song's title) leaves the context's title as the album.
+    /// albums, a push that matched the release by the song's title) leaves the context's title as the album,
+    /// unless that is a pseudo-album's, which no release is named after.
     /// </summary>
     private static List<string> SongAlbums(DecisionContext context, Candidate candidate)
     {
@@ -1023,7 +1024,7 @@ public sealed class DecisionEngine
 
         if (albums.All(string.IsNullOrWhiteSpace))
         {
-            albums = [context.AlbumTitle];
+            albums = [SongAlbumNames.Of(context.AlbumKind, context.AlbumTitle)];
         }
 
         return [.. albums.Where(album => !string.IsNullOrWhiteSpace(album)).Select(album => album!).Distinct(StringComparer.OrdinalIgnoreCase)];
