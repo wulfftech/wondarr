@@ -54,7 +54,7 @@ public sealed class IndexerClientTests
     [Fact]
     public async Task A_connection_test_of_a_row_with_a_relative_url_fails_instead_of_throwing()
     {
-        var type = new TorznabIndexerType(TorznabTest.CapsReader(RecordingHandler.Serving("caps-prowlarr.xml")));
+        var type = TorznabTest.TorznabType(RecordingHandler.Serving("caps-prowlarr.xml"));
 
         var settings = JsonSerializer.SerializeToElement(new { url = "indexer.example", apiKey = TorznabFixtures.ApiKey });
 
@@ -286,7 +286,7 @@ public sealed class IndexerTypeTests
     [Fact]
     public void The_torznab_type_serves_torrents_and_has_the_minimum_seeders_field()
     {
-        var type = new TorznabIndexerType(TorznabTest.CapsReader(RecordingHandler.Serving("caps-prowlarr.xml")));
+        var type = TorznabTest.TorznabType(RecordingHandler.Serving("caps-prowlarr.xml"));
 
         type.Type.Should().Be("torznab");
         type.Protocol.Should().Be(DownloadProtocol.Torrent);
@@ -298,7 +298,7 @@ public sealed class IndexerTypeTests
     [Fact]
     public void The_newznab_type_serves_usenet_and_has_no_minimum_seeders_field()
     {
-        var type = new NewznabIndexerType(TorznabTest.CapsReader(RecordingHandler.Serving("caps-prowlarr.xml")));
+        var type = TorznabTest.NewznabType(RecordingHandler.Serving("caps-prowlarr.xml"));
 
         type.Type.Should().Be("newznab");
         type.Protocol.Should().Be(DownloadProtocol.Usenet);
@@ -308,7 +308,7 @@ public sealed class IndexerTypeTests
     [Fact]
     public void A_settings_object_without_a_url_is_refused()
     {
-        var type = new TorznabIndexerType(TorznabTest.CapsHandler());
+        var type = TorznabTest.TorznabType(RecordingHandler.Serving("caps-prowlarr.xml"));
 
         var failures = type.Validate(Settings(url: "indexer.example"));
 
@@ -318,7 +318,7 @@ public sealed class IndexerTypeTests
     [Fact]
     public void Categories_that_are_not_numbers_are_refused()
     {
-        var type = new NewznabIndexerType(TorznabTest.CapsHandler());
+        var type = TorznabTest.NewznabType(RecordingHandler.Serving("caps-prowlarr.xml"));
 
         var failures = type.Validate(Settings(categories: "3000,music"));
 
@@ -328,15 +328,15 @@ public sealed class IndexerTypeTests
     [Fact]
     public void A_usable_settings_object_has_no_failures()
     {
-        var type = new TorznabIndexerType(TorznabTest.CapsHandler());
+        var type = TorznabTest.TorznabType(RecordingHandler.Serving("caps-prowlarr.xml"));
 
         type.Validate(Settings()).Should().BeEmpty();
     }
 
     [Fact]
-    public async Task A_connection_test_succeeds_when_caps_parse()
+    public async Task A_connection_test_succeeds_when_caps_parse_and_the_search_answers()
     {
-        var type = new TorznabIndexerType(TorznabTest.CapsReader(RecordingHandler.Serving("caps-prowlarr.xml")));
+        var type = TorznabTest.TorznabType(RecordingHandler.ServingCapsAndResults("caps-prowlarr.xml", "results-torznab.xml"));
 
         var result = await type.TestAsync(Settings(), CancellationToken.None);
 
@@ -347,8 +347,7 @@ public sealed class IndexerTypeTests
     [Fact]
     public async Task A_401_answer_fails_the_test_and_names_the_api_key()
     {
-        var type = new NewznabIndexerType(TorznabTest.CapsReader(
-            RecordingHandler.Serving("caps-prowlarr.xml", HttpStatusCode.Unauthorized)));
+        var type = TorznabTest.NewznabType(RecordingHandler.Serving("caps-prowlarr.xml", HttpStatusCode.Unauthorized));
 
         var result = await type.TestAsync(Settings(), CancellationToken.None);
 
@@ -359,7 +358,7 @@ public sealed class IndexerTypeTests
     [Fact]
     public async Task An_error_answer_fails_the_test_with_its_description()
     {
-        var type = new TorznabIndexerType(TorznabTest.CapsReader(RecordingHandler.Serving("error-100.xml")));
+        var type = TorznabTest.TorznabType(RecordingHandler.Serving("error-100.xml"));
 
         var result = await type.TestAsync(Settings(), CancellationToken.None);
 
@@ -376,7 +375,7 @@ public sealed class IndexerTypeTests
         {
             Content = new StringContent("<rss/>", Encoding.UTF8, "application/xml"),
         });
-        var type = new NewznabIndexerType(TorznabTest.CapsReader(handler));
+        var type = TorznabTest.NewznabType(handler);
 
         var result = await type.TestAsync(Settings(), CancellationToken.None);
 

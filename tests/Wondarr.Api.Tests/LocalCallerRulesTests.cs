@@ -113,6 +113,29 @@ public sealed class LocalCallerRulesTests
         LocalCallerRules.IsLocalCaller(ContextFor("192.168.1.20", "wondarr.example.com"), new ServerOptions()).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("192.168.1.20", "nas.lan", LocalCallerVerdict.Local)]
+    [InlineData("192.168.1.20", "wondarr.ad.example.com:1077", LocalCallerVerdict.HostNotTrusted)]
+    [InlineData("192.168.1.20", "evil.example", LocalCallerVerdict.HostNotTrusted)]
+    [InlineData("8.8.8.8", "nas.lan", LocalCallerVerdict.NotOnLocalNetwork)]
+    [InlineData("8.8.8.8", "wondarr.ad.example.com", LocalCallerVerdict.NotOnLocalNetwork)]
+    public void Evaluate_says_which_rule_failed(string remoteAddress, string host, LocalCallerVerdict expected)
+    {
+        var context = ContextFor(remoteAddress, host);
+
+        LocalCallerRules.Evaluate(context, new ServerOptions()).Should().Be(expected);
+        LocalCallerRules.IsLocalCaller(context, new ServerOptions()).Should().Be(expected == LocalCallerVerdict.Local);
+    }
+
+    [Fact]
+    public void A_proxy_header_is_a_network_failure_whatever_the_host()
+    {
+        var context = ContextFor("192.168.1.20", "wondarr.ad.example.com");
+        context.Request.Headers["X-Forwarded-For"] = "8.8.8.8";
+
+        LocalCallerRules.Evaluate(context, new ServerOptions()).Should().Be(LocalCallerVerdict.NotOnLocalNetwork);
+    }
+
     private static DefaultHttpContext ContextFor(string remoteAddress, string host)
     {
         var context = new DefaultHttpContext();
