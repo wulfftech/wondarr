@@ -4,6 +4,16 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.8] — 2026-10-17
+
+Usenet, hardened after a second round of live tests against DOGnzb and SABnzbd: a song no longer fails because SABnzbd renamed its file, an indexer whose daily NZB limit is spent is left alone instead of being tried by every search, an indexer's Test proves the account can search, and keys are kept out of indexers' refusals in their encoded forms too. Update by pulling `:0.1` (or `:0.1.8`).
+
+**Upgrading from 0.1.7:**
+- **No database migration, no new settings.**
+- **An indexer's Test now runs one real search.** An indexer that passed before can now fail with its own reason, for example a free account that may read caps but not search ("You need to be a premium member to use the API"). Such an indexer never returned results, so nothing that worked stops working.
+- **An indexer that refuses NZB downloads is paused for them.** For as long as it asks (`Retry-After`, at most 24 hours) or else an hour, Wondarr still searches it but reads no new NZBs from it, so its posts whose NZB was not already read are left out of the results; this is logged. The pause is kept in memory only: a restart forgets it.
+- **SABnzbd's "Deobfuscate final filenames" can stay on.**
+
 ### Fixed
 - **An indexer that has refused NZB downloads is left alone for a while, not tried again by every later search.** The live run that spent DOGnzb's 10 daily downloads kept making one to four doomed downloads in every search after it. Now a refusal (its limit message, an account error, HTTP 429 or 403) starts a cool-down: for what the indexer's `Retry-After` asked (when it is more than zero), at most 24 hours, else 1 hour. While it lasts, searches still ask that indexer for releases but read none of its NZBs. Its posts are left out of the results unless their NZB is already kept in memory (a kept NZB is still read), and Wondarr logs once per search that the indexer is cooling down until a time (in the server's local time, with its UTC offset); when the source found nothing else, the search message says so too ("DOGnzb is cooling down until 14:05 UTC+00:00 after refusing NZB downloads"). The cool-down is kept in memory: a restart forgets it. No migration.
 - **A 429 to an NZB download is no longer retried.** Indexers answer a spent quota that way, so each retry was another doomed download, and a long `Retry-After` outlasted the 30-second request timeout and ended as "could not be reached", which never cut the indexer off. The 429 now goes straight to the search, which stops reading that indexer. Searches and capability requests are retried as before, and so is a 5xx on a download. No migration.
