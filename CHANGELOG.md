@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Changed
+- **Dependencies updated:** Quartz.Extensions.Hosting 4.5.1 (4.4 code runs unchanged; no schema change).
+
 ## [0.1.8] — 2026-10-17
 
 Usenet, hardened after a second round of live tests against DOGnzb and SABnzbd: a song no longer fails because SABnzbd renamed its file, an indexer whose daily NZB limit is spent is left alone instead of being tried by every search, an indexer's Test proves the account can search, and keys are kept out of indexers' refusals in their encoded forms too. Update by pulling `:0.1` (or `:0.1.8`).
