@@ -13,7 +13,9 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.References;
 using Wondarr.Core.Sources;
+using Wondarr.Core.Tagging;
 using Wondarr.Core.Tests.Importing;
+using Wondarr.Core.Tests.Media;
 using Wondarr.Core.Tests.Persistence;
 using Xunit;
 
@@ -154,6 +156,93 @@ public sealed class ReferenceAdopterTests : IDisposable
         imported.SongId.Should().Be(song.Id);
         imported.SongFileId.Should().Be(file.Id);
         imported.Upgraded.Should().BeFalse();
+
+        // The promise: the user's own file is only ever read.
+        Hash(original).Should().Be(bytesBefore);
+        File.GetLastWriteTimeUtc(original).Should().Be(modifiedBefore);
+    }
+
+    [FfmpegFact]
+    public async Task A_file_the_scan_tolerated_is_adopted_like_any_other_and_its_copy_is_byte_for_byte_the_original()
+    {
+        const string relativePath = "Eddy Grant/Killer on the Rampage/01 - Electric Avenue.mp3";
+
+        await using var context = await ContextAsync();
+        var (target, reference) = await LibrariesAsync(context, ReferenceLibraryMode.Adopt);
+        var artist = await ArtistAsync(context);
+        var song = await SongAsync(context, artist.Id, target.Id);
+
+        // Six frames without a header: the strict decode fails, the reference scan puts up with it.
+        var original = DamagedMp3.Write(
+            ReferenceRoot,
+            relativePath,
+            await DamagedMp3.CreateAsync(wholeFrames: true, 100, 200, 300, 400, 500, 600));
+
+        File.SetLastWriteTimeUtc(original, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var scanner = new ReferenceScanner(
+            context,
+            DamagedMp3.RealProbe(),
+            Substitute.For<ITagReader>(),
+            _time,
+            NullLogger<ReferenceScanner>.Instance);
+
+        (await scanner.ScanAsync(reference.Id, null, CancellationToken.None)).Unreadable.Should().Be(0);
+
+        var scanned = await context.ReferenceFiles.AsNoTracking().SingleAsync();
+        scanned.State.Should().Be(ReferenceFileState.Pending);
+        scanned.Message.Should().StartWith("Decodes with ");
+
+        // Identification leaves the row Identified, carrying the song, and the song holding the file.
+        var row = await context.ReferenceFiles.SingleAsync();
+        row.State = ReferenceFileState.Identified;
+        row.SongId = song.Id;
+        row.AcoustId = "ac-1";
+        row.IdentifiedBy = "tag_mbid";
+        row.Confidence = 1.0;
+
+        var file = new SongFile
+        {
+            SongId = song.Id,
+            Path = original,
+            Size = new FileInfo(original).Length,
+            Codec = "mp3",
+            Container = "mp3",
+            DurationMs = 30_000,
+            QualityId = 1,
+            SourceType = SourceTypes.Reference,
+            SourceRef = "{}",
+            ImportedAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+        };
+
+        context.SongFiles.Add(file);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var bytesBefore = Hash(original);
+        var modifiedBefore = File.GetLastWriteTimeUtc(original);
+
+        var result = await Adopter(context).AdoptAsync(reference.Id, null, CancellationToken.None);
+
+        // Adopt does not probe again: it files the file by the measurement the scan stored.
+        result.Should().Be(new ReferenceAdoptResult(1, 0, 0));
+
+        var request = _organizer.Requests.Should().ContainSingle().Subject;
+        request.SourcePath.Should().Be(original);
+        request.KeepSource.Should().BeTrue();
+        request.Media.Codec.Should().Be("mp3");
+        request.Media.DurationMs.Should().BeInRange(29_900, 30_100);
+
+        var placed = Path.Combine(LibraryRoot, string.Concat(song.Title, ".mp3"));
+        Hash(placed).Should().Be(bytesBefore, "the organizer's staged copy is the file as it lies, bad frames and all");
+
+        var adopted = await RowAsync(context, row.Id);
+        adopted.State.Should().Be(ReferenceFileState.Adopted);
+        adopted.Message.Should().BeNull("the decode note belongs to the reference file; the copy is the library's now");
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == song.Id);
+        stored.Path.Should().Be(placed);
+        stored.SourceType.Should().Be(SourceTypes.Adopted);
 
         // The promise: the user's own file is only ever read.
         Hash(original).Should().Be(bytesBefore);

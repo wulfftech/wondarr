@@ -58,20 +58,7 @@ public static class ServiceCollectionExtensions
             {
                 AllowAutoRedirect = false,
             })
-            .AddResilienceHandler("indexer", builder => builder.AddRetry(new HttpRetryStrategyOptions
-            {
-                // Indexers, Prowlarr included, answer 502/503 when an upstream tracker hiccups; two
-                // retries with jitter, and a Retry-After is obeyed. A 429 to an NZB download is not
-                // retried: it is how an indexer says its daily quota is spent, and a retry is another
-                // doomed download (and a long Retry-After would outlast the request timeout).
-                MaxRetryAttempts = 2,
-                BackoffType = DelayBackoffType.Exponential,
-                UseJitter = true,
-                Delay = TimeSpan.FromSeconds(2),
-                ShouldRetryAfterHeader = true,
-                ShouldHandle = args => new ValueTask<bool>(
-                    HttpClientResiliencePredicates.IsTransient(args.Outcome) && !IsNzbQuotaAnswer(args)),
-            }));
+            .AddResilienceHandler("indexer", builder => builder.AddRetry(IndexerRetry()));
 
         // Gazelle has its own client with no retry handler (R-024): its limiter counts one turn per
         // request sent, so a retry hidden in the handler would send requests the limiter never saw.
@@ -125,7 +112,7 @@ public static class ServiceCollectionExtensions
         // Process-wide for the same reason; memory only, so a restart forgets.
         services.AddSingleton(provider => new NzbCooldowns(provider.GetRequiredService<TimeProvider>()));
 
-        // One source per protocol, tier 3 (DECISIONS build session 8 #7): torrents through the
+        // One source per protocol, tier 3: torrents through the
         // Torznab indexers, usenet through the Newznab ones.
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Torrent));
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Usenet));
@@ -153,10 +140,53 @@ public static class ServiceCollectionExtensions
             search: provider.GetService<IOptionsMonitor<SearchOptions>>(),
             nzbCooldowns: provider.GetRequiredService<NzbCooldowns>());
 
-    /// <summary>Whether the answer is a 429 to an NZB download (<see cref="IndexerHttp.NzbDownload"/>).</summary>
-    private static bool IsNzbQuotaAnswer(RetryPredicateArguments<HttpResponseMessage> args) =>
-        args.Outcome.Result is { StatusCode: HttpStatusCode.TooManyRequests }
-        && args.Context.GetRequestMessage() is { } request
+    /// <summary>
+    /// The retry of the named indexer client. Indexers, Prowlarr included, answer 502/503 when an upstream
+    /// tracker hiccups; two retries with jitter, and a Retry-After is obeyed. An NZB download
+    /// (<see cref="IndexerHttp.NzbDownload"/>) is held to less: a 429 is not retried (it is how an indexer
+    /// says its daily quota is spent, and a retry is another doomed download), anything else is retried once,
+    /// and it waits at most <see cref="IndexerHttp.NzbRetryMaxDelay"/> for it, however long a Retry-After
+    /// asks, so the request never outlasts its timeout.
+    /// </summary>
+    private static HttpRetryStrategyOptions IndexerRetry()
+    {
+        var retry = new HttpRetryStrategyOptions
+        {
+            MaxRetryAttempts = 2,
+            BackoffType = DelayBackoffType.Exponential,
+            UseJitter = true,
+            Delay = TimeSpan.FromSeconds(2),
+            ShouldRetryAfterHeader = true,
+            ShouldHandle = args => new ValueTask<bool>(
+                HttpClientResiliencePredicates.IsTransient(args.Outcome) && !IsNzbQuotaAnswer(args) && !IsNzbRetrySpent(args)),
+        };
+
+        // The generator the options come with reads the Retry-After header; an NZB download's delay is cut short.
+        var retryAfter = retry.DelayGenerator;
+
+        retry.DelayGenerator = async args =>
+        {
+            var delay = retryAfter is null ? null : await retryAfter(args).ConfigureAwait(false);
+
+            return delay is { } asked && IsNzbDownload(args.Context)
+                ? TimeSpan.FromTicks(Math.Min(asked.Ticks, IndexerHttp.NzbRetryMaxDelay.Ticks))
+                : delay;
+        };
+
+        return retry;
+    }
+
+    /// <summary>Whether the request is an NZB download (<see cref="IndexerHttp.NzbDownload"/>).</summary>
+    private static bool IsNzbDownload(ResilienceContext context) =>
+        context.GetRequestMessage() is { } request
         && request.Options.TryGetValue(IndexerHttp.NzbDownload, out var nzbDownload)
         && nzbDownload;
+
+    /// <summary>Whether the answer is a 429 to an NZB download.</summary>
+    private static bool IsNzbQuotaAnswer(RetryPredicateArguments<HttpResponseMessage> args) =>
+        args.Outcome.Result is { StatusCode: HttpStatusCode.TooManyRequests } && IsNzbDownload(args.Context);
+
+    /// <summary>Whether the outcome is of an NZB download that has been retried already: it gets one retry.</summary>
+    private static bool IsNzbRetrySpent(RetryPredicateArguments<HttpResponseMessage> args) =>
+        args.AttemptNumber >= 1 && IsNzbDownload(args.Context);
 }

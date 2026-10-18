@@ -1,7 +1,7 @@
 # LRCLIB fixtures
 
 Real responses from `https://lrclib.net` recorded on 2026-09-30 with the User-Agent
-`Wondarr/0.3 (https://github.com/wulfftech/wondarr)` (`docs/research/research_metadata_plex.md` §5.9).
+`Wondarr/0.3 (https://github.com/wulfftech/wondarr)`.
 
 | File | Request |
 |---|---|

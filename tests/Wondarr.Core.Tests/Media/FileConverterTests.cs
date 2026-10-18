@@ -17,7 +17,7 @@ using Xunit;
 namespace Wondarr.Core.Tests.Media;
 
 /// <summary>
-/// Conversion on demand (DECISIONS build session 7 #6): the original is recycled by the organizer, the
+/// Conversion on demand: the original is recycled by the organizer, the
 /// song keeps its quality, the temporary file never stays behind, and a reference file, a same-codec
 /// file, a lossy-to-lossless rule and a busy song are left alone.
 /// </summary>

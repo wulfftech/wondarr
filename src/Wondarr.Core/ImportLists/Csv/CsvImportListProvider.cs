@@ -24,7 +24,7 @@ public sealed record CsvPreview(
 /// (<see cref="ImportList.SourceText"/>), so a sync re-reads the upload; uploading a newer export
 /// replaces it. Exportify writes its header row in the user's UI language and has added columns over
 /// time, so its files are recognised by English names first and by the <c>spotify:track:</c> URIs in
-/// the first column second, then mapped by position (DECISIONS build session 7 #8).
+/// the first column second, then mapped by position.
 /// </summary>
 public sealed class CsvImportListProvider : IImportListProvider
 {

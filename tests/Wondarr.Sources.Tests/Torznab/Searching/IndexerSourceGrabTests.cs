@@ -13,6 +13,7 @@ using Wondarr.Core.DownloadClients;
 using Wondarr.Core.Indexers;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
@@ -31,7 +32,7 @@ namespace Wondarr.Sources.Tests.Torznab.Searching;
 /// The indexer sources' grab, status and cancel (P7-07) over fake qBittorrent and SABnzbd clients,
 /// real files in a temp folder, and a SQLite file for the queue lookups.
 /// </summary>
-public sealed class IndexerSourceGrabTests : IDisposable
+public sealed partial class IndexerSourceGrabTests : IDisposable
 {
     private const string Album = "Daft Punk - Discovery (2001) [FLAC]";
     private const long TrackSize = 33_000_000;
@@ -71,6 +72,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(indexerService);
         services.AddSingleton(clientService);
+
+        // Only a search with no MusicBrainz identity (the NZB tests) gets this far; it asks nothing of it.
+        services.AddSingleton(Substitute.For<IMusicBrainzClient>());
 
         // Foreign keys off: the tests seed queue items without the songs and candidates they belong to.
         services.AddDbContext<WondarrDbContext>(builder => builder
@@ -1719,7 +1723,9 @@ public sealed class IndexerSourceGrabTests : IDisposable
         NzbCache? nzbCache = null,
         ISecretRegistry? secrets = null,
         bool cleanLeftoverFolders = true,
-        IDiskOperations? disk = null)
+        IDiskOperations? disk = null,
+        TimeProvider? time = null,
+        NzbCooldowns? cooldowns = null)
     {
         var import = Substitute.For<IOptionsMonitor<ImportOptions>>();
         import.CurrentValue.Returns(new ImportOptions { ContainerStagingPath = StagingRoot, CleanLeftoverFolders = cleanLeftoverFolders });
@@ -1732,10 +1738,11 @@ public sealed class IndexerSourceGrabTests : IDisposable
             _usenet,
             disk ?? new DiskOperations(),
             import,
-            TimeProvider.System,
+            time ?? TimeProvider.System,
             logger ?? NullLogger<IndexerSourceProvider>.Instance,
             nzbCache: nzbCache,
-            secrets: secrets);
+            secrets: secrets,
+            nzbCooldowns: cooldowns);
     }
 
     /// <summary>
@@ -2190,6 +2197,8 @@ public sealed class IndexerSourceGrabTests : IDisposable
 
     private sealed class FakeUsenet : List<FakeJob>, IUsenetClient
     {
+        private readonly Lock _gate = new();
+
         /// <summary>Makes every resume fail the way a refused call does.</summary>
         public bool FailResume { get; set; }
 
@@ -2216,18 +2225,27 @@ public sealed class IndexerSourceGrabTests : IDisposable
                 ? throw new DownloadClientException("SABnzbd did not answer.")
                 : Task.FromResult(CompletedFolder);
 
+        /// <summary>Runs as an add arrives, before it is accepted or refused.</summary>
+        public Action? OnAdd { get; set; }
+
         public Task<string> AddAsync(DownloadClient client, UsenetAddRequest request, CancellationToken cancellationToken)
         {
+            OnAdd?.Invoke();
+
             if (FailAdd)
             {
                 throw new DownloadClientException("SABnzbd refused the NZB.");
             }
 
-            var job = new FakeJob($"SABnzbd_nzo_{Count + 1}") { AddedPaused = request.Paused, Paused = request.Paused };
-            using var stream = new MemoryStream(request.NzbFile!);
-            job.Files.AddRange(NzbFileList.Parse(stream).Select(file => new UsenetFileInfo($"nzf_{file.Index}", file.FileName ?? "?", file.Size)));
-            Add(job);
-            return Task.FromResult(job.Id);
+            // Two grabs of one post can add at once (the NZB tests share a download between them).
+            lock (_gate)
+            {
+                var job = new FakeJob($"SABnzbd_nzo_{Count + 1}") { AddedPaused = request.Paused, Paused = request.Paused };
+                using var stream = new MemoryStream(request.NzbFile!);
+                job.Files.AddRange(NzbFileList.Parse(stream).Select(file => new UsenetFileInfo($"nzf_{file.Index}", file.FileName ?? "?", file.Size)));
+                Add(job);
+                return Task.FromResult(job.Id);
+            }
         }
 
         public Task<IReadOnlyList<UsenetFileInfo>> GetFilesAsync(DownloadClient client, string jobId, CancellationToken cancellationToken) =>

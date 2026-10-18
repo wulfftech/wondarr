@@ -38,7 +38,7 @@ public interface IImportListProvider
 
 /// <summary>
 /// One item of a source, as the provider read it. Every field but <see cref="ExternalId"/> is optional;
-/// the sync resolves the item by the strongest id it carries (DECISIONS build session 7 #7).
+/// the sync resolves the item by the strongest id it carries.
 /// </summary>
 /// <param name="ExternalId">The source's own id for the item, stable across syncs (a Spotify track URI, a Deezer track id).</param>
 /// <param name="Artist">The artist credit as the source writes it, or <see langword="null"/>.</param>

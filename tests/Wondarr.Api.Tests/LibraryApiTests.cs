@@ -183,7 +183,7 @@ public sealed class LibraryApiTests
 
         var library = await GetLibraryAsync(client, 1);
 
-        // Version 2 (DECISIONS build session 7 #4): YouTube → AAC 256, everything else kept.
+        // Version 2: YouTube → AAC 256, everything else kept.
         var outputPolicy = (JsonObject)library["outputPolicy"]!;
         outputPolicy["version"]!.GetValue<int>().Should().Be(2);
         var policy = (JsonObject)outputPolicy["youtube"]!;

@@ -27,7 +27,9 @@ public sealed class MediaToolsFactAttribute : FactAttribute
     /// <summary>Whether ffprobe and fpcalc both answer <c>-version</c>.</summary>
     public static bool HasBothTools() => OnPath("ffprobe") && OnPath("fpcalc");
 
-    private static bool OnPath(string tool)
+    /// <summary>Whether a tool answers <c>-version</c>.</summary>
+    /// <param name="tool">The executable name.</param>
+    internal static bool OnPath(string tool)
     {
         try
         {

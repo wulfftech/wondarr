@@ -41,7 +41,7 @@ pnpm-debug.log*
 Thumbs.db
 *.log
 
-# worker scratch (see docs/build/AGENT_WORKFLOW.md)
+# worker scratch
 .worktrees/
 .worker/
 
@@ -72,4 +72,7 @@ docs/HANDOVER.md
 docs/PLAN.md
 docs/DECISIONS.md
 docs/build/PROGRESS.md
+docs/build/PHASES.md
 docs/reviews/
+docs/product/
+docs/research/

@@ -49,7 +49,7 @@ public sealed record ConvertPlanResource(
 public sealed record ConvertAcceptedResource(long CommandId);
 
 /// <summary>
-/// Conversion on demand (DECISIONS build session 7 #6): a dry run, then a <c>ConvertFiles</c>
+/// Conversion on demand: a dry run, then a <c>ConvertFiles</c>
 /// command that converts the files one at a time, the originals going to the recycle bin.
 /// </summary>
 [ApiController]

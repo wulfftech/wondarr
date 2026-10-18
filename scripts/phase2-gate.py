@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 2 gate check (docs/build/PHASES.md) against a running Wondarr.
+"""Phase 2 gate check against a running Wondarr.
 
 "100 wanted songs -> >= 80 % imported automatically at or above cutoff with zero wrong-recording
 imports in a manual audit of 30 files; a deliberately wrong file (live version) is caught and the

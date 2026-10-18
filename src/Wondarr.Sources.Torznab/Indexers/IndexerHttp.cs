@@ -26,8 +26,16 @@ public static class IndexerHttp
     /// <summary>
     /// The option an NZB download request carries. The resilience handler does not retry a 429 on such a
     /// request: an indexer answers a spent daily quota that way, and every retry is another doomed download.
+    /// Anything else it retries is retried once, after at most <see cref="NzbRetryMaxDelay"/>.
     /// </summary>
     public static readonly HttpRequestOptionsKey<bool> NzbDownload = new("Wondarr.NzbDownload");
+
+    /// <summary>
+    /// The longest an NZB download waits before its one retry, a longer <c>Retry-After</c> on a 5xx included:
+    /// waiting it out would outlast <see cref="RequestTimeout"/> and end as "could not be reached", with no
+    /// status to act on.
+    /// </summary>
+    public static readonly TimeSpan NzbRetryMaxDelay = TimeSpan.FromSeconds(5);
 
     /// <summary>Gets the User-Agent every request carries.</summary>
     public static string UserAgent { get; } = BuildUserAgent();

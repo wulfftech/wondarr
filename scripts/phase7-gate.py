@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 7 gate checks (docs/build/PHASES.md) against a running Wondarr instance.
+"""Phase 7 gate checks against a running Wondarr instance.
 
 "a song only available inside an album torrent is imported by downloading just that file; an NZB album
 downloads, unpacks, and only the wanted track(s) are imported; two wanted songs from the same album are

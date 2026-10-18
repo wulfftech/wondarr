@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 5 gate checks (docs/build/PHASES.md) against running Wondarr instances.
+"""Phase 5 gate checks against running Wondarr instances.
 
 "a song imported at MP3-320 with a FLAC cutoff is upgraded when a FLAC appears (old file recycled,
 history "upgraded"); a backup restores into a fresh container; external-slskd mode passes the Phase 2

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Phase 3 gate (docs/build/PHASES.md): an existing music folder is identified and adopted.
+"""The Phase 3 gate: an existing music folder is identified and adopted.
 
 Runs against a Wondarr that already passed the Phase 2 stage of scripts/smoke-test.sh (its songs are
 in the library, and FakeSlskd answers AcoustID). It builds a reference folder of real, encoded audio

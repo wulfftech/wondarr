@@ -8,7 +8,7 @@ namespace Wondarr.Api.Songs;
 /// <summary>
 /// The add dialog's audition button: a fresh Deezer preview URL for a track, by Deezer id, by ISRC or
 /// by the song it belongs to. Preview URLs are never stored — they carry a signed token that expires
-/// after about half an hour (DECISIONS, build session 2 #7) — so every answer is fetched live and
+/// after about half an hour — so every answer is fetched live and
 /// marked <c>no-store</c>.
 /// </summary>
 [ApiController]

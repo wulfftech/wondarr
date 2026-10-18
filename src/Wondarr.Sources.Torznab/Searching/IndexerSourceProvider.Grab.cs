@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -16,7 +15,7 @@ using Wondarr.Sources.Torznab.Parsing;
 namespace Wondarr.Sources.Torznab.Searching;
 
 /// <summary>
-/// The grab half of the indexer source (P7-07; DECISIONS build session 8 #5, #6, #9, #10): a container
+/// The grab half of the indexer source (P7-07): a container
 /// goes to the user's client and only as much of it downloads as the wanted songs need; a finished
 /// torrent file is hard-linked into the grab's staging folder (the torrent keeps seeding, its data is
 /// never moved or deleted), a finished usenet file is moved there and the job deleted once no queue
@@ -547,8 +546,8 @@ public sealed partial class IndexerSourceProvider
     /// A torrent Wondarr did not add is left exactly as it is. One it added is removed — with its data,
     /// which is none — only when no other queue item uses it, every file reports progress 0 and the
     /// client is not checking, moving, fetching metadata or reporting an error (the progress it reports
-    /// then is not to be trusted); otherwise only this song's file is switched off (DECISIONS build
-    /// session 8 #5, #6; R-016).
+    /// then is not to be trusted); otherwise only this song's file is switched off
+    /// (R-016).
     /// </summary>
     private async Task CancelTorrentAsync(DownloadClient client, ContainerGrab grab, bool shared, CancellationToken cancellationToken)
     {
@@ -626,23 +625,31 @@ public sealed partial class IndexerSourceProvider
         }
 
         // The search read this post's file list from the same NZB: the indexer already counted that
-        // download against its daily quota, so a second one is spent only when the cache lost it.
+        // download against its daily quota, so a second one is spent only when the cache lost it. The
+        // download shares an NZB another read is downloading, and keeps it in the cache once it parsed, so a
+        // grab of the same post for another song (this one retried, or a bundle partner) spends no more.
         var nzbKey = NzbCache.KeyOf(release.IndexerId, release.DownloadUrl, release.ReleaseId);
         var downloaded = false;
 
         if (!_nzbCache.TryGet(nzbKey, out var nzb))
         {
-            nzb = await DownloadNzbAsync(indexer, release, cancellationToken).ConfigureAwait(false);
-            downloaded = true;
+            (nzb, downloaded) = await DownloadNzbAsync(indexer, release, nzbKey, cancellationToken).ConfigureAwait(false);
         }
 
-        var jobId = await _usenet.AddAsync(client, new UsenetAddRequest(release.Title, nzb, null, Paused: true), cancellationToken).ConfigureAwait(false);
+        string jobId;
 
-        if (downloaded)
+        try
         {
-            // The client took it, so it is a real NZB: kept, so that a grab of the same post for
-            // another song (this one retried, or a bundle partner) does not spend another download.
-            _nzbCache.Put(nzbKey, nzb);
+            jobId = await _usenet.AddAsync(client, new UsenetAddRequest(release.Title, nzb, null, Paused: true), cancellationToken).ConfigureAwait(false);
+        }
+        catch (DownloadClientException) when (downloaded)
+        {
+            // The client would not take it, so it may not be a real NZB: the copy this grab's own download
+            // kept goes, if it is still that copy. One that was in the cache already, or that a search
+            // downloaded and this grab only waited for, was paid for by that read and stays.
+            _nzbCache.Remove(nzbKey, nzb);
+
+            throw;
         }
 
         try
@@ -681,37 +688,6 @@ public sealed partial class IndexerSourceProvider
         }
 
         return new ContainerGrab(client.Id, indexer.Id, release.ReleaseId, null, jobId, filePath, staging, release.Song, AddedByWondarr: true);
-    }
-
-    /// <summary>
-    /// Downloads a release's NZB for a grab. An indexer whose quota is spent answers 200 with a sentence,
-    /// an error document, a 429 or a 403: that fails the grab with the indexer's own words (redacted),
-    /// so the download client is never handed something that is not an NZB and the user sees why.
-    /// </summary>
-    private async Task<byte[]> DownloadNzbAsync(Indexer indexer, ContainerRelease release, CancellationToken cancellationToken)
-    {
-        IndexerDownload download;
-
-        try
-        {
-            download = await _clients.GetClient(indexer)
-                .DownloadAsync(indexer, ToIndexerRelease(release, indexer), cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (IndexerException exception) when (exception.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
-        {
-            throw new DownloadClientException(string.Concat(indexer.Name, ": ", NzbAnswer.Clean(exception.Message, Redact)), exception);
-        }
-
-        var nzb = download.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
-
-        // Any error answer fails the grab, whatever its code: this release is the one wanted.
-        if (NzbAnswer.Check(nzb, Redact) is { IsNzb: false } verdict)
-        {
-            throw new DownloadClientException(string.Concat(indexer.Name, ": ", verdict.Text));
-        }
-
-        return nzb;
     }
 
     /// <summary>
@@ -765,7 +741,7 @@ public sealed partial class IndexerSourceProvider
 
     /// <summary>
     /// Deletes the audio files no wanted song needs and, with them, the post's Par2 volumes and <c>.sfv</c>,
-    /// when the post is clean (DECISIONS build session 8 #10, build session 14 #15).
+    /// when the post is clean.
     /// Tells whether the job now holds only what is wanted: false when the client listed nothing, listed
     /// something that is not a clean post, or listed none of the wanted names, in which case the job is left
     /// whole.

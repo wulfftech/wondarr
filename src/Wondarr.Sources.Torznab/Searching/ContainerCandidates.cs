@@ -21,7 +21,7 @@ public sealed record ContainerListing(
     long? TotalSize);
 
 /// <summary>
-/// Turns a container into the wanted song's candidate (DECISIONS build session 8 #3): the song's file
+/// Turns a container into the wanted song's candidate: the song's file
 /// found by the matcher, or the release itself while its file list is unknown. Shared by the indexer
 /// search and <c>release/push</c>.
 /// </summary>

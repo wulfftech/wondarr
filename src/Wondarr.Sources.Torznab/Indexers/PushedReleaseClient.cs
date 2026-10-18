@@ -5,7 +5,7 @@ using Wondarr.Core.Sources;
 namespace Wondarr.Sources.Torznab.Indexers;
 
 /// <summary>
-/// The "indexer" of a release pushed to <c>/api/v1/release/push</c> (DECISIONS build session 8 #11):
+/// The "indexer" of a release pushed to <c>/api/v1/release/push</c>:
 /// there is no indexer row and nothing to search, only the pushed link to download. The grab path
 /// reaches it through <see cref="IIndexerClientFactory"/> like any other indexer, with
 /// <see cref="Row"/>.
@@ -73,7 +73,12 @@ public sealed partial class PushedReleaseClient : IIndexerClient
             LogDownloading(_logger, path);
         }
 
-        using var response = await IndexerHttp.GetAsync(_clients.CreateClient(IndexerHttp.ClientName), url, cancellationToken)
+        // A usenet link is an NZB download like any indexer's: a 429 on it is a spent quota, not retried.
+        using var response = await IndexerHttp.GetAsync(
+                _clients.CreateClient(IndexerHttp.ClientName),
+                url,
+                release.Protocol == DownloadProtocol.Usenet,
+                cancellationToken)
             .ConfigureAwait(false);
 
         if (IndexerHttp.TryGetMagnetRedirect(response, out var magnet))

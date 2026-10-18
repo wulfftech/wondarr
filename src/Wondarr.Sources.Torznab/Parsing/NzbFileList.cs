@@ -111,7 +111,7 @@ public static class NzbFileList
 
     /// <summary>
     /// Tells whether every file of an NZB is audio, a Par2 volume or a small sidecar
-    /// (.nfo, .sfv, .jpg, .png, .cue, .log, .m3u, .txt) with a plain name — DECISIONS #10.
+    /// (.nfo, .sfv, .jpg, .png, .cue, .log, .m3u, .txt) with a plain name.
     /// </summary>
     /// <param name="files">The files of one NZB, as <see cref="Parse"/> read them.</param>
     /// <returns><c>true</c> when nothing in the list is an archive or an obfuscated name.</returns>

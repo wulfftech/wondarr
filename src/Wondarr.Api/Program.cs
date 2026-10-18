@@ -112,9 +112,9 @@ app.MapControllers();
 // as ?access_token= — which is why the hub gets its own policy rather than the API fallback.
 app.MapHub<EventsHub>("/signalr/events").RequireAuthorization("SignalR");
 
-// The API's description and its reference page at /docs are served without a key (DECISIONS build
-// session 6 #8): they describe the open-source API surface and carry no data, and a browser opening
-// /docs cannot send X-Api-Key. Every endpoint they describe still requires the key.
+// The API's description and its reference page at /docs are served without a key: they describe the
+// open-source API surface and carry no data, and a browser opening /docs cannot send X-Api-Key.
+// Every endpoint they describe still requires the key.
 app.MapOpenApi("/docs/{documentName}/openapi.json").AllowAnonymous();
 app.MapScalarApiReference("/docs", options => options
         .WithTitle("Wondarr API")

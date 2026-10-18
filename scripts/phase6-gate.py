@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 6 gate checks (docs/build/PHASES.md) against a running Wondarr instance.
+"""Phase 6 gate checks against a running Wondarr instance.
 
 "a 200-track Exportify CSV imports, resolves via ISRC >= 95 %, downloads, and appears as a Plex
 playlist after two search cycles; an album added by search arrives as its tracks under that album; a
