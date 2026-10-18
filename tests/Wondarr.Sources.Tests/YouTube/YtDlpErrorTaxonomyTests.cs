@@ -5,8 +5,8 @@ using Xunit;
 namespace Wondarr.Sources.Tests.YouTube;
 
 /// <summary>
-/// Golden tests for <see cref="YtDlpErrorTaxonomy"/> over the exact error strings re-verified in
-/// <c>docs/research/research_youtube.md</c> §0.1, served from <c>tests/fixtures/ytdlp</c>.
+/// Golden tests for <see cref="YtDlpErrorTaxonomy"/> over the exact error strings yt-dlp's source
+/// emits (re-verified 2026-10-05), served from <c>tests/fixtures/ytdlp</c>.
 /// </summary>
 public class YtDlpErrorTaxonomyTests
 {

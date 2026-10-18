@@ -36,7 +36,7 @@ import { initialValues, SettingsField, targetOf, wireValue, type PairLabels } fr
 import { initCaps } from '../../components/text';
 
 /**
- * Settings → Download clients (DECISIONS build session 8 #1, #8): the qBittorrent and SABnzbd the
+ * Settings → Download clients: the qBittorrent and SABnzbd the
  * indexers' grabs go to, with the remote path mappings that turn the client's paths into the ones
  * Wondarr sees. The settings form is rendered from the server's schema.
  */

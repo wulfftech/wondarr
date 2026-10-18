@@ -43,7 +43,7 @@ public sealed record ProwlarrSettings(string Url, string ApiKey, IReadOnlyList<i
 }
 
 /// <summary>
-/// The Prowlarr indexer type (DECISIONS build session 8 #2): one row that searches every indexer
+/// The Prowlarr indexer type: one row that searches every indexer
 /// Prowlarr has, through <c>/api/v1/search</c>. The row chooses torrent or usenet.
 /// </summary>
 public sealed class ProwlarrIndexerType : IIndexerType

@@ -12,7 +12,7 @@ import { validationFields, ValidationError } from './profiles';
 import type { components } from './schema';
 
 /**
- * The indexers Wondarr searches for torrents and usenet posts (DECISIONS build session 8 #1): one row
+ * The indexers Wondarr searches for torrents and usenet posts: one row
  * per Torznab or Newznab feed (or Prowlarr, or a Gazelle tracker), with its settings, its priority and
  * the download client its grabs go to. The editor is rendered from `GET /api/v1/indexer/schema`.
  */

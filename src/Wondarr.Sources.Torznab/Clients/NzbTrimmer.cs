@@ -3,7 +3,7 @@ using Wondarr.Sources.Torznab.Parsing;
 namespace Wondarr.Sources.Torznab.Clients;
 
 /// <summary>
-/// Opportunistic trimming of a usenet job (DECISIONS build session 8 #10): when every file of the
+/// Opportunistic trimming of a usenet job: when every file of the
 /// post has a plain name and is audio, a Par2 volume or a small sidecar, the audio files no wanted
 /// song needs are dropped before the job starts. Anything else — an archive, an obfuscated name —
 /// downloads whole, because a trimmed RAR set cannot be repaired. A trimmed post goes without its

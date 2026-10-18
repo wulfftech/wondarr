@@ -52,8 +52,8 @@ public sealed class SearchOptions
     public int SlotWaitMinutes { get; set; } = 120;
 
     /// <summary>
-    /// The largest usenet post, in MB, downloaded whole for one song (DECISIONS build session 8 #7). A
-    /// torrent is never limited: only its wanted files download.
+    /// The largest usenet post, in MB, downloaded whole for one song. A torrent
+    /// is never limited: only its wanted files download.
     /// </summary>
     public int MaxContainerSizeMb { get; set; } = 1500;
 }

@@ -14,7 +14,7 @@ using Xunit;
 namespace Wondarr.Core.Tests.ImportLists;
 
 /// <summary>
-/// A list's playlists (DECISIONS build session 7 #10): the Plex playlist made once and then reconciled
+/// A list's playlists: the Plex playlist made once and then reconciled
 /// in place — added, removed, re-ordered — and the <c>.m3u8</c> with relative paths.
 /// </summary>
 public sealed class PlaylistWriterTests : IDisposable

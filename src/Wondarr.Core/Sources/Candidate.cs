@@ -200,7 +200,7 @@ public sealed record Candidate
 
 /// <summary>
 /// The release (torrent or NZB) a container candidate comes from: what the indexer said about it, and
-/// the wanted file's place inside it (DECISIONS build session 8 #3).
+/// the wanted file's place inside it.
 /// </summary>
 public sealed record ContainerRelease
 {
@@ -251,8 +251,7 @@ public sealed record ContainerRelease
     public IReadOnlyList<ContainerFile>? Files { get; init; }
 
     /// <summary>
-    /// The paths of the other wanted songs' files the same grab fetches (bundling, DECISIONS build
-    /// session 8 #6): set by the search service on the first song's grab only, so the client selects
+    /// The paths of the other wanted songs' files the same grab fetches (bundling): set by the search service on the first song's grab only, so the client selects
     /// them — and SABnzbd keeps them — from the start.
     /// </summary>
     public IReadOnlyList<string>? AlsoWanted { get; init; }

@@ -29,7 +29,7 @@ import {
   type YouTubeSettingsUpdateResource,
 } from '../../api/youtube';
 
-/** The localStorage key that remembers the one-time ToS acknowledgement (DECISIONS.md #6). */
+/** The localStorage key that remembers the one-time ToS acknowledgement. */
 const TOS_ACK_KEY = 'wondarr:youtube-tos-ack';
 
 /** The environment-variable suffix each field is locked by, so the tooltip can name it. */

@@ -5,7 +5,7 @@ using Wondarr.Core.Sources;
 namespace Wondarr.Sources.Torznab.Indexers;
 
 /// <summary>
-/// The "indexer" of a release pushed to <c>/api/v1/release/push</c> (DECISIONS build session 8 #11):
+/// The "indexer" of a release pushed to <c>/api/v1/release/push</c>:
 /// there is no indexer row and nothing to search, only the pushed link to download. The grab path
 /// reaches it through <see cref="IIndexerClientFactory"/> like any other indexer, with
 /// <see cref="Row"/>.

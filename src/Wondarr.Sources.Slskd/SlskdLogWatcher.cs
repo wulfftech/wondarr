@@ -21,7 +21,7 @@ public enum SlskdLogSignal
 /// <remarks>
 /// Pure: it decides nothing and holds nothing; the caller records what it returns.
 /// The message texts are the ones slskd 0.26.0 writes (<c>src/slskd/Application.cs</c>), verified
-/// live on <c>ch01</c> on 2026-09-29 (<c>docs/research/research_soulseek.md</c> §"Verified 2026-09-29").
+/// live on <c>ch01</c> on 2026-09-29.
 /// </remarks>
 public static class SlskdLogWatcher
 {

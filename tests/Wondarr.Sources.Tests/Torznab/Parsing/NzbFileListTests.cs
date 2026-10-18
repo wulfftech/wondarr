@@ -7,7 +7,7 @@ namespace Wondarr.Sources.Tests.Torznab.Parsing;
 
 /// <summary>
 /// Golden tests over the NZB fixtures: subject forms, summed segment sizes, the archive/par2/audio
-/// classification, plain vs obfuscated names and the IsClean rule (DECISIONS #10).
+/// classification, plain vs obfuscated names and the IsClean rule.
 /// </summary>
 public class NzbFileListTests
 {

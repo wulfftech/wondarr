@@ -125,7 +125,7 @@ public static class ServiceCollectionExtensions
         // Process-wide for the same reason; memory only, so a restart forgets.
         services.AddSingleton(provider => new NzbCooldowns(provider.GetRequiredService<TimeProvider>()));
 
-        // One source per protocol, tier 3 (DECISIONS build session 8 #7): torrents through the
+        // One source per protocol, tier 3: torrents through the
         // Torznab indexers, usenet through the Newznab ones.
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Torrent));
         services.AddSingleton<ISourceProvider>(provider => CreateSource(provider, DownloadProtocol.Usenet));

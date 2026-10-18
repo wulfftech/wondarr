@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace Wondarr.Sources.YouTube;
 
 /// <summary>
-/// Turns one InnerTube <c>search</c> response into results (research_youtube.md §0.1, the path
+/// Turns one InnerTube <c>search</c> response into results (the path
 /// ytmusicapi's <c>mixins/search.py</c> walks). Pure code: no HTTP, no scoring, no rejection — every
 /// result is returned as the response stated it, and the caller decides what a grab may use.
 /// </summary>
