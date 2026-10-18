@@ -195,6 +195,215 @@ public sealed class MediaProbeTests
         quality.Should().Be(expected);
     }
 
+    // --- Reference files: a few bad frames are tolerated ----------------------------------------
+    // tone-320.mp3 is 3 000 ms. The shape of ffmpeg's output for a damaged file was recorded on ch01 with
+    // ffmpeg 9.0.2: each bad frame is two or three stderr lines at -v error, and the lenient run exits 0.
+
+    private const string Decoded3s = "out_time_us=3000000\nout_time=00:00:03.000000\nprogress=end\n";
+
+    [Fact]
+    public async Task A_reference_file_with_a_few_decode_errors_is_tolerated()
+    {
+        var runner = DamagedFile(errorLines: 6, progress: Decoded3s);
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/damaged.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeTrue();
+        result.Info.Should().NotBeNull();
+        result.Error.Should().BeNull();
+        result.Tolerated.Should().Be(new ToleratedDecodeErrors(6, 3.0, 3.0));
+
+        runner.Calls.Should().HaveCount(3);
+        runner.Calls[1].Arguments.Should().Contain("-xerror");
+        runner.Calls[2].FileName.Should().Be("ffmpeg");
+        runner.Calls[2].Arguments.Should().Equal(
+            "-nostdin", "-v", "error", "-nostats", "-progress", "pipe:1", "-i", "/m/damaged.mp3", "-f", "null", "-");
+    }
+
+    [Fact]
+    public async Task The_same_damaged_file_is_still_rejected_for_a_download()
+    {
+        var runner = DamagedFile(errorLines: 6, progress: Decoded3s);
+
+        var result = await Probe(runner).ProbeAsync("/m/damaged.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeFalse();
+        result.Tolerated.Should().BeNull();
+        result.Error.Should().Be("/m/damaged.mp3: Invalid data found when processing input");
+
+        // The strict probe stops at ffprobe and the -xerror decode: no lenient run.
+        runner.Calls.Should().HaveCount(2);
+    }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(MediaProbe.ReferenceMaxErrorLines, true)]
+    [InlineData(MediaProbe.ReferenceMaxErrorLines + 1, false)]
+    public async Task A_reference_file_may_have_at_most_twenty_error_lines(int errorLines, bool tolerated)
+    {
+        var runner = DamagedFile(errorLines, Decoded3s);
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/damaged.mp3", CancellationToken.None);
+
+        result.Decodable.Should().Be(tolerated);
+
+        if (tolerated)
+        {
+            result.Tolerated!.Errors.Should().Be(errorLines);
+        }
+        else
+        {
+            result.Error.Should().Be("/m/damaged.mp3: Invalid data found when processing input");
+            result.Info.Should().BeNull();
+        }
+    }
+
+    [Theory]
+    [InlineData("out_time_us=3000000\nprogress=end\n", true)]
+    [InlineData("out_time_us=2950000\nprogress=end\n", true)]
+    [InlineData("out_time_us=2930000\nprogress=end\n", false)]
+    [InlineData("out_time_us=1500000\nprogress=end\n", false)]
+    [InlineData("out_time_us=N/A\nprogress=end\n", false)]
+    [InlineData("progress=end\n", false)]
+    [InlineData("", false)]
+    public async Task A_reference_file_must_decode_at_least_98_percent_of_its_length(string progress, bool tolerated)
+    {
+        var runner = DamagedFile(errorLines: 3, progress);
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/damaged.mp3", CancellationToken.None);
+
+        result.Decodable.Should().Be(tolerated);
+    }
+
+    [Fact]
+    public async Task The_decoded_time_is_the_last_progress_block()
+    {
+        var progress = "out_time_us=500000\nprogress=continue\nout_time_us=3000000\nprogress=end\n";
+
+        var result = await Probe(DamagedFile(errorLines: 3, progress))
+            .ProbeReferenceAsync("/m/damaged.mp3", CancellationToken.None);
+
+        result.Tolerated.Should().Be(new ToleratedDecodeErrors(3, 3.0, 3.0));
+    }
+
+    [Fact]
+    public async Task A_reference_file_whose_lenient_decode_fails_is_not_tolerated()
+    {
+        var runner = new FakeProcessRunner()
+            .Enqueue(MediaFixtures.Read("tone-320.mp3.ffprobe.json"))
+            .Enqueue(1, "/m/broken.mp3: Invalid data found when processing input\n")
+            .Enqueue(new ProcessResult(1, Decoded3s, "/m/broken.mp3: Invalid data found when processing input\n", TimedOut: false));
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/broken.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeFalse();
+        result.Error.Should().Be("/m/broken.mp3: Invalid data found when processing input");
+    }
+
+    [Fact]
+    public async Task A_reference_file_with_no_duration_is_not_tolerated()
+    {
+        var runner = new FakeProcessRunner()
+            .Enqueue(
+                """
+                { "streams": [ { "codec_type": "audio", "codec_name": "mp3", "sample_rate": "44100", "channels": 2 } ],
+                  "format": { "format_name": "mp3", "size": "122296" } }
+                """)
+            .Enqueue(1, "[mp3float @ 0x55f0] Header missing\n");
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/damaged.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeFalse();
+        runner.Calls.Should().HaveCount(2, "there is no duration to measure a lenient decode against");
+    }
+
+    [Fact]
+    public async Task A_reference_file_with_no_audio_stream_is_not_decodable()
+    {
+        var runner = new FakeProcessRunner().Enqueue("{}");
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/cover.jpg", CancellationToken.None);
+
+        result.Decodable.Should().BeFalse();
+        result.Error.Should().Be("the file has no audio stream");
+        runner.Calls.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task A_lenient_decode_that_ran_out_of_time_says_so()
+    {
+        var runner = new FakeProcessRunner()
+            .Enqueue(MediaFixtures.Read("tone-320.mp3.ffprobe.json"))
+            .Enqueue(1, "[mp3float @ 0x55f0] Header missing\n")
+            .Enqueue(new ProcessResult(-1, string.Empty, string.Empty, TimedOut: true));
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/slow.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeFalse();
+        result.TimedOut.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_reference_file_that_decodes_cleanly_is_answered_like_any_other_and_costs_no_extra_run()
+    {
+        var runner = new FakeProcessRunner()
+            .Enqueue(MediaFixtures.Read("tone-320.mp3.ffprobe.json"))
+            .Enqueue(new ProcessResult(0, string.Empty, string.Empty, TimedOut: false));
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/tone-320.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeTrue();
+        result.Tolerated.Should().BeNull();
+        runner.Calls.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_lenient_decode_that_found_nothing_to_complain_about_is_a_plain_pass()
+    {
+        // The strict run failed for something that did not come back (a share that hiccuped).
+        var runner = DamagedFile(errorLines: 0, Decoded3s);
+
+        var result = await Probe(runner).ProbeReferenceAsync("/m/damaged.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeTrue();
+        result.Tolerated.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_reference_probe_without_the_decode_check_does_not_decode()
+    {
+        var runner = new FakeProcessRunner().Enqueue(MediaFixtures.Read("tone-320.mp3.ffprobe.json"));
+
+        var result = await Probe(runner, new MediaToolsOptions { DecodeCheck = false })
+            .ProbeReferenceAsync("/m/tone-320.mp3", CancellationToken.None);
+
+        result.Decodable.Should().BeTrue();
+        runner.Calls.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void Counts_the_lines_ffmpeg_wrote_at_error_level()
+    {
+        MediaProbe.ErrorLineCount(null).Should().Be(0);
+        MediaProbe.ErrorLineCount(" \r\n\n").Should().Be(0);
+        MediaProbe.ErrorLineCount("[mp3float @ 0x1] Header missing\r\n[aist#0:0/mp3 @ 0x2] Error submitting packet\r\n")
+            .Should().Be(2);
+    }
+
+    /// <summary>
+    /// ffprobe finds a 3 s MP3, the strict decode stops at the first error, and the lenient decode wrote
+    /// <paramref name="errorLines"/> lines and the given <c>-progress</c> output.
+    /// </summary>
+    private static FakeProcessRunner DamagedFile(int errorLines, string progress) =>
+        new FakeProcessRunner()
+            .Enqueue(MediaFixtures.Read("tone-320.mp3.ffprobe.json"))
+            .Enqueue(1, "[mp3float @ 0x55f0] Header missing\n/m/damaged.mp3: Invalid data found when processing input\n")
+            .Enqueue(new ProcessResult(
+                0,
+                progress,
+                string.Concat(Enumerable.Repeat("[mp3float @ 0x55f0] Header missing\n", errorLines)),
+                TimedOut: false));
+
     private static MediaProbe Probe(FakeProcessRunner runner, MediaToolsOptions? options = null) =>
         new(
             runner,

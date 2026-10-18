@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -11,6 +12,7 @@ using Wondarr.Core.References;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
 using Wondarr.Testing;
+using Wondarr.Core.Tests.Media;
 using Wondarr.Core.Tests.Persistence;
 using Xunit;
 
@@ -32,7 +34,7 @@ public sealed class ReferenceScannerTests : IDisposable
 
     public ReferenceScannerTests()
     {
-        _probe.ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _probe.ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new MediaProbeResult(
                 true,
                 new MediaInfo("mp3", "mp3", 320, 44100, null, 2, 210_000, false, 1024),
@@ -83,7 +85,7 @@ public sealed class ReferenceScannerTests : IDisposable
         var second = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
 
         second.Should().Be(new ReferenceScanResult(Seen: 2, Added: 0, Changed: 0, Unchanged: 2, Missing: 0, Unreadable: 0));
-        await _probe.Received(2).ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _probe.Received(2).ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -524,7 +526,7 @@ public sealed class ReferenceScannerTests : IDisposable
         var result = await Scanner(second).ScanAsync(libraryId, null, CancellationToken.None);
 
         result.Should().Be(new ReferenceScanResult(Seen: 2, Added: 0, Changed: 0, Unchanged: 2, Missing: 0, Unreadable: 0));
-        await _probe.DidNotReceiveWithAnyArgs().ProbeAsync(default!, default);
+        await _probe.DidNotReceiveWithAnyArgs().ProbeReferenceAsync(default!, default);
     }
 
     [Fact]
@@ -614,7 +616,7 @@ public sealed class ReferenceScannerTests : IDisposable
     public async Task A_file_that_does_not_decode_is_unreadable()
     {
         Write("broken.mp3", "one");
-        _probe.ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _probe.ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
 
         await using var database = await ContextAsync();
@@ -631,10 +633,110 @@ public sealed class ReferenceScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_that_decodes_with_a_few_errors_is_scanned_noted_and_logged()
+    {
+        var path = Write("Electric Avenue.mp3", "one");
+        _probe.ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Tolerated(errors: 12, decoded: 315.4, duration: 316.0)));
+        _tags.Read(Arg.Any<string>()).Returns(new FileTags(
+            "Electric Avenue", "Eddy Grant", "Eddy Grant", "Killer on the Rampage", "1982", null,
+            null, null, null, null, null, 1, 10, 1, 316_000));
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var log = new RecordingLogger<ReferenceScanner>();
+
+        var result = await Scanner(database, log).ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Should().Be(new ReferenceScanResult(Seen: 1, Added: 1, Changed: 0, Unchanged: 0, Missing: 0, Unreadable: 0));
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync();
+        row.State.Should().Be(ReferenceFileState.Pending, "it goes on to identification like any other file");
+        row.Probe.Should().NotBeNull();
+        row.Tags.Should().NotBeNull();
+        row.Message.Should().Be("Decodes with 12 errors");
+
+        var line = log.Entries.Should()
+            .ContainSingle(entry => entry.Message.Contains("scanned anyway", StringComparison.Ordinal)).Subject;
+        line.Level.Should().Be(LogLevel.Information);
+        line.Message.Should().Be($"{path} decodes with 12 errors over 315.4s of 316.0s; scanned anyway");
+
+        // The scan asks the reference question, never the strict one a download gets.
+        await _probe.DidNotReceiveWithAnyArgs().ProbeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task A_clean_file_gets_no_note_and_no_log_line()
+    {
+        Write("a.mp3", "one");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var log = new RecordingLogger<ReferenceScanner>();
+
+        await Scanner(database, log).ScanAsync(library.Id, null, CancellationToken.None);
+
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync()).Message.Should().BeNull();
+        log.Entries.Should().NotContain(entry => entry.Message.Contains("scanned anyway", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_file_that_was_unreadable_is_scanned_once_the_probe_tolerates_it()
+    {
+        Write("Electric Avenue.mp3", "one");
+        _probe.ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => Task.FromResult(new MediaProbeResult(false, null, "Header missing")),
+                _ => Task.FromResult(Tolerated(errors: 12, decoded: 315.4, duration: 316.0)));
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+
+        var first = await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+        first.Unreadable.Should().Be(1);
+
+        var second = await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        second.Unreadable.Should().Be(0);
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync();
+        row.State.Should().Be(ReferenceFileState.Pending);
+        row.Message.Should().Be("Decodes with 12 errors");
+    }
+
+    [Fact]
+    public async Task A_changed_skipped_file_follows_the_tolerant_probe_and_keeps_its_message()
+    {
+        var path = Write("a.mp3", "one");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        var row = await database.ReferenceFiles.SingleAsync();
+        row.State = ReferenceFileState.Skipped;
+        row.Probe = null;
+        row.Message = "left alone";
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+        _probe.ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(Tolerated(errors: 3, decoded: 209.8, duration: 210.0)));
+
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        var after = await database.ReferenceFiles.AsNoTracking().SingleAsync();
+        after.State.Should().Be(ReferenceFileState.Skipped);
+        after.Message.Should().Be("left alone");
+        after.Probe.Should().NotBeNull("the measurement follows the file");
+    }
+
+    [Fact]
     public async Task A_probe_that_failed_is_tried_again_on_the_next_scan_of_the_unchanged_file()
     {
         Write("song.mp3", "one");
-        _probe.ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _probe.ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
                 _ => Task.FromException<MediaProbeResult>(new TimeoutException("ffprobe timed out")),
                 _ => Task.FromResult(new MediaProbeResult(
@@ -663,7 +765,7 @@ public sealed class ReferenceScannerTests : IDisposable
     public async Task An_unchanged_unreadable_file_is_counted_as_unreadable_again()
     {
         Write("broken.mp3", "one");
-        _probe.ProbeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _probe.ProbeReferenceAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
 
         await using var database = await ContextAsync();
@@ -757,8 +859,16 @@ public sealed class ReferenceScannerTests : IDisposable
         return _database.CreateContext(_time);
     }
 
-    private ReferenceScanner Scanner(WondarrDbContext database) =>
-        new(database, _probe, _tags, _time, NullLogger<ReferenceScanner>.Instance);
+    private ReferenceScanner Scanner(WondarrDbContext database, ILogger<ReferenceScanner>? logger = null) =>
+        new(database, _probe, _tags, _time, logger ?? NullLogger<ReferenceScanner>.Instance);
+
+    /// <summary>What the probe answers for a file with a few bad frames that a reference scan puts up with.</summary>
+    private static MediaProbeResult Tolerated(int errors, double decoded, double duration) =>
+        new(
+            true,
+            new MediaInfo("mp3", "mp3", 128, 44100, null, 2, (int)(duration * 1000), false, 1024),
+            null,
+            Tolerated: new ToleratedDecodeErrors(errors, decoded, duration));
 
     private string Write(string relativePath, string content)
     {

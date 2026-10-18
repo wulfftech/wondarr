@@ -13,32 +13,87 @@ namespace Wondarr.Core.Media;
 /// Whether the failure is a tool that ran out of time. That says nothing about the file (a long FLAC
 /// on a loaded NAS), so the verdict on it is "ask again later", never a rejection.
 /// </param>
-public sealed record MediaProbeResult(bool Decodable, MediaInfo? Info, string? Error, bool TimedOut = false);
+/// <param name="Tolerated">
+/// Set only by <see cref="IMediaProbe.ProbeReferenceAsync"/>: the file did not decode cleanly, but within
+/// what a reference scan accepts. <see cref="Decodable"/> is <c>true</c> then.
+/// </param>
+public sealed record MediaProbeResult(
+    bool Decodable,
+    MediaInfo? Info,
+    string? Error,
+    bool TimedOut = false,
+    ToleratedDecodeErrors? Tolerated = null);
+
+/// <summary>What a reference scan put up with in a file that does not decode cleanly.</summary>
+/// <param name="Errors">How many error lines ffmpeg wrote while decoding the file (one bad frame is two or three).</param>
+/// <param name="DecodedSeconds">How much of the audio ffmpeg got through, in seconds.</param>
+/// <param name="DurationSeconds">The duration ffprobe measured, in seconds.</param>
+public sealed record ToleratedDecodeErrors(int Errors, double DecodedSeconds, double DurationSeconds);
 
 /// <summary>Measures a downloaded file.</summary>
 public interface IMediaProbe
 {
-    /// <summary>Probes one file: does it decode, and what is it?</summary>
+    /// <summary>
+    /// Probes one file: does it decode, and what is it? Any decode error fails the file, which is what a
+    /// file Wondarr writes needs: a damaged download is replaced, never kept.
+    /// </summary>
     /// <param name="path">The file to probe.</param>
     /// <param name="cancellationToken">Cancels the probe.</param>
     /// <returns>The measured format, or why the file cannot be used.</returns>
     Task<MediaProbeResult> ProbeAsync(string path, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Probes a file of a reference library, which is the user's own and is only ever read. A handful of
+    /// decode errors in a file of normal length does not stop it being identified (the fingerprint decides
+    /// what it is): see <see cref="MediaProbe.ReferenceMaxErrorLines"/> and
+    /// <see cref="MediaProbe.ReferenceMinDecodedFraction"/>. A file that decodes cleanly is answered exactly
+    /// as <see cref="ProbeAsync"/> answers it, and so is every file by a probe that does not tell the two
+    /// apart (this default).
+    /// </summary>
+    /// <param name="path">The file to probe.</param>
+    /// <param name="cancellationToken">Cancels the probe.</param>
+    /// <returns>
+    /// The measured format (with <see cref="MediaProbeResult.Tolerated"/> set when errors were tolerated),
+    /// or why the file cannot be used.
+    /// </returns>
+    Task<MediaProbeResult> ProbeReferenceAsync(string path, CancellationToken cancellationToken) =>
+        ProbeAsync(path, cancellationToken);
 }
 
 /// <summary>
 /// Wraps the bundled ffprobe (and, when <see cref="MediaToolsOptions.DecodeCheck"/> is on, ffmpeg) to
 /// measure what a downloaded file actually is. A file that does not decode is never imported: real
 /// format and real bitrate are what the import decision runs on, not the file name
-/// (MATCHING_ENGINE.md §6.5).
+/// (MATCHING_ENGINE.md §6.5). A reference library's files are the one exception
+/// (<see cref="ProbeReferenceAsync"/>): they are the user's own, nothing is written to them, and a few
+/// bad frames in a file that plays do not stop it being identified.
 /// </summary>
 public sealed partial class MediaProbe : IMediaProbe
 {
+    /// <summary>
+    /// The most ffmpeg error lines (<c>-v error</c>, one per line) a reference file may produce and still
+    /// be scanned. One bad frame is two or three lines, so this is a handful of frames, not a damaged file.
+    /// </summary>
+    internal const int ReferenceMaxErrorLines = 20;
+
+    /// <summary>
+    /// The share of the probed duration ffmpeg must have decoded for a reference file with errors to be
+    /// scanned. A file cut short, or one the decoder gave up on part-way, falls below it.
+    /// </summary>
+    internal const double ReferenceMinDecodedFraction = 0.98;
+
     private static readonly string[] ProbeArguments =
         ["-v", "error", "-print_format", "json", "-show_format", "-show_streams"];
 
     // -nostdin: ffmpeg must never read a terminal it may have inherited (a prompt would block until
     // the timeout kills it).
     private static readonly string[] DecodeArguments = ["-nostdin", "-v", "error", "-xerror", "-i"];
+
+    // The decode a reference file gets after it failed the strict one: no -xerror, so ffmpeg skips past a
+    // bad frame and carries on to the end, and -progress writes key=value lines to stdout, the last
+    // out_time_us of which is how far into the file the decode got.
+    private static readonly string[] LenientDecodeArguments =
+        ["-nostdin", "-v", "error", "-nostats", "-progress", "pipe:1", "-i"];
 
     private readonly IProcessRunner _runner;
     private readonly IOptionsMonitor<MediaToolsOptions> _options;
@@ -59,7 +114,17 @@ public sealed partial class MediaProbe : IMediaProbe
     }
 
     /// <inheritdoc />
-    public async Task<MediaProbeResult> ProbeAsync(string path, CancellationToken cancellationToken)
+    public Task<MediaProbeResult> ProbeAsync(string path, CancellationToken cancellationToken) =>
+        ProbeCoreAsync(path, tolerateDecodeErrors: false, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<MediaProbeResult> ProbeReferenceAsync(string path, CancellationToken cancellationToken) =>
+        ProbeCoreAsync(path, tolerateDecodeErrors: true, cancellationToken);
+
+    private async Task<MediaProbeResult> ProbeCoreAsync(
+        string path,
+        bool tolerateDecodeErrors,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
@@ -105,9 +170,68 @@ public sealed partial class MediaProbe : IMediaProbe
             return new MediaProbeResult(false, null, FirstErrorLine(decode.StandardError) ?? "ffmpeg timed out", TimedOut: true);
         }
 
-        return decode.ExitCode == 0
+        if (decode.ExitCode == 0)
+        {
+            return new MediaProbeResult(true, info, null);
+        }
+
+        var failure = Failed(FirstErrorLine(decode.StandardError) ?? $"ffmpeg exited {decode.ExitCode}");
+
+        // A download that fails the strict decode is rejected, with that reason. A reference file gets one
+        // more look; whatever it does not pass, the verdict stays the strict one.
+        return tolerateDecodeErrors
+            ? await ToleratedAsync(path, info, options, timeout, cancellationToken).ConfigureAwait(false) ?? failure
+            : failure;
+    }
+
+    /// <summary>
+    /// Decodes a reference file that failed the strict check again, skipping past its bad frames, and says
+    /// whether it is within what a reference scan accepts: ffmpeg finished, wrote at most
+    /// <see cref="ReferenceMaxErrorLines"/> error lines, and got through at least
+    /// <see cref="ReferenceMinDecodedFraction"/> of the duration ffprobe measured.
+    /// </summary>
+    /// <returns>The file's result, or <c>null</c> when it is beyond that (the strict verdict stands).</returns>
+    private async Task<MediaProbeResult?> ToleratedAsync(
+        string path,
+        MediaInfo info,
+        MediaToolsOptions options,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        // Without a duration there is nothing to measure the decode against.
+        if (info.DurationMs <= 0)
+        {
+            return null;
+        }
+
+        var decode = await _runner.RunAsync(
+                options.FfmpegPath,
+                [.. LenientDecodeArguments, path, "-f", "null", "-"],
+                timeout,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (decode.TimedOut)
+        {
+            return new MediaProbeResult(false, null, FirstErrorLine(decode.StandardError) ?? "ffmpeg timed out", TimedOut: true);
+        }
+
+        var errors = ErrorLineCount(decode.StandardError);
+        var decoded = DecodedSeconds(decode.StandardOutput);
+        var duration = info.DurationMs / 1000.0;
+
+        // A time ffmpeg did not report cannot be measured, so the file is not tolerated.
+        if (decode.ExitCode != 0 || errors > ReferenceMaxErrorLines || decoded is not { } seconds
+            || seconds < duration * ReferenceMinDecodedFraction)
+        {
+            return null;
+        }
+
+        // Nothing to put up with: the strict run failed for something that did not come back (a share that
+        // hiccuped), and this one read the whole file without a word.
+        return errors == 0
             ? new MediaProbeResult(true, info, null)
-            : Failed(FirstErrorLine(decode.StandardError) ?? $"ffmpeg exited {decode.ExitCode}");
+            : new MediaProbeResult(true, info, null, Tolerated: new ToleratedDecodeErrors(errors, seconds, duration));
     }
 
     /// <summary>The first line of stderr that names a cause rather than an ffmpeg component address.</summary>
@@ -145,6 +269,40 @@ public sealed partial class MediaProbe : IMediaProbe
 
         return firstLine;
     }
+
+    /// <summary>How far into the file ffmpeg got, from the last <c>out_time_us</c> of its <c>-progress</c> output.</summary>
+    /// <param name="progress">Everything ffmpeg wrote to stdout.</param>
+    /// <returns>The seconds decoded, or <c>null</c> when the output carries no usable time.</returns>
+    internal static double? DecodedSeconds(string? progress)
+    {
+        if (string.IsNullOrWhiteSpace(progress))
+        {
+            return null;
+        }
+
+        const string Key = "out_time_us=";
+        long? microseconds = null;
+
+        foreach (var line in progress.Split('\n'))
+        {
+            var trimmed = line.Trim();
+
+            if (trimmed.StartsWith(Key, StringComparison.Ordinal)
+                && long.TryParse(trimmed.AsSpan(Key.Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+            {
+                microseconds = value;
+            }
+        }
+
+        return microseconds / 1_000_000.0;
+    }
+
+    /// <summary>How many lines ffmpeg wrote to stderr, which at <c>-v error</c> are all errors.</summary>
+    /// <param name="standardError">Everything ffmpeg wrote to stderr.</param>
+    internal static int ErrorLineCount(string? standardError) =>
+        string.IsNullOrWhiteSpace(standardError)
+            ? 0
+            : standardError.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
 
     private static MediaProbeResult Failed(string error) => new(false, null, error);
 

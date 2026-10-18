@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **A reference file with a few bad MP3 frames is scanned instead of being left unreadable.** The decode check treated any ffmpeg error as "does not decode", which is right for a download (a damaged one is replaced) but not for your own files: the live check left `Eddie Grant - Electric Avenue.mp3` (6 bad frames) and `Supertramp - Give A Little Bit.mp3` (1 bad frame) unreadable, although both play to the end. A reference scan now puts up with a file that fails the strict decode when ffmpeg, told to skip past bad frames, writes at most 20 error lines (a bad frame is two or three) and gets through at least 98 % of the length ffprobe measured; it then goes on to identification like any other file (by its tags or an artist-and-title search: the AcoustID fingerprint step reads a file straight through and stops at a bad frame, so it cannot fingerprint one), the scan logs "decodes with N errors … scanned anyway", and the file's row says "Decodes with N errors" until identification replaces it. A file with more damage than that, a damaged file that also ends early, and a file with no audio stream stay unreadable. Downloads, imports, conversions and upgrades are as strict as before. Adopt mode copies such a file as it lies. An unreadable file that now passes is picked up by the next scan without being touched. No migration.
+
 ## [0.1.8] — 2026-10-17
 
 Usenet, hardened after a second round of live tests against DOGnzb and SABnzbd: a song no longer fails because SABnzbd renamed its file, an indexer whose daily NZB limit is spent is left alone instead of being tried by every search, an indexer's Test proves the account can search, and keys are kept out of indexers' refusals in their encoded forms too. Update by pulling `:0.1` (or `:0.1.8`).
