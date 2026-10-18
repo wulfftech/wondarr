@@ -7,6 +7,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 ### Changed
 - **Dependencies updated:** Quartz.Extensions.Hosting 4.5.1 (4.4 code runs unchanged; no schema change).
 
+### Fixed
+- **Soulseek no longer searches for a pseudo-album as if it were an album.** The "artist + album" query was skipped only for an album literally titled "Singles", so a Singles album you had renamed, or the library-wide compilation album, still cost a wasted search (it never picked a wrong file). The query is now left out whenever the song's album is a pseudo-album by kind, whatever its title; a real album that happens to be titled "Singles" is searched. A search request that carries no kind (one stored by an older version) keeps the old title check. YouTube builds no album query, so it is unchanged. No migration.
+
 ## [0.1.8] — 2026-10-17
 
 Usenet, hardened after a second round of live tests against DOGnzb and SABnzbd: a song no longer fails because SABnzbd renamed its file, an indexer whose daily NZB limit is spent is left alone instead of being tried by every search, an indexer's Test proves the account can search, and keys are kept out of indexers' refusals in their encoded forms too. Update by pulling `:0.1` (or `:0.1.8`).

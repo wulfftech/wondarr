@@ -1,3 +1,4 @@
+using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Sources;
 using Wondarr.Sources.Slskd;
@@ -45,10 +46,48 @@ public class SoulseekQueryBuilderTests
         queries.Should().Equal("u2 one");
     }
 
+    [Theory]
+    [InlineData(AlbumContextKind.Album)]
+    [InlineData(AlbumContextKind.Single)]
+    [InlineData(AlbumContextKind.Ep)]
+    public void Builds_the_album_query_for_a_real_album_of_a_known_kind(AlbumContextKind kind)
+    {
+        var queries = SoulseekQueryBuilder.Build(Song("Get Lucky", album: "Random Access Memories", albumKind: kind));
+
+        queries.Should().Equal("daft punk get lucky", "get lucky", "daft punk random access memories");
+    }
+
     [Fact]
-    public void Leaves_out_the_album_query_for_the_singles_pseudo_album()
+    public void Builds_the_album_query_for_a_real_album_that_is_titled_singles()
+    {
+        // The kind decides, not the title: only a request without a kind falls back to the literal.
+        var queries = SoulseekQueryBuilder.Build(Song("Get Lucky", album: "Singles", albumKind: AlbumContextKind.Album));
+
+        queries.Should().Equal("daft punk get lucky", "get lucky", "daft punk singles");
+    }
+
+    [Fact]
+    public void Leaves_out_the_album_query_for_a_request_without_a_kind_titled_singles()
     {
         var queries = SoulseekQueryBuilder.Build(Song("Get Lucky", album: "Singles"));
+
+        queries.Should().Equal("daft punk get lucky", "get lucky");
+    }
+
+    [Fact]
+    public void Leaves_out_the_album_query_for_a_singles_pseudo_album_the_user_renamed()
+    {
+        var queries = SoulseekQueryBuilder.Build(
+            Song("Get Lucky", album: "My Singles", albumKind: AlbumContextKind.PseudoSingles));
+
+        queries.Should().Equal("daft punk get lucky", "get lucky");
+    }
+
+    [Fact]
+    public void Leaves_out_the_album_query_for_the_library_wide_compilation_pseudo_album()
+    {
+        var queries = SoulseekQueryBuilder.Build(
+            Song("Get Lucky", album: "Wondarr Library", albumKind: AlbumContextKind.Compilation));
 
         queries.Should().Equal("daft punk get lucky", "get lucky");
     }
@@ -101,6 +140,7 @@ public class SoulseekQueryBuilderTests
         string? credit = null,
         string? album = null,
         VersionFlags flags = VersionFlags.None,
-        IReadOnlyList<string>? mainArtists = null) =>
-        new(1, title, credit ?? artist, mainArtists ?? [artist], album, null, flags);
+        IReadOnlyList<string>? mainArtists = null,
+        AlbumContextKind? albumKind = null) =>
+        new(1, title, credit ?? artist, mainArtists ?? [artist], album, null, flags) { AlbumKind = albumKind };
 }
