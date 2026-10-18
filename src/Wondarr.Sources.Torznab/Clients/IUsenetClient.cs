@@ -5,7 +5,7 @@ namespace Wondarr.Sources.Torznab.Clients;
 /// <summary>
 /// Drives a usenet download client: add a post paused, look at its files and drop the ones nobody
 /// wants, resume it, follow it through the queue and the history, and remove it. P7-07 decides when
-/// (ADR-0009; DECISIONS build session 8 #5, #10).
+/// (ADR-0009).
 /// </summary>
 public interface IUsenetClient
 {

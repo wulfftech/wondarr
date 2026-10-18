@@ -90,7 +90,7 @@ public sealed class ConvertRequestException : Exception
     public string Detail { get; }
 }
 
-/// <summary>Converts files already in the library (DECISIONS build session 7 #6).</summary>
+/// <summary>Converts files already in the library.</summary>
 public interface IFileConverter
 {
     /// <summary>Resolves a request to the songs it covers, checking it.</summary>
@@ -115,7 +115,7 @@ public interface IFileConverter
 /// Converts a song's file in place, with an upgrade's safety rules: inside the per-song lock, to a
 /// temporary file in a hidden folder under the library root, checked (it decodes and is as long as
 /// the original), then tagged and placed by the import's organizer, which recycles the original. The
-/// song keeps the quality it was downloaded at (DECISIONS build session 7 #5); a reference file — the
+/// song keeps the quality it was downloaded at; a reference file — the
 /// user's own — is never converted.
 /// </summary>
 public sealed partial class FileConverter : IFileConverter

@@ -12,7 +12,7 @@ import { problemError, type ProviderTestResource } from './indexers';
 import type { components } from './schema';
 
 /**
- * The download clients Wondarr hands torrents and usenet posts to (DECISIONS build session 8 #1, #8):
+ * The download clients Wondarr hands torrents and usenet posts to:
  * one row per qBittorrent or SABnzbd, with its settings and its remote path mappings. The editor is
  * rendered from `GET /api/v1/downloadclient/schema`.
  */

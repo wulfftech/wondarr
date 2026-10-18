@@ -1,6 +1,6 @@
 namespace Wondarr.Core.Media;
 
-/// <summary>How the spectrum of a lossless file reads (DECISIONS build session 10 #2).</summary>
+/// <summary>How the spectrum of a lossless file reads.</summary>
 public enum SpectralOutcome
 {
     /// <summary>No lossy brick-wall low-pass: the file may be what it claims.</summary>

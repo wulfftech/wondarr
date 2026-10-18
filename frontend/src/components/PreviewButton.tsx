@@ -8,7 +8,7 @@ import { usePreviewUrl, type PreviewRequest } from '../api/songs';
  * The audition button the add dialog puts next to every candidate.
  *
  * Every button on the page plays through one shared `Audio` element, so starting a preview stops
- * whichever one was playing (DECISIONS, build session 2 #6: the user auditions candidates one at a
+ * whichever one was playing (the user auditions candidates one at a
  * time). The URL is asked for at click time and never kept — Deezer's preview links are signed and
  * expire after about half an hour.
  */

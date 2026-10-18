@@ -95,7 +95,7 @@ public sealed class InnertubeException : Exception
 }
 
 /// <summary>
-/// A small, keyless InnerTube client (research_youtube.md §0.1): it posts the WEB_REMIX <c>search</c>
+/// A small, keyless InnerTube client: it posts the WEB_REMIX <c>search</c>
 /// and <c>browse</c> requests ytmusicapi posts — no API key, no cookies beyond the consent one, no
 /// visitor id — and hands the responses to <see cref="InnertubeResponseParser"/> and
 /// <see cref="InnertubePlaylistParser"/>. One POST per page; nothing is cached.

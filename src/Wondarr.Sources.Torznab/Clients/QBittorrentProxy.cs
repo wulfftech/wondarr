@@ -50,7 +50,7 @@ public sealed record QBittorrentTorrentFile(int Index, string Name, long Size, d
 /// <summary>
 /// One client row's state in the proxy: the <c>SID</c> cookie qBittorrent issued and the Web API
 /// version read once for it. Keyed by row id and settings hash, so a settings change starts a fresh
-/// session (DECISIONS build session 8 #9).
+/// session.
 /// </summary>
 public sealed class QBittorrentSession
 {
@@ -219,7 +219,7 @@ public sealed partial class QBittorrentProxy
     }
 
     /// <summary>
-    /// Adds a torrent. A <c>.torrent</c> is added stopped (DECISIONS build session 8 #9) so nothing
+    /// Adds a torrent. A <c>.torrent</c> is added stopped so nothing
     /// downloads before the file selection; a magnet is added running with
     /// <c>stopCondition=MetadataReceived</c> so it stops the moment the files are known. A
     /// <c>Fails.</c> answer counts as added when the torrent is in the client (a duplicate).

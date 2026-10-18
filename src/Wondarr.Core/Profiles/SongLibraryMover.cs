@@ -43,7 +43,7 @@ public sealed record SongMoveResult(SongMoveOutcome Outcome, string? Reason = nu
 }
 
 /// <summary>
-/// Moves a song from its library to another one (DECISIONS build session 7 #3): the song's row points
+/// Moves a song from its library to another one: the song's row points
 /// at the target library, and a file Wondarr placed is re-filed under the target's root and naming
 /// template through the same organizer an import uses. A reference file — or no file at all — is
 /// never touched: only the song's library changes.

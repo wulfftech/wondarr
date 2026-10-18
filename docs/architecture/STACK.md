@@ -1,7 +1,5 @@
 # Tech stack and code porting
 
-> Working document derived from `docs/PLAN.md` (revision 3, 2026-09-28) — the stack decision and the list of code to port. **This file evolves with the code; when it disagrees with PLAN.md, this file wins.** Section numbers (§) in the text refer to PLAN.md.
-
 ### 8.1 What the *arrs are, and why not fork Lidarr
 
 Sonarr, Radarr, Lidarr and Prowlarr are C#/ASP.NET Core (Radarr/Lidarr/Prowlarr on `net8.0`, Sonarr v4 still on `net6.0`), Dapper + FluentMigrator on SQLite/Postgres, DryIoc, NLog, and a React 18 + Redux + webpack front end; all GPL-3.0. There is no shared "Servarr" package: the forks stay in sync by a cherry-picking bot, and extracting the core was closed as not planned ([Sonarr#7528](https://github.com/Sonarr/Sonarr/issues/7528)). Lidarr is "Sonarr but made for music" and measures about 95k lines of C# in Core (264 files touching Album/Artist/Track), 82 migrations and 103k lines of front end; changing its unit from album to recording would rewrite the domain, parser, decision engine, metadata source, import pipeline, API and most of the UI. **Decision: do not fork Lidarr; build new and port its reusable subsystems.**

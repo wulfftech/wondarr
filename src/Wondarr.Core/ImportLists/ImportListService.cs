@@ -187,7 +187,7 @@ public sealed partial class ImportListService : IImportListService
     /// <summary>The policy that also deletes such songs when they have no file (and unmonitors them when they do).</summary>
     public const string MirrorPolicy = "Mirror";
 
-    /// <summary>The policies a list may name (DECISIONS build session 7 #9).</summary>
+    /// <summary>The policies a list may name.</summary>
     public static readonly IReadOnlyList<string> Policies = [ImportList.AddOnlyPolicy, AddAndUnmonitorPolicy, MirrorPolicy];
 
     private readonly WondarrDbContext _database;
@@ -794,7 +794,7 @@ public sealed partial class ImportListService : IImportListService
     /// <summary>
     /// Records what the source holds now: new items pending, known items re-ordered (and back if they
     /// had gone), items no longer there marked removed. Nothing is resolved or deleted here; what
-    /// a removal means for a song is the list's policy's business (DECISIONS build session 7 #9).
+    /// a removal means for a song is the list's policy's business.
     /// </summary>
     /// <remarks>
     /// A read that cannot be trusted to be the whole list (R-007, R-021) adds what it found but marks
@@ -1037,12 +1037,12 @@ public sealed partial class ImportListService : IImportListService
     }
 
     /// <summary>
-    /// What the list's policy does with the songs of the items that just left the source (DECISIONS
-    /// build session 7 #9). Only a song this list added (<c>added_by = list:{id}</c>) that no other item
-    /// still in any list wants is touched: "add and unmonitor" unmonitors it; "mirror" deletes it when
-    /// it has no file and nothing for it is in the queue, and unmonitors it otherwise. A file is never
-    /// deleted by a list. A song the policy unmonitored is remembered on its item
-    /// (<see cref="ImportListItem.PolicyUnmonitored"/>), so it is monitored again when the item returns.
+    /// What the list's policy does with the songs of the items that just left the source. Only a song
+    /// this list added (<c>added_by = list:{id}</c>) that no other item still in any list wants is
+    /// touched: "add and unmonitor" unmonitors it; "mirror" deletes it when it has no file and nothing
+    /// for it is in the queue, and unmonitors it otherwise. A file is never deleted by a list. A song the
+    /// policy unmonitored is remembered on its item (<see cref="ImportListItem.PolicyUnmonitored"/>), so
+    /// it is monitored again when the item returns.
     /// </summary>
     private async Task<string> ApplyPolicyAsync(ImportList list, IReadOnlyList<long> goneItemIds, CancellationToken cancellationToken)
     {

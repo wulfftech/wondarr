@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Wondarr.Sources.Tests.Torznab.Clients;
 
-/// <summary>Tests of the per-client remote path mapping (DECISIONS build session 8 #8).</summary>
+/// <summary>Tests of the per-client remote path mapping.</summary>
 public sealed class RemotePathMapperTests
 {
     [Fact]

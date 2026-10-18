@@ -6,8 +6,8 @@ namespace Wondarr.Sources.YouTube;
 public sealed class YouTubeOptions
 {
     /// <summary>
-    /// Whether the YouTube source runs at all. Off by default (DECISIONS.md #6): enabling it in
-    /// Settings shows the one-time ToS warning, and no cookies or accounts are bundled.
+    /// Whether the YouTube source runs at all. Off by default (YouTube's terms prohibit automated access):
+    /// enabling it in Settings shows the one-time ToS warning, and no cookies or accounts are bundled.
     /// </summary>
     public bool Enabled { get; set; }
 

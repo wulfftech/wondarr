@@ -23,7 +23,7 @@ public interface IPlaylistWriter
 }
 
 /// <summary>
-/// The playlist output of an import list (DECISIONS build session 7 #10). The Plex playlist is made
+/// The playlist output of an import list. The Plex playlist is made
 /// once and then reconciled in place — missing tracks added, extra ones removed, the rest moved into
 /// the list's order — so its id, its poster and what the user did with it in Plex survive a sync.
 /// Tracks are named by rating key, found per file in the song's own library section and cached on the

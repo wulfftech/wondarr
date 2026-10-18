@@ -12,7 +12,7 @@ namespace Wondarr.Sources.YouTube;
 /// What the YouTube settings page may read. Nothing here is a secret: the cookies path and the
 /// PO-token URL are a path and a URL on the user's own machine, so they travel in full.
 /// </summary>
-/// <param name="Enabled">Whether the YouTube source runs at all (off by default, DECISIONS.md #6).</param>
+/// <param name="Enabled">Whether the YouTube source runs at all (off by default: YouTube's terms prohibit automated access, so the user decides).</param>
 /// <param name="CookiesPath">Path of the Netscape cookie file yt-dlp reads, or <see langword="null"/>.</param>
 /// <param name="PoTokenBaseUrl">Base URL of the user's own bgutil PO-token provider, or <see langword="null"/>.</param>
 /// <param name="AllowVideos">Whether <c>videos</c> results may be grabbed when the songs shelf found nothing.</param>

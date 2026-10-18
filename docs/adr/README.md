@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-One file per decision, numbered, never deleted; superseded ADRs get a "Superseded by" line. New ADRs use `0000-template.md`. Product-level (non-architectural) decisions live in `docs/DECISIONS.md`.
+One file per decision, numbered, never deleted; superseded ADRs get a "Superseded by" line. New ADRs use `0000-template.md`.
 
 | ADR | Title | Status |
 |---|---|---|

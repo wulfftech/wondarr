@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 1 gate check (docs/build/PHASES.md) against a running Wondarr.
+"""Phase 1 gate check against a running Wondarr.
 
 "A pasted list of 50 songs resolves >= 90 % to MB recordings with correct durations and cover art;
 the rest resolve via Deezer or land in an 'unresolved' review state; every song has an album

@@ -39,7 +39,7 @@ public sealed class DecisionEngine
 
     /// <summary>
     /// How far below the held file's identity sub-score an automatic upgrade may fall before the
-    /// identity rule rejects it (DECISIONS build session 7 #11).
+    /// identity rule rejects it. Fingerprint confirmation does the fine work, so only a clearly worse match is stopped.
     /// </summary>
     public const int IdentityTolerance = 40;
 
@@ -211,8 +211,8 @@ public sealed class DecisionEngine
         }
 
         // A container whose file list is unknown has no extension yet: the release itself is the candidate
-        // and the song's file is found once the client has the metadata or the post is unpacked (DECISIONS
-        // build session 8 #3). Every other candidate without an audio extension is not audio.
+        // and the song's file is found once the client has the metadata or the post is unpacked. Every
+        // other candidate without an audio extension is not audio.
         var isAudio = candidate.Extension is null
             ? IsUnlistedContainer(candidate)
             : AudioExtensions.Contains(candidate.Extension);
@@ -302,7 +302,7 @@ public sealed class DecisionEngine
         }
 
         // Only a post that downloads whole is held to the limit. A clean post is trimmed to the wanted
-        // files by SABnzbd (DECISIONS build session 8 #10), and its matched file is already bounded by
+        // files by SABnzbd, and its matched file is already bounded by
         // the matcher's size window.
         if (candidate.SourceType == SourceTypes.Newznab
             && candidate.Release is { FileIndex: null, Size: { } postSize }

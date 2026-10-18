@@ -7,7 +7,7 @@ using Xunit;
 namespace Wondarr.Core.Tests.ImportLists;
 
 /// <summary>
-/// The CSV provider (DECISIONS build session 7 #8): Exportify by English names and, in another
+/// The CSV provider: Exportify by English names and, in another
 /// language, by its URIs and column positions; any other CSV by usual names or the user's mapping.
 /// </summary>
 public sealed class CsvImportListProviderTests
