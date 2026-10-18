@@ -3,6 +3,8 @@ using System.Net;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.MusicBrainz;
+using Wondarr.Sources.Tests.Slskd;
+using Wondarr.Testing;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -77,33 +79,46 @@ public sealed class RequestSpacingTests
             .Should().ThrowAsync<OperationCanceledException>();
     }
 
-    /// <summary>
-    /// The gate spaces the moments requests leave it; the stub stamps them one handler hop later, and
-    /// under a loaded test run that hop can take a few milliseconds longer for the first request than
-    /// for the second. 50 ms of slack still tells a gated retry (~1 s) from an ungated one (10 ms).
-    /// </summary>
-    private static readonly TimeSpan GatedGap = TimeSpan.FromMilliseconds(950);
+    private static readonly DateTimeOffset Start = new(2026, 10, 18, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public async Task Pipeline_honours_retry_after_and_returns_the_retried_result()
     {
+        // The retry waits out Retry-After on the clock the container hands the pipeline: give it one the
+        // test moves, so the wait costs no real time.
+        var time = new TrackingTimeProvider(Start);
+        var retryAfter = TimeSpan.FromSeconds(1);
+
         var handler = new ScriptedHttpMessageHandler(
+            time,
             _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
             {
-                Headers = { RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(1)) },
+                Headers = { RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(retryAfter) },
             },
             _ => MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("recording-bohemian-rhapsody.json")));
 
-        await using var provider = BuildProvider(handler, TimeSpan.FromMilliseconds(10));
+        await using var provider = BuildProvider(handler, time, TimeSpan.FromMilliseconds(10));
 
-        var client = provider.GetRequiredService<IMusicBrainzClient>();
-        var recording = await client.GetRecordingAsync(BohemianRhapsodyId);
+        var pending = provider.GetRequiredService<IMusicBrainzClient>().GetRecordingAsync(BohemianRhapsodyId);
+
+        await ParkedAsync(time, pending, retryAfter, "the Retry-After wait");
+        pending.IsCompleted.Should().BeFalse("the 503 is retried, not returned");
+
+        // Retry-After is over, but the retry still has to pass the gate: the next slot opens 1.05 s after
+        // the first request, so the retry waits out the 50 ms left of it.
+        await time.AdvanceAndSettleAsync(retryAfter);
+
+        var gateWait = MetadataOptions.MusicBrainzPublicInterval - retryAfter;
+        await ParkedAsync(time, pending, gateWait, "the gate's wait");
+        await time.AdvanceAndSettleAsync(gateWait, () => pending.IsCompleted);
+
+        var recording = await pending.WaitAsync(TimeSpan.FromSeconds(30));
 
         recording.Should().NotBeNull();
         recording!.Length.Should().Be(355106);
 
         handler.Timestamps.Should().HaveCount(2);
-        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(GatedGap);
+        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(retryAfter);
     }
 
     [Fact]
@@ -111,24 +126,54 @@ public sealed class RequestSpacingTests
     {
         // No Retry-After this time, and a retry delay of 10 ms: only the gate can explain a one
         // second gap, which is what makes this the ordering test.
+        var time = new TrackingTimeProvider(Start);
+
         var handler = new ScriptedHttpMessageHandler(
+            time,
             _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
             _ => MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("recording-bohemian-rhapsody.json")));
 
-        await using var provider = BuildProvider(handler, TimeSpan.FromMilliseconds(10));
+        await using var provider = BuildProvider(handler, time, TimeSpan.FromMilliseconds(10));
 
-        var client = provider.GetRequiredService<IMusicBrainzClient>();
-        await client.GetRecordingAsync(BohemianRhapsodyId);
+        var pending = provider.GetRequiredService<IMusicBrainzClient>().GetRecordingAsync(BohemianRhapsodyId);
+
+        // Half a second is well past the jittered 10 ms backoff and well short of the 1.05 s gate interval.
+        var pastTheBackoff = TimeSpan.FromMilliseconds(500);
+
+        await ParkedAsync(time, pending, pastTheBackoff, "the retry backoff");
+        await time.AdvanceAndSettleAsync(pastTheBackoff);
+
+        // The backoff is over, so the retry is at the gate; if the gate sat outside the retry loop it
+        // would be at the server by now.
+        var gateWait = MetadataOptions.MusicBrainzPublicInterval - pastTheBackoff;
+        await ParkedAsync(time, pending, gateWait, "the gate's wait");
+
+        pending.IsCompleted.Should().BeFalse("the retry waits for its slot");
+        handler.Timestamps.Should().HaveCount(1, "the retry is held at the gate until its slot");
+
+        await time.AdvanceAndSettleAsync(gateWait, () => pending.IsCompleted);
+        await pending.WaitAsync(TimeSpan.FromSeconds(30));
 
         handler.Timestamps.Should().HaveCount(2);
-        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(GatedGap);
+        (handler.Timestamps[1] - handler.Timestamps[0]).Should().BeGreaterThanOrEqualTo(MetadataOptions.MusicBrainzPublicInterval);
     }
 
-    private static ServiceProvider BuildProvider(HttpMessageHandler primaryHandler, TimeSpan retryBaseDelay)
+    /// <summary>
+    /// Waits, bounded, until the pipeline is parked on a fake-clock wait that ends within
+    /// <paramref name="within"/>, or the call is over. The clock only moves once the wait is armed: a step
+    /// taken before it is lost, and the call then waits for a wakeup that never comes.
+    /// </summary>
+    private static Task ParkedAsync(TrackingTimeProvider time, Task call, TimeSpan within, string what) =>
+        SlskdHostHarness.AwaitAsync(() => call.IsCompleted || time.AnyTimerDueWithin(within), what, 30_000);
+
+    private static ClockedServiceProvider BuildProvider(HttpMessageHandler primaryHandler, TrackingTimeProvider time, TimeSpan retryBaseDelay)
     {
         var services = new ServiceCollection();
 
         services.AddLogging();
+
+        // Before AddWondarrMetadata, which only adds the system clock when none is registered.
+        services.AddSingleton<TimeProvider>(time);
         services.AddWondarrMetadata(new ConfigurationBuilder().Build());
         services.AddSingleton<IMetadataCache, InMemoryMetadataCache>();
 
@@ -139,6 +184,6 @@ public sealed class RequestSpacingTests
         // factory named it.
         services.AddSingleton<IHttpMessageHandlerBuilderFilter>(new StubHttpMessageHandlerFilter(primaryHandler));
 
-        return services.BuildServiceProvider();
+        return new ClockedServiceProvider(services.BuildServiceProvider(), time);
     }
 }

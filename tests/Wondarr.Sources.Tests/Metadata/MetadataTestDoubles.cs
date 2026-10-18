@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Text;
 using Wondarr.Core.Metadata;
@@ -99,24 +98,32 @@ internal sealed class FixtureHttpMessageHandler : HttpMessageHandler
 }
 
 /// <summary>
-/// Answers with a scripted sequence of responses and stamps each request with the elapsed time,
-/// so a test can assert on the gap between two attempts.
+/// Answers with a scripted sequence of responses and stamps each request with the time on the clock it
+/// was given, so a test can assert on the gap between two attempts.
 /// </summary>
 internal sealed class ScriptedHttpMessageHandler : HttpMessageHandler
 {
     private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses;
-    private readonly Stopwatch _clock = Stopwatch.StartNew();
+    private readonly TimeProvider _time;
 
-    public ScriptedHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) =>
+    public ScriptedHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
+        : this(TimeProvider.System, responses)
+    {
+    }
+
+    public ScriptedHttpMessageHandler(TimeProvider time, params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
+    {
+        _time = time;
         _responses = new Queue<Func<HttpRequestMessage, HttpResponseMessage>>(responses);
+    }
 
-    public List<TimeSpan> Timestamps { get; } = [];
+    public List<DateTimeOffset> Timestamps { get; } = [];
 
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        Timestamps.Add(_clock.Elapsed);
+        Timestamps.Add(_time.GetUtcNow());
 
         if (_responses.Count == 0)
         {
