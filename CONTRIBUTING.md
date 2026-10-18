@@ -39,7 +39,7 @@ frontend/                    # React 19 + TypeScript + Vite + Mantine + TanStack
 tests/                       # xUnit unit/integration tests and recorded fixtures
 docker/                      # Dockerfile, s6-overlay root files, docker-compose.yml
 scripts/                     # fetch-slskd.sh, smoke-test.sh, check-notice.py
-docs/                        # product, architecture, build and research documentation
+docs/                        # ADRs, architecture and build documentation
 ```
 
 The full tree, including intended project and test names, is in [`docs/build/REPO_LAYOUT.md`](docs/build/REPO_LAYOUT.md).

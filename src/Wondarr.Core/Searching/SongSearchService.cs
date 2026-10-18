@@ -145,9 +145,9 @@ public interface ISongSearchService
     Task<long> GrabCandidateAsync(long candidateRecordId, int attempt, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Judges candidates that came from outside a search — a pushed release (DECISIONS build session 8
-    /// #11) — exactly as a search's would be: a run is recorded, the engine decides, the candidates are
-    /// stored, and the best accepted one is grabbed when asked.
+    /// Judges candidates that came from outside a search — a pushed release — exactly as a search's
+    /// would be: a run is recorded, the engine decides, the candidates are stored, and the best accepted
+    /// one is grabbed when asked.
     /// </summary>
     /// <param name="songId">The song the candidates are for.</param>
     /// <param name="candidates">The candidates.</param>
@@ -1143,7 +1143,7 @@ public sealed partial class SongSearchService : ISongSearchService
 
     /// <summary>
     /// Grabs one candidate; a container grab with <paramref name="bundle"/> set also takes every other
-    /// wanted song the container holds (DECISIONS build session 8 #6). A bundled song's own grab passes
+    /// wanted song the container holds. A bundled song's own grab passes
     /// the grab's other songs as <paramref name="siblings"/>, so its history row names them too.
     /// </summary>
     private async Task<long> GrabCandidateAsync(

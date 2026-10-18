@@ -1,7 +1,7 @@
 namespace Wondarr.Core.References;
 
 /// <summary>
-/// When a reference file that has gone missing stops owning its song (DECISIONS build session 11 #1).
+/// When a reference file that has gone missing stops owning its song.
 /// Releasing at the first scan would mass-search a library whenever its share is half unmounted, so a
 /// song keeps its missing file through a grace period, and a scan that finds too many files gone at once
 /// releases nothing at all.

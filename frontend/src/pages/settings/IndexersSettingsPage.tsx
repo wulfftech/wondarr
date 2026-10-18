@@ -37,7 +37,7 @@ import { initialValues, SettingsField, targetOf, wireValue } from '../../compone
 import { initCaps } from '../../components/text';
 
 /**
- * Settings → Indexers (DECISIONS build session 8 #1): the Torznab and Newznab feeds (and Prowlarr,
+ * Settings → Indexers: the Torznab and Newznab feeds (and Prowlarr,
  * and Gazelle trackers) Wondarr searches for releases that hold a wanted song. The settings form is
  * rendered from the server's schema, exactly as notifications are.
  */

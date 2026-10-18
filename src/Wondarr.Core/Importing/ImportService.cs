@@ -505,7 +505,7 @@ public sealed partial class ImportService : IImportService
                 }
 
                 // A lossless container from a lossy source is refused before anything converts it
-                // (ADR-0006; DECISIONS build session 10 #2). Inconclusive and Genuine carry on.
+                // (ADR-0006). Inconclusive and Genuine carry on.
                 if (info.IsLossless && _importOptions.CurrentValue.FakeLosslessCheck == FakeLosslessCheck.Reject)
                 {
                     var verdict = await _spectral
@@ -723,7 +723,7 @@ public sealed partial class ImportService : IImportService
 
         // A first import may rest on the probe and the length when AcoustID does not know a file —
         // better than nothing. Replacing a file the song already has needs more: an automatic upgrade
-        // must be confirmed by its fingerprint (DECISIONS build session 6 #9). Seen live on 2026-10-07:
+        // must be confirmed by its fingerprint. Seen live on 2026-10-07:
         // "Paint It Black (Chris Farlowe)" from a Rolling Stones box-set folder, unknown to AcoustID,
         // passed on its length and replaced the Rolling Stones' recording.
         if (song.File is not null

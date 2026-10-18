@@ -642,7 +642,7 @@ export interface PreviewRequest {
 /**
  * Asks for a fresh Deezer preview URL. Preview URLs carry a signed token that expires after about
  * half an hour, so this is a plain call with no query cache behind it — every audition fetches a new
- * one (DECISIONS, build session 2 #7).
+ * one.
  */
 export function usePreviewUrl(): (request: PreviewRequest) => Promise<string> {
   const client = useApiClient();

@@ -13,8 +13,7 @@ using Xunit;
 namespace Wondarr.Sources.Tests.Metadata;
 
 /// <summary>
-/// Contract tests for <see cref="DeezerClient"/> against the responses recorded on 2026-09-28
-/// (see <c>docs/research/research_metadata_plex.md</c> §1.2.1).
+/// Contract tests for <see cref="DeezerClient"/> against the responses recorded on 2026-09-28.
 /// </summary>
 public sealed class DeezerClientTests
 {

@@ -95,10 +95,8 @@ C# / .NET 10 (ASP.NET Core, EF Core + SQLite) and a React 19 + Mantine front end
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 | [`NOTICE.md`](NOTICE.md) | Ported-code attributions and the third-party programs bundled in the image |
 | [`docs/adr/`](docs/adr/) | The architectural decisions, as ADRs |
-| [`docs/product/PRODUCT.md`](docs/product/PRODUCT.md) · [`GOALS.md`](docs/product/GOALS.md) · [`RISKS.md`](docs/product/RISKS.md) | What we are building, what we are not, and the risk register |
 | [`docs/architecture/`](docs/architecture/) | Architecture, the matching engine, library output, stack, deployment, quality definitions |
-| [`docs/build/`](docs/build/) | Phases, coding standards, repository layout |
-| [`docs/research/FINDINGS.md`](docs/research/FINDINGS.md) | The URL-cited research behind every decision |
+| [`docs/build/`](docs/build/) | Coding standards, repository layout |
 
 </details>
 

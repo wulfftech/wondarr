@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase gate smoke test (docs/build/PHASES.md): runs an image and checks
+# Phase gate smoke test: runs an image and checks
 # Phase 0:
 #   - the container starts on 1077 and turns healthy
 #   - the UI loads behind a URL base
@@ -265,7 +265,7 @@ run_phase6() {
     echo "PHASE 6 GATE: PASS ($IMAGE: a 200-track Exportify list, a Plex playlist kept in place, album add, a second library, conversion)"
 }
 
-# The Phase 7 stage: indexers and download clients, on a fresh container (DECISIONS build session 8).
+# The Phase 7 stage: indexers and download clients, on a fresh container.
 run_phase7() {
 
     # FakeSlskd stands in for slskd with nothing on it (so the indexers are the only source), answers

@@ -52,9 +52,8 @@ public interface IFingerprinter
 /// (MATCHING_ENGINE.md §6.5 step 3).
 /// </summary>
 /// <remarks>
-/// fpcalc has no offset option, so the middle window is cut out with ffmpeg into a temporary WAV first
-/// (docs/research/research_metadata_plex.md §2.3). The temporary file is deleted whether or not fpcalc
-/// succeeded.
+/// fpcalc has no offset option, so the middle window is cut out with ffmpeg into a temporary WAV first.
+/// The temporary file is deleted whether or not fpcalc succeeded.
 /// </remarks>
 public sealed partial class Fingerprinter : IFingerprinter
 {
