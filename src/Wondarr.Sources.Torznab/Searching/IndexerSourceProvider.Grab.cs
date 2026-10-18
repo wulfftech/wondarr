@@ -15,7 +15,7 @@ using Wondarr.Sources.Torznab.Parsing;
 namespace Wondarr.Sources.Torznab.Searching;
 
 /// <summary>
-/// The grab half of the indexer source (P7-07; DECISIONS build session 8 #5, #6, #9, #10): a container
+/// The grab half of the indexer source (P7-07): a container
 /// goes to the user's client and only as much of it downloads as the wanted songs need; a finished
 /// torrent file is hard-linked into the grab's staging folder (the torrent keeps seeding, its data is
 /// never moved or deleted), a finished usenet file is moved there and the job deleted once no queue
@@ -546,8 +546,8 @@ public sealed partial class IndexerSourceProvider
     /// A torrent Wondarr did not add is left exactly as it is. One it added is removed — with its data,
     /// which is none — only when no other queue item uses it, every file reports progress 0 and the
     /// client is not checking, moving, fetching metadata or reporting an error (the progress it reports
-    /// then is not to be trusted); otherwise only this song's file is switched off (DECISIONS build
-    /// session 8 #5, #6; R-016).
+    /// then is not to be trusted); otherwise only this song's file is switched off
+    /// (R-016).
     /// </summary>
     private async Task CancelTorrentAsync(DownloadClient client, ContainerGrab grab, bool shared, CancellationToken cancellationToken)
     {
@@ -741,7 +741,7 @@ public sealed partial class IndexerSourceProvider
 
     /// <summary>
     /// Deletes the audio files no wanted song needs and, with them, the post's Par2 volumes and <c>.sfv</c>,
-    /// when the post is clean (DECISIONS build session 8 #10, build session 14 #15).
+    /// when the post is clean.
     /// Tells whether the job now holds only what is wanted: false when the client listed nothing, listed
     /// something that is not a clean post, or listed none of the wanted names, in which case the job is left
     /// whole.

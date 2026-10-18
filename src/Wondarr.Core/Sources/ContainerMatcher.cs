@@ -77,7 +77,7 @@ public sealed record ContainerMatch(
     bool TrackNoAgrees);
 
 /// <summary>
-/// Finds the wanted song's file inside a container (DECISIONS build session 8 #3; MATCHING_ENGINE
+/// Finds the wanted song's file inside a container (MATCHING_ENGINE
 /// §6.4): an audio file whose title matches the song's, whose version flags agree with the song's,
 /// and whose size fits the song's length at the release's quality; the track number breaks ties.
 /// Two files that match equally well are no match — guessing would import the wrong song. A file whose

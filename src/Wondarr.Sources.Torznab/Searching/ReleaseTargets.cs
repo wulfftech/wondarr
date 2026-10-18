@@ -13,8 +13,8 @@ namespace Wondarr.Sources.Torznab.Searching;
 public sealed record ReleaseTarget(string Artist, string Album, int? Year, int? TrackNo);
 
 /// <summary>
-/// Lists the releases a recording appears on, in the order the indexers are asked for them
-/// (DECISIONS build session 8 #2): the song's album context first, then official albums, singles and
+/// Lists the releases a recording appears on, in the order the indexers are asked for them:
+/// the song's album context first, then official albums, singles and
 /// EPs, then compilations, then anything else — at most <see cref="MaxTargets"/>, one per distinct
 /// artist and title (the same album in ten countries is one search).
 /// </summary>

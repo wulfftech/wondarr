@@ -17,7 +17,7 @@ using Wondarr.Sources.Torznab.Parsing;
 namespace Wondarr.Sources.Torznab.Searching;
 
 /// <summary>
-/// <c>release/push</c> for torrents and NZBs (DECISIONS build session 8 #11): the pushed release is
+/// <c>release/push</c> for torrents and NZBs: the pushed release is
 /// matched against the wanted songs by its parsed artist and album (or <c>Artist - Title</c> for a
 /// single), its file list is read, and each matching song's candidate goes through the engine and is
 /// grabbed when approved — the first grab bundles the others in the same container. Scoped: it runs in
@@ -197,8 +197,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
     /// The wanted songs (missing, or below cutoff) the release is for: by its parsed artist and album
     /// (the song's album context, or the song itself for a single), else by <c>Artist - Title</c>.
     /// The song's track number is kept when the album is its album context. When none matches by
-    /// album, the parsed artist's other wanted songs come back too, for the file list to decide
-    /// (DECISIONS build session 10 #7).
+    /// album, the parsed artist's other wanted songs come back too, for the file list to decide.
     /// </summary>
     private async Task<(List<(Song Song, int? TrackNo)> Matches, List<(Song Song, int? TrackNo)> ByArtist)> MatchAsync(
         string title,

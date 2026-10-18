@@ -45,7 +45,7 @@ public sealed record ImportListSummary(
 
 /// <summary>
 /// The pasted-list pipeline: text in, a list of lines out, then a background resolve-and-add pass
-/// (ARCHITECTURE §5.4, DECISIONS "Build session 2" #6). A line neither provider can identify stays
+/// (ARCHITECTURE §5.4). A line neither provider can identify stays
 /// on the list as <see cref="ImportListItemState.Unresolved"/>, with its candidates, until the user
 /// picks one or skips it.
 /// </summary>
@@ -488,8 +488,8 @@ public sealed partial class PasteListService : IPasteListService
     /// Resolves one pending line and writes what came of it. A provider that fails on one line
     /// leaves that line unresolved rather than failing the whole list. An item a synced list read
     /// carries ids as well as its text: they are tried strongest first — recording MBID, ISRC,
-    /// Deezer id — and the text last, checked against the item's length (DECISIONS build session 7
-    /// #7). A pasted line is only its text, so it is looked up exactly as it always was.
+    /// Deezer id — and the text last, checked against the item's length.
+    /// A pasted line is only its text, so it is looked up exactly as it always was.
     /// </summary>
     private async Task ResolveLineAsync(
         ImportListItem item,

@@ -1,11 +1,9 @@
 # Intended repository layout
 
-Created incrementally from Phase 0 onward (docs/build/PHASE_0_TASKS.md). Names are binding unless an ADR changes them.
+Created incrementally from Phase 0 onward. Names are binding unless an ADR changes them.
 
 ```
 wondarr/
-├── AGENTS.md                      # AI session instructions (orchestrator + workers)
-├── CLAUDE.md                      # one-line pointer at AGENTS.md (Claude Code auto-loads this name)
 ├── README.md · LICENSE (GPL-3.0) · NOTICE.md (ported-code attributions) · CHANGELOG.md
 ├── .env.example · .editorconfig · .gitignore
 ├── global.json                    # pins the .NET 10 SDK
@@ -43,7 +41,7 @@ wondarr/
 │   ├── root/                      # s6-overlay init scripts, PUID/PGID handling
 │   └── docker-compose.yml
 ├── scripts/
-│   ├── worker.py                  # cheap-worker runner (OpenRouter) — see AGENT_WORKFLOW.md
+│   ├── worker.py                  # cheap-worker runner (OpenRouter)
 │   ├── worker_agent.py            # sandboxed tool-calling agent loop used by worker.py run
 │   ├── test_worker_agent.py       # offline tests for it (python scripts/test_worker_agent.py)
 │   ├── openrouter_value.py        # live price/benchmark value matrix generator
@@ -52,7 +50,7 @@ wondarr/
 ├── .github/workflows/             # ci.yml (build/test/lint), release.yml (multi-arch image → GHCR), codeql.yml
 ├── .claude/
 │   ├── agents/                    # subagent definitions (worker, reviewer, researcher)
-│   └── settings.json              # project permissions + hooks (see AGENT_WORKFLOW.md)
+│   └── settings.json              # project permissions + hooks
 └── docs/                          # this documentation set (see README.md map)
 ```
 

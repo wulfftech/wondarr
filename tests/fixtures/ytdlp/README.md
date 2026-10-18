@@ -1,8 +1,8 @@
 # yt-dlp fixtures
 
 Canned stdout/stderr per scenario, served to `YtDlpRunner` through a fake `IProcessRunner` so the
-tests never touch the network or a real yt-dlp. The error strings are the ones re-verified in
-`docs/research/research_youtube.md` §0.1.
+tests never touch the network or a real yt-dlp. The error strings are the ones yt-dlp's source
+emits, re-verified on 2026-10-05.
 
 - `download-success.stdout` — a successful download; the last line is the `--print after_move:filepath` path.
 - `download-webm.stdout` — a download that came back `.webm` (the remux did not run).

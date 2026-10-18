@@ -10,7 +10,7 @@ namespace Wondarr.Sources.Tests.Slskd;
 
 /// <summary>
 /// The transfer endpoints. The shapes are inline JSON following
-/// <c>docs/research/research_soulseek.md</c> §"Verified 2026-09-29"; every request carries the API
+/// slskd 0.26.0's source and live responses (checked 2026-09-29); every request carries the API
 /// key and nothing else identifies the caller.
 /// </summary>
 public class SlskdTransferApiTests

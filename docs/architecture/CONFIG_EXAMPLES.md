@@ -1,7 +1,5 @@
 # Reference compose and config
 
-> Working document derived from `docs/PLAN.md` (revision 3, 2026-09-28) — illustrative docker-compose.yml and config.yml. **This file evolves with the code; when it disagrees with PLAN.md, this file wins.** Section numbers (§) in the text refer to PLAN.md.
-
 ```yaml
 services:
   wondarr:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Merges a worker branch into the current branch only onto a green tree, and keeps the merge only when
-# the merged tree is green too (docs/build/AGENT_WORKFLOW.md §4: never merge red; parallel tasks
-# conflict semantically, so the merged tree is built and tested before the merge commit exists).
+# the merged tree is green too (never merge red; parallel tasks conflict semantically, so the
+# merged tree is built and tested before the merge commit exists).
 #
 #   scripts/safe-merge.sh <branch> ["Merge P3-01: reference-library scan"]
 #

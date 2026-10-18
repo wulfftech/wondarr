@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 4 gate check (docs/build/PHASES.md) against a running Wondarr.
+"""Phase 4 gate check against a running Wondarr.
 
 "songs missing on Soulseek are filled from Art Tracks within one search cycle and pass fingerprint
 verification; official-video candidates with intros are rejected by duration; a simulated bot-check

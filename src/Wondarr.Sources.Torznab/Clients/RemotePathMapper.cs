@@ -1,6 +1,6 @@
 namespace Wondarr.Sources.Torznab.Clients;
 
-/// <summary>One entry of a download client's remote path mappings (DECISIONS build session 8 #8).</summary>
+/// <summary>One entry of a download client's remote path mappings.</summary>
 /// <param name="Remote">The path as the download client reports it.</param>
 /// <param name="Local">The same path as Wondarr sees it on this host.</param>
 public sealed record RemotePathMapping(string Remote, string Local);

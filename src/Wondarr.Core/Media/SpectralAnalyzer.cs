@@ -21,7 +21,7 @@ public interface ISpectralAnalyzer
 }
 
 /// <summary>
-/// The decode half of the fake-lossless check (DECISIONS build session 10 #2): one <c>ffmpeg</c> run
+/// The decode half of the fake-lossless check: one <c>ffmpeg</c> run
 /// writes a 60 second mono 44.1 kHz float window to a temporary file, which <see cref="SpectrumAnalysis"/>
 /// then reads. The window starts 30 % into the track, moved earlier so it ends inside the file.
 /// </summary>

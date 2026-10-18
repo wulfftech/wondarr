@@ -14,4 +14,4 @@ Layout presets `flat`, `artist`, `artist_album`, `plexamp` share one template en
 - The album policy engine needs MusicBrainz release lists per recording (cached).
 
 ## References
-`docs/architecture/LIBRARY_OUTPUT.md` §7.1–7.4 · `docs/DECISIONS.md` round 1 Q5, round 2 Q4
+`docs/architecture/LIBRARY_OUTPUT.md` §7.1–7.4

@@ -25,7 +25,7 @@ public sealed record TorrentFile(int Index, string Path, long Size);
 
 /// <summary>
 /// Reads the info hash, name and file list out of the bencoded metainfo of a v1 (or hybrid v1/v2)
-/// torrent. Wondarr's own bencode reader, not ported (DECISIONS #4): it never does I/O and every
+/// torrent. Wondarr's own bencode reader, not ported: it never does I/O and every
 /// malformed input fails with a <see cref="TorrentMetainfoException"/> naming the byte offset.
 /// </summary>
 public sealed class TorrentMetainfo

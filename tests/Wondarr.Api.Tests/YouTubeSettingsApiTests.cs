@@ -45,7 +45,7 @@ public sealed class YouTubeSettingsApiTests
 
         var settings = (JsonObject)body!;
 
-        settings["enabled"]!.GetValue<bool>().Should().BeFalse("the source is off by default (DECISIONS.md #6)");
+        settings["enabled"]!.GetValue<bool>().Should().BeFalse("the source is off by default");
         settings["cookiesPath"].Should().BeNull();
         settings["poTokenBaseUrl"].Should().BeNull();
         settings["allowVideos"]!.GetValue<bool>().Should().BeFalse();

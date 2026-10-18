@@ -25,7 +25,7 @@ public sealed record PushedRelease(
 public sealed record ReleasePushOutcome(bool Approved, IReadOnlyList<string> Rejections, long? SongId, string? SongTitle);
 
 /// <summary>
-/// Decides a pushed release (DECISIONS build session 8 #11): matched against the wanted songs by its
+/// Decides a pushed release: matched against the wanted songs by its
 /// artist and album, its file list read, each matching song judged by the engine, and grabbed when
 /// approved. Implemented by the torrent and usenet sources.
 /// </summary>

@@ -213,7 +213,7 @@ public class DecisionEngineTests
     [InlineData(400)]
     public void A_near_perfect_or_hard_hit_held_score_does_not_block_a_slightly_worse_match(int held)
     {
-        // DECISIONS build session 7 #11: live, a held score no name-scored candidate could reach
+        // Seen live: a held score no name-scored candidate could reach
         // rejected 978 of 978 candidates. A FLAC a little less well matched (here: a two-second
         // longer edit) is within the tolerance, and fingerprint confirmation does the rest.
         var context = Context() with { CurrentFileQualityId = 23, CurrentFileIdentityScore = held };

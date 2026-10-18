@@ -159,7 +159,7 @@ public sealed class YtDlpHealthCheck : IHealthCheck
     {
         if (!_options.CurrentValue.Enabled)
         {
-            // The source is off by default (DECISIONS build session 5 #6); a missing yt-dlp only matters
+            // The source is off by default; a missing yt-dlp only matters
             // once the user turns it on.
             return new HealthReport(Name, HealthCheckResult.Ok, "The YouTube source is off", null);
         }

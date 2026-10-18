@@ -1,7 +1,5 @@
 # Quality definitions seed
 
-> Working document derived from `docs/PLAN.md` (revision 3, 2026-09-28) — the seed table for the qualities and default profiles. **This file evolves with the code; when it disagrees with PLAN.md, this file wins.** Section numbers (§) in the text refer to PLAN.md.
-
 Ascending rank; the profile UI groups them as Lidarr does. Lossless ranks above every lossy tier; the profile's cutoff is one of these.
 
 | Rank | Group | Qualities |

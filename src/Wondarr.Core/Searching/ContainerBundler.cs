@@ -12,7 +12,7 @@ namespace Wondarr.Core.Searching;
 public sealed record BundledSong(Song Song, ContainerMatch Match);
 
 /// <summary>
-/// Bundling (DECISIONS build session 8 #6): when a container is grabbed for one song, the other
+/// Bundling: when a container is grabbed for one song, the other
 /// monitored songs of the same main artist that are missing — or below their cutoff, when the
 /// container's quality is an upgrade — and whose file the matcher finds in the container's known file
 /// list ride along on the same grab, each with its own queue item.

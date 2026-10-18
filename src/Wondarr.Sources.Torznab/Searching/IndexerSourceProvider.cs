@@ -22,7 +22,7 @@ namespace Wondarr.Sources.Torznab.Searching;
 /// The torrent or the usenet source behind <see cref="ISourceProvider"/> (one registration per
 /// protocol, tier 3): a song is searched for as the releases it appears on, every enabled indexer of
 /// the protocol is asked for each, the containers' file lists are read, and the wanted song's file in
-/// each becomes one candidate (DECISIONS build session 8 #2, #3, #7; MATCHING_ENGINE §6.4). The grab
+/// each becomes one candidate (MATCHING_ENGINE §6.4). The grab
 /// half lives in <c>IndexerSourceProvider.Grab.cs</c>.
 /// </summary>
 public sealed partial class IndexerSourceProvider : ISourceProvider

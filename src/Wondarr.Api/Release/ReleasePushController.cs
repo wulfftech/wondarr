@@ -4,8 +4,8 @@ using Wondarr.Core.Searching;
 namespace Wondarr.Api.Release;
 
 /// <summary>
-/// <c>POST /api/v1/release/push</c>: what autobrr's "push to Lidarr" action calls (ARCHITECTURE §5.6,
-/// DECISIONS build session 6 #7, build session 8 #11). The answer keeps Lidarr's shape — one object
+/// <c>POST /api/v1/release/push</c>: what autobrr's "push to Lidarr" action calls (ARCHITECTURE §5.6).
+/// The answer keeps Lidarr's shape — one object
 /// with <c>approved</c>/<c>rejected</c>/<c>temporarilyRejected</c>/<c>rejections</c>, and a 400 with
 /// the validation array when the title is missing — so autobrr understands it. A pushed torrent or NZB
 /// is matched against the wanted songs, judged by the engine and grabbed when approved; nothing about
