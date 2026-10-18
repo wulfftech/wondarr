@@ -4,6 +4,15 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-10-18
+
+Reference libraries forgive a few bad MP3 frames, and the usenet indexer pause from 0.1.8 now covers grabs and pushed releases too. Update by pulling `:0.1` (or `:0.1.9`).
+
+**Upgrading from 0.1.8:**
+- **No database migration, no new settings.**
+- **Reference files that were "unreadable" get another look on the next scan.** A file that plays through but has a few bad frames (at most about 20 lines of decode errors, with at least 98 % of it decoding) is now identified and, in adopt mode, adopted like any other. Downloads are checked as strictly as before.
+- **A grab from an indexer that is pausing NZB downloads ends that song's search run.** Nothing is blocklisted; the song is searched again later.
+
 ### Changed
 - **Dependencies updated:** Quartz.Extensions.Hosting 4.5.1 (4.4 code runs unchanged; no schema change).
 - The repository no longer carries internal planning and research notes; public docs no longer cite them.
