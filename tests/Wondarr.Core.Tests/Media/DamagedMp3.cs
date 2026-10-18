@@ -5,31 +5,33 @@ using Xunit;
 namespace Wondarr.Core.Tests.Media;
 
 /// <summary>
-/// A fact that only runs where ffmpeg and ffprobe are on PATH: it builds a damaged MP3 and decodes it with
-/// the real tools. The dev machines have no ffmpeg; these run inside the image and on any box with the
-/// tools installed.
+/// A fact that only runs where ffmpeg and ffprobe (and, with <c>fpcalc</c> set, fpcalc) are on PATH: it
+/// builds a damaged MP3 and decodes it with the real tools. The dev machines have no ffmpeg; these run
+/// inside the image and on any box with the tools installed.
 /// </summary>
 public sealed class FfmpegFactAttribute : FactAttribute
 {
     /// <summary>Initialises a new instance of the <see cref="FfmpegFactAttribute"/> class.</summary>
-    public FfmpegFactAttribute()
+    /// <param name="fpcalc">Whether the test also needs fpcalc.</param>
+    public FfmpegFactAttribute(bool fpcalc = false)
     {
-        if (!DamagedMp3.ToolsAvailable())
+        if (!DamagedMp3.ToolsAvailable(fpcalc))
         {
-            Skip = "ffmpeg and ffprobe are not on PATH";
+            Skip = fpcalc ? "ffmpeg, ffprobe and fpcalc are not on PATH" : "ffmpeg and ffprobe are not on PATH";
         }
     }
 }
 
-/// <summary>A theory that only runs where ffmpeg and ffprobe are on PATH, like <see cref="FfmpegFactAttribute"/>.</summary>
+/// <summary>A theory that only runs where the real tools are on PATH, like <see cref="FfmpegFactAttribute"/>.</summary>
 public sealed class FfmpegTheoryAttribute : TheoryAttribute
 {
     /// <summary>Initialises a new instance of the <see cref="FfmpegTheoryAttribute"/> class.</summary>
-    public FfmpegTheoryAttribute()
+    /// <param name="fpcalc">Whether the test also needs fpcalc.</param>
+    public FfmpegTheoryAttribute(bool fpcalc = false)
     {
-        if (!DamagedMp3.ToolsAvailable())
+        if (!DamagedMp3.ToolsAvailable(fpcalc))
         {
-            Skip = "ffmpeg and ffprobe are not on PATH";
+            Skip = fpcalc ? "ffmpeg, ffprobe and fpcalc are not on PATH" : "ffmpeg and ffprobe are not on PATH";
         }
     }
 }
@@ -44,8 +46,18 @@ internal static class DamagedMp3
     private static readonly Lazy<Task<byte[]>> Clean = new(EncodeAsync);
 
     /// <summary>Whether the real tools the live tests need are installed.</summary>
-    public static bool ToolsAvailable() =>
-        MediaToolsFactAttribute.OnPath("ffmpeg") && MediaToolsFactAttribute.OnPath("ffprobe");
+    /// <param name="fpcalc">Whether fpcalc is needed too.</param>
+    public static bool ToolsAvailable(bool fpcalc = false) =>
+        MediaToolsFactAttribute.OnPath("ffmpeg")
+        && MediaToolsFactAttribute.OnPath("ffprobe")
+        && (!fpcalc || MediaToolsFactAttribute.OnPath("fpcalc"));
+
+    /// <summary>A real fingerprinter over the real tools on PATH.</summary>
+    public static Fingerprinter RealFingerprinter() =>
+        new(
+            new ProcessRunner(NullLogger<ProcessRunner>.Instance),
+            new TestOptionsMonitor<MediaToolsOptions>(new MediaToolsOptions()),
+            NullLogger<Fingerprinter>.Instance);
 
     /// <summary>A real probe, the way the app builds it, over the real tools on PATH.</summary>
     public static MediaProbe RealProbe() =>

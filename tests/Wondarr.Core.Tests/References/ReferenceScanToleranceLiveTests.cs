@@ -1,9 +1,11 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Media;
 using Wondarr.Core.References;
 using Wondarr.Core.Tagging;
 using Wondarr.Core.Tests.Media;
@@ -18,7 +20,9 @@ namespace Wondarr.Core.Tests.References;
 /// </summary>
 public sealed class ReferenceScanToleranceLiveTests : IDisposable
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("wondarr-tolerance-scan-").FullName;
+    private static readonly JsonSerializerOptions StoredJson = new() { PropertyNameCaseInsensitive = true };
+
+    private readonly string _root =Directory.CreateTempSubdirectory("wondarr-tolerance-scan-").FullName;
     private readonly SqliteTestDatabase _database = new();
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero));
 
@@ -75,6 +79,49 @@ public sealed class ReferenceScanToleranceLiveTests : IDisposable
             .Should().HaveCount(2)
             .And.OnlyContain(message => message.Contains(" decodes with ", StringComparison.Ordinal))
             .And.Contain(message => message.StartsWith(Path.Combine(_root, "Eddy Grant - Electric Avenue.mp3"), StringComparison.Ordinal));
+    }
+
+    [FfmpegFact(fpcalc: true)]
+    public async Task A_file_the_scan_tolerated_reaches_a_fingerprint()
+    {
+        DamagedMp3.Write(_root, "Eddy Grant - Electric Avenue.mp3", await DamagedMp3.CreateAsync(wholeFrames: true, 100, 200, 300, 400, 500, 600));
+        DamagedMp3.Write(_root, "Supertramp - Give A Little Bit.mp3", await DamagedMp3.CreateAsync(wholeFrames: false, 300));
+
+        await _database.MigrateAsync(_time);
+        await using var context = _database.CreateContext(_time);
+
+        var library = new ReferenceLibrary { Name = "Music", RootPath = _root };
+        context.ReferenceLibraries.Add(library);
+        await context.SaveChangesAsync();
+
+        var scanner = new ReferenceScanner(
+            context,
+            DamagedMp3.RealProbe(),
+            Substitute.For<ITagReader>(),
+            _time,
+            new RecordingLogger<ReferenceScanner>());
+
+        (await scanner.ScanAsync(library.Id, null, CancellationToken.None)).Unreadable.Should().Be(0);
+
+        var rows = await context.ReferenceFiles.AsNoTracking().ToListAsync();
+        rows.Should().HaveCount(2).And.OnlyContain(row => row.State == ReferenceFileState.Pending);
+
+        // What the identifier does next with each Pending row: the start of the file, for AcoustID.
+        var fingerprinter = DamagedMp3.RealFingerprinter();
+
+        foreach (var row in rows)
+        {
+            var probe = JsonSerializer.Deserialize<MediaInfo>(row.Probe!, StoredJson)!;
+
+            var fingerprint = await fingerprinter.FingerprintAsync(
+                Path.Combine(_root, row.RelativePath),
+                FingerprintWindow.Start,
+                probe.DurationMs,
+                CancellationToken.None);
+
+            fingerprint.Success.Should().BeTrue($"{row.RelativePath}: {fingerprint.Error}");
+            fingerprint.Fingerprint.Should().NotBeNullOrEmpty(row.RelativePath);
+        }
     }
 
     /// <inheritdoc />

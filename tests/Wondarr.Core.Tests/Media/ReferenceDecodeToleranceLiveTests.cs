@@ -142,6 +142,29 @@ public sealed class ReferenceDecodeToleranceLiveTests : IDisposable
         client.ReceivedCalls().Should().BeEmpty();
     }
 
+    [FfmpegTheory(fpcalc: true)]
+    [MemberData(nameof(FewBadFrames))]
+    public async Task A_tolerated_file_fingerprints_like_any_other(string name, bool wholeFrames, int count)
+    {
+        // fpcalc stops at the first bad frame of these; the fingerprinter's second try, through ffmpeg, does not.
+        int[] frames = [.. Enumerable.Range(1, count).Select(index => index * 100)];
+        var path = DamagedMp3.Write(_temp, "damaged.mp3", await DamagedMp3.CreateAsync(wholeFrames, frames));
+
+        var reference = await DamagedMp3.RealProbe().ProbeReferenceAsync(path, CancellationToken.None);
+        reference.Decodable.Should().BeTrue(name);
+
+        var fingerprint = await DamagedMp3.RealFingerprinter().FingerprintAsync(
+            path,
+            FingerprintWindow.Start,
+            reference.Info!.DurationMs,
+            CancellationToken.None);
+
+        fingerprint.Success.Should().BeTrue(fingerprint.Error);
+        fingerprint.Fingerprint.Should().NotBeNullOrEmpty();
+        fingerprint.Window.Should().Be(FingerprintWindow.Start);
+        fingerprint.DurationSeconds.Should().Be(30);
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {

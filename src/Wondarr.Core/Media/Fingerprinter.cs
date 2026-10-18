@@ -54,7 +54,8 @@ public interface IFingerprinter
 /// <remarks>
 /// fpcalc has no offset option, so the middle window is cut out with ffmpeg into a temporary WAV first
 /// (docs/research/research_metadata_plex.md §2.3). The temporary file is deleted whether or not fpcalc
-/// succeeded.
+/// succeeded. The same cut is the second try for the start of a file fpcalc itself could not read: fpcalc
+/// stops at the first bad frame, ffmpeg skips past it.
 /// </remarks>
 public sealed partial class Fingerprinter : IFingerprinter
 {
@@ -105,10 +106,55 @@ public sealed partial class Fingerprinter : IFingerprinter
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            return Read(result, window, durationSeconds);
+            var direct = Read(result, window, durationSeconds);
+
+            // A timeout says nothing about the file, and a fingerprint needs no second try.
+            if (direct.Success || direct.TimedOut)
+            {
+                return direct;
+            }
+
+            // fpcalc reads the file straight through and gives up at the first bad frame (exit 2 or 3,
+            // "Error reading from the audio source"), however much of it plays. ffmpeg skips past bad
+            // frames, so the same window cut out by ffmpeg can still be fingerprinted. If that fails
+            // too, the answer is fpcalc's own.
+            LogRetryThroughFfmpeg(_logger, path, direct.Error);
+
+            try
+            {
+                var retried = await CutAndFingerprintAsync(
+                        path, window, 0, length, durationSeconds, options, timeout, cancellationToken)
+                    .ConfigureAwait(false);
+
+                return retried.Success ? retried : direct;
+            }
+            catch (MediaToolMissingException)
+            {
+                return direct;
+            }
         }
 
         var start = Math.Max(0, (trackDurationMs / 2 - (length * 500)) / 1000);
+
+        return await CutAndFingerprintAsync(
+                path, window, start, length, durationSeconds, options, timeout, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Cuts <paramref name="length"/> seconds from <paramref name="start"/> into a temporary WAV with ffmpeg
+    /// and fingerprints that.
+    /// </summary>
+    private async Task<FingerprintResult> CutAndFingerprintAsync(
+        string path,
+        FingerprintWindow window,
+        int start,
+        int length,
+        int durationSeconds,
+        MediaToolsOptions options,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
         var temporary = Path.Combine(
             Path.GetTempPath(),
             $"wondarr-fpcalc-{Guid.NewGuid():N}.wav");
@@ -230,6 +276,9 @@ public sealed partial class Fingerprinter : IFingerprinter
             // Same.
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "fpcalc could not fingerprint {Path} ({Error}); trying the start of it again through ffmpeg.")]
+    private static partial void LogRetryThroughFfmpeg(ILogger logger, string path, string? error);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "fpcalc did not print JSON.")]
     private static partial void LogUnreadableOutput(ILogger logger, Exception exception);
