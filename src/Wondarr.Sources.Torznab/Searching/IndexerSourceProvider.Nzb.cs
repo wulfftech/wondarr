@@ -1,22 +1,26 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Xml;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Sources;
+using Wondarr.Sources.Torznab.Clients;
 using Wondarr.Sources.Torznab.Indexers;
 
 namespace Wondarr.Sources.Torznab.Searching;
 
 /// <summary>
-/// The usenet half of reading a release's file list: one NZB download at a time per post, shared between
-/// searches, and the memory of which indexers refused (<see cref="NzbCooldowns"/>). The search itself is in
-/// <c>IndexerSourceProvider.cs</c>.
+/// The usenet half of reading a release's file list and of grabbing it: one NZB download at a time per post,
+/// shared between searches and grabs, and the memory of which indexers refused (<see cref="NzbCooldowns"/>).
+/// The search itself is in <c>IndexerSourceProvider.cs</c>, the rest of the grab in
+/// <c>IndexerSourceProvider.Grab.cs</c>.
 /// </summary>
 public sealed partial class IndexerSourceProvider
 {
-    // The NZB downloads under way, by cache key, so two searches that need the same post share one
-    // download. An entry goes when its download is done (the NZB is in the cache by then). The lock is
-    // taken before a search's own (see ReadNzbAsync) and held for memory operations only.
+    // The NZB downloads under way, by cache key, so two reads (a search's or a grab's) that need the same
+    // post share one download. An entry goes when its download is done (the NZB is in the cache by then).
+    // The lock is taken before a search's own (see ReadNzbAsync) and held for memory operations only.
     private readonly Lock _flightsGate = new();
     private readonly Dictionary<string, Lazy<Task<NzbFetch>>> _flights = new(StringComparer.Ordinal);
 
@@ -47,7 +51,7 @@ public sealed partial class IndexerSourceProvider
                 }
                 else if (turn == NzbTurn.Download)
                 {
-                    flight = new Lazy<Task<NzbFetch>>(() => FetchNzbAsync(indexer, release, key, token));
+                    flight = new Lazy<Task<NzbFetch>>(() => FetchNzbAsync(indexer, release, key, source, token));
                     _flights[key] = flight;
                 }
             }
@@ -90,6 +94,11 @@ public sealed partial class IndexerSourceProvider
                 return null;
             }
 
+            if (fetch.Failure is { } failure)
+            {
+                throw new IndexerException(failure);
+            }
+
             if (fetch.Listing is { } listing)
             {
                 return listing with { Release = release };
@@ -102,11 +111,112 @@ public sealed partial class IndexerSourceProvider
     }
 
     /// <summary>
-    /// Downloads one NZB and keeps it in the cache once it parsed, then lets go of the entry the readers
-    /// share. A refusal starts the indexer's cool-down first, so no search can find the entry gone and the
-    /// indexer not yet cooling. What it throws is every sharing reader's failure.
+    /// The NZB of a release for a grab, from the cache, from a download of the same post that is already under
+    /// way (a search's, or another grab's), or from one this call starts. As in a search's read, one step under
+    /// the lock of the downloads under way looks at the cache again, at the source's cool-down and at the
+    /// downloads under way, so the cool-down is honoured and the request made once: a source that is cooling
+    /// down fails the grab at once, with no request sent. An indexer whose quota is spent answers 200 with a
+    /// sentence, an error document, a 429 or a 403: that fails the grab with the indexer's own words
+    /// (redacted) and starts the cool-down, so the download client is never handed something that is not an
+    /// NZB and the user sees why. None of these marks the post bad, and they are thrown as plain
+    /// <see cref="DownloadClientException"/>s, which the caller does not blocklist.
     /// </summary>
-    private async Task<NzbFetch> FetchNzbAsync(Indexer indexer, IndexerRelease release, string key, CancellationToken token)
+    /// <param name="indexer">The indexer row to download through.</param>
+    /// <param name="release">The release, as the grab knows it.</param>
+    /// <param name="key">The release's cache key.</param>
+    /// <param name="token">Cancels the wait, and the download when this call started it.</param>
+    private async Task<byte[]> DownloadNzbAsync(Indexer indexer, ContainerRelease release, string key, CancellationToken token)
+    {
+        // Asked and keyed as a search asks: the name a release carries is the upstream's behind a Prowlarr row,
+        // and that is what a refusal is kept under. A pushed release names no indexer row, so none is keyed.
+        var asked = ToIndexerRelease(release, indexer) with { IndexerName = release.IndexerName };
+        NzbSource? source = release.IndexerId == PushedReleaseClient.IndexerId ? null : NzbSource.Of(asked);
+
+        while (true)
+        {
+            byte[]? kept;
+            DateTimeOffset? cooling = null;
+            Lazy<Task<NzbFetch>>? flight = null;
+            var shared = false;
+
+            lock (_flightsGate)
+            {
+                if (!_nzbCache.TryGet(key, out kept))
+                {
+                    if (source is { } known && _nzbCooldowns.TryGetUntil(known, out var until))
+                    {
+                        cooling = until;
+                    }
+                    else
+                    {
+                        shared = _flights.TryGetValue(key, out flight);
+
+                        if (!shared)
+                        {
+                            flight = new Lazy<Task<NzbFetch>>(() => FetchNzbAsync(indexer, asked, key, source, token));
+                            _flights[key] = flight;
+                        }
+                    }
+                }
+            }
+
+            if (kept is not null)
+            {
+                return kept;
+            }
+
+            if (cooling is { } end)
+            {
+                throw new DownloadClientException(CoolingText(source!.Value, end));
+            }
+
+            if (shared)
+            {
+                LogNzbShared(_logger, release.IndexerName);
+            }
+
+            NzbFetch fetch;
+
+            try
+            {
+                fetch = await flight!.Value.WaitAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (shared && !token.IsCancellationRequested)
+            {
+                // The search or grab that was downloading it was cancelled, not this one: ask again, and
+                // the download may be this grab's now.
+                continue;
+            }
+            catch (XmlException exception)
+            {
+                throw new DownloadClientException(string.Concat(release.IndexerName, ": The NZB could not be read."), exception);
+            }
+
+            if (fetch.Refusal is { } words)
+            {
+                if (source is { } refusing)
+                {
+                    LogIndexerRefused(_logger, refusing.Name, fetch.CooldownUntil);
+                }
+
+                throw new DownloadClientException(string.Concat(release.IndexerName, ": ", words));
+            }
+
+            if (fetch.Failure is { } failure)
+            {
+                throw new DownloadClientException(string.Concat(release.IndexerName, ": ", failure));
+            }
+
+            return fetch.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
+        }
+    }
+
+    /// <summary>
+    /// Downloads one NZB and keeps it in the cache once it parsed, then lets go of the entry the readers
+    /// share. A refusal starts the source's cool-down first (none for a null source), so no read can find the
+    /// entry gone and the source not yet cooling. What it throws is every sharing reader's failure.
+    /// </summary>
+    private async Task<NzbFetch> FetchNzbAsync(Indexer indexer, IndexerRelease release, string key, NzbSource? source, CancellationToken token)
     {
         try
         {
@@ -120,7 +230,7 @@ public sealed partial class IndexerSourceProvider
             {
                 // 429 and 403 are how some indexers say "no more downloads today". A dropped connection or
                 // a 5xx carries no status like these and does not cut the indexer off.
-                return NzbFetch.Refused(NzbAnswer.Clean(exception.Message, Redact), CoolDown(release, exception.RetryAfter));
+                return NzbFetch.Refused(NzbAnswer.Clean(exception.Message, Redact), CoolDown(source, exception.RetryAfter));
             }
 
             if (download.Content is not { } content)
@@ -133,14 +243,14 @@ public sealed partial class IndexerSourceProvider
             if (verdict.Kind == NzbAnswerKind.AccountRefusal)
             {
                 // Not an NZB, so never parsed as one; the indexer's own words are what the user is shown.
-                return NzbFetch.Refused(verdict.Text, CoolDown(release, null));
+                return NzbFetch.Refused(verdict.Text, CoolDown(source, null));
             }
 
             if (verdict.Kind == NzbAnswerKind.ReleaseFailure)
             {
                 // An error about this one post (removed, bad parameters): the indexer is fine, so it is
                 // counted unreadable like a broken NZB and the other posts are still read.
-                throw new IndexerException(verdict.Text);
+                return NzbFetch.Failed(verdict.Text);
             }
 
             var listing = ListNzb(release, content);
@@ -150,7 +260,7 @@ public sealed partial class IndexerSourceProvider
             // client later; and before the entry below goes, so no read finds neither.
             _nzbCache.Put(key, content);
 
-            return NzbFetch.Listed(listing);
+            return NzbFetch.Listed(listing, content);
         }
         finally
         {
@@ -161,10 +271,17 @@ public sealed partial class IndexerSourceProvider
         }
     }
 
-    /// <summary>Starts the cool-down of the source a release comes from, after its refusal.</summary>
-    /// <returns>The instant the cool-down ends.</returns>
-    private DateTimeOffset CoolDown(IndexerRelease release, RetryConditionHeaderValue? retryAfter) =>
-        _nzbCooldowns.Start(NzbSource.Of(release), WaitOf(retryAfter));
+    /// <summary>
+    /// Starts the cool-down of the source a release comes from, after its refusal. A release with no source
+    /// (a pushed one, which names no indexer row) cools nothing down.
+    /// </summary>
+    /// <returns>The instant the cool-down ends; now, when there is none.</returns>
+    private DateTimeOffset CoolDown(NzbSource? source, RetryConditionHeaderValue? retryAfter) =>
+        source is { } cooling ? _nzbCooldowns.Start(cooling, WaitOf(retryAfter)) : _time.GetUtcNow();
+
+    /// <summary>What is said of a source that is cooling down, in a search's message and in a grab's failure.</summary>
+    private string CoolingText(NzbSource source, DateTimeOffset until) =>
+        string.Concat(source.Name, " is cooling down until ", LocalTime(until), " after refusing NZB downloads");
 
     /// <summary>
     /// Stops the search reading NZBs from a source that said it will not hand out more; the cool-down that
@@ -215,15 +332,24 @@ public sealed partial class IndexerSourceProvider
     private static partial void LogNzbShared(ILogger logger, string indexer);
 
     /// <summary>What one NZB download came to, shared by every read that waited for it.</summary>
-    private sealed record NzbFetch(ContainerListing? Listing, string? Magnet, string? Refusal, DateTimeOffset CooldownUntil)
+    private sealed record NzbFetch(
+        ContainerListing? Listing,
+        string? Magnet,
+        string? Refusal,
+        DateTimeOffset CooldownUntil,
+        string? Failure = null,
+        byte[]? Content = null)
     {
-        /// <summary>An NZB that parsed (and is in the cache).</summary>
-        public static NzbFetch Listed(ContainerListing listing) => new(listing, null, null, default);
+        /// <summary>An NZB that parsed (and is in the cache): its file list, and the bytes a grab hands to the client.</summary>
+        public static NzbFetch Listed(ContainerListing listing, byte[] content) => new(listing, null, null, default, null, content);
 
         /// <summary>A link that led to a magnet instead.</summary>
         public static NzbFetch Linked(string? magnet) => new(null, magnet, null, default);
 
         /// <summary>The indexer will not hand out NZBs: its words, and when the cool-down it started ends.</summary>
         public static NzbFetch Refused(string words, DateTimeOffset until) => new(null, null, words, until);
+
+        /// <summary>The indexer cannot give this one post: its words. The indexer itself is fine.</summary>
+        public static NzbFetch Failed(string words) => new(null, null, null, default, words);
     }
 }

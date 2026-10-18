@@ -159,6 +159,21 @@ public sealed class NzbCache
         return false;
     }
 
+    /// <summary>Drops the NZB kept under a key, when there is one.</summary>
+    /// <param name="key">The key from <see cref="KeyOf"/>.</param>
+    public void Remove(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        lock (_gate)
+        {
+            if (_byKey.TryGetValue(key, out var node))
+            {
+                Remove(node);
+            }
+        }
+    }
+
     private void DropExpired()
     {
         var now = _time.GetTimestamp();
