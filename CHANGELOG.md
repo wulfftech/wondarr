@@ -5,10 +5,11 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 ## [Unreleased]
 
 ### Changed
-- The repository no longer carries internal planning and research notes; public docs no longer cite them.
 - **Dependencies updated:** Quartz.Extensions.Hosting 4.5.1 (4.4 code runs unchanged; no schema change).
+- The repository no longer carries internal planning and research notes; public docs no longer cite them.
 
 ### Fixed
+- **Soulseek no longer searches for a pseudo-album as if it were an album.** The "artist + album" query was skipped only for an album literally titled "Singles", so a Singles album you had renamed, or the library-wide compilation album, still cost a wasted search (it never picked a wrong file). The query is now left out whenever the song's album is a pseudo-album by kind, whatever its title; a real album that happens to be titled "Singles" is searched. A search request that carries no kind (one stored by an older version) keeps the old title check. YouTube builds no album query, so it is unchanged. No migration.
 - **A grab no longer asks an indexer that is cooling down for an NZB, and a refusal during a grab starts the cool-down.** Only searches knew the cool-down. A grab of a post whose NZB was not kept in memory still downloaded it, and when the indexer answered 429 or 403 (or its limit message) the grab failed without cooling the indexer down, so the next search spent more downloads. Now such a grab fails at once, without a request, with "*indexer* is cooling down until *time* after refusing NZB downloads", and the post is not blocklisted: the post is fine, the indexer is resting. The grab run for that song ends there, as it does for any failure that is the source's own bad moment, instead of failing the indexer's remaining posts one by one; the song's own backoff tries again. A refusal during a grab starts the cool-down exactly as a search's does. A post whose NZB is kept is grabbed as before. A pushed release names no indexer row, so it has no cool-down. No migration.
 - **A grab and a search that need the same NZB at once download it once.** The searches already shared one download per post; a grab now joins it (or is joined by a search, or by another grab) instead of making a second request against the indexer's daily quota. No migration.
 - **A pushed usenet release is no longer retried on a 429.** The link of a pushed NZB is an NZB download like an indexer's, so a spent quota is answered once instead of being retried. Pushed torrents are retried as before. No migration.

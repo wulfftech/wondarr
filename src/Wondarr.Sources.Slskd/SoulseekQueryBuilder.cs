@@ -82,15 +82,28 @@ public static class SoulseekQueryBuilder
         }
 
         // 4. artist + album: Soulseek matches the whole path, so this finds the album folder holding the track.
-        var album = request.AlbumTitle;
-        if (!string.IsNullOrWhiteSpace(album) &&
-            !string.Equals(album.Trim(), SinglesAlbum, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(album.Trim(), baseTitle, StringComparison.OrdinalIgnoreCase))
+        var album = AlbumToSearch(request);
+        if (album is not null && !string.Equals(album.Trim(), baseTitle, StringComparison.OrdinalIgnoreCase))
         {
             Add(texts, Sanitise(Combine(artist, album)));
         }
 
         return texts;
+    }
+
+    /// <summary>
+    /// The album title worth a query of its own: the song's real album, or <see langword="null"/> for a song
+    /// with none or a pseudo-album by kind ("Singles" under any name the user gave it, the library-wide
+    /// compilation title). A request that carries no kind (an older stored one) can only be told by its
+    /// title, so the literal "Singles" stands in for it.
+    /// </summary>
+    private static string? AlbumToSearch(SongSearchRequest request)
+    {
+        var album = SongAlbumNames.Of(request.AlbumKind, request.AlbumTitle);
+
+        return request.AlbumKind is null && string.Equals(album?.Trim(), SinglesAlbum, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : album;
     }
 
     /// <summary>

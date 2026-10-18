@@ -327,21 +327,21 @@ public sealed class DeezerClientTests
         (attemptedAt[1] - attemptedAt[0]).Should().BeGreaterThanOrEqualTo(retryAfter);
     }
 
-    private static ServiceProvider BuildProvider(HttpMessageHandler primaryHandler, TimeProvider time, TimeSpan retryBaseDelay)
+    private static ClockedServiceProvider BuildProvider(HttpMessageHandler primaryHandler, TrackingTimeProvider time, TimeSpan retryBaseDelay)
     {
         var services = new ServiceCollection();
 
         services.AddLogging();
 
         // Before AddWondarrMetadata, which only adds the system clock when none is registered.
-        services.AddSingleton(time);
+        services.AddSingleton<TimeProvider>(time);
         services.AddWondarrMetadata(new ConfigurationBuilder().Build());
         services.AddSingleton<IMetadataCache, InMemoryMetadataCache>();
 
         services.Configure<MetadataOptions>(options => options.RetryBaseDelay = retryBaseDelay);
         services.AddSingleton<IHttpMessageHandlerBuilderFilter>(new StubHttpMessageHandlerFilter(primaryHandler));
 
-        return services.BuildServiceProvider();
+        return new ClockedServiceProvider(services.BuildServiceProvider(), time);
     }
 
     private static (DeezerClient Client, FixtureHttpMessageHandler Handler, InMemoryMetadataCache Cache) CreateClient(
