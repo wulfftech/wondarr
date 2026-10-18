@@ -73,7 +73,7 @@ public sealed class ReferenceFile : EntityBase
     /// <summary>Gets or sets how the file was identified, for example <c>tag_mbid</c>, or <see langword="null"/>.</summary>
     public string? IdentifiedBy { get; set; }
 
-    /// <summary>Gets or sets the reason for the state, for example the probe error, or <see langword="null"/>.</summary>
+    /// <summary>Gets or sets the reason for the state, for example the probe error, or a note that the file decodes with errors, or <see langword="null"/>.</summary>
     public string? Message { get; set; }
 
     /// <summary>Gets or sets the UTC instant the file was last seen on disk.</summary>

@@ -448,7 +448,7 @@ public sealed partial class ReferenceScanner(
 
         try
         {
-            probed = await probe.ProbeAsync(path, cancellationToken).ConfigureAwait(false);
+            probed = await probe.ProbeReferenceAsync(path, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -462,6 +462,11 @@ public sealed partial class ReferenceScanner(
         if (probed is { Decodable: true, Info: not null })
         {
             row.Probe = JsonSerializer.Serialize(probed.Info, StoredJson);
+
+            if (probed.Tolerated is { } tolerated)
+            {
+                LogTolerated(logger, path, tolerated);
+            }
         }
     }
 
@@ -502,7 +507,7 @@ public sealed partial class ReferenceScanner(
 
         try
         {
-            probed = await probe.ProbeAsync(path, cancellationToken).ConfigureAwait(false);
+            probed = await probe.ProbeReferenceAsync(path, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -516,6 +521,18 @@ public sealed partial class ReferenceScanner(
         if (probed is { Decodable: true, Info: not null })
         {
             row.Probe = JsonSerializer.Serialize(probed.Info, StoredJson);
+
+            // A few bad frames in a file that plays: it is identified like any other, and the row says so
+            // until identification replaces the message.
+            if (probed.Tolerated is { } tolerated)
+            {
+                row.Message = string.Concat(
+                    "Decodes with ",
+                    tolerated.Errors.ToString(CultureInfo.InvariantCulture),
+                    " errors");
+
+                LogTolerated(logger, path, tolerated);
+            }
         }
         else
         {
@@ -738,6 +755,14 @@ public sealed partial class ReferenceScanner(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Reference file {ReferenceFileId} stayed missing; song {SongId} is wanted again")]
     private static partial void LogReleased(ILogger logger, long referenceFileId, long songId);
+
+    private static void LogTolerated(ILogger logger, string path, ToleratedDecodeErrors tolerated) =>
+        LogTolerated(logger, path, tolerated.Errors, tolerated.DecodedSeconds, tolerated.DurationSeconds);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "{Path} decodes with {Errors} errors over {Decoded:0.0}s of {Duration:0.0}s; scanned anyway")]
+    private static partial void LogTolerated(ILogger logger, string path, int errors, double decoded, double duration);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipped a file that could not be read.")]
     private static partial void LogEntrySkipped(ILogger logger, Exception exception);
