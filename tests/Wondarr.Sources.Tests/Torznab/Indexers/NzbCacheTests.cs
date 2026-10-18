@@ -51,6 +51,38 @@ public sealed class NzbCacheTests
     }
 
     [Fact]
+    public void Removes_the_nzb_under_a_key_when_it_is_still_the_same_array_and_frees_its_bytes()
+    {
+        var cache = new NzbCache(new FakeTimeProvider(Start));
+        var first = Bytes(10);
+        cache.Put("a", first);
+        cache.Put("b", Bytes(20));
+
+        cache.Remove("a", first).Should().BeTrue();
+        cache.Remove("never-put", first).Should().BeFalse();
+
+        cache.TryGet("a", out _).Should().BeFalse();
+        cache.TryGet("b", out _).Should().BeTrue("another key is left alone");
+        cache.Count.Should().Be(1);
+        cache.Bytes.Should().Be(20);
+    }
+
+    [Fact]
+    public void Keeps_an_nzb_that_another_array_has_replaced_even_if_the_bytes_are_equal()
+    {
+        var cache = new NzbCache(new FakeTimeProvider(Start));
+        var mine = Bytes(10);
+        var theirs = Bytes(10);
+        cache.Put("a", mine);
+        cache.Put("a", theirs);
+
+        cache.Remove("a", mine).Should().BeFalse("it is not the array the caller put");
+
+        cache.TryGet("a", out var kept).Should().BeTrue();
+        kept.Should().BeSameAs(theirs);
+    }
+
+    [Fact]
     public void Evicts_the_oldest_when_there_are_more_entries_than_allowed()
     {
         var cache = new NzbCache(new FakeTimeProvider(Start), maxEntries: 3, maxBytes: 1_000_000, lifetime: TimeSpan.FromHours(6));

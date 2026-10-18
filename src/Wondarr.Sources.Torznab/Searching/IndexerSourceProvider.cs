@@ -510,7 +510,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
 
         foreach (var (source, until) in state.Coolings)
         {
-            parts.Add(string.Concat(source.Name, " is cooling down until ", LocalTime(until), " after refusing NZB downloads"));
+            parts.Add(CoolingText(source, until));
         }
 
         if (state.NotFound > 0)
