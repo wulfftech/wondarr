@@ -633,8 +633,7 @@ public sealed partial class IndexerSourceProvider
 
         if (!_nzbCache.TryGet(nzbKey, out var nzb))
         {
-            nzb = await DownloadNzbAsync(indexer, release, nzbKey, cancellationToken).ConfigureAwait(false);
-            downloaded = true;
+            (nzb, downloaded) = await DownloadNzbAsync(indexer, release, nzbKey, cancellationToken).ConfigureAwait(false);
         }
 
         string jobId;
@@ -645,8 +644,10 @@ public sealed partial class IndexerSourceProvider
         }
         catch (DownloadClientException) when (downloaded)
         {
-            // The client would not take it, so it may not be a real NZB: the copy the download kept goes.
-            _nzbCache.Remove(nzbKey);
+            // The client would not take it, so it may not be a real NZB: the copy this grab's own download
+            // kept goes, if it is still that copy. One that was in the cache already, or that a search
+            // downloaded and this grab only waited for, was paid for by that read and stays.
+            _nzbCache.Remove(nzbKey, nzb);
 
             throw;
         }

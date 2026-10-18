@@ -2225,8 +2225,13 @@ public sealed partial class IndexerSourceGrabTests : IDisposable
                 ? throw new DownloadClientException("SABnzbd did not answer.")
                 : Task.FromResult(CompletedFolder);
 
+        /// <summary>Runs as an add arrives, before it is accepted or refused.</summary>
+        public Action? OnAdd { get; set; }
+
         public Task<string> AddAsync(DownloadClient client, UsenetAddRequest request, CancellationToken cancellationToken)
         {
+            OnAdd?.Invoke();
+
             if (FailAdd)
             {
                 throw new DownloadClientException("SABnzbd refused the NZB.");

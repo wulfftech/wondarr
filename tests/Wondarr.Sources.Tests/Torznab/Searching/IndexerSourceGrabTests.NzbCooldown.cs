@@ -43,11 +43,15 @@ public sealed partial class IndexerSourceGrabTests
         _indexer.Download = new IndexerDownload(AlbumNzb(), null);
         var provider = Provider(DownloadProtocol.Usenet, nzbCache: new NzbCache(time), time: time, cooldowns: cooldowns);
 
-        var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
+        var candidate = UsenetCandidate("03 - Digital Love.flac");
 
-        var thrown = (await act.Should().ThrowAsync<DownloadClientException>()).Which;
+        var act = () => provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+
+        var thrown = (await act.Should().ThrowAsync<NzbCoolingException>()).Which;
         thrown.Message.Should().Be("Indexer is cooling down until 13:30 UTC+00:00 after refusing NZB downloads");
-        thrown.Should().NotBeAssignableTo<ISourceGrabFailure>("only a classified failure blocklists a candidate, and the post is fine; the indexer is resting");
+        thrown.Until.Should().Be(CooldownStart.AddMinutes(90));
+        thrown.Should().BeAssignableTo<ISourceGrabFailure>().Which.BlocklistCandidate.Should().BeFalse("the post is fine; the indexer is resting, so the search service neither blocklists it nor works through the indexer's other posts");
+        candidate.Release!.HasLink().Should().BeTrue("the grab leaves the candidate it was given as it was");
         _indexer.Downloads.Should().Be(0, "no request is sent to a cooling indexer");
         _usenet.Count.Should().Be(0);
 
@@ -86,7 +90,7 @@ public sealed partial class IndexerSourceGrabTests
 
         var act = () => provider.GrabAsync(FromUpstream(UsenetCandidate("03 - Digital Love.flac", "dog-1"), "Prowlarr (DOGnzb)"), "wondarr/one", CancellationToken.None);
 
-        (await act.Should().ThrowAsync<DownloadClientException>()).Which.Message
+        (await act.Should().ThrowAsync<NzbCoolingException>()).Which.Message
             .Should().Be("Prowlarr (DOGnzb) is cooling down until 13:00 UTC+00:00 after refusing NZB downloads", "it names the upstream, not just the Prowlarr row");
         _indexer.Downloads.Should().Be(0);
 
@@ -95,22 +99,39 @@ public sealed partial class IndexerSourceGrabTests
         _indexer.Downloads.Should().Be(1, "the other upstream behind the same row is not resting");
     }
 
-    [Fact]
-    public async Task A_pushed_release_names_no_indexer_row_so_its_refusal_is_keyed_to_nothing()
+    [Theory]
+    [InlineData("sentence")]
+    [InlineData("status-less 429")]
+    public async Task A_pushed_release_names_no_indexer_row_so_a_refusal_of_its_download_cools_nothing_down(string refusal)
     {
         var time = new FakeTimeProvider(CooldownStart);
         var cooldowns = new NzbCooldowns(time);
-        _indexer.Failure = new IndexerException("The indexer answered 429.", HttpStatusCode.TooManyRequests);
+
+        // The two ways a pushed link refuses: a 200 with the indexer's sentence, and what PushedReleaseClient
+        // throws for any non-success answer, an IndexerException that carries no status.
+        if (refusal == "sentence")
+        {
+            _indexer.Download = Plain("You already reached your daily restriction of 10 downloads.");
+        }
+        else
+        {
+            _indexer.Failure = new IndexerException("The pushed release's link answered 429.");
+        }
+
         var provider = Provider(DownloadProtocol.Usenet, nzbCache: new NzbCache(time), time: time, cooldowns: cooldowns);
+        var words = refusal == "sentence" ? "Indexer: You already reached your daily restriction of 10 downloads." : "The pushed release's link answered 429.";
 
-        var act = () => provider.GrabAsync(Pushed(UsenetCandidate("03 - Digital Love.flac", "push-1")), "wondarr/one", CancellationToken.None);
-
-        (await act.Should().ThrowAsync<DownloadClientException>()).Which.Message.Should().Be("Indexer: The indexer answered 429.");
+        var first = await FluentActions.Awaiting(() => provider.GrabAsync(Pushed(UsenetCandidate("03 - Digital Love.flac", "push-1")), "wondarr/one", CancellationToken.None))
+            .Should().ThrowAsync<Exception>();
+        first.Which.Message.Should().Be(words);
         cooldowns.TryGetUntil(new NzbSource(PushedReleaseClient.IndexerId, "Indexer"), out _).Should().BeFalse("row 0 is no indexer, and a name alone is not a key");
 
-        await FluentActions.Awaiting(() => provider.GrabAsync(Pushed(UsenetCandidate("05 - Crescendolls.flac", "push-2")), "wondarr/two", CancellationToken.None))
-            .Should().ThrowAsync<DownloadClientException>().WithMessage("Indexer: The indexer answered 429.");
-        _indexer.Downloads.Should().Be(2, "nothing was cooling down, so the second pushed release was asked for too");
+        var second = await FluentActions.Awaiting(() => provider.GrabAsync(Pushed(UsenetCandidate("05 - Crescendolls.flac", "push-2")), "wondarr/two", CancellationToken.None))
+            .Should().ThrowAsync<Exception>();
+        second.Which.Message.Should().Be(words, "a second pushed release is asked for, not turned away for a cool-down");
+        second.Which.Should().NotBeOfType<NzbCoolingException>();
+        _indexer.Downloads.Should().Be(2);
+        _usenet.Count.Should().Be(0);
     }
 
     [Theory]
@@ -172,7 +193,8 @@ public sealed partial class IndexerSourceGrabTests
 
         var act = () => provider.GrabAsync(UsenetCandidate("03 - Digital Love.flac"), "wondarr/one", CancellationToken.None);
 
-        await act.Should().ThrowAsync<Exception>();
+        (await act.Should().ThrowAsync<Exception>()).Which.Should().NotBeOfType<NzbCoolingException>();
+        _indexer.Downloads.Should().Be(1, "the download was made and failed, so it is not that the grab was turned away");
         cooldowns.TryGetUntil(TheIndexer, out _).Should().BeFalse("one bad post or a hiccup is not the indexer's quota");
     }
 
@@ -205,7 +227,7 @@ public sealed partial class IndexerSourceGrabTests
 
         var next = () => provider.GrabAsync(UsenetCandidate("05 - Crescendolls.flac", "nzb-guid-2"), "wondarr/two", CancellationToken.None).WaitAsync(Guard);
 
-        (await next.Should().ThrowAsync<DownloadClientException>()).Which.Message.Should().StartWith("Indexer is cooling down until ");
+        (await next.Should().ThrowAsync<NzbCoolingException>()).Which.Message.Should().StartWith("Indexer is cooling down until ");
         handler.Requests.Should().ContainSingle("the next grab of that indexer is turned away without a request");
     }
 
@@ -390,6 +412,82 @@ public sealed partial class IndexerSourceGrabTests
         cooldowns.TryGetUntil(TheIndexer, out var until).Should().BeTrue();
         until.Should().Be(CooldownStart.AddHours(2));
         _usenet.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_grab_the_client_refuses_leaves_an_nzb_that_was_in_the_cache_already()
+    {
+        var candidate = UsenetCandidate("03 - Digital Love.flac");
+        var cache = new NzbCache(TimeProvider.System);
+        var key = NzbCache.KeyOf(candidate.Release!.IndexerId, candidate.Release.DownloadUrl, candidate.Release.ReleaseId);
+        var kept = AlbumNzb();
+        cache.Put(key, kept);
+        _usenet.FailAdd = true;
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: cache);
+
+        await FluentActions.Awaiting(() => provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None))
+            .Should().ThrowAsync<DownloadClientException>().WithMessage("SABnzbd refused the NZB.");
+
+        _indexer.Downloads.Should().Be(0);
+        cache.TryGet(key, out var left).Should().BeTrue("a search or a push paid for it, not this grab");
+        left.Should().BeSameAs(kept);
+    }
+
+    [Fact]
+    public async Task A_grab_that_waited_for_a_searchs_download_leaves_its_nzb_in_the_cache_when_the_client_refuses()
+    {
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new SemaphoreSlim(0);
+        var sharing = new SignalLogger("sharing that download");
+        var client = new ScriptedIndexer
+        {
+            Releases = [Searched("nzb-guid-1", "https://usenet.example/get/1")],
+            Download = _ => new IndexerDownload(AlbumNzb(), null),
+            Hold = hold.Task,
+            OnDownload = () => started.Release(),
+        };
+        ListUsenetIndexer();
+        _usenet.FailAdd = true;
+        var cache = new NzbCache(TimeProvider.System);
+        var provider = Provider(DownloadProtocol.Usenet, client: client, nzbCache: cache, logger: sharing);
+        var candidate = UsenetCandidate("03 - Digital Love.flac");
+
+        var search = provider.SearchAsync(SearchRequest(), CancellationToken.None);
+        await DownloadStartedAsync(started);
+
+        var grab = provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None);
+        await sharing.Seen.WaitAsync(Guard);
+
+        hold.SetResult();
+        var result = await search.WaitAsync(Guard);
+        await FluentActions.Awaiting(() => grab.WaitAsync(Guard)).Should().ThrowAsync<DownloadClientException>().WithMessage("SABnzbd refused the NZB.");
+
+        client.Downloads.Should().Be(1);
+        result.Candidates.Should().ContainSingle();
+        cache.TryGet(NzbCache.KeyOf(candidate.Release!.IndexerId, candidate.Release.DownloadUrl, candidate.Release.ReleaseId), out _)
+            .Should().BeTrue("the search paid for that download and the grab only waited for it");
+    }
+
+    [Fact]
+    public async Task A_grab_the_client_refuses_takes_back_only_its_own_copy_not_one_that_replaced_it()
+    {
+        _indexer.Download = new IndexerDownload(AlbumNzb(), null);
+        var candidate = UsenetCandidate("03 - Digital Love.flac");
+        var cache = new NzbCache(TimeProvider.System);
+        var key = NzbCache.KeyOf(candidate.Release!.IndexerId, candidate.Release.DownloadUrl, candidate.Release.ReleaseId);
+        var replacement = AlbumNzb();
+
+        // Between the grab's download and the client's refusal another read puts its own copy in the cache.
+        _usenet.OnAdd = () => cache.Put(key, replacement);
+        _usenet.FailAdd = true;
+        var provider = Provider(DownloadProtocol.Usenet, nzbCache: cache);
+
+        await FluentActions.Awaiting(() => provider.GrabAsync(candidate, "wondarr/one", CancellationToken.None))
+            .Should().ThrowAsync<DownloadClientException>();
+
+        _indexer.Downloads.Should().Be(1);
+        cache.TryGet(key, out var left).Should().BeTrue();
+        left.Should().BeSameAs(replacement);
     }
 
     [Fact]

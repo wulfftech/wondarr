@@ -118,14 +118,19 @@ public sealed partial class IndexerSourceProvider
     /// down fails the grab at once, with no request sent. An indexer whose quota is spent answers 200 with a
     /// sentence, an error document, a 429 or a 403: that fails the grab with the indexer's own words
     /// (redacted) and starts the cool-down, so the download client is never handed something that is not an
-    /// NZB and the user sees why. None of these marks the post bad, and they are thrown as plain
-    /// <see cref="DownloadClientException"/>s, which the caller does not blocklist.
+    /// NZB and the user sees why. None of these marks the post bad: a refusal is a plain
+    /// <see cref="DownloadClientException"/>, which the caller does not blocklist, and a cooling indexer is an
+    /// <see cref="NzbCoolingException"/>, which the search service treats as the source's own bad moment.
     /// </summary>
     /// <param name="indexer">The indexer row to download through.</param>
     /// <param name="release">The release, as the grab knows it.</param>
     /// <param name="key">The release's cache key.</param>
     /// <param name="token">Cancels the wait, and the download when this call started it.</param>
-    private async Task<byte[]> DownloadNzbAsync(Indexer indexer, ContainerRelease release, string key, CancellationToken token)
+    /// <returns>
+    /// The NZB, and whether this call made the download itself (it started the flight): only then is the copy in
+    /// the cache this call's to take back. An NZB that was kept already, or that another read downloaded, is not.
+    /// </returns>
+    private async Task<(byte[] Nzb, bool Downloaded)> DownloadNzbAsync(Indexer indexer, ContainerRelease release, string key, CancellationToken token)
     {
         // Asked and keyed as a search asks: the name a release carries is the upstream's behind a Prowlarr row,
         // and that is what a refusal is kept under. A pushed release names no indexer row, so none is keyed.
@@ -162,12 +167,12 @@ public sealed partial class IndexerSourceProvider
 
             if (kept is not null)
             {
-                return kept;
+                return (kept, false);
             }
 
             if (cooling is { } end)
             {
-                throw new DownloadClientException(CoolingText(source!.Value, end));
+                throw new NzbCoolingException(CoolingText(source!.Value, end), end);
             }
 
             if (shared)
@@ -207,7 +212,7 @@ public sealed partial class IndexerSourceProvider
                 throw new DownloadClientException(string.Concat(release.IndexerName, ": ", failure));
             }
 
-            return fetch.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'.");
+            return (fetch.Content ?? throw new DownloadClientException($"The indexer returned no NZB for '{release.Title}'."), !shared);
         }
     }
 

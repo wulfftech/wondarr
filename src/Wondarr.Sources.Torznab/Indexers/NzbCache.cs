@@ -159,19 +159,30 @@ public sealed class NzbCache
         return false;
     }
 
-    /// <summary>Drops the NZB kept under a key, when there is one.</summary>
+    /// <summary>
+    /// Drops the NZB kept under a key, but only if what is kept is still this very array (compared by
+    /// reference, not by content): whoever downloaded an NZB can take back its own copy, never one that
+    /// another read has put there since.
+    /// </summary>
     /// <param name="key">The key from <see cref="KeyOf"/>.</param>
-    public void Remove(string key)
+    /// <param name="nzb">The array the caller put, or was handed by the download that put it.</param>
+    /// <returns><see langword="true"/> when the entry was dropped.</returns>
+    public bool Remove(string key, byte[] nzb)
     {
         ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(nzb);
 
         lock (_gate)
         {
-            if (_byKey.TryGetValue(key, out var node))
+            if (_byKey.TryGetValue(key, out var node) && ReferenceEquals(node.Value.Content, nzb))
             {
                 Remove(node);
+
+                return true;
             }
         }
+
+        return false;
     }
 
     private void DropExpired()

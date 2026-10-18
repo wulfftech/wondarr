@@ -171,6 +171,63 @@ public sealed class NzbDownloadRetryTests
     }
 
     [Fact]
+    public async Task An_nzb_download_that_cannot_connect_is_asked_twice_at_most()
+    {
+        var time = new FakeTimeProvider(Start);
+        var handler = new RecordingHandler(_ => throw new HttpRequestException("connection refused"));
+        await using var provider = BuildProvider(time, handler);
+        var client = provider.GetRequiredService<NewznabIndexerClient>();
+
+        var pending = client.DownloadAsync(NewznabRow(), Release(DownloadProtocol.Usenet), CancellationToken.None);
+        await DriveAsync(time, pending);
+
+        await FluentActions.Awaiting(() => pending).Should().ThrowAsync<IndexerException>().WithMessage("The indexer could not be reached.");
+        handler.Requests.Should().HaveCount(2, "a transport failure gets the same single retry as a 5xx");
+        (time.GetUtcNow() - Start).Should().BeLessThanOrEqualTo(IndexerHttp.NzbRetryMaxDelay);
+    }
+
+    [Fact]
+    public async Task A_408_to_an_nzb_download_is_asked_twice_at_most()
+    {
+        var time = new FakeTimeProvider(Start);
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.RequestTimeout));
+        await using var provider = BuildProvider(time, handler);
+        var client = provider.GetRequiredService<NewznabIndexerClient>();
+
+        var pending = client.DownloadAsync(NewznabRow(), Release(DownloadProtocol.Usenet), CancellationToken.None);
+        await DriveAsync(time, pending);
+
+        await FluentActions.Awaiting(() => pending).Should().ThrowAsync<IndexerException>();
+        handler.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_search_request_that_cannot_connect_is_still_asked_three_times()
+    {
+        var time = new FakeTimeProvider(Start);
+        var searches = 0;
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.Query.Contains("t=caps", StringComparison.Ordinal))
+            {
+                return TorznabFixtures.Response("caps-q-only.xml");
+            }
+
+            Interlocked.Increment(ref searches);
+
+            throw new HttpRequestException("connection refused");
+        });
+        await using var provider = BuildProvider(time, handler);
+        var client = provider.GetRequiredService<NewznabIndexerClient>();
+
+        var pending = client.SearchAsync(NewznabRow(), new ReleaseQuery("Daft Punk", "Discovery", 2001), CancellationToken.None);
+        await DriveAsync(time, pending);
+
+        await FluentActions.Awaiting(() => pending).Should().ThrowAsync<IndexerException>();
+        searches.Should().Be(3);
+    }
+
+    [Fact]
     public async Task A_search_request_with_a_long_retry_after_on_a_503_still_waits_for_all_of_it()
     {
         var time = new FakeTimeProvider(Start);
