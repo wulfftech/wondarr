@@ -51,6 +51,22 @@ public sealed class NzbCacheTests
     }
 
     [Fact]
+    public void Removes_the_nzb_under_a_key_and_its_bytes_and_ignores_a_key_it_does_not_hold()
+    {
+        var cache = new NzbCache(new FakeTimeProvider(Start));
+        cache.Put("a", Bytes(10));
+        cache.Put("b", Bytes(20));
+
+        cache.Remove("a");
+        cache.Remove("never-put");
+
+        cache.TryGet("a", out _).Should().BeFalse();
+        cache.TryGet("b", out _).Should().BeTrue("another key is left alone");
+        cache.Count.Should().Be(1);
+        cache.Bytes.Should().Be(20);
+    }
+
+    [Fact]
     public void Evicts_the_oldest_when_there_are_more_entries_than_allowed()
     {
         var cache = new NzbCache(new FakeTimeProvider(Start), maxEntries: 3, maxBytes: 1_000_000, lifetime: TimeSpan.FromHours(6));
