@@ -1,6 +1,6 @@
 # Contributing
 
-Wondarr is a self-hosted \*arr for **single songs**, under the owner's direction. Human contributions are welcome once the first release is cut; until then, open an issue before starting work so it can be folded into the phase plan.
+Wondarr is a self-hosted \*arr for **single songs**, under the owner's direction. Contributions are welcome: for anything bigger than a small fix, open an issue before starting work so it can be planned.
 
 ## Prerequisites
 
@@ -57,7 +57,7 @@ The binding rules are in [`docs/build/CODING_STANDARDS.md`](docs/build/CODING_ST
 
 ## Commits and branches
 
-[Conventional Commits](https://www.conventionalcommits.org/), imperative mood, scope in parentheses where useful (`feat(slskd): …`). Branch names are `phase<n>/<task-id>-<slug>`, e.g. `phase0/P0-12-contributor-docs`. Outside contributors open pull requests rather than pushing to `main`; never put model names or AI-session identifiers in commit messages.
+[Conventional Commits](https://www.conventionalcommits.org/), imperative mood, scope in parentheses where useful (`feat(slskd): …`). Branch names are `<type>/<slug>`, e.g. `fix/sabnzbd-renamed-file`. Outside contributors open pull requests rather than pushing to `main`; never put model names or AI-session identifiers in commit messages.
 
 ## Ported code
 
