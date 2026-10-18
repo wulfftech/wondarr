@@ -6,6 +6,7 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ### Changed
 - The repository no longer carries internal planning and research notes; public docs no longer cite them.
+- **Dependencies updated:** Quartz.Extensions.Hosting 4.5.1 (4.4 code runs unchanged; no schema change).
 
 ## [0.1.8] — 2026-10-17
 
