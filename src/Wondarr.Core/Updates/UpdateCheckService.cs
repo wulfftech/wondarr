@@ -342,8 +342,8 @@ public sealed partial class UpdateCheckService : IUpdateCheckService, IDisposabl
         Fail($"GitHub answered {(int)response.StatusCode} {response.ReasonPhrase}".TrimEnd() + ".");
     }
 
-    /// <summary>When GitHub says we may ask again, or <see langword="null"/> when this is not a rate limit.</summary>
-    private static DateTimeOffset? LimitEnd(HttpResponseMessage response, DateTimeOffset now)
+    /// <summary>When GitHub says we may ask again, or <see langword="null"/> when this is not a rate limit. The feedback service reads it too.</summary>
+    internal static DateTimeOffset? LimitEnd(HttpResponseMessage response, DateTimeOffset now)
     {
         var retryAfter = response.Headers.RetryAfter;
 

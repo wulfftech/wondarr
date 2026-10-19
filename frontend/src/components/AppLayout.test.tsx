@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -134,5 +134,15 @@ describe('AppLayout', () => {
     });
 
     expect(await screen.findByLabelText('1 health issue')).toBeInTheDocument();
+  });
+
+  it('puts the feedback button right before the theme toggle', () => {
+    renderLayout();
+
+    const names = within(screen.getByRole('banner'))
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+
+    expect(names.indexOf('Toggle the colour scheme') - names.indexOf('Send feedback')).toBe(1);
   });
 });

@@ -34,6 +34,7 @@ import { useAppConfig } from '../api/context';
 import { useHealth } from '../api/hooks';
 import { useMatchQueueTotal } from '../api/references';
 import { isProblem } from '../api/types';
+import { FeedbackButton } from './FeedbackButton';
 import { UpdateBadge } from './UpdateBadge';
 
 const NAV_ITEMS = [
@@ -112,7 +113,7 @@ function useAfterGrace(active: boolean, delayMs: number): boolean {
   return active && elapsed;
 }
 
-/** The *arr shell: a fixed navbar, a header with the instance name, health and the theme toggle. */
+/** The *arr shell: a fixed navbar, a header with the instance name, health, feedback and the theme toggle. */
 export function AppLayout() {
   const { instanceName } = useAppConfig();
   const problemCount = useProblemCount();
@@ -154,6 +155,7 @@ export function AppLayout() {
             </VisuallyHidden>
             <UpdateBadge />
             {problemCount !== null && <HealthBadge count={problemCount} />}
+            <FeedbackButton />
             <ColorSchemeToggle />
           </Group>
         </Group>

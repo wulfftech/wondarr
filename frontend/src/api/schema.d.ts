@@ -4380,6 +4380,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FeedbackStatusResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FeedbackCreateResource"];
+                    "application/*+json": components["schemas"]["FeedbackCreateResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FeedbackResultResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/downloadclient": {
         parameters: {
             query?: never;
@@ -5585,6 +5644,33 @@ export interface components {
         EntityTagHeaderValue: {
             tag?: components["schemas"]["StringSegment"];
             isWeak?: boolean;
+        };
+        FeedbackCreateResource: {
+            kind?: components["schemas"]["FeedbackKind"];
+            text?: null | string;
+            page?: null | string;
+            pageTitle?: null | string;
+        };
+        /**
+         * @default 0
+         * @enum {string}
+         */
+        FeedbackKind: "bug" | "idea";
+        FeedbackResultResource: {
+            raised: boolean;
+            issueUrl: string;
+            /** Format: int32 */
+            issueNumber: null | number | string;
+            reason: null | string;
+            mayBeRaised: boolean;
+            issueListUrl: string;
+        };
+        FeedbackStatusResource: {
+            autoRaise: boolean;
+            repository: string;
+            repositoryUrl: string;
+            /** Format: int32 */
+            maxTextLength: number | string;
         };
         FileStreamResult: {
             fileStream?: components["schemas"]["Stream"];
