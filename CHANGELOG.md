@@ -4,6 +4,13 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.10] — 2026-10-20
+
+A feedback button in the header turns a bug report or an idea into a GitHub issue. Update by pulling `:0.1` (or `:0.1.10`).
+
+**Upgrading from 0.1.9:**
+- **No database migration.** One new, optional setting: `feedback.github_token` (environment `APP__FEEDBACK__GITHUB_TOKEN`). Without it the button hands you GitHub's issue form, filled in, to submit yourself; with it Wondarr opens the issue for you. See [Configuration → feedback](https://wulfftech.github.io/wondarr/reference/configuration/#feedback).
+
 ### Added
 - **A feedback button in the header**, beside the theme toggle. It opens one text box, Bug or Idea, and sends it with the page you are on and the Wondarr version. Every submission is written to the log first. With `feedback.github_token` set (`APP__FEEDBACK__GITHUB_TOKEN`; a GitHub token that may open issues on `wulfftech/wondarr`), Wondarr opens the issue itself, labelled `bug` or `enhancement`, and links it. Without a token, or when GitHub refuses the token, is rate limiting or cannot be reached, the dialog links GitHub's new-issue form with everything filled in, and you press Create there. Known secrets (the API key, indexer and client keys, tokens) and home folders are removed from what goes to the public issue. The request is never retried; when GitHub took it but did not answer, the dialog says the issue may exist and links the issue list. GitHub's rate limit and `Retry-After` are honoured, and Wondarr opens at most 5 issues every 10 minutes. No migration.
 
