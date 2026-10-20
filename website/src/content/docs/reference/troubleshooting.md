@@ -74,6 +74,10 @@ Wondarr shows such a grab as **Queued by peer** with the message "Waiting for pe
 
 The **Queue** and **History** pages show which release a file came out of, the file's name inside it and how many other songs came with it, so you can see which release stalled.
 
+## Reporting a problem
+
+The **feedback** button in the header, beside the theme toggle, sends a bug report or an idea with the page you are on and your Wondarr version. Without a GitHub token in [`feedback.github_token`](/wondarr/reference/configuration/#feedback) it opens GitHub's issue form filled in; press **Create** there. Each submission is also written to the log, so nothing is lost if you close GitHub without sending it.
+
 ## Where the logs are
 
 **Logs** in the web UI navigation, and the files in `/config/logs` (`wondarr-<date>.json`). Slskd's output is in the same log. Set `log.level` to `Debug` for more detail. See [Tasks, backups and logs](/wondarr/operations/tasks-backups-logs/).

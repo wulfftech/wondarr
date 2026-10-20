@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **A feedback button in the header**, beside the theme toggle. It opens one text box, Bug or Idea, and sends it with the page you are on and the Wondarr version. Every submission is written to the log first. With `feedback.github_token` set (`APP__FEEDBACK__GITHUB_TOKEN`; a GitHub token that may open issues on `wulfftech/wondarr`), Wondarr opens the issue itself, labelled `bug` or `enhancement`, and links it. Without a token, or when GitHub refuses the token, is rate limiting or cannot be reached, the dialog links GitHub's new-issue form with everything filled in, and you press Create there. Known secrets (the API key, indexer and client keys, tokens) and home folders are removed from what goes to the public issue. The request is never retried; when GitHub took it but did not answer, the dialog says the issue may exist and links the issue list. GitHub's rate limit and `Retry-After` are honoured, and Wondarr opens at most 5 issues every 10 minutes. No migration.
+
 ## [0.1.9] — 2026-10-18
 
 Reference libraries forgive a few bad MP3 frames, and the usenet indexer pause from 0.1.8 now covers grabs and pushed releases too. Update by pulling `:0.1` (or `:0.1.9`).

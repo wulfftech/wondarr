@@ -155,6 +155,14 @@ Wondarr asks Last.fm for at most four requests a second, keeps each answer in me
 
 A newer release shows as an **Update available** badge, on **System → Updates** and, if you subscribe a notification to it, as a message. See [Upgrading](/wondarr/getting-started/install/#upgrading). A value set by the environment variable shows as read-only in the web UI.
 
+## feedback
+
+| Key | Default | Meaning |
+|---|---|---|
+| `github_token` | none | A GitHub token that may open issues on `wulfftech/wondarr`: a fine-grained token with **Issues: read and write** on that repository, or a classic token with `public_repo`. Optional. With it, the feedback button opens the issue for you; without it, the button hands you GitHub's new-issue form, filled in, to submit yourself. Environment: `APP__FEEDBACK__GITHUB_TOKEN`. Kept out of the logs. |
+
+The issue says which page you were on (its path, such as `/wanted?page=2`, and its heading) and which Wondarr version you run, and is labelled `bug` or `enhancement`. It never includes your server's address or settings, and the keys and tokens Wondarr knows are removed from your text before it goes out. GitHub only applies the label when the token's account can triage the repository. Issues are public, and an issue opened with a token carries the token owner's name, so Wondarr opens at most 5 every 10 minutes; past that, and while GitHub is rate limiting, you get the filled-in form instead.
+
 ## media
 
 | Key | Default | Meaning |

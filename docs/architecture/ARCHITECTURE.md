@@ -163,6 +163,7 @@ GET    /api/v1/log/file   GET /api/v1/log/file/{name}   (text/plain)
 GET    /api/v1/system/backup  | POST /api/v1/system/backup  DELETE /api/v1/system/backup/{id}
 GET    /api/v1/system/backup/{id}/download
 POST   /api/v1/system/backup/restore/{id} | /restore/upload   (stage the restore; answered `restartRequired`, applied on the next start)
+GET    /api/v1/feedback  | POST /api/v1/feedback {kind: bug|idea, text (1..4000), page?, pageTitle?} -> {raised, issueUrl, issueNumber?, reason?, mayBeRaised, issueListUrl}   (the header's feedback button: logged, then opened as a GitHub issue with `feedback.github_token`, else answered with the prefilled new-issue form; registered secrets redacted from the issue; never retried, `mayBeRaised` after a timeout or a dropped connection; GitHub's rate limit and any `Retry-After` honoured; at most 5 issues per 10 minutes)
 GET    /api/v1/song?artistId=&monitored=&page=…        POST /api/v1/song      PUT/DELETE /api/v1/song/{id}
 POST   /api/v1/song/lookup?term=… | ?mbid= | ?isrc= | ?spotifyId= | ?deezerId= | ?url=   (resolve without adding)
 GET    /api/v1/song/{id}/albumcontexts                   PUT /api/v1/song/{id}/albumcontext

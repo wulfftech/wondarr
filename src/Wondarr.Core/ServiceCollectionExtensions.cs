@@ -7,6 +7,7 @@ using Wondarr.Core.Compaction;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.DownloadClients;
+using Wondarr.Core.Feedback;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.History;
 using Wondarr.Core.Housekeeping;
@@ -213,6 +214,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, CheckForUpdatesCommandHandler>();
         services.AddSingleton<IHandle<UpdateAvailableEvent>>(provider => provider.GetRequiredService<NotificationDispatcher>());
 
+        // The feedback button in the header: logs each submission and raises it as a GitHub issue.
+        services.AddWondarrFeedback();
+
         // Lets the executor tell a handler DI cannot build from the ones it can.
         services.TryAddSingleton(new CommandHandlerRegistrations(services));
 
@@ -418,6 +422,12 @@ public static class ServiceCollectionExtensions
         // Whether Wondarr asks GitHub for new releases (update.check_enabled).
         services.AddOptions<UpdateOptions>()
             .Bind(configuration.GetSection("Update"));
+
+        // The optional GitHub token the feedback button opens issues with (feedback.github_token).
+        services.AddOptions<FeedbackOptions>()
+            .Bind(configuration.GetSection("Feedback"));
+
+        services.AddSingleton<IPostConfigureOptions<FeedbackOptions>, FeedbackOptionsPostConfigure>();
 
         services.AddSingleton<ISecretRegistry, SecretRegistry>();
 

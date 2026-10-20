@@ -3981,6 +3981,57 @@
         }
       }
     },
+    "/api/v1/feedback": {
+      "get": {
+        "tags": [
+          "Feedback"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackStatusResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Feedback"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackCreateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackCreateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResultResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/downloadclient": {
       "get": {
         "tags": [
@@ -6289,6 +6340,108 @@
           },
           "isWeak": {
             "type": "boolean"
+          }
+        }
+      },
+      "FeedbackCreateResource": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/FeedbackKind"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "page": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pageTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "FeedbackKind": {
+        "enum": [
+          "bug",
+          "idea"
+        ],
+        "type": "string",
+        "default": 0
+      },
+      "FeedbackResultResource": {
+        "required": [
+          "raised",
+          "issueUrl",
+          "issueNumber",
+          "reason",
+          "mayBeRaised",
+          "issueListUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "raised": {
+            "type": "boolean"
+          },
+          "issueUrl": {
+            "type": "string"
+          },
+          "issueNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mayBeRaised": {
+            "type": "boolean"
+          },
+          "issueListUrl": {
+            "type": "string"
+          }
+        }
+      },
+      "FeedbackStatusResource": {
+        "required": [
+          "autoRaise",
+          "repository",
+          "repositoryUrl",
+          "maxTextLength"
+        ],
+        "type": "object",
+        "properties": {
+          "autoRaise": {
+            "type": "boolean"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "repositoryUrl": {
+            "type": "string"
+          },
+          "maxTextLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -12413,6 +12566,9 @@
     },
     {
       "name": "Health"
+    },
+    {
+      "name": "Feedback"
     },
     {
       "name": "DownloadClient"
