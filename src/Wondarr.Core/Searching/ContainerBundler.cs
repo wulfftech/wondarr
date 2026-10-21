@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.References;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Searching;
@@ -75,7 +76,8 @@ public static class ContainerBundler
             .ConfigureAwait(false);
 
         // A song the user owns through a reference file is never searched for, upgraded or replaced, so
-        // it is never pulled into a bundle either (the same rule as SongSearchService).
+        // it is never pulled into a bundle either (the same rule as SongSearchService) — unless the user
+        // asked for that file to be replaced, when the cutoff decides as for a library file.
         var songIds = songs.Select(song => song.Id).ToList();
         var referenceOwned = await database.ReferenceFiles
             .AsNoTracking()
@@ -86,6 +88,9 @@ public static class ContainerBundler
             .Distinct()
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var replaceable = await ReferenceReplacement
+            .ReplaceableSongsAsync(database, songIds, cancellationToken)
+            .ConfigureAwait(false);
 
         var taken = new HashSet<int> { grabbedIndex };
         var bundle = new List<BundledSong>();
@@ -94,9 +99,10 @@ public static class ContainerBundler
         {
             // A managed file the song got later is Wondarr's to upgrade, whatever the reference row says.
             var ownedByUser = referenceOwned.Contains(song.Id)
-                && (song.File is null || song.File.SourceType == SourceTypes.Reference);
+                && (song.File is null || song.File.SourceType == SourceTypes.Reference)
+                && !replaceable.Contains(song.Id);
 
-            if (ownedByUser || busy.Contains(song.Id) || !Wants(song, candidate.QualityId, profiles))
+            if (ownedByUser || busy.Contains(song.Id) || !Wants(song, candidate.QualityId, profiles, replaceable))
             {
                 continue;
             }
@@ -179,16 +185,21 @@ public static class ContainerBundler
 
     /// <summary>
     /// Missing, or held below its cutoff at a quality the container improves on. A file from a
-    /// reference library is the user's own and is never replaced.
+    /// reference library is the user's own and is never replaced, unless the user asked for it to be.
     /// </summary>
-    private static bool Wants(Song song, long containerQualityId, Dictionary<long, QualityProfile> profiles)
+    private static bool Wants(
+        Song song,
+        long containerQualityId,
+        Dictionary<long, QualityProfile> profiles,
+        HashSet<long> replaceable)
     {
         if (song.File is not { } held)
         {
             return true;
         }
 
-        if (held.SourceType == SourceTypes.Reference || !profiles.TryGetValue(song.QualityProfileId, out var profile))
+        if ((held.SourceType == SourceTypes.Reference && !replaceable.Contains(song.Id))
+            || !profiles.TryGetValue(song.QualityProfileId, out var profile))
         {
             return false;
         }

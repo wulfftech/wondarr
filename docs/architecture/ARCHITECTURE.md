@@ -121,8 +121,8 @@ Notifier
 | `notification` | `type`, `name`, `settings` (json), `events` (json) |
 | `custom_filter` | `type` (e.g. `library`), `label` (unique per type), `filters` (json array of `{key, value, type}`) — a saved view of a list page |
 | `job` | `name`, `interval`, `last_run_at`, `next_run_at`, `last_result` |
-| `reference_library` | `name` (unique, case-insensitive), `root_path`, `mode` (reference/adopt), `library_id?` (the managed library songs are filed under; the target when adopting), `enabled`, `last_scanned_at?`, `last_scan_message?` |
-| `reference_file` | `reference_library_id`, `relative_path` (`/`-separated, unique per library), `size`, `modified_at` (UTC), `probe?` (json), `tags?` (json), `fingerprint?`, `acoust_id?`, `song_id?`, `confidence`, `state` (pending/identified/ambiguous/unmatched/adopted/unreadable/missing/skipped), `identified_by?`, `message?`, `last_seen_at`, `missing_since?` |
+| `reference_library` | `name` (unique, case-insensitive), `root_path`, `mode` (reference/adopt), `library_id?` (the managed library songs are filed under; the target when adopting), `enabled`, `replace_below_cutoff` (its songs may be replaced by better copies while below their cutoff), `last_scanned_at?`, `last_scan_message?` |
+| `reference_file` | `reference_library_id`, `relative_path` (`/`-separated, unique per library), `size`, `modified_at` (UTC), `probe?` (json), `tags?` (json), `fingerprint?`, `acoust_id?`, `song_id?`, `confidence`, `state` (pending/identified/ambiguous/unmatched/adopted/unreadable/missing/skipped), `identified_by?`, `message?`, `last_seen_at`, `missing_since?`, `likely_youtube_rip` (lossy at 48 kHz), `replace` (settled with Replace in the Match queue) |
 | `match_candidate` | `reference_file_id`, `rank` (1 = best), `identity` (json: source, recording MBID, Deezer id, title, artist credit, length, album), `score`, `reason` |
 | `compact_move` | `library_id`, `song_id`, `from_path?`, `staged_path?` (where the file waits while Plex forgets its old album), `to_path?` (the planner's expected path, informative), `final_path?`, `proposed` (json: the album context the move writes), `state` (planned/staged/placed/failed), `message?` — one row per move of a Compact library run, written before each step so an interrupted run resumes |
 | `slskd_state` | `version`, `logged_in`, `sharing`, `shared_dirs` (json), `restart_required`, `last_checked_at` |
@@ -172,8 +172,8 @@ GET    /api/v1/song also filters on term= (title or credit, `%`/`_` literal), ha
 PUT/DELETE /api/v1/song/editor  {songIds (1..1000), monitored?, qualityProfileId?, libraryId? (queues MoveSongs for songs not already there), tags?, applyTags? add|remove|replace} -> {songs, moveCommandIds}; DELETE {songIds} -> {deleted}; an unknown id is a 404 and changes nothing
 GET    /api/v1/tag  ([{label, songCount}], tags are lower-case labels on `song.tags`, no tag table)
 GET/POST/PUT/DELETE /api/v1/customfilter  (?type=; saved views; a duplicate label for the type is a 409)
-GET    /api/v1/referencelibrary | POST … | POST /api/v1/referencelibrary/{id}/scan
-GET    /api/v1/matchqueue  | POST /api/v1/matchqueue/{id}/resolve {identity}
+GET    /api/v1/referencelibrary | POST … | POST /api/v1/referencelibrary/{id}/scan | GET /api/v1/referencelibrary/replaced
+GET    /api/v1/matchqueue[?likelyYouTubeRip=true]  | POST /api/v1/matchqueue/{id}/resolve {identity, replace} | POST /api/v1/matchqueue/bulk {ids, replace}
 GET/PUT /api/v1/soulseek/settings   (writes through to slskd)   GET /api/v1/soulseek/status
 GET    /api/v1/artist  …  GET /api/v1/artist/{id}/toptracks
 GET    /api/v1/wanted/missing | /wanted/cutoff

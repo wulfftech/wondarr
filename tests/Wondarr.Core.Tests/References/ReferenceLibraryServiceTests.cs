@@ -228,6 +228,92 @@ public class ReferenceLibraryServiceTests : IDisposable
         summaries[1].Counts.Should().Be(new ReferenceLibraryCounts(1, 0, 0, 0, 0, 0, 0, 1, 0));
     }
 
+    // --- Replacing reference files (DECISIONS build session 14 #32) -----------------------------------
+
+    [Fact]
+    public async Task Replace_files_below_the_cutoff_is_stored_and_off_unless_asked_for()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+
+        var added = await service.AddAsync(
+            new ReferenceLibraryInput("Music", "/reference/music", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        added.Library.ReplaceBelowCutoff.Should().BeFalse();
+
+        var updated = await service.UpdateAsync(
+            added.Library.Id,
+            new ReferenceLibraryInput("Music", "/reference/music", ReferenceLibraryMode.Reference, null, true, ReplaceBelowCutoff: true),
+            CancellationToken.None);
+
+        updated!.Library.ReplaceBelowCutoff.Should().BeTrue();
+        (await context.ReferenceLibraries.AsNoTracking().SingleAsync()).ReplaceBelowCutoff.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_replaced_list_names_the_files_whose_song_now_holds_a_library_file()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+        var library = (await service.AddAsync(
+            new ReferenceLibraryInput("Music", "/reference/music", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None)).Library;
+
+        var replaced = await AddSongAsync(context, "Hip to Be Square");
+        var owned = await AddSongAsync(context, "The Power of Love");
+
+        AddFile(context, library.Id, "Huey Lewis/Hip to Be Square.mp3", ReferenceFileState.Identified, replaced);
+        AddFile(context, library.Id, "Huey Lewis/The Power of Love.mp3", ReferenceFileState.Identified, owned);
+        AddFile(context, library.Id, "Huey Lewis/Stuck with You.mp3", ReferenceFileState.Identified);
+        await context.SaveChangesAsync();
+
+        var rip = await context.ReferenceFiles.SingleAsync(row => row.SongId == replaced);
+        rip.LikelyYouTubeRip = true;
+        rip.Probe = "{\"codec\":\"mp3\",\"container\":\"mp3\",\"bitrateKbps\":268,\"sampleRate\":48000,\"bitDepth\":null,\"channels\":2,\"durationMs\":231811,\"isLossless\":false,\"sizeBytes\":7857630}";
+
+        // A download replaced the rip; the other song still holds its reference file.
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = replaced,
+            Path = "/data/music/Huey Lewis & the News/Hip to Be Square.flac",
+            SourceType = SourceTypes.Soulseek,
+            QualityId = 36,
+            ImportedAt = new DateTime(2026, 10, 21, 9, 0, 0, DateTimeKind.Utc),
+        });
+        context.SongFiles.Add(WithSourceRef(
+            NewFile(owned, "/reference/music/Huey Lewis/The Power of Love.mp3", SourceTypes.Reference, library.Id),
+            $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":2}}"));
+        await context.SaveChangesAsync();
+
+        var page = await service.GetReplacedAsync(new Wondarr.Core.Paging.PagingSpec(1, 20, null, true), null, CancellationToken.None);
+
+        page.TotalRecords.Should().Be(1);
+        var entry = page.Records.Single();
+        entry.RelativePath.Should().Be("Huey Lewis/Hip to Be Square.mp3");
+        entry.Path.Should().Be(Path.Combine("/reference/music", "Huey Lewis/Hip to Be Square.mp3".Replace('/', Path.DirectorySeparatorChar)));
+        entry.Title.Should().Be("Hip to Be Square");
+        entry.LikelyYouTubeRip.Should().BeTrue();
+        entry.QualityName.Should().Be("OPUS-160", "the rip is rated as a YouTube grab");
+        entry.LibraryPath.Should().Be("/data/music/Huey Lewis & the News/Hip to Be Square.flac");
+        entry.LibraryQualityName.Should().NotBeNullOrEmpty();
+        entry.LibraryFileSince.Should().Be(new DateTime(2026, 10, 21, 9, 0, 0, DateTimeKind.Utc));
+        entry.LibraryCopyRatesLower.Should().BeFalse("a FLAC beats a rip");
+
+        // The song had an MP3-128 library copy and the user's file is a FLAC: the user's file is the keeper.
+        var worse = await context.SongFiles.SingleAsync(file => file.SongId == replaced);
+        worse.QualityId = 13;
+        rip.Probe = "{\"codec\":\"flac\",\"container\":\"flac\",\"bitrateKbps\":900,\"sampleRate\":44100,\"bitDepth\":16,\"channels\":2,\"durationMs\":231811,\"isLossless\":true,\"sizeBytes\":1}";
+        await context.SaveChangesAsync();
+
+        (await service.GetReplacedAsync(new Wondarr.Core.Paging.PagingSpec(1, 20, null, true), null, CancellationToken.None))
+            .Records.Single().LibraryCopyRatesLower.Should().BeTrue();
+
+        var counts = (await service.ListAsync(CancellationToken.None)).Single().Counts;
+        counts.Replaced.Should().Be(1);
+        counts.LikelyYouTubeRips.Should().Be(1);
+    }
+
     [Fact]
     public async Task Deleting_a_library_frees_only_the_songs_owned_through_its_files()
     {

@@ -140,6 +140,44 @@ public sealed class WantedServiceTests
     }
 
     [Fact]
+    public async Task Cutoff_lists_a_song_whose_reference_file_may_be_replaced()
+    {
+        using var database = new SqliteTestDatabase();
+        var time = new FakeTimeProvider(Now);
+        await database.MigrateAsync(time);
+
+        await using (var context = database.CreateContext(time))
+        {
+            var artist = new Artist { Name = "Aphex Twin", SortName = "Aphex Twin" };
+            context.Artists.Add(artist);
+            await context.SaveChangesAsync();
+
+            var replacing = new ReferenceLibrary { Name = "Rips", RootPath = "/reference/rips", ReplaceBelowCutoff = true };
+            var keeping = new ReferenceLibrary { Name = "Music", RootPath = "/reference/music" };
+            context.ReferenceLibraries.AddRange(replacing, keeping);
+
+            var rip = NewSong(artist, "Rip", monitored: true);
+            var kept = NewSong(artist, "Kept", monitored: true);
+            var good = NewSong(artist, "Good", monitored: true);
+            var asked = NewSong(artist, "Asked", monitored: true);
+            context.Songs.AddRange(rip, kept, good, asked);
+            await context.SaveChangesAsync();
+
+            // Rated OPUS-160 (a likely YouTube rip), MP3-256, MP3-320 and OPUS-160: all but the third are
+            // below the Standard 320 cutoff. The first is in a library that replaces them, the last was
+            // settled with Replace in a library that does not.
+            await HeldReferenceAsync(context, replacing, rip, SeedData.Opus160QualityId);
+            await HeldReferenceAsync(context, keeping, kept, Mp3256);
+            await HeldReferenceAsync(context, replacing, good, Mp3320);
+            await HeldReferenceAsync(context, keeping, asked, SeedData.Opus160QualityId, replace: true);
+        }
+
+        var page = await Service(database, time).GetCutoffUnmetAsync(new PagingSpec(1, 20, "title", false), CancellationToken.None);
+
+        page.Records.Select(song => song.Title).Should().Equal("Asked", "Rip");
+    }
+
+    [Fact]
     public async Task Paging_returns_the_second_song_by_the_requested_sort()
     {
         using var database = new SqliteTestDatabase();
@@ -188,6 +226,33 @@ public sealed class WantedServiceTests
 
         new PagingSpec(3, 0, "title", false).PageSize.Should().Be(PagingSpec.MinPageSize);
         new PagingSpec(3, 10, "title", false).Skip.Should().Be(20);
+    }
+
+    /// <summary>Links a song to an Identified reference file of the library, the way a scan does.</summary>
+    private static async Task HeldReferenceAsync(
+        WondarrDbContext context,
+        ReferenceLibrary library,
+        Song song,
+        long qualityId,
+        bool replace = false)
+    {
+        var row = new ReferenceFile
+        {
+            ReferenceLibraryId = library.Id,
+            RelativePath = $"{song.Title}.mp3",
+            SongId = song.Id,
+            State = ReferenceFileState.Identified,
+            Replace = replace,
+        };
+        context.ReferenceFiles.Add(row);
+        await context.SaveChangesAsync();
+
+        var file = NewFile(song, qualityId);
+        file.SourceType = SourceTypes.Reference;
+        file.Path = $"{library.RootPath}/{song.Title}.mp3";
+        file.SourceRef = $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":{row.Id}}}";
+        context.SongFiles.Add(file);
+        await context.SaveChangesAsync();
     }
 
     private static WantedService Service(SqliteTestDatabase database, FakeTimeProvider time) =>

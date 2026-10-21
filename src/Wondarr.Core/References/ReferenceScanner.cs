@@ -7,6 +7,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
 
 namespace Wondarr.Core.References;
@@ -288,6 +289,19 @@ public sealed partial class ReferenceScanner(
         // seen missing on a later scan as well, which is the first half of letting their song go.
         var stillMissing = new List<ReferenceFile>();
 
+        // Rows whose song now holds a library file own nothing (DECISIONS build session 14 #32): the user
+        // deleting such a file is the point of the Replaced list, so it is no sign of an unmounted share.
+        // Its row goes missing like any other, and is deleted after the same grace a release waits for.
+        var superseded = (await database.ReferenceFiles
+            .AsNoTracking()
+            .Where(row => row.ReferenceLibraryId == referenceLibraryId
+                && row.SongId != null
+                && database.SongFiles.Any(file => file.SongId == row.SongId && file.SourceType != SourceTypes.Reference))
+            .Select(row => row.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false)).ToHashSet();
+        var replacedGone = 0;
+
         foreach (var row in rows)
         {
             // An adopted file is the library's now (adoption copies it; a user who then deletes the
@@ -322,7 +336,7 @@ public sealed partial class ReferenceScanner(
 
         foreach (var row in rows)
         {
-            if (row.SongId is null)
+            if (row.SongId is null || superseded.Contains(row.Id))
             {
                 continue;
             }
@@ -353,6 +367,18 @@ public sealed partial class ReferenceScanner(
                     || row.MissingSince is not { } since
                     || now - since < ReferenceMissingRules.Grace)
                 {
+                    continue;
+                }
+
+                // A replaced file the user deleted: nothing depends on its row, so it goes rather than
+                // staying missing for good. A share that drops out for a scan or two keeps it.
+                if (superseded.Contains(row.Id))
+                {
+                    var gone = Track(row);
+                    database.ReferenceFiles.Remove(gone);
+                    touched.Add(gone);
+                    replacedGone++;
+
                     continue;
                 }
 
@@ -410,6 +436,11 @@ public sealed partial class ReferenceScanner(
             }
         }
 
+        if (replacedGone > 0)
+        {
+            LogReplacedGone(logger, referenceLibraryId, replacedGone);
+        }
+
         var result = new ReferenceScanResult(
             files.Count, added, changed, unchanged, missing, unreadable, released, mountProblem);
 
@@ -462,6 +493,7 @@ public sealed partial class ReferenceScanner(
         if (probed is { Decodable: true, Info: not null })
         {
             row.Probe = JsonSerializer.Serialize(probed.Info, StoredJson);
+            row.LikelyYouTubeRip = YouTubeRips.IsLikely(probed.Info);
 
             if (probed.Tolerated is { } tolerated)
             {
@@ -521,6 +553,7 @@ public sealed partial class ReferenceScanner(
         if (probed is { Decodable: true, Info: not null })
         {
             row.Probe = JsonSerializer.Serialize(probed.Info, StoredJson);
+            row.LikelyYouTubeRip = YouTubeRips.IsLikely(probed.Info);
 
             // A few bad frames in a file that plays: it is identified like any other, and the row says so
             // until identification replaces the message.
@@ -537,6 +570,7 @@ public sealed partial class ReferenceScanner(
         else
         {
             row.Probe = null;
+            row.LikelyYouTubeRip = false;
             row.State = ReferenceFileState.Unreadable;
             row.Message = probed.Error ?? "the file is not decodable audio";
         }
@@ -752,6 +786,9 @@ public sealed partial class ReferenceScanner(
         Level = LogLevel.Warning,
         Message = "Reference library {ReferenceLibraryId} has {Missing} of {Owned} owned files missing; this looks like a share that is not mounted, so no song is released")]
     private static partial void LogMountProblem(ILogger logger, long referenceLibraryId, int missing, int owned);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Reference library {ReferenceLibraryId}: {Files} files a library copy had replaced stayed gone; their rows were removed")]
+    private static partial void LogReplacedGone(ILogger logger, long referenceLibraryId, int files);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Reference file {ReferenceFileId} stayed missing; song {SongId} is wanted again")]
     private static partial void LogReleased(ILogger logger, long referenceFileId, long songId);

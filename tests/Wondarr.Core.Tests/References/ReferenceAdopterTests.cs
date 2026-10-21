@@ -92,6 +92,29 @@ public sealed class ReferenceAdopterTests : IDisposable
     // --- The file ------------------------------------------------------------------------------
 
     [Fact]
+    public async Task A_likely_youtube_rip_is_adopted_at_opus_160()
+    {
+        await using var context = await ContextAsync();
+        var (target, reference) = await LibrariesAsync(context, ReferenceLibraryMode.Adopt);
+        var artist = await ArtistAsync(context);
+        var song = await SongAsync(context, artist.Id, target.Id);
+        var row = await ReferenceFileAsync(context, reference.Id, song.Id);
+
+        // Hip to Be Square: an MP3 at 48 kHz that measures as V0 (DECISIONS build session 14 #32).
+        row.Probe = JsonSerializer.Serialize(new MediaInfo("mp3", "mp3", 268, 48_000, null, 2, 248_000, false, 512), StoredJson);
+        row.LikelyYouTubeRip = true;
+        await context.SaveChangesAsync();
+        await SongFileAsync(context, song.Id, AbsolutePath(row.RelativePath), SourceTypes.Reference);
+        context.ChangeTracker.Clear();
+
+        (await Adopter(context).AdoptAsync(reference.Id, null, CancellationToken.None))
+            .Should().Be(new ReferenceAdoptResult(1, 0, 0));
+
+        (await context.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == song.Id)).QualityId
+            .Should().Be(SeedData.Opus160QualityId, "the copy is the same bytes, so it stays a likely rip");
+    }
+
+    [Fact]
     public async Task An_identified_reference_file_is_copied_into_the_library_and_the_song_follows()
     {
         await using var context = await ContextAsync();

@@ -62,6 +62,113 @@ public sealed class UpgradeSearchCommandHandlerTests
     }
 
     [Fact]
+    public async Task A_reference_file_its_library_replaces_below_the_cutoff_is_upgraded()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var replaced = await host.SeedSongAsync("Alpha");
+        var kept = await host.SeedSongAsync("Beta");
+
+        await host.SeedHeldReferenceFileAsync(replaced, libraryReplaces: true);
+        await host.SeedHeldReferenceFileAsync(kept);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Should().ContainSingle("only the library that replaces files below the cutoff gives its song up");
+        host.Provider.Requests[0].Title.Should().Be("Alpha");
+        message.Should().Be("1 songs: 1 grabbed, 0 without an acceptable result, 0 skipped");
+    }
+
+    [Fact]
+    public async Task A_reference_file_settled_with_replace_is_upgraded_but_not_past_its_cutoff()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var rip = await host.SeedSongAsync("Alpha");
+        var good = await host.SeedSongAsync("Beta");
+
+        await host.SeedHeldReferenceFileAsync(rip, replace: true);
+        await host.SeedHeldReferenceFileAsync(good, qualityId: 29, replace: true);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        var message = await Handler(host).ExecuteAsync(Context([]), Token);
+
+        host.Provider.Requests.Should().ContainSingle("a file that meets the cutoff is not replaced, Replace or not");
+        host.Provider.Requests[0].Title.Should().Be("Alpha");
+        message.Should().Be("1 songs: 1 grabbed, 0 without an acceptable result, 0 skipped");
+    }
+
+    [Fact]
+    public async Task A_run_that_names_its_songs_searches_only_those_and_all_of_them()
+    {
+        await using var host = await SearchTestHost.CreateAsync(options => options.UpgradeBatchSize = 1);
+        var first = await host.SeedSongAsync("Alpha");
+        var second = await host.SeedSongAsync("Beta");
+        var other = await host.SeedSongAsync("Gamma");
+
+        await host.SeedHeldReferenceFileAsync(first, replace: true);
+        await host.SeedHeldReferenceFileAsync(second, replace: true);
+        await host.SeedFileAsync(other, qualityId: 23);
+
+        var context = new CommandContext(
+            1,
+            $"{{\"name\":\"UpgradeSearch\",\"songIds\":[{first},{second}]}}",
+            CommandTrigger.Manual,
+            _ => Task.CompletedTask);
+
+        var message = await Handler(host).ExecuteAsync(context, Token);
+
+        host.Provider.Requests.Select(request => request.Title).Should().BeEquivalentTo(
+            ["Alpha", "Beta"],
+            "the named songs are searched past the batch size, and the song nobody named is not");
+        message.Should().StartWith("2 songs: ");
+    }
+
+    [Fact]
+    public async Task A_run_that_names_its_songs_is_not_held_back_by_the_upgrade_backoff()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync("Alpha");
+        await host.SeedHeldReferenceFileAsync(songId, replace: true);
+
+        // A fruitless upgrade run a minute ago: the scheduled loop would wait before trying again.
+        await using (var context = host.Database.CreateContext(host.Time))
+        {
+            context.SearchRuns.Add(new SearchRun
+            {
+                SongId = songId,
+                Trigger = SearchTrigger.Upgrade,
+                StartedAt = host.Time.GetUtcNow().UtcDateTime.AddMinutes(-1),
+                Outcome = SearchOutcome.NoResults,
+            });
+            await context.SaveChangesAsync(Token);
+        }
+
+        (await Handler(host).ExecuteAsync(Context([]), Token))
+            .Should().StartWith("0 songs: ", "the scheduled run honours the backoff");
+
+        var named = new CommandContext(1, $"{{\"songIds\":[{songId}]}}", CommandTrigger.Manual, _ => Task.CompletedTask);
+
+        (await Handler(host).ExecuteAsync(named, Token))
+            .Should().StartWith("1 songs: ", "the user asked for this song now");
+    }
+
+    [Fact]
+    public async Task A_body_that_is_not_json_fails_rather_than_searching_every_song()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        await host.SeedFileAsync(songId, qualityId: 23);
+
+        var broken = new CommandContext(1, "{\"songIds\":[1,", CommandTrigger.Manual, _ => Task.CompletedTask);
+        var run = async () => await Handler(host).ExecuteAsync(broken, Token);
+
+        await run.Should().ThrowAsync<ArgumentException>();
+        host.Provider.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_song_with_a_grab_in_flight_is_not_upgraded()
     {
         await using var host = await SearchTestHost.CreateAsync();

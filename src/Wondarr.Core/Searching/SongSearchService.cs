@@ -13,6 +13,7 @@ using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
+using Wondarr.Core.References;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 
@@ -172,7 +173,8 @@ public interface ISongSearchService
 public sealed partial class SongSearchService : ISongSearchService
 {
     /// <summary>Why a song a reference file identifies is not searched for.</summary>
-    internal const string ReferenceOwnedMessage = "Owned through a reference library; it is never searched for";
+    internal const string ReferenceOwnedMessage =
+        "Owned through a reference library; it is searched for only when that library replaces files below the cutoff, or the file was settled with Replace";
 
     /// <summary>What a grab of a candidate whose download links were cleared says (R-082).</summary>
     internal const string LinkGoneMessage = "The download link of this release is no longer kept; search again to get a fresh one.";
@@ -288,8 +290,9 @@ public sealed partial class SongSearchService : ISongSearchService
             return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, "Already downloading");
         }
 
-        // A reference file the user owns is never searched for, upgraded or replaced: whatever asked
-        // (a search on add, the missing loop, a search now) ends here without opening a run.
+        // A reference file the user owns is never searched for, upgraded or replaced unless the user asked
+        // for it to be (ReferenceReplacement): whatever asked (a search on add, the missing loop, a search
+        // now) ends here without opening a run.
         if (grab && await IsOwnedThroughReferenceAsync(songId, cancellationToken).ConfigureAwait(false))
         {
             return new SongSearchResult(0, SearchOutcome.Cancelled, [], null, ReferenceOwnedMessage);
@@ -1467,8 +1470,18 @@ public sealed partial class SongSearchService : ISongSearchService
         return false;
     }
 
-    /// <summary>Whether a reference file currently identifies the song and no managed file replaced it, so the user owns it.</summary>
+    /// <summary>
+    /// Whether a reference file currently identifies the song and no managed file replaced it, so the user
+    /// owns it — unless the user asked for that file to be replaced (Replace in the Match queue, or its
+    /// library's "Replace files below the cutoff"): then the song is searched like any other, and the
+    /// cutoff decides (DECISIONS build session 14 #32).
+    /// </summary>
     private async Task<bool> IsOwnedThroughReferenceAsync(long songId, CancellationToken cancellationToken) =>
+        await IsHeldThroughReferenceAsync(songId, cancellationToken).ConfigureAwait(false)
+        && !await ReferenceReplacement.IsReplaceableAsync(_database, songId, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Whether a reference file currently identifies the song and no managed file replaced it.</summary>
+    private async Task<bool> IsHeldThroughReferenceAsync(long songId, CancellationToken cancellationToken) =>
         await _database.ReferenceFiles
             .AsNoTracking()
             .AnyAsync(

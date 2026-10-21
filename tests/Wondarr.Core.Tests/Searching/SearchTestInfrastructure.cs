@@ -310,6 +310,65 @@ internal sealed class SearchTestHost : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Gives a song the reference file a scan links: an Identified row in a reference library of its own,
+    /// and the reference <c>song_file</c> pointing at it, at the given quality.
+    /// </summary>
+    /// <param name="songId">The song.</param>
+    /// <param name="qualityId">The quality the file is rated at; 28 is OPUS-160, a likely YouTube rip.</param>
+    /// <param name="replace">Whether the row was settled with Replace in the Match queue.</param>
+    /// <param name="libraryReplaces">Whether the library replaces files below the cutoff.</param>
+    /// <returns>The reference row's id.</returns>
+    public async Task<long> SeedHeldReferenceFileAsync(
+        long songId,
+        long qualityId = 28,
+        bool replace = false,
+        bool libraryReplaces = false)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        var library = new ReferenceLibrary
+        {
+            Name = $"Reference {songId}",
+            RootPath = $"/reference/{songId}",
+            ReplaceBelowCutoff = libraryReplaces,
+        };
+        context.ReferenceLibraries.Add(library);
+        await context.SaveChangesAsync();
+
+        var row = new ReferenceFile
+        {
+            ReferenceLibraryId = library.Id,
+            RelativePath = $"{songId}.mp3",
+            Size = 7_800_000,
+            ModifiedAt = Time.GetUtcNow().UtcDateTime,
+            LastSeenAt = Time.GetUtcNow().UtcDateTime,
+            SongId = songId,
+            State = ReferenceFileState.Identified,
+            LikelyYouTubeRip = qualityId == SeedData.Opus160QualityId,
+            Replace = replace,
+        };
+        context.ReferenceFiles.Add(row);
+        await context.SaveChangesAsync();
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = $"/reference/{songId}/{songId}.mp3",
+            Size = 7_800_000,
+            Codec = "mp3",
+            Container = "mp3",
+            SampleRate = 48_000,
+            QualityId = qualityId,
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":{row.Id}}}",
+            ImportedAt = Time.GetUtcNow().UtcDateTime,
+        });
+        await context.SaveChangesAsync();
+
+        return row.Id;
+    }
+
     /// <summary>Inserts one finished run and one stored candidate, and returns the candidate's id.</summary>
     public async Task<long> SeedCandidateAsync(long songId, string scoreBreakdown)
     {

@@ -33,6 +33,13 @@ public sealed class ReferenceLibrary : EntityBase
     /// <summary>Gets or sets a value indicating whether the daily scan covers this library.</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether a song held by one of this library's files may be replaced
+    /// by a better copy while the file is below the song's cutoff (<c>ReferenceReplacement</c>). The
+    /// better copy goes into the managed library; the file here is never touched.
+    /// </summary>
+    public bool ReplaceBelowCutoff { get; set; }
+
     /// <summary>Gets or sets the UTC instant of the last completed scan, or <see langword="null"/>.</summary>
     public DateTime? LastScannedAt { get; set; }
 

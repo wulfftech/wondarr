@@ -496,6 +496,43 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
+    public async Task Records_the_placed_replacement_of_a_reference_file_and_leaves_the_users_file_alone()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        // The song was held by the user's rip (DECISIONS build session 14 #32), and the import of its
+        // replacement stopped between placing the file and recording it.
+        var userFile = Path.Combine(Path.GetTempPath(), $"wondarr-rip-{Guid.NewGuid():N}.mp3");
+        await File.WriteAllTextAsync(userFile, "the user's rip");
+        await host.AddSongFileAsync(seed.SongId, userFile, SourceTypes.Reference, SeedData.Opus160QualityId);
+
+        try
+        {
+            var landed = await host.LandFileAsync(seed, "flac");
+            File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(1));
+
+            await host.Tracker.RecoverAsync(CancellationToken.None);
+
+            (await host.ItemAsync(seed.QueueItemId)).State.Should().Be(QueueItemState.Imported);
+
+            var file = await host.SongFileAsync(seed.SongId);
+            file!.Path.Should().Be(landed);
+            file.SourceType.Should().Be(SourceTypes.Soulseek);
+            (await File.ReadAllTextAsync(userFile)).Should().Be("the user's rip", "recovery only rewrites the song's row");
+        }
+        finally
+        {
+            File.Delete(userFile);
+        }
+    }
+
+    [Fact]
     public async Task Does_not_record_a_file_another_song_already_owns()
     {
         await using var host = await QueueTestHost.CreateAsync();
@@ -939,7 +976,7 @@ internal sealed class QueueTestHost : IAsyncDisposable
     /// <summary>Gives a song a file row at <paramref name="path"/>, as if it owned that file.</summary>
     /// <param name="songId">The song's id.</param>
     /// <param name="path">The file the song owns.</param>
-    public async Task AddSongFileAsync(long songId, string path)
+    public async Task AddSongFileAsync(long songId, string path, string sourceType = SourceTypes.Soulseek, long qualityId = 36)
     {
         await using var context = _database.CreateContext(Time);
 
@@ -949,8 +986,8 @@ internal sealed class QueueTestHost : IAsyncDisposable
             Path = path,
             Codec = "flac",
             Container = "flac",
-            QualityId = 36,
-            SourceType = SourceTypes.Soulseek,
+            QualityId = qualityId,
+            SourceType = sourceType,
             ImportedAt = Time.GetUtcNow().UtcDateTime,
         });
 

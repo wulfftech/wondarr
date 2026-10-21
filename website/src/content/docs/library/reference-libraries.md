@@ -12,12 +12,13 @@ A reference library is a folder of music you already own. Wondarr scans it, work
 - **Mode**: **Reference** or **Adopt** (below).
 - **Target library**: with Reference, songs found here are filed under this library; with Adopt, "Adopted files are copied into this library."
 - **Scan daily**: on by default.
+- **Replace files below the cutoff**: off by default. See [Replacing files](#replacing-files) below.
 
-The table shows each library's mode, when it was last scanned (hover for the scan's message) and badges for how many files are identified, adopted, unreadable, missing or still need review.
+The table shows each library's mode, when it was last scanned (hover for the scan's message) and badges for how many files are identified, adopted, unreadable, missing or still need review, how many are likely YouTube rips, and how many a library copy has replaced.
 
 ## Reference only, or adopt
 
-- **Reference only**: Wondarr only reads the folder. An identified file becomes the song's file where it lies. The song counts as owned and is never searched for, upgraded or replaced automatically. If you later grab a file for it by hand, the new file goes into your managed library and the song points at it; your own file is left alone.
+- **Reference only**: Wondarr only reads the folder. An identified file becomes the song's file where it lies. The song counts as owned and is not searched for, upgraded or replaced automatically, unless you ask for that (see [Replacing files](#replacing-files)). If you grab a file for it by hand, the new file goes into your managed library and the song points at it; your own file is left alone.
 - **Adopt**: identified files are **copied** into the target library through the normal import path: tagged, filed by the library's layout and album policy, with cover and lyrics. The originals are never moved or changed. The copy is an ordinary library file from then on, so it can be upgraded. Use **Adopt now** in a library's menu to start it.
 
 In both modes your files are only ever read. Deleting a reference library does not touch them. The delete dialog tells you how many songs are owned through that folder and asks what should happen to them: keep them wanted (the default; the scheduled search picks them up in its own time), make them wanted and search every wanted song now (the search is not limited to these songs), or unmonitor them.
@@ -49,9 +50,35 @@ Each result carries a confidence. A tagged recording id scores 1.0 and an ISRC 0
 
 If AcoustID is rate-limited or down, the file is left pending and tried again on the next scan.
 
+## Likely YouTube rips
+
+YouTube serves its audio at 48 kHz; CDs and download stores use 44.1 kHz. So a lossy file (MP3, AAC, Opus, Vorbis) at 48 kHz is almost always a YouTube rip, even when it was re-encoded to a high-bitrate MP3 and retagged with MusicBrainz ids. The scan flags such a file as a **likely YouTube rip**. A lossless file at 48 kHz is never flagged, because 48 kHz is a real studio and store rate.
+
+A likely rip is rated no better than **OPUS-160**, the quality Wondarr gives its own YouTube downloads. By bitrate alone a rip re-encoded to MP3 V0 would rate as V0, but it holds no more than the Opus stream it came from. A rip that measures worse (say MP3-128) keeps its own, lower, rating. Files already scanned are flagged and re-rated on the upgrade, from what the scan stored; nothing is read again.
+
+Some rips land in the Match queue, because a music-video edit is a different length from the album recording its tags name. Most are identified like any other file, which is why the setting below matters.
+
+## Replacing files
+
+A song owned through a reference file can be replaced by a better copy, in two ways:
+
+- **Replace** in the Match queue accepts the recording, like **Accept**, and asks for a better copy of the file. If the file is below the song's quality profile cutoff, an **Upgrade Search** for the song starts at once, even if the song was searched for recently; if it already meets the cutoff, or the profile allows no upgrades, nothing is replaced and Wondarr says so.
+- **Replace files below the cutoff**, a setting on the reference library, does the same for every song held by one of the library's files, Match queue or not: such a song is upgraded like a library song, by the scheduled **Upgrade Search**, and shows under **Wanted → Cutoff Unmet**. Likely rips count as OPUS-160, so with the usual profiles they are below the cutoff.
+
+Either way the better copy goes into your managed library, filed, tagged and verified like any download (the fingerprint checks it is the recording the song names, so a video edit is replaced by the album version), and the song points at it. Your file is never written, moved or deleted.
+
+Retagging the file, or anything else that makes the scan read it again, keeps the **Replace** answer. **Skip** forgets it.
+
+## Replaced files
+
+**Replaced by a library copy**, below the table, lists the reference files whose song now uses a library file: a download replaced them, or the song had a library copy first. Nothing uses these files any more, so you can delete them; Wondarr never does. If Plex also scans the reference folder, it shows both copies until you do. Each row shows your file and its rating, the song, and the library copy's quality. When the library copy rates lower than your file (the song had a worse copy first), the row says **Your file rates higher**: keep that file. **Copy the paths on this page** copies the other files' paths, one per line, as the container sees them.
+
+A replaced file you delete never counts towards the "share not mounted" check described above, so deleting many of them at once raises no warning. Its row goes missing like any other and is dropped once it has stayed missing for 24 hours, on a scan that does not see a mount problem.
+
 ## The Match queue
 
-**Match** in the navigation lists the files Wondarr could not settle, with a count badge. Filter by **Reference library**. Each row shows the file, its format, length and bitrate, a **State** (**Needs review** or **No match**) and the top candidate.
+**Match** in the navigation lists the files Wondarr could not settle, with a count badge. Filter by **Reference library**, or turn on **Only likely YouTube rips**. Each row shows the file, its format (with a **Likely YouTube rip** badge when it is one), length, bitrate and sample rate, a **State** (**Needs review** or **No match**) and the top candidate.
 
 - **Accept** takes the top candidate. **Select all on this page** and **Accept top candidate for selected** do it for many files.
-- **Review** opens the file's drawer: what the file says about itself, the ranked candidates (with length difference, score and the reason for each), and a search box (**Artist – title**) to find the recording yourself. Accept a result, or **Skip** the file.
+- **Replace** takes the top candidate and asks for a better copy (see [Replacing files](#replacing-files)). **Replace selected** does it for many files.
+- **Review** opens the file's drawer: what the file says about itself, the ranked candidates (with length difference, score and the reason for each), and a search box (**Artist – title**) to find the recording yourself. **Accept** or **Replace** a candidate or a search result, or **Skip** the file.

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.References;
+using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.HealthCheck;
 
@@ -34,7 +35,11 @@ public sealed class ReferenceMissingFilesHealthCheck : IHealthCheck
         var counts = await _database.ReferenceFiles
             .AsNoTracking()
             .Where(file => file.SongId != null
-                && (file.State == ReferenceFileState.Identified || file.State == ReferenceFileState.Missing))
+                && (file.State == ReferenceFileState.Identified || file.State == ReferenceFileState.Missing)
+
+                // A file a library copy replaced owns nothing: deleting it is what the Replaced list is
+                // for, so it says nothing about the share (the scan's own count leaves it out too).
+                && !_database.SongFiles.Any(held => held.SongId == file.SongId && held.SourceType != SourceTypes.Reference))
             .GroupBy(file => file.ReferenceLibraryId)
             .Select(group => new
             {

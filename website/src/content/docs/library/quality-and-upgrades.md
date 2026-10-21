@@ -39,7 +39,7 @@ Each row has a **Search** button (automatic search) and an **Interactive search*
 
 ## Upgrades
 
-Wondarr looks for a better file for songs in **Cutoff Unmet** with the scheduled **Upgrade Search** task. It runs every `search.upgrade_interval_hours` (24) and takes at most `search.upgrade_batch_size` (50) songs, oldest first. It looks at monitored songs whose profile allows upgrades; it skips files from a [reference library](/wondarr/library/reference-libraries/), which are yours.
+Wondarr looks for a better file for songs in **Cutoff Unmet** with the scheduled **Upgrade Search** task. It runs every `search.upgrade_interval_hours` (24) and takes at most `search.upgrade_batch_size` (50) songs, oldest first. It looks at monitored songs whose profile allows upgrades; it skips files from a [reference library](/wondarr/library/reference-libraries/), which are yours, unless that library has **Replace files below the cutoff** on or the file was settled with **Replace** in the Match queue ([Replacing files](/wondarr/library/reference-libraries/#replacing-files)). Such a song also shows under **Cutoff Unmet**.
 
 An automatic upgrade is only taken when:
 

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.References;
 using Wondarr.Core.Sources;
 
 namespace Wondarr.Core.Searching;
@@ -22,6 +24,13 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
 {
     /// <summary>The name the <c>UpgradeSearch</c> scheduled task queues.</summary>
     public const string CommandName = "UpgradeSearch";
+
+    /// <summary>The command bodies are camelCase, like every other JSON this app exchanges.</summary>
+    private static readonly JsonSerializerOptions BodyJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+    };
 
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<SearchOptions> _options;
@@ -59,7 +68,7 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
         ArgumentNullException.ThrowIfNull(context);
 
         var options = _options.CurrentValue;
-        var songs = await SelectAsync(options, cancellationToken).ConfigureAwait(false);
+        var songs = await SelectAsync(options, ReadSongIds(context.Body), cancellationToken).ConfigureAwait(false);
 
         var grabbed = 0;
         var withoutAcceptable = 0;
@@ -130,12 +139,17 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
     }
 
     /// <summary>
-    /// Picks the batch: monitored songs that hold a file which is not a reference file, whose profile
-    /// allows upgrades and whose cutoff the file does not meet, with no grab in flight and their
-    /// upgrade backoff expired — the ones that have been waiting longest first, and never-searched
-    /// songs first of all.
+    /// Picks the batch: monitored songs that hold a file which is not a reference file (or one the user
+    /// asked to have replaced, DECISIONS build session 14 #32), whose profile allows upgrades and whose
+    /// cutoff the file does not meet, with no grab in flight and their upgrade backoff expired — the ones
+    /// that have been waiting longest first, and never-searched songs first of all. A run that names its
+    /// songs (Replace in the Match queue) looks at those and no others: the user asked for them now, so
+    /// neither the batch size nor the upgrade backoff holds them back. The cutoff still does.
     /// </summary>
-    private async Task<List<long>> SelectAsync(SearchOptions options, CancellationToken cancellationToken)
+    private async Task<List<long>> SelectAsync(
+        SearchOptions options,
+        IReadOnlyList<long>? onlySongs,
+        CancellationToken cancellationToken)
     {
         List<UpgradeSongRow> candidates;
         List<SearchRun> runs;
@@ -144,10 +158,15 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
         using (var scope = _scopes.CreateScope())
         {
             var database = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            var replaceable = (await ReferenceReplacement
+                .ReplaceableSongsAsync(database, onlySongs, cancellationToken)
+                .ConfigureAwait(false)).ToList();
 
             var wanted = database.Songs
                 .AsNoTracking()
-                .Where(song => song.Monitored && song.File != null && song.File.SourceType != SourceTypes.Reference)
+                .Where(song => song.Monitored
+                    && song.File != null
+                    && (song.File.SourceType != SourceTypes.Reference || replaceable.Contains(song.Id)))
                 .Where(song => !database.QueueItems.Any(item =>
                     item.SongId == song.Id
                     && (item.State == QueueItemState.Queued
@@ -160,6 +179,11 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
                 .Where(song => !database.CompactMoves
                     .Where(CompactMoveRules.IsUnfinished)
                     .Any(row => row.SongId == song.Id));
+
+            if (onlySongs is not null)
+            {
+                wanted = wanted.Where(song => onlySongs.Contains(song.Id));
+            }
 
             candidates = await wanted
                 .Select(song => new UpgradeSongRow(
@@ -209,12 +233,13 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
 
         foreach (var candidate in candidates)
         {
-            if (selected.Count >= options.UpgradeBatchSize)
+            if (onlySongs is null && selected.Count >= options.UpgradeBatchSize)
             {
                 break;
             }
 
-            if (SearchBackoff.IsEligible(
+            if (onlySongs is not null
+                || SearchBackoff.IsEligible(
                     [.. bySong[candidate.SongId]],
                     options,
                     now,
@@ -256,6 +281,34 @@ public sealed partial class UpgradeSearchCommandHandler : ICommandHandler
             options,
             active => LogWaitingForSlot(_logger, active),
             cancellationToken);
+
+    /// <summary>
+    /// The songs a body names (<c>{"name":"UpgradeSearch","songIds":[1,2]}</c>, what Replace in the Match
+    /// queue queues), or <see langword="null"/> for the scheduled run, which looks at every song. A body
+    /// that is not JSON fails the command: guessing would turn a run meant for a few songs into one over
+    /// every song below its cutoff.
+    /// </summary>
+    private static List<long>? ReadSongIds(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<UpgradeSearchBody>(body, BodyJson)?.SongIds is { } ids ? [.. ids] : null;
+        }
+        catch (JsonException exception)
+        {
+            throw new ArgumentException("The UpgradeSearch command body is not valid JSON.", exception);
+        }
+    }
+
+    /// <summary>The body of an upgrade search that was asked to look at particular songs.</summary>
+    /// <param name="Name">The command name, echoed by the API for readability.</param>
+    /// <param name="SongIds">The songs to look at.</param>
+    private sealed record UpgradeSearchBody(string? Name, List<long>? SongIds);
 
     /// <summary>One candidate song: its id, its profile, its held file's quality and import time, and when it was last upgrade-searched.</summary>
     private sealed record UpgradeSongRow(

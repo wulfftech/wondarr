@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.MusicBrainz;
@@ -40,6 +41,7 @@ public class ReferenceMatchServiceTests : IDisposable
     private readonly SqliteTestDatabase _database = new();
     private readonly FakeTimeProvider _timeProvider = new();
     private readonly IIdentityResolver _resolver = Substitute.For<IIdentityResolver>();
+    private readonly ICommandQueue _commands = Substitute.For<ICommandQueue>();
     private readonly IMusicBrainzClient _musicBrainz = Substitute.For<IMusicBrainzClient>();
     private readonly ICoverArtResolver _coverArt = Substitute.For<ICoverArtResolver>();
 
@@ -350,6 +352,7 @@ public class ReferenceMatchServiceTests : IDisposable
         var page = await Service(context).GetQueueAsync(
             new PagingSpec(1, 20, null, descending: false),
             library.Id,
+            likelyYouTubeRipsOnly: false,
             CancellationToken.None);
 
         page.TotalRecords.Should().Be(2);
@@ -370,6 +373,7 @@ public class ReferenceMatchServiceTests : IDisposable
         var page = await Service(context).GetQueueAsync(
             new PagingSpec(1, 20, "state", descending: false),
             null,
+            likelyYouTubeRipsOnly: false,
             CancellationToken.None);
 
         page.Records.Single().Candidates.Select(candidate => candidate.Rank).Should().Equal(1, 2);
@@ -415,9 +419,10 @@ public class ReferenceMatchServiceTests : IDisposable
                 context,
                 _resolver,
                 spy,
+                _commands,
                 _timeProvider,
                 NullLogger<ReferenceMatchService>.Instance)
-            .AcceptTopCandidatesAsync(ids, CancellationToken.None);
+            .AcceptTopCandidatesAsync(ids, replace: false, CancellationToken.None);
 
         result.Resolved.Should().Be(3);
         result.Failed.Should().Be(0);
@@ -451,8 +456,7 @@ public class ReferenceMatchServiceTests : IDisposable
             .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
 
         var result = await Service(context).AcceptTopCandidatesAsync(
-            [good.Id, noCandidate.Id, unmatched.Id],
-            CancellationToken.None);
+            [good.Id, noCandidate.Id, unmatched.Id], replace: false, CancellationToken.None);
 
         result.Resolved.Should().Be(1);
         result.Failed.Should().Be(2);
@@ -470,7 +474,7 @@ public class ReferenceMatchServiceTests : IDisposable
 
         var ids = Enumerable.Range(1, ReferenceMatchService.MaxBulkSize + 1).Select(index => (long)index).ToList();
 
-        var accept = async () => await Service(context).AcceptTopCandidatesAsync(ids, CancellationToken.None);
+        var accept = async () => await Service(context).AcceptTopCandidatesAsync(ids, replace: false, CancellationToken.None);
 
         await accept.Should().ThrowAsync<ArgumentException>();
     }
@@ -513,7 +517,7 @@ public class ReferenceMatchServiceTests : IDisposable
             var service = Service(context);
             await service.ResolveAsync(resolved.Id, new ReferenceResolveChoice(1, null, null, false), CancellationToken.None);
             await service.ResolveAsync(skipped.Id, new ReferenceResolveChoice(null, null, null, true), CancellationToken.None);
-            var result = await service.AcceptTopCandidatesAsync([bulk.Id], CancellationToken.None);
+            var result = await service.AcceptTopCandidatesAsync([bulk.Id], replace: false, CancellationToken.None);
 
             result.Resolved.Should().Be(1);
             (await context.SongFiles.AsNoTracking().CountAsync()).Should().Be(2, "the resolved and the bulk-accepted file");
@@ -537,6 +541,166 @@ public class ReferenceMatchServiceTests : IDisposable
 
     /// <summary>The quality the flushed-FLAC probe measures as, which seeded quality rows cover.</summary>
     private static readonly long ProbeQualityId = MeasuredQuality.FromMediaInfo(Probe(248_000));
+
+    // --- Replace and likely YouTube rips (DECISIONS build session 14 #32) -------------------------------
+
+    [Fact]
+    public async Task Replace_links_the_file_marks_it_and_searches_for_a_better_copy()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddRipAsync(context, library.Id, "a/Get Lucky.mp3");
+        await AddCandidateAsync(context, file.Id, 1, "m-a", null);
+        await context.SaveChangesAsync();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(1, null, null, false, Replace: true),
+            CancellationToken.None);
+
+        result.State.Should().Be(ReferenceFileState.Identified);
+        result.Replacement.Should().Be(ReferenceMatchService.SearchingMessage);
+
+        var row = await RowAsync(context, file.Id);
+        row.Replace.Should().BeTrue();
+
+        var held = await context.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == result.SongId);
+        held.QualityId.Should().Be(SeedData.Opus160QualityId, "a likely rip is rated no better than a YouTube grab");
+
+        await _commands.Received(1).EnqueueAsync(
+            "UpgradeSearch",
+            Arg.Is<string>(body => SongIdsOf(body).SequenceEqual(new[] { result.SongId!.Value })),
+            CommandTrigger.Manual,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Replace_of_a_file_that_meets_its_cutoff_searches_nothing_and_says_so()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/Get Lucky.flac", ReferenceFileState.Ambiguous);
+        await AddCandidateAsync(context, file.Id, 1, "m-a", null);
+        await context.SaveChangesAsync();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(1, null, null, false, Replace: true),
+            CancellationToken.None);
+
+        result.Replacement.Should().Be(ReferenceMatchService.MeetsCutoffMessage);
+        _commands.ReceivedCalls().Should().BeEmpty("a FLAC meets the Standard profile's cutoff");
+    }
+
+    [Fact]
+    public async Task Accept_without_replace_queues_nothing_and_leaves_the_file_owned()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddRipAsync(context, library.Id, "a/Get Lucky.mp3");
+        await AddCandidateAsync(context, file.Id, 1, "m-a", null);
+        await context.SaveChangesAsync();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(1, null, null, false),
+            CancellationToken.None);
+
+        result.Replacement.Should().BeNull();
+        (await RowAsync(context, file.Id)).Replace.Should().BeFalse();
+        _commands.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Skipping_a_file_settled_with_replace_forgets_the_answer()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddRipAsync(context, library.Id, "a/Get Lucky.mp3");
+        file.Replace = true;
+        await context.SaveChangesAsync();
+
+        await Service(context).ResolveAsync(file.Id, new ReferenceResolveChoice(null, null, null, Skip: true), CancellationToken.None);
+
+        var row = await RowAsync(context, file.Id);
+        row.State.Should().Be(ReferenceFileState.Skipped);
+        row.Replace.Should().BeFalse("a skipped file owns no song to replace");
+    }
+
+    [Fact]
+    public async Task Replace_cannot_be_combined_with_skip()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddRipAsync(context, library.Id, "a/Get Lucky.mp3");
+
+        var resolve = async () => await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, null, null, Skip: true, Replace: true),
+            CancellationToken.None);
+
+        await resolve.Should().ThrowAsync<ArgumentException>().WithMessage("*replace*skip*");
+        (await RowAsync(context, file.Id)).State.Should().Be(ReferenceFileState.Ambiguous);
+    }
+
+    [Fact]
+    public async Task Bulk_replace_marks_every_file_and_searches_the_songs_below_their_cutoff()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var rip = await AddRipAsync(context, library.Id, "a/Get Lucky.mp3");
+        var flac = await AddFileAsync(context, library.Id, "b/Lose Yourself to Dance.flac", ReferenceFileState.Ambiguous);
+        await AddCandidateAsync(context, rip.Id, 1, "m-a", null);
+        await AddCandidateAsync(context, flac.Id, 1, "m-b", null);
+        await context.SaveChangesAsync();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+        _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-b", "Lose Yourself to Dance", durationMs: 248_000));
+
+        var result = await Service(context).AcceptTopCandidatesAsync([rip.Id, flac.Id], replace: true, CancellationToken.None);
+
+        result.Resolved.Should().Be(2);
+        result.Searching.Should().Be(1, "the FLAC already meets its cutoff");
+        (await RowAsync(context, rip.Id)).Replace.Should().BeTrue();
+        (await RowAsync(context, flac.Id)).Replace.Should().BeTrue();
+
+        var ripSong = (await RowAsync(context, rip.Id)).SongId!.Value;
+
+        await _commands.Received(1).EnqueueAsync(
+            "UpgradeSearch",
+            Arg.Is<string>(body => SongIdsOf(body).SequenceEqual(new[] { ripSong })),
+            CommandTrigger.Manual,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task The_queue_can_be_narrowed_to_likely_youtube_rips()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        await AddRipAsync(context, library.Id, "a/Get Lucky.mp3");
+        await AddFileAsync(context, library.Id, "b/Lose Yourself to Dance.flac", ReferenceFileState.Ambiguous);
+
+        var page = await Service(context).GetQueueAsync(
+            new PagingSpec(1, 20, null, descending: false),
+            null,
+            likelyYouTubeRipsOnly: true,
+            CancellationToken.None);
+
+        page.TotalRecords.Should().Be(1);
+        page.Records.Single().RelativePath.Should().Be("a/Get Lucky.mp3");
+    }
 
     // --- A racing add of the same recording --------------------------------------------------------
 
@@ -740,7 +904,7 @@ public class ReferenceMatchServiceTests : IDisposable
         var winnerId = 0L;
         StubCoverArtThen(async () => winnerId = await SaveWinnerAsync("T1", "m-1"));
 
-        var result = await Service(context).AcceptTopCandidatesAsync(ids, CancellationToken.None);
+        var result = await Service(context).AcceptTopCandidatesAsync(ids, replace: false, CancellationToken.None);
 
         result.Errors.Should().BeEmpty();
         result.Resolved.Should().Be(3);
@@ -779,7 +943,7 @@ public class ReferenceMatchServiceTests : IDisposable
             "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
             + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
 
-        var result = await Service(context).AcceptTopCandidatesAsync([file.Id], CancellationToken.None);
+        var result = await Service(context).AcceptTopCandidatesAsync([file.Id], replace: false, CancellationToken.None);
 
         result.Resolved.Should().Be(0);
         result.Failed.Should().Be(1);
@@ -888,7 +1052,7 @@ public class ReferenceMatchServiceTests : IDisposable
         var artistId = 0L;
         StubCoverArtThen(async () => artistId = await SaveWinnerArtistAsync("Instant Crush"));
 
-        var result = await Service(context).AcceptTopCandidatesAsync(ids, CancellationToken.None);
+        var result = await Service(context).AcceptTopCandidatesAsync(ids, replace: false, CancellationToken.None);
 
         result.Errors.Should().BeEmpty();
         result.Resolved.Should().Be(3);
@@ -1043,7 +1207,7 @@ public class ReferenceMatchServiceTests : IDisposable
             "CREATE TRIGGER refuse_poison BEFORE INSERT ON song WHEN NEW.title = 'Poison' "
             + "BEGIN SELECT RAISE(ABORT, 'poison refused'); END");
 
-        var result = await Service(context).AcceptTopCandidatesAsync([file.Id], CancellationToken.None);
+        var result = await Service(context).AcceptTopCandidatesAsync([file.Id], replace: false, CancellationToken.None);
 
         result.Resolved.Should().Be(0);
         result.Failed.Should().Be(1);
@@ -1216,6 +1380,27 @@ public class ReferenceMatchServiceTests : IDisposable
         return file;
     }
 
+    /// <summary>
+    /// An ambiguous file the scan flagged a likely YouTube rip: an MP3 at 48 kHz that measures as V0
+    /// (Hip to Be Square on the owner's library).
+    /// </summary>
+    private static async Task<ReferenceFile> AddRipAsync(WondarrDbContext context, long libraryId, string relativePath)
+    {
+        var file = await AddFileAsync(context, libraryId, relativePath, ReferenceFileState.Ambiguous);
+
+        file.Probe = JsonSerializer.Serialize(
+            new MediaInfo("mp3", "mp3", 268, 48_000, null, 2, 248_000, false, 7_857_630),
+            StoredJson);
+        file.LikelyYouTubeRip = true;
+        await context.SaveChangesAsync();
+
+        return file;
+    }
+
+    /// <summary>The songs an <c>UpgradeSearch</c> body names.</summary>
+    private static long[] SongIdsOf(string body) =>
+        [.. JsonDocument.Parse(body).RootElement.GetProperty("songIds").EnumerateArray().Select(id => id.GetInt64())];
+
     /// <summary>A ranked candidate for a stored reference file.</summary>
     private static async Task AddCandidateAsync(
         WondarrDbContext context,
@@ -1251,6 +1436,7 @@ public class ReferenceMatchServiceTests : IDisposable
             context,
             _resolver,
             NewSongService(context),
+            _commands,
             _timeProvider,
             NullLogger<ReferenceMatchService>.Instance);
 

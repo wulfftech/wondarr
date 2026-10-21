@@ -5,9 +5,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Media;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 
 namespace Wondarr.Core.References;
@@ -20,19 +22,34 @@ namespace Wondarr.Core.References;
 /// <param name="MbRecordingId">The recording MBID the user named, or <see langword="null"/>.</param>
 /// <param name="DeezerId">The Deezer track id the user named, or <see langword="null"/>.</param>
 /// <param name="Skip">Whether the user asked Wondarr to leave the file alone.</param>
-public sealed record ReferenceResolveChoice(int? CandidateRank, string? MbRecordingId, long? DeezerId, bool Skip);
+/// <param name="Replace">
+/// Whether the accepted file should be replaced by a better copy (DECISIONS build session 14 #32): the song
+/// is owned through it until one arrives. Not allowed with <paramref name="Skip"/>.
+/// </param>
+public sealed record ReferenceResolveChoice(
+    int? CandidateRank,
+    string? MbRecordingId,
+    long? DeezerId,
+    bool Skip,
+    bool Replace = false);
 
 /// <summary>What resolving one reference file did.</summary>
 /// <param name="State">The state the row is in now.</param>
 /// <param name="SongId">The song the file is, or <see langword="null"/> when it was released or skipped.</param>
 /// <param name="Message">The line the row carries, for example the duplicate notice, or <see langword="null"/>.</param>
-public sealed record ReferenceResolveResult(ReferenceFileState State, long? SongId, string? Message);
+/// <param name="Replacement">What Replace did, for example that a search was queued; <see langword="null"/> without Replace.</param>
+public sealed record ReferenceResolveResult(
+    ReferenceFileState State,
+    long? SongId,
+    string? Message,
+    string? Replacement = null);
 
 /// <summary>What accepting the top candidates of many files did.</summary>
 /// <param name="Resolved">How many files became owned songs.</param>
 /// <param name="Failed">How many of the listed files could not be accepted.</param>
 /// <param name="Errors">One line per failure, <c>"&lt;relativePath&gt;: &lt;reason&gt;"</c>.</param>
-public sealed record ReferenceBulkResult(int Resolved, int Failed, IReadOnlyList<string> Errors);
+/// <param name="Searching">With Replace, how many of the songs are being searched for a better copy now.</param>
+public sealed record ReferenceBulkResult(int Resolved, int Failed, IReadOnlyList<string> Errors, int Searching = 0);
 
 /// <summary>The Match queue and the hand-made choices that clear it (LIBRARY_OUTPUT §7.6).</summary>
 public interface IReferenceMatchService
@@ -43,11 +60,13 @@ public interface IReferenceMatchService
     /// </summary>
     /// <param name="paging">The page, size, sort key and direction.</param>
     /// <param name="referenceLibraryId">Only files of this library, or <see langword="null"/> for all of them.</param>
+    /// <param name="likelyYouTubeRipsOnly">Only the files that are most likely YouTube rips.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     /// <returns>One page of files with their candidates, and the total the filter matched.</returns>
     Task<PagedResult<ReferenceFile>> GetQueueAsync(
         PagingSpec paging,
         long? referenceLibraryId,
+        bool likelyYouTubeRipsOnly,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -73,11 +92,13 @@ public interface IReferenceMatchService
     /// into a pseudo-album each.
     /// </summary>
     /// <param name="referenceFileIds">The files to accept, at most <see cref="ReferenceMatchService.MaxBulkSize"/>.</param>
+    /// <param name="replace">Whether the accepted files should be replaced by better copies, as Replace does for one.</param>
     /// <param name="cancellationToken">Cancels the lookups and the write.</param>
     /// <returns>How many files were resolved, and why the others were not.</returns>
     /// <exception cref="ArgumentException">More than <see cref="ReferenceMatchService.MaxBulkSize"/> ids.</exception>
     Task<ReferenceBulkResult> AcceptTopCandidatesAsync(
         IReadOnlyList<long> referenceFileIds,
+        bool replace,
         CancellationToken cancellationToken);
 }
 
@@ -99,6 +120,24 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     /// <summary>The most ids one bulk accept may carry, so one request cannot lock the queue for long.</summary>
     public const int MaxBulkSize = 500;
 
+    /// <summary>What Replace says when the song is below its cutoff and an Upgrade Search was queued for it.</summary>
+    public const string SearchingMessage = "Searching for a better copy now.";
+
+    /// <summary>What Replace says when the file already meets the song's cutoff.</summary>
+    public const string MeetsCutoffMessage = "The file already meets its quality profile's cutoff, so nothing replaces it.";
+
+    /// <summary>What Replace says when the song's profile allows no upgrade.</summary>
+    public const string NoUpgradesMessage = "Its quality profile does not allow upgrades, so nothing replaces it.";
+
+    /// <summary>What Replace says when the song is not monitored.</summary>
+    public const string UnmonitoredMessage = "The song is not monitored, so nothing replaces it.";
+
+    /// <summary>What Replace says when the song holds another file (the duplicate notice), so this one decides nothing.</summary>
+    public const string AlreadyHasFileMessage = "The song already holds another file, so Replace changes nothing.";
+
+    /// <summary>What Replace says when the search could not be queued; the scheduled run still finds the song.</summary>
+    public const string NotQueuedMessage = "The search could not be queued; the next Upgrade Search looks for a better copy.";
+
     /// <summary>The tag read and the probe are stored as camelCase JSON, the way the scan wrote them.</summary>
     private static readonly JsonSerializerOptions StoredJson = new()
     {
@@ -109,6 +148,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     private readonly WondarrDbContext _database;
     private readonly IIdentityResolver _resolver;
     private readonly ISongService _songs;
+    private readonly ICommandQueue _commands;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ReferenceMatchService> _logger;
 
@@ -116,24 +156,28 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     /// <param name="database">The Wondarr database.</param>
     /// <param name="resolver">Resolves the id the user named into a full identity.</param>
     /// <param name="songs">Adds the resolved identity as a song.</param>
+    /// <param name="commands">Queues the search Replace starts.</param>
     /// <param name="timeProvider">The clock the import timestamps come from.</param>
     /// <param name="logger">Logs one line per resolve and per bulk run.</param>
     public ReferenceMatchService(
         WondarrDbContext database,
         IIdentityResolver resolver,
         ISongService songs,
+        ICommandQueue commands,
         TimeProvider timeProvider,
         ILogger<ReferenceMatchService> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(songs);
+        ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
         _resolver = resolver;
         _songs = songs;
+        _commands = commands;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -142,6 +186,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     public async Task<PagedResult<ReferenceFile>> GetQueueAsync(
         PagingSpec paging,
         long? referenceLibraryId,
+        bool likelyYouTubeRipsOnly,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(paging);
@@ -154,6 +199,11 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         if (referenceLibraryId is { } libraryId)
         {
             query = query.Where(row => row.ReferenceLibraryId == libraryId);
+        }
+
+        if (likelyYouTubeRipsOnly)
+        {
+            query = query.Where(row => row.LikelyYouTubeRip);
         }
 
         var totalRecords = await query.CountAsync(cancellationToken).ConfigureAwait(false);
@@ -248,6 +298,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             row.Confidence = ManualConfidence;
             row.IdentifiedBy = ManualTier;
             row.Message = link.Message;
+            row.Replace = choice.Replace;
 
             await ClearCandidatesAsync(row, cancellationToken).ConfigureAwait(false);
             await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
@@ -261,12 +312,17 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         LogResolved(_logger, row.Id, song.Id, ManualTier);
 
-        return new ReferenceResolveResult(row.State, row.SongId, row.Message);
+        var replacement = choice.Replace
+            ? (await StartReplacementAsync([song.Id], cancellationToken).ConfigureAwait(false)).Single
+            : null;
+
+        return new ReferenceResolveResult(row.State, row.SongId, row.Message, replacement);
     }
 
     /// <inheritdoc />
     public async Task<ReferenceBulkResult> AcceptTopCandidatesAsync(
         IReadOnlyList<long> referenceFileIds,
+        bool replace,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(referenceFileIds);
@@ -350,6 +406,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         // One add per library: the album policy plans a batch as a whole, and the usual call is a queue
         // filtered to one library, so this is the one call the pipeline expects.
         var resolved = 0;
+        var resolvedSongs = new List<long>();
 
         foreach (var group in accepted.GroupBy(entry => entry.Library.LibraryId))
         {
@@ -427,6 +484,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
                     entry.Row.Confidence = ManualConfidence;
                     entry.Row.IdentifiedBy = ManualTier;
                     entry.Row.Message = link.Message;
+                    entry.Row.Replace = replace;
 
                     await ClearCandidatesAsync(entry.Row, cancellationToken).ConfigureAwait(false);
 
@@ -436,6 +494,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
                 await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
 
                 resolved += groupResolved;
+                resolvedSongs.AddRange(added.Select(song => song.Id));
             }
             catch (Exception exception)
             {
@@ -461,7 +520,94 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         LogBulkAccepted(_logger, resolved, errors.Count);
 
-        return new ReferenceBulkResult(resolved, errors.Count, errors);
+        var searching = replace && resolvedSongs.Count > 0
+            ? (await StartReplacementAsync(resolvedSongs, cancellationToken).ConfigureAwait(false)).Searching
+            : 0;
+
+        return new ReferenceBulkResult(resolved, errors.Count, errors, searching);
+    }
+
+    /// <summary>
+    /// Starts looking for better copies of songs whose files were just settled with Replace: one
+    /// <c>UpgradeSearch</c> names the songs that are below their cutoff, so they are searched now rather
+    /// than at the next scheduled run. A song that meets its cutoff, or whose profile allows no upgrade, is
+    /// left as it is and the line says why. A queue that fails does not undo the resolve: the scheduled
+    /// Upgrade Search picks the songs up.
+    /// </summary>
+    /// <param name="songIds">The songs the accepted files were linked to.</param>
+    /// <param name="cancellationToken">Cancels the reads and the enqueue.</param>
+    /// <returns>How many songs are being searched, and for a single song the line that says what happened.</returns>
+    private async Task<(int Searching, string? Single)> StartReplacementAsync(
+        IReadOnlyList<long> songIds,
+        CancellationToken cancellationToken)
+    {
+        var replaceable = await ReferenceReplacement
+            .ReplaceableSongsAsync(_database, songIds, cancellationToken)
+            .ConfigureAwait(false);
+        var songs = await _database.Songs
+            .AsNoTracking()
+            .Include(song => song.File)
+            .Where(song => songIds.Contains(song.Id))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var profiles = await _database.QualityProfiles
+            .AsNoTracking()
+            .ToDictionaryAsync(profile => profile.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        var search = new List<long>();
+        string? single = null;
+
+        foreach (var song in songs)
+        {
+            if (!replaceable.Contains(song.Id) || song.File is null)
+            {
+                single = AlreadyHasFileMessage;
+            }
+            else if (!song.Monitored)
+            {
+                single = UnmonitoredMessage;
+            }
+            else if (!profiles.TryGetValue(song.QualityProfileId, out var profile) || !profile.UpgradeAllowed)
+            {
+                single = NoUpgradesMessage;
+            }
+            else if (profile.MeetsCutoff(song.File.QualityId))
+            {
+                single = MeetsCutoffMessage;
+            }
+            else
+            {
+                search.Add(song.Id);
+                single = SearchingMessage;
+            }
+        }
+
+        if (search.Count == 0)
+        {
+            return (0, single);
+        }
+
+        try
+        {
+            await _commands
+                .EnqueueAsync(
+                    UpgradeSearchCommandHandler.CommandName,
+                    JsonSerializer.Serialize(new UpgradeSearchRequest(UpgradeSearchCommandHandler.CommandName, search), StoredJson),
+                    CommandTrigger.Manual,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogReplacementNotQueued(_logger, search.Count, exception);
+
+            return (0, NotQueuedMessage);
+        }
+
+        LogReplacementQueued(_logger, search.Count);
+
+        return (search.Count, single);
     }
 
     /// <summary>
@@ -519,6 +665,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         row.State = ReferenceFileState.Skipped;
         row.IdentifiedBy = null;
         row.Message = null;
+        row.Replace = false;
 
         await ClearCandidatesAsync(row, cancellationToken).ConfigureAwait(false);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -645,6 +792,11 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
                 "Exactly one of skip, candidateRank, mbRecordingId or deezerId must be given.",
                 nameof(choice));
         }
+
+        if (choice.Skip && choice.Replace)
+        {
+            throw new ArgumentException("replace cannot be combined with skip: a skipped file owns no song.", nameof(choice));
+        }
     }
 
     /// <summary>
@@ -738,4 +890,15 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Accepted the best candidate of {Resolved} reference files; {Failed} could not be accepted")]
     private static partial void LogBulkAccepted(ILogger logger, int resolved, int failed);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Replace: queued an Upgrade Search for {Songs} songs")]
+    private static partial void LogReplacementQueued(ILogger logger, int songs);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Replace: the Upgrade Search for {Songs} songs could not be queued; the scheduled run will find them")]
+    private static partial void LogReplacementNotQueued(ILogger logger, int songs, Exception exception);
+
+    /// <summary>The body of the Upgrade Search Replace queues: the songs to look at.</summary>
+    /// <param name="Name">The command name, as the API's own bodies carry it.</param>
+    /// <param name="SongIds">The songs to search.</param>
+    private sealed record UpgradeSearchRequest(string Name, List<long> SongIds);
 }

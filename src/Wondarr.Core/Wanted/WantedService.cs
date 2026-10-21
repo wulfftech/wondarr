@@ -1,6 +1,7 @@
 using Wondarr.Core.Domain;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.References;
 using Wondarr.Core.Sources;
 using Microsoft.EntityFrameworkCore;
 
@@ -67,11 +68,15 @@ public sealed class WantedService : IWantedService
         ArgumentNullException.ThrowIfNull(paging);
 
         // A song owned through a reference file is never "below its cutoff" in a way Wondarr may act
-        // on: the file is the user's own, so it is never replaced. It is not a wanted song.
+        // on: the file is the user's own, so it is never replaced. It is not a wanted song — unless the
+        // user asked for that file to be replaced (DECISIONS build session 14 #32).
+        var replaceable = (await ReferenceReplacement
+            .ReplaceableSongsAsync(_database, null, cancellationToken)
+            .ConfigureAwait(false)).ToList();
         var withFile = await Songs()
             .Where(song => song.Monitored
                 && song.File != null
-                && song.File.SourceType != SourceTypes.Reference)
+                && (song.File.SourceType != SourceTypes.Reference || replaceable.Contains(song.Id)))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

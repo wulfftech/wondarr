@@ -59,6 +59,49 @@ public sealed class ContainerBundlerReferenceTests
             .Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_song_whose_reference_file_may_be_replaced_rides_along_in_the_bundle()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var alpha = await host.SeedSongAsync("Alpha");
+        long artistId;
+
+        await using (var seed = host.Database.CreateContext(host.Time))
+        {
+            artistId = (await seed.Songs.SingleAsync(song => song.Id == alpha, Token)).PrimaryArtistId;
+        }
+
+        var beta = await host.SeedSongAsync("Beta", artistId: artistId);
+        var gamma = await host.SeedSongAsync("Gamma", artistId: artistId);
+
+        // Both are held by likely YouTube rips; only Beta's library replaces files below the cutoff.
+        await host.SeedHeldReferenceFileAsync(beta, libraryReplaces: true);
+        await host.SeedHeldReferenceFileAsync(gamma);
+
+        ContainerFile[] files =
+        [
+            new(0, "Selected Ambient Works/01 - Alpha.flac", 30_000_000),
+            new(1, "Selected Ambient Works/02 - Beta.flac", 30_000_000),
+            new(2, "Selected Ambient Works/03 - Gamma.flac", 30_000_000),
+        ];
+
+        var container = Container("Selected Ambient Works/01 - Alpha.flac");
+        container = container with { Release = container.Release! with { Files = files } };
+        host.Provider.Candidates.Add(container);
+
+        var search = await host.Search.SearchAsync(alpha, SearchTrigger.Automatic, grab: false, Token);
+        var candidateId = (await host.Runs.GetCandidatesAsync(search.SearchRunId, Token)).Single().Id;
+
+        await host.Search.GrabCandidateAsync(candidateId, 1, Token);
+
+        await using var context = host.Database.CreateContext(host.Time);
+
+        (await context.QueueItems.AsNoTracking().AnyAsync(item => item.SongId == beta, Token))
+            .Should().BeTrue("its library replaces the rip, and the FLAC in the container is better");
+        (await context.QueueItems.AsNoTracking().AnyAsync(item => item.SongId == gamma, Token))
+            .Should().BeFalse("nobody asked for this rip to be replaced");
+    }
+
     private static Candidate Container(string path)
     {
         const string hash = "0123456789abcdef0123456789abcdef01234567";

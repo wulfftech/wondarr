@@ -15,7 +15,7 @@ namespace Wondarr.Core.Persistence.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
             modelBuilder.Entity("Wondarr.Core.Domain.AlbumContext", b =>
                 {
@@ -1895,6 +1895,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("last_seen_at");
 
+                    b.Property<bool>("LikelyYouTubeRip")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("likely_youtube_rip");
+
                     b.Property<string>("Message")
                         .HasColumnType("TEXT")
                         .HasColumnName("message");
@@ -1919,6 +1923,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("relative_path");
+
+                    b.Property<bool>("Replace")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("replace");
 
                     b.Property<long>("Size")
                         .HasColumnType("INTEGER")
@@ -1998,6 +2006,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("name")
                         .UseCollation("NOCASE");
+
+                    b.Property<bool>("ReplaceBelowCutoff")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("replace_below_cutoff");
 
                     b.Property<string>("RootPath")
                         .IsRequired()

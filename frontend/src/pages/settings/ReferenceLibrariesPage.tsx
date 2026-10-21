@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Card,
+  CopyButton,
   Group,
   Menu,
   Modal,
@@ -22,6 +23,7 @@ import { notifications } from '@mantine/notifications';
 import { CircleAlert, EllipsisVertical, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { firstPage, type Paging } from '../../api/paging';
 import { useLibraries, ValidationError, type LibraryResource } from '../../api/profiles';
 import {
   useAddReferenceLibrary,
@@ -29,18 +31,22 @@ import {
   useDeleteReferenceLibrary,
   useReferenceLibraries,
   useReferenceLibraryOwnedSongs,
+  useReplacedReferenceFiles,
   useScanReferenceLibrary,
   useUpdateReferenceLibrary,
   type ReferenceLibraryDeleteChoice,
   type ReferenceLibraryInput,
   type ReferenceLibraryModeName,
   type ReferenceLibraryResource,
+  type ReplacedReferenceFileResource,
 } from '../../api/references';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
+import { PagedTable, type PagedColumn } from '../../components/PagedTable';
 
 /**
  * Settings → Reference libraries (LIBRARY_OUTPUT §7.6): the folders the user already has, what the
- * scan found in them, and the two commands that walk or adopt one.
+ * scan found in them, the two commands that walk or adopt one, and the files a library copy replaced
+ * (DECISIONS build session 14 #32).
  */
 
 /** The two modes a reference library can be in, as the form offers them. */
@@ -91,14 +97,27 @@ function formatAge(iso: string | null): string {
 
 /** How the library's mode reads, naming the library adopted songs are filed under. */
 function modeText(library: ReferenceLibraryResource, names: Map<number, string>): string {
+  const replaces = library.replaceBelowCutoff ? ' · replaces files below the cutoff' : '';
+
   if (library.mode !== 'adopt') {
-    return 'Reference only';
+    return `Reference only${replaces}`;
   }
 
   const id = library.libraryId === null ? null : Number(library.libraryId);
 
-  return `Adopt into ${id === null ? 'no library' : (names.get(id) ?? `library #${id}`)}`;
+  return `Adopt into ${id === null ? 'no library' : (names.get(id) ?? `library #${id}`)}${replaces}`;
 }
+
+/** Why a file is flagged, in the words the badges' tooltips use. */
+const RIP_EXPLANATION =
+  'Lossy at 48 kHz, the rate YouTube serves its audio at; CDs and download stores are 44.1 kHz. They are rated OPUS-160, like a YouTube download.';
+
+/** Why a replaced file whose library copy is worse is left out of the copied paths. */
+const KEEP_EXPLANATION =
+  'The song had a worse library copy before this file was found, so this file is the one to keep. It is left out of the copied paths.';
+
+/** The anchor the "replaced" badge scrolls to. */
+const REPLACED_ANCHOR = 'replaced-files';
 
 /** The counts as small badges; "needs review" links to the Match queue filtered to this library. */
 function CountsCell({ library }: { library: ReferenceLibraryResource }) {
@@ -124,7 +143,143 @@ function CountsCell({ library }: { library: ReferenceLibraryResource }) {
           </Badge>
         </Link>
       )}
+
+      {Number(counts.likelyYouTubeRips) > 0 && (
+        <Tooltip label={RIP_EXPLANATION} multiline w={320} events={{ hover: true, focus: true, touch: true }}>
+          <Badge color="grape" variant="light" size="sm" tabIndex={0}>
+            {Number(counts.likelyYouTubeRips)} likely YouTube {Number(counts.likelyYouTubeRips) === 1 ? 'rip' : 'rips'}
+          </Badge>
+        </Tooltip>
+      )}
+
+      {Number(counts.replaced) > 0 && (
+        <a href={`#${REPLACED_ANCHOR}`}>
+          <Badge color="blue" variant="light" size="sm">
+            {Number(counts.replaced)} replaced
+          </Badge>
+        </a>
+      )}
     </Group>
+  );
+}
+
+/** `3 Oct 2026`, short enough for a table cell. */
+function formatDay(iso: string): string {
+  const parsed = new Date(iso);
+
+  return Number.isNaN(parsed.getTime())
+    ? '—'
+    : parsed.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/**
+ * The files a library copy has replaced: their songs hold a file in the managed library now, so nothing
+ * uses them. Wondarr never deletes them; the paths can be copied to delete them by hand.
+ */
+function ReplacedFilesCard() {
+  const [paging, setPaging] = useState<Paging>(() => firstPage());
+  const query = useReplacedReferenceFiles(paging);
+
+  const rows = query.data?.records ?? [];
+  const total = Number(query.data?.totalRecords ?? 0);
+  // A file that rates higher than its library copy is the one to keep, so its path is never copied.
+  const deletable = rows.filter((file) => !file.libraryCopyRatesLower);
+
+  if (total === 0 && query.error === null) {
+    return null;
+  }
+
+  const columns: PagedColumn<ReplacedReferenceFileResource>[] = [
+    {
+      label: 'Your file',
+      sortKey: null,
+      render: (file) => (
+        <Stack gap={2}>
+          <Text size="sm" style={{ overflowWrap: 'anywhere' }}>
+            {file.relativePath}
+          </Text>
+          <Group gap={4}>
+            <Text size="xs" c="dimmed">
+              {file.referenceLibraryName}
+              {file.quality === null ? '' : ` · ${file.quality}`}
+            </Text>
+            {file.likelyYouTubeRip && (
+              <Tooltip label={RIP_EXPLANATION} multiline w={320} events={{ hover: true, focus: true, touch: true }}>
+                <Badge color="grape" variant="light" size="xs" tabIndex={0}>
+                  Likely YouTube rip
+                </Badge>
+              </Tooltip>
+            )}
+            {file.libraryCopyRatesLower && (
+              <Tooltip label={KEEP_EXPLANATION} multiline w={320} events={{ hover: true, focus: true, touch: true }}>
+                <Badge color="orange" variant="light" size="xs" tabIndex={0}>
+                  Your file rates higher
+                </Badge>
+              </Tooltip>
+            )}
+          </Group>
+        </Stack>
+      ),
+    },
+    {
+      label: 'Song',
+      sortKey: null,
+      render: (file) => (
+        <Link to={`/song/${String(file.songId)}`}>
+          <Text size="sm">
+            {file.artistCredit} – {file.title}
+          </Text>
+        </Link>
+      ),
+    },
+    {
+      label: 'Library copy',
+      sortKey: null,
+      render: (file) => (
+        <Tooltip label={file.libraryPath} multiline w={420}>
+          <Text size="sm">{file.libraryQuality === '' ? '—' : file.libraryQuality}</Text>
+        </Tooltip>
+      ),
+    },
+    { label: 'Since', sortKey: null, width: 120, render: (file) => formatDay(file.libraryFileSince) },
+  ];
+
+  return (
+    <Card withBorder padding="md" id={REPLACED_ANCHOR}>
+      <Stack gap="sm">
+        <Group justify="space-between" align="flex-start">
+          <Stack gap={2}>
+            <Title order={4}>Replaced by a library copy</Title>
+            <Text size="sm" c="dimmed">
+              These songs now use a file in your library, so nothing uses these files any more. Wondarr never deletes
+              your files; delete them yourself when you are happy with the copies. A deleted file leaves this list a day
+              later. The copied paths are as the container sees them, and leave out the files that rate higher than
+              their library copy.
+            </Text>
+          </Stack>
+          <CopyButton value={deletable.map((file) => file.path).join('\n')}>
+            {({ copied, copy }) => (
+              <Button variant="light" size="xs" onClick={copy} disabled={deletable.length === 0}>
+                {copied ? 'Copied' : 'Copy the paths on this page'}
+              </Button>
+            )}
+          </CopyButton>
+        </Group>
+
+        <PagedTable
+          columns={columns}
+          rows={rows}
+          totalRecords={total}
+          paging={paging}
+          onPaging={setPaging}
+          isLoading={query.isPending}
+          error={query.error}
+          emptyMessage="No file has been replaced."
+          rowKey={(file) => file.id}
+          compact
+        />
+      </Stack>
+    </Card>
   );
 }
 
@@ -141,6 +296,7 @@ function LibraryForm({ library, onClose }: { library: ReferenceLibraryResource |
     library?.libraryId === null || library?.libraryId === undefined ? null : Number(library.libraryId),
   );
   const [enabled, setEnabled] = useState(library?.enabled ?? true);
+  const [replaceBelowCutoff, setReplaceBelowCutoff] = useState(library?.replaceBelowCutoff ?? false);
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
 
   const save = library === null ? add : update;
@@ -175,7 +331,7 @@ function LibraryForm({ library, onClose }: { library: ReferenceLibraryResource |
       return;
     }
 
-    const input: ReferenceLibraryInput = { name, rootPath, mode, libraryId, enabled };
+    const input: ReferenceLibraryInput = { name, rootPath, mode, libraryId, enabled, replaceBelowCutoff };
     const done = () => {
       notifications.show({ message: library === null ? 'Reference library added' : 'Saved', color: 'green' });
       onClose();
@@ -230,6 +386,14 @@ function LibraryForm({ library, onClose }: { library: ReferenceLibraryResource |
         checked={enabled}
         error={fieldError('enabled')}
         onChange={(event) => setEnabled(event.currentTarget.checked)}
+      />
+
+      <Switch
+        label="Replace files below the cutoff"
+        description="A song whose file here is below its quality profile's cutoff is upgraded like a library song: the next Upgrade Search looks for a better copy, which goes into your library. Likely YouTube rips count as OPUS-160. Your file is never touched; it shows under Replaced by a library copy, for you to delete."
+        checked={replaceBelowCutoff}
+        error={fieldError('replaceBelowCutoff')}
+        onChange={(event) => setReplaceBelowCutoff(event.currentTarget.checked)}
       />
 
       {save.error !== null && (
@@ -459,6 +623,8 @@ export function ReferenceLibrariesPage() {
           </Table.ScrollContainer>
         </Card>
       )}
+
+      <ReplacedFilesCard />
 
       <Modal
         opened={form !== null}
