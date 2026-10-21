@@ -79,7 +79,7 @@ The full manual — install, every setting, Plex, qBittorrent, SABnzbd, troubles
 
 ## Status
 
-Every part of the plan is built and it's in daily use. **0.1.11** is out ([release notes](https://github.com/wulfftech/wondarr/releases/tag/v0.1.11)), and Wondarr tells you itself when there's a newer one: an **Update available** badge in the header, with the release notes and the update steps under System → Updates. Found a bug or want something? [Open an issue](https://github.com/wulfftech/wondarr/issues), or add a GitHub token under Settings → General → Contribute with feedback for a feedback button in the header.
+Every part of the plan is built and it's in daily use. **0.1.12** is out ([release notes](https://github.com/wulfftech/wondarr/releases/tag/v0.1.12)), and Wondarr tells you itself when there's a newer one: an **Update available** badge in the header, with the release notes and the update steps under System → Updates. Found a bug or want something? [Open an issue](https://github.com/wulfftech/wondarr/issues), or add a GitHub token under Settings → General → Contribute with feedback for a feedback button in the header.
 
 ## Under the hood
 

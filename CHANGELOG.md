@@ -4,6 +4,13 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.12] — 2026-10-21
+
+Dependency updates only: Quartz 4.6, Microsoft.Extensions.Http.Resilience 10.11, Mantine 9.7.2 and TanStack Query 5.104.3, with newer test and build tooling. Nothing you see or set changes. Update by pulling `:0.1` (or `:0.1.12`).
+
+**Upgrading from 0.1.11:**
+- **No database migration, no new settings.**
+
 ### Changed
 - **Dependencies updated:** Quartz.Extensions.Hosting 4.6.0 (its database migrations are for persistent job stores; Wondarr's schedule lives in memory, so nothing changes), Microsoft.Extensions.Http.Resilience 10.11.0, Mantine 9.7.2, @tanstack/react-query 5.104.3, and test and build tooling.
 
