@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Changed
+- **Dependencies updated:** Quartz.Extensions.Hosting 4.6.0 (its database migrations are for persistent job stores; Wondarr's schedule lives in memory, so nothing changes), Microsoft.Extensions.Http.Resilience 10.11.0, Mantine 9.7.2, @tanstack/react-query 5.104.3, and test and build tooling.
+
 ## [0.1.11] — 2026-10-21
 
 The feedback button now needs a GitHub token, and the token can be added in the web UI: **Settings → General → Contribute with feedback** shows how to make one, tests it and stores it. Update by pulling `:0.1` (or `:0.1.11`).
