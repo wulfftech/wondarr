@@ -4,6 +4,14 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.11] — 2026-10-21
+
+The feedback button now needs a GitHub token, and the token can be added in the web UI: **Settings → General → Contribute with feedback** shows how to make one, tests it and stores it. Update by pulling `:0.1` (or `:0.1.11`).
+
+**Upgrading from 0.1.10:**
+- **No database migration, no new settings.** Without `feedback.github_token` the header no longer shows the feedback button; with it (or `APP__FEEDBACK__GITHUB_TOKEN`) nothing changes.
+- **Use a classic token with `public_repo`** unless you own or collaborate on `wulfftech/wondarr`: GitHub lets fine-grained tokens open issues only where their owner can push.
+
 ### Changed
 - **The feedback button shows only once a GitHub token is set**, and the token can now be added in the web UI: **Settings → General → Contribute with feedback** walks through making one (a classic token with the `public_repo` scope; GitHub lets fine-grained tokens open issues only on repositories you own or collaborate on), stores it in `config.yml` without ever showing it again, and **Test** asks GitHub whether it is accepted and has that scope, without opening anything. Saving or removing the token adds or removes the button at once. A token set by `APP__FEEDBACK__GITHUB_TOKEN` stays read-only there (set but empty, the card says to remove it, because it would hide a token saved here). The card says what the scope allows: `public_repo` can change any of your public repositories, Wondarr only opens issues with it, and the token is stored as plain text in `config.yml`. A token is checked at most 10 times every 10 minutes, and only one GitHub accepts is treated as a secret in the logs. No migration.
 
