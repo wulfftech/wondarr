@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiProvider } from '../api/ApiProvider';
+import { useFeedbackStatus } from '../api/feedback';
 import { applyEventMessage, EventStreamStatusContext } from '../app/signalr';
 import { createTestConfig, installFetch, jsonResponse } from '../test/helpers';
 import { theme } from '../theme/theme';
@@ -20,15 +21,36 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const FEEDBACK_STATUS = {
+  tokenConfigured: true,
+  autoRaise: true,
+  repository: 'wulfftech/wondarr',
+  repositoryUrl: 'https://github.com/wulfftech/wondarr',
+  maxTextLength: 4000,
+};
+
 function renderLayout(connected = true, client = new QueryClient()) {
   installFetch(() => jsonResponse([]));
 
+  return renderShell(connected, client);
+}
+
+/** Shows when the feedback status has an answer; it shares the header button's query, so they render together. */
+function FeedbackStatusProbe() {
+  const status = useFeedbackStatus();
+
+  return status.data === undefined ? null : <span data-testid="feedback-status-answered" />;
+}
+
+/** The shell with whatever `fetch` the test installed. */
+function renderShell(connected = true, client = new QueryClient()) {
   return render(
     <MantineProvider theme={theme} env="test">
       <ApiProvider config={createTestConfig()}>
         <QueryClientProvider client={client}>
           <EventStreamStatusContext.Provider value={connected}>
             <MemoryRouter>
+              <FeedbackStatusProbe />
               <AppLayout />
             </MemoryRouter>
           </EventStreamStatusContext.Provider>
@@ -136,8 +158,24 @@ describe('AppLayout', () => {
     expect(await screen.findByLabelText('1 health issue')).toBeInTheDocument();
   });
 
-  it('puts the feedback button right before the theme toggle', () => {
-    renderLayout();
+  it('shows no feedback button without a token', async () => {
+    installFetch((url) =>
+      url.endsWith('/api/v1/feedback')
+        ? jsonResponse({ ...FEEDBACK_STATUS, tokenConfigured: false })
+        : jsonResponse([]),
+    );
+    renderShell();
+
+    await screen.findByTestId('feedback-status-answered');
+
+    expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument();
+  });
+
+  it('puts the feedback button right before the theme toggle once a token is set', async () => {
+    installFetch((url) => (url.endsWith('/api/v1/feedback') ? jsonResponse(FEEDBACK_STATUS) : jsonResponse([])));
+    renderShell();
+
+    await screen.findByRole('button', { name: 'Send feedback' });
 
     const names = within(screen.getByRole('banner'))
       .getAllByRole('button')

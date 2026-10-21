@@ -39,10 +39,16 @@ public sealed record FeedbackSubmission(FeedbackKind Kind, string Text, string? 
 public sealed record FeedbackOutcome(bool Raised, string IssueUrl, int? IssueNumber, string? Reason, bool MayBeRaised = false);
 
 /// <summary>What the feedback button will do.</summary>
+/// <param name="TokenConfigured">Whether a GitHub token is set; without one the header shows no feedback button.</param>
 /// <param name="AutoRaise">Whether a submission opens the issue directly (a token is set and neither GitHub's limit nor Wondarr's own is in force).</param>
 /// <param name="Repository">The repository issues go to, <c>owner/name</c>.</param>
 /// <param name="RepositoryUrl">That repository's page.</param>
-public sealed record FeedbackStatus(bool AutoRaise, string Repository, string RepositoryUrl);
+public sealed record FeedbackStatus(bool TokenConfigured, bool AutoRaise, string Repository, string RepositoryUrl);
+
+/// <summary>What a token check found.</summary>
+/// <param name="Ok">Whether the token can be expected to open issues on the repository.</param>
+/// <param name="Message">A sentence the settings page shows; never the token.</param>
+public sealed record FeedbackTokenCheck(bool Ok, string Message);
 
 /// <summary>
 /// Turns a submission from the feedback button into a GitHub issue. Every submission is logged first,
@@ -61,6 +67,15 @@ public interface IFeedbackService
     /// <param name="submission">The feedback; its text must not be blank.</param>
     /// <param name="cancellationToken">Cancels the request to GitHub.</param>
     Task<FeedbackOutcome> SubmitAsync(FeedbackSubmission submission, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Asks GitHub about the repository with <paramref name="token"/>: whether it is accepted, and for a
+    /// classic token whether it has the scope that opens issues. Opens nothing. Never throws for a network
+    /// or GitHub failure.
+    /// </summary>
+    /// <param name="token">The token to check.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    Task<FeedbackTokenCheck> CheckTokenAsync(string token, CancellationToken cancellationToken);
 }
 
 /// <inheritdoc />
@@ -74,6 +89,9 @@ public sealed partial class FeedbackService : IFeedbackService
 
     /// <summary>GitHub's new-issue form, which takes the title, body and labels as query parameters.</summary>
     public const string NewIssueUrl = UpdateCheckService.ProjectUrl + "/issues/new";
+
+    /// <summary>The repository, read by the token check.</summary>
+    public const string RepositoryApiUrl = "https://api.github.com/repos/" + UpdateCheckService.Repository;
 
     /// <summary>The repository's issue list, to look at when a request may have opened an issue anyway.</summary>
     public const string IssueListUrl = UpdateCheckService.ProjectUrl + "/issues";
@@ -105,7 +123,13 @@ public sealed partial class FeedbackService : IFeedbackService
     /// </summary>
     public const int MaxIssuesPerWindow = 5;
 
-    /// <summary>The window <see cref="MaxIssuesPerWindow"/> counts in.</summary>
+    /// <summary>
+    /// The most token checks per <see cref="IssueWindow"/>. A person tests a token a few times at most; a
+    /// script with the API key must not be able to drive GitHub requests without limit.
+    /// </summary>
+    public const int MaxChecksPerWindow = 10;
+
+    /// <summary>The window <see cref="MaxIssuesPerWindow"/> and <see cref="MaxChecksPerWindow"/> count in.</summary>
     public static readonly TimeSpan IssueWindow = TimeSpan.FromMinutes(10);
 
     /// <summary>How long the request to GitHub may take.</summary>
@@ -128,6 +152,7 @@ public sealed partial class FeedbackService : IFeedbackService
 
     private readonly Lock _stateLock = new();
     private readonly Queue<DateTimeOffset> _recentRequests = new();
+    private readonly Queue<DateTimeOffset> _recentChecks = new();
     private DateTimeOffset? _blockedUntil;
 
     /// <summary>Initialises a new instance of the <see cref="FeedbackService"/> class.</summary>
@@ -162,6 +187,7 @@ public sealed partial class FeedbackService : IFeedbackService
 
     /// <inheritdoc />
     public FeedbackStatus GetStatus() => new(
+        _options.CurrentValue.GitHubToken is not null,
         _options.CurrentValue.GitHubToken is not null && BlockedUntil() is null && ThrottledUntil() is null,
         UpdateCheckService.Repository,
         UpdateCheckService.ProjectUrl);
@@ -199,7 +225,7 @@ public sealed partial class FeedbackService : IFeedbackService
             return NotRaised(issue, RateLimitMessage(blocked));
         }
 
-        if (!TryTakeRequestSlot(out var throttledUntil))
+        if (!TryTakeSlot(_recentRequests, MaxIssuesPerWindow, out var throttledUntil))
         {
             return NotRaised(
                 issue,
@@ -376,6 +402,123 @@ public sealed partial class FeedbackService : IFeedbackService
         return Form(issue, reason, mayBeRaised);
     }
 
+    /// <inheritdoc />
+    public async Task<FeedbackTokenCheck> CheckTokenAsync(string token, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(token);
+
+        if (BlockedUntil() is { } blocked)
+        {
+            return new FeedbackTokenCheck(false, RateLimitMessage(blocked));
+        }
+
+        if (!TryTakeSlot(_recentChecks, MaxChecksPerWindow, out var throttledUntil))
+        {
+            return new FeedbackTokenCheck(
+                false,
+                $"Wondarr checks at most {MaxChecksPerWindow} tokens every {(int)IssueWindow.TotalMinutes} minutes; try again after {LocalTime(throttledUntil)}.");
+        }
+
+        using var deadline = new CancellationTokenSource(RequestTimeout, _time);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, RepositoryApiUrl);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await _clients
+                .CreateClient(ClientName)
+                .SendAsync(request, HttpCompletionOption.ResponseContentRead, timeout.Token)
+                .ConfigureAwait(false);
+
+            var json = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                return new FeedbackTokenCheck(false, "GitHub does not accept this token (401): it is mistyped, expired or revoked.");
+            }
+
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                return new FeedbackTokenCheck(false, Refusal(response, json));
+            }
+
+            // Only a token GitHub accepted is a real secret. Registering every string typed into the field
+            // would rewrite unrelated text in later logs and issues, and grow the registry without bound.
+            _secrets.Register(token);
+
+            return Judge(response, json);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return new FeedbackTokenCheck(false, $"GitHub did not answer within {(int)RequestTimeout.TotalSeconds} seconds.");
+        }
+        catch (HttpRequestException exception)
+        {
+            return new FeedbackTokenCheck(
+                false,
+                $"GitHub could not be reached ({exception.HttpRequestError.ToString().ToLowerInvariant()}).");
+        }
+    }
+
+    /// <summary>
+    /// What an accepted token can do. A classic token lists its scopes in <c>X-OAuth-Scopes</c>, and
+    /// <c>public_repo</c> (or <c>repo</c>) opens issues. A fine-grained token lists none, and GitHub lets it
+    /// write only to repositories its owner can push to, so the repository's <c>permissions.push</c> decides.
+    /// </summary>
+    private static FeedbackTokenCheck Judge(HttpResponseMessage response, string json)
+    {
+        if (response.Headers.TryGetValues("X-OAuth-Scopes", out var values))
+        {
+            var scopes = string.Join(',', values)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            return scopes.Contains("public_repo", StringComparer.Ordinal) || scopes.Contains("repo", StringComparer.Ordinal)
+                ? new FeedbackTokenCheck(true, "GitHub accepts the token, and its public_repo scope lets it open issues.")
+                : new FeedbackTokenCheck(
+                    false,
+                    "GitHub accepts the token, but it has no public_repo scope, so it cannot open issues. Make a new one with public_repo ticked.");
+        }
+
+        bool? push = null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("permissions", out var permissions)
+                && permissions.ValueKind == JsonValueKind.Object
+                && permissions.TryGetProperty("push", out var value)
+                && value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                push = value.GetBoolean();
+            }
+        }
+        catch (JsonException)
+        {
+            // An answer Wondarr cannot read says nothing either way.
+        }
+
+        return push switch
+        {
+            false => new FeedbackTokenCheck(
+                false,
+                "This is a fine-grained token, and GitHub lets those open issues only on repositories you own or collaborate on. Make a classic token with the public_repo scope instead."),
+            true => new FeedbackTokenCheck(
+                true,
+                $"GitHub accepts the token. It also needs Issues: Read and write on {UpdateCheckService.Repository}, which GitHub does not report; the first feedback you send will show."),
+            null => new FeedbackTokenCheck(
+                true,
+                "GitHub accepts the token. Whether it may open issues only shows when you send feedback."),
+        };
+    }
+
     private string Refusal(HttpResponseMessage response, string body)
     {
         var now = _time.GetUtcNow();
@@ -428,46 +571,46 @@ public sealed partial class FeedbackService : IFeedbackService
         }
     }
 
-    /// <summary>When Wondarr's own limit lets the next request through, or <see langword="null"/> when it does now.</summary>
+    /// <summary>When Wondarr's own issue limit lets the next one through, or <see langword="null"/> when it does now.</summary>
     private DateTimeOffset? ThrottledUntil()
     {
         lock (_stateLock)
         {
-            ForgetOldRequests();
+            Forget(_recentRequests);
 
             return _recentRequests.Count < MaxIssuesPerWindow ? null : _recentRequests.Peek() + IssueWindow;
         }
     }
 
-    /// <summary>Counts a request against Wondarr's own limit, unless the limit is reached.</summary>
-    private bool TryTakeRequestSlot(out DateTimeOffset throttledUntil)
+    /// <summary>Counts a request against one of Wondarr's own limits, unless that limit is reached.</summary>
+    private bool TryTakeSlot(Queue<DateTimeOffset> recent, int max, out DateTimeOffset throttledUntil)
     {
         lock (_stateLock)
         {
-            ForgetOldRequests();
+            Forget(recent);
 
-            if (_recentRequests.Count >= MaxIssuesPerWindow)
+            if (recent.Count >= max)
             {
-                throttledUntil = _recentRequests.Peek() + IssueWindow;
+                throttledUntil = recent.Peek() + IssueWindow;
 
                 return false;
             }
 
-            // Counted before it is sent, so submissions at the same moment cannot all slip under the limit.
-            _recentRequests.Enqueue(_time.GetUtcNow());
+            // Counted before it is sent, so requests at the same moment cannot all slip under the limit.
+            recent.Enqueue(_time.GetUtcNow());
             throttledUntil = default;
 
             return true;
         }
     }
 
-    private void ForgetOldRequests()
+    private void Forget(Queue<DateTimeOffset> recent)
     {
         var since = _time.GetUtcNow() - IssueWindow;
 
-        while (_recentRequests.Count > 0 && _recentRequests.Peek() <= since)
+        while (recent.Count > 0 && recent.Peek() <= since)
         {
-            _recentRequests.Dequeue();
+            recent.Dequeue();
         }
     }
 

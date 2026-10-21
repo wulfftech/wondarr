@@ -28,6 +28,7 @@ import {
 } from '../../api/metadata';
 import { useSaveUpdateSettings, useUpdateSettings, type UpdateSettings } from '../../api/update';
 import { ErrorState, LoadingState } from '../../components/DataState';
+import { FeedbackSettingsCard } from './FeedbackSettingsCard';
 
 const MASK = '••••••••';
 const MAX_USERNAME_LENGTH = 64;
@@ -233,7 +234,8 @@ function KeyField({
         placeholder={locked ? 'Set by the environment' : isSet ? 'Stored — type to replace' : 'Not set'}
         value={value}
         disabled={locked}
-        autoComplete="off"
+        // "off" is ignored for a password field; this keeps the login password from being filled in here.
+        autoComplete="new-password"
         onChange={(event) => {
           onChange(event.currentTarget.value);
         }}
@@ -455,7 +457,10 @@ function InstanceCard() {
   );
 }
 
-/** Settings → General: the API key, the login account, the optional metadata keys, and how this instance is reached. */
+/**
+ * Settings → General: the API key, the login account, the optional metadata keys, the feedback token, update
+ * checks, and how this instance is reached.
+ */
 export function GeneralSettingsPage() {
   return (
     <Stack gap="md">
@@ -467,6 +472,7 @@ export function GeneralSettingsPage() {
         </Stack>
       </Card>
       <MetadataServicesCard />
+      <FeedbackSettingsCard />
       <UpdatesCard />
       <InstanceCard />
     </Stack>

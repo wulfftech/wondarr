@@ -56,11 +56,20 @@ function currentPageTitle(): string | null {
   return title === '' ? null : title;
 }
 
-/** The header button beside the theme toggle: one text box, sent with the page it was opened on. */
+/**
+ * The header button beside the theme toggle: one text box, sent with the page it was opened on. Shown only
+ * once a GitHub token is set on Settings → General → Contribute with feedback.
+ */
 export function FeedbackButton() {
+  const status = useFeedbackStatus();
   const [opened, { open, close }] = useDisclosure(false);
   // Closing mid-send would unmount the answer: the issue might be opened with nobody told where.
   const sending = useIsMutating({ mutationKey: FEEDBACK_SUBMIT_KEY }) > 0;
+
+  // The dialog stays mounted while open, so removing the token mid-sentence cannot discard what was typed.
+  if (status.data?.tokenConfigured !== true && !opened) {
+    return null;
+  }
 
   return (
     <>
@@ -91,7 +100,7 @@ function FeedbackForm({ onClose }: { onClose: () => void }) {
   const [pageTitle] = useState(currentPageTitle);
   const [kind, setKind] = useState<FeedbackKind>('bug');
   const [text, setText] = useState('');
-  const status = useFeedbackStatus(true);
+  const status = useFeedbackStatus();
   const submit = useSubmitFeedback();
 
   if (submit.data !== undefined) {

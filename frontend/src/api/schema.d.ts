@@ -4439,6 +4439,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/feedback/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FeedbackSettingsResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FeedbackSettingsUpdateResource"];
+                    "application/*+json": components["schemas"]["FeedbackSettingsUpdateResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FeedbackSettingsResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feedback/settings/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FeedbackTokenTestRequest"];
+                    "application/*+json": components["schemas"]["FeedbackTokenTestRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FeedbackTokenTestResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/downloadclient": {
         parameters: {
             query?: never;
@@ -5665,12 +5764,27 @@ export interface components {
             mayBeRaised: boolean;
             issueListUrl: string;
         };
+        FeedbackSettingsResource: {
+            tokenSet: boolean;
+            tokenLocked: boolean;
+        };
+        FeedbackSettingsUpdateResource: {
+            token?: null | string;
+        };
         FeedbackStatusResource: {
+            tokenConfigured: boolean;
             autoRaise: boolean;
             repository: string;
             repositoryUrl: string;
             /** Format: int32 */
             maxTextLength: number | string;
+        };
+        FeedbackTokenTestRequest: {
+            token?: null | string;
+        };
+        FeedbackTokenTestResource: {
+            ok: boolean;
+            message: string;
         };
         FileStreamResult: {
             fileStream?: components["schemas"]["Stream"];

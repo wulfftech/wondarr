@@ -4032,6 +4032,91 @@
         }
       }
     },
+    "/api/v1/feedback/settings": {
+      "get": {
+        "tags": [
+          "Feedback"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Feedback"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackSettingsUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackSettingsUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackSettingsResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feedback/settings/test": {
+      "post": {
+        "tags": [
+          "Feedback"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackTokenTestRequest"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackTokenTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackTokenTestResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/downloadclient": {
       "get": {
         "tags": [
@@ -6417,8 +6502,35 @@
           }
         }
       },
+      "FeedbackSettingsResource": {
+        "required": [
+          "tokenSet",
+          "tokenLocked"
+        ],
+        "type": "object",
+        "properties": {
+          "tokenSet": {
+            "type": "boolean"
+          },
+          "tokenLocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FeedbackSettingsUpdateResource": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "FeedbackStatusResource": {
         "required": [
+          "tokenConfigured",
           "autoRaise",
           "repository",
           "repositoryUrl",
@@ -6426,6 +6538,9 @@
         ],
         "type": "object",
         "properties": {
+          "tokenConfigured": {
+            "type": "boolean"
+          },
           "autoRaise": {
             "type": "boolean"
           },
@@ -6442,6 +6557,32 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "FeedbackTokenTestRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "FeedbackTokenTestResource": {
+        "required": [
+          "ok",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
