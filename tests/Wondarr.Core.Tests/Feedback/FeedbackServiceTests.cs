@@ -413,6 +413,160 @@ public sealed class FeedbackServiceTests : IDisposable
         options.GitHubToken.Should().BeNull();
     }
 
+    [Fact]
+    public void The_status_says_whether_a_token_is_set()
+    {
+        Service().GetStatus().TokenConfigured.Should().BeFalse();
+
+        _options.GitHubToken = Token;
+
+        Service().GetStatus().TokenConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_classic_token_with_public_repo_passes_the_check_and_nothing_is_opened()
+    {
+        _github.Respond(HttpStatusCode.OK, """{"full_name":"wulfftech/wondarr"}""", new Dictionary<string, string> { ["X-OAuth-Scopes"] = "public_repo, read:user" });
+
+        var check = await Service().CheckTokenAsync(Token, None);
+
+        check.Ok.Should().BeTrue();
+        check.Message.Should().Contain("public_repo");
+
+        var request = _github.Requests.Should().ContainSingle().Subject;
+
+        request.Method.Should().Be(HttpMethod.Get);
+        request.Uri.Should().Be(FeedbackService.RepositoryApiUrl);
+        request.Authorization.Should().Be($"Bearer {Token}");
+    }
+
+    [Fact]
+    public async Task A_classic_token_with_the_repo_scope_passes_too()
+    {
+        _github.Respond(HttpStatusCode.OK, "{}", new Dictionary<string, string> { ["X-OAuth-Scopes"] = "repo" });
+
+        (await Service().CheckTokenAsync(Token, None)).Ok.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_classic_token_without_public_repo_fails_the_check_and_says_which_scope()
+    {
+        _github.Respond(HttpStatusCode.OK, "{}", new Dictionary<string, string> { ["X-OAuth-Scopes"] = "read:user, gist" });
+
+        var check = await Service().CheckTokenAsync(Token, None);
+
+        check.Ok.Should().BeFalse();
+        check.Message.Should().Contain("no public_repo scope");
+    }
+
+    [Fact]
+    public async Task A_fine_grained_token_of_someone_who_cannot_push_is_told_to_use_a_classic_one()
+    {
+        _github.Respond(HttpStatusCode.OK, """{"permissions":{"admin":false,"push":false,"pull":true}}""");
+
+        var check = await Service().CheckTokenAsync("github_pat_x", None);
+
+        check.Ok.Should().BeFalse();
+        check.Message.Should().Contain("classic token");
+    }
+
+    [Fact]
+    public async Task A_fine_grained_token_of_the_owner_passes_with_the_issues_permission_named()
+    {
+        _github.Respond(HttpStatusCode.OK, """{"permissions":{"admin":true,"push":true,"pull":true}}""");
+
+        var check = await Service().CheckTokenAsync("github_pat_x", None);
+
+        check.Ok.Should().BeTrue();
+        check.Message.Should().Contain("Issues: Read and write");
+    }
+
+    [Fact]
+    public async Task A_token_github_refuses_fails_the_check()
+    {
+        _github.Respond(HttpStatusCode.Unauthorized, """{"message":"Bad credentials"}""");
+
+        var check = await Service().CheckTokenAsync(Token, None);
+
+        check.Ok.Should().BeFalse();
+        check.Message.Should().Contain("401");
+    }
+
+    [Fact]
+    public async Task A_checked_token_becomes_a_secret_only_once_github_accepts_it()
+    {
+        _github.Respond(HttpStatusCode.Unauthorized, "{}");
+
+        await Service().CheckTokenAsync("ghp_mistypedtoken0123", None);
+
+        // A wrong paste (a URL, a word) must not be cut out of every later log line and issue.
+        _secrets.Redact("ghp_mistypedtoken0123").Should().Be("ghp_mistypedtoken0123");
+
+        _github.Respond(HttpStatusCode.OK, "{}", new Dictionary<string, string> { ["X-OAuth-Scopes"] = "public_repo" });
+
+        await Service().CheckTokenAsync("ghp_acceptedtoken0123", None);
+
+        _secrets.Redact("ghp_acceptedtoken0123").Should().Be("(removed)");
+    }
+
+    [Fact]
+    public async Task At_most_ten_token_checks_are_made_in_ten_minutes()
+    {
+        _github.Respond(HttpStatusCode.Unauthorized, "{}");
+
+        var service = Service();
+
+        for (var index = 0; index < FeedbackService.MaxChecksPerWindow; index++)
+        {
+            (await service.CheckTokenAsync($"ghp_junk{index}", None)).Message.Should().Contain("401");
+        }
+
+        var throttled = await service.CheckTokenAsync("ghp_onetoomany", None);
+
+        throttled.Ok.Should().BeFalse();
+        throttled.Message.Should().Contain("at most 10 tokens every 10 minutes");
+        _github.Requests.Should().HaveCount(FeedbackService.MaxChecksPerWindow);
+
+        _time.Advance(FeedbackService.IssueWindow);
+
+        (await service.CheckTokenAsync("ghp_later", None)).Message.Should().Contain("401");
+        _github.Requests.Should().HaveCount(FeedbackService.MaxChecksPerWindow + 1);
+    }
+
+    [Fact]
+    public async Task Token_checks_do_not_use_up_the_issue_limit()
+    {
+        _github.Respond(HttpStatusCode.Unauthorized, "{}");
+
+        var service = Service();
+
+        for (var index = 0; index < FeedbackService.MaxChecksPerWindow; index++)
+        {
+            await service.CheckTokenAsync($"ghp_junk{index}", None);
+        }
+
+        _options.GitHubToken = Token;
+
+        service.GetStatus().AutoRaise.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task While_github_is_rate_limiting_the_check_asks_nothing()
+    {
+        _options.GitHubToken = Token;
+        _github.Respond(HttpStatusCode.TooManyRequests, "{}", new Dictionary<string, string> { ["Retry-After"] = "600" });
+
+        var service = Service();
+
+        await service.SubmitAsync(new FeedbackSubmission(FeedbackKind.Bug, "one", null, null), None);
+
+        var check = await service.CheckTokenAsync(Token, None);
+
+        check.Ok.Should().BeFalse();
+        check.Message.Should().Contain("rate limit");
+        _github.Requests.Should().HaveCount(1);
+    }
+
     private FeedbackService Service(ILogger<FeedbackService>? logger = null)
     {
         var options = Substitute.For<IOptionsMonitor<FeedbackOptions>>();

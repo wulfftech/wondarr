@@ -30,6 +30,20 @@ public sealed class FeedbackApiTests
             new Uri(Endpoint, UriKind.Relative),
             new StringContent("""{"kind":"bug","text":"x"}""", Encoding.UTF8, "application/json"));
         post.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        using var settings = await client.GetAsync(new Uri($"{Endpoint}/settings", UriKind.Relative));
+        settings.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        using var put = await client.PutAsync(
+            new Uri($"{Endpoint}/settings", UriKind.Relative),
+            new StringContent($$"""{"token":"{{Token}}"}""", Encoding.UTF8, "application/json"));
+        put.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        using var test = await client.PostAsync(
+            new Uri($"{Endpoint}/settings/test", UriKind.Relative),
+            new StringContent($$"""{"token":"{{Token}}"}""", Encoding.UTF8, "application/json"));
+        test.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
         github.Requests.Should().Be(0);
     }
 
@@ -43,6 +57,7 @@ public sealed class FeedbackApiTests
         var (_, read) = await api.SendAsync(HttpMethod.Get, Endpoint);
 
         ((JsonObject)read!)["autoRaise"]!.GetValue<bool>().Should().BeFalse();
+        ((JsonObject)read)["tokenConfigured"]!.GetValue<bool>().Should().BeFalse();
         ((JsonObject)read)["repository"]!.GetValue<string>().Should().Be("wulfftech/wondarr");
         ((JsonObject)read)["maxTextLength"]!.GetValue<int>().Should().Be(FeedbackService.MaxTextLength);
 
@@ -82,6 +97,7 @@ public sealed class FeedbackApiTests
         var (_, read) = await api.SendAsync(HttpMethod.Get, Endpoint);
 
         ((JsonObject)read!)["autoRaise"]!.GetValue<bool>().Should().BeTrue();
+        ((JsonObject)read)["tokenConfigured"]!.GetValue<bool>().Should().BeTrue();
 
         var (status, body) = await api.SendAsync(HttpMethod.Post, Endpoint, """{"kind":"bug","text":"The logs page is empty","page":"/system/logs"}""");
 
@@ -165,7 +181,94 @@ public sealed class FeedbackApiTests
         status.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    private static WondarrAppFactory Factory(Github github, string? token = null) =>
+    [Fact]
+    public async Task A_token_saved_on_the_settings_card_turns_the_button_on_and_is_never_read_back()
+    {
+        using var github = new Github();
+        using var factory = Factory(github);
+        using var api = new Session(factory);
+
+        var (_, before) = await api.SendAsync(HttpMethod.Get, $"{Endpoint}/settings");
+
+        ((JsonObject)before!)["tokenSet"]!.GetValue<bool>().Should().BeFalse();
+        ((JsonObject)before)["tokenLocked"]!.GetValue<bool>().Should().BeFalse();
+
+        var (status, saved) = await api.SendAsync(HttpMethod.Put, $"{Endpoint}/settings", $$"""{"token":"  {{Token}} "}""");
+
+        status.Should().Be(HttpStatusCode.OK);
+        ((JsonObject)saved!)["tokenSet"]!.GetValue<bool>().Should().BeTrue();
+        saved.ToJsonString().Should().NotContain(Token);
+
+        var yaml = await File.ReadAllTextAsync(Path.Combine(factory.ConfigDir, "config.yml"));
+
+        yaml.Should().Contain("feedback:").And.Contain($"github_token: \"{Token}\"");
+
+        // The file is reloaded on write: the header's status follows without a restart.
+        var (_, status2) = await api.SendAsync(HttpMethod.Get, Endpoint);
+
+        ((JsonObject)status2!)["tokenConfigured"]!.GetValue<bool>().Should().BeTrue();
+        ((JsonObject)status2)["autoRaise"]!.GetValue<bool>().Should().BeTrue();
+
+        var (_, removed) = await api.SendAsync(HttpMethod.Put, $"{Endpoint}/settings", """{"token":""}""");
+
+        ((JsonObject)removed!)["tokenSet"]!.GetValue<bool>().Should().BeFalse();
+        (await File.ReadAllTextAsync(Path.Combine(factory.ConfigDir, "config.yml"))).Should().NotContain(Token);
+
+        var (_, status3) = await api.SendAsync(HttpMethod.Get, Endpoint);
+
+        ((JsonObject)status3!)["tokenConfigured"]!.GetValue<bool>().Should().BeFalse();
+        github.Requests.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Something_that_cannot_be_a_token_is_refused_on_the_token_field()
+    {
+        using var github = new Github();
+        using var factory = Factory(github);
+        using var api = new Session(factory);
+
+        var (status, body) = await api.SendAsync(HttpMethod.Put, $"{Endpoint}/settings", """{"token":"Bearer ghp_abc"}""");
+
+        status.Should().Be(HttpStatusCode.BadRequest);
+        ((JsonObject)body!)["errors"]!["token"].Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task The_test_checks_a_typed_token_with_github_and_opens_nothing()
+    {
+        using var github = new Github
+        {
+            Status = HttpStatusCode.OK,
+            Answer = """{"full_name":"wulfftech/wondarr"}""",
+            Headers = new Dictionary<string, string> { ["X-OAuth-Scopes"] = "public_repo" },
+        };
+        using var factory = Factory(github);
+        using var api = new Session(factory);
+
+        var (status, body) = await api.SendAsync(HttpMethod.Post, $"{Endpoint}/settings/test", $$"""{"token":"{{Token}}"}""");
+
+        status.Should().Be(HttpStatusCode.OK);
+        ((JsonObject)body!)["ok"]!.GetValue<bool>().Should().BeTrue();
+        body.ToJsonString().Should().NotContain(Token);
+        github.Requests.Should().Be(1);
+        github.LastUri.Should().Be(FeedbackService.RepositoryApiUrl);
+        github.LastAuthorization.Should().Be($"Bearer {Token}");
+    }
+
+    [Fact]
+    public async Task The_test_without_any_token_says_so_and_asks_github_nothing()
+    {
+        using var github = new Github();
+        using var factory = Factory(github);
+        using var api = new Session(factory);
+
+        var (_, body) = await api.SendAsync(HttpMethod.Post, $"{Endpoint}/settings/test", "{}");
+
+        ((JsonObject)body!)["ok"]!.GetValue<bool>().Should().BeFalse();
+        github.Requests.Should().Be(0);
+    }
+
+    internal static WondarrAppFactory Factory(Github github, string? token = null) =>
         new(
             settings: token is null ? null : new Dictionary<string, string?> { ["Feedback:GitHubToken"] = token },
             configureServices: services =>
@@ -174,14 +277,16 @@ public sealed class FeedbackApiTests
                 services.AddSingleton(RunningVersion.Parse("0.1.9"));
             });
 
-    /// <summary>A fake GitHub: answers every request with one status and body, and remembers the last request.</summary>
-    private sealed class Github : HttpMessageHandler
+    /// <summary>A fake GitHub: answers every request with one status, body and headers, and remembers the last request.</summary>
+    internal sealed class Github : HttpMessageHandler
     {
         private int _requests;
 
         public HttpStatusCode Status { get; init; } = HttpStatusCode.Created;
 
         public string Answer { get; init; } = "{}";
+
+        public Dictionary<string, string> Headers { get; init; } = [];
 
         public int Requests => Volatile.Read(ref _requests);
 
@@ -202,14 +307,21 @@ public sealed class FeedbackApiTests
             LastUserAgent = request.Headers.UserAgent.ToString();
             LastBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
 
-            return new HttpResponseMessage(Status)
+            var response = new HttpResponseMessage(Status)
             {
                 Content = new StringContent(Answer, Encoding.UTF8, "application/json"),
             };
+
+            foreach (var (name, value) in Headers)
+            {
+                response.Headers.TryAddWithoutValidation(name, value);
+            }
+
+            return response;
         }
     }
 
-    private sealed class Session : IDisposable
+    internal sealed class Session : IDisposable
     {
         private readonly HttpClient _client;
 
@@ -234,6 +346,56 @@ public sealed class FeedbackApiTests
             var raw = await response.Content.ReadAsStringAsync();
 
             return (response.StatusCode, raw.Length == 0 ? null : JsonNode.Parse(raw));
+        }
+    }
+}
+
+/// <summary>
+/// Not parallelised: the test sets a real <c>APP__FEEDBACK__GITHUB_TOKEN</c> variable for the duration of its
+/// run, and a concurrently starting host would read it.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class FeedbackEnvironmentTestsSeries
+{
+    /// <summary>The collection's name, shared by the test class.</summary>
+    public const string Name = "Feedback environment";
+}
+
+/// <summary>A token the environment sets is read-only on the settings card.</summary>
+[Collection(FeedbackEnvironmentTestsSeries.Name)]
+public sealed class FeedbackEnvironmentTests
+{
+    [Fact]
+    public async Task A_token_the_environment_sets_is_locked_and_a_change_is_refused_with_the_variable_named()
+    {
+        const string Token = "ghp_environmenttoken0123456789";
+
+        Environment.SetEnvironmentVariable("APP__FEEDBACK__GITHUB_TOKEN", Token);
+
+        try
+        {
+            using var github = new FeedbackApiTests.Github();
+            using var factory = FeedbackApiTests.Factory(github);
+            using var api = new FeedbackApiTests.Session(factory);
+
+            var (_, read) = await api.SendAsync(HttpMethod.Get, "/api/v1/feedback/settings");
+
+            ((JsonObject)read!)["tokenSet"]!.GetValue<bool>().Should().BeTrue();
+            ((JsonObject)read)["tokenLocked"]!.GetValue<bool>().Should().BeTrue();
+
+            var (_, status) = await api.SendAsync(HttpMethod.Get, "/api/v1/feedback");
+
+            ((JsonObject)status!)["tokenConfigured"]!.GetValue<bool>().Should().BeTrue();
+
+            var (code, body) = await api.SendAsync(HttpMethod.Put, "/api/v1/feedback/settings", """{"token":"ghp_other0123456789"}""");
+
+            code.Should().Be(HttpStatusCode.BadRequest);
+            ((JsonObject)body!)["errors"]!["token"]!.AsArray()
+                .Should().Contain(message => message!.GetValue<string>().Contains("APP__FEEDBACK__GITHUB_TOKEN"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("APP__FEEDBACK__GITHUB_TOKEN", null);
         }
     }
 }

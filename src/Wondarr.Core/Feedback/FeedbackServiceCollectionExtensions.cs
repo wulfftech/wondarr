@@ -1,5 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Wondarr.Core.Configuration;
+using Wondarr.Core.Logging;
 using Wondarr.Core.Updates;
 
 namespace Wondarr.Core.Feedback;
@@ -8,7 +12,7 @@ namespace Wondarr.Core.Feedback;
 public static class FeedbackServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds the GitHub issues client and the feedback service. The <c>feedback</c> options are bound by
+    /// Adds the GitHub issues client, the feedback service and the settings service of its card. The <c>feedback</c> options are bound by
     /// <c>AddWondarrConfiguration</c>, which has the configuration.
     /// </summary>
     /// <param name="services">The service collection to extend.</param>
@@ -19,7 +23,8 @@ public static class FeedbackServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(_ => RunningVersion.FromAssembly(typeof(FeedbackService).Assembly));
 
-        // No resilience handler on purpose: the only request is a POST, and a retried one opens a second issue.
+        // No resilience handler on purpose: a retried issue POST opens a second issue, and the token check is one
+        // GET a person asked for.
         services.AddHttpClient(FeedbackService.ClientName, (serviceProvider, client) =>
         {
             var running = serviceProvider.GetRequiredService<RunningVersion>();
@@ -32,6 +37,15 @@ public static class FeedbackServiceCollectionExtensions
         });
 
         services.AddSingleton<IFeedbackService, FeedbackService>();
+
+        // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a service.
+        services.AddScoped<IFeedbackSettingsService>(serviceProvider => new FeedbackSettingsService(
+            serviceProvider.GetRequiredService<IOptionsMonitor<FeedbackOptions>>(),
+            serviceProvider.GetRequiredService<IConfigFileWriter>(),
+            serviceProvider.GetRequiredService<IFeedbackService>(),
+            serviceProvider.GetRequiredService<ISecretRegistry>(),
+            Environment.GetEnvironmentVariables(),
+            serviceProvider.GetRequiredService<ILogger<FeedbackSettingsService>>()));
 
         return services;
     }

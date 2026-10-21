@@ -3,11 +3,12 @@ using Wondarr.Core.Feedback;
 namespace Wondarr.Api.Feedback;
 
 /// <summary>What the feedback button will do with a submission.</summary>
+/// <param name="TokenConfigured">Whether a GitHub token is set; without one the header shows no feedback button.</param>
 /// <param name="AutoRaise">Whether a submission opens the GitHub issue directly; otherwise the answer is a prefilled issue form.</param>
 /// <param name="Repository">The repository issues go to, <c>owner/name</c>.</param>
 /// <param name="RepositoryUrl">That repository's page.</param>
 /// <param name="MaxTextLength">The longest text a submission may have.</param>
-public sealed record FeedbackStatusResource(bool AutoRaise, string Repository, string RepositoryUrl, int MaxTextLength)
+public sealed record FeedbackStatusResource(bool TokenConfigured, bool AutoRaise, string Repository, string RepositoryUrl, int MaxTextLength)
 {
     /// <summary>Maps the service's status onto the resource.</summary>
     /// <param name="status">The status to map.</param>
@@ -15,7 +16,12 @@ public sealed record FeedbackStatusResource(bool AutoRaise, string Repository, s
     {
         ArgumentNullException.ThrowIfNull(status);
 
-        return new FeedbackStatusResource(status.AutoRaise, status.Repository, status.RepositoryUrl, FeedbackService.MaxTextLength);
+        return new FeedbackStatusResource(
+            status.TokenConfigured,
+            status.AutoRaise,
+            status.Repository,
+            status.RepositoryUrl,
+            FeedbackService.MaxTextLength);
     }
 }
 
@@ -50,3 +56,31 @@ public sealed record FeedbackResultResource(bool Raised, string IssueUrl, int? I
             FeedbackService.IssueListUrl);
     }
 }
+
+/// <summary>The Contribute with feedback card of Settings &gt; General. Never carries the token.</summary>
+/// <param name="TokenSet">Whether a GitHub token is stored.</param>
+/// <param name="TokenLocked">Whether the environment sets it (<c>APP__FEEDBACK__GITHUB_TOKEN</c>), so it cannot be changed here.</param>
+public sealed record FeedbackSettingsResource(bool TokenSet, bool TokenLocked)
+{
+    /// <summary>Maps the service's settings onto the resource.</summary>
+    /// <param name="settings">The settings to map.</param>
+    public static FeedbackSettingsResource From(FeedbackSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        return new FeedbackSettingsResource(settings.TokenSet, settings.TokenLocked);
+    }
+}
+
+/// <summary>A change to the feedback token. An absent token is left alone; an empty one removes it.</summary>
+/// <param name="Token">The new GitHub token.</param>
+public sealed record FeedbackSettingsUpdateResource(string? Token = null);
+
+/// <summary>A token to check with GitHub.</summary>
+/// <param name="Token">The token to try; absent or empty for the stored one.</param>
+public sealed record FeedbackTokenTestRequest(string? Token = null);
+
+/// <summary>What the token check found.</summary>
+/// <param name="Ok">Whether the token can be expected to open issues.</param>
+/// <param name="Message">A sentence to show; never the token.</param>
+public sealed record FeedbackTokenTestResource(bool Ok, string Message);
