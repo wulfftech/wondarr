@@ -86,6 +86,41 @@ expect_true "aborted mid-run: detected" run_aborted_mid_run "${log}"
 expect_false "plumbing: a host that crashed after an all-green run is not an abort mid-run" run_aborted_mid_run "${samples}/host-plumbing.txt"
 expect_false "silent project: not an abort mid-run either" run_aborted_mid_run "${samples}/silent-project.txt"
 
+# --- node_modules is reinstalled when the lockfile moves (the Dependabot bumps, 2026-10-21) ------------
+# A stub npm stands in for the real one: `npm ci` empties node_modules as the real one does, and each call
+# is counted. NPM_FAILS=1 makes it fail.
+install_dir="$(mktemp -d)"
+npm() {
+    rm -rf node_modules && mkdir node_modules
+    echo "$*" >> "${install_dir}/npm-calls"
+    [[ "${NPM_FAILS:-0}" == "0" ]]
+}
+npm_calls() { grep -c . "${install_dir}/npm-calls" 2>/dev/null || echo 0; }
+pushd "${install_dir}" >/dev/null || exit 1
+echo '{"lockfileVersion": 3, "packages": {"node_modules/vitest": {"version": "5.0.2"}}}' > package-lock.json
+expect_false "install: no node_modules is not current" frontend_install_current
+mkdir node_modules
+expect_false "install: a node_modules without a stamp is not current (the old check only asked whether the folder existed)" frontend_install_current
+expect_true "install: the first run installs" frontend_install
+expect_eq "install: npm ci ran once" "1" "$(npm_calls)"
+expect_true "install: now current" frontend_install_current
+expect_true "install: a second run on the same lockfile" frontend_install
+expect_eq "install: and npm ci did not run again" "1" "$(npm_calls)"
+echo '{"lockfileVersion": 3, "packages": {"node_modules/vitest": {"version": "5.0.4"}}}' > package-lock.json
+expect_false "install: a bumped lockfile is not current" frontend_install_current
+expect_true "install: so the next run reinstalls" frontend_install
+expect_eq "install: npm ci ran a second time" "2" "$(npm_calls)"
+echo '{"lockfileVersion": 3, "packages": {"node_modules/vitest": {"version": "5.0.5"}}}' > package-lock.json
+NPM_FAILS=1
+expect_false "install: a failed npm ci fails the install" frontend_install
+NPM_FAILS=0
+expect_false "install: and leaves no stamp claiming the new lockfile" frontend_install_current
+rm -f package-lock.json
+expect_false "install: a stamp with no lockfile is not current" frontend_install_current
+popd >/dev/null || exit 1
+unset -f npm npm_calls
+rm -rf "${install_dir}"
+
 # --- the project count comes from the solution -------------------------------------------------------
 if command -v dotnet >/dev/null 2>&1; then
     root="$(cd "${here}/../.." && pwd)"

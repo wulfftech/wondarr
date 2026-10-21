@@ -7,7 +7,8 @@
 #
 # The merge is made with --no-commit and aborted (git merge --abort) when the checks fail, so a red
 # merge never lands. The pre-merge check is skipped when the current HEAD already passed this script
-# (recorded in .worker/last-green). Frontend checks run when the branch touches frontend/.
+# (recorded in .worker/last-green). Frontend checks run when the branch touches frontend/, on a
+# node_modules reinstalled whenever it was not installed from the tree's package-lock.json.
 #
 # Flaky tests (owner policy, code review 2026-10-10 R-044): a failed test run re-runs only the tests that
 # failed, once, on their own. The re-run is accepted only when the failed test names captured from the log
@@ -92,6 +93,31 @@ count_test_projects() {
     dotnet sln list 2>/dev/null | grep -cE '^tests[/\\]' || true
 }
 
+# --- the frontend install -----------------------------------------------------------------------
+# The lockfile node_modules was installed from, as its git object id, kept inside node_modules: npm ci
+# empties the folder first, so a stamp never outlives the install it describes. --no-filters hashes the
+# bytes on disk, so Git Bash and WSL's git agree whatever their line-ending settings.
+frontend_lock_stamp="node_modules/.safe-merge-lock"
+
+# True when the node_modules in the current directory was installed from its package-lock.json. A tree
+# whose lockfile moved (a dependency bump, or a refused merge that left the branch's packages behind)
+# must be reinstalled, or its checks run against the old packages and pass without testing the new
+# ones (the Dependabot bumps, 2026-10-21: vitest 5.0.4 would have been checked on 5.0.2).
+frontend_install_current() {
+    [[ -f "${frontend_lock_stamp}" && -f package-lock.json ]] \
+        && [[ "$(cat "${frontend_lock_stamp}")" == "$(git hash-object --no-filters package-lock.json)" ]]
+}
+
+# Installs node_modules from package-lock.json unless it already was, and stamps it.
+frontend_install() {
+    if frontend_install_current; then
+        return 0
+    fi
+    echo "safe-merge: npm ci (node_modules was not installed from this package-lock.json)"
+    npm ci --no-audit --no-fund || return 1
+    git hash-object --no-filters package-lock.json > "${frontend_lock_stamp}"
+}
+
 # --- the checks ----------------------------------------------------------------------------------
 
 # Every step returns explicitly on failure: check() runs as an `if` condition, where bash ignores
@@ -167,7 +193,7 @@ check() {
         echo "safe-merge: frontend checks"
         (
             cd frontend
-            [[ -d node_modules ]] || npm ci --no-audit --no-fund
+            frontend_install || exit 1
             npm run lint && npm run typecheck && npm run format && npm test -- --maxWorkers=2 && npm run build
         ) || return 1
     fi
