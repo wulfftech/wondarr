@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -9,19 +9,44 @@ import {
   SYSTEM_STATUS,
   paged,
 } from '../test/fixtures';
-import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../test/helpers';
+import { StrictMode } from 'react';
+import { App } from '../app/App';
+import { findSeed, noteReturn, rememberSeed, SEED_STORAGE_KEY } from '../components/musicBrainzSeed';
+import {
+  createTestConfig,
+  installFetch,
+  jsonResponse,
+  renderApp,
+  resetLocation,
+  type FetchMock,
+} from '../test/helpers';
 
 const AMBIGUOUS = MATCH_QUEUE_ITEMS[0];
 const UNMATCHED = MATCH_QUEUE_ITEMS[1];
 
+/** The release MusicBrainz sends the browser back with. */
+const RELEASE_ID = '4587fe99-db0e-4553-a56a-164dd38ab380';
+
+/** What `GET /api/v1/youtube/video` answers for the link the tests paste. */
+const VIDEO = {
+  videoId: 'aBcDeFgHiJk',
+  url: 'https://www.youtube.com/watch?v=aBcDeFgHiJk',
+  title: 'Yeah the Boys (Official Video)',
+  channel: 'Hype Duo',
+  uploadDate: '2019-03-12',
+  durationMs: 196320,
+};
+
 beforeEach(() => {
   resetLocation('/match');
+  localStorage.clear();
   // jsdom has no scrollIntoView, which Mantine's combobox calls as its dropdown opens.
   Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 /** What the mocked `fetch` received; the body lives on the `Request` the generated client passes. */
@@ -40,8 +65,13 @@ function install(
     jsonResponse({ resolved: 1, failed: 1, errors: ['Unknown artist/04 track04.mp3: nothing to accept'] }),
   lookup: () => Response = () => jsonResponse(LOOKUP_RESULTS),
   resolve: () => Response = () => jsonResponse({ state: 'identified', songId: 12, message: null, replacement: null }),
+  video: () => Response = () => jsonResponse(VIDEO),
 ): FetchMock {
   return installFetch((url, init) => {
+    if (url.includes('/api/v1/youtube/video')) {
+      return video();
+    }
+
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
     }
@@ -394,6 +424,213 @@ describe('MatchQueuePage', () => {
     await waitFor(() => {
       expect(mock.calls.some((call) => call.url.includes('referenceLibraryId=3'))).toBe(true);
     });
+  });
+
+  it('opens MusicBrainz’ release editor filled in from the file and the video, and remembers the seed', async () => {
+    install();
+    const user = userEvent.setup();
+    const posted: Record<string, string>[] = [];
+
+    vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(function (this: HTMLFormElement) {
+      posted.push(
+        Object.fromEntries(
+          Array.from(new FormData(this).entries(), ([name, value]) => [name, typeof value === 'string' ? value : '']),
+        ),
+      );
+    });
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText(`Review ${UNMATCHED.relativePath}`));
+    await user.click(screen.getByRole('button', { name: 'Add to MusicBrainz…' }));
+
+    // An untagged file starts from its name, under its artist's folder.
+    expect(screen.getByLabelText(/^Artist\s*\*?$/)).toHaveValue('Unknown artist');
+
+    await user.clear(screen.getByLabelText(/^Title\s*\*?$/));
+    await user.type(screen.getByLabelText(/^Title\s*\*?$/), 'Yeah the Boys');
+    await user.clear(screen.getByLabelText(/^Artist\s*\*?$/));
+    await user.type(screen.getByLabelText(/^Artist\s*\*?$/), 'Hype Duo');
+    await user.type(screen.getByLabelText(/^YouTube link/), 'https://youtu.be/aBcDeFgHiJk');
+    await user.click(screen.getByRole('button', { name: 'Read video' }));
+
+    expect(await screen.findByText('Hype Duo · uploaded 2019-03-12 · 3:16')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Release date/)).toHaveValue('2019-03-12');
+    expect(screen.getByLabelText(/^YouTube link/)).toHaveValue(VIDEO.url);
+
+    await user.click(screen.getByRole('button', { name: 'Open MusicBrainz' }));
+
+    expect(posted).toHaveLength(1);
+
+    const form = posted[0] ?? {};
+    const returnTo = new URL(form.redirect_uri ?? '');
+
+    expect(form.name).toBe('Yeah the Boys');
+    expect(form['artist_credit.names.0.name']).toBe('Hype Duo');
+    expect(form['mediums.0.track.0.length']).toBe('201000');
+    expect(form['events.0.date.year']).toBe('2019');
+    expect(form['urls.0.url']).toBe(VIDEO.url);
+    expect(form.edit_note).toContain('Uploaded by the "Hype Duo" YouTube channel on 2019-03-12');
+    expect(returnTo.pathname).toBe('/match');
+    expect(returnTo.searchParams.get('musicBrainzFor')).toBe(String(UNMATCHED.id));
+    expect(findSeed(Number(UNMATCHED.id), returnTo.searchParams.get('seed') ?? '')).toMatchObject({
+      path: UNMATCHED.relativePath,
+    });
+    expect(screen.getByText(/MusicBrainz opened in a new tab/)).toBeInTheDocument();
+  });
+
+  it('says why a video could not be read, and still sends the link as typed', async () => {
+    install(undefined, undefined, undefined, undefined, () =>
+      jsonResponse(
+        {
+          title: 'The YouTube source is off',
+          detail: 'Wondarr reads YouTube only while the YouTube source is on (Settings → YouTube).',
+          status: 409,
+        },
+        409,
+      ),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText(`Review ${UNMATCHED.relativePath}`));
+    await user.click(screen.getByRole('button', { name: 'Add to MusicBrainz…' }));
+    await user.type(screen.getByLabelText(/^YouTube link/), 'https://youtu.be/aBcDeFgHiJk');
+    await user.click(screen.getByRole('button', { name: 'Read video' }));
+
+    expect(await screen.findByText(/Wondarr reads YouTube only while the YouTube source is on/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^YouTube link/)).toHaveValue('https://youtu.be/aBcDeFgHiJk');
+  });
+
+  it('will not open MusicBrainz with a release date it cannot take', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText(`Review ${UNMATCHED.relativePath}`));
+    await user.click(screen.getByRole('button', { name: 'Add to MusicBrainz…' }));
+    await user.type(screen.getByLabelText(/^Release date/), '12 March');
+
+    expect(screen.getByText('Use YYYY, YYYY-MM or YYYY-MM-DD, or leave it empty.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open MusicBrainz' })).toBeDisabled();
+  });
+
+  it('settles the file with the release MusicBrainz sends this browser back with', async () => {
+    rememberSeed(Number(UNMATCHED.id), UNMATCHED.relativePath, 'token-a');
+    resetLocation(`/match?musicBrainzFor=${UNMATCHED.id}&seed=token-a&release_mbid=${RELEASE_ID}`);
+    install();
+
+    renderApp();
+
+    const body = await lastBody(`/api/v1/matchqueue/${UNMATCHED.id}/resolve`);
+
+    expect(body).toMatchObject({ mbReleaseId: RELEASE_ID, mbRecordingId: null, candidateRank: null, skip: false });
+    expect(await screen.findByText('Settled')).toBeInTheDocument();
+    // Once is enough: the address no longer says to settle it, and the seed is used up.
+    expect(window.location.search).toBe('');
+    expect(findSeed(Number(UNMATCHED.id), 'token-a')).toBeNull();
+    expect(sent().filter((request) => request.url.includes('/resolve'))).toHaveLength(1);
+  });
+
+  it('asks before settling a way back this browser did not start', async () => {
+    resetLocation(`/match?musicBrainzFor=${UNMATCHED.id}&seed=forged&release_mbid=${RELEASE_ID}`);
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    expect(await screen.findByText('Settle with a MusicBrainz release?')).toBeInTheDocument();
+    // The file is named by its path once the queue shows it, though this browser never saw the seed.
+    expect(
+      await screen.findByText(`This link asks to settle ${UNMATCHED.relativePath} with`, { exact: false }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'this MusicBrainz release' })).toHaveAttribute(
+      'href',
+      `https://musicbrainz.org/release/${RELEASE_ID}`,
+    );
+    expect(sent().some((request) => request.url.includes('/resolve'))).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: 'Settle' }));
+
+    expect(await lastBody(`/api/v1/matchqueue/${UNMATCHED.id}/resolve`)).toMatchObject({ mbReleaseId: RELEASE_ID });
+  });
+
+  it('says why the release could not settle the file yet, and tries again', async () => {
+    rememberSeed(Number(UNMATCHED.id), UNMATCHED.relativePath, 'token-a');
+    resetLocation(`/match?musicBrainzFor=${UNMATCHED.id}&seed=token-a&release_mbid=${RELEASE_ID}`);
+    install(undefined, undefined, undefined, () =>
+      jsonResponse(
+        {
+          title: 'Not on MusicBrainz yet',
+          detail: 'MusicBrainz does not show that release yet. Try again in a minute.',
+          status: 404,
+        },
+        404,
+      ),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    expect(
+      await screen.findByText('MusicBrainz does not show that release yet. Try again in a minute.'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(sent().filter((request) => request.url.includes('/resolve'))).toHaveLength(2));
+    // Not settled, so not forgotten: the seed keeps the release for the next try.
+    expect(findSeed(Number(UNMATCHED.id), 'token-a')).toMatchObject({ releaseId: RELEASE_ID });
+  });
+
+  it('tries an unsettled way back again when Match is opened later, without the address', async () => {
+    rememberSeed(Number(UNMATCHED.id), UNMATCHED.relativePath, 'token-a');
+    noteReturn({
+      fileId: Number(UNMATCHED.id),
+      releaseId: RELEASE_ID,
+      token: 'token-a',
+      pending: findSeed(Number(UNMATCHED.id), 'token-a'),
+    });
+    install();
+
+    renderApp();
+
+    expect(await lastBody(`/api/v1/matchqueue/${UNMATCHED.id}/resolve`)).toMatchObject({ mbReleaseId: RELEASE_ID });
+    expect(await screen.findByText('Settled')).toBeInTheDocument();
+    expect(findSeed(Number(UNMATCHED.id), 'token-a')).toBeNull();
+  });
+
+  it('settles the way back once under StrictMode, which runs effects twice', async () => {
+    rememberSeed(Number(UNMATCHED.id), UNMATCHED.relativePath, 'token-a');
+    resetLocation(`/match?musicBrainzFor=${UNMATCHED.id}&seed=token-a&release_mbid=${RELEASE_ID}`);
+    install();
+
+    render(
+      <StrictMode>
+        <App config={createTestConfig()} env="test" />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByText('Settled')).toBeInTheDocument();
+    expect(sent().filter((request) => request.url.includes('/resolve'))).toHaveLength(1);
+  });
+
+  it('refreshes the queue when another tab settles a file', async () => {
+    const mock = install();
+
+    renderApp();
+
+    expect(await screen.findByText(AMBIGUOUS.relativePath)).toBeInTheDocument();
+
+    const before = mock.calls.filter((call) => call.url.includes('/api/v1/matchqueue?')).length;
+
+    window.dispatchEvent(new StorageEvent('storage', { key: SEED_STORAGE_KEY }));
+
+    await waitFor(() =>
+      expect(mock.calls.filter((call) => call.url.includes('/api/v1/matchqueue?')).length).toBeGreaterThan(before),
+    );
   });
 
   it('shows the empty state when nothing is waiting', async () => {

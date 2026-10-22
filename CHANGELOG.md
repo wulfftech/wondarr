@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **Add to MusicBrainz, from the Match queue.** For a song MusicBrainz does not have (one released only on YouTube, say), the review drawer's **Add to MusicBrainz…** opens MusicBrainz' release editor in a new tab with the song filled in as a digital single: the title, the artist and the file's length, plus a YouTube link if you give one. **Read video** fills in the upload date from the link while the YouTube source is on. You link or add the artist, check the rest and submit under your own MusicBrainz account; MusicBrainz then sends you back to Wondarr, which settles the file with the new release. Wondarr never edits MusicBrainz itself.
+
 ## [0.1.13] — 2026-10-22
 
 Reference libraries now spot likely YouTube rips and can have any of their files replaced by a better copy: **Replace** in the Match queue, or **Replace files below the cutoff** on a reference library. Update by pulling `:0.1` (or `:0.1.13`).

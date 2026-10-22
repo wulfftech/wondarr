@@ -14,13 +14,16 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert } from 'lucide-react';
 import type { MantineColor } from '@mantine/core';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { firstPage, type Paging } from '../api/paging';
 import { partialNotice, useSongSearch, type SongLookupResource } from '../api/songs';
 import {
+  MATCH_QUEUE_QUERY_KEY,
+  REFERENCE_LIBRARIES_QUERY_KEY,
   useBulkAcceptMatches,
   useMatchQueue,
   useReferenceLibraries,
@@ -30,13 +33,26 @@ import {
   type MatchResolveInput,
   type MatchResolveResource,
 } from '../api/references';
+import { AddToMusicBrainz, MusicBrainzReturnNotice } from '../components/AddToMusicBrainz';
+import {
+  noteReturn,
+  readMusicBrainzReturn,
+  RETURN_FILE_PARAM,
+  RETURN_RELEASE_PARAM,
+  RETURN_SEED_PARAM,
+  SEED_STORAGE_KEY,
+  unsettledReturn,
+  type MusicBrainzReturn,
+} from '../components/musicBrainzSeed';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 
 /**
  * The Match queue (LIBRARY_OUTPUT §7.6): the files identification could not settle, what each file
  * says about itself, the ranked candidates, and the choices that settle a file — one at a time, or
  * the top candidate for many at once. Replace accepts the recording and asks for a better copy of the
- * file, which is what a likely YouTube rip needs (DECISIONS build session 14 #32).
+ * file, which is what a likely YouTube rip needs (DECISIONS build session 14 #32). A song MusicBrainz
+ * does not have can be added there from the drawer, and the file is settled when MusicBrainz sends the
+ * browser back (#33).
  */
 
 /** What each state says on screen. The resource carries the state as a plain string. */
@@ -199,7 +215,7 @@ function TopCandidateCell({ item }: { item: MatchQueueItemResource }) {
   );
 }
 
-/** The drawer that settles one file: every candidate, a manual search, and skip. */
+/** The drawer that settles one file: every candidate, a manual search, adding it to MusicBrainz, and skip. */
 function ReviewDrawer({
   item,
   resolve,
@@ -372,6 +388,8 @@ function ReviewDrawer({
         </Text>
       )}
 
+      <AddToMusicBrainz item={item} />
+
       {resolve.error !== null && (
         <Alert color="red" icon={<CircleAlert size={16} />}>
           {resolve.error.message}
@@ -396,6 +414,19 @@ export function MatchQueuePage() {
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [reviewingId, setReviewingId] = useState<number | null>(null);
+  // Read once, on arrival: MusicBrainz' way back is a full page load. Its release is kept on the seed (the
+  // same write however often StrictMode calls this), and one a reload or a closed tab left unsettled is
+  // tried again.
+  const [returned, setReturned] = useState<MusicBrainzReturn | null>(() => {
+    const arrived = readMusicBrainzReturn(params);
+
+    if (arrived !== null) {
+      noteReturn(arrived);
+    }
+
+    return arrived ?? unsettledReturn();
+  });
+  const queryClient = useQueryClient();
 
   const filter = params.get('referenceLibraryId');
   const referenceLibraryId = filter === null || filter === '' ? null : Number(filter);
@@ -409,6 +440,33 @@ export function MatchQueuePage() {
 
   const rows = query.data?.records ?? [];
   const reviewing = rows.find((row) => Number(row.id) === reviewingId) ?? null;
+
+  // The way back's parameters leave the address at once, so a reload does not settle the file twice.
+  useEffect(() => {
+    if (params.has(RETURN_FILE_PARAM) || params.has(RETURN_RELEASE_PARAM) || params.has(RETURN_SEED_PARAM)) {
+      const kept = new URLSearchParams(params);
+
+      kept.delete(RETURN_FILE_PARAM);
+      kept.delete(RETURN_RELEASE_PARAM);
+      kept.delete(RETURN_SEED_PARAM);
+      setParams(kept, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the address the page arrived with.
+  }, []);
+
+  // A file settled in the tab MusicBrainz sent back to: this tab's queue and counts are stale now.
+  useEffect(() => {
+    const refresh = (event: StorageEvent) => {
+      if (event.key === SEED_STORAGE_KEY) {
+        void queryClient.invalidateQueries({ queryKey: MATCH_QUEUE_QUERY_KEY });
+        void queryClient.invalidateQueries({ queryKey: REFERENCE_LIBRARIES_QUERY_KEY });
+      }
+    };
+
+    window.addEventListener('storage', refresh);
+
+    return () => window.removeEventListener('storage', refresh);
+  }, [queryClient]);
 
   const toggle = (id: number, on: boolean) =>
     setSelected((current) => {
@@ -605,6 +663,14 @@ export function MatchQueuePage() {
   return (
     <Stack gap="md">
       <Title order={2}>Match</Title>
+
+      {returned !== null && (
+        <MusicBrainzReturnNotice
+          returned={returned}
+          path={rows.find((row) => Number(row.id) === returned.fileId)?.relativePath ?? null}
+          onDone={() => setReturned(null)}
+        />
+      )}
 
       <Group justify="space-between" align="flex-end">
         <Group gap="md" align="flex-end">

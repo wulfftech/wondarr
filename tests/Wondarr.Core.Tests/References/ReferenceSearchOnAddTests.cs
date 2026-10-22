@@ -223,7 +223,7 @@ public sealed class ReferenceSearchOnAddTests : IDisposable
                 ? real.AddIdentitiesAsync(call.Arg<IReadOnlyList<SongIdentity>>(), call.Arg<SongAddOptions>(), call.Arg<CancellationToken>())
                 : throw new InvalidOperationException("boom"));
 
-        var service = new ReferenceMatchService(context, _resolver, spy, _commands, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
+        var service = new ReferenceMatchService(context, _resolver, _musicBrainz, spy, _commands, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
 
         var result = await service.AcceptTopCandidatesAsync(ids, replace: false, CancellationToken.None);
 
@@ -429,7 +429,7 @@ public sealed class ReferenceSearchOnAddTests : IDisposable
             NullLogger<ReferenceIdentifier>.Instance);
 
     private ReferenceMatchService MatchService(WondarrDbContext context) =>
-        new(context, _resolver, NewSongService(context), _commands, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
+        new(context, _resolver, _musicBrainz, NewSongService(context), _commands, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
 
     /// <summary>Counts a table's rows the way another connection (a command handler's scope) would see it.</summary>
     private async Task<long> CountOnOtherConnectionAsync(string table)

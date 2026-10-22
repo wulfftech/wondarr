@@ -847,7 +847,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
     private static partial Regex ArtistTitleSeparator();
 
     /// <summary>The artist and title to search with: the tags first, the path when they say nothing.</summary>
-    private static (string? Artist, string? Title) TextOf(FileTags? tags, string relativePath)
+    internal static (string? Artist, string? Title) TextOf(FileTags? tags, string relativePath)
     {
         var artist = string.IsNullOrWhiteSpace(tags?.Artist) ? null : tags!.Artist;
         var title = string.IsNullOrWhiteSpace(tags?.Title) ? null : tags!.Title;

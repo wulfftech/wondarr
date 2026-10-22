@@ -94,6 +94,34 @@
         }
       }
     },
+    "/api/v1/youtube/video": {
+      "get": {
+        "tags": [
+          "YouTubeVideo"
+        ],
+        "parameters": [
+          {
+            "name": "url",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YouTubeVideoResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/wanted/missing": {
       "get": {
         "tags": [
@@ -8087,6 +8115,12 @@
           "replace": {
             "type": "boolean",
             "default": false
+          },
+          "mbReleaseId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -12745,6 +12779,52 @@
           }
         }
       },
+      "YouTubeVideoResource": {
+        "required": [
+          "videoId",
+          "url",
+          "title",
+          "channel",
+          "uploadDate",
+          "durationMs"
+        ],
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "channel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "uploadDate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "YouTubeYtdlpPacingResource": {
         "required": [
           "sleepRequestsSeconds",
@@ -12834,6 +12914,9 @@
   "tags": [
     {
       "name": "YouTubeSettings"
+    },
+    {
+      "name": "YouTubeVideo"
     },
     {
       "name": "Wanted"

@@ -364,6 +364,9 @@ internal sealed class StubYtDlpRunner : IYtDlpRunner
 
     public Task<YtDlpFormats> ProbeFormatsAsync(string videoId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("The provider never probes formats.");
+
+    public Task<YtDlpVideo> ReadVideoAsync(string videoId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("The provider never reads a video's details.");
 }
 
 /// <summary>Serves the ISRCs it was built with.</summary>

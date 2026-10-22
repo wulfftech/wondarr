@@ -173,7 +173,8 @@ PUT/DELETE /api/v1/song/editor  {songIds (1..1000), monitored?, qualityProfileId
 GET    /api/v1/tag  ([{label, songCount}], tags are lower-case labels on `song.tags`, no tag table)
 GET/POST/PUT/DELETE /api/v1/customfilter  (?type=; saved views; a duplicate label for the type is a 409)
 GET    /api/v1/referencelibrary | POST … | POST /api/v1/referencelibrary/{id}/scan | GET /api/v1/referencelibrary/replaced
-GET    /api/v1/matchqueue[?likelyYouTubeRip=true]  | POST /api/v1/matchqueue/{id}/resolve {identity, replace} | POST /api/v1/matchqueue/bulk {ids, replace}
+GET    /api/v1/matchqueue[?likelyYouTubeRip=true]  | POST /api/v1/matchqueue/{id}/resolve {identity | mbReleaseId, replace} | POST /api/v1/matchqueue/bulk {ids, replace}
+GET    /api/v1/youtube/video?url=  (one video's channel, upload date and length, for Add to MusicBrainz)
 GET/PUT /api/v1/soulseek/settings   (writes through to slskd)   GET /api/v1/soulseek/status
 GET    /api/v1/artist  …  GET /api/v1/artist/{id}/toptracks
 GET    /api/v1/wanted/missing | /wanted/cutoff

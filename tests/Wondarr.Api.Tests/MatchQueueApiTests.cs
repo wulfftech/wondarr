@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Media;
+using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.References;
 using Wondarr.Core.Songs;
@@ -222,6 +223,82 @@ public sealed class MatchQueueApiTests
         row.SongId.Should().Be(result["songId"]!.GetValue<long>());
         row.Confidence.Should().Be(1.0);
         row.IdentifiedBy.Should().Be("manual");
+    }
+
+    [Fact]
+    public async Task Resolving_by_the_release_musicbrainz_sent_back_settles_the_file()
+    {
+        const string releaseId = "5b5b5b5b-1111-2222-3333-444444444444";
+
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        musicBrainz.GetAddedReleaseAsync(releaseId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<MbRelease?>(new MbRelease
+            {
+                Id = releaseId,
+                Title = "Yeah the Boys",
+                Media =
+                [
+                    new MbMedium
+                    {
+                        Position = 1,
+                        TrackCount = 1,
+                        Tracks = [new MbTrack { Id = "t-1", Position = 1, Title = "Yeah the Boys", Recording = new MbRecording { Id = KnownRecordingId, Title = "Yeah the Boys" } }],
+                    },
+                ],
+            }));
+
+        var resolver = Substitute.For<IIdentityResolver>();
+        resolver.GetIdentityAsync(KnownRecordingId, null, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<SongIdentity?>(SongApiTests.Identity()));
+
+        using var factory = SongApiTests.FakeProviders(resolver, musicBrainz: musicBrainz);
+        using var client = SongApiTests.Authenticated(factory);
+
+        var libraryId = await SeedLibraryAsync(factory, "Music", "/reference/music");
+        var file = await SeedFileAsync(factory, libraryId, "Hype Duo/_ Yeah the Boys.mp3", ReferenceFileState.Unmatched);
+
+        using var response = await PostAsync(client, $"{Endpoint}/{file}/resolve", $$"""{"mbReleaseId":"{{releaseId}}"}""");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        ((JsonObject)(await ReadJsonAsync(response))!)["state"]!.GetValue<string>().Should().Be("identified");
+    }
+
+    [Fact]
+    public async Task A_release_id_that_is_not_a_musicbrainz_id_is_a_validation_problem()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = SongApiTests.Authenticated(factory);
+
+        var libraryId = await SeedLibraryAsync(factory, "Music", "/reference/music");
+        var file = await SeedFileAsync(factory, libraryId, "a/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        using var response = await PostAsync(client, $"{Endpoint}/{file}/resolve", """{"mbReleaseId":"not-a-release"}""");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ValidationErrorsAsync(response)).Should().ContainKey("mbReleaseId");
+    }
+
+    [Fact]
+    public async Task A_release_musicbrainz_does_not_show_yet_is_not_found_with_the_reason()
+    {
+        const string releaseId = "5b5b5b5b-1111-2222-3333-444444444444";
+
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        musicBrainz.GetAddedReleaseAsync(releaseId, Arg.Any<CancellationToken>()).Returns(Task.FromResult<MbRelease?>(null));
+
+        using var factory = SongApiTests.FakeProviders(musicBrainz: musicBrainz);
+        using var client = SongApiTests.Authenticated(factory);
+
+        var libraryId = await SeedLibraryAsync(factory, "Music", "/reference/music");
+        var file = await SeedFileAsync(factory, libraryId, "Hype Duo/_ Yeah the Boys.mp3", ReferenceFileState.Unmatched);
+
+        using var response = await PostAsync(client, $"{Endpoint}/{file}/resolve", $$"""{"mbReleaseId":"{{releaseId}}"}""");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        var problem = (JsonObject)(await ReadJsonAsync(response))!;
+        problem["title"]!.GetValue<string>().Should().Be("Not on MusicBrainz yet");
+        problem["detail"]!.GetValue<string>().Should().Be(ReferenceMatchService.ReleaseNotShownMessage);
     }
 
     [Fact]

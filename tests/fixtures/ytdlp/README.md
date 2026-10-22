@@ -7,6 +7,8 @@ emits, re-verified on 2026-10-05.
 - `download-success.stdout` — a successful download; the last line is the `--print after_move:filepath` path.
 - `download-webm.stdout` — a download that came back `.webm` (the remux did not run).
 - `formats-success.stdout` / `formats-no-js.stdout` / `formats-no-js.stderr` — the `-F` probe.
+- `video-details.stdout` — a `-J --skip-download` details read, trimmed to the fields Wondarr reads (the
+  shape yt-dlp prints; the id and values are made up).
 - `bot-check.stderr`, `rate-limited-page.stderr`, `rate-limited-429.stderr`, `geo-restricted.stderr`,
   `age-gated.stderr`, `age-gated-login.stderr`, `private.stderr`, `unavailable.stderr`,
   `not-exist.stderr`, `garbage.stderr` — one taxonomy row each.

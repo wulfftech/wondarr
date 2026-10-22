@@ -215,6 +215,50 @@ public sealed class MusicBrainzClientTests
     }
 
     [Fact]
+    public async Task A_just_added_release_that_is_not_shown_yet_is_asked_for_again()
+    {
+        var calls = 0;
+        var (client, handler, cache) = CreateClient(_ => ++calls == 1
+            ? MusicBrainzFixtures.NotFound()
+            : MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("release-a-night-at-the-opera.json")));
+
+        (await client.GetAddedReleaseAsync(NightAtTheOperaId)).Should().BeNull();
+        (await client.GetAddedReleaseAsync(NightAtTheOperaId))!.Id.Should().Be(NightAtTheOperaId);
+
+        handler.Requests.Should().HaveCount(2);
+        cache.SetCount.Should().Be(1, "only the release is cached, never the 404");
+
+        // The ordinary lookup shares the entry: the release is not fetched a third time.
+        (await client.GetReleaseAsync(NightAtTheOperaId))!.Id.Should().Be(NightAtTheOperaId);
+        handler.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_just_added_release_is_always_read_from_musicbrainz_so_a_fixed_tracklist_is_seen()
+    {
+        var (client, handler, _) = CreateClient(_ => MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("release-a-night-at-the-opera.json")));
+
+        (await client.GetAddedReleaseAsync(NightAtTheOperaId))!.Id.Should().Be(NightAtTheOperaId);
+        (await client.GetAddedReleaseAsync(NightAtTheOperaId))!.Id.Should().Be(NightAtTheOperaId);
+
+        handler.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task A_just_added_release_is_fetched_even_when_an_earlier_lookup_cached_a_404()
+    {
+        var calls = 0;
+        var (client, handler, _) = CreateClient(_ => ++calls == 1
+            ? MusicBrainzFixtures.NotFound()
+            : MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("release-a-night-at-the-opera.json")));
+
+        (await client.GetReleaseAsync(NightAtTheOperaId)).Should().BeNull();
+        (await client.GetAddedReleaseAsync(NightAtTheOperaId))!.Id.Should().Be(NightAtTheOperaId);
+
+        handler.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task A_repeated_search_is_served_from_the_cache()
     {
         var (client, handler, _) = CreateClient(_ => MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("search-get-lucky.json")));

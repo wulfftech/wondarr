@@ -157,18 +157,14 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     }
 
     /// <inheritdoc />
-    public async Task<MbRelease?> GetReleaseAsync(string releaseId, CancellationToken cancellationToken = default)
-    {
-        var id = NormalizeMbid(releaseId, nameof(releaseId));
-
-        var body = await GetBodyAsync<MbRelease>(
-                $"release/{id}?inc=recordings+artist-credits+release-groups+isrcs&fmt=json",
-                ReleaseTtl,
-                cancellationToken)
+    public async Task<MbRelease?> GetReleaseAsync(string releaseId, CancellationToken cancellationToken = default) =>
+        await ReadReleaseAsync(NormalizeMbid(releaseId, nameof(releaseId)), fresh: false, cancellationToken)
             .ConfigureAwait(false);
 
-        return body is null ? null : JsonSerializer.Deserialize<MbRelease>(body, SerializerOptions);
-    }
+    /// <inheritdoc />
+    public async Task<MbRelease?> GetAddedReleaseAsync(string releaseId, CancellationToken cancellationToken = default) =>
+        await ReadReleaseAsync(NormalizeMbid(releaseId, nameof(releaseId)), fresh: true, cancellationToken)
+            .ConfigureAwait(false);
 
     /// <inheritdoc />
     public async Task<MbReleaseGroupSearchResult> SearchReleaseGroupsAsync(
@@ -218,15 +214,38 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
         return JsonSerializer.Deserialize<MbReleaseBrowsePage>(body, SerializerOptions)?.Releases ?? [];
     }
 
+    /// <summary>Reads one release with its tracklist; both lookups share the cache entry.</summary>
+    private async Task<MbRelease?> ReadReleaseAsync(string id, bool fresh, CancellationToken cancellationToken)
+    {
+        var body = await GetBodyAsync<MbRelease>(
+                $"release/{id}?inc=recordings+artist-credits+release-groups+isrcs&fmt=json",
+                ReleaseTtl,
+                cancellationToken,
+                fresh)
+            .ConfigureAwait(false);
+
+        return body is null ? null : JsonSerializer.Deserialize<MbRelease>(body, SerializerOptions);
+    }
+
     /// <summary>
     /// Serves a request from the cache, or makes it and caches what comes back, once it is known to
     /// parse as <typeparamref name="T"/>.
     /// </summary>
+    /// <param name="relativeUri">The request, relative to the WS/2 root; also the cache key.</param>
+    /// <param name="ttl">How long a 2xx body stays fresh.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <param name="fresh">
+    /// Whether MusicBrainz is asked whatever the cache holds, and a 404 is not written to it; a 2xx body still is.
+    /// </param>
     /// <returns>The body, or <see langword="null"/> for a cached or fresh 404.</returns>
     /// <exception cref="MetadataProviderException">A 2xx body is not <typeparamref name="T"/>; it is not cached.</exception>
-    private async Task<string?> GetBodyAsync<T>(string relativeUri, TimeSpan ttl, CancellationToken cancellationToken)
+    private async Task<string?> GetBodyAsync<T>(
+        string relativeUri,
+        TimeSpan ttl,
+        CancellationToken cancellationToken,
+        bool fresh = false)
     {
-        var cached = await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
+        var cached = fresh ? null : await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
             if (cached == NotFoundPayload)
@@ -249,9 +268,13 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            await _cache
-                .SetAsync(Provider, relativeUri, NotFoundPayload, NotFoundTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (!fresh)
+            {
+                await _cache
+                    .SetAsync(Provider, relativeUri, NotFoundPayload, NotFoundTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return null;
         }
 

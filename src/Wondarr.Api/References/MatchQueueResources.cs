@@ -92,7 +92,7 @@ public sealed record MatchResolveResource(string State, long? SongId, string? Me
 /// <param name="Searching">With <c>replace</c>, how many of the songs are being searched for a better copy now.</param>
 public sealed record MatchBulkResource(int Resolved, int Failed, List<string> Errors, int Searching);
 
-/// <summary>What a caller sends to settle one file: exactly one of the four choices.</summary>
+/// <summary>What a caller sends to settle one file: exactly one of the five choices.</summary>
 /// <param name="CandidateRank">The rank of the candidate to accept, or <see langword="null"/>.</param>
 /// <param name="MbRecordingId">The recording MBID the user named, or <see langword="null"/>.</param>
 /// <param name="DeezerId">The Deezer track id the user named, or <see langword="null"/>.</param>
@@ -101,12 +101,17 @@ public sealed record MatchBulkResource(int Resolved, int Failed, List<string> Er
 /// Whether a better copy should replace the accepted file: the song is owned through it until one arrives,
 /// and a search starts now when the file is below its cutoff. Not with <c>skip</c>.
 /// </param>
+/// <param name="MbReleaseId">
+/// The release MBID MusicBrainz sent the user back with after they added the song there: the file becomes
+/// the release's only track, or the one track titled as the file is.
+/// </param>
 public sealed record MatchResolveRequestResource(
     int? CandidateRank,
     string? MbRecordingId,
     long? DeezerId,
     bool Skip,
-    bool Replace = false);
+    bool Replace = false,
+    string? MbReleaseId = null);
 
 /// <summary>What a caller sends to accept the best candidate of many files at once.</summary>
 /// <param name="Ids">The reference file ids to accept.</param>

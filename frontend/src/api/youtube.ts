@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import { useApiClient } from './context';
 import { ApiError } from './errors';
+import { validationFields } from './profiles';
 import type { components } from './schema';
 
 /** The YouTube source's settings, its health probe's answer, and the default output policy. */
@@ -14,6 +15,7 @@ import type { components } from './schema';
 export type YouTubeSettingsResource = components['schemas']['YouTubeSettingsResource'];
 export type YouTubeSettingsUpdateResource = components['schemas']['YouTubeSettingsUpdateResource'];
 export type YouTubeStatusResource = components['schemas']['YouTubeStatusResource'];
+export type YouTubeVideoResource = components['schemas']['YouTubeVideoResource'];
 
 export const YOUTUBE_SETTINGS_QUERY_KEY = ['youtube', 'settings'] as const;
 export const YOUTUBE_STATUS_QUERY_KEY = ['youtube', 'status'] as const;
@@ -217,6 +219,33 @@ export function useTestYouTube(): UseMutationResult<YouTubeStatusResource, Error
     },
     onSuccess: (result) => {
       queryClient.setQueryData(YOUTUBE_STATUS_QUERY_KEY, result);
+    },
+  });
+}
+
+/**
+ * Reads one YouTube video's details (its channel, upload date and length) for the Match queue's "Add to
+ * MusicBrainz" form. A refusal carries the server's own reason: not a video link, the source is off, the
+ * video is private, yt-dlp is busy.
+ */
+export function useReadYouTubeVideo(): UseMutationResult<YouTubeVideoResource, Error, string> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async (url: string): Promise<YouTubeVideoResource> => {
+      const { data, error, response } = await client.GET('/api/v1/youtube/video', { params: { query: { url } } });
+
+      if (!response.ok || data === undefined) {
+        const problem = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : {};
+        const reason = validationFields(error).url ?? problem.detail ?? problem.title;
+
+        throw new ApiError(
+          response.status,
+          typeof reason === 'string' && reason !== '' ? reason : "The video's details could not be read.",
+        );
+      }
+
+      return data;
     },
   });
 }
