@@ -91,6 +91,8 @@ Some songs are not on MusicBrainz at all, often ones a group only ever put on Yo
 2. Optionally paste the song's **YouTube link**. With the YouTube source on, **Read video** fills in the **Release date** from the day it was uploaded and shows the channel, so you can check it is the right video. With the source off, Wondarr doesn't contact YouTube, and the link is sent as you typed it.
 3. **Open MusicBrainz** opens MusicBrainz' release editor in a new tab with the song filled in as a digital single, with one track of the file's length. You need a MusicBrainz account; if you are signed out, MusicBrainz keeps the form while you sign in.
 4. In the editor, link the artist (search for them, or add a new artist), check the rest and submit. Wondarr never submits anything itself.
-5. MusicBrainz sends you back to Wondarr's Match page, which settles the file with the new release. If MusicBrainz doesn't show the release yet, wait a minute and choose **Try again**.
+5. MusicBrainz sends you back to Wondarr's Match page, which settles the file with the new release. If MusicBrainz doesn't show the release yet, wait a minute and choose **Try again**. Until the file is settled or you dismiss the notice, Wondarr also tries again each time you open Match in this browser, so closing the tab loses nothing.
 
 A release with several tracks settles the file with the track titled like it. If none is, search for the recording in the drawer instead. A way back from MusicBrainz that this browser didn't start (a link someone sent you, for example) is shown, and nothing is settled until you choose **Settle**.
+
+MusicBrainz learns the address you reach Wondarr at, because that is where it sends you back to. Nothing else about your library goes to MusicBrainz, and the edit note it publishes holds only the song's link and where its details came from.

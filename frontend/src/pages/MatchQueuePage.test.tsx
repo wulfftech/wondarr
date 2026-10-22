@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -9,8 +9,17 @@ import {
   SYSTEM_STATUS,
   paged,
 } from '../test/fixtures';
-import { findSeed, rememberSeed, SEED_STORAGE_KEY } from '../components/musicBrainzSeed';
-import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../test/helpers';
+import { StrictMode } from 'react';
+import { App } from '../app/App';
+import { findSeed, noteReturn, rememberSeed, SEED_STORAGE_KEY } from '../components/musicBrainzSeed';
+import {
+  createTestConfig,
+  installFetch,
+  jsonResponse,
+  renderApp,
+  resetLocation,
+  type FetchMock,
+} from '../test/helpers';
 
 const AMBIGUOUS = MATCH_QUEUE_ITEMS[0];
 const UNMATCHED = MATCH_QUEUE_ITEMS[1];
@@ -532,9 +541,15 @@ describe('MatchQueuePage', () => {
 
     renderApp();
 
-    expect(await screen.findByText('Back from MusicBrainz')).toBeInTheDocument();
+    expect(await screen.findByText('Settle with a MusicBrainz release?')).toBeInTheDocument();
     // The file is named by its path once the queue shows it, though this browser never saw the seed.
-    expect(await screen.findByText(`Settle ${UNMATCHED.relativePath} with it?`, { exact: false })).toBeInTheDocument();
+    expect(
+      await screen.findByText(`This link asks to settle ${UNMATCHED.relativePath} with`, { exact: false }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'this MusicBrainz release' })).toHaveAttribute(
+      'href',
+      `https://musicbrainz.org/release/${RELEASE_ID}`,
+    );
     expect(sent().some((request) => request.url.includes('/resolve'))).toBe(false);
 
     await user.click(screen.getByRole('button', { name: 'Settle' }));
@@ -566,8 +581,40 @@ describe('MatchQueuePage', () => {
     await user.click(screen.getByRole('button', { name: 'Try again' }));
 
     await waitFor(() => expect(sent().filter((request) => request.url.includes('/resolve'))).toHaveLength(2));
-    // Not settled, so not forgotten: the seed waits for the next try.
-    expect(findSeed(Number(UNMATCHED.id), 'token-a')).not.toBeNull();
+    // Not settled, so not forgotten: the seed keeps the release for the next try.
+    expect(findSeed(Number(UNMATCHED.id), 'token-a')).toMatchObject({ releaseId: RELEASE_ID });
+  });
+
+  it('tries an unsettled way back again when Match is opened later, without the address', async () => {
+    rememberSeed(Number(UNMATCHED.id), UNMATCHED.relativePath, 'token-a');
+    noteReturn({
+      fileId: Number(UNMATCHED.id),
+      releaseId: RELEASE_ID,
+      token: 'token-a',
+      pending: findSeed(Number(UNMATCHED.id), 'token-a'),
+    });
+    install();
+
+    renderApp();
+
+    expect(await lastBody(`/api/v1/matchqueue/${UNMATCHED.id}/resolve`)).toMatchObject({ mbReleaseId: RELEASE_ID });
+    expect(await screen.findByText('Settled')).toBeInTheDocument();
+    expect(findSeed(Number(UNMATCHED.id), 'token-a')).toBeNull();
+  });
+
+  it('settles the way back once under StrictMode, which runs effects twice', async () => {
+    rememberSeed(Number(UNMATCHED.id), UNMATCHED.relativePath, 'token-a');
+    resetLocation(`/match?musicBrainzFor=${UNMATCHED.id}&seed=token-a&release_mbid=${RELEASE_ID}`);
+    install();
+
+    render(
+      <StrictMode>
+        <App config={createTestConfig()} env="test" />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByText('Settled')).toBeInTheDocument();
+    expect(sent().filter((request) => request.url.includes('/resolve'))).toHaveLength(1);
   });
 
   it('refreshes the queue when another tab settles a file', async () => {

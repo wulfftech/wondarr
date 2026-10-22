@@ -742,6 +742,12 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             return tracks[0].Recording!.Id;
         }
 
+        if (tracks.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "The release lists no recordings. Search for the recording in the drawer instead.");
+        }
+
         var (_, title) = ReferenceIdentifier.TextOf(Read<FileTags>(row.Tags), row.RelativePath);
         var wanted = title is null ? null : TextMatching.Normalize(title);
         var named = wanted is null
@@ -762,7 +768,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             string.Concat(
                 "The release has ",
                 tracks.Count.ToString(CultureInfo.InvariantCulture),
-                tracks.Count == 1 ? " track" : " tracks",
+                " tracks",
                 named.Count == 0 ? " and none of them is titled \"" : " and more than one is titled \"",
                 title ?? row.RelativePath,
                 "\". Search for the recording in the drawer instead."));

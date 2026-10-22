@@ -46,9 +46,10 @@ public interface IMusicBrainzClient
     Task<MbRelease?> GetReleaseAsync(string releaseId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Looks up a release the user has just added, with its tracklist. A 404 is neither read from the
-    /// cache nor remembered: the server that answers may not show a new release for a moment, and asking
-    /// again a minute later has to reach MusicBrainz.
+    /// Looks up a release the user has just added, with its tracklist. MusicBrainz is always asked, and a
+    /// 404 is not remembered: the server that answers may not show a new release for a moment, and a user
+    /// who fixed the release after a refusal must get the fixed tracklist. A release that is found is
+    /// cached for <see cref="GetReleaseAsync"/>, as any release is.
     /// </summary>
     /// <param name="releaseId">The release MBID MusicBrainz sent back, in either case.</param>
     /// <param name="cancellationToken">Cancels the request.</param>

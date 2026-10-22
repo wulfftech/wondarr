@@ -39,6 +39,8 @@ public class YouTubeVideoLinksTests
     [InlineData("https://www.youtube.com/watch")]
     [InlineData("https://www.youtube.com/watch?v=short")]
     [InlineData("https://www.youtube.com/watch?v=aBcDeFgHiJk%22")]
+    [InlineData("https://www.youtube.com/watch?v=aBcDeFgHiJk%0A")]
+    [InlineData("https://www.youtube.com/watch?v=aBcDeFgHiJk&v=zZzZzZzZzZz")]
     [InlineData("https://youtu.be/aBcDeFgHiJk/extra")]
     [InlineData("https://www.youtube.com.evil.example/watch?v=aBcDeFgHiJk")]
     [InlineData("https://evil.example/watch?v=aBcDeFgHiJk")]

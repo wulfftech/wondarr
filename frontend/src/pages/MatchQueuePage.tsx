@@ -35,11 +35,13 @@ import {
 } from '../api/references';
 import { AddToMusicBrainz, MusicBrainzReturnNotice } from '../components/AddToMusicBrainz';
 import {
+  noteReturn,
   readMusicBrainzReturn,
   RETURN_FILE_PARAM,
   RETURN_RELEASE_PARAM,
   RETURN_SEED_PARAM,
   SEED_STORAGE_KEY,
+  unsettledReturn,
   type MusicBrainzReturn,
 } from '../components/musicBrainzSeed';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
@@ -412,8 +414,18 @@ export function MatchQueuePage() {
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [reviewingId, setReviewingId] = useState<number | null>(null);
-  // Read once, on arrival: MusicBrainz' way back is a full page load.
-  const [returned, setReturned] = useState<MusicBrainzReturn | null>(() => readMusicBrainzReturn(params));
+  // Read once, on arrival: MusicBrainz' way back is a full page load. Its release is kept on the seed (the
+  // same write however often StrictMode calls this), and one a reload or a closed tab left unsettled is
+  // tried again.
+  const [returned, setReturned] = useState<MusicBrainzReturn | null>(() => {
+    const arrived = readMusicBrainzReturn(params);
+
+    if (arrived !== null) {
+      noteReturn(arrived);
+    }
+
+    return arrived ?? unsettledReturn();
+  });
   const queryClient = useQueryClient();
 
   const filter = params.get('referenceLibraryId');

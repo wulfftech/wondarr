@@ -89,7 +89,10 @@ public static partial class YouTubeVideoLinks
     /// <param name="videoId">The 11-character video id.</param>
     public static string WatchUrl(string videoId) => string.Concat("https://www.youtube.com/watch?v=", videoId);
 
-    /// <summary>A YouTube video id: eleven URL-safe base64 characters.</summary>
-    [GeneratedRegex("^[A-Za-z0-9_-]{11}$", RegexOptions.CultureInvariant)]
+    /// <summary>
+    /// A YouTube video id: eleven URL-safe base64 characters and nothing after them (<c>\z</c>, because
+    /// <c>$</c> also matches before a final line break, which a decoded <c>%0A</c> would be).
+    /// </summary>
+    [GeneratedRegex(@"^[A-Za-z0-9_-]{11}\z", RegexOptions.CultureInvariant)]
     private static partial Regex VideoId();
 }

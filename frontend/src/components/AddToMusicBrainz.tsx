@@ -230,9 +230,11 @@ export function MusicBrainzReturnNotice({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the way back is settled once, on arrival.
   }, []);
 
+  // Only a seed this browser opened is "the release you added"; a link from anywhere else is not.
+  const ours = returned.pending !== null;
   const release = (
     <Anchor href={releaseUrl} target="_blank" rel="noopener noreferrer">
-      the release you added
+      {ours ? 'the release you added' : 'this MusicBrainz release'}
     </Anchor>
   );
 
@@ -257,6 +259,11 @@ export function MusicBrainzReturnNotice({
       <Alert color="yellow" icon={<CircleAlert size={16} />} title={`${file} is not settled yet`}>
         <Stack gap="xs">
           <Text size="sm">{resolve.error.message}</Text>
+          {ours && (
+            <Text size="xs" c="dimmed">
+              Until you dismiss this, Wondarr tries again each time you open Match.
+            </Text>
+          )}
           <Group gap="xs">
             <Button size="xs" onClick={settle}>
               Try again
@@ -271,10 +278,11 @@ export function MusicBrainzReturnNotice({
   }
 
   return (
-    <Alert color="blue" title="Back from MusicBrainz">
+    <Alert color="blue" title="Settle with a MusicBrainz release?">
       <Stack gap="xs">
         <Text size="sm">
-          MusicBrainz sent you back with {release}. Settle {file} with it?
+          This link asks to settle {file} with {release}. It was not opened from this browser, so check the release
+          first.
         </Text>
         <Group gap="xs">
           <Button size="xs" onClick={settle}>

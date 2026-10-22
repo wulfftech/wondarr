@@ -263,8 +263,9 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
                     ? (int)Math.Round(seconds * 1000)
                     : null;
 
+            // The id asked for, not the one printed: only the asked-for id was checked as a YouTube id.
             return new YtDlpVideo(
-                Text(root, "id") ?? videoId,
+                videoId,
                 Text(root, "title"),
                 Text(root, "channel") ?? Text(root, "uploader"),
                 uploadDate,

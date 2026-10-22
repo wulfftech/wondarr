@@ -234,6 +234,17 @@ public sealed class MusicBrainzClientTests
     }
 
     [Fact]
+    public async Task A_just_added_release_is_always_read_from_musicbrainz_so_a_fixed_tracklist_is_seen()
+    {
+        var (client, handler, _) = CreateClient(_ => MusicBrainzFixtures.Json(MusicBrainzFixtures.Read("release-a-night-at-the-opera.json")));
+
+        (await client.GetAddedReleaseAsync(NightAtTheOperaId))!.Id.Should().Be(NightAtTheOperaId);
+        (await client.GetAddedReleaseAsync(NightAtTheOperaId))!.Id.Should().Be(NightAtTheOperaId);
+
+        handler.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task A_just_added_release_is_fetched_even_when_an_earlier_lookup_cached_a_404()
     {
         var calls = 0;

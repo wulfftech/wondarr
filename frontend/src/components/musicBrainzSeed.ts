@@ -60,6 +60,11 @@ export interface PendingSeed {
   token: string;
   path: string;
   openedAt: number;
+  /**
+   * The release MusicBrainz sent the browser back with, once it has: kept until the file is settled or
+   * the user sets it aside, so a failed first try is not lost with the tab.
+   */
+  releaseId?: string;
 }
 
 /** Where MusicBrainz sent the browser back to: the file, the release, and whether this browser opened the seed. */
@@ -77,12 +82,17 @@ export interface MusicBrainzReturn {
  */
 export function seedDefaults(item: MatchQueueItemResource): { title: string; artist: string } {
   const parts = item.relativePath.split('/');
-  const base = (parts.pop() ?? '').replace(/\.[^.]+$/, '').trim();
+  // The track number goes first, so "01 - Title" is not read as an artist called "01".
+  const base = (parts.pop() ?? '')
+    .replace(/\.[^.]+$/, '')
+    .trim()
+    .replace(LEADING_NOISE, '')
+    .trim();
   const dashed = base.split(/\s+-\s+/);
   const fromName =
     dashed.length === 2
       ? { artist: (dashed[0] ?? '').trim(), title: (dashed[1] ?? '').trim() }
-      : { artist: (parts[0] ?? '').trim(), title: base.replace(LEADING_NOISE, '').trim() };
+      : { artist: (parts[0] ?? '').trim(), title: base };
 
   const tagged = (value: string | null | undefined) => (value === null || value === undefined ? '' : value.trim());
 
@@ -213,7 +223,8 @@ export function returnAddress(urlBase: string, fileId: number, token: string, or
 
 /**
  * Opens the seeded release editor in a new tab. The form is posted from the click itself, so no popup
- * blocker stands in the way; `noreferrer` keeps Wondarr's own address out of MusicBrainz' logs.
+ * blocker stands in the way. `noreferrer` leaves the page's address out of the request's Referer, but
+ * MusicBrainz still learns Wondarr's address: it is the `redirect_uri` it sends the browser back to.
  */
 export function openSeededEditor(fields: SeedField[], doc: Document = document): void {
   const form = doc.createElement('form');
@@ -273,7 +284,8 @@ function readSeeds(now: number): PendingSeed[] {
         typeof (seed as PendingSeed).token === 'string' &&
         typeof (seed as PendingSeed).path === 'string' &&
         typeof (seed as PendingSeed).openedAt === 'number' &&
-        now - (seed as PendingSeed).openedAt < SEED_LIFETIME_MS,
+        now - (seed as PendingSeed).openedAt < SEED_LIFETIME_MS &&
+        ((seed as PendingSeed).releaseId === undefined || MBID.test(String((seed as PendingSeed).releaseId))),
     );
   } catch {
     return [];
@@ -308,6 +320,35 @@ export function findSeed(fileId: number, token: string, now = Date.now()): Pendi
  */
 export function forgetSeed(fileId: number, token: string, now = Date.now()): void {
   writeSeeds(readSeeds(now).filter((seed) => !(seed.fileId === fileId && seed.token === token)));
+}
+
+/**
+ * Keeps the release MusicBrainz sent back with on the seed this browser opened, so the Match page can try
+ * again after a reload or another visit until the file is settled or the user sets it aside.
+ */
+export function noteReturn(returned: MusicBrainzReturn, now = Date.now()): void {
+  if (returned.pending === null) {
+    return;
+  }
+
+  writeSeeds(
+    readSeeds(now).map((seed) =>
+      seed.fileId === returned.fileId && seed.token === returned.token
+        ? { ...seed, releaseId: returned.releaseId }
+        : seed,
+    ),
+  );
+}
+
+/** The newest way back this browser was given but has not settled yet, or `null`. */
+export function unsettledReturn(now = Date.now()): MusicBrainzReturn | null {
+  const seed = readSeeds(now)
+    .filter((candidate) => candidate.releaseId !== undefined)
+    .pop();
+
+  return seed?.releaseId === undefined
+    ? null
+    : { fileId: seed.fileId, releaseId: seed.releaseId, token: seed.token, pending: seed };
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   musicBrainzSeed,
   MUSICBRAINZ_ADD_RELEASE,
   newSeedToken,
+  noteReturn,
   openSeededEditor,
   readMusicBrainzReturn,
   releaseDateParts,
@@ -14,6 +15,8 @@ import {
   returnAddress,
   SEED_STORAGE_KEY,
   seedDefaults,
+  unsettledReturn,
+  type MusicBrainzReturn,
   type SeedInput,
 } from './musicBrainzSeed';
 
@@ -137,6 +140,15 @@ describe('seedDefaults', () => {
       title: '99 Luftballons',
       artist: 'Nena',
     });
+    // A track number is not an artist.
+    expect(seedDefaults({ ...untagged, relativePath: 'Hype Duo/01 - Yeah the Boys.mp3' })).toEqual({
+      title: 'Yeah the Boys',
+      artist: 'Hype Duo',
+    });
+    expect(seedDefaults({ ...untagged, relativePath: 'Misc/02 - Uni Revue - We’re Bogan.mp3' })).toEqual({
+      title: 'We’re Bogan',
+      artist: 'Uni Revue',
+    });
   });
 });
 
@@ -175,6 +187,39 @@ describe('the seeds this browser opened', () => {
 
     expect(token).toMatch(/^[0-9a-f]{32}$/);
     expect(newSeedToken()).not.toBe(token);
+  });
+});
+
+describe('the way back that was not settled', () => {
+  it('keeps the release on this browser’s seed until the file is settled', () => {
+    rememberSeed(440, 'a.mp3', 'token-a', 1_000);
+
+    const returned = readMusicBrainzReturn(
+      new URLSearchParams(`musicBrainzFor=440&seed=token-a&release_mbid=${RELEASE_ID}`),
+      2_000,
+    );
+
+    expect(unsettledReturn(2_000)).toBeNull();
+    expect(returned).not.toBeNull();
+
+    noteReturn(returned as MusicBrainzReturn, 2_000);
+
+    expect(unsettledReturn(3_000)).toMatchObject({ fileId: 440, releaseId: RELEASE_ID, token: 'token-a' });
+
+    forgetSeed(440, 'token-a', 3_000);
+
+    expect(unsettledReturn(3_000)).toBeNull();
+  });
+
+  it('keeps nothing for a way back this browser did not start', () => {
+    const forged = readMusicBrainzReturn(
+      new URLSearchParams(`musicBrainzFor=440&seed=forged&release_mbid=${RELEASE_ID}`),
+    );
+
+    noteReturn(forged as MusicBrainzReturn);
+
+    expect(unsettledReturn()).toBeNull();
+    expect(localStorage.getItem(SEED_STORAGE_KEY)).toBeNull();
   });
 });
 

@@ -212,6 +212,34 @@ public class ReferenceMatchServiceTests : IDisposable
         await _resolver.DidNotReceiveWithAnyArgs().GetIdentityAsync(default, default, default);
     }
 
+    [Theory]
+    [InlineData("rel-5", "The release has 2 tracks and more than one is titled \"Get Lucky\". Search for the recording in the drawer instead.")]
+    [InlineData("rel-6", "The release lists no recordings. Search for the recording in the drawer instead.")]
+    public async Task A_release_with_two_tracks_of_the_files_title_or_none_at_all_is_refused(string releaseId, string message)
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "Daft Punk/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        _musicBrainz.GetAddedReleaseAsync("rel-5", Arg.Any<CancellationToken>())
+            .Returns(Release("rel-5", ("m-one", "Get Lucky"), ("m-two", "Get Lucky")));
+        _musicBrainz.GetAddedReleaseAsync("rel-6", Arg.Any<CancellationToken>())
+            .Returns(new MbRelease
+            {
+                Id = "rel-6",
+                Title = "Get Lucky",
+                Media = [new MbMedium { Position = 1, Tracks = [new MbTrack { Id = "t-1", Position = 1, Title = "Get Lucky" }] }],
+            });
+
+        var act = () => Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, null, null, false, MbReleaseId: releaseId),
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage(message);
+        (await RowAsync(context, file.Id)).State.Should().Be(ReferenceFileState.Unmatched);
+    }
+
     [Fact]
     public async Task A_release_MusicBrainz_does_not_show_yet_is_not_found_and_the_file_waits()
     {
