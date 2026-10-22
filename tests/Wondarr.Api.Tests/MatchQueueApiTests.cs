@@ -118,6 +118,71 @@ public sealed class MatchQueueApiTests
     }
 
     [Fact]
+    public async Task The_queue_flags_likely_youtube_rips_and_can_be_narrowed_to_them()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = SongApiTests.Authenticated(factory);
+
+        var music = await SeedLibraryAsync(factory, "Music", "/reference/music");
+        var rip = await SeedFileAsync(factory, music, "a/Hip to Be Square.mp3", ReferenceFileState.Ambiguous, rip: true);
+        await SeedFileAsync(factory, music, "b/In the Air Tonight.flac", ReferenceFileState.Ambiguous);
+
+        using var all = await client.GetAsync(new Uri(Endpoint, UriKind.Relative));
+        var records = (JsonArray)((JsonObject)(await ReadJsonAsync(all))!)["records"]!;
+        records.Select(record => ((JsonObject)record!)["likelyYouTubeRip"]!.GetValue<bool>()).Should().Equal(true, false);
+        ((JsonObject)((JsonObject)records[0]!)["file"]!)["sampleRate"]!.GetValue<int>().Should().Be(48_000);
+
+        using var narrowed = await client.GetAsync(new Uri($"{Endpoint}?likelyYouTubeRip=true", UriKind.Relative));
+        var page = (JsonObject)(await ReadJsonAsync(narrowed))!;
+        page["totalRecords"]!.GetValue<int>().Should().Be(1);
+        ((JsonObject)((JsonArray)page["records"]!)[0]!)["id"]!.GetValue<long>().Should().Be(rip);
+    }
+
+    [Fact]
+    public async Task Replace_settles_the_file_marks_it_and_queues_an_upgrade_search()
+    {
+        var resolver = Substitute.For<IIdentityResolver>();
+        resolver.GetIdentityAsync(KnownRecordingId, null, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<SongIdentity?>(SongApiTests.Identity()));
+
+        using var factory = SongApiTests.FakeProviders(resolver);
+        using var client = SongApiTests.Authenticated(factory);
+
+        var libraryId = await SeedLibraryAsync(factory, "Music", "/reference/music");
+        var file = await SeedFileAsync(factory, libraryId, "a/Hip to Be Square.mp3", ReferenceFileState.Ambiguous, rip: true);
+        await SeedCandidateAsync(factory, file, rank: 1, KnownRecordingId);
+
+        using var response = await PostAsync(client, $"{Endpoint}/{file}/resolve", """{"candidateRank":1,"replace":true}""");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var result = (JsonObject)(await ReadJsonAsync(response))!;
+        result["state"]!.GetValue<string>().Should().Be("identified");
+        result["replacement"]!.GetValue<string>().Should().Be(ReferenceMatchService.SearchingMessage);
+
+        using var scope = factory.Services.CreateScope();
+        await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+        (await context.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.Id == file)).Replace.Should().BeTrue();
+
+        var command = await context.Commands.AsNoTracking().SingleAsync(candidate => candidate.Name == "UpgradeSearch");
+        command.Body.Should().Contain($"[{result["songId"]!.GetValue<long>()}]");
+    }
+
+    [Fact]
+    public async Task Replace_with_skip_is_a_bad_request()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = SongApiTests.Authenticated(factory);
+
+        var libraryId = await SeedLibraryAsync(factory, "Music", "/reference/music");
+        var file = await SeedFileAsync(factory, libraryId, "a/Hip to Be Square.mp3", ReferenceFileState.Ambiguous, rip: true);
+
+        using var response = await PostAsync(client, $"{Endpoint}/{file}/resolve", """{"skip":true,"replace":true}""");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Reading_the_queue_without_a_key_is_unauthorized()
     {
         using var factory = new WondarrAppFactory();
@@ -316,7 +381,8 @@ public sealed class MatchQueueApiTests
         WondarrAppFactory factory,
         long referenceLibraryId,
         string relativePath,
-        ReferenceFileState state)
+        ReferenceFileState state,
+        bool rip = false)
     {
         using var scope = factory.Services.CreateScope();
         await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
@@ -346,9 +412,13 @@ public sealed class MatchQueueApiTests
                     1,
                     248_000),
                 StoredJson),
+            // A rip is an MP3 at 48 kHz that measures as V0 (Hip to Be Square on the owner's library).
             Probe = JsonSerializer.Serialize(
-                new MediaInfo("flac", "flac", 900, 44_100, 16, 2, 248_000, true, 25_000_000),
+                rip
+                    ? new MediaInfo("mp3", "mp3", 268, 48_000, null, 2, 248_000, false, 7_857_630)
+                    : new MediaInfo("flac", "flac", 900, 44_100, 16, 2, 248_000, true, 25_000_000),
                 StoredJson),
+            LikelyYouTubeRip = rip,
             State = state,
         };
 

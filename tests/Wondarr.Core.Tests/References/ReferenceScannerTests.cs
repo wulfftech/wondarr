@@ -157,6 +157,169 @@ public sealed class ReferenceScannerTests : IDisposable
         back.MissingSince.Should().BeNull();
     }
 
+    // --- Likely YouTube rips, and files a library copy replaced (DECISIONS build session 14 #32) -------
+
+    [Fact]
+    public async Task A_lossy_file_at_48_kHz_is_flagged_a_likely_youtube_rip()
+    {
+        Write("rip.mp3", "one");
+        Write("cd.mp3", "two");
+        Write("studio.flac", "three");
+
+        _probe.ProbeReferenceAsync(Arg.Is<string>(path => path.EndsWith("rip.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MediaProbeResult(
+                true,
+                new MediaInfo("mp3", "mp3", 268, 48_000, null, 2, 231_811, false, 7_857_630),
+                null)));
+        _probe.ProbeReferenceAsync(Arg.Is<string>(path => path.EndsWith("studio.flac", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MediaProbeResult(
+                true,
+                new MediaInfo("flac", "flac", 1411, 48_000, 24, 2, 231_811, true, 40_000_000),
+                null)));
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        await Scanner(database).ScanAsync(library.Id, null, CancellationToken.None);
+
+        var flags = await database.ReferenceFiles.AsNoTracking()
+            .ToDictionaryAsync(row => row.RelativePath, row => row.LikelyYouTubeRip);
+
+        flags.Should().BeEquivalentTo(new Dictionary<string, bool>
+        {
+            ["rip.mp3"] = true,
+            ["cd.mp3"] = false,
+            ["studio.flac"] = false,
+        }, "only a lossy file at 48 kHz is a likely rip; 48 kHz is a real rate for a lossless file");
+    }
+
+    [Fact]
+    public async Task A_changed_file_keeps_its_replace_answer()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        await OwnAsync(database, "a.mp3");
+
+        var row = await database.ReferenceFiles.SingleAsync(candidate => candidate.RelativePath == "a.mp3");
+        row.Replace = true;
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        // Retagged in Picard: the bytes change, the recording does not.
+        File.WriteAllText(path, "retagged");
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.RelativePath == "a.mp3"))
+            .Replace.Should().BeTrue("a rescan must not quietly drop what the user asked for");
+    }
+
+    [Fact]
+    public async Task Deleting_files_a_library_copy_replaced_is_no_mount_problem_and_their_rows_go_after_the_grace()
+    {
+        var names = Enumerable.Range(1, 6).Select(number => $"song{number}.mp3").ToList();
+
+        foreach (var name in names)
+        {
+            Write(name, name);
+        }
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        foreach (var name in names)
+        {
+            var songId = await OwnAsync(database, name);
+
+            // Five of the six were replaced by a download: the song holds a library file now.
+            if (name != names[0])
+            {
+                await ReplaceWithLibraryCopyAsync(database, songId);
+            }
+        }
+
+        // The user deletes the five replaced rips at once, which is more than the guard allows for owned files.
+        foreach (var name in names.Skip(1))
+        {
+            File.Delete(Path.Combine(_root, name));
+        }
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.MountProblem.Should().BeFalse("a replaced file owns nothing, so deleting it says nothing about the share");
+        result.Missing.Should().Be(5);
+        (await new ReferenceMissingFilesHealthCheck(database).CheckAsync(CancellationToken.None)).Type
+            .Should().Be(HealthCheckResult.Ok);
+        (await database.ReferenceFiles.AsNoTracking().CountAsync()).Should().Be(6, "a share that drops out for a scan keeps its rows");
+
+        // A day later the files are still gone: their rows go, and the owned file and its song stay.
+        _time.Advance(TimeSpan.FromHours(25));
+        var later = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        later.Released.Should().Be(0);
+        (await database.ReferenceFiles.AsNoTracking().Select(row => row.RelativePath).ToListAsync())
+            .Should().Equal(names[0]);
+    }
+
+    [Fact]
+    public async Task Under_a_mount_problem_a_replaced_file_that_was_not_seen_is_only_missing()
+    {
+        var names = Enumerable.Range(1, 6).Select(number => $"song{number}.mp3").ToList();
+
+        foreach (var name in names)
+        {
+            Write(name, name);
+        }
+
+        Write("replaced.mp3", "replaced");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        foreach (var name in names)
+        {
+            await OwnAsync(database, name);
+        }
+
+        await ReplaceWithLibraryCopyAsync(database, await OwnAsync(database, "replaced.mp3"));
+
+        // Half the share drops out, the replaced file with it: the disk is not trusted.
+        foreach (var name in names.Skip(1).Append("replaced.mp3"))
+        {
+            File.Delete(Path.Combine(_root, name));
+        }
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.MountProblem.Should().BeTrue();
+        var replaced = await database.ReferenceFiles.AsNoTracking().SingleAsync(row => row.RelativePath == "replaced.mp3");
+        replaced.State.Should().Be(ReferenceFileState.Missing, "a later scan that trusts the disk lets it go");
+
+        // Days later the share is still half gone: the disk is still not trusted, so the row stays.
+        _time.Advance(TimeSpan.FromDays(2));
+        (await scanner.ScanAsync(library.Id, null, CancellationToken.None)).MountProblem.Should().BeTrue();
+        (await database.ReferenceFiles.AsNoTracking().AnyAsync(row => row.RelativePath == "replaced.mp3")).Should().BeTrue();
+
+        // The share comes back, all but the replaced file the user deleted: that scan trusts the disk.
+        foreach (var name in names.Skip(1))
+        {
+            Write(name, name);
+        }
+
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        (await database.ReferenceFiles.AsNoTracking().AnyAsync(row => row.RelativePath == "replaced.mp3"))
+            .Should().BeFalse("the scan trusts the disk again and the file stayed gone past the grace");
+    }
+
     // --- A missing file and the song it owns -----------------------------------------------------
 
     [Fact]
@@ -914,6 +1077,17 @@ public sealed class ReferenceScannerTests : IDisposable
         database.ChangeTracker.Clear();
 
         return songId;
+    }
+
+    /// <summary>Points a song at a library file, as an import of a download does: its reference file is replaced.</summary>
+    private static async Task ReplaceWithLibraryCopyAsync(WondarrDbContext database, long songId)
+    {
+        var file = await database.SongFiles.SingleAsync(candidate => candidate.SongId == songId);
+        file.Path = $"/data/music/{songId}.flac";
+        file.SourceType = SourceTypes.Soulseek;
+        file.SourceRef = null;
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
     }
 
     private static Task<int> SongFileCountAsync(WondarrDbContext database, long songId) =>

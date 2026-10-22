@@ -32,11 +32,13 @@ public sealed class MatchQueueController : ControllerBase
 
     /// <summary>Lists the files identification could not settle, best path first by default.</summary>
     /// <param name="referenceLibraryId">Only files of this reference library, when given.</param>
+    /// <param name="likelyYouTubeRip">Only the files that are most likely YouTube rips, when <see langword="true"/>.</param>
     /// <param name="cancellationToken">Cancels the query.</param>
     [HttpGet]
     [Produces("application/json")]
     public async Task<ActionResult<PagingResource<MatchQueueItemResource>>> GetQueue(
         [FromQuery] long? referenceLibraryId,
+        [FromQuery] bool? likelyYouTubeRip,
         CancellationToken cancellationToken)
     {
         // A work queue reads top to bottom: ascending unless the caller asks otherwise.
@@ -48,7 +50,7 @@ public sealed class MatchQueueController : ControllerBase
         }
 
         var page = await _matches
-            .GetQueueAsync(paging, referenceLibraryId, cancellationToken)
+            .GetQueueAsync(paging, referenceLibraryId, likelyYouTubeRip == true, cancellationToken)
             .ConfigureAwait(false);
 
         return Ok(page.ToPagingResource(paging, DefaultSortKey, row => row.ToResource()));
@@ -92,14 +94,16 @@ public sealed class MatchQueueController : ControllerBase
                         request.CandidateRank,
                         request.MbRecordingId,
                         request.DeezerId,
-                        request.Skip),
+                        request.Skip,
+                        request.Replace),
                     cancellationToken)
                 .ConfigureAwait(false);
 
             return Ok(new MatchResolveResource(
                 MatchQueueResourceMapper.WireName(result.State),
                 result.SongId,
-                result.Message));
+                result.Message,
+                result.Replacement));
         }
         catch (KeyNotFoundException)
         {
@@ -157,8 +161,8 @@ public sealed class MatchQueueController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        var result = await _matches.AcceptTopCandidatesAsync(ids, cancellationToken).ConfigureAwait(false);
+        var result = await _matches.AcceptTopCandidatesAsync(ids, request.Replace, cancellationToken).ConfigureAwait(false);
 
-        return Ok(new MatchBulkResource(result.Resolved, result.Failed, [.. result.Errors]));
+        return Ok(new MatchBulkResource(result.Resolved, result.Failed, [.. result.Errors], result.Searching));
     }
 }

@@ -1,7 +1,14 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HEALTH_ENTRIES, LIBRARIES, REFERENCE_LIBRARIES, SYSTEM_STATUS } from '../../test/fixtures';
+import {
+  HEALTH_ENTRIES,
+  LIBRARIES,
+  REFERENCE_LIBRARIES,
+  REPLACED_REFERENCE_FILES,
+  SYSTEM_STATUS,
+  paged,
+} from '../../test/fixtures';
 import { installFetch, jsonResponse, renderApp, resetLocation, type FetchMock } from '../../test/helpers';
 
 beforeEach(() => {
@@ -28,6 +35,7 @@ function install(
   libraries: unknown = REFERENCE_LIBRARIES,
   post: () => Response = () => jsonResponse(REFERENCE_LIBRARIES[0]),
   ownedSongs: number | (() => Response) = 12,
+  replaced: unknown = paged([]),
 ): FetchMock {
   return installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
@@ -40,6 +48,10 @@ function install(
 
     if (url.includes('/scan')) {
       return jsonResponse({ id: 9, name: 'ReferenceLibraryScan', status: 'queued' });
+    }
+
+    if (url.includes('/api/v1/referencelibrary/replaced')) {
+      return jsonResponse(replaced);
     }
 
     if (url.includes('/ownedsongs')) {
@@ -80,6 +92,83 @@ describe('ReferenceLibrariesPage', () => {
     // "Needs review" counts the ambiguous and unmatched files of this library together.
     expect(screen.getByText('3 need review')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '3 need review' })).toHaveAttribute('href', '/match?referenceLibraryId=3');
+  });
+
+  it('counts the likely YouTube rips and the replaced files', async () => {
+    install();
+
+    renderApp();
+
+    expect(await screen.findByText('44 likely YouTube rips')).toBeInTheDocument();
+    expect(screen.getByText('2 replaced')).toBeInTheDocument();
+  });
+
+  it('stores Replace files below the cutoff from the edit form', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await openRowMenu(user, 'Old music');
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+
+    const toggle = await screen.findByRole('switch', { name: /^Replace files below the cutoff/ });
+
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const put = sent().find((request) => request.method === 'PUT');
+
+      expect(put).toBeDefined();
+      expect(JSON.parse(await put!.body)).toMatchObject({ name: 'Old music', replaceBelowCutoff: true });
+    });
+  });
+
+  it('lists the files a library copy replaced, with the song and both qualities', async () => {
+    install(undefined, undefined, undefined, REPLACED_REFERENCE_FILES);
+
+    renderApp();
+
+    const card = (await screen.findByText('Replaced by a library copy')).closest('.mantine-Card-root') as HTMLElement;
+
+    expect(within(card).getByText('Huey Lewis & the News/Greatest Hits/17. Hip to Be Square.mp3')).toBeInTheDocument();
+    expect(within(card).getByText('Huey Lewis and the News – Hip to Be Square')).toBeInTheDocument();
+    expect(within(card).getByText(/OPUS-160/)).toBeInTheDocument();
+    expect(within(card).getByText('FLAC')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Copy the paths on this page' })).toBeEnabled();
+  });
+
+  it('marks a file that rates higher than its library copy and leaves it out of the copied paths', async () => {
+    const keeper = {
+      ...REPLACED_REFERENCE_FILES.records[0],
+      id: 431,
+      quality: 'FLAC',
+      libraryQuality: 'MP3-128',
+      likelyYouTubeRip: false,
+      libraryCopyRatesLower: true,
+    };
+    install(undefined, undefined, undefined, { ...REPLACED_REFERENCE_FILES, totalRecords: 1, records: [keeper] });
+
+    renderApp();
+
+    expect(await screen.findByText('Your file rates higher')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy the paths on this page' })).toBeDisabled();
+  });
+
+  it('shows no replaced list while nothing was replaced', async () => {
+    install();
+
+    renderApp();
+
+    await screen.findByText('Old music');
+    await waitFor(() => {
+      expect(sent().some((request) => request.url.includes('/api/v1/referencelibrary/replaced'))).toBe(true);
+    });
+
+    expect(screen.queryByText('Replaced by a library copy')).not.toBeInTheDocument();
   });
 
   it('shows the empty state when there is no reference library yet', async () => {

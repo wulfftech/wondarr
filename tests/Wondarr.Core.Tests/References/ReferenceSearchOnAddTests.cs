@@ -170,7 +170,7 @@ public sealed class ReferenceSearchOnAddTests : IDisposable
 
         await context.SaveChangesAsync();
 
-        var result = await MatchService(context).AcceptTopCandidatesAsync(ids, CancellationToken.None);
+        var result = await MatchService(context).AcceptTopCandidatesAsync(ids, replace: false, CancellationToken.None);
 
         result.Resolved.Should().Be(3);
         (await context.SongFiles.CountAsync()).Should().Be(3);
@@ -223,9 +223,9 @@ public sealed class ReferenceSearchOnAddTests : IDisposable
                 ? real.AddIdentitiesAsync(call.Arg<IReadOnlyList<SongIdentity>>(), call.Arg<SongAddOptions>(), call.Arg<CancellationToken>())
                 : throw new InvalidOperationException("boom"));
 
-        var service = new ReferenceMatchService(context, _resolver, spy, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
+        var service = new ReferenceMatchService(context, _resolver, spy, _commands, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
 
-        var result = await service.AcceptTopCandidatesAsync(ids, CancellationToken.None);
+        var result = await service.AcceptTopCandidatesAsync(ids, replace: false, CancellationToken.None);
 
         result.Resolved.Should().Be(1);
         result.Failed.Should().Be(1);
@@ -429,7 +429,7 @@ public sealed class ReferenceSearchOnAddTests : IDisposable
             NullLogger<ReferenceIdentifier>.Instance);
 
     private ReferenceMatchService MatchService(WondarrDbContext context) =>
-        new(context, _resolver, NewSongService(context), _timeProvider, NullLogger<ReferenceMatchService>.Instance);
+        new(context, _resolver, NewSongService(context), _commands, _timeProvider, NullLogger<ReferenceMatchService>.Instance);
 
     /// <summary>Counts a table's rows the way another connection (a command handler's scope) would see it.</summary>
     private async Task<long> CountOnOtherConnectionAsync(string table)

@@ -218,6 +218,66 @@ public sealed class ReferenceLibraryApiTests
     }
 
     [Fact]
+    public async Task Replace_files_below_the_cutoff_is_off_by_default_and_round_trips()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var id = await AddLibraryAsync(client, "Music", "/reference/music", "reference");
+        (await GetLibraryAsync(client, id))["replaceBelowCutoff"]!.GetValue<bool>().Should().BeFalse();
+
+        using var response = await client.PutAsync(
+            new Uri($"{Endpoint}/{id}", UriKind.Relative),
+            Json("""{"name":"Music","rootPath":"/reference/music","mode":"reference","enabled":true,"replaceBelowCutoff":true}"""));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await GetLibraryAsync(client, id))["replaceBelowCutoff"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_replaced_list_names_the_files_a_library_copy_replaced()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+
+        var id = await AddLibraryAsync(client, "Music", "/reference/music", "reference");
+        await SeedFilesAsync(factory, id, ("Hip to Be Square.mp3", "identified"), ("Stuck with You.mp3", "identified"));
+        var songId = await SeedOwnedSongAsync(factory, id, "Hip to Be Square", monitored: true);
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            await using var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            var row = await context.ReferenceFiles.SingleAsync(candidate => candidate.RelativePath == "Hip to Be Square.mp3");
+            row.SongId = songId;
+
+            // A download replaced the reference file: the song holds a library file now.
+            var held = await context.SongFiles.SingleAsync(candidate => candidate.SongId == songId);
+            held.SourceType = "soulseek";
+            held.SourceRef = null;
+            held.Path = "/data/music/Huey Lewis & the News/Hip to Be Square.flac";
+            await context.SaveChangesAsync();
+        }
+
+        using var response = await client.GetAsync(new Uri($"{Endpoint}/replaced", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var page = (JsonObject)(await ReadJsonAsync(response))!;
+        page["totalRecords"]!.GetValue<int>().Should().Be(1);
+
+        var entry = (JsonObject)((JsonArray)page["records"]!)[0]!;
+        entry["relativePath"]!.GetValue<string>().Should().Be("Hip to Be Square.mp3");
+        entry["referenceLibraryName"]!.GetValue<string>().Should().Be("Music");
+        entry["songId"]!.GetValue<long>().Should().Be(songId);
+        entry["title"]!.GetValue<string>().Should().Be("Hip to Be Square");
+        entry["libraryPath"]!.GetValue<string>().Should().Be("/data/music/Huey Lewis & the News/Hip to Be Square.flac");
+
+        var counts = (JsonObject)(await GetLibraryAsync(client, id))["counts"]!;
+        counts["replaced"]!.GetValue<int>().Should().Be(1);
+        counts["likelyYouTubeRips"]!.GetValue<int>().Should().Be(0);
+    }
+
+    [Fact]
     public async Task Reading_updating_deleting_and_scanning_an_unknown_library_are_not_found()
     {
         using var factory = new WondarrAppFactory();

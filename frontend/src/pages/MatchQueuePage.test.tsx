@@ -39,6 +39,7 @@ function install(
   bulk: () => Response = () =>
     jsonResponse({ resolved: 1, failed: 1, errors: ['Unknown artist/04 track04.mp3: nothing to accept'] }),
   lookup: () => Response = () => jsonResponse(LOOKUP_RESULTS),
+  resolve: () => Response = () => jsonResponse({ state: 'identified', songId: 12, message: null, replacement: null }),
 ): FetchMock {
   return installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
@@ -54,7 +55,7 @@ function install(
     }
 
     if (url.includes('/resolve')) {
-      return jsonResponse({ state: 'identified', songId: 12, message: null });
+      return resolve();
     }
 
     if (url.includes('/api/v1/matchqueue')) {
@@ -296,9 +297,89 @@ describe('MatchQueuePage', () => {
 
     const body = await lastBody('/api/v1/matchqueue/bulk');
 
-    expect(body).toEqual({ ids: [AMBIGUOUS.id, UNMATCHED.id] });
+    expect(body).toEqual({ ids: [AMBIGUOUS.id, UNMATCHED.id], replace: false });
     expect(await screen.findByText('Resolved 1, failed 1')).toBeInTheDocument();
     expect(screen.getByText(/nothing to accept/)).toBeInTheDocument();
+  });
+
+  it('flags a likely YouTube rip and narrows the queue to them', async () => {
+    const rip = { ...AMBIGUOUS, likelyYouTubeRip: true, file: { ...AMBIGUOUS.file, codec: 'mp3', sampleRate: 48000 } };
+    const mock = install(paged([rip, UNMATCHED]));
+    const user = userEvent.setup();
+
+    renderApp();
+
+    expect(await screen.findByText('Likely YouTube rip')).toBeInTheDocument();
+    expect(screen.getByText('48 kHz')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: 'Only likely YouTube rips' }));
+
+    await waitFor(() => {
+      expect(mock.calls.some((call) => call.url.includes('likelyYouTubeRip=true'))).toBe(true);
+    });
+  });
+
+  it('replaces a file with a better copy of its top candidate and says what happened', async () => {
+    install(undefined, undefined, undefined, () =>
+      jsonResponse({ state: 'identified', songId: 12, message: null, replacement: 'Searching for a better copy now.' }),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(
+      await screen.findByLabelText(`Replace ${AMBIGUOUS.relativePath} with a better copy of the top candidate`),
+    );
+
+    const body = await lastBody(`/api/v1/matchqueue/${AMBIGUOUS.id}/resolve`);
+
+    expect(body).toMatchObject({ candidateRank: 1, replace: true });
+    expect(await screen.findByText('Searching for a better copy now.')).toBeInTheDocument();
+  });
+
+  it('replaces a lower-ranked candidate from the review drawer', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByLabelText(`Review ${AMBIGUOUS.relativePath}`));
+    await user.click(
+      await screen.findByLabelText(
+        `Replace ${AMBIGUOUS.relativePath} with a better copy of Harder, Better, Faster, Stronger (Live)`,
+      ),
+    );
+
+    const body = await lastBody(`/api/v1/matchqueue/${AMBIGUOUS.id}/resolve`);
+
+    expect(body).toMatchObject({ candidateRank: 2, replace: true });
+  });
+
+  it('replaces every selected file and says how many songs are being searched', async () => {
+    install(undefined, () => jsonResponse({ resolved: 2, failed: 0, errors: [], searching: 1 }));
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Select all on this page' }));
+    await user.click(screen.getByRole('button', { name: 'Replace selected' }));
+
+    const body = await lastBody('/api/v1/matchqueue/bulk');
+
+    expect(body).toEqual({ ids: [AMBIGUOUS.id, UNMATCHED.id], replace: true });
+    expect(await screen.findByText(/Searching for better copies of 1 song now/)).toBeInTheDocument();
+  });
+
+  it('says so when Replace for the selection has nothing to search for', async () => {
+    install(undefined, () => jsonResponse({ resolved: 2, failed: 0, errors: [], searching: 0 }));
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'Select all on this page' }));
+    await user.click(screen.getByRole('button', { name: 'Replace selected' }));
+
+    expect(await screen.findByText(/No song is below its cutoff, so nothing is searched for/)).toBeInTheDocument();
   });
 
   it('filters the queue to one reference library', async () => {

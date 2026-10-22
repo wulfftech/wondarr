@@ -1681,6 +1681,13 @@
               ],
               "format": "int64"
             }
+          },
+          {
+            "name": "likelyYouTubeRip",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -1770,6 +1777,39 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MatchBulkResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/referencelibrary/replaced": {
+      "get": {
+        "tags": [
+          "ReferenceLibrary"
+        ],
+        "parameters": [
+          {
+            "name": "referenceLibraryId",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfReplacedReferenceFileResource"
                 }
               }
             }
@@ -7741,6 +7781,10 @@
               ],
               "format": "int64"
             }
+          },
+          "replace": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -7748,7 +7792,8 @@
         "required": [
           "resolved",
           "failed",
-          "errors"
+          "errors",
+          "searching"
         ],
         "type": "object",
         "properties": {
@@ -7773,6 +7818,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "searching": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -7861,7 +7914,8 @@
           "codec",
           "bitrate",
           "isrc",
-          "mbRecordingId"
+          "mbRecordingId",
+          "sampleRate"
         ],
         "type": "object",
         "properties": {
@@ -7927,6 +7981,15 @@
               "null",
               "string"
             ]
+          },
+          "sampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -7938,7 +8001,8 @@
           "state",
           "file",
           "candidates",
-          "message"
+          "message",
+          "likelyYouTubeRip"
         ],
         "type": "object",
         "properties": {
@@ -7978,6 +8042,9 @@
               "null",
               "string"
             ]
+          },
+          "likelyYouTubeRip": {
+            "type": "boolean"
           }
         }
       },
@@ -8016,6 +8083,10 @@
           },
           "skip": {
             "type": "boolean"
+          },
+          "replace": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -8023,7 +8094,8 @@
         "required": [
           "state",
           "songId",
-          "message"
+          "message",
+          "replacement"
         ],
         "type": "object",
         "properties": {
@@ -8040,6 +8112,12 @@
             "format": "int64"
           },
           "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replacement": {
             "type": [
               "null",
               "string"
@@ -8598,6 +8676,55 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/QueueResource"
+            }
+          }
+        }
+      },
+      "PagingResourceOfReplacedReferenceFileResource": {
+        "required": [
+          "page",
+          "pageSize",
+          "sortKey",
+          "sortDirection",
+          "totalRecords",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sortKey": {
+            "type": "string"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "totalRecords": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplacedReferenceFileResource"
             }
           }
         }
@@ -9444,7 +9571,9 @@
           "adopted",
           "unreadable",
           "missing",
-          "skipped"
+          "skipped",
+          "likelyYouTubeRips",
+          "replaced"
         ],
         "type": "object",
         "properties": {
@@ -9519,6 +9648,22 @@
               "string"
             ],
             "format": "int32"
+          },
+          "likelyYouTubeRips": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "replaced": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -9552,6 +9697,10 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "replaceBelowCutoff": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -9581,7 +9730,8 @@
           "enabled",
           "lastScannedAt",
           "lastScanMessage",
-          "counts"
+          "counts",
+          "replaceBelowCutoff"
         ],
         "type": "object",
         "properties": {
@@ -9629,6 +9779,9 @@
           },
           "counts": {
             "$ref": "#/components/schemas/ReferenceLibraryCountsResource"
+          },
+          "replaceBelowCutoff": {
+            "type": "boolean"
           }
         }
       },
@@ -10030,6 +10183,88 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ReplacedReferenceFileResource": {
+        "required": [
+          "id",
+          "referenceLibraryId",
+          "referenceLibraryName",
+          "relativePath",
+          "path",
+          "likelyYouTubeRip",
+          "quality",
+          "songId",
+          "artistCredit",
+          "title",
+          "libraryPath",
+          "libraryQuality",
+          "libraryFileSince",
+          "libraryCopyRatesLower"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "referenceLibraryId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "referenceLibraryName": {
+            "type": "string"
+          },
+          "relativePath": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "likelyYouTubeRip": {
+            "type": "boolean"
+          },
+          "quality": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "artistCredit": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "libraryPath": {
+            "type": "string"
+          },
+          "libraryQuality": {
+            "type": "string"
+          },
+          "libraryFileSince": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "libraryCopyRatesLower": {
+            "type": "boolean"
           }
         }
       },

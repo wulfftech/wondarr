@@ -82,6 +82,19 @@ public sealed class ReferenceFile : EntityBase
     /// <summary>Gets or sets the UTC instant the file went missing, or <see langword="null"/>.</summary>
     public DateTime? MissingSince { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the file is most likely a YouTube rip: lossy at 48 kHz,
+    /// the rate YouTube serves its audio at (<c>YouTubeRips</c>). Set from the probe on every read.
+    /// </summary>
+    public bool LikelyYouTubeRip { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the user settled the file with Replace in the Match queue:
+    /// its song may be searched for and upgraded like a song with a library file, while the file itself
+    /// stays exactly where it is (<c>ReferenceReplacement</c>).
+    /// </summary>
+    public bool Replace { get; set; }
+
     /// <summary>Gets or sets the library this file belongs to.</summary>
     public ReferenceLibrary ReferenceLibrary { get; set; } = null!;
 

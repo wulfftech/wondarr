@@ -72,14 +72,9 @@ internal static partial class ImportRecovery
             .FirstOrDefaultAsync(candidate => candidate.Id == item.Candidate.QualityId, cancellationToken)
             .ConfigureAwait(false);
 
-        // A reference file is the user's own and is never touched, recovery included.
-        if (song?.File is { SourceType: SourceTypes.Reference })
-        {
-            NoDestination(logger, item.Id);
-
-            return null;
-        }
-
+        // A song held by a reference file is looked for like any other (a grab that replaces it, DECISIONS
+        // build session 14 #32): recording a landed file rewrites only the song's row, and the destination
+        // is under the library's root, which never holds a reference file, so the user's file is untouched.
         if (song?.AlbumContext is not { } album || library is null || quality is null)
         {
             NoDestination(logger, item.Id);

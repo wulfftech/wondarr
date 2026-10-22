@@ -4,7 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Media;
 using Wondarr.Core.Organizer;
+using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
 
@@ -16,12 +18,17 @@ namespace Wondarr.Core.References;
 /// <param name="Mode">What the scan may do with the files it finds.</param>
 /// <param name="LibraryId">The managed library adopted songs are filed under, or <see langword="null"/>.</param>
 /// <param name="Enabled">Whether the daily scan covers this library.</param>
+/// <param name="ReplaceBelowCutoff">
+/// Whether a song held by one of the library's files may be replaced by a better copy while the file is
+/// below the song's cutoff (DECISIONS build session 14 #32).
+/// </param>
 public sealed record ReferenceLibraryInput(
     string Name,
     string RootPath,
     ReferenceLibraryMode Mode,
     long? LibraryId,
-    bool Enabled);
+    bool Enabled,
+    bool ReplaceBelowCutoff = false);
 
 /// <summary>One reference library with the state of its files, as the API and the UI read it.</summary>
 /// <param name="Library">The stored row.</param>
@@ -38,6 +45,8 @@ public sealed record ReferenceLibrarySummary(ReferenceLibrary Library, Reference
 /// <param name="Unreadable">Not decodable audio.</param>
 /// <param name="Missing">Gone from disk.</param>
 /// <param name="Skipped">The user asked Wondarr to leave the file alone.</param>
+/// <param name="LikelyYouTubeRips">Files still on disk that are most likely YouTube rips (lossy at 48 kHz).</param>
+/// <param name="Replaced">Identified files whose song now holds a library file, so they can be deleted.</param>
 public sealed record ReferenceLibraryCounts(
     int Total,
     int Pending,
@@ -47,11 +56,51 @@ public sealed record ReferenceLibraryCounts(
     int Adopted,
     int Unreadable,
     int Missing,
-    int Skipped)
+    int Skipped,
+    int LikelyYouTubeRips = 0,
+    int Replaced = 0)
 {
     /// <summary>The counts of a library that has never been scanned.</summary>
     public static readonly ReferenceLibraryCounts Empty = new(0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
+
+/// <summary>
+/// An identified reference file whose song now holds a library file (DECISIONS build session 14 #32): a
+/// download replaced it, or the song had a library copy first. Nothing uses the file any more, so the user
+/// may delete it; Wondarr never does.
+/// </summary>
+/// <param name="Id">The reference file id.</param>
+/// <param name="ReferenceLibraryId">The library the file belongs to.</param>
+/// <param name="ReferenceLibraryName">That library's name.</param>
+/// <param name="RelativePath">The path relative to the library root, separated by <c>/</c>.</param>
+/// <param name="Path">The file's absolute path on this machine.</param>
+/// <param name="LikelyYouTubeRip">Whether the file is most likely a YouTube rip.</param>
+/// <param name="QualityName">The quality the file is rated at, or <see langword="null"/> when it was never measured.</param>
+/// <param name="SongId">The song.</param>
+/// <param name="ArtistCredit">The song's artist credit.</param>
+/// <param name="Title">The song's title.</param>
+/// <param name="LibraryPath">The library file the song holds now.</param>
+/// <param name="LibraryQualityName">That file's quality.</param>
+/// <param name="LibraryFileSince">When that file was imported, in UTC.</param>
+/// <param name="LibraryCopyRatesLower">
+/// Whether the library file rates below the reference file: the song had a worse library copy first, so
+/// the user's file is the better one to keep.
+/// </param>
+public sealed record ReplacedReferenceFile(
+    long Id,
+    long ReferenceLibraryId,
+    string ReferenceLibraryName,
+    string RelativePath,
+    string Path,
+    bool LikelyYouTubeRip,
+    string? QualityName,
+    long SongId,
+    string ArtistCredit,
+    string Title,
+    string LibraryPath,
+    string LibraryQualityName,
+    DateTime LibraryFileSince,
+    bool LibraryCopyRatesLower);
 
 /// <summary>
 /// Thrown when a reference library fails validation. The field is the API resource field name
@@ -134,6 +183,19 @@ public interface IReferenceLibraryService
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>How many songs were owned through the library, or <see langword="null"/> when it does not exist.</returns>
     Task<int?> DeleteAsync(long id, ReferenceLibraryDeleteChoice choice, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lists the reference files a library copy has replaced: identified files whose song now holds a
+    /// library file. Newest library file first.
+    /// </summary>
+    /// <param name="paging">The page and its size; the sort is fixed.</param>
+    /// <param name="referenceLibraryId">Only files of this library, or <see langword="null"/> for all of them.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>One page of replaced files, and how many there are.</returns>
+    Task<PagedResult<ReplacedReferenceFile>> GetReplacedAsync(
+        PagingSpec paging,
+        long? referenceLibraryId,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>What happens to the songs a deleted reference library owned.</summary>
@@ -449,11 +511,129 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        var rips = await _database.ReferenceFiles
+            .AsNoTracking()
+            .Where(file => file.LikelyYouTubeRip && file.State != ReferenceFileState.Missing)
+            .GroupBy(file => file.ReferenceLibraryId)
+            .Select(group => new { ReferenceLibraryId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(group => group.ReferenceLibraryId, group => group.Count, cancellationToken)
+            .ConfigureAwait(false);
+
+        var replaced = await Replaced(_database)
+            .GroupBy(file => file.ReferenceLibraryId)
+            .Select(group => new { ReferenceLibraryId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(group => group.ReferenceLibraryId, group => group.Count, cancellationToken)
+            .ConfigureAwait(false);
+
         return rows
             .GroupBy(row => row.ReferenceLibraryId)
             .ToDictionary(
                 group => group.Key,
-                group => Build(group.ToDictionary(row => row.State, row => row.Count)));
+                group => Build(group.ToDictionary(row => row.State, row => row.Count)) with
+                {
+                    LikelyYouTubeRips = rips.TryGetValue(group.Key, out var ripCount) ? ripCount : 0,
+                    Replaced = replaced.TryGetValue(group.Key, out var replacedCount) ? replacedCount : 0,
+                });
+    }
+
+    /// <inheritdoc />
+    public async Task<PagedResult<ReplacedReferenceFile>> GetReplacedAsync(
+        PagingSpec paging,
+        long? referenceLibraryId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(paging);
+
+        var rows = Replaced(_database);
+
+        if (referenceLibraryId is { } libraryId)
+        {
+            rows = rows.Where(row => row.ReferenceLibraryId == libraryId);
+        }
+
+        var query =
+            from row in rows
+            join file in _database.SongFiles.AsNoTracking() on row.SongId equals (long?)file.SongId
+            select new
+            {
+                Row = row,
+                row.ReferenceLibrary.Name,
+                row.ReferenceLibrary.RootPath,
+                row.Song!.ArtistCredit,
+                row.Song.Title,
+                File = file,
+            };
+
+        var totalRecords = await query.CountAsync(cancellationToken).ConfigureAwait(false);
+        var page = await query
+            .OrderByDescending(entry => entry.File.ImportedAt)
+            .ThenBy(entry => entry.Row.Id)
+            .Skip(paging.Skip)
+            .Take(paging.PageSize)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var qualities = await _database.Qualities
+            .AsNoTracking()
+            .ToDictionaryAsync(quality => quality.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        var records = page
+            .Select(entry =>
+            {
+                var rated = RatedQuality(entry.Row.Probe) is { } id && qualities.TryGetValue(id, out var quality) ? quality : null;
+                var library = qualities.GetValueOrDefault(entry.File.QualityId);
+
+                return new ReplacedReferenceFile(
+                    entry.Row.Id,
+                    entry.Row.ReferenceLibraryId,
+                    entry.Name,
+                    entry.Row.RelativePath,
+                    ReferenceOwnership.AbsolutePath(entry.RootPath, entry.Row.RelativePath),
+                    entry.Row.LikelyYouTubeRip,
+                    rated?.Name,
+                    entry.File.SongId,
+                    entry.ArtistCredit,
+                    entry.Title,
+                    entry.File.Path,
+                    library?.Name ?? string.Empty,
+                    entry.File.ImportedAt,
+                    rated is not null && library is not null && library.Rank < rated.Rank);
+            })
+            .ToList();
+
+        return new PagedResult<ReplacedReferenceFile>(records, totalRecords);
+    }
+
+    /// <summary>
+    /// The identified reference rows whose song now holds a library file: a download replaced the file,
+    /// or the song had a library copy first. The scan deletes such a row once its file is gone.
+    /// </summary>
+    /// <param name="database">The Wondarr database.</param>
+    /// <returns>The rows, untracked.</returns>
+    internal static IQueryable<ReferenceFile> Replaced(WondarrDbContext database) =>
+        database.ReferenceFiles
+            .AsNoTracking()
+            .Where(row => row.State == ReferenceFileState.Identified
+                && row.SongId != null
+                && database.SongFiles.Any(file => file.SongId == row.SongId && file.SourceType != SourceTypes.Reference));
+
+    /// <summary>The quality a stored probe rates the file at, or <see langword="null"/> when it cannot be read.</summary>
+    private static long? RatedQuality(string? probe)
+    {
+        if (string.IsNullOrWhiteSpace(probe))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<MediaInfo>(probe, StoredJson) is { } media ? YouTubeRips.Rate(media) : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Turns the per-state counts of one library into the nine numbers the API reports.</summary>
@@ -481,6 +661,7 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         library.Mode = input.Mode;
         library.LibraryId = input.LibraryId;
         library.Enabled = input.Enabled;
+        library.ReplaceBelowCutoff = input.ReplaceBelowCutoff;
     }
 
     /// <summary>

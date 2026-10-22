@@ -166,7 +166,8 @@ public sealed partial class ReferenceAdopter(
                 continue;
             }
 
-            var measured = MeasuredQuality.FromMediaInfo(media);
+            // A likely YouTube rip stays one in the library: the copy is the same bytes.
+            var measured = YouTubeRips.Rate(media);
 
             var quality = await database.Qualities
                 .AsNoTracking()

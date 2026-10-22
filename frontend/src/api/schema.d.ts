@@ -1830,6 +1830,7 @@ export interface paths {
             parameters: {
                 query?: {
                     referenceLibraryId?: number | string;
+                    likelyYouTubeRip?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -1932,6 +1933,43 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/referencelibrary/replaced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    referenceLibraryId?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfReplacedReferenceFileResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6052,6 +6090,8 @@ export interface components {
         };
         MatchBulkRequestResource: {
             ids: null | (number | string)[];
+            /** @default false */
+            replace: boolean;
         };
         MatchBulkResource: {
             /** Format: int32 */
@@ -6059,6 +6099,8 @@ export interface components {
             /** Format: int32 */
             failed: number | string;
             errors: string[];
+            /** Format: int32 */
+            searching: number | string;
         };
         MatchCandidateResource: {
             /** Format: int32 */
@@ -6089,6 +6131,8 @@ export interface components {
             bitrate: null | number | string;
             isrc: null | string;
             mbRecordingId: null | string;
+            /** Format: int32 */
+            sampleRate: null | number | string;
         };
         MatchQueueItemResource: {
             /** Format: int64 */
@@ -6100,6 +6144,7 @@ export interface components {
             file: components["schemas"]["MatchFileResource"];
             candidates: components["schemas"]["MatchCandidateResource"][];
             message: null | string;
+            likelyYouTubeRip: boolean;
         };
         MatchResolveRequestResource: {
             /** Format: int32 */
@@ -6108,12 +6153,15 @@ export interface components {
             /** Format: int64 */
             deezerId: null | number | string;
             skip: boolean;
+            /** @default false */
+            replace: boolean;
         };
         MatchResolveResource: {
             state: string;
             /** Format: int64 */
             songId: null | number | string;
             message: null | string;
+            replacement: null | string;
         };
         MetadataKeyTestRequest: {
             service: string;
@@ -6233,6 +6281,17 @@ export interface components {
             /** Format: int32 */
             totalRecords: number | string;
             records: components["schemas"]["QueueResource"][];
+        };
+        PagingResourceOfReplacedReferenceFileResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["ReplacedReferenceFileResource"][];
         };
         PagingResourceOfSongResource: {
             /** Format: int32 */
@@ -6438,6 +6497,10 @@ export interface components {
             missing: number | string;
             /** Format: int32 */
             skipped: number | string;
+            /** Format: int32 */
+            likelyYouTubeRips: number | string;
+            /** Format: int32 */
+            replaced: number | string;
         };
         ReferenceLibraryInputResource: {
             name: string;
@@ -6446,6 +6509,8 @@ export interface components {
             /** Format: int64 */
             libraryId: null | number | string;
             enabled: boolean;
+            /** @default false */
+            replaceBelowCutoff: boolean;
         };
         ReferenceLibraryOwnedSongsResource: {
             /** Format: int32 */
@@ -6464,6 +6529,7 @@ export interface components {
             lastScannedAt: null | string;
             lastScanMessage: null | string;
             counts: components["schemas"]["ReferenceLibraryCountsResource"];
+            replaceBelowCutoff: boolean;
         };
         ReleaseParseResource: {
             artist: null | string;
@@ -6543,6 +6609,26 @@ export interface components {
             accepted: boolean;
             parsed: components["schemas"]["ReleaseParseResource"];
             query: null | string;
+        };
+        ReplacedReferenceFileResource: {
+            /** Format: int64 */
+            id: number | string;
+            /** Format: int64 */
+            referenceLibraryId: number | string;
+            referenceLibraryName: string;
+            relativePath: string;
+            path: string;
+            likelyYouTubeRip: boolean;
+            quality: null | string;
+            /** Format: int64 */
+            songId: number | string;
+            artistCredit: string;
+            title: string;
+            libraryPath: string;
+            libraryQuality: string;
+            /** Format: date-time */
+            libraryFileSince: string;
+            libraryCopyRatesLower: boolean;
         };
         RestoreResource: {
             restartRequired: boolean;

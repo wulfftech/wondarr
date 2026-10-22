@@ -7,6 +7,7 @@ import {
   Group,
   Select,
   Stack,
+  Switch,
   Text,
   TextInput,
   Title,
@@ -27,13 +28,15 @@ import {
   type MatchCandidateResource,
   type MatchQueueItemResource,
   type MatchResolveInput,
+  type MatchResolveResource,
 } from '../api/references';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 
 /**
  * The Match queue (LIBRARY_OUTPUT §7.6): the files identification could not settle, what each file
  * says about itself, the ranked candidates, and the choices that settle a file — one at a time, or
- * the top candidate for many at once.
+ * the top candidate for many at once. Replace accepts the recording and asks for a better copy of the
+ * file, which is what a likely YouTube rip needs (DECISIONS build session 14 #32).
  */
 
 /** What each state says on screen. The resource carries the state as a plain string. */
@@ -50,6 +53,14 @@ const STATE_COLOURS: Record<string, MantineColor> = {
 
 /** The value the library filter uses for "every library". */
 const ALL_LIBRARIES = 'all';
+
+/** Why a file is flagged, in the words the badge's tooltip uses. */
+const RIP_EXPLANATION =
+  'Lossy at 48 kHz, the rate YouTube serves its audio at; CDs and download stores are 44.1 kHz. Replace accepts the recording and looks for a better copy.';
+
+/** What Replace does, for the buttons' tooltips. */
+const REPLACE_EXPLANATION =
+  'Accept this recording and look for a better copy. The song keeps this file until one arrives; your file is never touched.';
 
 /** `m:ss`, the way a track's length is written everywhere else. */
 function formatDuration(ms: number | string | null | undefined): string {
@@ -131,6 +142,30 @@ function searchSeed(item: MatchQueueItemResource): string {
   return base.replace(/\.[^.]+$/, '');
 }
 
+/** The flag on a file that is most likely a YouTube rip. */
+function RipBadge() {
+  return (
+    // Focusable, so the explanation is there for a keyboard too.
+    <Tooltip label={RIP_EXPLANATION} multiline w={320} events={{ hover: true, focus: true, touch: true }}>
+      <Badge color="grape" variant="light" size="sm" tabIndex={0}>
+        Likely YouTube rip
+      </Badge>
+    </Tooltip>
+  );
+}
+
+/** Tells the user what Replace did: a search for a better copy, or why there is none. */
+function notifyReplacement(result: MatchResolveResource) {
+  if (result.replacement === null || result.replacement === '') {
+    return;
+  }
+
+  notifications.show({
+    message: result.replacement,
+    color: result.replacement.startsWith('Searching') ? 'green' : 'yellow',
+  });
+}
+
 /** The state as a badge. */
 function StateBadge({ state }: { state: string }) {
   return (
@@ -179,7 +214,13 @@ function ReviewDrawer({
   const [results, setResults] = useState<SongLookupResource[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const settle = (input: MatchResolveInput) => resolve.mutate(input, { onSuccess: () => onClose() });
+  const settle = (input: MatchResolveInput) =>
+    resolve.mutate(input, {
+      onSuccess: (result) => {
+        notifyReplacement(result);
+        onClose();
+      },
+    });
 
   const search = () =>
     lookup.mutate(term, {
@@ -202,6 +243,11 @@ function ReviewDrawer({
         <Text size="xs" c="dimmed">
           {fileFacts(item)}
         </Text>
+        {item.likelyYouTubeRip && (
+          <Group mt={4}>
+            <RipBadge />
+          </Group>
+        )}
         {item.message !== null && item.message !== '' && (
           <Text size="xs" c="dimmed">
             {item.message}
@@ -235,14 +281,26 @@ function ReviewDrawer({
                 {candidate.albumTitle === null ? '' : ` · ${candidate.albumTitle}`}
               </Text>
             </Stack>
-            <Button
-              size="xs"
-              variant="light"
-              aria-label={`Accept ${candidate.title} for ${item.relativePath}`}
-              onClick={() => settle({ id: Number(item.id), candidateRank: Number(candidate.rank) })}
-            >
-              Accept
-            </Button>
+            <Group gap="xs" wrap="nowrap">
+              <Button
+                size="xs"
+                variant="light"
+                aria-label={`Accept ${candidate.title} for ${item.relativePath}`}
+                onClick={() => settle({ id: Number(item.id), candidateRank: Number(candidate.rank) })}
+              >
+                Accept
+              </Button>
+              <Tooltip label={REPLACE_EXPLANATION} multiline w={300}>
+                <Button
+                  size="xs"
+                  variant="default"
+                  aria-label={`Replace ${item.relativePath} with a better copy of ${candidate.title}`}
+                  onClick={() => settle({ id: Number(item.id), candidateRank: Number(candidate.rank), replace: true })}
+                >
+                  Replace
+                </Button>
+              </Tooltip>
+            </Group>
           </Group>
         );
       })}
@@ -279,18 +337,32 @@ function ReviewDrawer({
               {result.source} · {formatDuration(result.durationMs)} · {formatScore(result.score)}
             </Text>
           </Stack>
-          <Button
-            size="xs"
-            variant="light"
-            aria-label={`Accept the ${result.source} result ${result.title}`}
-            onClick={() =>
-              result.mbRecordingId !== null
-                ? settle({ id: Number(item.id), mbRecordingId: result.mbRecordingId })
-                : settle({ id: Number(item.id), deezerId: Number(result.deezerId) })
-            }
-          >
-            Accept
-          </Button>
+          <Group gap="xs" wrap="nowrap">
+            <Button
+              size="xs"
+              variant="light"
+              aria-label={`Accept the ${result.source} result ${result.title}`}
+              onClick={() =>
+                result.mbRecordingId !== null
+                  ? settle({ id: Number(item.id), mbRecordingId: result.mbRecordingId })
+                  : settle({ id: Number(item.id), deezerId: Number(result.deezerId) })
+              }
+            >
+              Accept
+            </Button>
+            <Button
+              size="xs"
+              variant="default"
+              aria-label={`Replace ${item.relativePath} with a better copy of the ${result.source} result ${result.title}`}
+              onClick={() =>
+                result.mbRecordingId !== null
+                  ? settle({ id: Number(item.id), mbRecordingId: result.mbRecordingId, replace: true })
+                  : settle({ id: Number(item.id), deezerId: Number(result.deezerId), replace: true })
+              }
+            >
+              Replace
+            </Button>
+          </Group>
         </Group>
       ))}
 
@@ -327,8 +399,9 @@ export function MatchQueuePage() {
 
   const filter = params.get('referenceLibraryId');
   const referenceLibraryId = filter === null || filter === '' ? null : Number(filter);
+  const ripsOnly = params.get('likelyYouTubeRip') === 'true';
 
-  const query = useMatchQueue(paging, referenceLibraryId);
+  const query = useMatchQueue(paging, referenceLibraryId, ripsOnly);
   // The filter is by reference library, not by the managed library adopted songs are filed under.
   const libraries = useReferenceLibraries();
   const resolve = useResolveMatch();
@@ -350,7 +423,26 @@ export function MatchQueuePage() {
       return next;
     });
 
-  const acceptTop = (item: MatchQueueItemResource) => {
+  /** Keeps both filters in the address, so a link (from Settings) and a reload land on the same view. */
+  const setFilters = (next: { library?: string | null; ripsOnly?: boolean }) => {
+    setPaging((current) => ({ ...current, page: 1 }));
+
+    const library = next.library === undefined ? filter : next.library;
+    const rips = next.ripsOnly ?? ripsOnly;
+    const values: Record<string, string> = {};
+
+    if (library !== null && library !== '' && library !== ALL_LIBRARIES) {
+      values.referenceLibraryId = library;
+    }
+
+    if (rips) {
+      values.likelyYouTubeRip = 'true';
+    }
+
+    setParams(values);
+  };
+
+  const acceptTop = (item: MatchQueueItemResource, replace: boolean) => {
     const candidate = item.candidates[0];
 
     if (candidate === undefined) {
@@ -358,25 +450,42 @@ export function MatchQueuePage() {
     }
 
     resolve.mutate(
-      { id: Number(item.id), candidateRank: Number(candidate.rank) },
+      { id: Number(item.id), candidateRank: Number(candidate.rank), replace },
       {
+        onSuccess: notifyReplacement,
         onError: (error) => notifications.show({ message: error.message, color: 'red' }),
       },
     );
   };
 
-  const acceptSelected = () =>
-    bulk.mutate([...selected], {
-      onSuccess: (result) => {
-        setSelected(new Set());
-        notifications.show({
-          title: `Resolved ${result.resolved}, failed ${result.failed}`,
-          message: result.errors.length === 0 ? 'Every selected file was accepted.' : result.errors.join('\n'),
-          color: result.failed === 0 ? 'green' : 'orange',
-        });
+  const acceptSelected = (replace: boolean) =>
+    bulk.mutate(
+      { ids: [...selected], replace },
+      {
+        onSuccess: (result) => {
+          setSelected(new Set());
+
+          const searching = Number(result.searching);
+          const lines = [
+            ...(result.errors.length === 0 ? ['Every selected file was accepted.'] : result.errors),
+            ...(replace
+              ? [
+                  searching === 0
+                    ? 'No song is below its cutoff, so nothing is searched for.'
+                    : `Searching for better copies of ${searching} ${searching === 1 ? 'song' : 'songs'} now.`,
+                ]
+              : []),
+          ];
+
+          notifications.show({
+            title: `Resolved ${result.resolved}, failed ${result.failed}`,
+            message: lines.join('\n'),
+            color: result.failed === 0 ? 'green' : 'orange',
+          });
+        },
+        onError: (error) => notifications.show({ message: error.message, color: 'red' }),
       },
-      onError: (error) => notifications.show({ message: error.message, color: 'red' }),
-    });
+    );
 
   const columns: PagedColumn<MatchQueueItemResource>[] = [
     {
@@ -410,15 +519,31 @@ export function MatchQueuePage() {
     {
       label: 'Format',
       sortKey: null,
-      width: 80,
-      render: (item) => (item.file.codec === null || item.file.codec === '' ? '—' : item.file.codec.toUpperCase()),
+      width: 130,
+      render: (item) => (
+        <Stack gap={4} align="flex-start">
+          <Text size="sm">
+            {item.file.codec === null || item.file.codec === '' ? '—' : item.file.codec.toUpperCase()}
+          </Text>
+          {item.likelyYouTubeRip && <RipBadge />}
+        </Stack>
+      ),
     },
     { label: 'Length', sortKey: null, width: 80, render: (item) => formatDuration(item.file.durationMs) },
     {
       label: 'Bitrate',
       sortKey: null,
       width: 100,
-      render: (item) => (item.file.bitrate === null ? '—' : `${String(item.file.bitrate)} kbps`),
+      render: (item) => (
+        <Stack gap={0}>
+          <Text size="sm">{item.file.bitrate === null ? '—' : `${String(item.file.bitrate)} kbps`}</Text>
+          {item.file.sampleRate !== null && (
+            <Text size="xs" c="dimmed">
+              {Number(item.file.sampleRate) / 1000} kHz
+            </Text>
+          )}
+        </Stack>
+      ),
     },
     { label: 'State', sortKey: null, width: 130, render: (item) => <StateBadge state={item.state} /> },
     { label: 'Top candidate', sortKey: null, render: (item) => <TopCandidateCell item={item} /> },
@@ -441,7 +566,7 @@ export function MatchQueuePage() {
     {
       label: 'Actions',
       sortKey: null,
-      width: 170,
+      width: 250,
       render: (item) => (
         <Group gap="xs" wrap="nowrap">
           <Button
@@ -449,10 +574,21 @@ export function MatchQueuePage() {
             variant="light"
             aria-label={`Accept the top candidate for ${item.relativePath}`}
             disabled={item.candidates.length === 0}
-            onClick={() => acceptTop(item)}
+            onClick={() => acceptTop(item, false)}
           >
             Accept
           </Button>
+          <Tooltip label={REPLACE_EXPLANATION} multiline w={300}>
+            <Button
+              size="xs"
+              variant="default"
+              aria-label={`Replace ${item.relativePath} with a better copy of the top candidate`}
+              disabled={item.candidates.length === 0}
+              onClick={() => acceptTop(item, true)}
+            >
+              Replace
+            </Button>
+          </Tooltip>
           <Button
             size="xs"
             variant="default"
@@ -471,32 +607,44 @@ export function MatchQueuePage() {
       <Title order={2}>Match</Title>
 
       <Group justify="space-between" align="flex-end">
-        <Select
-          label="Reference library"
-          w={240}
-          data={[
-            { value: ALL_LIBRARIES, label: 'Every library' },
-            ...(libraries.data ?? []).map((library) => ({ value: String(library.id), label: library.name })),
-          ]}
-          value={filter === null || filter === '' ? ALL_LIBRARIES : filter}
-          onChange={(value) => {
-            setPaging((current) => ({ ...current, page: 1 }));
-
-            if (value === null || value === ALL_LIBRARIES) {
-              setParams({});
-            } else {
-              setParams({ referenceLibraryId: value });
-            }
-          }}
-        />
+        <Group gap="md" align="flex-end">
+          <Select
+            label="Reference library"
+            w={240}
+            data={[
+              { value: ALL_LIBRARIES, label: 'Every library' },
+              ...(libraries.data ?? []).map((library) => ({ value: String(library.id), label: library.name })),
+            ]}
+            value={filter === null || filter === '' ? ALL_LIBRARIES : filter}
+            onChange={(value) => setFilters({ library: value })}
+          />
+          <Tooltip label={RIP_EXPLANATION} multiline w={320}>
+            <Switch
+              label="Only likely YouTube rips"
+              checked={ripsOnly}
+              onChange={(event) => setFilters({ ripsOnly: event.currentTarget.checked })}
+              mb={8}
+            />
+          </Tooltip>
+        </Group>
 
         <Group gap="xs">
           <Button variant="default" onClick={() => setSelected(new Set(rows.map((row) => Number(row.id))))}>
             Select all on this page
           </Button>
-          <Button loading={bulk.isPending} disabled={selected.size === 0} onClick={acceptSelected}>
+          <Button loading={bulk.isPending} disabled={selected.size === 0} onClick={() => acceptSelected(false)}>
             Accept top candidate for selected
           </Button>
+          <Tooltip label={REPLACE_EXPLANATION} multiline w={300}>
+            <Button
+              variant="light"
+              loading={bulk.isPending}
+              disabled={selected.size === 0}
+              onClick={() => acceptSelected(true)}
+            >
+              Replace selected
+            </Button>
+          </Tooltip>
         </Group>
       </Group>
 
@@ -508,7 +656,11 @@ export function MatchQueuePage() {
         onPaging={setPaging}
         isLoading={query.isPending}
         error={query.error}
-        emptyMessage="Nothing to review — every file was identified or skipped."
+        emptyMessage={
+          ripsOnly
+            ? 'No likely YouTube rip is waiting for review.'
+            : 'Nothing to review — every file was identified or skipped.'
+        }
         rowKey={(item) => item.id}
       />
 

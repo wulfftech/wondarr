@@ -396,6 +396,9 @@ internal static class DomainModelConfiguration
             entity.Property(x => x.RelativePath).IsRequired();
             entity.Property(x => x.State).HasConversion<string>();
 
+            // The naming convention would split the brand into "you_tube".
+            entity.Property(x => x.LikelyYouTubeRip).HasColumnName("likely_youtube_rip");
+
             // One row per file: the pair is what makes the walk incremental.
             entity.HasIndex(x => new { x.ReferenceLibraryId, x.RelativePath }).IsUnique();
             entity.HasIndex(x => x.State);

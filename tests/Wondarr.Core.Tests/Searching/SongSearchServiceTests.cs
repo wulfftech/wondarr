@@ -99,6 +99,35 @@ public sealed class SongSearchServiceTests
     }
 
     [Fact]
+    public async Task A_song_whose_reference_file_may_be_replaced_is_searched_for_and_grabbed()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var byLibrary = await host.SeedSongAsync("Alpha");
+        var byReplace = await host.SeedSongAsync("Beta");
+        var owned = await host.SeedSongAsync("Gamma");
+
+        await host.SeedHeldReferenceFileAsync(byLibrary, libraryReplaces: true);
+        await host.SeedHeldReferenceFileAsync(byReplace, replace: true);
+        await host.SeedHeldReferenceFileAsync(owned);
+
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac"));
+
+        (await host.Search.SearchAsync(byLibrary, SearchTrigger.Automatic, grab: true, Token)).Outcome
+            .Should().Be(SearchOutcome.Grabbed, "its library replaces files below the cutoff");
+
+        host.Provider.Candidates.Clear();
+        host.Provider.Candidates.Add(SearchTestHost.Candidate("Music\\Aphex Twin\\Beta.flac"));
+
+        (await host.Search.SearchAsync(byReplace, SearchTrigger.Upgrade, grab: true, Token)).Outcome
+            .Should().Be(SearchOutcome.Grabbed, "the file was settled with Replace");
+
+        var refused = await host.Search.SearchAsync(owned, SearchTrigger.Automatic, grab: true, Token);
+
+        refused.Outcome.Should().Be(SearchOutcome.Cancelled, "nobody asked for this reference file to be replaced");
+        refused.Message.Should().Be(SongSearchService.ReferenceOwnedMessage);
+    }
+
+    [Fact]
     public async Task A_song_that_got_a_managed_file_after_its_reference_row_was_identified_is_still_upgraded()
     {
         await using var host = await SearchTestHost.CreateAsync();

@@ -358,7 +358,7 @@ internal static class ReferenceOwnership
         file.BitDepth = probe.BitDepth;
         file.Channels = probe.Channels;
         file.DurationMs = probe.DurationMs;
-        file.QualityId = MeasuredQuality.FromMediaInfo(probe);
+        file.QualityId = YouTubeRips.Rate(probe);
         file.AcoustId = acoustId;
         file.FingerprintVerified = string.Equals(identifiedBy, ReferenceIdentifier.AcoustIdTier, StringComparison.Ordinal);
         file.SourceType = SourceTypes.Reference;

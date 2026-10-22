@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Wondarr.Api.Commands;
+using Wondarr.Api.Paging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.References;
@@ -17,6 +18,9 @@ namespace Wondarr.Api.References;
 [Route("api/v1/referencelibrary")]
 public sealed class ReferenceLibraryController : ControllerBase
 {
+    /// <summary>The sort the Replaced list reports: newest library file first, whatever was asked.</summary>
+    private const string ReplacedSortKey = "libraryFileSince";
+
     private readonly IReferenceLibraryService _libraries;
     private readonly ICommandQueue _commands;
 
@@ -30,6 +34,26 @@ public sealed class ReferenceLibraryController : ControllerBase
 
         _libraries = libraries;
         _commands = commands;
+    }
+
+    /// <summary>
+    /// Lists the reference files a library copy has replaced: their songs now hold a file in the managed
+    /// library, so the user may delete them. Newest library file first.
+    /// </summary>
+    /// <param name="referenceLibraryId">Only files of this reference library, when given.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    [HttpGet("replaced")]
+    [Produces("application/json")]
+    public async Task<ActionResult<PagingResource<ReplacedReferenceFileResource>>> GetReplaced(
+        [FromQuery] long? referenceLibraryId,
+        CancellationToken cancellationToken)
+    {
+        var paging = Request.ToPagingSpec();
+        var page = await _libraries
+            .GetReplacedAsync(paging, referenceLibraryId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Ok(page.ToPagingResource(paging, ReplacedSortKey, file => file.ToResource()));
     }
 
     /// <summary>Lists every reference library, ordered by id.</summary>

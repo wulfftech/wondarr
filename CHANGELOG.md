@@ -4,6 +4,14 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+**Upgrading:** an additive migration adds three columns and, from what earlier scans stored, flags the likely YouTube rips already in your reference libraries and re-rates their files OPUS-160. A song owned through a reference file is still never searched for until you ask. In an **adopt** library the copies of likely rips are re-rated too, and they are ordinary library files, so the scheduled Upgrade Search starts looking for better copies of them, as it does for any library file below its cutoff.
+
+### Added
+- **Likely YouTube rips in reference libraries.** YouTube serves its audio at 48 kHz, while CDs and download stores use 44.1 kHz, so a reference file that is lossy at 48 kHz is flagged a **likely YouTube rip** and rated no better than OPUS-160, the quality of a YouTube download, even when it was re-encoded to a high-bitrate MP3 (by bitrate alone such a file rated MP3 V0). The Match queue shows a **Likely YouTube rip** badge and the sample rate, and **Only likely YouTube rips** narrows it to them; the reference library table counts them. A lossless file at 48 kHz is never flagged.
+- **Replacing reference files with better copies.** **Replace** in the Match queue (and **Replace selected**) accepts the recording and searches for a better copy now when the file is below its cutoff; a reference library's new **Replace files below the cutoff** setting (off by default) lets the scheduled Upgrade Search and **Wanted → Cutoff Unmet** treat every song held by one of its files like a library song. The copy goes into the managed library and the song points at it; your file is never written, moved or deleted. Before this, a reference-owned song was never searched for.
+- **Replaced by a library copy**, on Settings → Reference libraries, lists the reference files whose song now uses a library file, with both qualities and a button that copies their paths, so you can delete them (a file that rates higher than its library copy is marked and left out). A deleted replaced file never counts towards the "share not mounted" warning, and its row is dropped after 24 hours.
+- **A replacement an interrupted import had already placed is recorded after a restart**, as for any other song, instead of being downloaded again.
+
 ## [0.1.12] — 2026-10-21
 
 Dependency updates only: Quartz 4.6, Microsoft.Extensions.Http.Resilience 10.11, Mantine 9.7.2 and TanStack Query 5.104.3, with newer test and build tooling. Nothing you see or set changes. Update by pulling `:0.1` (or `:0.1.12`).

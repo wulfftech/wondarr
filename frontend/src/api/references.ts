@@ -27,6 +27,8 @@ export type MatchQueuePage = components['schemas']['PagingResourceOfMatchQueueIt
 export type MatchResolveResource = components['schemas']['MatchResolveResource'];
 export type MatchBulkResource = components['schemas']['MatchBulkResource'];
 export type CommandResource = components['schemas']['CommandResource'];
+export type ReplacedReferenceFileResource = components['schemas']['ReplacedReferenceFileResource'];
+export type ReplacedReferenceFilesPage = components['schemas']['PagingResourceOfReplacedReferenceFileResource'];
 
 /**
  * The wire spelling of `ReferenceLibraryMode`. The document does not describe the mode as an enum
@@ -37,6 +39,7 @@ export type ReferenceLibraryModeName = 'reference' | 'adopt';
 /** The query keys the reference screens invalidate. A resolve moves the counts and the queue together. */
 export const REFERENCE_LIBRARIES_QUERY_KEY = ['reference-libraries'] as const;
 export const MATCH_QUEUE_QUERY_KEY = ['match-queue'] as const;
+export const REPLACED_REFERENCE_FILES_QUERY_KEY = ['replaced-reference-files'] as const;
 
 /** How often the reference-library list refreshes while the page is open, in milliseconds. */
 export const REFERENCE_LIBRARY_REFETCH_MS = 5000;
@@ -49,17 +52,26 @@ export interface ReferenceLibraryInput {
   /** The managed library found songs are filed under, or `null` for none. */
   libraryId: number | null;
   enabled: boolean;
+  /** Whether songs held by this library's files may be replaced by better copies while below their cutoff. */
+  replaceBelowCutoff: boolean;
 }
 
 /**
  * What one resolve asks for: exactly one of a candidate's rank, an id the user picked from a manual
- * search, or "leave this file alone".
+ * search, or "leave this file alone". `replace` accepts the recording and asks for a better copy of the
+ * file: the song is owned through it until one arrives.
  */
 export type MatchResolveInput =
-  | { id: number; candidateRank: number }
-  | { id: number; mbRecordingId: string }
-  | { id: number; deezerId: number }
+  | { id: number; candidateRank: number; replace?: boolean }
+  | { id: number; mbRecordingId: string; replace?: boolean }
+  | { id: number; deezerId: number; replace?: boolean }
   | { id: number; skip: true };
+
+/** What a bulk accept asks for: the files, and whether better copies should replace them. */
+export interface MatchBulkInput {
+  ids: number[];
+  replace: boolean;
+}
 
 /**
  * Turns a failed response into the error the forms render, reusing the problem reader the other forms
@@ -75,12 +87,12 @@ function problemError(status: number, body: unknown, fallback: string): Validati
 }
 
 /**
- * The Match queue's query as something the typed client accepts. The document describes only the
- * `referenceLibraryId` filter, and the controller reads the paging values off the request by hand, so
- * the generated query type is narrower than what actually travels. The assertion belongs here rather
- * than at the call site.
+ * A paged query (the Match queue's, the Replaced list's) as something the typed client accepts. The
+ * document describes only the filters, and the controllers read the paging values off the request by
+ * hand, so the generated query type is narrower than what actually travels. The assertion belongs here
+ * rather than at the call site.
  */
-function matchQuery(values: Record<string, string | number>): never {
+function pagedQuery(values: Record<string, string | number>): never {
   return values as never;
 }
 
@@ -88,6 +100,7 @@ function matchQuery(values: Record<string, string | number>): never {
 function invalidateReferences(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: REFERENCE_LIBRARIES_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: MATCH_QUEUE_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: REPLACED_REFERENCE_FILES_QUERY_KEY });
 }
 
 /** Every reference library, with how many of its files are in each state. */
@@ -262,15 +275,19 @@ export function useAdoptReferenceLibraries(): UseMutationResult<CommandResource,
   });
 }
 
-/** The files identification could not settle, best path first, optionally of one library only. */
+/**
+ * The files identification could not settle, best path first, optionally of one library only and only
+ * the likely YouTube rips.
+ */
 export function useMatchQueue(
   paging: Paging,
   referenceLibraryId?: number | null,
+  likelyYouTubeRipsOnly = false,
 ): UseQueryResult<MatchQueuePage, Error> {
   const client = useApiClient();
 
   return useQuery({
-    queryKey: [...MATCH_QUEUE_QUERY_KEY, paging, referenceLibraryId ?? null],
+    queryKey: [...MATCH_QUEUE_QUERY_KEY, paging, referenceLibraryId ?? null, likelyYouTubeRipsOnly],
     queryFn: async (): Promise<MatchQueuePage> => {
       const query: Record<string, string | number> = pagingValues(paging);
 
@@ -278,8 +295,12 @@ export function useMatchQueue(
         query.referenceLibraryId = referenceLibraryId;
       }
 
+      if (likelyYouTubeRipsOnly) {
+        query.likelyYouTubeRip = 'true';
+      }
+
       const { data, response } = await client.GET('/api/v1/matchqueue', {
-        params: { query: matchQuery(query) },
+        params: { query: pagedQuery(query) },
       });
 
       if (!response.ok || data === undefined) {
@@ -302,7 +323,7 @@ export function useMatchQueueTotal(): number | null {
     refetchInterval: 60_000,
     queryFn: async (): Promise<number> => {
       const { data, response } = await client.GET('/api/v1/matchqueue', {
-        params: { query: matchQuery(pagingValues(firstPage(1))) },
+        params: { query: pagedQuery(pagingValues(firstPage(1))) },
       });
 
       if (!response.ok || data === undefined) {
@@ -330,6 +351,7 @@ export function useResolveMatch(): UseMutationResult<MatchResolveResource, Error
         mbRecordingId: 'mbRecordingId' in input ? input.mbRecordingId : null,
         deezerId: 'deezerId' in input ? input.deezerId : null,
         skip: 'skip' in input,
+        replace: 'replace' in input && input.replace === true,
       };
 
       const { data, error, response } = await client.POST('/api/v1/matchqueue/{id}/resolve', {
@@ -347,15 +369,15 @@ export function useResolveMatch(): UseMutationResult<MatchResolveResource, Error
   });
 }
 
-/** Accepts the best candidate of every listed file, in one go. */
-export function useBulkAcceptMatches(): UseMutationResult<MatchBulkResource, Error, number[]> {
+/** Accepts the best candidate of every listed file, in one go, and with `replace` asks for better copies. */
+export function useBulkAcceptMatches(): UseMutationResult<MatchBulkResource, Error, MatchBulkInput> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (ids: number[]): Promise<MatchBulkResource> => {
+    mutationFn: async ({ ids, replace }: MatchBulkInput): Promise<MatchBulkResource> => {
       const { data, error, response } = await client.POST('/api/v1/matchqueue/bulk', {
-        body: { ids },
+        body: { ids, replace },
       });
 
       if (!response.ok || data === undefined) {
@@ -365,5 +387,37 @@ export function useBulkAcceptMatches(): UseMutationResult<MatchBulkResource, Err
       return data;
     },
     onSuccess: () => invalidateReferences(queryClient),
+  });
+}
+
+/**
+ * The reference files a library copy has replaced: their songs hold a file in the managed library now, so
+ * the user may delete them. Wondarr never does. Newest library copy first.
+ */
+export function useReplacedReferenceFiles(
+  paging: Paging,
+  referenceLibraryId?: number | null,
+): UseQueryResult<ReplacedReferenceFilesPage, Error> {
+  const client = useApiClient();
+
+  return useQuery({
+    queryKey: [...REPLACED_REFERENCE_FILES_QUERY_KEY, paging, referenceLibraryId ?? null],
+    queryFn: async (): Promise<ReplacedReferenceFilesPage> => {
+      const query: Record<string, string | number> = pagingValues(paging);
+
+      if (referenceLibraryId !== undefined && referenceLibraryId !== null) {
+        query.referenceLibraryId = referenceLibraryId;
+      }
+
+      const { data, response } = await client.GET('/api/v1/referencelibrary/replaced', {
+        params: { query: pagedQuery(query) },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw new ApiError(response.status, 'The replaced files request failed.');
+      }
+
+      return data;
+    },
   });
 }

@@ -475,7 +475,10 @@ export const REFERENCE_LIBRARIES = [
       unreadable: 4,
       missing: 5,
       skipped: 0,
+      likelyYouTubeRips: 44,
+      replaced: 2,
     },
+    replaceBelowCutoff: false,
   },
   {
     id: 4,
@@ -496,9 +499,39 @@ export const REFERENCE_LIBRARIES = [
       unreadable: 0,
       missing: 0,
       skipped: 0,
+      likelyYouTubeRips: 0,
+      replaced: 0,
     },
+    replaceBelowCutoff: false,
   },
 ];
+
+/** One page of the files a library copy replaced: Hip to Be Square, a rip, now a FLAC in the library. */
+export const REPLACED_REFERENCE_FILES = {
+  page: 1,
+  pageSize: 20,
+  sortKey: 'libraryFileSince',
+  sortDirection: 'descending',
+  totalRecords: 1,
+  records: [
+    {
+      id: 430,
+      referenceLibraryId: 3,
+      referenceLibraryName: 'Old music',
+      relativePath: 'Huey Lewis & the News/Greatest Hits/17. Hip to Be Square.mp3',
+      path: '/data/old-music/Huey Lewis & the News/Greatest Hits/17. Hip to Be Square.mp3',
+      likelyYouTubeRip: true,
+      quality: 'OPUS-160',
+      songId: 12,
+      artistCredit: 'Huey Lewis and the News',
+      title: 'Hip to Be Square',
+      libraryPath: '/data/music/Huey Lewis and the News/Fore!/Hip to Be Square.flac',
+      libraryQuality: 'FLAC',
+      libraryFileSince: '2026-10-21T09:00:00Z',
+      libraryCopyRatesLower: false,
+    },
+  ],
+};
 
 /**
  * Two files the Match queue is asking about: an ambiguous one with two ranked candidates, and an
@@ -520,6 +553,7 @@ export const MATCH_QUEUE_ITEMS = [
       bitrate: 900,
       isrc: null,
       mbRecordingId: null,
+      sampleRate: 44100,
     },
     candidates: [
       {
@@ -548,6 +582,7 @@ export const MATCH_QUEUE_ITEMS = [
       },
     ],
     message: null,
+    likelyYouTubeRip: false,
   },
   {
     id: 72,
@@ -564,9 +599,11 @@ export const MATCH_QUEUE_ITEMS = [
       bitrate: 320,
       isrc: null,
       mbRecordingId: null,
+      sampleRate: 44100,
     },
     candidates: [],
     message: 'Nothing matched closely enough.',
+    likelyYouTubeRip: false,
   },
 ];
 
