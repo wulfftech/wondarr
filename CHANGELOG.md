@@ -4,7 +4,13 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
-**Upgrading:** an additive migration adds three columns and, from what earlier scans stored, flags the likely YouTube rips already in your reference libraries and re-rates their files OPUS-160. A song owned through a reference file is still never searched for until you ask. In an **adopt** library the copies of likely rips are re-rated too, and they are ordinary library files, so the scheduled Upgrade Search starts looking for better copies of them, as it does for any library file below its cutoff.
+## [0.1.13] — 2026-10-22
+
+Reference libraries now spot likely YouTube rips and can have any of their files replaced by a better copy: **Replace** in the Match queue, or **Replace files below the cutoff** on a reference library. Update by pulling `:0.1` (or `:0.1.13`).
+
+**Upgrading from 0.1.12:**
+- **An additive migration** adds three columns and, from what earlier scans stored, flags the likely YouTube rips already in your reference libraries and re-rates their files OPUS-160. A song owned through a reference file is still never searched for until you ask.
+- **Adopt libraries:** the copies of likely rips are re-rated too. They are ordinary library files, so the scheduled Upgrade Search starts looking for better copies of them, as it does for any library file below its cutoff.
 
 ### Added
 - **Likely YouTube rips in reference libraries.** YouTube serves its audio at 48 kHz, while CDs and download stores use 44.1 kHz, so a reference file that is lossy at 48 kHz is flagged a **likely YouTube rip** and rated no better than OPUS-160, the quality of a YouTube download, even when it was re-encoded to a high-bitrate MP3 (by bitrate alone such a file rated MP3 V0). The Match queue shows a **Likely YouTube rip** badge and the sample rate, and **Only likely YouTube rips** narrows it to them; the reference library table counts them. A lossless file at 48 kHz is never flagged.
