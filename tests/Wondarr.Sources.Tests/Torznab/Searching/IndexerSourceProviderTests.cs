@@ -669,6 +669,9 @@ public sealed partial class IndexerSourceProviderTests
         public Task<MbRelease?> GetReleaseAsync(string releaseId, CancellationToken cancellationToken = default) =>
             Task.FromResult(All().FirstOrDefault(release => release.Id == releaseId));
 
+        public Task<MbRelease?> GetAddedReleaseAsync(string releaseId, CancellationToken cancellationToken = default) =>
+            GetReleaseAsync(releaseId, cancellationToken);
+
         public Task<IReadOnlyList<MbRelease>> GetReleasesForRecordingAsync(
             string recordingId,
             int maxPages = 3,

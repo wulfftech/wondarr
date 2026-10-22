@@ -82,3 +82,15 @@ A replaced file you delete never counts towards the "share not mounted" check de
 - **Accept** takes the top candidate. **Select all on this page** and **Accept top candidate for selected** do it for many files.
 - **Replace** takes the top candidate and asks for a better copy (see [Replacing files](#replacing-files)). **Replace selected** does it for many files.
 - **Review** opens the file's drawer: what the file says about itself, the ranked candidates (with length difference, score and the reason for each), and a search box (**Artist – title**) to find the recording yourself. **Accept** or **Replace** a candidate or a search result, or **Skip** the file.
+
+### Songs MusicBrainz doesn't have
+
+Some songs are not on MusicBrainz at all, often ones a group only ever put on YouTube. Wondarr can't match a file to a song MusicBrainz doesn't know, but it can help you add the song there:
+
+1. In the file's drawer, choose **Add to MusicBrainz…**. The form starts from the file's tags (or its name): **Title** and **Artist**.
+2. Optionally paste the song's **YouTube link**. With the YouTube source on, **Read video** fills in the **Release date** from the day it was uploaded and shows the channel, so you can check it is the right video. With the source off, Wondarr doesn't contact YouTube, and the link is sent as you typed it.
+3. **Open MusicBrainz** opens MusicBrainz' release editor in a new tab with the song filled in as a digital single, with one track of the file's length. You need a MusicBrainz account; if you are signed out, MusicBrainz keeps the form while you sign in.
+4. In the editor, link the artist (search for them, or add a new artist), check the rest and submit. Wondarr never submits anything itself.
+5. MusicBrainz sends you back to Wondarr's Match page, which settles the file with the new release. If MusicBrainz doesn't show the release yet, wait a minute and choose **Try again**.
+
+A release with several tracks settles the file with the track titled like it. If none is, search for the recording in the drawer instead. A way back from MusicBrainz that this browser didn't start (a link someone sent you, for example) is shown, and nothing is settled until you choose **Settle**.

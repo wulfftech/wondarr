@@ -7,16 +7,18 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Media;
+using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
+using Wondarr.Core.Tagging;
 
 namespace Wondarr.Core.References;
 
 /// <summary>
 /// What a person chose for one file of the Match queue: exactly one of a ranked candidate, a
-/// MusicBrainz recording id, a Deezer track id, or "leave that file alone".
+/// MusicBrainz recording id, a MusicBrainz release id, a Deezer track id, or "leave that file alone".
 /// </summary>
 /// <param name="CandidateRank">The rank of the candidate to accept, or <see langword="null"/>.</param>
 /// <param name="MbRecordingId">The recording MBID the user named, or <see langword="null"/>.</param>
@@ -26,12 +28,18 @@ namespace Wondarr.Core.References;
 /// Whether the accepted file should be replaced by a better copy (DECISIONS build session 14 #32): the song
 /// is owned through it until one arrives. Not allowed with <paramref name="Skip"/>.
 /// </param>
+/// <param name="MbReleaseId">
+/// The release MBID MusicBrainz sent the user back with after they added the song there, or
+/// <see langword="null"/> (DECISIONS build session 14 #33). The file becomes the release's only track, or
+/// the one track titled as the file is.
+/// </param>
 public sealed record ReferenceResolveChoice(
     int? CandidateRank,
     string? MbRecordingId,
     long? DeezerId,
     bool Skip,
-    bool Replace = false);
+    bool Replace = false,
+    string? MbReleaseId = null);
 
 /// <summary>What resolving one reference file did.</summary>
 /// <param name="State">The state the row is in now.</param>
@@ -135,6 +143,9 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     /// <summary>What Replace says when the song holds another file (the duplicate notice), so this one decides nothing.</summary>
     public const string AlreadyHasFileMessage = "The song already holds another file, so Replace changes nothing.";
 
+    /// <summary>What resolving by a release says while MusicBrainz does not show the release the user just added.</summary>
+    public const string ReleaseNotShownMessage = "MusicBrainz does not show that release yet. Try again in a minute.";
+
     /// <summary>What Replace says when the search could not be queued; the scheduled run still finds the song.</summary>
     public const string NotQueuedMessage = "The search could not be queued; the next Upgrade Search looks for a better copy.";
 
@@ -147,6 +158,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
     private readonly WondarrDbContext _database;
     private readonly IIdentityResolver _resolver;
+    private readonly IMusicBrainzClient _musicBrainz;
     private readonly ISongService _songs;
     private readonly ICommandQueue _commands;
     private readonly TimeProvider _timeProvider;
@@ -155,6 +167,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     /// <summary>Initialises a new instance of the <see cref="ReferenceMatchService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="resolver">Resolves the id the user named into a full identity.</param>
+    /// <param name="musicBrainz">Reads the release a user added on MusicBrainz, to find the file's recording on it.</param>
     /// <param name="songs">Adds the resolved identity as a song.</param>
     /// <param name="commands">Queues the search Replace starts.</param>
     /// <param name="timeProvider">The clock the import timestamps come from.</param>
@@ -162,6 +175,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     public ReferenceMatchService(
         WondarrDbContext database,
         IIdentityResolver resolver,
+        IMusicBrainzClient musicBrainz,
         ISongService songs,
         ICommandQueue commands,
         TimeProvider timeProvider,
@@ -169,6 +183,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(resolver);
+        ArgumentNullException.ThrowIfNull(musicBrainz);
         ArgumentNullException.ThrowIfNull(songs);
         ArgumentNullException.ThrowIfNull(commands);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -176,6 +191,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         _database = database;
         _resolver = resolver;
+        _musicBrainz = musicBrainz;
         _songs = songs;
         _commands = commands;
         _timeProvider = timeProvider;
@@ -245,7 +261,9 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         var (mbRecordingId, deezerId) = choice.CandidateRank is { } rank
             ? await CandidateIdsAsync(row, rank, cancellationToken).ConfigureAwait(false)
-            : (string.IsNullOrWhiteSpace(choice.MbRecordingId) ? null : choice.MbRecordingId.Trim(), choice.DeezerId);
+            : !string.IsNullOrWhiteSpace(choice.MbReleaseId)
+                ? (await RecordingOnReleaseAsync(row, choice.MbReleaseId.Trim(), cancellationToken).ConfigureAwait(false), null)
+                : (string.IsNullOrWhiteSpace(choice.MbRecordingId) ? null : choice.MbRecordingId.Trim(), choice.DeezerId);
 
         var identity = await _resolver
             .GetIdentityAsync(mbRecordingId, deezerId, cancellationToken)
@@ -702,6 +720,55 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
     }
 
     /// <summary>
+    /// The recording a release the user just added on MusicBrainz holds for a file: its only track, or else
+    /// the one track whose title is the file's. A release that cannot say which is refused rather than
+    /// guessed at: the drawer's search settles the file instead.
+    /// </summary>
+    private async Task<string> RecordingOnReleaseAsync(
+        ReferenceFile row,
+        string releaseId,
+        CancellationToken cancellationToken)
+    {
+        var release = await _musicBrainz.GetAddedReleaseAsync(releaseId, cancellationToken).ConfigureAwait(false)
+            ?? throw new SongNotFoundException(ReleaseNotShownMessage);
+
+        var tracks = release.Media
+            .SelectMany(medium => medium.Tracks)
+            .Where(track => !string.IsNullOrEmpty(track.Recording?.Id))
+            .ToList();
+
+        if (tracks.Count == 1)
+        {
+            return tracks[0].Recording!.Id;
+        }
+
+        var (_, title) = ReferenceIdentifier.TextOf(Read<FileTags>(row.Tags), row.RelativePath);
+        var wanted = title is null ? null : TextMatching.Normalize(title);
+        var named = wanted is null
+            ? []
+            : tracks
+                .Where(track => string.Equals(
+                    TextMatching.Normalize(track.Title ?? track.Recording!.Title),
+                    wanted,
+                    StringComparison.Ordinal))
+                .ToList();
+
+        if (named.Count == 1)
+        {
+            return named[0].Recording!.Id;
+        }
+
+        throw new InvalidOperationException(
+            string.Concat(
+                "The release has ",
+                tracks.Count.ToString(CultureInfo.InvariantCulture),
+                tracks.Count == 1 ? " track" : " tracks",
+                named.Count == 0 ? " and none of them is titled \"" : " and more than one is titled \"",
+                title ?? row.RelativePath,
+                "\". Search for the recording in the drawer instead."));
+    }
+
+    /// <summary>
     /// Gives the song the reference file, exactly as automatic identification does: the old song, if the
     /// row was linked to a different one, is freed first. Nothing is ever written to the file on disk.
     /// </summary>
@@ -778,18 +845,19 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         _database.MatchCandidates.RemoveRange(stale);
     }
 
-    /// <summary>Exactly one of the four choices has to be given; "all of them" and "none" are both wrong.</summary>
+    /// <summary>Exactly one of the five choices has to be given; "all of them" and "none" are both wrong.</summary>
     private static void RequireOneChoice(ReferenceResolveChoice choice)
     {
         var chosen = (choice.Skip ? 1 : 0)
             + (choice.CandidateRank is not null ? 1 : 0)
             + (!string.IsNullOrWhiteSpace(choice.MbRecordingId) ? 1 : 0)
+            + (!string.IsNullOrWhiteSpace(choice.MbReleaseId) ? 1 : 0)
             + (choice.DeezerId is not null ? 1 : 0);
 
         if (chosen != 1)
         {
             throw new ArgumentException(
-                "Exactly one of skip, candidateRank, mbRecordingId or deezerId must be given.",
+                "Exactly one of skip, candidateRank, mbRecordingId, mbReleaseId or deezerId must be given.",
                 nameof(choice));
         }
 

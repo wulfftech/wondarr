@@ -3,6 +3,7 @@
 // Ported from spotDL (https://github.com/spotDL/spotify-downloader), the pacing and retry strategy, MIT.
 
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Media;
@@ -21,6 +22,14 @@ public sealed record YtDlpDownload(string VideoId, string FilePath, string Exten
 /// <param name="StandardOutput">Everything <c>yt-dlp -F</c> wrote to stdout.</param>
 /// <param name="HasJsRuntime">Whether the EJS runtime (Deno) was available for extraction.</param>
 public sealed record YtDlpFormats(string VideoId, string StandardOutput, bool HasJsRuntime);
+
+/// <summary>One video's details, as <c>yt-dlp -J</c> read them.</summary>
+/// <param name="VideoId">The video id.</param>
+/// <param name="Title">The video's title, or <see langword="null"/>.</param>
+/// <param name="Channel">The channel that uploaded it, or <see langword="null"/>.</param>
+/// <param name="UploadDate">The day it was uploaded, or <see langword="null"/>.</param>
+/// <param name="DurationMs">Its length in milliseconds, or <see langword="null"/>.</param>
+public sealed record YtDlpVideo(string VideoId, string? Title, string? Channel, DateOnly? UploadDate, int? DurationMs);
 
 /// <summary>A classified yt-dlp failure; the kind decides retry-later vs blocklist.</summary>
 public sealed class YtDlpException : Exception, ISourceGrabFailure
@@ -58,6 +67,15 @@ public sealed class YtDlpException : Exception, ISourceGrabFailure
 public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 {
     private const string JsRuntimeWarning = "YouTube extraction without a JS runtime has been deprecated";
+
+    /// <summary>The longest a details read may run: a person is waiting for it, not a queue.</summary>
+    private const int VideoReadTimeoutSeconds = 60;
+
+    /// <summary>What a details read says when a download kept yt-dlp for longer than <see cref="VideoReadGateWait"/>.</summary>
+    private const string BusyMessage = "yt-dlp is busy with a download. Try again in a minute.";
+
+    /// <summary>How long a details read waits for a download to finish before it gives up.</summary>
+    private static readonly TimeSpan VideoReadGateWait = TimeSpan.FromSeconds(20);
 
     private readonly IProcessRunner _runner;
     private readonly IOptionsMonitor<YouTubeOptions> _options;
@@ -164,6 +182,104 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         }
     }
 
+    /// <inheritdoc />
+    public async Task<YtDlpVideo> ReadVideoAsync(string videoId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
+
+        var options = _options.CurrentValue;
+
+        // The read shares the download gate, as the probe does; but a person is waiting, so it does not
+        // queue behind a long download.
+        if (!await _gate.WaitAsync(VideoReadGateWait, cancellationToken).ConfigureAwait(false))
+        {
+            throw new YtDlpException(videoId, YtDlpErrorKind.TimedOut, BusyMessage);
+        }
+
+        try
+        {
+            var timeoutSeconds = Math.Min(options.Ytdlp.TimeoutSeconds, VideoReadTimeoutSeconds);
+            ProcessResult result;
+
+            try
+            {
+                result = await _runner.RunAsync(
+                    options.Ytdlp.BinaryPath,
+                    BuildVideoReadArguments(videoId, options),
+                    TimeSpan.FromSeconds(timeoutSeconds),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (MediaToolMissingException exception)
+            {
+                throw new YtDlpException(videoId, YtDlpErrorKind.ToolMissing, exception.Message, exception);
+            }
+
+            if (result.TimedOut)
+            {
+                throw new YtDlpException(
+                    videoId,
+                    YtDlpErrorKind.TimedOut,
+                    $"yt-dlp was killed after {timeoutSeconds}s while reading the video's details.");
+            }
+
+            if (result.ExitCode != 0)
+            {
+                throw Classify(videoId, result);
+            }
+
+            return ParseVideo(videoId, result.StandardOutput);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reads the fields the form needs from <c>yt-dlp -J</c>'s one JSON object. A field that is missing or
+    /// of another type is <see langword="null"/>: the form works without any of them.
+    /// </summary>
+    private static YtDlpVideo ParseVideo(string videoId, string standardOutput)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(standardOutput);
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                throw new JsonException("The output is not one JSON object.");
+            }
+
+            var uploadDate = Text(root, "upload_date") is { } day
+                && DateOnly.TryParseExact(day, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+                    ? parsed
+                    : (DateOnly?)null;
+
+            int? durationMs = root.TryGetProperty("duration", out var duration)
+                && duration.ValueKind == JsonValueKind.Number
+                && duration.TryGetDouble(out var seconds)
+                && seconds is > 0 and < int.MaxValue / 1000
+                    ? (int)Math.Round(seconds * 1000)
+                    : null;
+
+            return new YtDlpVideo(
+                Text(root, "id") ?? videoId,
+                Text(root, "title"),
+                Text(root, "channel") ?? Text(root, "uploader"),
+                uploadDate,
+                durationMs);
+        }
+        catch (JsonException exception)
+        {
+            throw new YtDlpException(
+                videoId,
+                YtDlpErrorKind.Unknown,
+                "yt-dlp printed something other than the video's details.",
+                exception);
+        }
+    }
+
     private async Task<YtDlpFormats> ProbeFormatsUngatedAsync(
         string videoId,
         YouTubeOptions options,
@@ -251,6 +367,40 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
             $"{destinationDir}/%(id)s.%(ext)s",
         };
 
+        AddAccessArguments(arguments, options);
+
+        arguments.Add("--");
+        arguments.Add(WatchUrl(videoId));
+
+        return arguments;
+    }
+
+    /// <summary>
+    /// A details read: one JSON object on stdout and nothing written. A video whose formats need a JS
+    /// runtime still has its details, so a missing format is not an error here.
+    /// </summary>
+    private static List<string> BuildVideoReadArguments(string videoId, YouTubeOptions options)
+    {
+        var arguments = new List<string>
+        {
+            "-J",
+            "--skip-download",
+            "--no-playlist",
+            "--no-progress",
+            "--ignore-no-formats-error",
+        };
+
+        AddAccessArguments(arguments, options);
+
+        arguments.Add("--");
+        arguments.Add(YouTubeVideoLinks.WatchUrl(videoId));
+
+        return arguments;
+    }
+
+    /// <summary>The cookies and PO-token provider every request to YouTube goes out with, when configured.</summary>
+    private static void AddAccessArguments(List<string> arguments, YouTubeOptions options)
+    {
         if (!string.IsNullOrWhiteSpace(options.CookiesPath))
         {
             arguments.Add("--cookies");
@@ -262,11 +412,6 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
             arguments.Add("--extractor-args");
             arguments.Add($"youtubepot-bgutilhttp:base_url={options.PoTokenBaseUrl}");
         }
-
-        arguments.Add("--");
-        arguments.Add(WatchUrl(videoId));
-
-        return arguments;
     }
 
     private YtDlpDownload HandleDownloadResult(string videoId, ProcessResult result, int timeoutSeconds)
@@ -346,6 +491,14 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
         return last;
     }
+
+    /// <summary>A string property, or <see langword="null"/> when it is missing, empty or not a string.</summary>
+    private static string? Text(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String
+        && value.GetString() is { Length: > 0 } text
+            ? text.Trim()
+            : null;
 
     private static string? FirstNonEmptyLine(string standardError)
     {

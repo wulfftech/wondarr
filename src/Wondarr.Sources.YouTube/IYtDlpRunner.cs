@@ -22,4 +22,17 @@ public interface IYtDlpRunner
     /// <exception cref="YtDlpException">The probe failed; the kind carries the classification.</exception>
     /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
     Task<YtDlpFormats> ProbeFormatsAsync(string videoId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads one video's details (<c>yt-dlp -J</c>, nothing downloaded): the title, channel, upload date
+    /// and length the Match queue's "Add to MusicBrainz" form fills in.
+    /// </summary>
+    /// <param name="videoId">The YouTube video id.</param>
+    /// <param name="cancellationToken">Cancels the wait and the run.</param>
+    /// <returns>What yt-dlp read; a field YouTube did not give is <see langword="null"/>.</returns>
+    /// <exception cref="YtDlpException">
+    /// The read failed, or a download held yt-dlp for longer than a person should wait; the kind carries the classification.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    Task<YtDlpVideo> ReadVideoAsync(string videoId, CancellationToken cancellationToken);
 }

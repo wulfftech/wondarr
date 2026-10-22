@@ -279,4 +279,95 @@ public class YtDlpRunnerTests
         var exception = await act.Should().ThrowAsync<YtDlpException>();
         exception.Which.Kind.Should().Be(YtDlpErrorKind.Unknown);
     }
+
+    // --- Reading one video's details for "Add to MusicBrainz" (DECISIONS build session 14 #33) --------
+
+    [Fact]
+    public async Task Reads_a_videos_details_without_downloading_it()
+    {
+        var runner = new FakeProcessRunner().Enqueue(YtDlpFixtures.Read("video-details.stdout"));
+
+        var video = await Build(runner, OptionsWith("/config/cookies.txt", "http://localhost:4416"))
+            .ReadVideoAsync("aBcDeFgHiJk", CancellationToken.None);
+
+        video.Should().Be(new YtDlpVideo("aBcDeFgHiJk", "Yeah the Boys (Official Video)", "Hype Duo", new DateOnly(2019, 3, 12), 196_320));
+
+        var call = runner.Calls.Should().ContainSingle().Subject;
+        call.Arguments.Should().ContainInOrder(
+            "-J",
+            "--skip-download",
+            "--no-playlist",
+            "--no-progress",
+            "--ignore-no-formats-error",
+            "--",
+            "https://www.youtube.com/watch?v=aBcDeFgHiJk");
+        call.Arguments.Should().Contain(CookiesArguments);
+        call.Arguments.Should().Contain(PoTokenArguments);
+        call.Arguments.Should().NotContain("-x");
+        call.Timeout.Should().Be(TimeSpan.FromSeconds(60), "a person is waiting, not the 600 s a download may take");
+    }
+
+    [Fact]
+    public async Task A_detail_youtube_did_not_give_is_null()
+    {
+        var runner = new FakeProcessRunner().Enqueue("""{"id": "aBcDeFgHiJk", "uploader": "Uni Revue", "upload_date": "not a date", "duration": null}""");
+
+        var video = await Build(runner).ReadVideoAsync("aBcDeFgHiJk", CancellationToken.None);
+
+        video.Should().Be(new YtDlpVideo("aBcDeFgHiJk", null, "Uni Revue", null, null));
+    }
+
+    [Fact]
+    public async Task Output_that_is_not_the_details_is_a_failed_read()
+    {
+        var runner = new FakeProcessRunner().Enqueue("WARNING: something else entirely");
+
+        var act = () => Build(runner).ReadVideoAsync("aBcDeFgHiJk", CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<YtDlpException>();
+        exception.Which.Kind.Should().Be(YtDlpErrorKind.Unknown);
+        exception.Which.Message.Should().Be("yt-dlp printed something other than the video's details.");
+    }
+
+    [Fact]
+    public async Task A_private_video_is_classified_like_a_failed_download()
+    {
+        var runner = new FakeProcessRunner().Enqueue(1, YtDlpFixtures.Read("private.stderr"));
+
+        var act = () => Build(runner).ReadVideoAsync("aBcDeFgHiJk", CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<YtDlpException>();
+        exception.Which.Kind.Should().Be(YtDlpErrorKind.PrivateOrUnavailable);
+    }
+
+    [Fact]
+    public async Task A_details_read_waits_for_the_download_that_holds_the_gate()
+    {
+        var downloadStarted = new TaskCompletionSource();
+        var downloadFinished = new TaskCompletionSource<ProcessResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var runner = new FakeProcessRunner()
+            .Enqueue(_ =>
+            {
+                downloadStarted.SetResult();
+
+                return downloadFinished.Task;
+            })
+            .Enqueue(YtDlpFixtures.Read("video-details.stdout"));
+
+        var subject = Build(runner);
+
+        var download = subject.DownloadAsync("abc123", "/grabs/queue-1", CancellationToken.None);
+        await downloadStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var read = subject.ReadVideoAsync("aBcDeFgHiJk", CancellationToken.None);
+        await Task.Delay(50);
+        runner.Calls.Should().HaveCount(1, "the read must not reach YouTube while a download does");
+
+        downloadFinished.SetResult(new ProcessResult(0, YtDlpFixtures.Read("download-success.stdout"), string.Empty, false));
+
+        await download;
+        (await read).Channel.Should().Be("Hype Duo");
+        runner.Calls.Should().HaveCount(2);
+    }
 }

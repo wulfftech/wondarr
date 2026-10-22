@@ -64,6 +64,7 @@ export interface ReferenceLibraryInput {
 export type MatchResolveInput =
   | { id: number; candidateRank: number; replace?: boolean }
   | { id: number; mbRecordingId: string; replace?: boolean }
+  | { id: number; mbReleaseId: string }
   | { id: number; deezerId: number; replace?: boolean }
   | { id: number; skip: true };
 
@@ -344,11 +345,12 @@ export function useResolveMatch(): UseMutationResult<MatchResolveResource, Error
 
   return useMutation({
     mutationFn: async (input: MatchResolveInput): Promise<MatchResolveResource> => {
-      // Exactly one of the four choices, as the endpoint requires; the document marks all of them
+      // Exactly one of the five choices, as the endpoint requires; the document marks all of them
       // required because every member of the record is nullable except `skip`.
       const body = {
         candidateRank: 'candidateRank' in input ? input.candidateRank : null,
         mbRecordingId: 'mbRecordingId' in input ? input.mbRecordingId : null,
+        mbReleaseId: 'mbReleaseId' in input ? input.mbReleaseId : null,
         deezerId: 'deezerId' in input ? input.deezerId : null,
         skip: 'skip' in input,
         replace: 'replace' in input && input.replace === true,

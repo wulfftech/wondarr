@@ -144,6 +144,108 @@ public class ReferenceMatchServiceTests : IDisposable
         (await context.Songs.AsNoTracking().SingleAsync()).DeezerId.Should().Be(4242);
     }
 
+    // --- Resolving by the release the user added on MusicBrainz (DECISIONS build session 14 #33) -----
+
+    [Fact]
+    public async Task Resolving_by_the_release_the_user_added_gives_the_file_its_only_track()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "Hype Duo/_ Yeah the Boys.mp3", ReferenceFileState.Unmatched);
+
+        _musicBrainz.GetAddedReleaseAsync("rel-1", Arg.Any<CancellationToken>())
+            .Returns(Release("rel-1", ("m-new", "Yeah the Boys")));
+        _resolver.GetIdentityAsync("m-new", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-new", "Yeah the Boys", durationMs: 248_000));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, null, null, false, MbReleaseId: "rel-1"),
+            CancellationToken.None);
+
+        result.State.Should().Be(ReferenceFileState.Identified);
+
+        var row = await RowAsync(context, file.Id);
+        row.IdentifiedBy.Should().Be("manual");
+        (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == row.SongId)).MbRecordingId.Should().Be("m-new");
+    }
+
+    [Fact]
+    public async Task A_release_with_several_tracks_gives_the_file_the_one_titled_as_the_file()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "Daft Punk/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        _musicBrainz.GetAddedReleaseAsync("rel-2", Arg.Any<CancellationToken>())
+            .Returns(Release("rel-2", ("m-intro", "Intro"), ("m-lucky", "Get Lucky"), ("m-outro", "Outro")));
+        _resolver.GetIdentityAsync("m-lucky", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-lucky", "Get Lucky", durationMs: 248_000));
+
+        var result = await Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, null, null, false, MbReleaseId: "rel-2"),
+            CancellationToken.None);
+
+        result.State.Should().Be(ReferenceFileState.Identified);
+        (await context.Songs.AsNoTracking().SingleAsync()).MbRecordingId.Should().Be("m-lucky");
+    }
+
+    [Fact]
+    public async Task A_release_that_cannot_say_which_track_the_file_is_is_refused_and_the_file_waits()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "Daft Punk/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        _musicBrainz.GetAddedReleaseAsync("rel-3", Arg.Any<CancellationToken>())
+            .Returns(Release("rel-3", ("m-one", "One More Time"), ("m-two", "Aerodynamic")));
+
+        var act = () => Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, null, null, false, MbReleaseId: "rel-3"),
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage("The release has 2 tracks and none of them is titled \"Get Lucky\". Search for the recording in the drawer instead.");
+        (await RowAsync(context, file.Id)).State.Should().Be(ReferenceFileState.Unmatched);
+        await _resolver.DidNotReceiveWithAnyArgs().GetIdentityAsync(default, default, default);
+    }
+
+    [Fact]
+    public async Task A_release_MusicBrainz_does_not_show_yet_is_not_found_and_the_file_waits()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "Hype Duo/_ Yeah the Boys.mp3", ReferenceFileState.Unmatched);
+
+        _musicBrainz.GetAddedReleaseAsync("rel-4", Arg.Any<CancellationToken>()).Returns((MbRelease?)null);
+
+        var act = () => Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, null, null, false, MbReleaseId: "rel-4"),
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<SongNotFoundException>()).WithMessage(ReferenceMatchService.ReleaseNotShownMessage);
+        (await RowAsync(context, file.Id)).State.Should().Be(ReferenceFileState.Unmatched);
+    }
+
+    [Fact]
+    public async Task A_release_id_with_another_choice_is_refused()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/Get Lucky.flac", ReferenceFileState.Unmatched);
+
+        var act = () => Service(context).ResolveAsync(
+            file.Id,
+            new ReferenceResolveChoice(null, "m-a", null, false, MbReleaseId: "rel-1"),
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<ArgumentException>()).WithMessage("Exactly one of*mbReleaseId*");
+        await _musicBrainz.DidNotReceiveWithAnyArgs().GetAddedReleaseAsync(default!, default);
+    }
+
     [Fact]
     public async Task Skipping_releases_the_reference_file_the_song_held()
     {
@@ -418,6 +520,7 @@ public class ReferenceMatchServiceTests : IDisposable
         var result = await new ReferenceMatchService(
                 context,
                 _resolver,
+                _musicBrainz,
                 spy,
                 _commands,
                 _timeProvider,
@@ -1357,6 +1460,29 @@ public class ReferenceMatchServiceTests : IDisposable
     }
 
     /// <summary>A reference file row, saved at once so that a candidate can name its id.</summary>
+    /// <summary>A release as MusicBrainz' lookup returns it: one digital medium with these tracks, in order.</summary>
+    private static MbRelease Release(string id, params (string RecordingId, string Title)[] tracks) => new()
+    {
+        Id = id,
+        Title = tracks[0].Title,
+        Media =
+        [
+            new MbMedium
+            {
+                Position = 1,
+                Format = "Digital Media",
+                TrackCount = tracks.Length,
+                Tracks = [.. tracks.Select((track, index) => new MbTrack
+                {
+                    Id = string.Concat("track-", track.RecordingId),
+                    Position = index + 1,
+                    Title = track.Title,
+                    Recording = new MbRecording { Id = track.RecordingId, Title = track.Title },
+                })],
+            },
+        ],
+    };
+
     private static async Task<ReferenceFile> AddFileAsync(
         WondarrDbContext context,
         long libraryId,
@@ -1435,6 +1561,7 @@ public class ReferenceMatchServiceTests : IDisposable
         new(
             context,
             _resolver,
+            _musicBrainz,
             NewSongService(context),
             _commands,
             _timeProvider,

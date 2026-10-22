@@ -59,7 +59,7 @@ public sealed class MatchQueueController : ControllerBase
     /// <summary>Settles one file by the user's choice.</summary>
     /// <param name="id">The reference file id.</param>
     /// <param name="request">
-    /// Exactly one of <c>candidateRank</c>, <c>mbRecordingId</c>, <c>deezerId</c> or <c>skip</c>.
+    /// Exactly one of <c>candidateRank</c>, <c>mbRecordingId</c>, <c>mbReleaseId</c>, <c>deezerId</c> or <c>skip</c>.
     /// </param>
     /// <param name="cancellationToken">Cancels the lookup and the write.</param>
     [HttpPost("{id:long}/resolve")]
@@ -74,13 +74,20 @@ public sealed class MatchQueueController : ControllerBase
         {
             return Problem(
                 title: "Invalid choice",
-                detail: "Exactly one of candidateRank, mbRecordingId, deezerId or skip must be given.",
+                detail: "Exactly one of candidateRank, mbRecordingId, mbReleaseId, deezerId or skip must be given.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
         if (request.MbRecordingId is { } mbRecordingId && !Guid.TryParse(mbRecordingId, out _))
         {
             ModelState.AddModelError("mbRecordingId", "mbRecordingId must be a MusicBrainz recording id.");
+
+            return ValidationProblem(ModelState);
+        }
+
+        if (request.MbReleaseId is { } mbReleaseId && !Guid.TryParse(mbReleaseId, out _))
+        {
+            ModelState.AddModelError("mbReleaseId", "mbReleaseId must be a MusicBrainz release id.");
 
             return ValidationProblem(ModelState);
         }
@@ -95,7 +102,8 @@ public sealed class MatchQueueController : ControllerBase
                         request.MbRecordingId,
                         request.DeezerId,
                         request.Skip,
-                        request.Replace),
+                        request.Replace,
+                        request.MbReleaseId),
                     cancellationToken)
                 .ConfigureAwait(false);
 
@@ -108,6 +116,14 @@ public sealed class MatchQueueController : ControllerBase
         catch (KeyNotFoundException)
         {
             return NotFound();
+        }
+        catch (SongNotFoundException exception) when (request.MbReleaseId is not null)
+        {
+            // A release the user has just added: the answer is "not yet", and asking again is the fix.
+            return Problem(
+                title: "Not on MusicBrainz yet",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status404NotFound);
         }
         catch (SongNotFoundException)
         {

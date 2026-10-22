@@ -157,18 +157,12 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     }
 
     /// <inheritdoc />
-    public async Task<MbRelease?> GetReleaseAsync(string releaseId, CancellationToken cancellationToken = default)
-    {
-        var id = NormalizeMbid(releaseId, nameof(releaseId));
+    public Task<MbRelease?> GetReleaseAsync(string releaseId, CancellationToken cancellationToken = default) =>
+        ReadReleaseAsync(NormalizeMbid(releaseId, nameof(releaseId)), rememberNotFound: true, cancellationToken);
 
-        var body = await GetBodyAsync<MbRelease>(
-                $"release/{id}?inc=recordings+artist-credits+release-groups+isrcs&fmt=json",
-                ReleaseTtl,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        return body is null ? null : JsonSerializer.Deserialize<MbRelease>(body, SerializerOptions);
-    }
+    /// <inheritdoc />
+    public Task<MbRelease?> GetAddedReleaseAsync(string releaseId, CancellationToken cancellationToken = default) =>
+        ReadReleaseAsync(NormalizeMbid(releaseId, nameof(releaseId)), rememberNotFound: false, cancellationToken);
 
     /// <inheritdoc />
     public async Task<MbReleaseGroupSearchResult> SearchReleaseGroupsAsync(
@@ -218,25 +212,50 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
         return JsonSerializer.Deserialize<MbReleaseBrowsePage>(body, SerializerOptions)?.Releases ?? [];
     }
 
+    /// <summary>Reads one release with its tracklist; both lookups share the cache entry.</summary>
+    private async Task<MbRelease?> ReadReleaseAsync(string id, bool rememberNotFound, CancellationToken cancellationToken)
+    {
+        var body = await GetBodyAsync<MbRelease>(
+                $"release/{id}?inc=recordings+artist-credits+release-groups+isrcs&fmt=json",
+                ReleaseTtl,
+                cancellationToken,
+                rememberNotFound)
+            .ConfigureAwait(false);
+
+        return body is null ? null : JsonSerializer.Deserialize<MbRelease>(body, SerializerOptions);
+    }
+
     /// <summary>
     /// Serves a request from the cache, or makes it and caches what comes back, once it is known to
     /// parse as <typeparamref name="T"/>.
     /// </summary>
+    /// <param name="relativeUri">The request, relative to the WS/2 root; also the cache key.</param>
+    /// <param name="ttl">How long a 2xx body stays fresh.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <param name="rememberNotFound">
+    /// Whether a 404 is served from and written to the cache; <see langword="false"/> asks MusicBrainz every time.
+    /// </param>
     /// <returns>The body, or <see langword="null"/> for a cached or fresh 404.</returns>
     /// <exception cref="MetadataProviderException">A 2xx body is not <typeparamref name="T"/>; it is not cached.</exception>
-    private async Task<string?> GetBodyAsync<T>(string relativeUri, TimeSpan ttl, CancellationToken cancellationToken)
+    private async Task<string?> GetBodyAsync<T>(
+        string relativeUri,
+        TimeSpan ttl,
+        CancellationToken cancellationToken,
+        bool rememberNotFound = true)
     {
         var cached = await _cache.GetAsync(Provider, relativeUri, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
+            // A row written before bodies were checked can be an error page: fetch it again, and the
+            // fresh answer overwrites it. A 404 that is not to be remembered is asked again too.
             if (cached == NotFoundPayload)
             {
-                return null;
+                if (rememberNotFound)
+                {
+                    return null;
+                }
             }
-
-            // A row written before bodies were checked can be an error page: fetch it again, and the
-            // fresh answer overwrites it.
-            if (ProviderBodies.IsReadable<T>(Provider, cached, SerializerOptions, _logger))
+            else if (ProviderBodies.IsReadable<T>(Provider, cached, SerializerOptions, _logger))
             {
                 return cached;
             }
@@ -249,9 +268,13 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            await _cache
-                .SetAsync(Provider, relativeUri, NotFoundPayload, NotFoundTtl, cancellationToken)
-                .ConfigureAwait(false);
+            if (rememberNotFound)
+            {
+                await _cache
+                    .SetAsync(Provider, relativeUri, NotFoundPayload, NotFoundTtl, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return null;
         }
 

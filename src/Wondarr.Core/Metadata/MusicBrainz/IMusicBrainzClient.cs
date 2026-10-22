@@ -45,6 +45,16 @@ public interface IMusicBrainzClient
     /// <returns>The release, or <see langword="null"/> when MusicBrainz does not know the id.</returns>
     Task<MbRelease?> GetReleaseAsync(string releaseId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Looks up a release the user has just added, with its tracklist. A 404 is neither read from the
+    /// cache nor remembered: the server that answers may not show a new release for a moment, and asking
+    /// again a minute later has to reach MusicBrainz.
+    /// </summary>
+    /// <param name="releaseId">The release MBID MusicBrainz sent back, in either case.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The release, or <see langword="null"/> while MusicBrainz does not show it.</returns>
+    Task<MbRelease?> GetAddedReleaseAsync(string releaseId, CancellationToken cancellationToken = default);
+
     /// <summary>Searches for release groups with a Lucene query.</summary>
     /// <param name="luceneQuery">A query built with <see cref="MusicBrainzQuery"/> or by hand.</param>
     /// <param name="limit">How many results to ask for; MusicBrainz serves 1 to 100.</param>

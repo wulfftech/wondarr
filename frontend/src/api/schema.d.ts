@@ -133,6 +133,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/youtube/video": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    url?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["YouTubeVideoResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/wanted/missing": {
         parameters: {
             query?: never;
@@ -6155,6 +6192,7 @@ export interface components {
             skip: boolean;
             /** @default false */
             replace: boolean;
+            mbReleaseId?: null | string;
         };
         MatchResolveResource: {
             state: string;
@@ -7142,6 +7180,15 @@ export interface components {
             version: null | string;
             hasJsRuntime: boolean;
             binaryAvailable: boolean;
+        };
+        YouTubeVideoResource: {
+            videoId: string;
+            url: string;
+            title: null | string;
+            channel: null | string;
+            uploadDate: null | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
         };
         YouTubeYtdlpPacingResource: {
             /** Format: double */
