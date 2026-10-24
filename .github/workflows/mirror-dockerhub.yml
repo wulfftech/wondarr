@@ -1,0 +1,114 @@
+name: Mirror to Docker Hub
+
+# Copies the image from GHCR to docker.io/wulfftech/wondarr, for the NAS container apps and tutorials that
+# only search Docker Hub. GHCR stays the source of truth: nothing is built here, the manifest that passed
+# release.yml's gates is copied as it is, so both registries serve the same digest. Without the
+# DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets (a fork, or before the account existed) every step skips.
+#
+# release.yml calls it after promote with the digest and tags promote just moved. Run it by hand to copy
+# tags that already exist on GHCR, e.g. the releases from before the mirror: tags "latest 0.1 0.1.14".
+on:
+  workflow_call:
+    inputs:
+      digest:
+        description: The digest promote moved the tags onto
+        type: string
+        required: true
+      tags:
+        description: promote's tag list, one full ghcr.io reference per line
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: GHCR tags to copy as they are now, space-separated (e.g. latest 0.1 0.1.14)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/wulfftech/wondarr
+  HUB_REPOSITORY: wulfftech/wondarr
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      # A secret can't appear in a step's if:, an env var can.
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - if: env.DOCKERHUB_USERNAME == ''
+        run: echo "::notice::DOCKERHUB_USERNAME is not set, so nothing was copied to Docker Hub"
+
+      - if: env.DOCKERHUB_USERNAME != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Copy the tags
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DIGEST: ${{ inputs.digest }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          hub="docker.io/${HUB_REPOSITORY}"
+          if [ -n "$DIGEST" ]; then
+            # From release.yml: every moving tag onto the one digest that passed.
+            args=()
+            while IFS= read -r tag; do
+              case "$tag" in
+                "" | *:sha-*) ;;
+                *) args+=(--tag "${hub}:${tag##*:}") ;;
+              esac
+            done <<< "$TAGS"
+            if [ "${#args[@]}" -eq 0 ]; then
+              echo "promote passed no moving tags" >&2
+              exit 1
+            fi
+            docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
+            docker buildx imagetools inspect "${hub}@${DIGEST}"
+          else
+            # By hand: each tag as GHCR has it now.
+            for tag in $TAGS; do
+              if ! [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+                echo "not a tag: $tag" >&2
+                exit 1
+              fi
+              docker buildx imagetools create --tag "${hub}:${tag}" "${IMAGE}:${tag}"
+              docker buildx imagetools inspect "${hub}:${tag}"
+            done
+          fi
+
+      # The Docker Hub page, from releases and manual runs only: a push to main moves :develop and
+      # leaves the page alone.
+      - name: Docker Hub description
+        if: env.DOCKERHUB_USERNAME != '' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.HUB_REPOSITORY }}
+          short-description: "The *arr for single songs: Soulseek, YouTube Music, torrents and usenet, verified and filed."
+          readme-filepath: docker/DOCKERHUB.md
