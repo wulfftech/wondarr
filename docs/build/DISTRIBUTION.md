@@ -32,9 +32,9 @@ Ranked by reach for an \*arr music app, multiplied by whether Wondarr can get in
 | 0 | GitHub repo metadata | Topic pages, GitHub search | Yes | Minutes | None |
 | 1 | Unraid Community Applications | Very high: the \*arr crowd's home turf | Yes | Small | None (the template tracks `:latest`) |
 | 2 | Docker Hub mirror | High: Synology's and QNAP's container apps search Docker Hub | Yes | Small | None (CI pushes it) |
-| 3 | TrueNAS apps, community train | High: slskd, Lidarr and a dozen small new \*arrs are already there | Yes, with one open question | Medium | Low (their Renovate bumps the pin) |
+| 3 | TrueNAS apps, community train | High: slskd, Lidarr and a dozen small new \*arrs are already there | Yes | Medium | Low (their Renovate bumps the pin) |
 | 4 | Cosmos Cloud marketplace | Low–medium: small platform, has the \*arrs | Yes | Small | Low |
-| 5 | DockSTARTer | Medium: an \*arr-centric installer | Yes, by request | Small–medium | Low |
+| 5 | DockSTARTer | Medium: an \*arr-centric installer | Yes | Small–medium | Low |
 | 6 | selfh.st apps directory | Medium: the weekly newsletter readers | Yes | Minutes | None |
 | 7 | Umbrel App Store | Medium: has Lidarr, Sonarr, Radarr, Prowlarr | Yes | Medium–large | High (a digest-pinned PR per release) |
 | 8 | CasaOS / ZimaOS App Store | Medium | Yes, slow review | Medium | High (a pinned-version PR per release) |
@@ -122,9 +122,11 @@ GitHub's description, topics and website fields are all empty. Topic pages like 
   - Health checks are always defined, GHCR is preferred over Docker Hub, and image keys end in `image`. ([CONTRIBUTIONS](https://github.com/truenas/apps/blob/master/CONTRIBUTIONS.md))
   - Images are pinned as `tag@sha256:…`, and Renovate bumps them. ([lidarr ix_values](https://github.com/truenas/apps/blob/master/ix-dev/community/lidarr/ix_values.yaml))
   - TrueNAS "reserves the right to reject, remove, or unpublish any application at its sole discretion".
-- **Open question:** TrueNAS apps declare a non-root `run_as_context`, user and group 568 (`apps`). Wondarr's image starts as root under s6-overlay and drops to `PUID`/`PGID`. Setting `PUID=568`/`PGID=568` gets the files right, but the container still starts as root. Check how existing PUID-style images in the catalogue handle this before writing the PR.
+- **Running as root:** TrueNAS prefers non-root apps, but images that start as root and drop to `PUID`/`PGID` are accepted. Deluge, Calibre, Cleanuparr and LazyLibrarian run as root with `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID` and `SETUID` (115 apps declare `DAC_OVERRIDE`). The library sets `PUID`/`PGID` from the form's user and group.
+  - Wondarr needs that set plus `KILL`, as HandBrake has. Without `DAC_OVERRIDE`, the init can't create `/config/logs` in the folder TrueNAS's permissions helper hands to user 568.
+  - Without `KILL`, s6 (running as root) can't signal the app (running as 568), so a stop isn't graceful.
 - **Review time:** recent new-app PRs merged in 0–6 days (Koel, Paperclip, Blackbriar, SpeedKetchup, October 2026).
-- **Missing:** the six files, a test run of `ci.py`, and the root-start answer. Local testing needs Docker, which runs on the test host, never production.
+- **Status:** `packaging/truenas/wondarr/` passes their `ci.py`, a restart and a clean stop. The default ports 30536 (web UI) and 30537 (Soulseek) came from `port_validation.py` on 2026-10-24. Wondarr's `APP__SERVER__PORT` and `APP__SOULSEEK__LISTEN_PORT` make the container use the same port numbers as the host, as their slskd app does.
 - **Effort:** medium. **Upkeep:** low, because their Renovate bumps the digest pin.
 
 ### 4. Cosmos Cloud marketplace
@@ -133,12 +135,16 @@ GitHub's description, topics and website fields are all empty. Topic pages like 
 - **How:** a PR adding `servapps/Wondarr/`, with `description.json`, `cosmos-compose.json` or `docker-compose.yml`, `icon.png` and `screenshots/`. CI renders the template and checks the schema, images and architectures (`npm run validate`). Merges to `master` publish the store. ([README](https://github.com/azukaar/cosmos-servapps-official/blob/master/README.md), [template guide](https://github.com/azukaar/cosmos-servapps-official/blob/master/CREATING_A_MARKET_TEMPLATE.md))
 - **Requires:** no stated age, star or licence rule.
 - **Review time:** the last new app took 23 days (AspireUI, September 2026). Fixes merge within days.
+- **Sign-in:** behind Cosmos's reverse proxy, Wondarr never shows the form that creates the first login, because that form is local-only. The template therefore sets `APP__SERVER__AUTH=external` and turns on Cosmos's own authentication for the route.
+- **Status:** `packaging/cosmos/Wondarr/` passes the store's validator.
 - **Effort:** small. **Upkeep:** low.
 
 ### 5. DockSTARTer
 
 - **Audience and fit:** a menu-driven installer built around the \*arr stack. The main repo has 2.5k stars. App templates live in [DockSTARTer-Templates](https://github.com/GhostWriters/DockSTARTer-Templates), which already has Lidarr, Prowlarr, Huntarr and about a dozen other \*arrs.
-- **How:** each app is a folder of about 15 small files under `.apps/<app>/`: compose fragments per architecture, ports, storage, labels, `.env` defaults and docs. Recent app additions (October 2026) came from the maintainer, so open an issue asking first, then PR if invited. ([CONTRIBUTING](https://github.com/GhostWriters/DockSTARTer/blob/master/.github/CONTRIBUTING.md))
+- **How:** a PR adding `.apps/wondarr/`, about 15 small files: compose fragments per architecture, ports, storage, labels, `.env` defaults and a README. The templates repo's guide walks through adding an app, and GitHub Actions checks the PR. ([CONTRIBUTING](https://github.com/GhostWriters/DockSTARTer-Templates/blob/main/.github/CONTRIBUTING.md))
+- **Storage:** DockSTARTer mounts shared storage at `/storage`. Wondarr's defaults live under `/data`, so its template mounts the storage folder at both paths.
+- **Status:** `packaging/dockstarter/wondarr/` merges cleanly with `docker compose config`.
 - **Effort:** small–medium. **Upkeep:** low (tags come from `.env`).
 
 ### 6. selfh.st apps directory
