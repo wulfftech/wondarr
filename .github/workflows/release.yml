@@ -5,10 +5,12 @@ name: Release image
 # The image job pushes by digest under a sha-* tag only. The tags production follows (:0.1, :latest,
 # :develop, :<version>) move in the promote job, which needs both the smoke matrix (the pushed image
 # itself, natively on amd64 and arm64) and the test suites (ci.yml, called). A v* tag then becomes a
-# GitHub Release whose notes are its CHANGELOG.md section, once the tags have moved.
+# GitHub Release whose notes are its CHANGELOG.md section, once the tags have moved. The dockerhub job
+# copies the same digest and tags to Docker Hub (mirror-dockerhub.yml, called).
 #
-#   image ──► smoke (amd64, arm64) ──┐
-#   test  (ci.yml: backend, frontend) ┴──► promote ──► github-release (v* tags only)
+#   image ──► smoke (amd64, arm64) ──┐                ┌──► github-release (v* tags only)
+#   test  (ci.yml: backend, frontend) ┴──► promote ──┤
+#                                                     └──► dockerhub (skipped without its secrets)
 on:
   push:
     branches: [main]
@@ -153,7 +155,8 @@ jobs:
         run: scripts/smoke-test.sh wondarr:release
 
   # Moves :<version>, :<major>.<minor>, :latest and :develop onto the digest that passed. This is the
-  # only place those tags are written, and it runs only when the smoke matrix and the tests are green.
+  # only place those tags are written on GHCR (the dockerhub job copies them from here), and it runs only
+  # when the smoke matrix and the tests are green.
   promote:
     needs: [image, smoke, test]
     if: needs.image.outputs.digest != ''
@@ -192,6 +195,20 @@ jobs:
           fi
           docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
           docker buildx imagetools inspect "${IMAGE}@${DIGEST}"
+
+  # Its own job rather than a step of promote, so a Docker Hub outage never holds back the GHCR tags or
+  # the GitHub Release.
+  dockerhub:
+    needs: [image, promote]
+    if: needs.image.outputs.digest != ''
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/mirror-dockerhub.yml
+    with:
+      digest: ${{ needs.image.outputs.digest }}
+      tags: ${{ needs.image.outputs.tags }}
+    secrets: inherit
 
   github-release:
     needs: promote

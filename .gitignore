@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# DockSTARTer names an app's default settings .env too; these hold no secrets
+!packaging/dockstarter/*/.env
+!packaging/dockstarter/*/.env.app.*
 config/
 data/
 *.local.json
