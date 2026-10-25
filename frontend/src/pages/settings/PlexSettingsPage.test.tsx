@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import {
   HEALTH_ENTRIES,
@@ -121,6 +121,27 @@ async function sentBody(predicate: (request: { url: string; method: string }) =>
   return request === undefined ? null : JSON.parse(await request.body);
 }
 
+/**
+ * Opens "Paste a token instead", types the token and presses Save token, each step only once the page
+ * can take it. Mantine's Collapse opens on the next animation frame and keeps its content mounted but
+ * hidden until then, in a hidden React `<Activity>` that re-renders at idle priority: typing at once
+ * can reach a field whose Save token button still renders disabled. A loaded CI runner delays that
+ * frame, which is how both token tests failed 3 of 5 runs on 2026-10-25.
+ */
+async function saveToken(user: UserEvent, token: string): Promise<void> {
+  await user.click(await screen.findByText('Paste a token instead'));
+
+  const field = screen.getByLabelText('Plex token');
+
+  await waitFor(() => expect(field).toBeVisible(), { timeout: 5000 });
+  await user.type(field, token);
+
+  const button = screen.getByRole('button', { name: 'Save token' });
+
+  await waitFor(() => expect(button).toBeEnabled(), { timeout: 5000 });
+  await user.click(button);
+}
+
 /** The spy on `window.open` every test in this file gets. */
 let openTab: MockInstance<Window['open']>;
 
@@ -197,15 +218,16 @@ describe('PlexSettingsPage sign-in', () => {
 
     renderApp();
 
-    await user.click(await screen.findByText('Paste a token instead'));
-    await user.type(await screen.findByLabelText('Plex token'), 'pasted-token');
-    await user.click(screen.getByRole('button', { name: 'Save token' }));
+    await saveToken(user, 'pasted-token');
 
-    await waitFor(async () => {
-      expect(
-        await sentBody((request) => request.method === 'PUT' && request.url.includes('/api/v1/plex/token')),
-      ).toEqual({ token: 'pasted-token' });
-    });
+    await waitFor(
+      async () => {
+        expect(
+          await sentBody((request) => request.method === 'PUT' && request.url.includes('/api/v1/plex/token')),
+        ).toEqual({ token: 'pasted-token' });
+      },
+      { timeout: 5000 },
+    );
 
     await waitFor(() => expect(screen.getByLabelText('Plex token')).toHaveValue(''));
   });
@@ -218,11 +240,9 @@ describe('PlexSettingsPage sign-in', () => {
 
     renderApp();
 
-    await user.click(await screen.findByText('Paste a token instead'));
-    await user.type(await screen.findByLabelText('Plex token'), 'wrong-token');
-    await user.click(screen.getByRole('button', { name: 'Save token' }));
+    await saveToken(user, 'wrong-token');
 
-    expect(await screen.findByText('Plex did not accept that token')).toBeInTheDocument();
+    expect(await screen.findByText('Plex did not accept that token', {}, { timeout: 5000 })).toBeInTheDocument();
   });
 });
 
