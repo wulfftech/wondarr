@@ -54,6 +54,8 @@ services:
 docker compose up -d
 ```
 
+The same image is on Docker Hub as `wulfftech/wondarr`, with the same tags. Use it if your NAS's container app only searches Docker Hub.
+
 Unraid? There's a template — see [the Unraid guide](https://wulfftech.github.io/wondarr/getting-started/unraid/).
 
 ## Your first ten minutes

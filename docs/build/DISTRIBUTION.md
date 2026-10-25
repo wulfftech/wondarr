@@ -4,6 +4,20 @@ Where Wondarr can be listed so people who never browse GHCR still find it. Resea
 
 Today Wondarr ships one way: `ghcr.io/wulfftech/wondarr` (`:latest`, `:0.1`, `:0.1.x`, `:develop`; `linux/amd64` and `linux/arm64`). There is an Unraid template in `unraid/` and a `ca_profile.xml` at the root, but Wondarr isn't listed in Community Applications yet.
 
+## Status
+
+| Channel | State on 2026-10-25 |
+|---|---|
+| GitHub description, homepage, topics | Done |
+| Docker Hub | Live: [`wulfftech/wondarr`](https://hub.docker.com/r/wulfftech/wondarr). `mirror-dockerhub.yml` copies every promoted tag. |
+| Unraid Community Applications | Template ready. Submission at ca.unraid.net needs the maintainer's Unraid login. |
+| TrueNAS apps | Issue [truenas/apps#6242](https://github.com/truenas/apps/issues/6242) and draft PR [truenas/apps#6245](https://github.com/truenas/apps/pull/6245), waiting on a maintainer |
+| Cosmos | PR [azukaar/cosmos-servapps-official#335](https://github.com/azukaar/cosmos-servapps-official/pull/335), validator passed, waiting on review |
+| DockSTARTer | PR [GhostWriters/DockSTARTer-Templates#188](https://github.com/GhostWriters/DockSTARTer-Templates/pull/188), waiting on review |
+| r/selfhosted, awesome-selfhosted, awesome-arr | Date-gated, see [Dates to come back to](#dates-to-come-back-to). Each is written by hand. |
+
+When one goes live, add it to the **Where to get it** table on the docs site's Install page and to the README's "Get it running".
+
 ## Where Wondarr stands against the usual gates
 
 | Gate | Wondarr on 2026-10-24 |

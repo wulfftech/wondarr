@@ -6,7 +6,15 @@ description: Run Wondarr with Docker or Docker Compose.
 Wondarr ships as one image with everything bundled: the API and web UI, slskd (the Soulseek client), ffmpeg, fpcalc and the tools the YouTube source needs. There is nothing else to wire up for Soulseek.
 
 - Image: `ghcr.io/wulfftech/wondarr:latest` for releases, `ghcr.io/wulfftech/wondarr:develop` for the main branch.
+- Also on Docker Hub as `wulfftech/wondarr`. It's a mirror: the same image with the same tags, copied once a release passes its checks. Use it if your NAS's container app (Synology Container Manager, QNAP Container Station) only searches Docker Hub.
 - Architectures: `linux/amd64` and `linux/arm64`.
+
+## Where to get it
+
+| Where | How |
+|---|---|
+| Docker or Docker Compose | `ghcr.io/wulfftech/wondarr` or `wulfftech/wondarr`, below |
+| Unraid | The template, from its URL; see [Unraid](/wondarr/getting-started/unraid/) |
 
 ## Docker Compose
 
