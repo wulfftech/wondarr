@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **The image is on Docker Hub too**, as `wulfftech/wondarr`: a mirror of `ghcr.io/wulfftech/wondarr` with the same tags and digests, copied once a release has passed its checks. It's for the NAS container apps and guides that only search Docker Hub.
+
 ## [0.1.14] — 2026-10-22
 
 Songs MusicBrainz does not have can now be added there from the Match queue, and the file is settled when MusicBrainz sends you back. Update by pulling `:0.1` (or `:0.1.14`).

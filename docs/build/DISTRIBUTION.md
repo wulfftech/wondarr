@@ -4,6 +4,20 @@ Where Wondarr can be listed so people who never browse GHCR still find it. Resea
 
 Today Wondarr ships one way: `ghcr.io/wulfftech/wondarr` (`:latest`, `:0.1`, `:0.1.x`, `:develop`; `linux/amd64` and `linux/arm64`). There is an Unraid template in `unraid/` and a `ca_profile.xml` at the root, but Wondarr isn't listed in Community Applications yet.
 
+## Status
+
+| Channel | State on 2026-10-25 |
+|---|---|
+| GitHub description, homepage, topics | Done |
+| Docker Hub | Live: [`wulfftech/wondarr`](https://hub.docker.com/r/wulfftech/wondarr). `mirror-dockerhub.yml` copies every promoted tag. |
+| Unraid Community Applications | Template ready. Submission at ca.unraid.net needs the maintainer's Unraid login. |
+| TrueNAS apps | Issue [truenas/apps#6242](https://github.com/truenas/apps/issues/6242) and draft PR [truenas/apps#6245](https://github.com/truenas/apps/pull/6245), waiting on a maintainer |
+| Cosmos | PR [azukaar/cosmos-servapps-official#335](https://github.com/azukaar/cosmos-servapps-official/pull/335), validator passed, waiting on review |
+| DockSTARTer | PR [GhostWriters/DockSTARTer-Templates#188](https://github.com/GhostWriters/DockSTARTer-Templates/pull/188), waiting on review |
+| r/selfhosted, awesome-selfhosted, awesome-arr | Date-gated, see [Dates to come back to](#dates-to-come-back-to). Each is written by hand. |
+
+When one goes live, add it to the **Where to get it** table on the docs site's Install page and to the README's "Get it running".
+
 ## Where Wondarr stands against the usual gates
 
 | Gate | Wondarr on 2026-10-24 |
@@ -143,7 +157,8 @@ GitHub's description, topics and website fields are all empty. Topic pages like 
 
 - **Audience and fit:** a menu-driven installer built around the \*arr stack. The main repo has 2.5k stars. App templates live in [DockSTARTer-Templates](https://github.com/GhostWriters/DockSTARTer-Templates), which already has Lidarr, Prowlarr, Huntarr and about a dozen other \*arrs.
 - **How:** a PR adding `.apps/wondarr/`, about 15 small files: compose fragments per architecture, ports, storage, labels, `.env` defaults and a README. The templates repo's guide walks through adding an app, and GitHub Actions checks the PR. ([CONTRIBUTING](https://github.com/GhostWriters/DockSTARTer-Templates/blob/main/.github/CONTRIBUTING.md))
-- **Storage:** DockSTARTer mounts shared storage at `/storage`. Wondarr's defaults live under `/data`, so its template mounts the storage folder at both paths.
+- **Storage:** DockSTARTer mounts shared storage at `/storage`, but Wondarr's defaults live under `/data`. So the template mounts the storage folder once, at `/data`, and its README says to add a `/storage` → `/data` remote path mapping on the download client.
+  - The first version mounted it at both paths. Hard links don't cross mount points, even two bind mounts of one folder (`ln: Cross-device link`, checked 2026-10-25), so torrent imports would have copied.
 - **Status:** `packaging/dockstarter/wondarr/` merges cleanly with `docker compose config`.
 - **Effort:** small–medium. **Upkeep:** low (tags come from `.env`).
 
