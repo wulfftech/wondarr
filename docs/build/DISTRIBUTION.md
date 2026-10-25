@@ -157,7 +157,8 @@ GitHub's description, topics and website fields are all empty. Topic pages like 
 
 - **Audience and fit:** a menu-driven installer built around the \*arr stack. The main repo has 2.5k stars. App templates live in [DockSTARTer-Templates](https://github.com/GhostWriters/DockSTARTer-Templates), which already has Lidarr, Prowlarr, Huntarr and about a dozen other \*arrs.
 - **How:** a PR adding `.apps/wondarr/`, about 15 small files: compose fragments per architecture, ports, storage, labels, `.env` defaults and a README. The templates repo's guide walks through adding an app, and GitHub Actions checks the PR. ([CONTRIBUTING](https://github.com/GhostWriters/DockSTARTer-Templates/blob/main/.github/CONTRIBUTING.md))
-- **Storage:** DockSTARTer mounts shared storage at `/storage`. Wondarr's defaults live under `/data`, so its template mounts the storage folder at both paths.
+- **Storage:** DockSTARTer mounts shared storage at `/storage`, but Wondarr's defaults live under `/data`. So the template mounts the storage folder once, at `/data`, and its README says to add a `/storage` → `/data` remote path mapping on the download client.
+  - The first version mounted it at both paths. Hard links don't cross mount points, even two bind mounts of one folder (`ln: Cross-device link`, checked 2026-10-25), so torrent imports would have copied.
 - **Status:** `packaging/dockstarter/wondarr/` merges cleanly with `docker compose config`.
 - **Effort:** small–medium. **Upkeep:** low (tags come from `.env`).
 
