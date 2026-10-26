@@ -11,6 +11,7 @@ using Wondarr.Core.Sources;
 using Wondarr.Sources.Tests.Metadata;
 using Wondarr.Sources.Torznab;
 using Wondarr.Sources.Torznab.Indexers;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Sources.Tests.Torznab.Indexers;
@@ -29,7 +30,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_429_to_an_nzb_download_is_answered_once_and_carries_its_retry_after()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => Throttled(HttpStatusCode.TooManyRequests, TimeSpan.FromHours(2)));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<NewznabIndexerClient>();
@@ -46,7 +47,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_429_without_a_retry_after_to_an_nzb_download_is_not_retried_either()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<NewznabIndexerClient>();
@@ -63,7 +64,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_429_to_a_prowlarr_nzb_download_is_answered_once_and_carries_its_retry_after()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => Throttled(HttpStatusCode.TooManyRequests, TimeSpan.FromHours(2)));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<ProwlarrSearchClient>();
@@ -80,7 +81,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_429_to_a_torrent_download_is_still_retried()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var bytes = new byte[] { 1, 2, 3 };
         var calls = 0;
         var handler = new RecordingHandler(_ => Interlocked.Increment(ref calls) == 1
@@ -101,7 +102,7 @@ public sealed class NzbDownloadRetryTests
     [InlineData(HttpStatusCode.BadGateway)]
     public async Task A_5xx_to_an_nzb_download_is_still_retried(HttpStatusCode status)
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var calls = 0;
         var handler = new RecordingHandler(_ => Interlocked.Increment(ref calls) == 1
             ? new HttpResponseMessage(status)
@@ -121,7 +122,7 @@ public sealed class NzbDownloadRetryTests
     [InlineData(HttpStatusCode.BadGateway)]
     public async Task An_nzb_download_with_a_long_retry_after_on_a_5xx_is_retried_once_and_waits_at_most_5_seconds(HttpStatusCode status)
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => Throttled(status, TimeSpan.FromSeconds(120)));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<NewznabIndexerClient>();
@@ -138,7 +139,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task An_nzb_download_with_a_short_retry_after_on_a_5xx_waits_for_it()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var calls = 0;
         var handler = new RecordingHandler(_ => Interlocked.Increment(ref calls) == 1
             ? Throttled(HttpStatusCode.ServiceUnavailable, TimeSpan.FromSeconds(3))
@@ -157,7 +158,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task An_nzb_download_that_keeps_getting_a_503_without_a_retry_after_is_asked_twice_at_most()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<NewznabIndexerClient>();
@@ -173,7 +174,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task An_nzb_download_that_cannot_connect_is_asked_twice_at_most()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => throw new HttpRequestException("connection refused"));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<NewznabIndexerClient>();
@@ -189,7 +190,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_408_to_an_nzb_download_is_asked_twice_at_most()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.RequestTimeout));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<NewznabIndexerClient>();
@@ -204,7 +205,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_search_request_that_cannot_connect_is_still_asked_three_times()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var searches = 0;
         var handler = new RecordingHandler(request =>
         {
@@ -230,7 +231,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_search_request_with_a_long_retry_after_on_a_503_still_waits_for_all_of_it()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var searches = 0;
         var handler = new RecordingHandler(request =>
             request.RequestUri!.Query.Contains("t=caps", StringComparison.Ordinal)
@@ -252,7 +253,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_search_request_that_keeps_getting_a_503_is_still_asked_three_times()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var searches = 0;
         var handler = new RecordingHandler(request =>
         {
@@ -278,7 +279,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_429_to_a_pushed_usenet_release_is_answered_once_and_not_retried()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var handler = new RecordingHandler(_ => Throttled(HttpStatusCode.TooManyRequests, TimeSpan.FromHours(2)));
         await using var provider = BuildProvider(time, handler);
         var client = provider.GetRequiredService<PushedReleaseClient>();
@@ -293,7 +294,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_429_to_a_pushed_torrent_release_is_still_retried()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var calls = 0;
         var handler = new RecordingHandler(_ => Interlocked.Increment(ref calls) == 1
             ? new HttpResponseMessage(HttpStatusCode.TooManyRequests)
@@ -313,7 +314,7 @@ public sealed class NzbDownloadRetryTests
     [InlineData(HttpStatusCode.TooManyRequests)]
     public async Task A_search_request_that_is_throttled_is_still_retried(HttpStatusCode status)
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var searches = 0;
         var handler = new RecordingHandler(request =>
             request.RequestUri!.Query.Contains("t=caps", StringComparison.Ordinal)
@@ -334,7 +335,7 @@ public sealed class NzbDownloadRetryTests
     [Fact]
     public async Task A_caps_request_that_is_throttled_is_still_retried()
     {
-        var time = new FakeTimeProvider(Start);
+        var time = new TrackingTimeProvider(Start);
         var capsRequests = 0;
         var handler = new RecordingHandler(request =>
             request.RequestUri!.Query.Contains("t=caps", StringComparison.Ordinal)
@@ -353,10 +354,12 @@ public sealed class NzbDownloadRetryTests
     }
 
     /// <summary>
-    /// Moves the fake clock a second at a time, with the pipeline's threads given a turn in between, until
-    /// the call finishes. A real-time guard turns a clock the pipeline ignores into a failure, not a hang.
+    /// Moves the fake clock until the call finishes, but only while the pipeline waits on it, and only as far as
+    /// the wait it armed: a clock moved while the pipeline is still at work (its retry continuation runs on the
+    /// thread pool) runs on past the delays these tests measure, hours past them on a loaded machine. A
+    /// real-time guard turns a pipeline that never arms a wait on the injected clock into a failure, not a hang.
     /// </summary>
-    internal static async Task DriveAsync(FakeTimeProvider time, Task pending)
+    internal static async Task DriveAsync(TrackingTimeProvider time, Task pending)
     {
         var guard = Stopwatch.StartNew();
 
@@ -364,7 +367,11 @@ public sealed class NzbDownloadRetryTests
         {
             guard.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(60), "the pipeline must run on the injected clock");
 
-            time.Advance(TimeSpan.FromSeconds(1));
+            if (time.UntilNextTimer() is { } wait)
+            {
+                time.Advance(wait);
+            }
+
             await Task.Yield();
         }
     }
