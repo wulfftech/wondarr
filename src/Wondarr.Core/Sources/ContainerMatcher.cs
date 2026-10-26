@@ -273,7 +273,7 @@ public static partial class ContainerMatcher
     };
 
     /// <summary>"07 - ", "07. ", "1-07 " before a title: not part of it.</summary>
-    [System.Text.RegularExpressions.GeneratedRegex(@"^\s*(?:\d{1,2}[-.])?\d{1,3}\s*[-._)]?\s+", System.Text.RegularExpressions.RegexOptions.None, 100)]
+    [System.Text.RegularExpressions.GeneratedRegex(@"^\s*(?:\d{1,2}[-.])?\d{1,3}\s*[-._)]?\s+", System.Text.RegularExpressions.RegexOptions.None, 1000)]
     private static partial System.Text.RegularExpressions.Regex LeadingTrackNumber();
 
     /// <summary>

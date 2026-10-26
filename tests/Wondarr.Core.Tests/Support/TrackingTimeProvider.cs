@@ -63,6 +63,21 @@ internal sealed class TrackingTimeProvider : FakeTimeProvider
     /// <summary>Whether advancing the clock by <paramref name="step"/> will fire at least one pending timer.</summary>
     public bool AnyTimerDueWithin(TimeSpan step) => TimersDueWithin(step).Count > 0;
 
+    /// <summary>How far the clock has to move for the first pending timer to fire, or null while none is pending.</summary>
+    public TimeSpan? UntilNextTimer()
+    {
+        lock (_gate)
+        {
+            var now = GetUtcNow();
+            var due = _live
+                .Where(timer => timer.Due > now && timer.Due != DateTimeOffset.MaxValue)
+                .Select(timer => (DateTimeOffset?)timer.Due)
+                .Min();
+
+            return due - now;
+        }
+    }
+
     /// <summary>The pending timers that advancing the clock by <paramref name="step"/> will fire.</summary>
     public IReadOnlyList<object> TimersDueWithin(TimeSpan step)
     {

@@ -618,9 +618,15 @@ public class SlskdHostTests
         await harness.StartAsync();
         await SlskdHostHarness.AwaitAsync(() => harness.Launcher.Count == 1, "slskd to start");
 
+        // The stale file is deleted before the launch and the new pid written after it, so between the
+        // two there is no file at all: wait for the new pid instead of reading the file straight away.
+        var launchedPid = harness.Launcher.Latest.Id.ToString();
+        await SlskdHostHarness.AwaitAsync(
+            () => ReadPidFile(pidFile) == launchedPid,
+            "the new pid to be written to the pid file");
+
         harness.Inspector.Killed.Should().BeEmpty("the pid was reused by something that is not ours");
         harness.Inspector.Processes.Should().ContainKey(4343);
-        (await File.ReadAllTextAsync(pidFile)).Should().Be(harness.Launcher.Latest.Id.ToString());
     }
 
     [Fact]
@@ -637,7 +643,7 @@ public class SlskdHostTests
         harness.Inspector.Killed.Should().BeEmpty();
     }
 
-    /// <summary>Lets the supervisor's continuations run, without sleeping, before a "nothing happened" check.</summary>
+    /// <summary>The pid file's text, or null while it is missing or being written.</summary>
     private static string? ReadPidFile(string path)
     {
         try
@@ -646,11 +652,12 @@ public class SlskdHostTests
         }
         catch (IOException)
         {
-            // Caught mid-write: look again.
+            // Caught mid-write, or between the stale file's deletion and the new one: look again.
             return null;
         }
     }
 
+    /// <summary>Lets the supervisor's continuations run, without sleeping, before a "nothing happened" check.</summary>
     private static async Task YieldAsync()
     {
         for (var index = 0; index < 100; index++)

@@ -291,23 +291,56 @@ public sealed partial class IndexerSourceProviderTests
 
         // Room for one NZB: the first download that finishes pushes the cached one out.
         var cache = new NzbCache(TimeProvider.System, maxEntries: 1, maxBytes: 10_000_000, lifetime: TimeSpan.FromHours(6));
+
+        // Each download answers when the test says so. Answers that came back together would free two reads
+        // at once, and the cached post's read could then take the last slot before the eighth post's read.
+        var answers = new ConcurrentDictionary<string, TaskCompletionSource>(StringComparer.Ordinal);
+        var started = new SemaphoreSlim(0);
         var client = new QuotaIndexerClient
         {
             Answer = (indexer, query) => query.Album == "Discovery" ? UsenetReleases(indexer, query, 9) : [],
             Download = (_, _) => new IndexerDownload(nzb, null),
+            HoldOf = release => Gate(release.ReleaseId).Task,
+            OnDownload = _ => started.Release(),
         };
 
         // The last post in the read order is the one held when the search plans its reads: 8 free slots and it.
         var last = client.Answer(new Indexer { Id = 1, Name = "Indexer 1" }, new ReleaseQuery("Daft Punk", "Discovery", 2001))[^1];
         cache.Put(NzbCache.KeyOf(1, last.DownloadUrl, last.ReleaseId), nzb);
 
+        // Should it be downloaded after all, it answers at once and the checks below say so.
+        Gate(last.ReleaseId).SetResult();
+
         var provider = Provider(client, out _, protocol: DownloadProtocol.Usenet, nzbCache: cache);
 
-        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+        var search = provider.SearchAsync(Request(), CancellationToken.None);
+
+        for (var read = 0; read < InFlightReads; read++)
+        {
+            await DownloadStartedAsync(started);
+        }
+
+        // Posts 0 to 3 answer one at a time, and each answer frees the read that starts the next post, 4 to 7.
+        // The first answer pushed the cached post out; once post 7 has started, all 8 slots are taken.
+        for (var post = 0; post < InFlightReads; post++)
+        {
+            Gate($"i1-Discovery-{post}").SetResult();
+            await DownloadStartedAsync(started);
+        }
+
+        for (var post = InFlightReads; post < IndexerSourceProvider.ContainersPerQuery; post++)
+        {
+            Gate($"i1-Discovery-{post}").SetResult();
+        }
+
+        var result = await search.WaitAsync(Guard);
 
         client.DownloadsFrom(1).Should().Be(8, "the cached post was gone when its turn came, and the cap of 8 downloads holds");
         client.DownloadLog.Select(entry => entry.Guid).Should().NotContain(last.ReleaseId);
         result.Candidates.Should().HaveCount(8);
+
+        TaskCompletionSource Gate(string guid) =>
+            answers.GetOrAdd(guid, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
     }
 
     [Fact]

@@ -114,6 +114,41 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
         || exception.InnerException is Microsoft.AspNetCore.Connections.AddressInUseException
         || exception.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>How long one warm-up request may take before it is dropped and another made.</summary>
+    private static readonly TimeSpan WarmUpAttemptTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>How many warm-up requests are made before the app is given up on.</summary>
+    private const int WarmUpAttempts = 6;
+
+    /// <summary>
+    /// Sends a freshly started app its first request through <paramref name="client"/> and waits for any answer.
+    /// On a Windows machine at full CPU load the first connection to a new listener can stall below the app:
+    /// nothing comes back and the socket gives up after about 21 s ("the connected party did not properly
+    /// respond"), which failed whichever test made that first request; a later connection goes straight
+    /// through. A stalled attempt is dropped and another made, and the connection that answers stays in the
+    /// client's pool for the test's own requests. Any status is an answer.
+    /// </summary>
+    /// <param name="client">The client the test will use; a relative <paramref name="address"/> needs its base address.</param>
+    /// <param name="address">Any path the app serves or refuses.</param>
+    internal static async Task WarmUpAsync(HttpClient client, Uri address)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            using var timeout = new CancellationTokenSource(WarmUpAttemptTimeout);
+
+            try
+            {
+                using var response = await client.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+
+                return;
+            }
+            catch (Exception exception) when (attempt < WarmUpAttempts && exception is HttpRequestException or OperationCanceledException)
+            {
+                // Dropped with its connection; the next attempt opens a new one.
+            }
+        }
+    }
+
     private static async Task<FakeSlskdHarness> StartOnceAsync(
         string scenarioJson,
         string? username,
@@ -223,6 +258,27 @@ internal sealed class FakeSlskdHarness : IAsyncDisposable
             slskd.DefaultRequestHeaders.Add(FakeSlskdApp.ApiKeyHeader, ApiKey);
 
             var acoustId = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{acoustIdPort}/") };
+
+            try
+            {
+                var home = new Uri("/", UriKind.Relative);
+
+                await WarmUpAsync(slskd, home).ConfigureAwait(false);
+                await WarmUpAsync(acoustId, home).ConfigureAwait(false);
+
+                if (innertube is not null)
+                {
+                    await WarmUpAsync(innertube, home).ConfigureAwait(false);
+                }
+            }
+            catch
+            {
+                slskd.Dispose();
+                acoustId.Dispose();
+                innertube?.Dispose();
+
+                throw;
+            }
 
             var harness = new FakeSlskdHarness(root, state, slskd, acoustId, innertube, webhooks) { HasShare = shareDirectory };
 

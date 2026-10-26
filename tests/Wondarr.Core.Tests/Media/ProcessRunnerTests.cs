@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Media;
 using Xunit;
@@ -56,12 +57,16 @@ public sealed class ProcessRunnerTests
             ? ("cmd", new[] { "/c", "start /b ping -n 10 127.0.0.1" })
             : ("sh", new[] { "-c", "sleep 10 &" });
 
-        var runner = new ProcessRunner(NullLogger<ProcessRunner>.Instance) { DrainTimeout = TimeSpan.FromMilliseconds(300) };
+        var logger = new RecordingLogger<ProcessRunner>();
+        var runner = new ProcessRunner(logger) { DrainTimeout = TimeSpan.FromMilliseconds(300) };
 
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var result = await runner.RunAsync(fileName, arguments, TimeSpan.FromSeconds(60), CancellationToken.None);
 
-        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(8), "the drain is bounded, not as long as the grandchild");
+        // The runner's own word that it gave up on the pipe, not the wall clock: how long the shell takes to
+        // start on a loaded machine says nothing about the drain. It also shows the pipe was really held.
+        logger.Entries.Should().Contain(
+            entry => entry.Level == LogLevel.Warning && entry.Message.Contains("left a pipe open", StringComparison.Ordinal),
+            "the drain is bounded, not as long as the grandchild");
         result.TimedOut.Should().BeFalse();
     }
 

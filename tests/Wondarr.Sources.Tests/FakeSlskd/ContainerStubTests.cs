@@ -42,6 +42,10 @@ public sealed class ContainerStubTests : IAsyncLifetime, IDisposable
         _state = new FakeSlskdState(options);
         _app = ContainerStubApp.Build(options, _state);
         await _app.StartAsync();
+
+        // Every client here shares _http, so the connection the warm-up opens is the one they all use.
+        using var http = new HttpClient(_http, disposeHandler: false);
+        await FakeSlskdHarness.WarmUpAsync(http, new Uri($"{Base}/"));
     }
 
     public async Task DisposeAsync()
