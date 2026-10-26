@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -365,6 +366,42 @@ public sealed class ReferenceScannerTests : IDisposable
             && song.File == null
             && !database.ReferenceFiles.Any(file => file.SongId == song.Id && file.State == ReferenceFileState.Identified)))
             .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_release_keeps_a_library_file_an_import_recorded_after_the_release_read_the_song()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        var hook = new SongFileReadHook();
+        await using var database = await ContextAsync(hook);
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        File.Delete(path);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        _time.Advance(TimeSpan.FromHours(25));
+
+        // A Replace of the song imports a better copy: it records the file by rewriting the song's row in
+        // place, just after the release has read that row as the reference file.
+        hook.Arm(async () =>
+        {
+            await using var import = _database.CreateContext(_time);
+            await ReplaceWithLibraryCopyAsync(import, songId);
+        });
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        hook.Fired.Should().BeTrue("the import ran between the release's read and its delete");
+        result.Released.Should().Be(0, "the song's file is a library file now, which no release takes");
+
+        var file = await database.SongFiles.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.SongId == songId);
+        file.Should().NotBeNull("the song holds the file the import recorded");
+        file!.SourceType.Should().Be(SourceTypes.Soulseek);
+        file.Path.Should().Be($"/data/music/{songId}.flac");
     }
 
     [Fact]
@@ -1020,6 +1057,20 @@ public sealed class ReferenceScannerTests : IDisposable
         await _database.MigrateAsync(_time);
 
         return _database.CreateContext(_time);
+    }
+
+    /// <summary>A context on the migrated database that runs <paramref name="interceptor"/> on its commands.</summary>
+    private async Task<WondarrDbContext> ContextAsync(IInterceptor interceptor)
+    {
+        await _database.MigrateAsync(_time);
+
+        return new WondarrDbContext(
+            new DbContextOptionsBuilder<WondarrDbContext>()
+                .UseSqlite($"Data Source={_database.FilePath}")
+                .UseSnakeCaseNamingConvention()
+                .AddInterceptors(interceptor)
+                .Options,
+            _time);
     }
 
     private ReferenceScanner Scanner(WondarrDbContext database, ILogger<ReferenceScanner>? logger = null) =>

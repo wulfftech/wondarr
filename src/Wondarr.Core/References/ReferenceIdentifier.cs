@@ -250,7 +250,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                     var row = accepted[index];
                     var song = results[index].Song;
 
-                    await ReleaseAsync(row, song.Id).ConfigureAwait(false);
+                    await ReleaseAsync(row, song.Id, cancellationToken).ConfigureAwait(false);
 
                     var link = await ReferenceOwnership
                         .LinkAsync(
@@ -283,7 +283,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                     // linked to, so that song is not wanted (and searched) again before the retry.
                     if (row.State != RowState.Deferred)
                     {
-                        await ReleaseAsync(row, null).ConfigureAwait(false);
+                        await ReleaseAsync(row, null, cancellationToken).ConfigureAwait(false);
 
                         row.Row.SongId = null;
                     }
@@ -381,8 +381,11 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         return result;
     }
 
-    /// <summary>Frees the song a changed file used to be, when it is no longer the song the file is.</summary>
-    private async Task ReleaseAsync(PlannedRow row, long? newSongId)
+    /// <summary>
+    /// Frees the song a changed file used to be, when it is no longer the song the file is. The release
+    /// joins the chunk's transaction, or opens it, and the chunk's commit or rollback ends it.
+    /// </summary>
+    private async Task ReleaseAsync(PlannedRow row, long? newSongId, CancellationToken cancellationToken)
     {
         if (row.OldSongId is not { } oldSongId || oldSongId == newSongId)
         {
@@ -391,7 +394,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
         var path = ReferenceOwnership.AbsolutePath(row.RootPath, row.Row.RelativePath);
 
-        if (await ReferenceOwnership.ReleaseAsync(_database, oldSongId, path).ConfigureAwait(false))
+        if (await ReferenceOwnership.ReleaseAsync(_database, oldSongId, path, cancellationToken).ConfigureAwait(false))
         {
             LogReleased(_logger, row.Row.Id, oldSongId);
         }

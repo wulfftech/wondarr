@@ -7,6 +7,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 ### Added
 - **The image is on Docker Hub too**, as `wulfftech/wondarr`: a mirror of `ghcr.io/wulfftech/wondarr` with the same tags and digests, copied once a release has passed its checks. It's for the NAS container apps and guides that only search Docker Hub.
 
+### Fixed
+- **A song whose reference file is let go of keeps a library copy imported at that moment.** A reference scan lets go of a song whose file has been missing for a day, and Skip in the Match queue does the same, so that the song is wanted again. If an import of that song (a grab, a Replace, or an upgrade of a file below the cutoff) recorded its new copy in the instant between the release reading the song's file and deleting it, the delete took the new copy's record with it: the file stayed in the library while the song looked missing. A release now deletes the song's file record only while it still points at the reference file, and does so in the same commit that updates the reference file's row. No migration.
+
 ## [0.1.14] — 2026-10-22
 
 Songs MusicBrainz does not have can now be added there from the Match queue, and the file is settled when MusicBrainz sends you back. Update by pulling `:0.1` (or `:0.1.14`).

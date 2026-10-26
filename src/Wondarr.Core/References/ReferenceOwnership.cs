@@ -289,15 +289,25 @@ internal static class ReferenceOwnership
     }
 
     /// <summary>
-    /// Frees a song whose reference file turned out to be another song, so it is wanted again. Only a
-    /// reference <c>song_file</c> pointing at this exact path is deleted: a library file is Wondarr's
-    /// own and a different reference file belongs to a file that is still that song.
+    /// Frees a song whose reference file turned out to be another song, or is gone, so it is wanted again.
+    /// Only a reference <c>song_file</c> pointing at this exact path is deleted: a library file is
+    /// Wondarr's own and a different reference file belongs to a file that is still that song.
     /// </summary>
+    /// <remarks>
+    /// The delete runs at once, in the caller's transaction, and opens one when the caller has none: the
+    /// caller ends it with <see cref="CommitAsync"/> or <see cref="RollbackAsync"/>, so the release
+    /// commits together with the reference row it frees.
+    /// </remarks>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="songId">The song the file used to be.</param>
     /// <param name="absolutePath">The reference file's absolute path.</param>
+    /// <param name="cancellationToken">Cancels the delete.</param>
     /// <returns><see langword="true"/> when a row was removed.</returns>
-    public static async Task<bool> ReleaseAsync(WondarrDbContext database, long songId, string absolutePath)
+    public static async Task<bool> ReleaseAsync(
+        WondarrDbContext database,
+        long songId,
+        string absolutePath,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
 
@@ -310,9 +320,39 @@ internal static class ReferenceOwnership
             return false;
         }
 
-        database.SongFiles.Remove(held);
+        var entry = database.Entry(held);
 
-        return true;
+        // Linked by this run a moment ago and not in the database yet: forgetting it is the release.
+        if (entry.State == EntityState.Added)
+        {
+            entry.State = EntityState.Detached;
+
+            return true;
+        }
+
+        var id = held.Id;
+        var storedPath = entry.Property(file => file.Path).OriginalValue;
+
+        // The tracked copy is stale from here on, whether the row goes or an import has taken it over:
+        // the caller's save must not write it back, and a later read must see the database.
+        entry.State = EntityState.Detached;
+
+        if (database.Database.CurrentTransaction is null)
+        {
+            await database.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Deleted only while it is still the reference file read above. An import records its file by
+        // rewriting the song's row in place, so a delete by id would take a library file recorded since
+        // the read with it: the song would look missing while its file sat in the library.
+        var deleted = await database.SongFiles
+            .Where(file => file.Id == id
+                && file.SourceType == SourceTypes.Reference
+                && file.Path == storedPath)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return deleted > 0;
     }
 
     /// <summary>

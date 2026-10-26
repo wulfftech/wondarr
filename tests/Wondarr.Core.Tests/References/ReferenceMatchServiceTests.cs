@@ -16,6 +16,7 @@ using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -310,6 +311,56 @@ public class ReferenceMatchServiceTests : IDisposable
         // The song is wanted again, and the candidates are no longer a question.
         (await context.SongFiles.CountAsync()).Should().Be(0);
         (await context.MatchCandidates.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Skipping_keeps_a_library_file_an_import_recorded_after_the_skip_read_the_song()
+    {
+        var hook = new SongFileReadHook();
+        await using var context = await ContextAsync(hook);
+        var library = await ReferenceLibraryAsync(context);
+        var file = await AddFileAsync(context, library.Id, "a/wrong.flac", ReferenceFileState.Identified);
+
+        var songs = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Wrong Song", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+        var songId = songs[0].Song.Id;
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = ReferenceOwnershipPath(file.RelativePath),
+            SourceType = SourceTypes.Reference,
+            QualityId = ProbeQualityId,
+        });
+
+        file.SongId = songId;
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        // A grab of the song imports a library copy: it records the file by rewriting the song's row in
+        // place, just after the skip has read that row as the reference file.
+        hook.Arm(async () =>
+        {
+            await using var import = _database.CreateContext(_timeProvider);
+            var held = await import.SongFiles.SingleAsync(candidate => candidate.SongId == songId);
+            held.Path = "/data/music/Daft Punk/Wrong Song.flac";
+            held.SourceType = SourceTypes.Soulseek;
+            held.SourceRef = null;
+            await import.SaveChangesAsync();
+        });
+
+        var result = await Service(context).ResolveAsync(file.Id, new ReferenceResolveChoice(null, null, null, true), CancellationToken.None);
+
+        hook.Fired.Should().BeTrue("the import ran between the skip's read and its delete");
+        result.State.Should().Be(ReferenceFileState.Skipped);
+        (await RowAsync(context, file.Id)).SongId.Should().BeNull();
+
+        var stored = await context.SongFiles.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.SongId == songId);
+        stored.Should().NotBeNull("the song holds the file the import recorded");
+        stored!.SourceType.Should().Be(SourceTypes.Soulseek);
+        stored.Path.Should().Be("/data/music/Daft Punk/Wrong Song.flac");
     }
 
     [Fact]
@@ -1472,6 +1523,20 @@ public class ReferenceMatchServiceTests : IDisposable
         await _database.MigrateAsync(_timeProvider);
 
         return _database.CreateContext(_timeProvider);
+    }
+
+    /// <summary>A context on the migrated database that runs <paramref name="interceptor"/> on its commands.</summary>
+    private async Task<WondarrDbContext> ContextAsync(IInterceptor interceptor)
+    {
+        await _database.MigrateAsync(_timeProvider);
+
+        return new WondarrDbContext(
+            new DbContextOptionsBuilder<WondarrDbContext>()
+                .UseSqlite($"Data Source={_database.FilePath}")
+                .UseSnakeCaseNamingConvention()
+                .AddInterceptors(interceptor)
+                .Options,
+            _timeProvider);
     }
 
     private static async Task<ReferenceLibrary> ReferenceLibraryAsync(

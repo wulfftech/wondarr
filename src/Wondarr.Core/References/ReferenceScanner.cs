@@ -353,7 +353,11 @@ public sealed partial class ReferenceScanner(
         }
 
         var mountProblem = ReferenceMissingRules.IsMountProblem(owned, ownedMissing);
-        var released = 0;
+
+        // The songs to let go of. They are released in the final save below, not as they are found, so the
+        // write lock a release takes is held only for that save, never across the file checks of the rows
+        // still to come.
+        var releases = new List<(ReferenceFile Row, long SongId, string FromPath)>();
 
         if (mountProblem)
         {
@@ -417,11 +421,29 @@ public sealed partial class ReferenceScanner(
                     }
                 }
 
+                releases.Add((row, songId, fromPath));
+            }
+        }
+
+        if (replacedGone > 0)
+        {
+            LogReplacedGone(logger, referenceLibraryId, replacedGone);
+        }
+
+        var released = 0;
+        ReferenceScanResult result;
+
+        // The releases open a transaction (ReferenceOwnership.ReleaseAsync) that the final save commits,
+        // so each song is let go of in the same commit that clears its row.
+        try
+        {
+            foreach (var (row, songId, fromPath) in releases)
+            {
                 // The song's reference file goes, so the song has none and every wanted path sees it
                 // again. Only a reference file at this row's path is removed; a library file the song
                 // holds, or the file of another row, stays.
                 var removed = await ReferenceOwnership
-                    .ReleaseAsync(database, songId, fromPath)
+                    .ReleaseAsync(database, songId, fromPath, cancellationToken)
                     .ConfigureAwait(false);
 
                 var tracked = Track(row);
@@ -434,20 +456,21 @@ public sealed partial class ReferenceScanner(
                     LogReleased(logger, row.Id, songId);
                 }
             }
-        }
 
-        if (replacedGone > 0)
+            result = new ReferenceScanResult(
+                files.Count, added, changed, unchanged, missing, unreadable, released, mountProblem);
+
+            library.LastScannedAt = now;
+            library.LastScanMessage = Summary(result);
+
+            await SaveAsync(touched, cancellationToken).ConfigureAwait(false);
+        }
+        catch
         {
-            LogReplacedGone(logger, referenceLibraryId, replacedGone);
+            await ReferenceOwnership.RollbackAsync(database).ConfigureAwait(false);
+
+            throw;
         }
-
-        var result = new ReferenceScanResult(
-            files.Count, added, changed, unchanged, missing, unreadable, released, mountProblem);
-
-        library.LastScannedAt = now;
-        library.LastScanMessage = Summary(result);
-
-        await SaveAsync(touched, cancellationToken).ConfigureAwait(false);
 
         if (progress is not null)
         {
@@ -599,11 +622,12 @@ public sealed partial class ReferenceScanner(
 
     /// <summary>
     /// Saves the rows written so far, so a long walk never holds one transaction open, and lets go of
-    /// them: the scan never touches a row twice.
+    /// them: the scan never touches a row twice. The transaction the final save's releases opened is
+    /// committed with it.
     /// </summary>
     private async Task SaveAsync(List<ReferenceFile> touched, CancellationToken cancellationToken)
     {
-        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await ReferenceOwnership.CommitAsync(database, cancellationToken).ConfigureAwait(false);
 
         foreach (var row in touched)
         {
