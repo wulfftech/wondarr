@@ -23,11 +23,11 @@ internal static partial class SceneFileName
     /// The leading track token and the separator after it: <c>01-</c>, <c>101-</c> (disc and track), <c>1-05-</c>,
     /// vinyl <c>A1-</c>. An underscore has become a space by then, so a space separates as well.
     /// </summary>
-    [GeneratedRegex(@"^(?:\d-\d{2}|\d{2,3}|[a-d]\d{1,2})(?:\s*-\s*|\s+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, 100)]
+    [GeneratedRegex(@"^(?:\d-\d{2}|\d{2,3}|[a-d]\d{1,2})(?:\s*-\s*|\s+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, 1000)]
     private static partial Regex LeadingTrackToken();
 
     /// <summary>A <c>feat.</c> clause in an artist field, from the keyword to the end of the field.</summary>
-    [GeneratedRegex(@"\b(?:feat|ft|featuring)\b\.?.*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline, 100)]
+    [GeneratedRegex(@"\b(?:feat|ft|featuring)\b\.?.*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline, 1000)]
     private static partial Regex FeaturedClause();
 
     /// <summary>

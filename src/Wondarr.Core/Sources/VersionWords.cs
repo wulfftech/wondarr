@@ -12,7 +12,7 @@ namespace Wondarr.Core.Sources;
 public static partial class VersionWords
 {
     /// <summary>The plurals and aliases the keyword table lacks, as the singular form it knows.</summary>
-    [GeneratedRegex(@"\b(?:(?<remix>remixes|remixed)|(?<instrumental>instrumentals)|(?<demo>demos)|(?<karaoke>karaokes)|(?<live>bootlegs?))\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, 100)]
+    [GeneratedRegex(@"\b(?:(?<remix>remixes|remixed)|(?<instrumental>instrumentals)|(?<demo>demos)|(?<karaoke>karaokes)|(?<live>bootlegs?))\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, 1000)]
     private static partial Regex AliasWord();
 
     /// <summary>
