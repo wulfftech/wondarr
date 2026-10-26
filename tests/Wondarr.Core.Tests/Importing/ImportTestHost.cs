@@ -462,24 +462,40 @@ internal sealed class ImportTestHost : IAsyncDisposable
 
     /// <summary>
     /// Inserts a <c>song_file</c> row for a song through its own context — behind the back of the
-    /// import under test, whose save then collides with the one-file-per-song index.
+    /// import under test: a library file, whose row the import's save then collides with, or a reference
+    /// file, as identification links one to a song that had none.
     /// </summary>
-    public async Task InsertSongFileBehindAsync(long songId, string path)
+    /// <returns>The new row's id.</returns>
+    public async Task<long> InsertSongFileBehindAsync(long songId, string path, string sourceType = SourceTypes.Soulseek)
     {
         await using var context = _database.CreateContext(Time);
 
-        context.SongFiles.Add(new SongFile
+        var file = new SongFile
         {
             SongId = songId,
             Path = path,
             Codec = "flac",
             Container = "flac",
             QualityId = 36,
-            SourceType = SourceTypes.Soulseek,
+            SourceType = sourceType,
             ImportedAt = Time.GetUtcNow().UtcDateTime,
-        });
+        };
 
+        context.SongFiles.Add(file);
         await context.SaveChangesAsync();
+
+        return file.Id;
+    }
+
+    /// <summary>
+    /// Deletes a song's <c>song_file</c> row through its own context — behind the back of the import
+    /// under test, as a reference scan lets go of a reference file that has gone missing.
+    /// </summary>
+    public async Task DeleteSongFileBehindAsync(long songId)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        await context.SongFiles.Where(file => file.SongId == songId).ExecuteDeleteAsync();
     }
 
     /// <summary>Inserts a second song that already holds the given recording id.</summary>

@@ -810,7 +810,8 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
                 Read<MediaInfo>(row.Probe)!,
                 row.AcoustId,
                 ManualTier,
-                _timeProvider.GetUtcNow().UtcDateTime)
+                _timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken)
             .ConfigureAwait(false);
     }
 

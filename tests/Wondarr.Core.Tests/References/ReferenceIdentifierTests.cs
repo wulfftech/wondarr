@@ -15,6 +15,7 @@ using Wondarr.Core.Tagging;
 using Wondarr.Core.Tests.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -663,6 +664,70 @@ public class ReferenceIdentifierTests : IDisposable
     }
 
     [Fact]
+    public async Task A_renamed_file_leaves_a_library_file_an_import_recorded_after_identification_read_the_song()
+    {
+        var hook = new SongFileReadHook();
+        await using var context = await ContextAsync(hook);
+        var library = await ReferenceLibraryAsync(context);
+
+        var moved = AddFile(context, library.Id, "old/Get Lucky.flac", 248_000, Tags(mbid: "m-a"));
+        await context.SaveChangesAsync();
+
+        var old = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        var songId = old[0].Song.Id;
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = ReferenceOwnershipPath(moved.RelativePath),
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":{moved.Id}}}",
+            QualityId = ProbeQualityId,
+        });
+
+        moved.State = ReferenceFileState.Missing;
+        moved.MissingSince = _timeProvider.GetUtcNow().UtcDateTime;
+        moved.SongId = songId;
+
+        var renamed = AddFile(context, library.Id, "new/Get Lucky (renamed).flac", 248_000, Tags(mbid: "m-a"));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        // The song exists already, so the add opens no transaction. A Replace of the song imports a
+        // library copy just after identification has read the song's row as the moved reference file.
+        hook.Arm(async () =>
+        {
+            await using var import = _database.CreateContext(_timeProvider);
+            var held = await import.SongFiles.SingleAsync(file => file.SongId == songId);
+            held.Path = "/data/music/Get Lucky.flac";
+            held.SourceType = SourceTypes.Soulseek;
+            held.SourceRef = null;
+            await import.SaveChangesAsync();
+        });
+
+        var result = await RunAsync(context, library.Id);
+
+        hook.Fired.Should().BeTrue("the import ran between identification's read and its write");
+        result.Identified.Should().Be(1);
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync();
+        stored.SourceType.Should().Be(SourceTypes.Soulseek, "the library copy is not pointed back at the renamed file");
+        stored.Path.Should().Be("/data/music/Get Lucky.flac");
+
+        var row = await RowAsync(context, renamed.Id);
+        row.SongId.Should().Be(songId);
+        row.Message.Should().Be("duplicate: the song already has a file");
+    }
+
+    [Fact]
     public async Task A_second_file_of_a_song_whose_first_file_is_still_there_stays_a_duplicate()
     {
         await using var context = await ContextAsync();
@@ -1060,11 +1125,11 @@ public class ReferenceIdentifierTests : IDisposable
 
     private FixedOptions<ReferenceOptions> Options() => new(_options);
 
-    private async Task<WondarrDbContext> ContextAsync()
+    private async Task<WondarrDbContext> ContextAsync(params IInterceptor[] interceptors)
     {
         await _database.MigrateAsync(_timeProvider);
 
-        return _database.CreateContext(_timeProvider);
+        return _database.CreateContext(_timeProvider, interceptors);
     }
 
     private static async Task<ReferenceLibrary> ReferenceLibraryAsync(WondarrDbContext context)

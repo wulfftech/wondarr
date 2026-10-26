@@ -354,10 +354,11 @@ public sealed partial class ReferenceScanner(
 
         var mountProblem = ReferenceMissingRules.IsMountProblem(owned, ownedMissing);
 
-        // The songs to let go of. They are released in the final save below, not as they are found, so the
-        // write lock a release takes is held only for that save, never across the file checks of the rows
-        // still to come.
-        var releases = new List<(ReferenceFile Row, long SongId, string FromPath)>();
+        // The songs whose file is leaving, each with the second copy it can follow, if one is still there.
+        // They are repointed or released in the final save below, not as they are found, so the write lock
+        // those writes take is held only for that save, never across the file checks of the rows still to
+        // come.
+        var leaving = new List<(ReferenceFile Row, long SongId, string FromPath, ReferenceFile? Copy, string? CopyRoot)>();
 
         if (mountProblem)
         {
@@ -404,24 +405,7 @@ public sealed partial class ReferenceScanner(
                     ? seen.Contains(candidate.Row.RelativePath)
                     : File.Exists(ReferenceOwnership.AbsolutePath(candidate.RootPath, candidate.Row.RelativePath)));
 
-                if (alive is not null)
-                {
-                    var target = Track(alive.Row);
-
-                    if (await ReferenceOwnership
-                        .RepointAsync(database, songId, fromPath, target, alive.RootPath, now)
-                        .ConfigureAwait(false))
-                    {
-                        touched.Add(target);
-                        var follower = Track(row);
-                        follower.SongId = null;
-                        touched.Add(follower);
-
-                        continue;
-                    }
-                }
-
-                releases.Add((row, songId, fromPath));
+                leaving.Add((row, songId, fromPath, alive?.Row, alive?.RootPath));
             }
         }
 
@@ -433,15 +417,32 @@ public sealed partial class ReferenceScanner(
         var released = 0;
         ReferenceScanResult result;
 
-        // The releases open a transaction (ReferenceOwnership.ReleaseAsync) that is committed with the
-        // final save, so each song is let go of in the same commit that clears its row. A transaction the
+        // A repoint or a release opens a transaction (ReferenceOwnership) that is committed with the final
+        // save, so each song's file changes in the same commit that clears its row. A transaction the
         // caller already had is the caller's to end.
         var callerTransaction = database.Database.CurrentTransaction;
 
         try
         {
-            foreach (var (row, songId, fromPath) in releases)
+            foreach (var (row, songId, fromPath, copy, copyRoot) in leaving)
             {
+                if (copy is not null)
+                {
+                    var target = Track(copy);
+
+                    if (await ReferenceOwnership
+                        .RepointAsync(database, songId, fromPath, target, copyRoot!, now, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        touched.Add(target);
+                        var follower = Track(row);
+                        follower.SongId = null;
+                        touched.Add(follower);
+
+                        continue;
+                    }
+                }
+
                 // The song's reference file goes, so the song has none and every wanted path sees it
                 // again. Only a reference file at this row's path is removed; a library file the song
                 // holds, or the file of another row, stays.

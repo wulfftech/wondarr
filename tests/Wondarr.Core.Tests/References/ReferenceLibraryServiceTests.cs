@@ -8,6 +8,7 @@ using Wondarr.Core.Tests.Organizer;
 using Wondarr.Core.Tests.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -448,6 +449,52 @@ public class ReferenceLibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Deleting_a_library_keeps_a_library_file_an_import_recorded_after_the_delete_read_the_song()
+    {
+        var hook = new SongFileReadHook();
+        await using var context = await ContextAsync(hook);
+        var service = Service(context);
+
+        var doomed = await service.AddAsync(
+            new ReferenceLibraryInput("Doomed", "/reference/doomed", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var song = await AddSongAsync(context, "Mine");
+        context.SongFiles.Add(NewFile(song, "/reference/doomed/a.flac", SourceTypes.Reference, doomed.Library.Id));
+        AddFile(context, doomed.Library.Id, "a.flac", ReferenceFileState.Identified, song);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        // A Replace of the song imports a library copy just after the delete has read the song's row as
+        // the doomed library's file.
+        hook.Arm(async () =>
+        {
+            await using var import = _database.CreateContext(_timeProvider);
+            var held = await import.SongFiles.SingleAsync(file => file.SongId == song);
+            held.Path = "/data/music/Mine.flac";
+            held.SourceType = SourceTypes.Soulseek;
+            held.SourceRef = null;
+            await import.SaveChangesAsync();
+        });
+
+        (await service.DeleteAsync(doomed.Library.Id, ReferenceLibraryDeleteChoice.Unmonitor, CancellationToken.None))
+            .Should().Be(0, "the song holds a library file now, which the delete leaves alone");
+
+        hook.Fired.Should().BeTrue("the import ran between the delete's read and its write");
+        context.Database.CurrentTransaction.Should().BeNull();
+        context.ChangeTracker.Clear();
+
+        var stored = await context.SongFiles.AsNoTracking().SingleOrDefaultAsync(file => file.SongId == song);
+        stored.Should().NotBeNull("the song holds the file the import recorded");
+        stored!.SourceType.Should().Be(SourceTypes.Soulseek);
+        stored.Path.Should().Be("/data/music/Mine.flac");
+
+        (await context.Songs.AsNoTracking().SingleAsync(candidate => candidate.Id == song)).Monitored
+            .Should().BeTrue("a song that kept its file is not unmonitored");
+        (await context.ReferenceLibraries.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_song_another_library_also_has_follows_that_copy_and_is_neither_counted_nor_freed()
     {
         await using var context = await ContextAsync();
@@ -694,10 +741,10 @@ public class ReferenceLibraryServiceTests : IDisposable
             State = state,
         });
 
-    private async Task<WondarrDbContext> ContextAsync()
+    private async Task<WondarrDbContext> ContextAsync(params IInterceptor[] interceptors)
     {
         await _database.MigrateAsync(_timeProvider);
 
-        return _database.CreateContext(_timeProvider);
+        return _database.CreateContext(_timeProvider, interceptors);
     }
 }

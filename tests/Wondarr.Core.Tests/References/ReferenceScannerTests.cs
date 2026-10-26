@@ -475,6 +475,53 @@ public sealed class ReferenceScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_repoint_keeps_a_library_file_an_import_recorded_after_the_repoint_read_the_song()
+    {
+        var path = Write("a.mp3", "one");
+        Write("b.mp3", "one, again");
+        Write("keep.mp3", "two");
+
+        var hook = new SongFileReadHook();
+        await using var database = await ContextAsync(hook);
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        var copy = await database.ReferenceFiles.SingleAsync(row => row.RelativePath == "b.mp3");
+        copy.SongId = songId;
+        copy.State = ReferenceFileState.Identified;
+        copy.Message = "duplicate: the song already has a file";
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        File.Delete(path);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        _time.Advance(TimeSpan.FromHours(25));
+
+        // A Replace of the song imports a better copy just after the repoint has read the song's row as
+        // a.mp3's reference file.
+        hook.Arm(async () =>
+        {
+            await using var import = _database.CreateContext(_time);
+            await ReplaceWithLibraryCopyAsync(import, songId);
+        });
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        hook.Fired.Should().BeTrue("the import ran between the repoint's read and its write");
+        result.Released.Should().Be(0);
+        database.Database.CurrentTransaction.Should().BeNull();
+
+        var file = await database.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId);
+        file.SourceType.Should().Be(SourceTypes.Soulseek, "the library copy is not pointed back at b.mp3");
+        file.Path.Should().Be($"/data/music/{songId}.flac");
+
+        var rows = await database.ReferenceFiles.AsNoTracking().ToListAsync();
+        rows.Single(row => row.RelativePath == "b.mp3").Message.Should().Be("duplicate: the song already has a file");
+    }
+
+    [Fact]
     public async Task A_second_copy_in_another_library_takes_over_the_song_instead_of_releasing_it()
     {
         var path = Write("a.mp3", "one");
