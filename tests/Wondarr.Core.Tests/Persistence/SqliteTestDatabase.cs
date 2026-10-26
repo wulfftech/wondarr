@@ -1,6 +1,7 @@
 using Wondarr.Core.Persistence;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Wondarr.Core.Tests.Persistence;
@@ -21,8 +22,9 @@ internal sealed class SqliteTestDatabase : IDisposable
 
     public string FilePath { get; }
 
-    public WondarrDbContext CreateContext(TimeProvider timeProvider) =>
-        new(CreateOptions(), timeProvider);
+    /// <summary>A context on the database, running <paramref name="interceptors"/> on its commands and saves.</summary>
+    public WondarrDbContext CreateContext(TimeProvider timeProvider, params IInterceptor[] interceptors) =>
+        new(CreateOptions(interceptors), timeProvider);
 
     /// <summary>Runs the migrator once, as startup does.</summary>
     public async Task MigrateAsync(TimeProvider timeProvider)
@@ -64,9 +66,10 @@ internal sealed class SqliteTestDatabase : IDisposable
         }
     }
 
-    private DbContextOptions<WondarrDbContext> CreateOptions() =>
+    private DbContextOptions<WondarrDbContext> CreateOptions(IInterceptor[] interceptors) =>
         new DbContextOptionsBuilder<WondarrDbContext>()
             .UseSqlite($"Data Source={FilePath}")
             .UseSnakeCaseNamingConvention()
+            .AddInterceptors(interceptors)
             .Options;
 }

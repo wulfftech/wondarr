@@ -208,9 +208,10 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                 planned.Add(outcome);
             }
 
-            // The add leaves its transaction open (ReferenceOwnership.AddOptions): the songs, their
-            // reference files and the rows that own them are committed together below, so nothing else
-            // ever sees a song of this chunk without its file.
+            // The add leaves its transaction open (ReferenceOwnership.AddOptions), and a release opens it
+            // when the chunk adds no song: the songs, their reference files, the songs let go of and the
+            // rows behind them are committed together below, so nothing else ever sees a song of this
+            // chunk without its file.
             try
             {
                 // One add per chunk: the album policy plans the batch as a whole.
@@ -250,7 +251,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                     var row = accepted[index];
                     var song = results[index].Song;
 
-                    await ReleaseAsync(row, song.Id).ConfigureAwait(false);
+                    await ReleaseAsync(row, song.Id, cancellationToken).ConfigureAwait(false);
 
                     var link = await ReferenceOwnership
                         .LinkAsync(
@@ -283,7 +284,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                     // linked to, so that song is not wanted (and searched) again before the retry.
                     if (row.State != RowState.Deferred)
                     {
-                        await ReleaseAsync(row, null).ConfigureAwait(false);
+                        await ReleaseAsync(row, null, cancellationToken).ConfigureAwait(false);
 
                         row.Row.SongId = null;
                     }
@@ -381,8 +382,11 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
         return result;
     }
 
-    /// <summary>Frees the song a changed file used to be, when it is no longer the song the file is.</summary>
-    private async Task ReleaseAsync(PlannedRow row, long? newSongId)
+    /// <summary>
+    /// Frees the song a changed file used to be, when it is no longer the song the file is. The release
+    /// joins the chunk's transaction, or opens it, and the chunk's commit or rollback ends it.
+    /// </summary>
+    private async Task ReleaseAsync(PlannedRow row, long? newSongId, CancellationToken cancellationToken)
     {
         if (row.OldSongId is not { } oldSongId || oldSongId == newSongId)
         {
@@ -391,7 +395,7 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
         var path = ReferenceOwnership.AbsolutePath(row.RootPath, row.Row.RelativePath);
 
-        if (await ReferenceOwnership.ReleaseAsync(_database, oldSongId, path).ConfigureAwait(false))
+        if (await ReferenceOwnership.ReleaseAsync(_database, oldSongId, path, cancellationToken).ConfigureAwait(false))
         {
             LogReleased(_logger, row.Row.Id, oldSongId);
         }

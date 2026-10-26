@@ -672,21 +672,31 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
         ReferenceLibrary library,
         CancellationToken cancellationToken)
     {
-        if (row.SongId is { } songId)
+        // The release opens a transaction, so the song is let go of in the same commit that skips the row.
+        try
         {
-            await ReferenceOwnership
-                .ReleaseAsync(_database, songId, AbsolutePath(library, row))
-                .ConfigureAwait(false);
+            if (row.SongId is { } songId)
+            {
+                await ReferenceOwnership
+                    .ReleaseAsync(_database, songId, AbsolutePath(library, row), cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            row.SongId = null;
+            row.State = ReferenceFileState.Skipped;
+            row.IdentifiedBy = null;
+            row.Message = null;
+            row.Replace = false;
+
+            await ClearCandidatesAsync(row, cancellationToken).ConfigureAwait(false);
+            await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
         }
+        catch
+        {
+            await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
 
-        row.SongId = null;
-        row.State = ReferenceFileState.Skipped;
-        row.IdentifiedBy = null;
-        row.Message = null;
-        row.Replace = false;
-
-        await ClearCandidatesAsync(row, cancellationToken).ConfigureAwait(false);
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            throw;
+        }
 
         LogSkipped(_logger, row.Id);
 
@@ -788,7 +798,7 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         if (row.SongId is { } previous && previous != song.Id)
         {
-            await ReferenceOwnership.ReleaseAsync(_database, previous, path).ConfigureAwait(false);
+            await ReferenceOwnership.ReleaseAsync(_database, previous, path, cancellationToken).ConfigureAwait(false);
         }
 
         return await ReferenceOwnership
