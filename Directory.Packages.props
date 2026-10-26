@@ -6,7 +6,7 @@
 
   <ItemGroup Label="Runtime">
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
-    <PackageVersion Include="MailKit" Version="4.18.1" />
+    <PackageVersion Include="MailKit" Version="4.18.2" />
     <!-- MailKit brings Pkcs 10.0.0 in transitively; pinned for CVE-2026-70162 and CVE-2026-84008. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
