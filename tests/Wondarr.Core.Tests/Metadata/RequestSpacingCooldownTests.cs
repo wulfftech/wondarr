@@ -170,21 +170,28 @@ public sealed class RequestSpacingCooldownTests
     [Fact]
     public async Task A_longer_cooldown_set_later_also_holds_back_a_waiter_that_was_already_moved()
     {
-        var time = new FakeTimeProvider(Start);
+        var fake = new FakeTimeProvider(Start);
+        var time = new CountingTimeProvider(fake);
         var gate = new RequestSpacingGate(TimeSpan.FromSeconds(1), time);
 
         await gate.WaitAsync(CancellationToken.None);
         var waiting = gate.WaitAsync(CancellationToken.None).AsTask();
+        time.TimersCreated.Should().Be(1);
 
         gate.DelayUntil(Start.AddSeconds(30));
-        time.Advance(TimeSpan.FromSeconds(1));
+        fake.Advance(TimeSpan.FromSeconds(1));
 
-        // Moved to the first cooldown's end; then the host asks for longer.
+        // Moved to the first cooldown's end, which shows as a second timer. The waiter takes its new slot on
+        // the thread pool: a clock moved before that timer is armed would put its end past every later step.
+        await UntilAsync(() => time.TimersCreated == 2);
+
+        // Then the host asks for longer.
         gate.DelayUntil(Start.AddSeconds(90));
-        time.Advance(TimeSpan.FromSeconds(29));
+        fake.Advance(TimeSpan.FromSeconds(29));
+        await UntilAsync(() => time.TimersCreated == 3);
         waiting.IsCompleted.Should().BeFalse();
 
-        time.Advance(TimeSpan.FromSeconds(60));
+        fake.Advance(TimeSpan.FromSeconds(60));
         await waiting.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
@@ -229,9 +236,12 @@ public sealed class RequestSpacingCooldownTests
 
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
+            // Counted once the fake clock holds it: a test that moves the clock on seeing the count must not
+            // move it before the timer's end is fixed.
+            var timer = inner.CreateTimer(callback, state, dueTime, period);
             Interlocked.Increment(ref _timers);
 
-            return inner.CreateTimer(callback, state, dueTime, period);
+            return timer;
         }
     }
 

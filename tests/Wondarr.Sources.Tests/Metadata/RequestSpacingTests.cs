@@ -140,7 +140,9 @@ public sealed class RequestSpacingTests
         // Half a second is well past the jittered 10 ms backoff and well short of the 1.05 s gate interval.
         var pastTheBackoff = TimeSpan.FromMilliseconds(500);
 
-        await ParkedAsync(time, pending, pastTheBackoff, "the retry backoff");
+        // Parked on the backoff, or already at the gate: a jittered backoff under a millisecond is no wait at all
+        // (Task.Delay counts whole milliseconds), and the retry goes straight on to the gate.
+        await ParkedAsync(time, pending, MetadataOptions.MusicBrainzPublicInterval, "the retry backoff or the gate");
         await time.AdvanceAndSettleAsync(pastTheBackoff);
 
         // The backoff is over, so the retry is at the gate; if the gate sat outside the retry loop it
