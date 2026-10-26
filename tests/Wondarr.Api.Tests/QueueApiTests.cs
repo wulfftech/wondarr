@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Importing;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
@@ -344,6 +345,11 @@ public sealed class QueueApiTests
         var source = ScriptedSource();
         using var factory = Factory(source, out _);
         using var client = Authenticated(factory);
+
+        // The queue tracker starts with the host by putting every Importing item back to Completed, as left by
+        // a process that died mid-import; on a loaded machine it can get to that after the seed below. Stopped
+        // first, it leaves the item as seeded.
+        await factory.Services.GetRequiredService<QueueTracker>().StopAsync(CancellationToken.None);
 
         var songId = await SeedSongAsync(factory, "Get Lucky");
         var candidateId = await SeedCandidateAsync(factory, songId, "Get Lucky.flac");
