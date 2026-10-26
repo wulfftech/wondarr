@@ -16,6 +16,12 @@
 # red. Each accepted flaky test is printed in a marked FLAKY TESTS block, so the orchestrator can log it
 # to the backlog. The parsing functions are tested by scripts/tests/test-safe-merge-parsing.sh, which
 # sources this file (nothing runs on source).
+#
+# The checks run on the test host when one is set (scripts/remote-run.sh, .worker/test-host.env), in a copy
+# of the tree as it stands, the uncommitted merge included; the merge itself, its commit and the marker stay
+# here. Without a host they run here, as before.
+#
+#   scripts/safe-merge.sh --check [--frontend]     # only the checks, on the tree in the current directory
 set -euo pipefail
 
 # --- log parsing --------------------------------------------------------------------------------
@@ -199,6 +205,20 @@ check() {
     fi
 }
 
+# The checks for the tree in the working directory, on the test host when one is set, else here.
+run_check() {
+    local arguments=(--check)
+    # A tree from before the test host has no remote-run.sh to send itself with; it is checked here.
+    if [[ ! -f scripts/remote-run.sh ]]; then
+        check
+        return
+    fi
+    if [[ "${run_frontend}" == "1" ]]; then
+        arguments+=(--frontend)
+    fi
+    scripts/remote-run.sh bash scripts/safe-merge.sh "${arguments[@]}"
+}
+
 main() {
     local branch message root marker head_before
     branch="${1:?usage: scripts/safe-merge.sh <branch> [message]}"
@@ -227,7 +247,7 @@ main() {
         echo "safe-merge: ${head_before:0:8} already passed; skipping the pre-merge check"
     else
         echo "safe-merge: checking the current tree (${head_before:0:8})"
-        if ! check; then
+        if ! run_check; then
             echo "safe-merge: refusing — the current tree is red; fix it before merging" >&2
             exit 1
         fi
@@ -239,7 +259,7 @@ main() {
     fi
 
     echo "safe-merge: checking the merged tree"
-    if check; then
+    if run_check; then
         git commit --no-edit -m "${message}"
         mkdir -p "$(dirname "${marker}")"
         git rev-parse HEAD > "${marker}"
@@ -253,5 +273,13 @@ main() {
 
 # Run only when executed, not when scripts/tests/test-safe-merge-parsing.sh sources the functions above.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
+    if [[ "${1:-}" == "--check" ]]; then
+        run_frontend=0
+        if [[ "${2:-}" == "--frontend" ]]; then
+            run_frontend=1
+        fi
+        check
+    else
+        main "$@"
+    fi
 fi

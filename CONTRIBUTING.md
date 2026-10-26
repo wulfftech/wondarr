@@ -22,6 +22,9 @@ dotnet build -warnaserror && dotnet test
 # frontend
 cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build
 
+# either of them on another Linux machine over ssh, to keep this one free (setup: the script's header)
+scripts/remote-run.sh bash -c 'dotnet build -warnaserror && dotnet test'
+
 # Docker image (web UI on 1077, Soulseek on 50300)
 docker compose -f docker/docker-compose.yml up --build
 
