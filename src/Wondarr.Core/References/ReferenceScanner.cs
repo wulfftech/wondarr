@@ -433,8 +433,11 @@ public sealed partial class ReferenceScanner(
         var released = 0;
         ReferenceScanResult result;
 
-        // The releases open a transaction (ReferenceOwnership.ReleaseAsync) that the final save commits,
-        // so each song is let go of in the same commit that clears its row.
+        // The releases open a transaction (ReferenceOwnership.ReleaseAsync) that is committed with the
+        // final save, so each song is let go of in the same commit that clears its row. A transaction the
+        // caller already had is the caller's to end.
+        var callerTransaction = database.Database.CurrentTransaction;
+
         try
         {
             foreach (var (row, songId, fromPath) in releases)
@@ -464,10 +467,18 @@ public sealed partial class ReferenceScanner(
             library.LastScanMessage = Summary(result);
 
             await SaveAsync(touched, cancellationToken).ConfigureAwait(false);
+
+            if (callerTransaction is null && database.Database.CurrentTransaction is { } opened)
+            {
+                await opened.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
         catch
         {
-            await ReferenceOwnership.RollbackAsync(database).ConfigureAwait(false);
+            if (callerTransaction is null)
+            {
+                await ReferenceOwnership.RollbackAsync(database).ConfigureAwait(false);
+            }
 
             throw;
         }
@@ -622,12 +633,11 @@ public sealed partial class ReferenceScanner(
 
     /// <summary>
     /// Saves the rows written so far, so a long walk never holds one transaction open, and lets go of
-    /// them: the scan never touches a row twice. The transaction the final save's releases opened is
-    /// committed with it.
+    /// them: the scan never touches a row twice.
     /// </summary>
     private async Task SaveAsync(List<ReferenceFile> touched, CancellationToken cancellationToken)
     {
-        await ReferenceOwnership.CommitAsync(database, cancellationToken).ConfigureAwait(false);
+        await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         foreach (var row in touched)
         {

@@ -397,11 +397,44 @@ public sealed class ReferenceScannerTests : IDisposable
 
         hook.Fired.Should().BeTrue("the import ran between the release's read and its delete");
         result.Released.Should().Be(0, "the song's file is a library file now, which no release takes");
+        database.Database.CurrentTransaction.Should().BeNull("the scan commits the transaction its release opened");
 
         var file = await database.SongFiles.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.SongId == songId);
         file.Should().NotBeNull("the song holds the file the import recorded");
         file!.SourceType.Should().Be(SourceTypes.Soulseek);
         file.Path.Should().Be($"/data/music/{songId}.flac");
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.RelativePath == "a.mp3");
+        row.SongId.Should().BeNull("the missing file owns the song no longer");
+        row.State.Should().Be(ReferenceFileState.Missing);
+    }
+
+    [Fact]
+    public async Task A_release_whose_save_fails_is_undone_with_it()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        var save = new FailNextSave();
+        await using var database = await ContextAsync(save);
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        File.Delete(path);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        _time.Advance(TimeSpan.FromHours(25));
+
+        // The release deletes the song's file at once, and the save that would clear the row fails.
+        save.Armed = true;
+        var act = () => scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        database.Database.CurrentTransaction.Should().BeNull("the scan rolls back the transaction its release opened");
+        (await SongFileCountAsync(database, songId)).Should().Be(1, "the song keeps its file while the row still owns it");
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.RelativePath == "a.mp3"))
+            .SongId.Should().Be(songId);
     }
 
     [Fact]
@@ -1052,25 +1085,11 @@ public sealed class ReferenceScannerTests : IDisposable
     }
 
     /// <summary>A migrated database, as the startup migrator leaves one.</summary>
-    private async Task<WondarrDbContext> ContextAsync()
+    private async Task<WondarrDbContext> ContextAsync(params IInterceptor[] interceptors)
     {
         await _database.MigrateAsync(_time);
 
-        return _database.CreateContext(_time);
-    }
-
-    /// <summary>A context on the migrated database that runs <paramref name="interceptor"/> on its commands.</summary>
-    private async Task<WondarrDbContext> ContextAsync(IInterceptor interceptor)
-    {
-        await _database.MigrateAsync(_time);
-
-        return new WondarrDbContext(
-            new DbContextOptionsBuilder<WondarrDbContext>()
-                .UseSqlite($"Data Source={_database.FilePath}")
-                .UseSnakeCaseNamingConvention()
-                .AddInterceptors(interceptor)
-                .Options,
-            _time);
+        return _database.CreateContext(_time, interceptors);
     }
 
     private ReferenceScanner Scanner(WondarrDbContext database, ILogger<ReferenceScanner>? logger = null) =>
@@ -1160,5 +1179,28 @@ public sealed class ReferenceScannerTests : IDisposable
         await database.SaveChangesAsync();
 
         return song.Id;
+    }
+
+    /// <summary>Fails the context's next save once armed, as a full disk or a lost lock would.</summary>
+    private sealed class FailNextSave : SaveChangesInterceptor
+    {
+        /// <summary>Gets or sets a value indicating whether the next save fails.</summary>
+        public bool Armed { get; set; }
+
+        /// <inheritdoc />
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Armed)
+            {
+                Armed = false;
+
+                throw new InvalidOperationException("The save failed.");
+            }
+
+            return ValueTask.FromResult(result);
+        }
     }
 }

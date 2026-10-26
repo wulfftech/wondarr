@@ -208,9 +208,10 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                 planned.Add(outcome);
             }
 
-            // The add leaves its transaction open (ReferenceOwnership.AddOptions): the songs, their
-            // reference files and the rows that own them are committed together below, so nothing else
-            // ever sees a song of this chunk without its file.
+            // The add leaves its transaction open (ReferenceOwnership.AddOptions), and a release opens it
+            // when the chunk adds no song: the songs, their reference files, the songs let go of and the
+            // rows behind them are committed together below, so nothing else ever sees a song of this
+            // chunk without its file.
             try
             {
                 // One add per chunk: the album policy plans the batch as a whole.

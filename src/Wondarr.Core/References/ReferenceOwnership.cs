@@ -69,8 +69,9 @@ internal static class ReferenceOwnership
     }
 
     /// <summary>
-    /// Saves what the caller changed and commits the transaction the add left open, so the new songs and
-    /// the reference files that own them reach every other connection in one step.
+    /// Saves what the caller changed and commits the transaction the add or a release left open, so the
+    /// new songs, the songs let go of and the reference files and rows behind them reach every other
+    /// connection in one step.
     /// </summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="cancellationToken">Cancels the save.</param>
@@ -99,7 +100,7 @@ internal static class ReferenceOwnership
         }
     }
 
-    /// <summary>Rolls back the transaction an add left open, when something after the add failed.</summary>
+    /// <summary>Rolls back the transaction an add or a release left open, when something after it failed.</summary>
     /// <param name="database">The Wondarr database.</param>
     /// <returns>A task that completes when the transaction is rolled back.</returns>
     public static async Task RollbackAsync(WondarrDbContext database)

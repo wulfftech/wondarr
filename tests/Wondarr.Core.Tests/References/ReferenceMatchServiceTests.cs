@@ -355,6 +355,7 @@ public class ReferenceMatchServiceTests : IDisposable
 
         hook.Fired.Should().BeTrue("the import ran between the skip's read and its delete");
         result.State.Should().Be(ReferenceFileState.Skipped);
+        context.Database.CurrentTransaction.Should().BeNull("the skip commits the transaction its release opened");
         (await RowAsync(context, file.Id)).SongId.Should().BeNull();
 
         var stored = await context.SongFiles.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.SongId == songId);
@@ -1518,25 +1519,11 @@ public class ReferenceMatchServiceTests : IDisposable
         ],
     };
 
-    private async Task<WondarrDbContext> ContextAsync()
+    private async Task<WondarrDbContext> ContextAsync(params IInterceptor[] interceptors)
     {
         await _database.MigrateAsync(_timeProvider);
 
-        return _database.CreateContext(_timeProvider);
-    }
-
-    /// <summary>A context on the migrated database that runs <paramref name="interceptor"/> on its commands.</summary>
-    private async Task<WondarrDbContext> ContextAsync(IInterceptor interceptor)
-    {
-        await _database.MigrateAsync(_timeProvider);
-
-        return new WondarrDbContext(
-            new DbContextOptionsBuilder<WondarrDbContext>()
-                .UseSqlite($"Data Source={_database.FilePath}")
-                .UseSnakeCaseNamingConvention()
-                .AddInterceptors(interceptor)
-                .Options,
-            _timeProvider);
+        return _database.CreateContext(_timeProvider, interceptors);
     }
 
     private static async Task<ReferenceLibrary> ReferenceLibraryAsync(
