@@ -506,6 +506,9 @@ public sealed partial class IndexerSourceProviderTests
         /// <summary>Every download waits for this before it answers; a test completes it to let the answers go.</summary>
         public Task Hold { get; init; } = Task.CompletedTask;
 
+        /// <summary>What one release's download waits for, after <see cref="Hold"/>: a test that lets the answers go one at a time gives each its own.</summary>
+        public Func<IndexerRelease, Task> HoldOf { get; init; } = _ => Task.CompletedTask;
+
         /// <summary>Called as each download starts, before it waits for <see cref="Hold"/>.</summary>
         public Action<IndexerRelease>? OnDownload { get; init; }
 
@@ -522,6 +525,7 @@ public sealed partial class IndexerSourceProviderTests
             DownloadLog.Enqueue((indexer.Id, release.ReleaseId));
             OnDownload?.Invoke(release);
             await Hold.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await HoldOf(release).WaitAsync(cancellationToken).ConfigureAwait(false);
             await Task.Yield();
 
             return Download(indexer, release);
