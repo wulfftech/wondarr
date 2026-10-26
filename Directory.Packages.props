@@ -27,7 +27,7 @@
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
-    <PackageVersion Include="z440.atl.core" Version="7.17.0" />
+    <PackageVersion Include="z440.atl.core" Version="7.19.0" />
   </ItemGroup>
 
   <ItemGroup Label="Testing">
