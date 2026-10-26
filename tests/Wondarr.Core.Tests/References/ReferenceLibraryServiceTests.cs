@@ -495,6 +495,53 @@ public class ReferenceLibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Deleting_a_library_does_not_point_a_library_file_an_import_recorded_after_the_read_at_another_copy()
+    {
+        var hook = new SongFileReadHook();
+        await using var context = await ContextAsync(hook);
+        var service = Service(context);
+
+        var doomed = await service.AddAsync(
+            new ReferenceLibraryInput("Doomed", "/reference/doomed", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var kept = await service.AddAsync(
+            new ReferenceLibraryInput("Kept", "/reference/kept", ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var twice = await AddSongAsync(context, "In both");
+        context.SongFiles.Add(NewFile(twice, "/reference/doomed/a.flac", SourceTypes.Reference, doomed.Library.Id));
+        AddFile(context, doomed.Library.Id, "a.flac", ReferenceFileState.Identified, twice);
+        AddFile(context, kept.Library.Id, "copy/a.flac", ReferenceFileState.Identified, twice);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        // A Replace of the song imports a library copy just after the delete has read the song's row as
+        // the doomed library's file, which would otherwise follow the kept library's copy.
+        hook.Arm(async () =>
+        {
+            await using var import = _database.CreateContext(_timeProvider);
+            var held = await import.SongFiles.SingleAsync(file => file.SongId == twice);
+            held.Path = "/data/music/In both.flac";
+            held.SourceType = SourceTypes.Soulseek;
+            held.SourceRef = null;
+            await import.SaveChangesAsync();
+        });
+
+        (await service.DeleteAsync(doomed.Library.Id, ReferenceLibraryDeleteChoice.Unmonitor, CancellationToken.None))
+            .Should().Be(0);
+
+        hook.Fired.Should().BeTrue("the import ran between the delete's read and its write");
+        context.Database.CurrentTransaction.Should().BeNull();
+        context.ChangeTracker.Clear();
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync(file => file.SongId == twice);
+        stored.SourceType.Should().Be(SourceTypes.Soulseek, "the library copy is not pointed at the kept library's file");
+        stored.Path.Should().Be("/data/music/In both.flac");
+        (await context.Songs.AsNoTracking().SingleAsync(song => song.Id == twice)).Monitored.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_song_another_library_also_has_follows_that_copy_and_is_neither_counted_nor_freed()
     {
         await using var context = await ContextAsync();

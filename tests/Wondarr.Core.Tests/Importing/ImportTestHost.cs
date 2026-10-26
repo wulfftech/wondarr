@@ -488,6 +488,21 @@ internal sealed class ImportTestHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// Points a song's <c>song_file</c> row at another file through its own context — behind the back of
+    /// the import under test, as a reference scan points a song at a second copy of its file.
+    /// </summary>
+    public async Task RepointSongFileBehindAsync(long songId, string path, long qualityId)
+    {
+        await using var context = _database.CreateContext(Time);
+
+        await context.SongFiles
+            .Where(file => file.SongId == songId)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(file => file.Path, path)
+                .SetProperty(file => file.QualityId, qualityId));
+    }
+
+    /// <summary>
     /// Deletes a song's <c>song_file</c> row through its own context — behind the back of the import
     /// under test, as a reference scan lets go of a reference file that has gone missing.
     /// </summary>

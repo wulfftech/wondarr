@@ -755,6 +755,40 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
+    public async Task A_reference_file_repointed_while_the_grab_imports_is_recorded_over_in_full()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        ImportSeed? seed = null;
+
+        // A reference scan points the song's file at a second copy, rated lower, while the grab is
+        // placed: the import's row is the same, but not what it read at the start.
+        host.Placer.OnPlaceAsync = _ => host.RepointSongFileBehindAsync(
+            seed!.SongId,
+            "/reference/other/Daft Punk/08 - Get Lucky.mp3",
+            29);
+
+        seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = "/reference/music/Daft Punk/08 - Get Lucky.mp3";
+            options.CurrentFileQualityId = 36;
+            options.CurrentFileSourceType = SourceTypes.Reference;
+            options.Trigger = SearchTrigger.Manual;
+        });
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Upgraded);
+
+        // The grab measured 36, the quality the import read at the start: written all the same.
+        var file = await host.Context.SongFiles.AsNoTracking().SingleAsync();
+        file.Id.Should().Be(seed.SongFileId);
+        file.QualityId.Should().Be(36);
+        file.SourceType.Should().Be(SourceTypes.Soulseek);
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+    }
+
+    [Fact]
     public async Task A_reference_file_linked_while_the_grab_imports_is_replaced_like_any_other()
     {
         await using var host = await ImportTestHost.CreateAsync();

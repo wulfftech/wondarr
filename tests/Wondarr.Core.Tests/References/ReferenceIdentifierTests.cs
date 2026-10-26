@@ -728,6 +728,131 @@ public class ReferenceIdentifierTests : IDisposable
     }
 
     [Fact]
+    public async Task A_changed_file_leaves_a_library_file_an_import_recorded_after_identification_read_the_song()
+    {
+        var hook = new SongFileReadHook();
+        await using var context = await ContextAsync(hook);
+        var library = await ReferenceLibraryAsync(context);
+
+        var changed = AddFile(context, library.Id, "a/Get Lucky.flac", 248_000, Tags(mbid: "m-a"));
+        await context.SaveChangesAsync();
+
+        var songs = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        var songId = songs[0].Song.Id;
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = ReferenceOwnershipPath(changed.RelativePath),
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":{changed.Id}}}",
+            QualityId = ProbeQualityId,
+        });
+
+        // What the scanner leaves behind when the file changed on disk: pending, still carrying its song.
+        changed.SongId = songId;
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        // A Replace of the song imports a library copy just after identification has read the song's row
+        // as this file, at the same path.
+        hook.Arm(async () =>
+        {
+            await using var import = _database.CreateContext(_timeProvider);
+            var held = await import.SongFiles.SingleAsync(file => file.SongId == songId);
+            held.Path = "/data/music/Get Lucky.mp3";
+            held.Codec = "mp3";
+            held.SourceType = SourceTypes.Soulseek;
+            held.SourceRef = null;
+            await import.SaveChangesAsync();
+        });
+
+        var result = await RunAsync(context, library.Id);
+
+        hook.Fired.Should().BeTrue("the import ran between identification's read and its write");
+        result.Identified.Should().Be(1);
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        // Nothing the changed file measured is written over the library copy.
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync();
+        stored.Codec.Should().Be("mp3");
+        stored.SourceType.Should().Be(SourceTypes.Soulseek);
+        stored.Path.Should().Be("/data/music/Get Lucky.mp3");
+
+        var row = await RowAsync(context, changed.Id);
+        row.SongId.Should().Be(songId);
+        row.Message.Should().Be("duplicate: the song already has a file");
+    }
+
+    [Fact]
+    public async Task A_renamed_file_whose_song_lost_its_file_after_identification_read_it_becomes_the_songs_file()
+    {
+        var hook = new SongFileReadHook();
+        await using var context = await ContextAsync(hook);
+        var library = await ReferenceLibraryAsync(context);
+
+        var moved = AddFile(context, library.Id, "old/Get Lucky.flac", 248_000, Tags(mbid: "m-a"));
+        await context.SaveChangesAsync();
+
+        var old = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Get Lucky", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+
+        var songId = old[0].Song.Id;
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = ReferenceOwnershipPath(moved.RelativePath),
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{library.Id},\"referenceFileId\":{moved.Id}}}",
+            QualityId = ProbeQualityId,
+        });
+
+        moved.State = ReferenceFileState.Missing;
+        moved.MissingSince = _timeProvider.GetUtcNow().UtcDateTime;
+        moved.SongId = songId;
+
+        var renamed = AddFile(context, library.Id, "new/Get Lucky (renamed).flac", 248_000, Tags(mbid: "m-a"));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        _resolver.GetIdentityAsync("m-a", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-a", "Get Lucky", durationMs: 248_000));
+
+        // Something lets go of the song's file (a Skip, a release) just after identification has read it
+        // as the moved file: the song is left with no file, and the renamed file becomes it.
+        hook.Arm(async () =>
+        {
+            await using var other = _database.CreateContext(_timeProvider);
+            await other.SongFiles.Where(file => file.SongId == songId).ExecuteDeleteAsync();
+        });
+
+        var result = await RunAsync(context, library.Id);
+
+        hook.Fired.Should().BeTrue("the release ran between identification's read and its write");
+        result.Identified.Should().Be(1);
+        context.Database.CurrentTransaction.Should().BeNull();
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync();
+        stored.SongId.Should().Be(songId);
+        stored.Path.Should().Be(ReferenceOwnershipPath(renamed.RelativePath));
+        stored.SourceRef.Should().Contain($"\"referenceFileId\":{renamed.Id}");
+
+        var row = await RowAsync(context, renamed.Id);
+        row.SongId.Should().Be(songId);
+        row.Message.Should().BeNull("the song had no file left, so this is its file, not a duplicate");
+    }
+
+    [Fact]
     public async Task A_second_file_of_a_song_whose_first_file_is_still_there_stays_a_duplicate()
     {
         await using var context = await ContextAsync();

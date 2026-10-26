@@ -122,6 +122,7 @@ internal static class ReferenceOwnership
     /// <remarks>
     /// A file the song already holds is rewritten at once, in the caller's transaction (opening one when
     /// there is none), and only while it is still the row read here (<see cref="RewriteHeldAsync"/>).
+    /// When it is not, the song's file is decided on once more from what it holds now.
     /// </remarks>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="songId">The song the file was identified as.</param>
@@ -148,6 +149,24 @@ internal static class ReferenceOwnership
         ArgumentNullException.ThrowIfNull(row);
         ArgumentNullException.ThrowIfNull(probe);
 
+        return await LinkAsync(database, songId, absolutePath, row, probe, acoustId, identifiedBy, now, true, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>The body of the public <c>LinkAsync</c>.</summary>
+    /// <param name="decideAgain">Whether a held file that changed since it was read sends the decision round once more.</param>
+    private static async Task<LinkResult> LinkAsync(
+        WondarrDbContext database,
+        long songId,
+        string absolutePath,
+        ReferenceFile row,
+        MediaInfo probe,
+        string? acoustId,
+        string identifiedBy,
+        DateTime now,
+        bool decideAgain,
+        CancellationToken cancellationToken)
+    {
         var held = await HeldFileAsync(database, songId).ConfigureAwait(false);
 
         if (held is null)
@@ -171,13 +190,15 @@ internal static class ReferenceOwnership
         if (string.Equals(held.Path, absolutePath, StringComparison.OrdinalIgnoreCase))
         {
             // The same file, re-identified after it changed on disk: nothing about the song moved, only
-            // what ffprobe measured, so the row follows the file. An import that took the row over since
-            // it was read leaves the song a library file, which this file duplicates.
+            // what ffprobe measured, so the row follows the file.
             Apply(held, absolutePath, row, probe, acoustId, identifiedBy, now);
 
-            return await RewriteHeldAsync(database, held, now, cancellationToken).ConfigureAwait(false)
-                ? new LinkResult(true, null)
-                : LinkResult.Duplicate;
+            if (await RewriteHeldAsync(database, held, now, cancellationToken).ConfigureAwait(false))
+            {
+                return new LinkResult(true, null);
+            }
+
+            return await DecideAgainAsync().ConfigureAwait(false);
         }
 
         // The song's reference file is gone from disk and the same song has turned up at a new path: the
@@ -189,7 +210,7 @@ internal static class ReferenceOwnership
 
             if (!await RewriteHeldAsync(database, held, now, cancellationToken).ConfigureAwait(false))
             {
-                return LinkResult.Duplicate;
+                return await DecideAgainAsync().ConfigureAwait(false);
             }
 
             vanished.SongId = null;
@@ -198,6 +219,15 @@ internal static class ReferenceOwnership
         }
 
         return LinkResult.Duplicate;
+
+        // The held file changed after it was read: an import took the row over (the song holds a library
+        // file, which this file duplicates) or a release deleted it (the song holds nothing, and takes this
+        // file). The write lock is held now, so the second read is the last word.
+        async Task<LinkResult> DecideAgainAsync() =>
+            decideAgain
+                ? await LinkAsync(database, songId, absolutePath, row, probe, acoustId, identifiedBy, now, false, cancellationToken)
+                    .ConfigureAwait(false)
+                : LinkResult.Duplicate;
     }
 
     /// <summary>
@@ -447,7 +477,7 @@ internal static class ReferenceOwnership
     /// </summary>
     /// <returns>
     /// <see langword="true"/> when the row now holds the tracked values; <see langword="false"/> when it
-    /// changed since it was read, and the tracked copy is let go of.
+    /// changed since it was read. Either way the tracked copy is let go of (see the end of the method).
     /// </returns>
     private static async Task<bool> RewriteHeldAsync(
         WondarrDbContext database,
@@ -475,7 +505,7 @@ internal static class ReferenceOwnership
         // A save would stamp it; an update that goes round the save stamps it itself.
         held.UpdatedAt = now;
 
-        // The columns Apply writes, and the stamp.
+        // The columns Apply writes (keep the two in step), and the stamp.
         var rewritten = await database.SongFiles
             .Where(file => file.Id == id && file.SourceType == storedSourceType && file.Path == storedPath)
             .ExecuteUpdateAsync(
@@ -500,19 +530,11 @@ internal static class ReferenceOwnership
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (rewritten == 0)
-        {
-            // Stale: the caller's save must not write it back, and a later read must see the database.
-            entry.State = EntityState.Detached;
+        // The row is written (or stale), so the caller's save has nothing to write to it, and a later read
+        // must see the database: a copy kept in the tracker would outlive a rollback of this write.
+        entry.State = EntityState.Detached;
 
-            return false;
-        }
-
-        // The row holds what the tracked copy says now, so the caller's save has nothing to write to it.
-        entry.OriginalValues.SetValues(entry.CurrentValues);
-        entry.State = EntityState.Unchanged;
-
-        return true;
+        return rewritten > 0;
     }
 
     /// <summary>The <c>source_ref</c> of a reference file: which library and which row owns it.</summary>
