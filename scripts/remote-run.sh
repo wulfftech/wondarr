@@ -21,7 +21,8 @@
 # DOTNET_ROOT="$HOME/.dotnet" PATH="$HOME/.dotnet:$HOME/.local/node/bin:$PATH"). Each checkout gets its own
 # folder there (~/wondarr-runs/<name>-<hash>) whose bin/, obj/ and node_modules/ survive between runs, so
 # builds stay incremental; every other file is made to match the tree, deletions included. A run whose
-# ssh connection drops keeps going there until it ends (the lock waits for it).
+# ssh connection drops keeps going there until it ends (the lock waits for it). env.sh may also turn off
+# build servers (MSBUILDDISABLENODEREUSE=1, UseSharedCompilation=false) so none linger between runs.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -97,8 +98,10 @@ rsync -a --delete --exclude=bin/ --exclude=obj/ --exclude=node_modules/ --exclud
 cd "\$HOME/${work}"
 . "\$HOME/wondarr-tools/env.sh"
 echo "remote-run: running on ${host}: ${command}" >&2
-# Not on this script's stdin: bash -s reads the rest of the script from it.
-${command} </dev/null
+# Not on this script's stdin: bash -s reads the rest of the script from it. Nor on the lock's descriptor:
+# a build server the command starts (MSBuild's reused nodes, the compiler server) outlives the run, and
+# holding fd 9 it kept the lock for 15 minutes after the build was done (2026-10-26).
+${command} </dev/null 9>&-
 exit \$?
 REMOTE
 exit "${status}"
