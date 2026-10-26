@@ -723,6 +723,99 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
+    public async Task A_reference_file_released_while_the_grab_imports_gives_way_to_a_new_row()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        ImportSeed? seed = null;
+
+        // A reference scan lets go of the song's file while the grab is placed: the row the import read
+        // at the start is gone by its record step.
+        host.Placer.OnPlaceAsync = _ => host.DeleteSongFileBehindAsync(seed!.SongId);
+
+        seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = "/reference/music/Daft Punk/08 - Get Lucky.mp3";
+            options.CurrentFileQualityId = 29;
+            options.CurrentFileSourceType = SourceTypes.Reference;
+        });
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Imported, "the song held no file by the time the import recorded one");
+        host.Context.Database.CurrentTransaction.Should().BeNull();
+
+        var file = await host.Context.SongFiles.AsNoTracking().SingleAsync();
+        file.SongId.Should().Be(seed.SongId);
+        file.SourceType.Should().Be(SourceTypes.Soulseek);
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+
+        (await host.Context.QueueItems.AsNoTracking().SingleAsync(entry => entry.Id == seed.QueueItemId))
+            .State.Should().Be(QueueItemState.Imported);
+    }
+
+    [Fact]
+    public async Task A_reference_file_repointed_while_the_grab_imports_is_recorded_over_in_full()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        ImportSeed? seed = null;
+
+        // A reference scan points the song's file at a second copy, rated lower, while the grab is
+        // placed: the import's row is the same, but not what it read at the start.
+        host.Placer.OnPlaceAsync = _ => host.RepointSongFileBehindAsync(
+            seed!.SongId,
+            "/reference/other/Daft Punk/08 - Get Lucky.mp3",
+            29);
+
+        seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = "/reference/music/Daft Punk/08 - Get Lucky.mp3";
+            options.CurrentFileQualityId = 36;
+            options.CurrentFileSourceType = SourceTypes.Reference;
+            options.Trigger = SearchTrigger.Manual;
+        });
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Upgraded);
+
+        // The grab measured 36, the quality the import read at the start: written all the same.
+        var file = await host.Context.SongFiles.AsNoTracking().SingleAsync();
+        file.Id.Should().Be(seed.SongFileId);
+        file.QualityId.Should().Be(36);
+        file.SourceType.Should().Be(SourceTypes.Soulseek);
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+    }
+
+    [Fact]
+    public async Task A_reference_file_linked_while_the_grab_imports_is_replaced_like_any_other()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        ImportSeed? seed = null;
+        long? linked = null;
+
+        // Identification links a reference file to the song, which had none, while the grab is placed.
+        host.Placer.OnPlaceAsync = async _ => linked = await host.InsertSongFileBehindAsync(
+            seed!.SongId,
+            "/reference/music/Daft Punk/08 - Get Lucky.mp3",
+            SourceTypes.Reference);
+
+        seed = await host.SeedAsync();
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Upgraded, "the import replaces the reference file, as a grab of a reference-owned song does");
+        host.Context.Database.CurrentTransaction.Should().BeNull();
+
+        var file = await host.Context.SongFiles.AsNoTracking().SingleAsync();
+        file.Id.Should().Be(linked!.Value);
+        file.SourceType.Should().Be(SourceTypes.Soulseek);
+        file.Path.Should().Be(host.LibraryRoot + "/" + ImportTestHost.DaftPunkRelativePath + ".flac");
+    }
+
+    [Fact]
     public async Task Does_not_learn_a_recording_id_from_a_file_it_refuses()
     {
         await using var host = await ImportTestHost.CreateAsync();

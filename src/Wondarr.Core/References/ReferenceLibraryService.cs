@@ -409,56 +409,68 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
 
         // The songs owned through this library's files lose them. Only a reference song_file is ever
         // removed here: a library file belongs to Wondarr and another reference file belongs to another
-        // library, and both are left exactly as they are.
+        // library, and both are left exactly as they are. A repoint or a release writes at once, and only
+        // while the song's row is still the reference file read here (an import may have taken it over),
+        // in a transaction committed with the library's delete.
         var owned = await OwnedFilesAsync(id, track: true, cancellationToken).ConfigureAwait(false);
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var freed = new List<SongFile>();
+        var songIds = new List<long>();
 
-        foreach (var file in owned)
+        try
         {
-            // A second copy of the recording in another reference library keeps the song owned: the
-            // song's file follows it, and the song does not become wanted.
-            var other = await _database.ReferenceFiles
-                .Include(row => row.ReferenceLibrary)
-                .Where(row => row.SongId == file.SongId
-                    && row.State == ReferenceFileState.Identified
-                    && row.ReferenceLibraryId != id)
-                .OrderBy(row => row.Id)
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
+            foreach (var file in owned)
+            {
+                // A second copy of the recording in another reference library keeps the song owned: the
+                // song's file follows it, and the song does not become wanted.
+                var other = await _database.ReferenceFiles
+                    .Include(row => row.ReferenceLibrary)
+                    .Where(row => row.SongId == file.SongId
+                        && row.State == ReferenceFileState.Identified
+                        && row.ReferenceLibraryId != id)
+                    .OrderBy(row => row.Id)
+                    .FirstOrDefaultAsync(cancellationToken)
+                    .ConfigureAwait(false);
 
-            if (other is not null
-                && await ReferenceOwnership
-                    .RepointAsync(_database, file.SongId, file.Path, other, other.ReferenceLibrary.RootPath, now)
+                if (other is not null
+                    && await ReferenceOwnership
+                        .RepointAsync(_database, file.SongId, file.Path, other, other.ReferenceLibrary.RootPath, now, cancellationToken)
+                        .ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                if (await ReferenceOwnership
+                    .ReleaseAsync(_database, file.SongId, file.Path, cancellationToken)
                     .ConfigureAwait(false))
-            {
-                continue;
+                {
+                    songIds.Add(file.SongId);
+                }
             }
 
-            freed.Add(file);
+            if (choice == ReferenceLibraryDeleteChoice.Unmonitor && songIds.Count > 0)
+            {
+                var songs = await _database.Songs
+                    .Where(song => songIds.Contains(song.Id))
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                foreach (var song in songs)
+                {
+                    song.Monitored = false;
+                }
+
+                // The user's choice replaces any import list policy's unmonitor.
+                await Songs.SongService.ClearPolicyFlagsAsync(_database, songIds, cancellationToken).ConfigureAwait(false);
+            }
+
+            await ReferenceOwnership.CommitAsync(_database, cancellationToken).ConfigureAwait(false);
         }
-
-        _database.SongFiles.RemoveRange(freed);
-
-        var songIds = freed.Select(file => file.SongId).Distinct().ToList();
-
-        if (choice == ReferenceLibraryDeleteChoice.Unmonitor && songIds.Count > 0)
+        catch
         {
-            var songs = await _database.Songs
-                .Where(song => songIds.Contains(song.Id))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
+            await ReferenceOwnership.RollbackAsync(_database).ConfigureAwait(false);
 
-            foreach (var song in songs)
-            {
-                song.Monitored = false;
-            }
-
-            // The user's choice replaces any import list policy's unmonitor.
-            await Songs.SongService.ClearPolicyFlagsAsync(_database, songIds, cancellationToken).ConfigureAwait(false);
+            throw;
         }
-
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return songIds.Count;
     }

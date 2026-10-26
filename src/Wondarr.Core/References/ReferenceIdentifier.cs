@@ -262,7 +262,8 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
                             row.Probe!,
                             row.AcoustId,
                             row.IdentifiedBy!,
-                            now)
+                            now,
+                            cancellationToken)
                         .ConfigureAwait(false);
 
                     row.Row.SongId = song.Id;

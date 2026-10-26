@@ -866,21 +866,35 @@ public sealed partial class ImportService : IImportService
         }
 
         // --- Record -----------------------------------------------------------------------------
-        var upgraded = song.File is not null;
-        var previousPath = song.File?.Path;
-        var file = song.File ?? new SongFile { SongId = song.Id };
-
         // An upgrade that renamed the file takes the old file's lyrics sidecars with it, as the
-        // converter does (R-050). A reference file is the user's own and keeps its neighbours.
-        if (upgraded && previousPath is not null && song.File!.SourceType != SourceTypes.Reference)
+        // converter does (R-050). A reference file is the user's own and keeps its neighbours. A
+        // library file changes only under the song lock this import holds, so the one read at the
+        // start is still the song's.
+        if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
         {
-            FileConverter.MoveSidecars(previousPath, finalPath);
+            FileConverter.MoveSidecars(replaced.Path, finalPath);
         }
+
+        bool upgraded;
+        SongFile file;
 
         // The file is in the library: from here every database write runs with no token, so a
         // shutdown cannot separate the file from its record (R-012).
         try
         {
+            // The database's write lock is held from the read of the song's file to the commit, so
+            // nothing changes the row in between. A reference library changes a song's reference file
+            // without the song lock, so the row read at the start may be gone or another one by now.
+            await using var record = await _database.Database
+                .BeginTransactionAsync(CancellationToken.None)
+                .ConfigureAwait(false);
+
+            var heldNow = await ReadFileForRecordAsync(song).ConfigureAwait(false);
+            var previousPath = heldNow?.Path;
+
+            upgraded = heldNow is not null;
+            file = heldNow ?? new SongFile { SongId = song.Id };
+
             file.Path = finalPath;
             file.Size = media.SizeBytes;
             file.Codec = media.Codec;
@@ -907,7 +921,7 @@ public sealed partial class ImportService : IImportService
             file.ReplayGainDb = replayGain?.GainDb;
             file.ReplayGainPeak = replayGain?.Peak;
 
-            if (song.File is null)
+            if (heldNow is null)
             {
                 _database.SongFiles.Add(file);
             }
@@ -948,11 +962,13 @@ public sealed partial class ImportService : IImportService
             // commit with the item, in one save. Nothing here is committed on its own — a half-written
             // import is worse than a failed one.
             await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            await record.CommitAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            // The file already reached the library; only the bookkeeping failed. The item is failed
-            // with that said out loud, and the caller gets an outcome, never an exception.
+            // The file already reached the library; only the bookkeeping failed, and its transaction
+            // was rolled back on the way here. The item is failed with that said out loud, and the
+            // caller gets an outcome, never an exception.
             LogRecordFailed(_logger, item.Id, exception);
 
             return await FailSafelyAsync(
@@ -1084,6 +1100,48 @@ public sealed partial class ImportService : IImportService
         LogDeferred(_logger, item.Id, reason);
 
         return ImportOutcome.Deferred;
+    }
+
+    /// <summary>
+    /// The song's file as it is now, read inside the record step's transaction. A library file changes
+    /// only under the song lock, so it is the one read at the start. A reference library writes a song's
+    /// reference file without that lock: a scan repoints it (read again here, so the save writes every
+    /// column the import sets) or releases it (gone: the import adds a row), and identification links one
+    /// to a song that had none (taken over, as any grab replaces a reference file). A library file the
+    /// import did not read is not taken over, and the save then refuses a second file for the song.
+    /// </summary>
+    /// <param name="song">The song being imported, with the file read at the start.</param>
+    /// <returns>The row the import records over, or <see langword="null"/> to add one.</returns>
+    private async Task<SongFile?> ReadFileForRecordAsync(Song song)
+    {
+        var current = await _database.SongFiles
+            .AsNoTracking()
+            .Where(candidate => candidate.SongId == song.Id)
+            .Select(candidate => new { candidate.Id, candidate.SourceType })
+            .FirstOrDefaultAsync(CancellationToken.None)
+            .ConfigureAwait(false);
+
+        if (song.File is { } read)
+        {
+            if (current?.Id == read.Id)
+            {
+                await _database.Entry(read).ReloadAsync(CancellationToken.None).ConfigureAwait(false);
+
+                return read;
+            }
+
+            _database.Entry(read).State = EntityState.Detached;
+            song.File = null;
+        }
+
+        if (current is { } linked && linked.SourceType == SourceTypes.Reference)
+        {
+            return await _database.SongFiles
+                .FirstAsync(candidate => candidate.Id == linked.Id, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
+        return null;
     }
 
     /// <summary>Loads the song with everything the import needs.</summary>
