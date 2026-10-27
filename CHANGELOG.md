@@ -4,10 +4,18 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.15] — 2026-10-27
+
+Fixes for reference libraries and for torrent and usenet searches on a busy machine, dependency updates, and the image on Docker Hub. Update by pulling `:0.1` (or `:0.1.15`), from `ghcr.io/wulfftech/wondarr` or now `wulfftech/wondarr` on Docker Hub.
+
+**Upgrading from 0.1.14:**
+- **No database migration, no new settings.**
+
 ### Added
 - **The image is on Docker Hub too**, as `wulfftech/wondarr`: a mirror of `ghcr.io/wulfftech/wondarr` with the same tags and digests, copied once a release has passed its checks. It's for the NAS container apps and guides that only search Docker Hub.
 
 ### Fixed
+- **A torrent or usenet search no longer fails on a busy machine.** Finding the song's file inside a release's file list ran four name patterns with a 100 ms limit, and that limit counts time spent waiting for the CPU: on a loaded server an ordinary name could run out of time, and the whole indexer search failed. They now get the 1 s every other name parser has.
 - **A song whose reference file is let go of keeps a library copy imported at that moment.** A reference scan lets go of a song whose file has been missing for a day, and Skip in the Match queue does the same, so that the song is wanted again. If an import of that song (a grab, a Replace, or an upgrade of a file below the cutoff) recorded its new copy in the instant between the release reading the song's file and deleting it, the delete took the new copy's record with it: the file stayed in the library while the song looked missing. A release now deletes the song's file record only while it still points at the reference file, and does so in the same commit that updates the reference file's row. No migration.
 - **A library copy imported while a reference library changes the song's file keeps its record.** Three more steps read a song's file record and wrote it back later: a scan pointing a song whose file went missing at a second copy, identification refreshing a changed reference file or following a renamed one, and deleting a reference library. An import of that song recorded in between could have its library copy pointed back at the reference file, or deleted by the library delete: the file stayed in the library, unrecorded. Each now writes the record only while it is still the reference file it read, in the same commit as the rest of its changes. No migration.
 - **An import no longer fails with "recording it failed" when a reference library changed the song's file meanwhile.** The import read the song's file when it started and recorded over it at the end. If a reference scan let go of the song's reference file in between, the record failed and the new file stayed in the library unrecorded (a restart does not pick up a failed import); if identification linked a reference file to a song that had none, the record collided with it. The import now reads the song's file again when it records, under the database's write lock: a file record that has gone is added again, and a reference file linked since is replaced, as any grab replaces a reference file. No migration.
