@@ -49,8 +49,10 @@ public sealed class LibraryApiTests
         var soulseek = (JsonObject)(await ReadJsonAsync(response))!;
 
         library["rootPath"]!.GetValue<string>().Should().Be("/storage/music");
-        soulseek["downloadsDir"]!.GetValue<string>().Should().Be("/storage/downloads/slskd");
         soulseek["sharedFolders"]!.AsArray().Select(folder => folder!.GetValue<string>()).Should().Equal("/storage/music");
+
+        // The factory's config.yml names slskd's folders, and a folder set in the file wins.
+        soulseek["downloadsDir"]!.GetValue<string>().Should().Be(Path.Combine(factory.DataDir, "downloads", "slskd"));
     }
 
     [Fact]
