@@ -9,8 +9,8 @@ namespace Wondarr.Core.Configuration;
 public static class ConfigurationBuilderExtensions
 {
     /// <summary>
-    /// Adds <c>config.yml</c> and then the <c>APP__</c> environment variables, so the
-    /// environment overrides the file.
+    /// Adds the defaults that follow the media root, then <c>config.yml</c>, then the <c>APP__</c>
+    /// environment variables, so the environment overrides the file and both override the defaults.
     /// </summary>
     public static IConfigurationBuilder AddWondarrConfiguration(
         this IConfigurationBuilder builder,
@@ -20,6 +20,13 @@ public static class ConfigurationBuilderExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(environment);
+
+        // Below the file, and not APP__ variables: a moved default stays editable in the web UI.
+        var mediaRootDefaults = paths.MediaRootDefaults();
+        if (mediaRootDefaults.Count > 0)
+        {
+            builder.AddInMemoryCollection(mediaRootDefaults);
+        }
 
         builder.Add(new YamlConfigurationSource(paths.ConfigFile));
         builder.Add(new AppEnvironmentVariablesConfigurationSource(environment));

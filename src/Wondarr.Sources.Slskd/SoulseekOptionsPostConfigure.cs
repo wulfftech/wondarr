@@ -23,21 +23,23 @@ namespace Wondarr.Sources.Slskd;
 /// </remarks>
 public sealed class SoulseekOptionsPostConfigure : IPostConfigureOptions<SoulseekOptions>
 {
-    /// <summary>The seeded default library's root: what "share my library" shares out of the box.</summary>
-    private const string DefaultSharedFolder = "/data/music";
-
     /// <summary>The marker <see cref="ConfigFileWriter"/> writes beside an explicitly empty list.</summary>
     private const string SharedFoldersMarker = "Soulseek:SharedFoldersSet";
 
     private readonly IConfiguration _configuration;
 
+    /// <summary>The seeded default library's root: what "share my library" shares out of the box.</summary>
+    private readonly string _defaultSharedFolder;
+
     /// <summary>Initialises a new instance of the <see cref="SoulseekOptionsPostConfigure"/> class.</summary>
     /// <param name="configuration">The configuration the options were bound from.</param>
-    public SoulseekOptionsPostConfigure(IConfiguration configuration)
+    /// <param name="paths">Where the media root is; without it (a test host) the share is <c>/data/music</c>.</param>
+    public SoulseekOptionsPostConfigure(IConfiguration configuration, WondarrPaths? paths = null)
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
         _configuration = configuration;
+        _defaultSharedFolder = paths?.DefaultLibraryRoot ?? $"{WondarrPaths.DefaultMediaRoot}/music";
     }
 
     /// <inheritdoc />
@@ -51,6 +53,6 @@ public sealed class SoulseekOptionsPostConfigure : IPostConfigureOptions<Soulsee
             return;
         }
 
-        options.SharedFolders = [DefaultSharedFolder];
+        options.SharedFolders = [_defaultSharedFolder];
     }
 }

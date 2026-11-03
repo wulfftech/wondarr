@@ -71,6 +71,8 @@ Use one `/data` mount for everything, in the usual \*arr layout. The defaults ex
 | `/data/downloads/youtube` | Where yt-dlp downloads to. |
 | `/data/downloads/containers` | Where a song's file from a torrent or usenet post is staged before the import (`import.container_staging_path`). |
 
+If your music and downloads are mounted somewhere else, set `WONDARR_MEDIA_ROOT` to that path (see below) and the same folders are used under it, for example `/storage/music`.
+
 One mount matters because torrent imports are hard links: Wondarr links the finished file out of the torrent client's download folder so the torrent keeps seeding. A hard link cannot cross filesystems, so the torrent client's downloads and Wondarr's staging folder must be on the same mount. When a link is not possible Wondarr copies the file instead. See [qBittorrent](/wondarr/sources/qbittorrent/).
 
 ## Ports
@@ -87,6 +89,7 @@ One mount matters because torrent imports are hard links: Wondarr links the fini
 | `PUID` / `PGID` | `1000` / `1000` | The user and group the app runs as. Files in `/config` and the files Wondarr places in `/data` belong to them. |
 | `UMASK` | `002` | The umask the app runs with. Files that hold secrets (`config.yml`, the database, backups, `slskd.yml`) are always owner-only, whatever it is. |
 | `TZ` | `Etc/UTC` | The time zone. |
+| `WONDARR_MEDIA_ROOT` | `/data` | The folder the default library and download folders live under. It moves defaults only: a new database's Music library starts at `<root>/music`, but an existing library keeps its root, and a path you have set yourself stays as it is. |
 
 Any setting in `config.yml` can also be set from the environment as `APP__<SECTION>__<KEY>`, with the key in upper case. For example `APP__SOULSEEK__USERNAME`, or `APP__SERVER__URL_BASE`. A setting taken from the environment wins over `config.yml`, and the settings page shows it as read-only.
 

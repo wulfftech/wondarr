@@ -206,6 +206,12 @@ public sealed partial class ImportOptionsValidator : IValidateOptions<ImportOpti
             candidates.Add(paths!.ConfigDir);
         }
 
+        // A moved media root is as much the user's whole tree as /data is.
+        if (!string.IsNullOrWhiteSpace(paths?.MediaRoot))
+        {
+            candidates.Add(paths!.MediaRoot);
+        }
+
         return candidates.Any(candidate => PathsAreEqual(path, candidate));
     }
 

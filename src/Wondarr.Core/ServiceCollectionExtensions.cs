@@ -453,11 +453,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISettingsRepository, SettingsRepository>();
 
         // The backup service is looked up only when an existing database has migrations to apply:
-        // a host that never gets that far (most tests) need not be able to build one.
+        // a host that never gets that far (most tests) need not be able to build one. A new database
+        // puts its Music library under the media root.
         services.AddScoped(provider => new DatabaseMigrator(
             provider.GetRequiredService<WondarrDbContext>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DatabaseMigrator>>(),
-            () => provider.GetService<IBackupService>()));
+            () => provider.GetService<IBackupService>(),
+            newLibraryRoot: provider.GetService<WondarrPaths>()?.DefaultLibraryRoot));
         services.AddHostedService<DatabaseMigrationHostedService>();
 
         // After the migration, so the notification table exists: stored notification secrets reach the log redactor.

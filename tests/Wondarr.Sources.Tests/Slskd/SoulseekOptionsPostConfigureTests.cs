@@ -70,15 +70,39 @@ public sealed class SoulseekOptionsPostConfigureTests : IDisposable
         Options().SharedFolders.Should().Equal(["/data/music"]);
     }
 
+    [Fact]
+    public void A_moved_media_root_moves_the_default_share_and_download_folders()
+    {
+        Write("soulseek:\n  username: listener\n");
+
+        var options = Options(mediaRoot: "/storage");
+
+        options.SharedFolders.Should().Equal(["/storage/music"]);
+        options.DownloadsDir.Should().Be("/storage/downloads/slskd");
+        options.IncompleteDir.Should().Be("/storage/downloads/slskd/incomplete");
+    }
+
+    [Fact]
+    public void A_folder_written_in_the_file_wins_over_a_moved_media_root()
+    {
+        Write("soulseek:\n  downloads_dir: /x/slskd\n  shared_folders:\n    - /x/music\n");
+
+        var options = Options(mediaRoot: "/storage");
+
+        options.SharedFolders.Should().Equal(["/x/music"]);
+        options.DownloadsDir.Should().Be("/x/slskd");
+        options.IncompleteDir.Should().Be("/storage/downloads/slskd/incomplete");
+    }
+
     private void Write(string yaml) => File.WriteAllText(Path.Combine(_configDir, "config.yml"), yaml);
 
     /// <summary>
     /// Binds through the registration the app itself uses, so the test also proves the
     /// post-configure is wired up in <see cref="ServiceCollectionExtensions.AddWondarrSlskd"/>.
     /// </summary>
-    private SoulseekOptions Options()
+    private SoulseekOptions Options(string? mediaRoot = null)
     {
-        var paths = new WondarrPaths(_configDir);
+        var paths = mediaRoot is null ? new WondarrPaths(_configDir) : new WondarrPaths(_configDir) { MediaRoot = mediaRoot };
 
         var configuration = new ConfigurationBuilder()
             .AddWondarrConfiguration(paths, new Hashtable())
@@ -87,8 +111,9 @@ public sealed class SoulseekOptionsPostConfigureTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
 
-        // The host registers these; here they are the only two the options pipeline needs.
+        // The host registers these; here they are the only ones the options pipeline needs.
         services.AddSingleton<IConfiguration>(configuration);
+        services.AddSingleton(paths);
         services.AddWondarrSlskd(configuration);
 
         using var provider = services.BuildServiceProvider();

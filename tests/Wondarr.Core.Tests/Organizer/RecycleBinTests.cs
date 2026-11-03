@@ -257,6 +257,18 @@ public class RecycleBinTests : IDisposable
     }
 
     [Fact]
+    public void The_validator_refuses_a_bin_at_a_moved_media_root()
+    {
+        var mediaRoot = _temp.Full("storage");
+        var validator = new ImportOptionsValidator(new WondarrPaths(_temp.Full("config")) { MediaRoot = mediaRoot });
+
+        validator.Validate(null, new ImportOptions { RecycleBinPath = mediaRoot })
+            .Failures.Should().Contain(failure => failure.StartsWith("import.recycle_bin_path", StringComparison.Ordinal));
+        validator.Validate(null, new ImportOptions { RecycleBinPath = Path.Combine(mediaRoot, "recycle") })
+            .Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
     public void The_validator_refuses_a_bin_at_the_root_of_a_filesystem()
     {
         var validator = new ImportOptionsValidator();

@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **`WONDARR_MEDIA_ROOT` moves the default music and download folders.** Set it when your music and downloads are mounted somewhere other than `/data`, for example `/storage` alongside DockSTARTer's other apps. The library a new database starts with is created at `<root>/music`, and the defaults move to match: the Soulseek share, slskd's download and incomplete folders, yt-dlp's download folder and `import.container_staging_path`. A path set in `config.yml`, by an `APP__` variable or in the web UI is used as it is, and an existing library keeps its root. Unset, nothing changes.
+
 ## [0.1.15] — 2026-10-27
 
 Fixes for reference libraries and for torrent and usenet searches on a busy machine, dependency updates, and the image on Docker Hub. Update by pulling `:0.1` (or `:0.1.15`), from `ghcr.io/wulfftech/wondarr` or now `wulfftech/wondarr` on Docker Hub.

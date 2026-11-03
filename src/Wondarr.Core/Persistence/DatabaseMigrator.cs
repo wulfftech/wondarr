@@ -5,6 +5,8 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Backup;
+using Wondarr.Core.Configuration;
+using Wondarr.Core.Domain;
 
 namespace Wondarr.Core.Persistence;
 
@@ -24,6 +26,7 @@ public sealed partial class DatabaseMigrator
     private readonly ILogger<DatabaseMigrator> _logger;
     private readonly Func<IBackupService?> _backups;
     private readonly TimeSpan _backupTimeout;
+    private readonly string? _newLibraryRoot;
 
     /// <summary>The longest the pre-migration backup may take before the migration is refused.</summary>
     public static readonly TimeSpan DefaultBackupTimeout = TimeSpan.FromMinutes(15);
@@ -47,7 +50,16 @@ public sealed partial class DatabaseMigrator
     /// <param name="context">The database to migrate.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="backups">Finds the backup service, or returns <see langword="null"/> when there is none.</param>
-    public DatabaseMigrator(WondarrDbContext context, ILogger<DatabaseMigrator> logger, Func<IBackupService?> backups, TimeSpan? backupTimeout = null)
+    /// <param name="newLibraryRoot">
+    /// The root the seeded "Music" library gets when this run creates the database
+    /// (<see cref="WondarrPaths.DefaultLibraryRoot"/>); <see langword="null"/> keeps the seeded one.
+    /// </param>
+    public DatabaseMigrator(
+        WondarrDbContext context,
+        ILogger<DatabaseMigrator> logger,
+        Func<IBackupService?> backups,
+        TimeSpan? backupTimeout = null,
+        string? newLibraryRoot = null)
     {
         ArgumentNullException.ThrowIfNull(backups);
 
@@ -55,6 +67,7 @@ public sealed partial class DatabaseMigrator
         _logger = logger;
         _backups = backups;
         _backupTimeout = backupTimeout ?? DefaultBackupTimeout;
+        _newLibraryRoot = newLibraryRoot;
     }
 
     /// <summary>The <c>user_version</c> that encodes <paramref name="version"/>, or 0 when it has no usable numeric part.</summary>
@@ -110,6 +123,12 @@ public sealed partial class DatabaseMigrator
 
         await _context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
+        // Only on a new database: an existing library's root is the user's to move.
+        if (applied.Count == 0)
+        {
+            await PlaceSeededLibraryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         var connection = _context.Database.GetDbConnection();
         var opened = connection.State != ConnectionState.Open;
         if (opened)
@@ -132,6 +151,28 @@ public sealed partial class DatabaseMigrator
             {
                 await connection.CloseAsync().ConfigureAwait(false);
             }
+        }
+    }
+
+    /// <summary>Points the seeded library at <see cref="_newLibraryRoot"/>, when one was given and differs.</summary>
+    private async Task PlaceSeededLibraryAsync(CancellationToken cancellationToken)
+    {
+        var root = _newLibraryRoot;
+        var seededRoot = SeedData.Libraries.Single(library => library.Id == SeedData.DefaultLibraryId).RootPath;
+
+        if (string.IsNullOrWhiteSpace(root) || string.Equals(root, seededRoot, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var moved = await _context.Libraries
+            .Where(library => library.Id == SeedData.DefaultLibraryId && library.RootPath == seededRoot)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(library => library.RootPath, root), cancellationToken)
+            .ConfigureAwait(false);
+
+        if (moved > 0)
+        {
+            LogSeededLibraryPlaced(root);
         }
     }
 
@@ -267,6 +308,9 @@ public sealed partial class DatabaseMigrator
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not record which Wondarr version ran the database")]
     private partial void LogVersionNotRecorded(Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "New database: the Music library's root is {Root}, under the media root")]
+    private partial void LogSeededLibraryPlaced(string root);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SQLite journal mode is {JournalMode}")]
     private partial void LogJournalMode(string journalMode);
