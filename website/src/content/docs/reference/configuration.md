@@ -15,6 +15,8 @@ Any key can be set from the environment as `APP__<SECTION>__<KEY>`, with the key
 | `server.url_base: /wondarr` | `APP__SERVER__URL_BASE=/wondarr` |
 | `soulseek.search.max_searches: 30` | `APP__SOULSEEK__SEARCH__MAX_SEARCHES=30` |
 
+The defaults below that start with `/data` live under `WONDARR_MEDIA_ROOT` instead when it is set. Unlike an `APP__` variable it locks nothing: it only changes the defaults, and a value in the file or the web UI wins.
+
 This page lists the keys you are likely to change, not every internal one.
 
 ## server

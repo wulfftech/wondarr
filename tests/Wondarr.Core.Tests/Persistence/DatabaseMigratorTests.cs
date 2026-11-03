@@ -66,4 +66,35 @@ public class DatabaseMigratorTests
         var applied = context.Database.GetAppliedMigrations();
         applied.Should().Contain(migration => migration.EndsWith("InitialCreate", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public async Task A_new_database_puts_the_Music_library_under_the_media_root()
+    {
+        using var database = new SqliteTestDatabase();
+
+        await using (var context = database.CreateContext(new FakeTimeProvider()))
+        {
+            await new DatabaseMigrator(context, NullLogger<DatabaseMigrator>.Instance, () => null, newLibraryRoot: "/storage/music")
+                .MigrateAsync(CancellationToken.None);
+        }
+
+        var roots = await database.ReadStringsAsync("SELECT root_path FROM library;");
+        roots.Should().Equal("/storage/music");
+    }
+
+    [Fact]
+    public async Task An_existing_database_keeps_its_library_root_when_the_media_root_moves()
+    {
+        using var database = new SqliteTestDatabase();
+        await database.MigrateAsync(new FakeTimeProvider());
+
+        await using (var context = database.CreateContext(new FakeTimeProvider()))
+        {
+            await new DatabaseMigrator(context, NullLogger<DatabaseMigrator>.Instance, () => null, newLibraryRoot: "/storage/music")
+                .MigrateAsync(CancellationToken.None);
+        }
+
+        var roots = await database.ReadStringsAsync("SELECT root_path FROM library;");
+        roots.Should().Equal("/data/music");
+    }
 }

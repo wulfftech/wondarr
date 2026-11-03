@@ -38,7 +38,7 @@ The keys are saved to `acoustid.client_key` and `lastfm.api_key` in `/config/con
 
 ## Your first library
 
-A library called **Music** exists from the start: root path `/data/music`, layout **Plexamp**. Change it under **Settings → Library**. The fields are:
+A library called **Music** exists from the start: root path `/data/music` (or `music` under `WONDARR_MEDIA_ROOT`, when that is set), layout **Plexamp**. Change it under **Settings → Library**. The fields are:
 
 - **Name** and **Root path**: the folder inside the container where songs are filed.
 - **Layout**: **Flat**, **Artist**, **Artist → Album** or **Plexamp**.

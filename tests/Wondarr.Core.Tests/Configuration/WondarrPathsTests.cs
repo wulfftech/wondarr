@@ -72,6 +72,48 @@ public class WondarrPathsTests
     }
 
     [Fact]
+    public void The_media_root_is_data_when_nothing_moves_it()
+    {
+        var paths = WondarrPaths.Resolve(new ConfigurationBuilder().Build(), new Hashtable());
+
+        paths.MediaRoot.Should().Be("/data");
+        paths.DefaultLibraryRoot.Should().Be("/data/music");
+        paths.MediaRootDefaults().Should().BeEmpty("the options' own defaults are the /data paths already");
+    }
+
+    [Fact]
+    public void The_media_root_variable_moves_the_library_and_download_defaults()
+    {
+        var environment = new Hashtable { ["WONDARR_MEDIA_ROOT"] = "/storage/" };
+
+        var paths = WondarrPaths.Resolve(new ConfigurationBuilder().Build(), environment);
+
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath("/storage"));
+        var under = root.TrimEnd('/', '\\');
+        paths.MediaRoot.Should().Be(root);
+        paths.DefaultLibraryRoot.Should().Be($"{under}/music");
+        paths.MediaRootDefaults().Should().BeEquivalentTo(new Dictionary<string, string?>
+        {
+            ["Soulseek:DownloadsDir"] = $"{under}/downloads/slskd",
+            ["Soulseek:IncompleteDir"] = $"{under}/downloads/slskd/incomplete",
+            ["YouTube:DownloadsDir"] = $"{under}/downloads/youtube",
+            ["Import:ContainerStagingPath"] = $"{under}/downloads/containers",
+        });
+    }
+
+    [Fact]
+    public void The_media_root_setting_wins_over_the_variable()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection([new KeyValuePair<string, string?>("MediaRoot", "/srv/from-setting")])
+            .Build();
+        var environment = new Hashtable { ["WONDARR_MEDIA_ROOT"] = "/srv/from-environment" };
+
+        WondarrPaths.Resolve(configuration, environment).MediaRoot
+            .Should().Be(Path.GetFullPath("/srv/from-setting"));
+    }
+
+    [Fact]
     public void A_compilarr_database_is_adopted_with_its_wal_and_shm_files()
     {
         using var directory = new TemporaryConfigDirectory();

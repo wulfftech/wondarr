@@ -39,6 +39,23 @@ public sealed class LibraryApiTests
     }
 
     [Fact]
+    public async Task A_new_install_with_a_media_root_starts_its_library_and_soulseek_folders_under_it()
+    {
+        using var factory = new WondarrAppFactory(new Dictionary<string, string?> { ["MediaRoot"] = "/storage" });
+        using var client = Authenticated(factory);
+
+        var library = await GetLibraryAsync(client, 1);
+        using var response = await client.GetAsync(new Uri("/api/v1/soulseek/settings", UriKind.Relative));
+        var soulseek = (JsonObject)(await ReadJsonAsync(response))!;
+
+        library["rootPath"]!.GetValue<string>().Should().Be("/storage/music");
+        soulseek["sharedFolders"]!.AsArray().Select(folder => folder!.GetValue<string>()).Should().Equal("/storage/music");
+
+        // The factory's config.yml names slskd's folders, and a folder set in the file wins.
+        soulseek["downloadsDir"]!.GetValue<string>().Should().Be(Path.Combine(factory.DataDir, "downloads", "slskd"));
+    }
+
+    [Fact]
     public async Task Reading_a_library_without_a_key_is_unauthorized()
     {
         using var factory = new WondarrAppFactory();
