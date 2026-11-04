@@ -10,6 +10,7 @@ Produced by one Claude Code cloud session that split the repository into eleven 
 - **Severity:** `critical` data loss or security hole; `high` wrong behaviour in ordinary use or a race that loses work; `medium` an edge case, a leak, or a test that cannot catch what it claims; `low` a minor defect, misleading dead code, a stale comment, or a style misstep.
 - **Confidence:** `high` the reviewer read the whole path and the scenario follows from the quoted code; `medium` the mechanism is clear but one external fact was not re-verified (a library's behaviour, a third-party tool's exact output); `low` plausible, with what would confirm it stated in the block.
 - **Lead re-verification:** the eight high findings and the mediums `api-01`, `api-02`, `api-03`, `core-search-01`, `sources-01`, `ops-01`, `ops-02`, `docs-user-02` and `docs-user-03` were checked a second time by the merging session by reading the named lines; each held.
+- **Outcome lines:** a finding that already carries `- outcome:` was re-judged by the merging session once the real `/writing-style` skill arrived. "rejected" means no work; "confirmed" and "partly confirmed" mean the finding stands as the line describes. The index table's last column repeats the tag.
 
 ## What was run
 
@@ -25,14 +26,17 @@ The 9 Core failures are not product defects. This container has Ubuntu's ffmpeg 
 
 ## About the writing-style review
 
-The request was to review the documentation against the current `/writing-style` skill. That skill was not reachable from this cloud session: it is not among the account's synced skills, the repository's `.claude/` folder is git-ignored, and the Remote Control folders on the owner's computer were not available to a cloud session. The documentation reviewers therefore worked from a rule set reconstructed from the repository's own most recent prose (CHANGELOG 0.1.9 to 0.1.16, the website pages, recent commit subjects) plus the conventions such skills usually carry. The full rule set is in the appendix at the end of this file. Rules R1 to R8 are the house style as practised and the findings under them are solid; R9 to R14 are plausible and every finding under them carries the rule id and `confidence: medium` so a session that holds the real skill can confirm or discard them in one pass. Fact findings (S1 to S4: a path, key, label, command or claim that the code contradicts) do not depend on the skill at all and are the larger part of the documentation findings.
+The request was to review the documentation against the current `/writing-style` skill. That skill was not reachable from this cloud session at first (it is not among the account's synced skills, the repository's `.claude/` folder was git-ignored, and the owner's Remote Control folders were not available), so the documentation reviewers worked from a rule set reconstructed from the repository's own prose. The owner then supplied the original skill, which is now in the repository at `.claude/skills/writing-style/SKILL.md` and reaches every checkout and cloud session.
+
+The real skill differs from the reconstruction in ways that matter. For repository prose it applies Style 1 (Default): dry, punchy, confident, short sentences and fragments, no hedging, no forward-caveating, no "not this, but this" framing, tables for technical lists. It does not ban em dashes, arrows, "e.g.", abbreviations, the passive voice or any tense, and the README's product voice is the target, not a misstep. Every style finding was therefore re-judged against the real skill and carries an `outcome:` line: 28 are rejected (no work), the spelling and grammar findings stand, `Note:` stands as forward-caveating, and the paragraph-length findings stand under "Short sentences". A further pass with the rules the reconstruction lacked found the documentation clean of hedging and forward-caveating and produced two new findings (`style-01`, `style-02`). The mapping from the reconstructed rules to the real skill is in the appendix. Fact findings (S1 to S4) never depended on the skill.
 
 ## The short version
 
 - **No critical finding.** Authentication, API-key handling, secret masking, process handling, injection surfaces, checksum verification of every bundled download and the CI/release permissions all checked out and are listed under "Verified and not reported" in each area's coverage notes, so the next reviewer need not repeat them.
 - **Eight high findings.** Four in code: a reference library whose root path is edited strands every owned song's file path (`core-data-01`); a malformed Deezer ISRC aborts a whole import-list sync and repeats every interval (`core-external-01`); the interactive Soulseek search re-runs on every queue push because of a shared query key (`frontend-01`); the YouTube settings page cannot save a sample rate and shows a stored one as "Keep" (`frontend-02`). Four in docs: a UI path that does not exist (`docs-user-01`), a "binding" repository layout with 14 missing paths (`docs-internal-01`), an `.env.example` whose variable names nothing reads (`docs-internal-02`), and a broken tool path in a gate schema (`docs-internal-03`).
 - **The medium findings cluster** around three themes: the reference-library state machine (rows left `Identified` with no song, releases that ignore a second copy, an unreadable file that keeps its song), restart and failure recovery in the import pipeline (in-place upgrades, the Opus rename, cross-device moves, the recycle-bin clock), and the gap between the architecture documents and the code (tables, endpoints, commands, config keys and jobs that were designed but not built, or built differently).
-- **The low findings** are mostly style missteps in the older internal documents (em-dashes, arrows, abbreviations, paragraph-length bullets), small script and workflow defects, and test gaps the reviewers named next to the defect they would have caught.
+- **The low findings** are small script and workflow defects, test gaps the reviewers named next to the defect they would have caught, spelling and grammar slips, the paragraph-length problems in the older architecture documents, and 28 style findings that the real skill does not support and that are marked rejected so nobody spends time on them.
+- **One decision the skill raises** (`style-02`): its code-comment rules (lowercase, one line, no docstrings) and the repository's practice (XML doc summaries on every public member, sentence-case WHY comments) disagree across the whole codebase. That is the owner's call, not a worker's.
 
 ## Suggested order
 
@@ -43,16 +47,17 @@ The request was to review the documentation against the current `/writing-style`
 5. `api-01`, `api-02`, `api-03`, `api-05`; `sources-01`, `sources-02`; `core-search-01`, `core-search-02`.
 6. `ops-01`, `ops-02`, `ops-03`, `ops-11` (release gate coverage, the hard-coded healthcheck port, the smoke-test leak, the TrueNAS PUID question).
 7. The documentation fact findings (`docs-user-01` to `docs-user-12`, `docs-internal-01` to `docs-internal-28`): most are one-line edits; `REPO_LAYOUT.md`, `CONFIG_EXAMPLES.md`, ARCHITECTURE §5.4 to §5.6 and `.env.example` want a rewrite from the code rather than a patch.
-8. The style findings, once the real `/writing-style` skill has confirmed the R9 to R14 rules.
+8. The style findings that survived re-judgement: `docs-user-06`, `-26`, `-27`, `-28`, `docs-internal-30` (the `Note:` only), `-42`, `-43`, `-44`, `style-01`. Skip every finding whose outcome line starts with "rejected". `style-02` goes to the owner as a question.
 
 ## Summary tables and index
 
-Total findings: 141 (critical 0, high 8, medium 45, low 88)
+Total findings: 143 (critical 0, high 8, medium 45, low 90); 28 of the low style findings were rejected on re-judgement against the real skill and need no work, leaving 115 open.
 
 | Area | critical | high | medium | low | total |
 |---|---|---|---|---|---|
 | api | 0 | 0 | 3 | 3 | 6 |
 | tests | 0 | 0 | 0 | 2 | 2 |
+| style | 0 | 0 | 0 | 2 | 2 |
 | core-import | 0 | 0 | 4 | 6 | 10 |
 | core-data | 0 | 1 | 2 | 2 | 5 |
 | core-search | 0 | 0 | 2 | 5 | 7 |
@@ -63,149 +68,151 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 | docs-user | 0 | 1 | 5 | 24 | 30 |
 | docs-internal | 0 | 3 | 18 | 24 | 45 |
 
-| ID | Sev | Conf | Category | Claim | Where |
-|---|---|---|---|---|---|
-| core-data-01 | high | high | data-loss | Editing a reference library's rootPath strands every owned song's file path at the old root | `src/Wondarr.Core/References/ReferenceLibraryService.cs:325` |
-| core-external-01 | high | medium | correctness | Unvalidated Deezer ISRC reaches MusicBrainzClient and aborts a whole list run | `src/Wondarr.Core/Identity/IdentityResolver.cs:473` |
-| frontend-01 | high | high | correctness | Every `['queue']` invalidation re-runs the interactive Soulseek search | `frontend/src/api/queue.ts:146` |
-| frontend-02 | high | high | correctness | YouTube settings cannot save a 44.1/48 kHz sample rate, and show a stored one as "Keep" | `frontend/src/pages/settings/YouTubeSettingsPage.tsx:105` |
-| docs-user-01 | high | high | stale-doc | adding-songs.md sends the reader to "Activity → Tasks", which does not exist | `website/src/content/docs/library/adding-songs.md:53` |
-| docs-internal-01 | high | high | stale-doc | REPO_LAYOUT.md calls its names binding, but 14 of its paths do not exist | `docs/build/REPO_LAYOUT.md:3` |
-| docs-internal-02 | high | high | stale-doc | .env.example names secrets that nothing in the repository reads | `.env.example:3` |
-| docs-internal-03 | high | high | stale-doc | Phase 4 schema names a tool path `tools/the fake yt-dlp` that does not exist | `tests/gate/phase4-scenario.schema.md:3` |
-| api-01 | medium | high | security | Two slow POST /login connections lock every user out of login indefinitely | `src/Wondarr.Api/Extensions/LoginRateLimiting.cs:56` |
-| api-02 | medium | high | security | `auth: none` serves the API key (/initialize.json) to any Host, so DNS rebinding reads it | `src/Wondarr.Api/Authentication/UiAuthorizationPolicyProvider.cs:47` |
-| api-03 | medium | high | correctness | `?page=2147483647` is a 500 on /api/v1/log and returns page 1 on the other lists | `src/Wondarr.Api/Paging/PagingResource.cs:57` |
-| core-import-01 | medium | high | data-loss | Restart recovery never finds an in-place upgrade, so the upgraded file is re-imported over | `src/Wondarr.Core/Importing/ImportRecovery.cs:151` |
-| core-import-02 | medium | high | correctness | The Opus-to-.ogg rename is not saved before verification, so a shutdown strands the download | `src/Wondarr.Core/Importing/ImportService.cs:387` |
-| core-import-03 | medium | medium | data-loss | A move whose source cannot be unlinked leaves an unrecorded copy in the library | `src/Wondarr.Core/Organizer/FilePlacer.cs:339` |
-| core-import-04 | medium | medium | data-loss | A recycled file whose time stamp could not be set is deleted on the next Housekeeping, not after the retention | `src/Wondarr.Core/Organizer/RecycleBin.cs:154` |
-| core-data-02 | medium | high | correctness | Deleting a song leaves its reference row `Identified` with no song; the file is never offered or identified again | `src/Wondarr.Core/Persistence/DomainModelConfiguration.cs:413` |
-| core-data-03 | medium | high | correctness | Skip, re-resolve and re-identification release a song without following its second Identified copy | `src/Wondarr.Core/References/ReferenceMatchService.cs:678` |
-| core-search-01 | medium | high | correctness | SoulseekFilenameParser throws OverflowException on a 10+ digit dash segment | `src/Wondarr.Core/Sources/SoulseekFilenameParser.cs:398` |
-| core-search-02 | medium | high | correctness | Tier early-stop ignores peer reputation, so YouTube is skipped when every Soulseek hit is on cooldown | `src/Wondarr.Core/Searching/SongSearchService.cs:537` |
-| core-external-02 | medium | high | correctness | The all-zero GUID passes LookupInput but crashes the resolver with ArgumentException | `src/Wondarr.Core/Identity/LookupInput.cs:110` |
-| sources-01 | medium | high | correctness | NzbFileList's yEnc regex timeout is uncaught and aborts the whole song search | `src/Wondarr.Sources.Torznab/Parsing/NzbFileList.cs:40` |
-| sources-02 | medium | medium | data-loss | A listed NZB file SABnzbd renamed by sanitising is deleted and re-grabbed, never blocklisted | `src/Wondarr.Sources.Torznab/Searching/IndexerSourceProvider.Grab.cs:845` |
-| frontend-03 | medium | high | correctness | Removing a queue item with blocklist does not refresh the blocklist shown beside it | `frontend/src/api/queue.ts:130` |
-| frontend-04 | medium | high | correctness | Deleting the open library leaves Settings → Library with no panel shown | `frontend/src/pages/settings/LibrarySettingsPage.tsx:645` |
-| frontend-05 | medium | medium | correctness | `['songs']` prefix invalidation refetches the song page's external lookups on every library change | `frontend/src/api/songs.ts:109` |
-| frontend-11 | medium | high | test-gap | "saves the monitored flag" test does not assert the flag that was sent | `frontend/src/pages/SongPage.test.tsx:750` |
-| ops-01 | medium | high | test-gap | Release tags move on Phase 0/1 only; the Phase 2–7 gates are not in the promote chain | `.github/workflows/release.yml:33` |
-| ops-02 | medium | high | correctness | HEALTHCHECK hardcodes port 1077, so a changed `server.port` makes the container permanently unhealthy | `docker/Dockerfile:192` |
-| ops-03 | medium | high | resource-leak | smoke-test.sh cleanup leaves the Phase 7 container running and the p6/p7 work trees behind on failure | `scripts/smoke-test.sh:69` |
-| ops-11 | medium | low | correctness | TrueNAS template never sets PUID/PGID; it relies on the apps library injecting them from `run_as` | `packaging/truenas/wondarr/templates/docker-compose.yaml:7` |
-| docs-user-02 | medium | high | stale-doc | install.md says Wondarr takes no backup before an upgrade; it has since 0.1.1 | `website/src/content/docs/getting-started/install.md:154` |
-| docs-user-03 | medium | high | stale-doc | install.md says `:latest` follows every release; the workflow moves it only for the highest stable release | `website/src/content/docs/getting-started/install.md:152` |
-| docs-user-04 | medium | high | stale-doc | first-run.md and the README say Prowlarr needs Wondarr's API key; the API page says Wondarr is not a Prowlarr app | `website/src/content/docs/getting-started/first-run.md:28` |
-| docs-user-05 | medium | high | stale-doc | first-run.md's navigation list is missing the Updates item | `website/src/content/docs/getting-started/first-run.md:6` |
-| docs-user-06 | medium | high | style | README "AI disclaimer" paragraph has four typos | `README.md:13` |
-| docs-internal-04 | medium | high | stale-doc | ADR-0011 says scripts/worker.py "stays in the repo"; it is git-ignored | `docs/adr/0011-agentic-build-workflow.md:18` |
-| docs-internal-05 | medium | high | stale-doc | ADR index does not reflect the amendments of ADR-0011 | `docs/adr/README.md:17` |
-| docs-internal-06 | medium | high | stale-doc | ADR-0003 still decides YoutubeDLSharp and a TagLib# fallback; neither is used | `docs/adr/0003-stack-dotnet-react.md:9` |
-| docs-internal-07 | medium | high | stale-doc | STACK.md says self-contained trimmed publish; the image is framework-dependent | `docs/architecture/STACK.md:31` |
-| docs-internal-08 | medium | high | stale-doc | DEPLOYMENT.md's image-contents table omits yt-dlp | `docs/architecture/DEPLOYMENT.md:29` |
-| docs-internal-09 | medium | high | stale-doc | Plex playlists are not written through `/playlists/upload` | `docs/architecture/STACK.md:28` |
-| docs-internal-10 | medium | high | stale-doc | ARCHITECTURE §5.4 lists three tables that do not exist and omits four that do | `docs/architecture/ARCHITECTURE.md:109` |
-| docs-internal-11 | medium | high | stale-doc | ARCHITECTURE §5.6 sketch names endpoints and commands that are not in the API | `docs/architecture/ARCHITECTURE.md:179` |
-| docs-internal-12 | medium | medium | stale-doc | ARCHITECTURE §5.5 lists a weekly "Metadata refresh" job that does not exist | `docs/architecture/ARCHITECTURE.md:143` |
-| docs-internal-13 | medium | high | stale-doc | QUALITY_DEFINITIONS output-policy table is the version-1 shape and names a quality that does not exist | `docs/architecture/QUALITY_DEFINITIONS.md:29` |
-| docs-internal-14 | medium | high | stale-doc | CONFIG_EXAMPLES.md documents config.yml keys and sections that do not exist | `docs/architecture/CONFIG_EXAMPLES.md:35` |
-| docs-internal-15 | medium | medium | stale-doc | LIBRARY_OUTPUT describes artist.jpg, per-grab output overrides and an ID3v2.3 option that are not built | `docs/architecture/LIBRARY_OUTPUT.md:63` |
-| docs-internal-16 | medium | high | stale-doc | DISTRIBUTION.md contradicts itself on Docker Hub and GitHub metadata | `docs/build/DISTRIBUTION.md:5` |
-| docs-internal-17 | medium | high | stale-doc | tests/fixtures/README.md draws a golden-suite layout that does not exist | `tests/fixtures/README.md:9` |
-| docs-internal-18 | medium | high | stale-doc | CODING_STANDARDS names tooling the build does not use and a release step no workflow runs | `docs/build/CODING_STANDARDS.md:16` |
-| docs-internal-19 | medium | high | stale-doc | Architecture docs and ADRs reference numbered documents that are not in the repository | `docs/architecture/ARCHITECTURE.md:3` |
-| docs-internal-20 | medium | high | stale-doc | smoke-test.sh header omits the Phase 5 gate it runs and repeats a parenthetical | `scripts/smoke-test.sh:2` |
-| docs-internal-21 | medium | high | stale-doc | FakeSlskd README does not describe the InnerTube, Plex and yt-dlp stubs the gates depend on | `tools/FakeSlskd/README.md:1` |
-| api-04 | low | high | stale-doc | `UseForwardedHeaders()` is a no-op, but the comment and the docs say proxy headers can be processed | `src/Wondarr.Api/Program.cs:93` |
-| api-05 | low | high | security | slskd webhook's "came through a proxy" check looks at one header, not the shared proxy-header list | `src/Wondarr.Api/Slskd/SlskdWebhookController.cs:198` |
-| api-06 | low | high | stale-doc | OpenAPI snapshot test comment says /api/v1/system/status does not exist yet | `tests/Wondarr.Api.Tests/OpenApiSnapshotTests.cs:34` |
-| tests-01 | low | high | test-gap | Nine ffmpeg-gated tests fail on a host whose ffmpeg is not the image's 9.0.2 | `tests/Wondarr.Core.Tests/Media/DamagedMp3.cs:18` |
-| tests-02 | low | high | test-gap | TagWriterSafetyTests.Leaves_a_read_only_file_untouched fails when the suite runs as root | `tests/Wondarr.Core.Tests/Tagging/TagWriterSafetyTests.cs:17` |
-| core-import-05 | low | medium | concurrency | Removing a Completed queue item can race the import that already started on it | `src/Wondarr.Core/Importing/QueueActions.cs:110` |
-| core-import-06 | low | high | correctness | A download whose decode check always times out is deferred every 15 minutes for ever | `src/Wondarr.Core/Importing/ImportService.cs:484` |
-| core-import-07 | low | high | correctness | Rejecting a converted download with clean_leftover_folders off leaves an empty grab folder behind | `src/Wondarr.Core/Importing/ImportService.cs:360` |
-| core-import-08 | low | high | style | CompactExecutor.CleanUpFolderAsync walks the folder recursively for a value it never uses | `src/Wondarr.Core/Compaction/CompactExecutor.cs:1061` |
-| core-import-09 | low | high | test-gap | No test covers restart recovery of an upgrade that landed at the old file's path | `tests/Wondarr.Core.Tests/Importing/QueueTrackerTests.cs:445` |
-| core-import-10 | low | high | test-gap | No test covers a cancellation between the Opus-to-.ogg rename and the first save | `tests/Wondarr.Core.Tests/Importing/ImportServiceTranscodeTests.cs:104` |
-| core-data-04 | low | high | correctness | A file that changes and becomes unreadable keeps owning its song for good | `src/Wondarr.Core/References/ReferenceScanner.cs:256` |
-| core-data-05 | low | high | stale-doc | Docs and XML docs say adopt "moves/renames" the user's files; the adopter copies them | `docs/architecture/LIBRARY_OUTPUT.md:95` |
-| core-search-03 | low | high | correctness | Bundler's "busy" filter disagrees with HasActiveForSongAsync, leaving a stray accepted record on the lead song's run | `src/Wondarr.Core/Searching/ContainerBundler.cs:69` |
-| core-search-04 | low | high | correctness | The attempt budget is per GrabBestAsync call, so one run can make up to 10 grab attempts with max_auto_attempts_per_search = 4 | `src/Wondarr.Core/Searching/SongSearchService.cs:1047` |
-| core-search-05 | low | medium | correctness | Push grabs (JudgeAsync) bypass max_active_downloads and the slot gate | `src/Wondarr.Core/Searching/SongSearchService.cs:413` |
-| core-search-06 | low | medium | correctness | Missing Search selects songs that are already Completed/Importing, spending batch places and slot waits on them | `src/Wondarr.Core/Searching/MissingSearchCommandHandler.cs:164` |
-| core-search-07 | low | medium | correctness | A missed Quartz fire is skipped, not run late | `src/Wondarr.Core/Jobs/ScheduledTaskService.cs:94` |
-| core-external-03 | low | medium | correctness | A cancelled waiter at the spacing gate leaves a dead slot that delays every later caller | `src/Wondarr.Core/Metadata/Http/RequestSpacingGate.cs:38` |
-| core-external-04 | low | high | correctness | Five spacing handlers are registered without a provider key, so fail-fast errors say "unknown" | `src/Wondarr.Core/Metadata/MetadataServiceCollectionExtensions.cs:215` |
-| core-external-05 | low | low | security | Per-list Last.fm API keys are never registered with the redactor, and `api_key=` escapes the cleanser | `src/Wondarr.Core/ImportLists/ImportListService.cs:699` |
-| core-external-06 | low | high | stale-doc | `ImportListItemJson.ReadLine` doc promises a fallback the code does not have | `src/Wondarr.Core/ImportLists/PasteListService.cs:797` |
-| sources-03 | low | medium | correctness | A Soulseek username or password that looks like YAML null is rendered unquoted | `src/Wondarr.Sources.Slskd/SlskdConfigRenderer.cs:45` |
-| sources-04 | low | high | correctness | YouTube ReadOnlyFields names nested ytdlp keys in a spelling the UI never matches | `src/Wondarr.Sources.YouTube/YouTubeSettingsService.cs:518` |
-| sources-05 | low | medium | correctness | A `%` in youtube.downloads_dir is read by yt-dlp as an output-template directive | `src/Wondarr.Sources.YouTube/YtDlpRunner.cs:367` |
-| sources-06 | low | low | concurrency | A settings restart that outlives the shutdown budget can leave a freshly launched slskd behind | `src/Wondarr.Sources.Slskd/SlskdHost.cs:301` |
-| frontend-06 | low | high | correctness | The Library page's Artist filter is never invalidated | `frontend/src/api/songs.ts:40` |
-| frontend-07 | low | high | correctness | Library filters desync from the URL when the route changes without a remount | `frontend/src/pages/LibraryPage.tsx:307` |
-| frontend-08 | low | high | stale-doc | Two "keyed so a refetch resets the form" comments describe behaviour the key does not give | `frontend/src/pages/settings/LibrarySettingsPage.tsx:327` |
-| frontend-09 | low | high | correctness | `apiRequest` in the API client is dead code with a misleading contract | `frontend/src/api/client.ts:43` |
-| frontend-10 | low | high | correctness | Schema queries are nested under list keys, so every list change refetches the "never stale" schema | `frontend/src/api/importLists.ts:29` |
-| frontend-12 | low | low | correctness | Add songs rows keyed by `mbRecordingId` collide when the id is an empty string | `frontend/src/pages/AddSongsPage.tsx:227` |
-| ops-04 | low | high | stale-doc | ci.yml labels the smoke step "Phase 0 to Phase 3" but the script's defaults run Phases 0–7 | `.github/workflows/ci.yml:108` |
-| ops-05 | low | high | stale-doc | ci.yml still says the GHCR package is private; the release smoke job and every template pull it anonymously | `.github/workflows/ci.yml:97` |
-| ops-06 | low | high | correctness | `.gitignore` ignores every `config/` and `data/` directory anywhere in the tree, not just the runtime ones | `.gitignore:8` |
-| ops-07 | low | high | test-gap | check-notice.py accepts any backticked mention anywhere in NOTICE.md as "listed", and never scans `tests/` | `scripts/check-notice.py:20` |
-| ops-08 | low | medium | correctness | remote-run.sh aborts after uploading the tree when the last listed file is deleted locally | `scripts/remote-run.sh:26` |
-| ops-09 | low | high | correctness | safe-merge.sh runs the full (possibly remote) check for an already-merged branch and then dies at `git commit` | `scripts/safe-merge.sh:256` |
-| ops-10 | low | high | correctness | The secondary-container wait loops in smoke-test.sh never fail on `unhealthy` or timeout | `scripts/smoke-test.sh:243` |
-| ops-12 | low | low | correctness | The app and its child processes run as uid 1000 with `HOME=/root`; only slskd has a workaround | `docker/root/etc/s6-overlay/s6-rc.d/svc-wondarr/run:9` |
-| docs-user-07 | low | high | stale-doc | first-run.md lists four album policies; the UI and layouts page have five | `website/src/content/docs/getting-started/first-run.md:46` |
-| docs-user-08 | low | high | stale-doc | Two bold UI labels differ from what the UI shows | `website/src/content/docs/library/import-lists.md:43` |
-| docs-user-09 | low | high | stale-doc | Internal "plan" and "Phase" references survive in the README, CONTRIBUTING and the changelog | `README.md:84` |
-| docs-user-10 | low | high | stale-doc | CONTRIBUTING's repository map lists three of the sixteen scripts as if they were all | `CONTRIBUTING.md:44` |
-| docs-user-11 | low | high | stale-doc | CHANGELOG preamble still says "Semantic Versioning once released" | `CHANGELOG.md:3` |
-| docs-user-12 | low | low | stale-doc | soulseek.md requires slskd 0.26.0 for external mode, but nothing in the code checks a version | `website/src/content/docs/sources/soulseek.md:86` |
-| docs-user-13 | low | high | style | Navigation paths unbolded in the changelog (R4), 10 instances | `CHANGELOG.md:57` |
-| docs-user-14 | low | high | style | Navigation paths unbolded on three website pages (R4), 5 instances | `website/src/content/docs/library/import-lists.md:22` |
-| docs-user-15 | low | medium | style | README navigation paths unbolded (R4), 8 instances | `README.md:63` |
-| docs-user-16 | low | medium | style | Em-dashes in README and CONTRIBUTING prose (R9), 8 instances | `README.md:7` |
-| docs-user-17 | low | medium | style | Em-dashes in website and changelog prose (R9), 4 instances | `website/src/content/docs/guides/end-to-end.md:26` |
-| docs-user-18 | low | high | style | Arrow chain and "e.g." in CONTRIBUTING (R10, R7) | `CONTRIBUTING.md:54` |
-| docs-user-19 | low | high | style | "and so on" on two library pages (R7) | `website/src/content/docs/library/adding-songs.md:10` |
-| docs-user-20 | low | high | style | Filler words "simply" and "just" (R1), 3 instances | `website/src/content/docs/library/managing-the-library.md:57` |
-| docs-user-21 | low | medium | style | Future tense where the house style uses the present (R1), 5 instances | `website/src/content/docs/reference/configuration.md:74` |
-| docs-user-22 | low | medium | style | Agentless passives (R5), 3 instances | `website/src/content/docs/getting-started/first-run.md:55` |
-| docs-user-23 | low | medium | style | Parentheticals that carry a whole clause (R11), about 20 on the site | `website/src/content/docs/getting-started/first-run.md:28` |
-| docs-user-24 | low | medium | style | Headings that are sentences or imperatives rather than noun phrases (R13), 12 instances | `website/src/content/docs/sources/youtube.md:8` |
-| docs-user-25 | low | medium | style | Unexplained abbreviations MBID, CBR and VBR (R12) | `website/src/content/docs/library/import-lists.md:25` |
-| docs-user-26 | low | high | style | "Slskd" capitalised (R8) | `website/src/content/docs/reference/troubleshooting.md:83` |
-| docs-user-27 | low | high | style | "a 60 second window" needs a hyphen (R8) | `website/src/content/docs/library/quality-and-upgrades.md:69` |
-| docs-user-28 | low | medium | style | "dismissable" (R8) | `website/src/content/docs/sources/plex.md:34` |
-| docs-user-29 | low | medium | style | "Configuration → feedback" link text uses an arrow for a section reference (R10) | `CHANGELOG.md:89` |
-| docs-user-30 | low | low | style | DockSTARTer README closes with "please visit our support page" (R1, R14) | `packaging/dockstarter/wondarr/README.md:26` |
-| docs-internal-22 | low | high | stale-doc | MATCHING_ENGINE §6.2 names the container limit `max_container_size`; the key is `search.max_container_size_mb` | `docs/architecture/MATCHING_ENGINE.md:40` |
-| docs-internal-23 | low | high | stale-doc | The Singles pseudo-album is titled "Singles", not "{Artist} – Singles" | `docs/adr/0007-album-layer-and-fewest-albums-policy.md:9` |
-| docs-internal-24 | low | high | stale-doc | ARCHITECTURE §5.3 and §5.6 name the import-list policies differently | `docs/architecture/ARCHITECTURE.md:87` |
-| docs-internal-25 | low | medium | stale-doc | ADR-0010 lists a `calendar` endpoint that was never built | `docs/adr/0010-arr-conventions-and-port.md:9` |
-| docs-internal-26 | low | high | stale-doc | ARCHITECTURE §5.1 diagram shows clients and sources ADR-0009 puts on the backlog | `docs/architecture/ARCHITECTURE.md:28` |
-| docs-internal-27 | low | high | stale-doc | phase2-scenario.py's usage omits the --reserve switch phase4-scenario.py relies on | `scripts/phase2-scenario.py:20` |
-| docs-internal-28 | low | high | stale-doc | STACK.md carries evaluation notes that were settled long ago | `docs/architecture/STACK.md:24` |
-| docs-internal-29 | low | high | style | R7 "e.g." and "etc." in finished prose (ARCHITECTURE, LIBRARY_OUTPUT, DEPLOYMENT, CONFIG_EXAMPLES, fixtures README) | `docs/architecture/ARCHITECTURE.md:56` |
-| docs-internal-30 | low | high | style | R1 filler words ("simply", "just", "Note:") | `docs/architecture/LIBRARY_OUTPUT.md:12` |
-| docs-internal-31 | low | medium | style | R2 American spellings in prose ("catalog", "organize", "organizer") | `docs/architecture/ARCHITECTURE.md:149` |
-| docs-internal-32 | low | high | style | R3 "~" for "about" | `docs/architecture/STACK.md:25` |
-| docs-internal-33 | low | medium | style | R6/R13 rhetorical-question heading and R14 "we" in MATCHING_ENGINE | `docs/architecture/LIBRARY_OUTPUT.md:14` |
-| docs-internal-34 | low | medium | style | R9 em dashes as sentence breaks in ARCHITECTURE.md (24) | `docs/architecture/ARCHITECTURE.md:34` |
-| docs-internal-35 | low | medium | style | R9 em dashes as sentence breaks in DEPLOYMENT.md (27) | `docs/architecture/DEPLOYMENT.md:50` |
-| docs-internal-36 | low | medium | style | R9 em dashes as sentence breaks in LIBRARY_OUTPUT.md (31) | `docs/architecture/LIBRARY_OUTPUT.md:34` |
-| docs-internal-37 | low | medium | style | R9 em dashes as sentence breaks in MATCHING_ENGINE.md (21) | `docs/architecture/MATCHING_ENGINE.md:37` |
-| docs-internal-38 | low | medium | style | R9 em dashes in DISTRIBUTION.md (12) and the smaller files | `docs/build/DISTRIBUTION.md:160` |
-| docs-internal-39 | low | medium | style | R10 arrows and "X → Y → Z" chains in prose | `docs/architecture/ARCHITECTURE.md:53` |
-| docs-internal-40 | low | medium | style | R12 abbreviations the reader is never given (MB, LB, CAA, YT, sr, ToS, RG2) | `docs/architecture/ARCHITECTURE.md:30` |
-| docs-internal-41 | low | medium | style | R4 UI labels not bold and a ">" navigation path | `docs/architecture/MATCHING_ENGINE.md:74` |
-| docs-internal-42 | low | medium | style | R11/R13 paragraph-length bullets and nested parentheses in ARCHITECTURE.md | `docs/architecture/ARCHITECTURE.md:51` |
-| docs-internal-43 | low | medium | style | R11/R13 paragraph-length bullets and nested parentheses in MATCHING_ENGINE.md | `docs/architecture/MATCHING_ENGINE.md:36` |
-| docs-internal-44 | low | medium | style | R11/R13 paragraph-length bullets and nested parentheses in LIBRARY_OUTPUT.md and DEPLOYMENT.md | `docs/architecture/LIBRARY_OUTPUT.md:34` |
-| docs-internal-45 | low | medium | style | R5 agentless passives in ARCHITECTURE.md and LIBRARY_OUTPUT.md | `docs/architecture/ARCHITECTURE.md:34` |
+| ID | Sev | Conf | Category | Claim | Where | Re-judged |
+|---|---|---|---|---|---|---|
+| core-data-01 | high | high | data-loss | Editing a reference library's rootPath strands every owned song's file path at the old root | `src/Wondarr.Core/References/ReferenceLibraryService.cs:325` |  |
+| core-external-01 | high | medium | correctness | Unvalidated Deezer ISRC reaches MusicBrainzClient and aborts a whole list run | `src/Wondarr.Core/Identity/IdentityResolver.cs:473` |  |
+| frontend-01 | high | high | correctness | Every `['queue']` invalidation re-runs the interactive Soulseek search | `frontend/src/api/queue.ts:146` |  |
+| frontend-02 | high | high | correctness | YouTube settings cannot save a 44.1/48 kHz sample rate, and show a stored one as "Keep" | `frontend/src/pages/settings/YouTubeSettingsPage.tsx:105` |  |
+| docs-user-01 | high | high | stale-doc | adding-songs.md sends the reader to "Activity → Tasks", which does not exist | `website/src/content/docs/library/adding-songs.md:53` |  |
+| docs-internal-01 | high | high | stale-doc | REPO_LAYOUT.md calls its names binding, but 14 of its paths do not exist | `docs/build/REPO_LAYOUT.md:3` |  |
+| docs-internal-02 | high | high | stale-doc | .env.example names secrets that nothing in the repository reads | `.env.example:3` |  |
+| docs-internal-03 | high | high | stale-doc | Phase 4 schema names a tool path `tools/the fake yt-dlp` that does not exist | `tests/gate/phase4-scenario.schema.md:3` |  |
+| api-01 | medium | high | security | Two slow POST /login connections lock every user out of login indefinitely | `src/Wondarr.Api/Extensions/LoginRateLimiting.cs:56` |  |
+| api-02 | medium | high | security | `auth: none` serves the API key (/initialize.json) to any Host, so DNS rebinding reads it | `src/Wondarr.Api/Authentication/UiAuthorizationPolicyProvider.cs:47` |  |
+| api-03 | medium | high | correctness | `?page=2147483647` is a 500 on /api/v1/log and returns page 1 on the other lists | `src/Wondarr.Api/Paging/PagingResource.cs:57` |  |
+| core-import-01 | medium | high | data-loss | Restart recovery never finds an in-place upgrade, so the upgraded file is re-imported over | `src/Wondarr.Core/Importing/ImportRecovery.cs:151` |  |
+| core-import-02 | medium | high | correctness | The Opus-to-.ogg rename is not saved before verification, so a shutdown strands the download | `src/Wondarr.Core/Importing/ImportService.cs:387` |  |
+| core-import-03 | medium | medium | data-loss | A move whose source cannot be unlinked leaves an unrecorded copy in the library | `src/Wondarr.Core/Organizer/FilePlacer.cs:339` |  |
+| core-import-04 | medium | medium | data-loss | A recycled file whose time stamp could not be set is deleted on the next Housekeeping, not after the retention | `src/Wondarr.Core/Organizer/RecycleBin.cs:154` |  |
+| core-data-02 | medium | high | correctness | Deleting a song leaves its reference row `Identified` with no song; the file is never offered or identified again | `src/Wondarr.Core/Persistence/DomainModelConfiguration.cs:413` |  |
+| core-data-03 | medium | high | correctness | Skip, re-resolve and re-identification release a song without following its second Identified copy | `src/Wondarr.Core/References/ReferenceMatchService.cs:678` |  |
+| core-search-01 | medium | high | correctness | SoulseekFilenameParser throws OverflowException on a 10+ digit dash segment | `src/Wondarr.Core/Sources/SoulseekFilenameParser.cs:398` |  |
+| core-search-02 | medium | high | correctness | Tier early-stop ignores peer reputation, so YouTube is skipped when every Soulseek hit is on cooldown | `src/Wondarr.Core/Searching/SongSearchService.cs:537` |  |
+| core-external-02 | medium | high | correctness | The all-zero GUID passes LookupInput but crashes the resolver with ArgumentException | `src/Wondarr.Core/Identity/LookupInput.cs:110` |  |
+| sources-01 | medium | high | correctness | NzbFileList's yEnc regex timeout is uncaught and aborts the whole song search | `src/Wondarr.Sources.Torznab/Parsing/NzbFileList.cs:40` |  |
+| sources-02 | medium | medium | data-loss | A listed NZB file SABnzbd renamed by sanitising is deleted and re-grabbed, never blocklisted | `src/Wondarr.Sources.Torznab/Searching/IndexerSourceProvider.Grab.cs:845` |  |
+| frontend-03 | medium | high | correctness | Removing a queue item with blocklist does not refresh the blocklist shown beside it | `frontend/src/api/queue.ts:130` |  |
+| frontend-04 | medium | high | correctness | Deleting the open library leaves Settings → Library with no panel shown | `frontend/src/pages/settings/LibrarySettingsPage.tsx:645` |  |
+| frontend-05 | medium | medium | correctness | `['songs']` prefix invalidation refetches the song page's external lookups on every library change | `frontend/src/api/songs.ts:109` |  |
+| frontend-11 | medium | high | test-gap | "saves the monitored flag" test does not assert the flag that was sent | `frontend/src/pages/SongPage.test.tsx:750` |  |
+| ops-01 | medium | high | test-gap | Release tags move on Phase 0/1 only; the Phase 2–7 gates are not in the promote chain | `.github/workflows/release.yml:33` |  |
+| ops-02 | medium | high | correctness | HEALTHCHECK hardcodes port 1077, so a changed `server.port` makes the container permanently unhealthy | `docker/Dockerfile:192` |  |
+| ops-03 | medium | high | resource-leak | smoke-test.sh cleanup leaves the Phase 7 container running and the p6/p7 work trees behind on failure | `scripts/smoke-test.sh:69` |  |
+| ops-11 | medium | low | correctness | TrueNAS template never sets PUID/PGID; it relies on the apps library injecting them from `run_as` | `packaging/truenas/wondarr/templates/docker-compose.yaml:7` |  |
+| docs-user-02 | medium | high | stale-doc | install.md says Wondarr takes no backup before an upgrade; it has since 0.1.1 | `website/src/content/docs/getting-started/install.md:154` |  |
+| docs-user-03 | medium | high | stale-doc | install.md says `:latest` follows every release; the workflow moves it only for the highest stable release | `website/src/content/docs/getting-started/install.md:152` |  |
+| docs-user-04 | medium | high | stale-doc | first-run.md and the README say Prowlarr needs Wondarr's API key; the API page says Wondarr is not a Prowlarr app | `website/src/content/docs/getting-started/first-run.md:28` |  |
+| docs-user-05 | medium | high | stale-doc | first-run.md's navigation list is missing the Updates item | `website/src/content/docs/getting-started/first-run.md:6` |  |
+| docs-user-06 | medium | high | style | README "AI disclaimer" paragraph has four typos | `README.md:13` | confirmed |
+| docs-internal-04 | medium | high | stale-doc | ADR-0011 says scripts/worker.py "stays in the repo"; it is git-ignored | `docs/adr/0011-agentic-build-workflow.md:18` |  |
+| docs-internal-05 | medium | high | stale-doc | ADR index does not reflect the amendments of ADR-0011 | `docs/adr/README.md:17` |  |
+| docs-internal-06 | medium | high | stale-doc | ADR-0003 still decides YoutubeDLSharp and a TagLib# fallback; neither is used | `docs/adr/0003-stack-dotnet-react.md:9` |  |
+| docs-internal-07 | medium | high | stale-doc | STACK.md says self-contained trimmed publish; the image is framework-dependent | `docs/architecture/STACK.md:31` |  |
+| docs-internal-08 | medium | high | stale-doc | DEPLOYMENT.md's image-contents table omits yt-dlp | `docs/architecture/DEPLOYMENT.md:29` |  |
+| docs-internal-09 | medium | high | stale-doc | Plex playlists are not written through `/playlists/upload` | `docs/architecture/STACK.md:28` |  |
+| docs-internal-10 | medium | high | stale-doc | ARCHITECTURE §5.4 lists three tables that do not exist and omits four that do | `docs/architecture/ARCHITECTURE.md:109` |  |
+| docs-internal-11 | medium | high | stale-doc | ARCHITECTURE §5.6 sketch names endpoints and commands that are not in the API | `docs/architecture/ARCHITECTURE.md:179` |  |
+| docs-internal-12 | medium | medium | stale-doc | ARCHITECTURE §5.5 lists a weekly "Metadata refresh" job that does not exist | `docs/architecture/ARCHITECTURE.md:143` |  |
+| docs-internal-13 | medium | high | stale-doc | QUALITY_DEFINITIONS output-policy table is the version-1 shape and names a quality that does not exist | `docs/architecture/QUALITY_DEFINITIONS.md:29` |  |
+| docs-internal-14 | medium | high | stale-doc | CONFIG_EXAMPLES.md documents config.yml keys and sections that do not exist | `docs/architecture/CONFIG_EXAMPLES.md:35` |  |
+| docs-internal-15 | medium | medium | stale-doc | LIBRARY_OUTPUT describes artist.jpg, per-grab output overrides and an ID3v2.3 option that are not built | `docs/architecture/LIBRARY_OUTPUT.md:63` |  |
+| docs-internal-16 | medium | high | stale-doc | DISTRIBUTION.md contradicts itself on Docker Hub and GitHub metadata | `docs/build/DISTRIBUTION.md:5` |  |
+| docs-internal-17 | medium | high | stale-doc | tests/fixtures/README.md draws a golden-suite layout that does not exist | `tests/fixtures/README.md:9` |  |
+| docs-internal-18 | medium | high | stale-doc | CODING_STANDARDS names tooling the build does not use and a release step no workflow runs | `docs/build/CODING_STANDARDS.md:16` |  |
+| docs-internal-19 | medium | high | stale-doc | Architecture docs and ADRs reference numbered documents that are not in the repository | `docs/architecture/ARCHITECTURE.md:3` |  |
+| docs-internal-20 | medium | high | stale-doc | smoke-test.sh header omits the Phase 5 gate it runs and repeats a parenthetical | `scripts/smoke-test.sh:2` |  |
+| docs-internal-21 | medium | high | stale-doc | FakeSlskd README does not describe the InnerTube, Plex and yt-dlp stubs the gates depend on | `tools/FakeSlskd/README.md:1` |  |
+| api-04 | low | high | stale-doc | `UseForwardedHeaders()` is a no-op, but the comment and the docs say proxy headers can be processed | `src/Wondarr.Api/Program.cs:93` |  |
+| api-05 | low | high | security | slskd webhook's "came through a proxy" check looks at one header, not the shared proxy-header list | `src/Wondarr.Api/Slskd/SlskdWebhookController.cs:198` |  |
+| api-06 | low | high | stale-doc | OpenAPI snapshot test comment says /api/v1/system/status does not exist yet | `tests/Wondarr.Api.Tests/OpenApiSnapshotTests.cs:34` |  |
+| tests-01 | low | high | test-gap | Nine ffmpeg-gated tests fail on a host whose ffmpeg is not the image's 9.0.2 | `tests/Wondarr.Core.Tests/Media/DamagedMp3.cs:18` |  |
+| tests-02 | low | high | test-gap | TagWriterSafetyTests.Leaves_a_read_only_file_untouched fails when the suite runs as root | `tests/Wondarr.Core.Tests/Tagging/TagWriterSafetyTests.cs:17` |  |
+| style-01 | low | high | style | Two "not X, but Y" framings in the internal docs (Style 1: no "not this, but this") | `docs/architecture/LIBRARY_OUTPUT.md:16` |  |
+| style-02 | low | high | style | The skill's code-comment rules and the repository's comment practice disagree everywhere | `.claude/skills/writing-style/SKILL.md:94` |  |
+| core-import-05 | low | medium | concurrency | Removing a Completed queue item can race the import that already started on it | `src/Wondarr.Core/Importing/QueueActions.cs:110` |  |
+| core-import-06 | low | high | correctness | A download whose decode check always times out is deferred every 15 minutes for ever | `src/Wondarr.Core/Importing/ImportService.cs:484` |  |
+| core-import-07 | low | high | correctness | Rejecting a converted download with clean_leftover_folders off leaves an empty grab folder behind | `src/Wondarr.Core/Importing/ImportService.cs:360` |  |
+| core-import-08 | low | high | style | CompactExecutor.CleanUpFolderAsync walks the folder recursively for a value it never uses | `src/Wondarr.Core/Compaction/CompactExecutor.cs:1061` |  |
+| core-import-09 | low | high | test-gap | No test covers restart recovery of an upgrade that landed at the old file's path | `tests/Wondarr.Core.Tests/Importing/QueueTrackerTests.cs:445` |  |
+| core-import-10 | low | high | test-gap | No test covers a cancellation between the Opus-to-.ogg rename and the first save | `tests/Wondarr.Core.Tests/Importing/ImportServiceTranscodeTests.cs:104` |  |
+| core-data-04 | low | high | correctness | A file that changes and becomes unreadable keeps owning its song for good | `src/Wondarr.Core/References/ReferenceScanner.cs:256` |  |
+| core-data-05 | low | high | stale-doc | Docs and XML docs say adopt "moves/renames" the user's files; the adopter copies them | `docs/architecture/LIBRARY_OUTPUT.md:95` |  |
+| core-search-03 | low | high | correctness | Bundler's "busy" filter disagrees with HasActiveForSongAsync, leaving a stray accepted record on the lead song's run | `src/Wondarr.Core/Searching/ContainerBundler.cs:69` |  |
+| core-search-04 | low | high | correctness | The attempt budget is per GrabBestAsync call, so one run can make up to 10 grab attempts with max_auto_attempts_per_search = 4 | `src/Wondarr.Core/Searching/SongSearchService.cs:1047` |  |
+| core-search-05 | low | medium | correctness | Push grabs (JudgeAsync) bypass max_active_downloads and the slot gate | `src/Wondarr.Core/Searching/SongSearchService.cs:413` |  |
+| core-search-06 | low | medium | correctness | Missing Search selects songs that are already Completed/Importing, spending batch places and slot waits on them | `src/Wondarr.Core/Searching/MissingSearchCommandHandler.cs:164` |  |
+| core-search-07 | low | medium | correctness | A missed Quartz fire is skipped, not run late | `src/Wondarr.Core/Jobs/ScheduledTaskService.cs:94` |  |
+| core-external-03 | low | medium | correctness | A cancelled waiter at the spacing gate leaves a dead slot that delays every later caller | `src/Wondarr.Core/Metadata/Http/RequestSpacingGate.cs:38` |  |
+| core-external-04 | low | high | correctness | Five spacing handlers are registered without a provider key, so fail-fast errors say "unknown" | `src/Wondarr.Core/Metadata/MetadataServiceCollectionExtensions.cs:215` |  |
+| core-external-05 | low | low | security | Per-list Last.fm API keys are never registered with the redactor, and `api_key=` escapes the cleanser | `src/Wondarr.Core/ImportLists/ImportListService.cs:699` |  |
+| core-external-06 | low | high | stale-doc | `ImportListItemJson.ReadLine` doc promises a fallback the code does not have | `src/Wondarr.Core/ImportLists/PasteListService.cs:797` |  |
+| sources-03 | low | medium | correctness | A Soulseek username or password that looks like YAML null is rendered unquoted | `src/Wondarr.Sources.Slskd/SlskdConfigRenderer.cs:45` |  |
+| sources-04 | low | high | correctness | YouTube ReadOnlyFields names nested ytdlp keys in a spelling the UI never matches | `src/Wondarr.Sources.YouTube/YouTubeSettingsService.cs:518` |  |
+| sources-05 | low | medium | correctness | A `%` in youtube.downloads_dir is read by yt-dlp as an output-template directive | `src/Wondarr.Sources.YouTube/YtDlpRunner.cs:367` |  |
+| sources-06 | low | low | concurrency | A settings restart that outlives the shutdown budget can leave a freshly launched slskd behind | `src/Wondarr.Sources.Slskd/SlskdHost.cs:301` |  |
+| frontend-06 | low | high | correctness | The Library page's Artist filter is never invalidated | `frontend/src/api/songs.ts:40` |  |
+| frontend-07 | low | high | correctness | Library filters desync from the URL when the route changes without a remount | `frontend/src/pages/LibraryPage.tsx:307` |  |
+| frontend-08 | low | high | stale-doc | Two "keyed so a refetch resets the form" comments describe behaviour the key does not give | `frontend/src/pages/settings/LibrarySettingsPage.tsx:327` |  |
+| frontend-09 | low | high | correctness | `apiRequest` in the API client is dead code with a misleading contract | `frontend/src/api/client.ts:43` |  |
+| frontend-10 | low | high | correctness | Schema queries are nested under list keys, so every list change refetches the "never stale" schema | `frontend/src/api/importLists.ts:29` |  |
+| frontend-12 | low | low | correctness | Add songs rows keyed by `mbRecordingId` collide when the id is an empty string | `frontend/src/pages/AddSongsPage.tsx:227` |  |
+| ops-04 | low | high | stale-doc | ci.yml labels the smoke step "Phase 0 to Phase 3" but the script's defaults run Phases 0–7 | `.github/workflows/ci.yml:108` |  |
+| ops-05 | low | high | stale-doc | ci.yml still says the GHCR package is private; the release smoke job and every template pull it anonymously | `.github/workflows/ci.yml:97` |  |
+| ops-06 | low | high | correctness | `.gitignore` ignores every `config/` and `data/` directory anywhere in the tree, not just the runtime ones | `.gitignore:8` |  |
+| ops-07 | low | high | test-gap | check-notice.py accepts any backticked mention anywhere in NOTICE.md as "listed", and never scans `tests/` | `scripts/check-notice.py:20` |  |
+| ops-08 | low | medium | correctness | remote-run.sh aborts after uploading the tree when the last listed file is deleted locally | `scripts/remote-run.sh:26` |  |
+| ops-09 | low | high | correctness | safe-merge.sh runs the full (possibly remote) check for an already-merged branch and then dies at `git commit` | `scripts/safe-merge.sh:256` |  |
+| ops-10 | low | high | correctness | The secondary-container wait loops in smoke-test.sh never fail on `unhealthy` or timeout | `scripts/smoke-test.sh:243` |  |
+| ops-12 | low | low | correctness | The app and its child processes run as uid 1000 with `HOME=/root`; only slskd has a workaround | `docker/root/etc/s6-overlay/s6-rc.d/svc-wondarr/run:9` |  |
+| docs-user-07 | low | high | stale-doc | first-run.md lists four album policies; the UI and layouts page have five | `website/src/content/docs/getting-started/first-run.md:46` |  |
+| docs-user-08 | low | high | stale-doc | Two bold UI labels differ from what the UI shows | `website/src/content/docs/library/import-lists.md:43` |  |
+| docs-user-09 | low | high | stale-doc | Internal "plan" and "Phase" references survive in the README, CONTRIBUTING and the changelog | `README.md:84` |  |
+| docs-user-10 | low | high | stale-doc | CONTRIBUTING's repository map lists three of the sixteen scripts as if they were all | `CONTRIBUTING.md:44` |  |
+| docs-user-11 | low | high | stale-doc | CHANGELOG preamble still says "Semantic Versioning once released" | `CHANGELOG.md:3` |  |
+| docs-user-12 | low | low | stale-doc | soulseek.md requires slskd 0.26.0 for external mode, but nothing in the code checks a version | `website/src/content/docs/sources/soulseek.md:86` |  |
+| docs-user-13 | low | high | style | Navigation paths unbolded in the changelog (R4), 10 instances | `CHANGELOG.md:57` | rejected |
+| docs-user-14 | low | high | style | Navigation paths unbolded on three website pages (R4), 5 instances | `website/src/content/docs/library/import-lists.md:22` | rejected |
+| docs-user-15 | low | medium | style | README navigation paths unbolded (R4), 8 instances | `README.md:63` | rejected |
+| docs-user-16 | low | medium | style | Em-dashes in README and CONTRIBUTING prose (R9), 8 instances | `README.md:7` | rejected |
+| docs-user-17 | low | medium | style | Em-dashes in website and changelog prose (R9), 4 instances | `website/src/content/docs/guides/end-to-end.md:26` | rejected |
+| docs-user-18 | low | high | style | Arrow chain and "e.g." in CONTRIBUTING (R10, R7) | `CONTRIBUTING.md:54` | rejected |
+| docs-user-19 | low | high | style | "and so on" on two library pages (R7) | `website/src/content/docs/library/adding-songs.md:10` | rejected |
+| docs-user-20 | low | high | style | Filler words "simply" and "just" (R1), 3 instances | `website/src/content/docs/library/managing-the-library.md:57` | rejected |
+| docs-user-21 | low | medium | style | Future tense where the house style uses the present (R1), 5 instances | `website/src/content/docs/reference/configuration.md:74` | rejected |
+| docs-user-22 | low | medium | style | Agentless passives (R5), 3 instances | `website/src/content/docs/getting-started/first-run.md:55` | rejected |
+| docs-user-23 | low | medium | style | Parentheticals that carry a whole clause (R11), about 20 on the site | `website/src/content/docs/getting-started/first-run.md:28` | rejected |
+| docs-user-24 | low | medium | style | Headings that are sentences or imperatives rather than noun phrases (R13), 12 instances | `website/src/content/docs/sources/youtube.md:8` | rejected |
+| docs-user-25 | low | medium | style | Unexplained abbreviations MBID, CBR and VBR (R12) | `website/src/content/docs/library/import-lists.md:25` | rejected |
+| docs-user-26 | low | high | style | "Slskd" capitalised (R8) | `website/src/content/docs/reference/troubleshooting.md:83` | confirmed |
+| docs-user-27 | low | high | style | "a 60 second window" needs a hyphen (R8) | `website/src/content/docs/library/quality-and-upgrades.md:69` | confirmed |
+| docs-user-28 | low | medium | style | "dismissable" (R8) | `website/src/content/docs/sources/plex.md:34` | confirmed |
+| docs-user-29 | low | medium | style | "Configuration → feedback" link text uses an arrow for a section reference (R10) | `CHANGELOG.md:89` | rejected |
+| docs-user-30 | low | low | style | DockSTARTer README closes with "please visit our support page" (R1, R14) | `packaging/dockstarter/wondarr/README.md:26` | rejected |
+| docs-internal-22 | low | high | stale-doc | MATCHING_ENGINE §6.2 names the container limit `max_container_size`; the key is `search.max_container_size_mb` | `docs/architecture/MATCHING_ENGINE.md:40` |  |
+| docs-internal-23 | low | high | stale-doc | The Singles pseudo-album is titled "Singles", not "{Artist} – Singles" | `docs/adr/0007-album-layer-and-fewest-albums-policy.md:9` |  |
+| docs-internal-24 | low | high | stale-doc | ARCHITECTURE §5.3 and §5.6 name the import-list policies differently | `docs/architecture/ARCHITECTURE.md:87` |  |
+| docs-internal-25 | low | medium | stale-doc | ADR-0010 lists a `calendar` endpoint that was never built | `docs/adr/0010-arr-conventions-and-port.md:9` |  |
+| docs-internal-26 | low | high | stale-doc | ARCHITECTURE §5.1 diagram shows clients and sources ADR-0009 puts on the backlog | `docs/architecture/ARCHITECTURE.md:28` |  |
+| docs-internal-27 | low | high | stale-doc | phase2-scenario.py's usage omits the --reserve switch phase4-scenario.py relies on | `scripts/phase2-scenario.py:20` |  |
+| docs-internal-28 | low | high | stale-doc | STACK.md carries evaluation notes that were settled long ago | `docs/architecture/STACK.md:24` |  |
+| docs-internal-29 | low | high | style | R7 "e.g." and "etc." in finished prose (ARCHITECTURE, LIBRARY_OUTPUT, DEPLOYMENT, CONFIG_EXAMPLES, fixtures README) | `docs/architecture/ARCHITECTURE.md:56` | rejected |
+| docs-internal-30 | low | high | style | R1 filler words ("simply", "just", "Note:") | `docs/architecture/LIBRARY_OUTPUT.md:12` | partly confirmed |
+| docs-internal-31 | low | medium | style | R2 American spellings in prose ("catalog", "organize", "organizer") | `docs/architecture/ARCHITECTURE.md:149` | rejected |
+| docs-internal-32 | low | high | style | R3 "~" for "about" | `docs/architecture/STACK.md:25` | rejected |
+| docs-internal-33 | low | medium | style | R6/R13 rhetorical-question heading and R14 "we" in MATCHING_ENGINE | `docs/architecture/LIBRARY_OUTPUT.md:14` | rejected |
+| docs-internal-34 | low | medium | style | R9 em dashes as sentence breaks in ARCHITECTURE.md (24) | `docs/architecture/ARCHITECTURE.md:34` | rejected |
+| docs-internal-35 | low | medium | style | R9 em dashes as sentence breaks in DEPLOYMENT.md (27) | `docs/architecture/DEPLOYMENT.md:50` | rejected |
+| docs-internal-36 | low | medium | style | R9 em dashes as sentence breaks in LIBRARY_OUTPUT.md (31) | `docs/architecture/LIBRARY_OUTPUT.md:34` | rejected |
+| docs-internal-37 | low | medium | style | R9 em dashes as sentence breaks in MATCHING_ENGINE.md (21) | `docs/architecture/MATCHING_ENGINE.md:37` | rejected |
+| docs-internal-38 | low | medium | style | R9 em dashes in DISTRIBUTION.md (12) and the smaller files | `docs/build/DISTRIBUTION.md:160` | rejected |
+| docs-internal-39 | low | medium | style | R10 arrows and "X → Y → Z" chains in prose | `docs/architecture/ARCHITECTURE.md:53` | rejected |
+| docs-internal-40 | low | medium | style | R12 abbreviations the reader is never given (MB, LB, CAA, YT, sr, ToS, RG2) | `docs/architecture/ARCHITECTURE.md:30` | rejected |
+| docs-internal-41 | low | medium | style | R4 UI labels not bold and a ">" navigation path | `docs/architecture/MATCHING_ENGINE.md:74` | rejected |
+| docs-internal-42 | low | medium | style | R11/R13 paragraph-length bullets and nested parentheses in ARCHITECTURE.md | `docs/architecture/ARCHITECTURE.md:51` | partly confirmed |
+| docs-internal-43 | low | medium | style | R11/R13 paragraph-length bullets and nested parentheses in MATCHING_ENGINE.md | `docs/architecture/MATCHING_ENGINE.md:36` | partly confirmed |
+| docs-internal-44 | low | medium | style | R11/R13 paragraph-length bullets and nested parentheses in LIBRARY_OUTPUT.md and DEPLOYMENT.md | `docs/architecture/LIBRARY_OUTPUT.md:34` | partly confirmed |
+| docs-internal-45 | low | medium | style | R5 agentless passives in ARCHITECTURE.md and LIBRARY_OUTPUT.md | `docs/architecture/ARCHITECTURE.md:34` | rejected |
 
 ## Detailed findings
 
@@ -749,6 +756,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: The first thing a visitor reads after the pitch is a paragraph with three misspellings.
 - evidence: "All architecture and security decsions human-made ... I have absolutley no intention ... That siad if you find anything i didn't, please [create an issue]".
 - fix: "All architecture and security decisions are human-made; code generation was hand-held and reviewed. I have absolutely no intention of this project becoming cooked like Huntarr. That said, if you find anything I didn't, open an issue or a PR." (also removes "please", R1).
+- outcome: confirmed on re-judgement against the real /writing-style skill: spelling errors are errors in any style.
 
 ### docs-internal-04: ADR-0011 says scripts/worker.py "stays in the repo"; it is git-ignored
 - severity: medium
@@ -1049,6 +1057,29 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: `dotnet test` inside a container as uid 0 (this session): `Expected result.Success to be False, but found True.` at line 26.
 - evidence: `File.SetAttributes(path, FileAttributes.ReadOnly); ... result.Success.Should().BeFalse();` with no skip for uid 0; the sibling `PlatformFactAttributes.cs` already skips tests that need Unix modes on Windows but has no "not as root" variant.
 - fix: Add a `NotRootFact` (skip when `Environment.UserName == "root"` or `geteuid() == 0`) and use it here, or assert the read-only path through a fake disk instead of the real file mode.
+
+### style-01: Two "not X, but Y" framings in the internal docs (Style 1: no "not this, but this")
+- severity: low
+- confidence: high
+- category: style
+- file: docs/architecture/LIBRARY_OUTPUT.md:16
+- file: docs/build/DISTRIBUTION.md:199
+- summary: Style 1 bans the "not this, but this" framing. A scan of every Markdown file in the repository finds two sentences built on it; every other "not ... but" hit is literal ("a path there is not refused, but Health shows an error").
+- scenario: Style only.
+- evidence: LIBRARY_OUTPUT.md:16 "not as a hard requirement, but in practice yes for a library you want to behave"; DISTRIBUTION.md:199 "Not a package repository, but it's where self-hosters hear about new apps first".
+- fix: Commit to the statement: "In practice a library you want to behave in Plexamp needs it." / "Self-hosters hear about new apps there first."
+
+### style-02: The skill's code-comment rules and the repository's comment practice disagree everywhere
+- severity: low
+- confidence: high
+- category: style
+- file: .claude/skills/writing-style/SKILL.md:94
+- file: docs/build/CODING_STANDARDS.md:14
+- file: src/Wondarr.Core/Verification/DownloadVerifier.cs:150
+- summary: The skill says code comments are lowercase, one line each, WHY only, with no comment blocks and no docstrings, and that this holds "whichever style is active". The repository documents every public C# member with `/// <summary>` XML blocks (6 090 of them in `src/`), writes `//` comments as sentences more often than not (1 852 sentence-case against 1 142 lowercase in `src/`), and the frontend has 1 612 JSDoc blocks. Nothing enforces the XML docs: `Directory.Build.props` does not set `GenerateDocumentationFile`, so CS1591 never fires, and `CODING_STANDARDS.md` does not mention comments at all.
+- scenario: A session that applies the skill to code, as the skill tells it to, would rewrite thousands of comments; a session that follows the codebase ignores the skill. Either way the next reviewer cannot say which is the misstep.
+- evidence: SKILL.md "Comment the WHY. Never the WHAT. ... Lowercase comments by default ... One line per comment. No comment blocks. No docstrings." versus, for example, DownloadVerifier.cs:150-160 "// A tool that ran out of time has said nothing about the file: a long FLAC on a NAS busy with\n// a Plex transcode times out and is perfectly good. Ask again later, never blocklist it." (a WHY comment, but sentence case and two lines) and the `/// <summary>` on every public type.
+- fix: A decision for the owner, not a worker: either amend the skill's comment section for this repository (for example "XML doc summaries on public members and sentence-case WHY comments are the convention here; the one-line lowercase rule applies to inline comments only"), or add the skill's rules to `CODING_STANDARDS.md` and accept a large mechanical pass. Until decided, workers leave comment style as they find it.
 
 ### core-import-05: Removing a Completed queue item can race the import that already started on it
 - severity: low
@@ -1632,6 +1663,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: The same document shows two conventions for one thing.
 - evidence: :57 "on Settings → Reference libraries, lists"; :82 "on Settings → General (the AcoustID"; :198 "**Cancel** in Tasks → Recent commands"; :225 "a new type under Settings → Notifications"; :415 "(System → Backup → Back up now)".
 - fix: Bold each: "**Settings → Reference libraries**", "**Tasks → Recent commands**", "**System → Backup → Back up now**", and so forth.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill; the bold-label convention is repository practice, so this is an optional consistency fix.
 
 ### docs-user-14: Navigation paths unbolded on three website pages (R4), 5 instances
 - severity: low
@@ -1646,6 +1678,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Same page, two conventions.
 - evidence: import-lists.md:22 "API key (optional when Settings → General has one)"; import-lists.md:69 "next to the warning in Settings → Import lists"; troubleshooting.md:21 "Check **Shared folders** under Settings → Soulseek."; plex.md:34 "Settings → Library shows a dismissable reminder about this."
 - fix: "**Settings → General**", "**Settings → Import lists**", "**Settings → Soulseek**", "**Settings → Library**".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill; optional consistency fix (the same pages bold the same paths elsewhere).
 
 ### docs-user-15: README navigation paths unbolded (R4), 8 instances
 - severity: low
@@ -1660,6 +1693,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Cosmetic inconsistency on the page most visitors see.
 - evidence: :64 "**Soulseek:** Settings → Soulseek, put in a Soulseek username and password."; :66 "Settings → Reference libraries → add your existing folder" (the arrow also joins a verb to a path, R10); :84 "under System → Updates ... under Settings → General → Contribute with feedback".
 - fix: "**Settings → Soulseek**", "**Settings → Reference libraries**, then **Add reference library**", "**System → Updates**", "**Settings → General → Contribute with feedback**".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill; the README is Style 1 (Default) prose and its voice is the target, not a misstep.
 
 ### docs-user-16: Em-dashes in README and CONTRIBUTING prose (R9), 8 instances
 - severity: low
@@ -1674,6 +1708,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: README.md:59 "Unraid? There's a template — see [the Unraid guide]"; README.md:74 "The full manual — install, every setting, Plex, qBittorrent, SABnzbd, troubleshooting — lives at"; CONTRIBUTING.md:52 "read them before your first change" preceded by " — "; CONTRIBUTING.md:70 "**Never copy AGPL code** — Sockseek and slskd are re-implemented".
 - fix: README:59 "There is an Unraid template: see [the Unraid guide]." README:74 "The full manual (install, every setting, Plex, qBittorrent, SABnzbd, troubleshooting) lives at ..." CONTRIBUTING:52 "The binding rules are in `docs/build/CODING_STANDARDS.md`. Read them before your first change." CONTRIBUTING:70 "**Never copy AGPL code.** Sockseek and slskd are re-implemented ..."
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: em dashes are not banned (Style 3 says so in words, and Style 1's own examples use them).
 
 ### docs-user-17: Em-dashes in website and changelog prose (R9), 4 instances
 - severity: low
@@ -1687,6 +1722,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: end-to-end.md:26 "run **Scan Library Files** on it once — Plex ignores Wondarr's partial scans for a section that has never been scanned."; CHANGELOG.md:240 "Plex sees it as moved — Plex does not document whether"; CHANGELOG.md:408 "synced import lists — CSV/Exportify"; CHANGELOG.md:422 "Phase 0 — skeleton, foundations".
 - fix: end-to-end.md:26 "run **Scan Library Files** on it once: Plex ignores Wondarr's partial scans for a section that has never been scanned." CHANGELOG:240 "Plex sees it as moved. Plex does not document whether ..."; :408 "synced import lists: CSV/Exportify ...".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: em dashes are not banned.
 
 ### docs-user-18: Arrow chain and "e.g." in CONTRIBUTING (R10, R7)
 - severity: low
@@ -1698,6 +1734,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: :54 "- One task → one branch → one reviewable diff; never mix a refactor with a feature."; :63 "Branch names are `<type>/<slug>`, e.g. `fix/sabnzbd-renamed-file`."
 - fix: "One task is one branch and one reviewable diff; never mix a refactor with a feature." / "Branch names are `<type>/<slug>`, for example `fix/sabnzbd-renamed-file`."
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: neither arrows nor "e.g." are mentioned.
 
 ### docs-user-19: "and so on" on two library pages (R7)
 - severity: low
@@ -1709,6 +1746,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: adding-songs.md:10 "version flags (live, remix and so on)"; quality-and-upgrades.md:55 "version mismatch (live, remix and so on)".
 - fix: "version flags such as live or remix" / "version mismatch (a live or remix take)".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: "and so on" is not mentioned.
 
 ### docs-user-20: Filler words "simply" and "just" (R1), 3 instances
 - severity: low
@@ -1721,6 +1759,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: managing-the-library.md:57 "A source that did not answer is simply left out."; import-lists.md:12 "A line of plain text with no artist and title (just `Hallelujah`)"; CHANGELOG.md:291 "A request that fails it simply needs a login."
 - fix: "A source that did not answer is left out." / "A line with no artist and title (`Hallelujah`)" / "A request that fails it needs a login."
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: "simply" and "just" are not named; the nearest Style 1 rule is "don't explain what's obvious", so this is optional.
 
 ### docs-user-21: Future tense where the house style uses the present (R1), 5 instances
 - severity: low
@@ -1735,6 +1774,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: configuration.md:74 "Wondarr will not accept values above them."; tasks-backups-logs.md:23 "**Next run** is the time the scheduler will start the task."; adding-songs.md:23 "so the Compact library task will not scatter them"; sabnzbd.md:20 "It will not grab that release for that song again."; troubleshooting.md:71 "Peers that have the whole release will send that piece".
 - fix: "Wondarr refuses values above them." / "the time the scheduler starts the task" / "does not scatter them" / "It never grabs that release for that song again." / "Peers that have the whole release send that piece".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: tense is not mentioned.
 
 ### docs-user-22: Agentless passives (R5), 3 instances
 - severity: low
@@ -1747,6 +1787,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: first-run.md:55 "Two profiles are seeded, under **Settings → Quality profiles**:"; troubleshooting.md:52 "A rejected file is blocklisted for that song and the next candidate is tried."; tasks-backups-logs.md:31 "A **scheduled** backup is made weekly".
 - fix: "Wondarr starts with two profiles, under **Settings → Quality profiles**:" / "Wondarr blocklists a rejected file for that song and tries the next candidate." / "The Backup task makes a **scheduled** backup weekly".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: the passive voice is not mentioned.
 
 ### docs-user-23: Parentheticals that carry a whole clause (R11), about 20 on the site
 - severity: low
@@ -1761,6 +1802,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: first-run.md:28 "(The login can also be set through the API: `PUT /api/v1/auth/user` with `{"username": …, "password": …}` and the API key.)"; adding-songs.md:53 "(if too many searches already wait, it ends at once with "No free download slot; the song stays wanted for the next Missing Search")"; reference-libraries.md:30 "(whichever is smaller, and never fewer than 3 files)"; plex.md:12 "(for a server behind a reverse proxy, or one plex.tv does not list, for example `http://plex.lan:32400`)"; troubleshooting.md:8 "(**Tasks → Check Health → Run now** runs them at once)".
 - fix: Make each its own sentence: "The login can also be set through the API: ..." / "If too many searches already wait, it ends at once with ..." / "The checks run every 15 minutes; **Tasks → Check Health → Run now** runs them at once."
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill as such; Style 1's "Short sentences. Often fragments." is the nearest rule, so splitting the longest ones is optional.
 
 ### docs-user-24: Headings that are sentences or imperatives rather than noun phrases (R13), 12 instances
 - severity: low
@@ -1775,6 +1817,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: youtube.md:8 "## It is off by default"; soulseek.md:8 "## Use a dedicated account"; sabnzbd.md:22 "## Create the category first".
 - fix: "## Off by default", "## A dedicated account", "## Your own slskd", "## The category", "## One `/data` share".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: heading shape is not mentioned, and Style 1 is happy with "Get it running".
 
 ### docs-user-25: Unexplained abbreviations MBID, CBR and VBR (R12)
 - severity: low
@@ -1786,6 +1829,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: A reader new to MusicBrainz does not know MBID means a MusicBrainz id.
 - evidence: import-lists.md:25 "A listenbrainz.org playlist link, or its MBID"; youtube.md:22 "the codec (**aac**, **mp3** or keep the original Opus), CBR or VBR, the bitrate (kbps)".
 - fix: "or its MusicBrainz id" / "constant or variable bitrate".
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill for docs (only Style 2 level 5, formal email, spells out acronyms); optional clarity fix.
 
 ### docs-user-26: "Slskd" capitalised (R8)
 - severity: low
@@ -1796,6 +1840,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "Slskd's output is in the same log."
 - fix: "slskd's output is in the same log."
+- outcome: confirmed on re-judgement: a product name spelled against its owner's spelling is an error in any style.
 
 ### docs-user-27: "a 60 second window" needs a hyphen (R8)
 - severity: low
@@ -1806,6 +1851,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "Wondarr decodes a 60 second window of the file".
 - fix: "Wondarr decodes a 60-second window of the file".
+- outcome: confirmed on re-judgement: grammar, not style.
 
 ### docs-user-28: "dismissable" (R8)
 - severity: low
@@ -1816,6 +1862,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "Settings → Library shows a dismissable reminder about this."
 - fix: "**Settings → Library** shows a reminder about this, which you can dismiss."
+- outcome: confirmed as a minor spelling nit on re-judgement; optional.
 
 ### docs-user-29: "Configuration → feedback" link text uses an arrow for a section reference (R10)
 - severity: low
@@ -1826,6 +1873,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "See [Configuration → feedback](https://wulfftech.github.io/wondarr/reference/configuration/#feedback)."
 - fix: "See [the `feedback` section of Configuration](...)."
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: arrows are not mentioned.
 
 ### docs-user-30: DockSTARTer README closes with "please visit our support page" (R1, R14)
 - severity: low
@@ -1836,6 +1884,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only, and only if the upstream catalogue does not mandate the sentence.
 - evidence: "If you need assistance setting up this application please visit our [support page](https://dockstarter.com/basics/support/)."
 - fix: Keep it if DockSTARTer requires it; otherwise "DockSTARTer's own help is on its [support page](...)."
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill, and the sentence is DockSTARTer's own boilerplate.
 
 ### docs-internal-22: MATCHING_ENGINE §6.2 names the container limit `max_container_size`; the key is `search.max_container_size_mb`
 - severity: low
@@ -1929,6 +1978,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "Plex partial scan, webhooks, Discord, etc." → "Plex partial scan, webhooks, Discord and the other notifiers." / "`type` (e.g. `library`)" → "`type` (for example `library`)" / "constant bitrate (e.g. 256/320 kbps)" → "a constant bitrate, for example 256 kbps or 320 kbps" / "`…:MusicBrainz Album Id` etc." → "`…:MusicBrainz Album Id` and the matching names" / "(the absolute http(s) URL of the user's slskd, e.g. `http://slskd:5030`)" → "(the absolute http(s) URL of the user's slskd, for example `http://slskd:5030`)"
 - fix: Replace each with "for example" or spell the list out.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: "e.g." and "etc." are not mentioned.
 
 ### docs-internal-30: R1 filler words ("simply", "just", "Note:")
 - severity: low
@@ -1943,6 +1993,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "the parenthesised group simply vanishes when the year is unknown" → "the parenthesised group vanishes when the year is unknown" / "the files stay where they are and are simply counted as owned" → "the files stay where they are and are counted as owned" / "live-reloadable settings (speed limits, listen port) just take effect" → "live-reloadable settings (speed limits, listen port) take effect without a restart" / "so the grab can select just that file" → "so the grab can select only that file" / "Note: a recording's `duration` is a **float** in seconds (`637.333`)." → "A recording's `duration` is a float in seconds (`637.333`)."
 - fix: As shown.
+- outcome: partly confirmed on re-judgement against the real /writing-style skill: the `Note:` instance is forward-caveating, which Style 1 bans ("Note that..."); "simply" and "just" are not a rule and are optional.
 
 ### docs-internal-31: R2 American spellings in prose ("catalog", "organize", "organizer")
 - severity: low
@@ -1956,6 +2007,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "The catalog reads the interval settings live" → "The catalogue reads the interval settings live" / "# probe, verify, tag, organize, place, notify" → "# probe, verify, tag, organise, place, notify" / "retags it through the organizer" → "retags it through the organiser (`LibraryOrganizer`)"
 - fix: Use British spellings in prose and the class name in code font where the component is meant.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill; the skill itself and the rest of the repository write British spellings, so this is an optional consistency fix.
 
 ### docs-internal-32: R3 "~" for "about"
 - severity: low
@@ -1968,6 +2020,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "its option set is ~3 years stale" → "its option set is about three years stale" / "capped at Opus ~160 kbps" → "capped at about 160 kbps Opus" / "a window shorter than ~3 s of a pure tone" → "a window shorter than about 3 s of a pure tone"
 - fix: As shown.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: "~" is not mentioned.
 
 ### docs-internal-33: R6/R13 rhetorical-question heading and R14 "we" in MATCHING_ENGINE
 - severity: low
@@ -1979,6 +2032,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "### 7.2 Assessment: does Plex/Plexamp still need an album folder layer?" → "### 7.2 Why the Plexamp preset keeps an album folder layer" / "We cannot search for a recording, so we search for releases that contain it" → "An indexer cannot be searched for a recording, so Wondarr searches for releases that contain it"
 - fix: As shown.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: Style 1 allows a wry question, and "we" is restricted only in Style 2's Casual Technical Outreach register.
 
 ### docs-internal-34: R9 em dashes as sentence breaks in ARCHITECTURE.md (24)
 - severity: low
@@ -1993,6 +2047,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "renders its `slskd.yml` from its own Soulseek settings — credentials, shares, slots; §9.5; an external-slskd mode is Phase 5" → "renders its `slskd.yml` from its own Soulseek settings: credentials, shares and slots (DEPLOYMENT.md, Managing the bundled slskd)." / "`filters` (json array of `{key, value, type}`) — a saved view of a list page" → "`filters` (json array of `{key, value, type}`): a saved view of a list page" / "a text match whose length is more than 10 s from the list's going to the review screen instead" (line 203, the dash-free clause is unclear) → "a text match whose length differs by more than 10 s from the list's goes to the review screen instead"
 - fix: Replace each dash with a comma, a colon or a full stop.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: em dashes are not banned (Style 3: "em dashes aren't banned at all"; Style 1's examples use them). The sentence length these dashes sit in is covered by docs-internal-42.
 
 ### docs-internal-35: R9 em dashes as sentence breaks in DEPLOYMENT.md (27)
 - severity: low
@@ -2007,6 +2062,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "The category (default `wondarr`) must exist in SABnzbd — its API cannot create one — and the client test checks" → "The category (default `wondarr`) must exist in SABnzbd, because its API cannot create one, and the client test checks" / "Wondarr sets any of these that an earlier version created with another mode to `0600` — including the `*.pre-restore*` copies a restore sets aside, which are also made `0600` the moment they are set aside — once, and logs one line" → "Wondarr sets any of these that an earlier version created with another mode to `0600`, once, and logs one line saying how many it changed. The `*.pre-restore*` copies a restore sets aside are included, and are made `0600` the moment they are set aside."
 - fix: Split the sentences; use commas or colons.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: em dashes are not banned. Sentence length is covered by docs-internal-44.
 
 ### docs-internal-36: R9 em dashes as sentence breaks in LIBRARY_OUTPUT.md (31)
 - severity: low
@@ -2021,6 +2077,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "that together contain all of the artist's owned recordings — a greedy set cover — but only use a real album when" → "that together contain all of the artist's owned recordings (a greedy set cover), but only use a real album when" / "The re-plan ignores stickiness except for **pinned** songs — an album the user chose explicitly (`PUT /api/v1/song/{id}/albumcontext`, `SongService.SetAlbumContextAsync`) — and keeps" → "The re-plan ignores stickiness except for **pinned** songs, those whose album the user chose explicitly (`PUT /api/v1/song/{id}/albumcontext`), and keeps"
 - fix: Split the sentences; use commas, colons or parentheses once per sentence.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: em dashes are not banned. Sentence length is covered by docs-internal-44.
 
 ### docs-internal-37: R9 em dashes as sentence breaks in MATCHING_ENGINE.md (21)
 - severity: low
@@ -2035,6 +2092,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "- **identity** — title token-sort ratio (after removing version hints" → "- **identity**: title token-sort ratio (after removing version hints" / "either way round — MusicBrainz lists both), and so does one that" → "either way round, since MusicBrainz lists both), and so does one that"
 - fix: Use a colon after the bold lead phrase and commas elsewhere.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: em dashes are not banned. Sentence length is covered by docs-internal-43.
 
 ### docs-internal-38: R9 em dashes in DISTRIBUTION.md (12) and the smaller files
 - severity: low
@@ -2055,6 +2113,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "# NOTICE — third-party code and attributions" → "# Notice: third-party code and attributions" / "- **Golden tests** — one JSON file per suite" → "- **Golden tests**: one JSON file per suite" / "- `download-success.stdout` — a successful download" → "- `download-success.stdout`: a successful download" / "Every `/api/v0` request needs `X-API-Key` ... or gets 401 — unless `web.authentication.disabled` is true" → "..., or gets 401, unless `web.authentication.disabled` is true" / "| linuxserver.io | ... | — |" → "| linuxserver.io | ... | none |"
 - fix: Colons after bullet lead phrases; commas elsewhere; "none" in the table.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: em dashes are not banned.
 
 ### docs-internal-39: R10 arrows and "X → Y → Z" chains in prose
 - severity: low
@@ -2079,6 +2138,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "Chromaprint fingerprint → AcoustID → expected recording MBID" → "a Chromaprint fingerprint, looked up at AcoustID, must resolve to the expected recording MBID" / "1 h → 6 h → 24 h → 72 h → weekly (capped)" → "1 hour, then 6 hours, 24 hours, 72 hours and weekly (capped)" / "`artist title` ... → the same with diacritics stripped → title-only" → "`artist title` ..., then the same with diacritics stripped, then title-only" / "One task → one branch/worktree → one PR-sized diff" → "One task, one branch or worktree, one PR-sized diff" / "Source ladder Soulseek → YouTube Music → torrents/usenet" → "Source ladder: Soulseek, then YouTube Music, then torrents and usenet" / "`GET /api/get?...&duration=248` → 200 (synced and plain lyrics)" → a separate "Status" column with "200"
 - fix: Write the order as a sentence ("first ..., then ..."); give tables a status column.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: arrows are not mentioned.
 
 ### docs-internal-40: R12 abbreviations the reader is never given (MB, LB, CAA, YT, sr, ToS, RG2)
 - severity: low
@@ -2097,6 +2157,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "fall back to Deezer/Spotify for songs MB does not have" → "fall back to Deezer or Spotify for songs MusicBrainz does not have" / "duration, codec, bitrate, sr, depth, size" → "duration, codec, bitrate, sample rate, bit depth, size" / "the YouTube source must be enabled by the user (ToS disclaimer)" → "the user must enable the YouTube source and accept the terms-of-service notice" / "ffmpeg `ebur128`, RG2 −18 LUFS" → "ffmpeg `ebur128`, ReplayGain 2.0 reference of −18 LUFS"
 - fix: Spell each out on first use per document.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill for docs (only Style 2 level 5 spells out acronyms); optional clarity fix.
 
 ### docs-internal-41: R4 UI labels not bold and a ">" navigation path
 - severity: low
@@ -2110,6 +2171,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "names the key and Settings → General → Metadata services" → "names the key and **Settings → General → Metadata services**" / "Also a switch on Settings > Download clients" → "Also a switch on **Settings → Download clients**" / "a \"Compact library\" task re-plans" → "the **Compact library** task re-plans" / "turning it off shows the leech-ban warning" with "**\"Share my library\" toggle**" → "the **Share my library** toggle"
 - fix: As shown.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill; the bold-label convention is repository practice, so this is an optional consistency fix.
 
 ### docs-internal-42: R11/R13 paragraph-length bullets and nested parentheses in ARCHITECTURE.md
 - severity: low
@@ -2124,6 +2186,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only; the slot-wait rules, the cancel semantics and the yield cap in step 6 are three topics that a reader cannot find by heading.
 - evidence: "6. **Grab.** Hand the candidate to its source's grab implementation ... The batch loops (`MissingSearch`, `UpgradeSearch`) wait for a slot before each song instead; ..." (one list item, 508 words)
 - fix: Keep each lifecycle step to two or three sentences and move the slot wait, the cancel rules and the import-list trust rules into their own subsections with headings.
+- outcome: partly confirmed on re-judgement against the real /writing-style skill: Style 1 asks for short sentences and no over-long intros, which a 508-word list item and 350 to 800-word paragraphs fail; the nested-parentheses count is not a rule. Keep the finding for the paragraph lengths.
 
 ### docs-internal-43: R11/R13 paragraph-length bullets and nested parentheses in MATCHING_ENGINE.md
 - severity: low
@@ -2138,6 +2201,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only; the usenet quota, cool-down, trimming, cleanup and ownership rules in line 68 each deserve a heading.
 - evidence: "  As built (P7-04): one source per protocol (`torznab`, `newznab`), each available when ... (1 824 words, one paragraph)"
 - fix: Split §6.4's torrent/usenet text into subsections (Searching, Reading file lists, Usenet quotas and cool-downs, Grabs, Cleanup, Ownership, Download links, Bundling) with two or three sentences per idea; move the long table cells into bullets under the table.
+- outcome: partly confirmed on re-judgement: Style 1's "Short sentences" and "over-long intros" rules apply to the 839-word bullet and the 1 824-word paragraph; the nested-parentheses count is not a rule. Keep the finding for the paragraph lengths.
 
 ### docs-internal-44: R11/R13 paragraph-length bullets and nested parentheses in LIBRARY_OUTPUT.md and DEPLOYMENT.md
 - severity: low
@@ -2152,6 +2216,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "**A reference file that goes missing.** The scan marks a row `missing` ... (808 words, one paragraph)"
 - fix: Split into headed subsections (The grace period, How a release deletes, Repoints and links, The mount guard) of a few sentences each.
+- outcome: partly confirmed on re-judgement: Style 1's "Short sentences" rule applies to the 274 to 808-word paragraphs; the nested-parentheses count is not a rule. Keep the finding for the paragraph lengths.
 
 ### docs-internal-45: R5 agentless passives in ARCHITECTURE.md and LIBRARY_OUTPUT.md
 - severity: low
@@ -2163,6 +2228,7 @@ Total findings: 141 (critical 0, high 8, medium 45, low 88)
 - scenario: Style only.
 - evidence: "YouTube is handled in-process via yt-dlp." → "Wondarr runs yt-dlp itself for YouTube." / "Any later re-assignment (compaction, policy change, adoption of a reference library) is performed as an explicit task" → "Wondarr performs any later re-assignment (compaction, a policy change, adoption of a reference library) as an explicit task"
 - fix: As shown.
+- outcome: rejected on re-judgement against the real /writing-style skill (2026-11-04): not a rule in the skill: the passive voice is not mentioned.
 
 
 ## Coverage and verified-clean notes from each reviewer
@@ -2193,6 +2259,14 @@ Not reached: resource records without security relevance (Albums/AlbumResources.
 #### Coverage
 
 Ran in this session on Ubuntu with .NET SDK 10.0.401 and Node 22: `dotnet build -warnaserror` (0 warnings, 0 errors), `dotnet test` (Api 1 671 passed / 9 skipped; Sources 578 passed; Core 2 973 passed / 9 failed / 6 skipped), and in frontend/ `npm run lint`, `npm run typecheck`, `npm run format`, `npm test` (46 files, 435 tests, all green). `scripts/check-notice.py` was not run here (the docs-internal reviewer reads it). The 9 Core failures are the two findings above; no product defect was found behind them.
+
+### style
+
+#### Coverage
+
+Scanned with grep over README.md, CONTRIBUTING.md, CHANGELOG.md, docs/**, website/src/content/docs/**, the packaging and fixture READMEs and tests/gate/*.md for: hedging words (18 hits, all the permissive or literal sense: "may show the web UI in a frame", "how long one tool may run", plus one genuine uncertainty on soulseek.md:23, which Style 1 allows); forward-caveating phrases (none); the negation formula (two real instances, style-01); "not only" and "isn't just" (literal uses only). Code-comment counts are from `grep` over `src/` and `frontend/src`. Not scanned: UI copy inside `frontend/src` components (Style 1 covers user-facing copy; a separate pass would read the label strings), and commit messages.
+
+Re-judgement of the earlier style findings: every finding tagged R1 to R14 in docs-user.md and docs-internal.md now carries an `outcome:` line. In short: the em-dash, arrow, "e.g.", abbreviation, passive-voice, tense, heading-shape and bold-label findings are not rules in the real skill (em dashes are not banned at all); spelling and grammar findings stand; `Note:` is forward-caveating and stands; the paragraph-length findings stand under Style 1's "Short sentences" and "no over-long intros".
 
 ### core-import
 
@@ -2409,43 +2483,25 @@ Skimmed: `src/` and `tests/` (grep for names, keys, tables and routes only; no r
 Not reached: the `website/src/content/docs/**` pages (another reviewer's area), the data files under `tests/fixtures/**` and `tests/gate/replay/**` (excluded by the brief), the pixel content of the screenshots, `packaging/**` and `unraid/**` READMEs, and the numeric claims in MATCHING_ENGINE §6.3 scoring and §6.5 thresholds (not verified against the decision engine).
 
 
-## Appendix: the writing-style rule set the documentation review applied
+## Appendix: the reconstructed rules and what the real skill says
 
-House style as practised (high confidence):
-- R1 Plain words, full sentences, present tense, say what happens to the user's thing (the song, the file,
-  the indexer). Not: "functionality", "leverage", "robust", "seamless", "streamline", "ensure", "utilise",
-  "powerful", "simply", "just", "easily", "note that", "please note", "it is worth noting".
-- R2 British spelling: honour, licence (noun), behaviour, catalogue, recognise, organise, colour, centre.
-  (American spellings in code identifiers and quoted UI labels are not findings.)
-- R3 Numbers carry a unit with a space: "100 ms", "98 %", "5 seconds", "24 hours", "320 kbps". No bare numbers
-  standing in for a unit, no "~" for "about".
-- R4 UI labels are bold exactly as the UI shows them (**Settings → General**); navigation paths use the arrow
-  between bold labels. Paths, keys, environment variables, commands, file names are in code font.
-- R5 Name the actor: "Wondarr", "the scan", "the import", "slskd". Avoid agentless passives that hide who does
-  what ("is handled", "will be processed") and "the system".
-- R6 No marketing, no hedging filler, no exclamation marks, no rhetorical questions in reference material
-  (the README's product voice is allowed to be warmer, but typos and sloppiness are still findings).
-- R7 "for example" and "say", not "e.g.", "i.e.", "etc.", "and so on" in finished prose.
-- R8 Spelling and grammar are correct; names are spelled the way their owners spell them (slskd, yt-dlp,
-  MusicBrainz, AcoustID, ffmpeg, SABnzbd, qBittorrent, Plexamp, GHCR).
+The documentation reviewers tagged style findings R1 to R14 against a rule set reconstructed before the real skill was available. This table is the key for reading those tags now that `.claude/skills/writing-style/SKILL.md` holds the original.
 
-Plausible rules from such skills (medium confidence; report, but mark confidence medium):
-- R9 No em-dashes or en-dashes in running prose; use a comma, a colon or a full stop. (A dash between a
-  version and a date in a changelog heading is an established convention here; do not report it.)
-- R10 No arrows (→, ->) and no "X → Y → Z" chains in prose except for UI navigation paths (R4).
-- R11 No parentheticals that carry a whole clause; no nested parentheses; no stacked asides.
-- R12 No abbreviations the reader has not been given: MB, LB, CAA, YT, MBID, UI-only jargon, section
-  references like "§7.3" or "section 6" that point at documents that are not in the repository.
-- R13 Headings are noun phrases; lists are parallel; a bullet is one or two sentences, not a paragraph;
-  bold is for a lead phrase or a UI label, never a whole sentence.
-- R14 No "it's not X, it's Y" framing, no triplets for rhythm, no "Let's", no "we" addressing the reader in
-  reference docs, no emoji.
+| Tag | Reconstructed rule | In the real skill (Style 1, Default, for repository prose) | Findings under it |
+|---|---|---|---|
+| R1 | Plain words, no filler ("simply", "just", "note that"), present tense | Partly. "Note that..." is forward-caveating and is banned; hedging ("may", "might", "could potentially", "in some cases") is banned; "simply"/"just" and tense are not mentioned | `Note:` stands; the rest rejected |
+| R2 | British spelling | Not a rule. The skill and the repository write British, so it is a consistency preference | Rejected, optional |
+| R3 | Numbers with a unit and a space; no "~" | Not a rule | Rejected |
+| R4 | Bold UI labels, arrow navigation paths | Not a rule; repository practice | Rejected, optional |
+| R5 | Name the actor; no agentless passives | Not a rule. The nearest is "State what things do" | Rejected |
+| R6 | No marketing, exclamation marks or rhetorical questions | Not a rule; Style 1 is deliberately wry and the README is its model | Rejected |
+| R7 | "for example", not "e.g.", "etc.", "and so on" | Not a rule | Rejected |
+| R8 | Spelling, grammar and product names | Not written down, but an error in any style | Stands |
+| R9 | No em dashes in prose | The opposite: "em dashes aren't banned at all" (Style 3), and Style 1's examples use them | Rejected |
+| R10 | No arrows or "X → Y → Z" chains | Not a rule | Rejected |
+| R11 | No clause-length parentheticals | Not a rule as such; "Short sentences. Often fragments." is the nearest | Paragraph-length findings stand; the parentheses count rejected |
+| R12 | Expand abbreviations; no "§" references to absent documents | Not a rule for docs (only Style 2 level 5 spells out acronyms); the absent-document part is a fact finding (S2) | Rejected as style; S2 facts stand |
+| R13 | Noun-phrase headings; short bullets; bold only for lead phrases | Not a rule, except that "Short sentences" and "no over-long intros" cover paragraph-length bullets | Paragraph-length findings stand; the rest rejected |
+| R14 | No "it's not X, it's Y"; no triplets; no "Let's"; no "we" | "No 'not this, but this' framing" is a Style 1 rule (see `style-01`). Triplets are Style 3 (on request only); "we" is restricted only in casual outreach | `style-01` stands; the rest rejected |
 
-Not style, but in scope for the documentation review and worth more than any style nit:
-- S1 Stale or wrong facts: a path, file, command, setting key, environment variable, port, version, URL or
-  UI label that the docs name but the code, scripts or workflows do not have (or have differently). Verify
-  against the repository before reporting (grep for the key or path). Quote both sides.
-- S2 Internal references to documents that are not in the repository (planning docs under docs/build/ that
-  .gitignore excludes, "§" section numbers from them, "Phase N" task files).
-- S3 Broken relative links and anchors inside the repository's Markdown.
-- S4 Duplicated or contradictory statements between two docs (for example README vs website install page).
+Rules the real skill has that the reconstruction lacked, and which the later pass checked: no hedging (clean), no forward-caveating (clean except `Note:`), no "not this, but this" (`style-01`), short sentences (the paragraph-length findings), tables for technical lists (already the practice), and the code-comment rules (`style-02`, a decision for the owner).
