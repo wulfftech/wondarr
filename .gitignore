@@ -55,8 +55,10 @@ __pycache__/
 # Browser-automation artefacts from local UI checks
 .playwright-mcp/
 
-# agent worktrees (nested repos; never track)
-.claude/
+# agent worktrees (nested repos; never track). .claude/skills/ is tracked so the project's
+# skills (the writing style) reach every checkout and every cloud session.
+.claude/*
+!.claude/skills/
 docs/build/tasks/
 docs/build/AGENT_WORKFLOW.md
 docs/build/MODEL_VALUE_MATRIX.md
