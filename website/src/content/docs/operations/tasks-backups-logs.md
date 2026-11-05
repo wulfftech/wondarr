@@ -11,7 +11,7 @@ description: The scheduled tasks, making and restoring backups, reading the logs
 |---|---|---|
 | Heartbeat | 1 min | Proves the job queue is working. It does nothing else. |
 | Check Health | 15 min | Runs the health checks shown under **System**. |
-| Missing Search | 6 h (`search.missing_interval_hours`) | Searches monitored songs that have no file, up to `search.missing_batch_size` (50) at a time. A song that finds nothing waits longer each time: 1 h, 6 h, 24 h, 72 h, then weekly (`search.backoff_hours`); the count runs back to the song's last grab that was imported or is still downloading (a search whose every grab failed or was rejected counts as finding nothing), so a song that is never found settles at weekly. Releases pushed from autobrr do not count. |
+| Missing Search | 6 h (`search.missing_interval_hours`) | Searches monitored songs that have no file, up to `search.missing_batch_size` (50) at a time. A song that finds nothing waits longer each time: 1 h, 6 h, 24 h, 72 h, then weekly (`search.backoff_hours`); the count runs back to the song's last search that grabbed something (a search whose last grab ends with nothing imported, whether it was rejected, failed while downloading or failed during the import, counts as finding nothing), so a song that is never found settles at weekly. Releases pushed from autobrr do not count. |
 | Upgrade Search | 24 h (`search.upgrade_interval_hours`) | Searches for better files for songs below their cutoff. See [Quality and upgrades](/wondarr/library/quality-and-upgrades/). |
 | Reference Library Scan | 24 h | Scans [reference libraries](/wondarr/library/reference-libraries/). |
 | Import List Sync | 1 h | Syncs the [import lists](/wondarr/library/import-lists/) that are due. |

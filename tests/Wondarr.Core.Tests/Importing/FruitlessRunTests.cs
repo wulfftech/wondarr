@@ -84,10 +84,15 @@ public sealed class FruitlessRunTests
     {
         await using var host = await ImportTestHost.CreateAsync();
         host.Verifier.Result = RejectedByVerifier();
-        host.Search.Next = 77;
+        host.Search.Next = null;
 
-        var seed = await host.SeedAsync();
+        var seed = await host.SeedAsync(options => options.Attempt = 2);
         await SetGrabbedAsync(host.Database, host.Time, seed.SearchRunId);
+
+        // A song may have one grab in flight, and the rejected item is saved as failed before the next
+        // attempt is asked for: a grab the search queued in that window is in flight when the run is judged.
+        host.Search.OnGrabAsync = () => AddGrabAsync(
+            host.Database, host.Time, seed.SongId, seed.SearchRunId, seed.CandidateId, 3, QueueItemState.Downloading);
 
         (await host.FreshImport().ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Rejected);
 
@@ -138,7 +143,7 @@ public sealed class FruitlessRunTests
     }
 
     [Fact]
-    public async Task A_failure_after_the_file_was_right_leaves_the_run_a_grab()
+    public async Task A_failure_after_the_file_was_right_with_nothing_imported_makes_the_run_fruitless()
     {
         await using var host = await ImportTestHost.CreateAsync();
         host.Transcoder.Failure = new TranscodeException("ffmpeg exited 1: nope");
@@ -153,6 +158,31 @@ public sealed class FruitlessRunTests
         });
 
         await SetGrabbedAsync(host.Database, host.Time, seed.SearchRunId);
+
+        (await host.FreshImport().ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Failed);
+
+        // No further attempt follows a failure after the file passed, so the run brought the song nothing.
+        var run = await RunAsync(host.Database, host.Time, seed.SearchRunId);
+        run.Outcome.Should().Be(SearchOutcome.NoAcceptableCandidate);
+        run.Message.Should().Contain("Nothing this run grabbed was imported: Transcode failed");
+    }
+
+    [Fact]
+    public async Task A_failure_after_the_file_was_right_leaves_a_run_with_an_imported_grab_a_grab()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Transcoder.Failure = new TranscodeException("ffmpeg exited 1: nope");
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.SourceType = SourceTypes.YouTube;
+            options.DownloadName = "dQw4w9WgXcQ.opus";
+            options.RemotePath = "dQw4w9WgXcQ";
+            options.Attempt = 2;
+        });
+
+        await SetGrabbedAsync(host.Database, host.Time, seed.SearchRunId);
+        await AddGrabAsync(host.Database, host.Time, seed.SongId, seed.SearchRunId, seed.CandidateId, 1, QueueItemState.Imported);
 
         (await host.FreshImport().ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Failed);
 
@@ -190,6 +220,29 @@ public sealed class FruitlessRunTests
 
         await host.Tracker.RunCycleAsync(CancellationToken.None);
 
+        (await host.SearchRunAsync(seed.SearchRunId)).Outcome.Should().Be(SearchOutcome.Grabbed);
+    }
+
+    [Fact]
+    public async Task A_blocklisted_tracker_failure_leaves_a_run_with_an_imported_grab_a_grab()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        host.SearchService.Next = null;
+        host.Source.SourceType = SourceTypes.Newznab;
+        var seed = await host.SeedAsync(options =>
+        {
+            options.SourceType = SourceTypes.Newznab;
+            options.Attempt = 2;
+        });
+
+        await host.SetRunOutcomeAsync(seed.SearchRunId, SearchOutcome.Grabbed);
+        await AddGrabAsync(host.Database, host.Time, seed.SongId, seed.SearchRunId, seed.CandidateId, 1, QueueItemState.Imported);
+        host.Source.Status = new DownloadStatus(
+            DownloadState.Failed, 0, 0, Message: "The song is not in the downloaded post.", BlocklistCandidate: true);
+
+        await host.Tracker.RunCycleAsync(CancellationToken.None);
+
+        (await host.BlocklistAsync()).Should().ContainSingle();
         (await host.SearchRunAsync(seed.SearchRunId)).Outcome.Should().Be(SearchOutcome.Grabbed);
     }
 

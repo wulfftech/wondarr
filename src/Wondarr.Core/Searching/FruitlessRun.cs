@@ -45,7 +45,7 @@ internal static class FruitlessRun
         }
 
         // Every state but Failed and Cancelled is an import or a grab still in flight.
-        var bore = await database.QueueItems
+        var broughtSomething = await database.QueueItems
             .AnyAsync(
                 other => other.SearchRunId == run.Id
                     && other.SongId == run.SongId
@@ -54,13 +54,15 @@ internal static class FruitlessRun
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (bore)
+        if (broughtSomething)
         {
             return false;
         }
 
         run.Outcome = SearchOutcome.NoAcceptableCandidate;
-        run.Message = string.Concat(run.Message, " ", lead, " ", reason);
+        run.Message = string.IsNullOrEmpty(run.Message)
+            ? string.Concat(lead, " ", reason)
+            : string.Concat(run.Message, " ", lead, " ", reason);
 
         return true;
     }

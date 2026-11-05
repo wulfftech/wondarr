@@ -1340,6 +1340,14 @@ public sealed partial class ImportService : IImportService
 
         if (!allowNextAttempt)
         {
+            // The file was right and something after it failed: no further attempt follows, so a run
+            // with nothing imported brought the song nothing.
+            if (await FruitlessRun.RecordAsync(_database, item, "Nothing this run grabbed was imported:", message, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             return;
         }
 
@@ -1390,6 +1398,13 @@ public sealed partial class ImportService : IImportService
 
             await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await PublishQueueItemAsync(item, cancellationToken).ConfigureAwait(false);
+
+            // An unexpected exception ends the run: no further attempt follows.
+            if (await FruitlessRun.RecordAsync(_database, item, "Nothing this run grabbed was imported:", message, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
