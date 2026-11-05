@@ -4,6 +4,15 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Fixed
+- **Settings → YouTube saves a 44.1 or 48 kHz sample rate.** Choosing either answered 400 and nothing was saved, and a rate already stored showed as "Keep", so saving any other field on the page reset it. The page now sends and reads the rate as a number.
+- **Interactive search runs once per open.** It re-ran the Soulseek search whenever the queue changed or the connection reconnected, which swapped the results out from under you and spent the shared search budget, and a grab waited for that re-run before it finished. Opening the search runs it once.
+- **A song's page shows a blocklisted item and a grab at once.** Removing an item with "blocklist" on the song page's **Queue & blocklist** tab left the Blocklist table below it saying "Nothing is blocked", and a grab from the song's interactive search left no "grabbed" row in its **History** tab, until you left the tab and came back. Both lists now refresh straight away.
+- **Changing a reference library's folder keeps its songs.** After remounting a share at a new path, every song the library owned still pointed at the old one: a file you then deleted never freed its song, and Adopt skipped everything. The owned songs' paths now move with the folder, and a file that is not at the new path goes through the usual wait for a missing file.
+- **A song with a second copy of its recording keeps a file.** Skipping a reference file, accepting a different song for it, or a rescan finding that it belongs to another song could leave a song that had a second copy of the recording with no file at all. The song's file now follows the second copy.
+- **A reference file overwritten with a broken copy no longer keeps its song for good.** When the file is still unreadable on a later scan and was last written more than 24 hours ago, the song lets go of it. That is the wait a missing file gets, so a copy still in progress, or one failed check, does not count. The song follows a second copy of the recording if there is one, and is wanted again if not.
+- **A pasted or synced list no longer stops at a bad line.** A Deezer track with an ISRC in an odd shape (hyphens, or too short), or a line that was the all-zero MusicBrainz id, left the list due and failing at the same line every run. A hyphenated ISRC is cleaned up before the lookup and an invalid one skips the ISRC lookup. The all-zero id is reported as not supported. Any line a lookup refuses is marked failed and the rest of the list carries on.
+
 ## [0.1.16] — 2026-11-03
 
 A setting for installs whose music and downloads are not mounted at `/data`. Update by pulling `:0.1` (or `:0.1.16`), from `ghcr.io/wulfftech/wondarr` or `wulfftech/wondarr` on Docker Hub.
