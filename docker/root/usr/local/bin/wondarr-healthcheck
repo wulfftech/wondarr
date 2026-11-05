@@ -7,6 +7,7 @@
 # config.yml is read the way ConfigFileWriter writes it: a top-level "server:" mapping with
 # indented "key: value" lines, values possibly double-quoted. Anything unreadable falls back to the
 # default, so the probe never fails for a reason the app would not.
+# Exits 0 or 1 only: Docker reserves 2, and wget's own codes (4, 8) are not part of its contract.
 set -u
 
 config="${WONDARR_CONFIG_DIR:-/config}/config.yml"
@@ -44,4 +45,4 @@ case "$bind" in
     *) host="$bind" ;;
 esac
 
-exec wget -q --spider -T 4 "http://$host:$port/ping"
+wget -q --spider -T 4 "http://$host:$port/ping" || exit 1
