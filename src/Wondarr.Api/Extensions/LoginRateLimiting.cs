@@ -32,6 +32,9 @@ public static class LoginRateLimiting
     /// <summary>The message after a 429 from the concurrency cap rather than the per-address window.</summary>
     public const string BusyMessage = "Wondarr is busy checking other sign-ins. Try again in a few seconds.";
 
+    // Only the per-address window knows when it resets; the concurrency cap does not, and clears in seconds.
+    private const int BusyRetryAfterSeconds = 5;
+
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     /// <summary>Registers the limiters and the 429 response.</summary>
@@ -90,19 +93,23 @@ public static class LoginRateLimiting
     {
         var windowRejected = rejection.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retry);
 
-        return WriteTooManyAsync(rejection.HttpContext, windowRejected, windowRejected ? (int)Math.Ceiling(retry.TotalSeconds) : BusyRetryAfterSeconds, cancellationToken);
+        return WriteTooManyAsync(
+            rejection.HttpContext,
+            windowRejected,
+            windowRejected ? (int)Math.Ceiling(retry.TotalSeconds) : BusyRetryAfterSeconds,
+            cancellationToken);
     }
 
     /// <summary>The 429 answer for a sign-in refused because every password check is taken.</summary>
     internal static ValueTask WriteBusyAsync(HttpContext context, CancellationToken cancellationToken) =>
         WriteTooManyAsync(context, false, BusyRetryAfterSeconds, cancellationToken);
 
-    // Only the per-address window knows when it resets; the concurrency cap does not, and clears in seconds.
-    private const int BusyRetryAfterSeconds = 5;
-
-    private static async ValueTask WriteTooManyAsync(HttpContext context, bool windowRejected, int retryAfter, CancellationToken cancellationToken)
+    private static async ValueTask WriteTooManyAsync(
+        HttpContext context,
+        bool windowRejected,
+        int retryAfter,
+        CancellationToken cancellationToken)
     {
-
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         context.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
         context.Response.ContentType = "text/html; charset=utf-8";
