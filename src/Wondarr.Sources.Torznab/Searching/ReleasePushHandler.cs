@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
@@ -112,7 +113,7 @@ public sealed partial class ReleasePushHandler : IReleasePushHandler
         {
             listing = await ReadAsync(release, known, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IndexerException or HttpRequestException or TorrentMetainfoException or XmlException or InvalidDataException)
+        catch (Exception exception) when (exception is IndexerException or HttpRequestException or TorrentMetainfoException or XmlException or InvalidDataException or RegexMatchTimeoutException)
         {
             return Rejected(first, string.Concat("The release could not be read: ", exception.Message));
         }

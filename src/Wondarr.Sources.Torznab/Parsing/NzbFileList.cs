@@ -30,6 +30,11 @@ public static class NzbFileList
 {
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
 
+    // The longest subject in the NZB fixtures is 180 characters; real ones carry a name, a counter and
+    // "yEnc". Anything longer is not matched at all: the yEnc pattern is quadratic on many dotted tokens
+    // and an indexer controls the subject.
+    private const int MaxSubjectLength = 512;
+
     // "Artist - Album - 01.flac" as it appears quoted inside a subject.
     private static readonly Regex QuotedNameRegex = new(
         @"""(?<name>[^""]+)""",
@@ -174,19 +179,26 @@ public static class NzbFileList
             return null;
         }
 
-        var quoted = QuotedNameRegex.Match(subject);
-        if (quoted.Success)
+        if (subject.Length > MaxSubjectLength)
         {
-            return quoted.Groups["name"].Value;
+            return null;
         }
 
-        var yEnc = YEncNameRegex.Match(subject);
-        if (yEnc.Success)
+        try
         {
-            return yEnc.Groups["name"].Value;
-        }
+            var quoted = QuotedNameRegex.Match(subject);
+            if (quoted.Success)
+            {
+                return quoted.Groups["name"].Value;
+            }
 
-        return null;
+            var yEnc = YEncNameRegex.Match(subject);
+            return yEnc.Success ? yEnc.Groups["name"].Value : null;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return null;
+        }
     }
 
     private static string? GetExtension(string? fileName)
@@ -210,6 +222,18 @@ public static class NzbFileList
     {
         var lastDot = fileName.LastIndexOf('.');
         var stem = lastDot < 0 ? fileName : fileName[..lastDot];
-        return stem.Length >= 16 && ObfuscatedStemRegex.IsMatch(stem);
+        if (stem.Length < 16)
+        {
+            return false;
+        }
+
+        try
+        {
+            return ObfuscatedStemRegex.IsMatch(stem);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return true;
+        }
     }
 }
