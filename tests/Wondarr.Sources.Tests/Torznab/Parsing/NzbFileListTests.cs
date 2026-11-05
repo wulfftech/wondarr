@@ -157,6 +157,38 @@ public class NzbFileListTests
         NzbFileList.IsClean(files).Should().BeFalse();
     }
 
+    [Fact]
+    public void Reads_an_nzb_whose_subject_is_32_kb_of_dotted_tokens_without_throwing_and_gives_it_no_name()
+    {
+        // The yEnc pattern is quadratic on many dotted tokens with no "yEnc"; unguarded, this subject throws
+        // RegexMatchTimeoutException after the pattern's one-second limit.
+        var subject = string.Join(' ', Enumerable.Repeat("a.bcd", 5_400));
+        var nzb = $"<nzb><file subject=\"{subject}\"><segments><segment bytes=\"10\">x</segment></segments></file></nzb>";
+
+        var files = NzbFileList.Parse(new MemoryStream(Encoding.UTF8.GetBytes(nzb)));
+
+        subject.Length.Should().BeGreaterThan(30_000);
+        var file = files.Should().ContainSingle().Subject;
+        file.FileName.Should().BeNull("a subject past the length cap is not matched at all");
+        file.IsPlainName.Should().BeFalse();
+        file.Size.Should().Be(10);
+        NzbFileList.IsClean(files).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(512, "Album - 01.flac")]
+    [InlineData(513, null)]
+    public void Reads_a_quoted_name_from_a_subject_of_512_characters_and_none_from_one_of_513(int length, string? expected)
+    {
+        var subject = "&quot;Album - 01.flac&quot; yEnc " + new string('x', length - "\"Album - 01.flac\" yEnc ".Length);
+        var nzb = $"<nzb><file subject=\"{subject}\"><segments><segment bytes=\"1\">x</segment></segments></file></nzb>";
+
+        var files = NzbFileList.Parse(new MemoryStream(Encoding.UTF8.GetBytes(nzb)));
+
+        files.Single().Subject!.Length.Should().Be(length);
+        files.Single().FileName.Should().Be(expected);
+    }
+
     [Theory]
     [InlineData("Album.vol00+1.PAR2")]
     [InlineData("Album.Par2")]

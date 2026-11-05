@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
@@ -192,7 +193,7 @@ public sealed partial class IndexerSourceProvider
                 // the download may be this grab's now.
                 continue;
             }
-            catch (XmlException exception)
+            catch (Exception exception) when (exception is XmlException or RegexMatchTimeoutException)
             {
                 throw new DownloadClientException(string.Concat(release.IndexerName, ": The NZB could not be read."), exception);
             }

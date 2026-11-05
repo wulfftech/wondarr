@@ -221,6 +221,29 @@ public sealed partial class IndexerSourceProviderTests
     }
 
     [Fact]
+    public async Task A_post_with_a_32_kb_subject_is_read_as_nameless_and_the_other_candidates_stay()
+    {
+        var hostile = $"<nzb><file subject=\"{string.Join(' ', Enumerable.Repeat("a.bcd", 5_400))}\"><segments><segment bytes=\"10\">x</segment></segments></file></nzb>";
+        var album = AlbumNzb();
+        var indexer = new FakeIndexerClient
+        {
+            Answer = query => query.Album == "Discovery"
+                ?
+                [
+                    Release("Daft Punk - Discovery (2001) [FLAC]", "nzb-guid-hostile", downloadUrl: "https://usenet.example/get/hostile", protocol: DownloadProtocol.Usenet),
+                    Release("Daft Punk - Discovery (2001) [FLAC] [Remaster]", "nzb-guid-fine", downloadUrl: "https://usenet.example/get/fine", protocol: DownloadProtocol.Usenet),
+                ]
+                : [],
+            Download = release => new IndexerDownload(release.DownloadUrl!.EndsWith("hostile", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes(hostile) : album, null),
+        };
+        var provider = Provider(indexer, out _, protocol: DownloadProtocol.Usenet);
+
+        var result = await provider.SearchAsync(Request(), CancellationToken.None);
+
+        result.Candidates.Should().Contain(candidate => candidate.RemotePath == "03 - Digital Love.flac" && candidate.BlocklistKey == BlocklistKeys.Usenet("nzb-guid-fine", "03 - Digital Love.flac"));
+    }
+
+    [Fact]
     public async Task An_obfuscated_nzb_is_a_file_list_unknown_candidate()
     {
         var nzb = Nzb(("a1b2c3d4e5f6a7b8c9d0e1f2.rar", 900_000_000), ("a1b2c3d4e5f6a7b8c9d0e1f2.par2", 40_000));

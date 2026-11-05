@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Xml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -398,6 +399,7 @@ public sealed partial class IndexerSourceProvider : ISourceProvider
                     }
                     catch (Exception exception) when (exception is IndexerException or HttpRequestException
                         or TorrentMetainfoException or XmlException or InvalidDataException
+                        or RegexMatchTimeoutException
                         || (exception is OperationCanceledException && !token.IsCancellationRequested))
                     {
                         LogContainerFailed(_logger, release.IndexerName, exception);
