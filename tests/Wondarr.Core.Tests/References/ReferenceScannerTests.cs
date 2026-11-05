@@ -522,6 +522,71 @@ public sealed class ReferenceScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_that_changes_and_stops_decoding_releases_the_song_it_held()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+        _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("a.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Unreadable.Should().Be(1);
+        result.Released.Should().Be(1);
+
+        var row = await database.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.RelativePath == "a.mp3");
+        row.State.Should().Be(ReferenceFileState.Unreadable);
+        row.SongId.Should().BeNull();
+        (await SongFileCountAsync(database, songId)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_file_that_changes_and_stops_decoding_hands_the_song_to_its_second_copy()
+    {
+        var path = Write("a.mp3", "one");
+        Write("b.mp3", "one, again");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        var copy = await database.ReferenceFiles.SingleAsync(row => row.RelativePath == "b.mp3");
+        copy.SongId = songId;
+        copy.State = ReferenceFileState.Identified;
+        copy.Message = "duplicate: the song already has a file";
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+        _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("a.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Released.Should().Be(0, "the song is still owned through b.mp3");
+
+        var file = await database.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId);
+        file.Path.Should().Be(Path.Combine(_root, "b.mp3"));
+        file.SourceRef.Should().Contain($"\"referenceFileId\":{copy.Id}");
+
+        var rows = await database.ReferenceFiles.AsNoTracking().ToListAsync();
+        rows.Single(row => row.RelativePath == "a.mp3").SongId.Should().BeNull();
+        rows.Single(row => row.RelativePath == "a.mp3").State.Should().Be(ReferenceFileState.Unreadable);
+        rows.Single(row => row.RelativePath == "b.mp3").SongId.Should().Be(songId);
+    }
+
+    [Fact]
     public async Task A_second_copy_in_another_library_takes_over_the_song_instead_of_releasing_it()
     {
         var path = Write("a.mp3", "one");

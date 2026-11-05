@@ -396,7 +396,17 @@ public sealed partial class ReferenceIdentifier : IReferenceIdentifier
 
         var path = ReferenceOwnership.AbsolutePath(row.RootPath, row.Row.RelativePath);
 
-        if (await ReferenceOwnership.ReleaseAsync(_database, oldSongId, path, cancellationToken).ConfigureAwait(false))
+        var outcome = await ReferenceOwnership
+            .FollowOrReleaseAsync(
+                _database,
+                oldSongId,
+                row.Row.Id,
+                path,
+                _timeProvider.GetUtcNow().UtcDateTime,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (outcome == ReferenceOwnership.LeaveOutcome.Released)
         {
             LogReleased(_logger, row.Row.Id, oldSongId);
         }

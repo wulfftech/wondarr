@@ -560,6 +560,84 @@ public class ReferenceIdentifierTests : IDisposable
     }
 
     [Fact]
+    public async Task A_re_identified_file_that_became_another_song_leaves_the_old_one_with_its_second_copy()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = AddFile(context, library.Id, "a/changed.flac", 248_000, Tags(mbid: "m-b"));
+        var copy = AddFile(context, library.Id, "a/copy.flac", 248_000, null);
+        await context.SaveChangesAsync();
+
+        var old = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Old Song", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+        var oldId = old[0].Song.Id;
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = oldId,
+            Path = ReferenceOwnershipPath(file.RelativePath),
+            SourceType = SourceTypes.Reference,
+            SourceRef = JsonSerializer.Serialize(new { referenceLibraryId = library.Id, referenceFileId = file.Id }, StoredJson),
+            QualityId = ProbeQualityId,
+        });
+
+        file.SongId = oldId;
+        copy.SongId = oldId;
+        copy.State = ReferenceFileState.Identified;
+        copy.Message = "duplicate: the song already has a file";
+        await context.SaveChangesAsync();
+
+        _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-b", "New Song", durationMs: 248_000));
+
+        await RunAsync(context, library.Id);
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == oldId);
+        stored.Path.Should().Be(ReferenceOwnershipPath(copy.RelativePath));
+        (await RowAsync(context, copy.Id)).SongId.Should().Be(oldId);
+        (await RowAsync(context, file.Id)).SongId.Should().NotBe(oldId);
+    }
+
+    [Fact]
+    public async Task A_file_that_is_no_longer_identified_leaves_the_song_with_its_second_copy()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var file = AddFile(context, library.Id, "a/changed.flac", 248_000, Tags(title: "x", artist: "y"));
+        var copy = AddFile(context, library.Id, "a/copy.flac", 248_000, null);
+        await context.SaveChangesAsync();
+
+        var old = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Old Song", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+        var oldId = old[0].Song.Id;
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = oldId,
+            Path = ReferenceOwnershipPath(file.RelativePath),
+            SourceType = SourceTypes.Reference,
+            SourceRef = JsonSerializer.Serialize(new { referenceLibraryId = library.Id, referenceFileId = file.Id }, StoredJson),
+            QualityId = ProbeQualityId,
+        });
+
+        file.SongId = oldId;
+        copy.SongId = oldId;
+        copy.State = ReferenceFileState.Identified;
+        await context.SaveChangesAsync();
+
+        await RunAsync(context, library.Id);
+
+        (await RowAsync(context, file.Id)).State.Should().Be(ReferenceFileState.Unmatched);
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == oldId);
+        stored.Path.Should().Be(ReferenceOwnershipPath(copy.RelativePath));
+    }
+
+    [Fact]
     public async Task A_re_identified_file_that_became_another_song_frees_the_old_one()
     {
         await using var context = await ContextAsync();

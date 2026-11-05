@@ -678,7 +678,13 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
             if (row.SongId is { } songId)
             {
                 await ReferenceOwnership
-                    .ReleaseAsync(_database, songId, AbsolutePath(library, row), cancellationToken)
+                    .FollowOrReleaseAsync(
+                        _database,
+                        songId,
+                        row.Id,
+                        AbsolutePath(library, row),
+                        _timeProvider.GetUtcNow().UtcDateTime,
+                        cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -798,7 +804,15 @@ public sealed partial class ReferenceMatchService : IReferenceMatchService
 
         if (row.SongId is { } previous && previous != song.Id)
         {
-            await ReferenceOwnership.ReleaseAsync(_database, previous, path, cancellationToken).ConfigureAwait(false);
+            await ReferenceOwnership
+                .FollowOrReleaseAsync(
+                    _database,
+                    previous,
+                    row.Id,
+                    path,
+                    _timeProvider.GetUtcNow().UtcDateTime,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return await ReferenceOwnership

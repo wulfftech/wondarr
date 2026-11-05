@@ -406,6 +406,49 @@ public class ReferenceMatchServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Skipping_a_file_hands_the_song_to_its_second_identified_copy()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var (first, copy, songId) = await TwoCopiesAsync(context, library.Id);
+
+        var result = await Service(context).ResolveAsync(first.Id, new ReferenceResolveChoice(null, null, null, true), CancellationToken.None);
+
+        result.State.Should().Be(ReferenceFileState.Skipped);
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId);
+        stored.Path.Should().Be(ReferenceOwnershipPath(copy.RelativePath));
+        stored.SourceRef.Should().Contain($"\"referenceFileId\":{copy.Id}");
+
+        var rows = await context.ReferenceFiles.AsNoTracking().ToListAsync();
+        rows.Single(row => row.Id == first.Id).SongId.Should().BeNull();
+        rows.Single(row => row.Id == copy.Id).SongId.Should().Be(songId);
+        rows.Single(row => row.Id == copy.Id).Message.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Re_resolving_a_file_hands_the_song_it_was_to_its_second_identified_copy()
+    {
+        await using var context = await ContextAsync();
+        var library = await ReferenceLibraryAsync(context);
+        var (first, copy, songId) = await TwoCopiesAsync(context, library.Id);
+
+        _resolver.GetIdentityAsync("m-b", null, Arg.Any<CancellationToken>())
+            .Returns(Identity("m-b", "New Song", durationMs: 248_000));
+
+        var result = await Service(context).ResolveAsync(
+            first.Id,
+            new ReferenceResolveChoice(null, "m-b", null, false),
+            CancellationToken.None);
+
+        result.SongId.Should().NotBe(songId);
+
+        var stored = await context.SongFiles.AsNoTracking().SingleAsync(candidate => candidate.SongId == songId);
+        stored.Path.Should().Be(ReferenceOwnershipPath(copy.RelativePath));
+        stored.SourceRef.Should().Contain($"\"referenceFileId\":{copy.Id}");
+    }
+
+    [Fact]
     public async Task A_song_that_already_has_a_library_file_keeps_it()
     {
         await using var context = await ContextAsync();
@@ -1481,6 +1524,40 @@ public class ReferenceMatchServiceTests : IDisposable
         }
 
         return artist.Id;
+    }
+
+    /// <summary>
+    /// A song with two reference files of one recording: the first holds the song's file, the second is
+    /// Identified as a duplicate.
+    /// </summary>
+    private async Task<(ReferenceFile First, ReferenceFile Copy, long SongId)> TwoCopiesAsync(
+        WondarrDbContext context,
+        long libraryId)
+    {
+        var first = await AddFileAsync(context, libraryId, "a/one.flac", ReferenceFileState.Identified);
+        var copy = await AddFileAsync(context, libraryId, "a/one again.flac", ReferenceFileState.Identified);
+
+        var songs = await NewSongService(context).AddIdentitiesAsync(
+            [Identity("m-a", "Old Song", durationMs: 248_000)],
+            new SongAddOptions(),
+            CancellationToken.None);
+        var songId = songs[0].Song.Id;
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = ReferenceOwnershipPath(first.RelativePath),
+            SourceType = SourceTypes.Reference,
+            SourceRef = JsonSerializer.Serialize(new { referenceLibraryId = libraryId, referenceFileId = first.Id }, StoredJson),
+            QualityId = ProbeQualityId,
+        });
+
+        first.SongId = songId;
+        copy.SongId = songId;
+        copy.Message = "duplicate: the song already has a file";
+        await context.SaveChangesAsync();
+
+        return (first, copy, songId);
     }
 
     private static MediaInfo Probe(int durationMs) =>
