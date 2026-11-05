@@ -23,7 +23,7 @@ This page lists the keys you are likely to change, not every internal one.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `port` | `1077` | HTTP port (1 to 65535). |
+| `port` | `1077` | HTTP port (1 to 65535). The container's health check follows it. |
 | `bind_address` | `*` | Address to bind; `*` is all interfaces. |
 | `url_base` | empty | Path prefix behind a reverse proxy, such as `/wondarr`. |
 | `auth` | `forms` | `forms`, `none` or `external`. See [First run](/wondarr/getting-started/first-run/). |

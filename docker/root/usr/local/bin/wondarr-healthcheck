@@ -1,0 +1,47 @@
+#!/bin/sh
+#
+# The image's HEALTHCHECK: GET /ping on the address and port the app really listens on.
+#
+# Same precedence as the app (ConfigurationBuilderExtensions): the APP__SERVER__* environment
+# variables beat server.* in config.yml, which beats the defaults (port 1077, bind address "*").
+# config.yml is read the way ConfigFileWriter writes it: a top-level "server:" mapping with
+# indented "key: value" lines, values possibly double-quoted. Anything unreadable falls back to the
+# default, so the probe never fails for a reason the app would not.
+set -u
+
+config="${WONDARR_CONFIG_DIR:-/config}/config.yml"
+
+# server_value <key>: the value of server.<key> in config.yml, empty when absent or unreadable.
+server_value() {
+    [ -r "$config" ] || return 0
+    awk -v key="$1" '
+        /^server:[ \t]*(#.*)?$/ { in_server = 1; next }
+        /^[^ \t#]/ { in_server = 0 }
+        in_server && match($0, "^[ \t]+" key ":[ \t]*") {
+            value = substr($0, RLENGTH + 1)
+            sub(/[ \t]+#.*$/, "", value)
+            sub(/[ \t\r]+$/, "", value)
+            if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) value = substr(value, 2, length(value) - 2)
+            print value
+            exit
+        }
+    ' "$config" 2>/dev/null
+}
+
+port="${APP__SERVER__PORT:-$(server_value port)}"
+case "$port" in
+    '' | *[!0-9]*) port=1077 ;;
+    *) [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || port=1077 ;;
+esac
+
+bind="${APP__SERVER__BIND_ADDRESS:-$(server_value bind_address)}"
+case "$bind" in
+    # Listening on every interface (or nothing set): the loopback answers.
+    '' | '*' | '+' | 0.0.0.0 | '::' | '[::]') host=localhost ;;
+    # A specific address: the app is not on the loopback unless that is the address, so probe it.
+    \[*) host="$bind" ;;
+    *:*) host="[$bind]" ;;
+    *) host="$bind" ;;
+esac
+
+exec wget -q --spider -T 4 "http://$host:$port/ping"
