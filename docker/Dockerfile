@@ -179,7 +179,8 @@ COPY docker/root/ /
 # s6 runs these scripts by path, so set it explicitly.
 RUN chmod 0755 \
       /etc/s6-overlay/scripts/init-wondarr-user \
-      /etc/s6-overlay/s6-rc.d/svc-wondarr/run
+      /etc/s6-overlay/s6-rc.d/svc-wondarr/run \
+      /usr/local/bin/wondarr-healthcheck
 
 # Shutdown budget: `docker stop` waits 10 s (Docker's default) before it SIGKILLs the container, and
 # the whole of that has to be Wondarr's. s6-overlay v3 (README, "Customizing s6-overlay's behaviour"):
@@ -209,6 +210,6 @@ VOLUME ["/config", "/data"]
 EXPOSE 1077 50300
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD wget -q --spider http://localhost:1077/ping || exit 1
+    CMD ["/usr/local/bin/wondarr-healthcheck"]
 
 ENTRYPOINT ["/init"]

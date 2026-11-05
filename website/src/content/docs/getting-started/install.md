@@ -123,7 +123,7 @@ Tools such as autobrr send it in the `X-Api-Key` header. The API reference is se
 
 ## Healthcheck
 
-The image checks `http://localhost:1077/ping` every 30 seconds.
+The image checks `/ping` every 30 seconds. It follows your settings: the port is `APP__SERVER__PORT` when that is set, otherwise `port` under `server:` in `config.yml`, otherwise 1077, so a changed port does not make the container `unhealthy`. If you set `bind_address` to one specific address, the check probes that address; with the default `*` it probes `localhost`. A `config.yml` the check cannot read (for example `server: {port: 8080}` written on one line) counts as the default port, so put `port` on its own line under `server:`.
 
 ## Upgrading
 
