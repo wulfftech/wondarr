@@ -536,6 +536,22 @@
         "unexplainedBrackets": false,
         "hintsInclude": []
       }
+    },
+    {
+      "path": "@@abcde\\Music\\Artist\\Album\\Artist - 9999999999 - Title.mp3",
+      "expected": {
+        "artist": "Artist",
+        "title": "Title",
+        "album": "9999999999",
+        "trackNo": null,
+        "extension": "mp3",
+        "isAudio": true,
+        "flags": [],
+        "pathFlags": [],
+        "featured": [],
+        "unexplainedBrackets": false,
+        "hintsInclude": []
+      }
     }
   ]
 }

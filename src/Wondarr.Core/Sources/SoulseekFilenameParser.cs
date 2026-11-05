@@ -80,8 +80,12 @@ public static class SoulseekFilenameParser
     /// <summary>A segment separator: hyphen, en or em dash, surrounded by whitespace.</summary>
     private static readonly Regex DashSeparatorRegex = new(@"\s[-–—]\s", RegexOptions.CultureInvariant);
 
-    /// <summary>A segment that carries nothing but a track number.</summary>
-    private static readonly Regex DigitsOnlyRegex = new(@"^\d+$", RegexOptions.CultureInvariant);
+    /// <summary>
+    /// A segment that carries nothing but a track number. Four digits at most, the same bound as
+    /// <see cref="LeadingTrackTokenRegex"/> (disc and track, <c>0959</c>): a longer run of digits is a
+    /// catalogue number or a timestamp, so it stays a plain segment.
+    /// </summary>
+    private static readonly Regex DigitsOnlyRegex = new(@"^\d{1,4}$", RegexOptions.CultureInvariant);
 
     /// <summary>One bracketed group of a file name.</summary>
     private static readonly Regex BracketGroupRegex = new(@"\([^()]*\)|\[[^\[\]]*\]", RegexOptions.CultureInvariant);
@@ -395,9 +399,9 @@ public static class SoulseekFilenameParser
                 continue;
             }
 
-            if (DigitsOnlyRegex.IsMatch(trimmed))
+            if (DigitsOnlyRegex.IsMatch(trimmed) && int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var number))
             {
-                trackNumber ??= TrackNumberFrom(int.Parse(trimmed, CultureInfo.InvariantCulture));
+                trackNumber ??= TrackNumberFrom(number);
                 continue;
             }
 
