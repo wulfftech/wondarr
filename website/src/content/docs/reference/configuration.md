@@ -30,6 +30,7 @@ This page lists the keys you are likely to change, not every internal one.
 | `auth_required` | `disabledForLocalAddresses` | Or `enabled`. With the default, a caller skips the login only when it is local: see the rule below. |
 | `api_key` | generated | 32 lowercase hexadecimal characters. |
 | `allowed_hosts` | empty | A list of extra host names that count as local for the rule below: an exact name (`wondarr.example.com`) or `*.suffix` (`*.home.example.org`). Read from `config.yml` only, and a change applies without a restart. |
+| `require_local_host` | `true` | Only with `auth: none`: Wondarr answers a web UI request only when its `Host` is a local name (see the rule below). `false` answers any name. Also a switch under **Settings → General → Security**. Ignored with `forms` and `external`. |
 | `frame_ancestors` | empty | A list of origins, such as `https://dash.example.lan`, that may show the web UI in a frame (a dashboard that embeds it). No path, spaces or `;`. Without any, only Wondarr itself may. |
 
 ### Who counts as local
@@ -45,6 +46,8 @@ A wildcard in `allowed_hosts` needs at least two labels after `*.` (`*.example.c
 Failed sign-ins are limited to 10 a minute per address (per /64 for IPv6). Wondarr never trusts forwarded headers (`X-Forwarded-For` and the like), so behind a reverse proxy every visitor shares the proxy's address and one limit, and someone hammering the login page can lock the owner out of signing in for up to a minute.
 
 A request that fails the rule is not refused: it gets the login page, as with `auth_required: enabled`. If you reach Wondarr by a public name from inside your network and want to skip the login, add that name to `allowed_hosts`.
+
+With `auth: none` there is no login to fall back to, so the `Host` rule (item 3 only, not the address or proxy-header rules) decides whether the web UI answers at all. A request addressed to a name that is not local is refused with a page that says which name it used (a `403` with a problem-details body for `/initialize.json` and other non-browser requests). That stops a web page that tricks your browser into reaching Wondarr under its own name from reading the API key. If you open Wondarr by an internal domain such as `wondarr.ad.example.com` or a public name, add it to `allowed_hosts` or set `require_local_host: false`. Callers that send the API key, such as Prowlarr or Lidarr-style clients, work under any name. `auth: forms` and `auth: external` ignore `require_local_host`: with `external` the proxy in front of Wondarr is where the public name belongs.
 
 ## soulseek
 
