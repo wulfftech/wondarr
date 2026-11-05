@@ -63,6 +63,23 @@ public sealed class LogControllerTests
     }
 
     [Fact]
+    public async Task A_page_number_at_the_integer_limit_is_an_empty_page_not_a_server_error()
+    {
+        using var factory = new WondarrAppFactory();
+        WriteFiles(factory);
+        using var client = Authenticated(factory);
+
+        using var response = await client.GetAsync(
+            new Uri($"{LogEndpoint}?page=2147483647&pageSize=200&filter={Uri.EscapeDataString(Marker)}", UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await ReadJsonAsync(response);
+        body.GetProperty("totalRecords").GetInt32().Should().Be(5);
+        body.GetProperty("records").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
     public async Task The_second_page_continues_the_positions()
     {
         using var factory = new WondarrAppFactory();

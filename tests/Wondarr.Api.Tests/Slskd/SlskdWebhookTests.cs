@@ -110,6 +110,23 @@ public sealed class SlskdWebhookTests : IDisposable
         _handler.Events.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("X-Real-IP", "198.51.100.4")]
+    [InlineData("Forwarded", "for=198.51.100.4")]
+    public async Task Rejects_a_request_with_any_proxy_header_even_from_loopback(string header, string value)
+    {
+        var token = await TokenAsync();
+
+        using var client = _factory.CreateClient(Loopback);
+        using var request = CompletedRequest(token);
+        request.Headers.Add(header, value);
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        _handler.Events.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Rejects_a_forwarded_request_even_from_loopback()
     {

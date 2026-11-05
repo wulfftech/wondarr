@@ -68,6 +68,23 @@ public sealed class WantedHistoryBlocklistApiTests
     }
 
     [Fact]
+    public async Task A_history_page_number_at_the_integer_limit_is_empty_not_the_first_page()
+    {
+        using var factory = new WondarrAppFactory();
+        using var client = Authenticated(factory);
+        var songs = await SeedSongsAsync(factory, withFileQualityId: null);
+
+        await SeedHistoryAsync(factory, (songs[0], HistoryEventType.Grabbed, "{}"), (songs[1], HistoryEventType.Imported, "{}"));
+
+        using var response = await client.GetAsync(new Uri($"{HistoryEndpoint}?page=2147483647&pageSize=1000", UriKind.Relative));
+        var page = await ReadJsonAsync(response);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        page.GetProperty("totalRecords").GetInt32().Should().Be(2);
+        page.GetProperty("records").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
     public async Task History_is_newest_first_filters_by_song_and_event_and_returns_data_as_an_object()
     {
         using var factory = new WondarrAppFactory();

@@ -14,8 +14,8 @@ namespace Wondarr.Api.Extensions;
 /// Throttles <c>POST /login</c> and <c>POST /login/setup</c> (R-037). Two limits apply, both
 /// answered with 429 and <c>Retry-After</c>:
 /// <list type="bullet">
-/// <item>per caller: a fixed window of <see cref="AttemptsPerMinute"/> attempts a minute, partitioned by the socket address;</item>
-/// <item>across all callers: <see cref="ConcurrentHashes"/> requests at a time, because each one runs PBKDF2 and a flood must not pin every core.</item>
+/// <item>per caller: a fixed window of <see cref="AttemptsPerMinute"/> attempts a minute, partitioned by the socket address (here, in the middleware);</item>
+/// <item>across all callers: <see cref="ConcurrentHashes"/> password checks at a time, because each one runs PBKDF2 and a flood must not pin every core. That cap is a <see cref="LoginHashLimiter"/> the actions take a lease from once the form is read, so a connection trickling its body holds no permit.</item>
 /// </list>
 /// </summary>
 public static class LoginRateLimiting
@@ -23,7 +23,7 @@ public static class LoginRateLimiting
     /// <summary>Attempts one address may make in a minute.</summary>
     public const int AttemptsPerMinute = 10;
 
-    /// <summary>Login requests that may run at once, across all callers.</summary>
+    /// <summary>Password checks that may run at once, across all callers.</summary>
     public const int ConcurrentHashes = 2;
 
     /// <summary>The message the login page shows after a 429.</summary>
@@ -32,6 +32,9 @@ public static class LoginRateLimiting
     /// <summary>The message after a 429 from the concurrency cap rather than the per-address window.</summary>
     public const string BusyMessage = "Wondarr is busy checking other sign-ins. Try again in a few seconds.";
 
+    // Only the per-address window knows when it resets; the concurrency cap does not, and clears in seconds.
+    private const int BusyRetryAfterSeconds = 5;
+
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     /// <summary>Registers the limiters and the 429 response.</summary>
@@ -39,25 +42,21 @@ public static class LoginRateLimiting
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.AddSingleton<LoginHashLimiter>();
+
         return services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
-                PartitionedRateLimiter.Create<HttpContext, string>(context => IsLoginPost(context.Request)
-                    ? RateLimitPartition.GetFixedWindowLimiter(
-                        PartitionKey(context.GetRemoteIp()),
-                        _ => new FixedWindowRateLimiterOptions
-                        {
-                            PermitLimit = AttemptsPerMinute,
-                            Window = Window,
-                            QueueLimit = 0,
-                        })
-                    : RateLimitPartition.GetNoLimiter("other")),
-                PartitionedRateLimiter.Create<HttpContext, string>(context => IsLoginPost(context.Request)
-                    ? RateLimitPartition.GetConcurrencyLimiter(
-                        "login",
-                        _ => new ConcurrencyLimiterOptions { PermitLimit = ConcurrentHashes, QueueLimit = 0 })
-                    : RateLimitPartition.GetNoLimiter("other")));
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context => IsLoginPost(context.Request)
+                ? RateLimitPartition.GetFixedWindowLimiter(
+                    PartitionKey(context.GetRemoteIp()),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = AttemptsPerMinute,
+                        Window = Window,
+                        QueueLimit = 0,
+                    })
+                : RateLimitPartition.GetNoLimiter("other"));
 
             options.OnRejected = WriteRejectionAsync;
         });
@@ -90,14 +89,27 @@ public static class LoginRateLimiting
         return new IPAddress(bytes) + "/64";
     }
 
-    private static async ValueTask WriteRejectionAsync(OnRejectedContext rejection, CancellationToken cancellationToken)
+    private static ValueTask WriteRejectionAsync(OnRejectedContext rejection, CancellationToken cancellationToken)
     {
-        var context = rejection.HttpContext;
-
-        // Only the per-address window knows when it resets; the concurrency cap does not, and clears in seconds.
         var windowRejected = rejection.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retry);
-        var retryAfter = windowRejected ? (int)Math.Ceiling(retry.TotalSeconds) : 5;
 
+        return WriteTooManyAsync(
+            rejection.HttpContext,
+            windowRejected,
+            windowRejected ? (int)Math.Ceiling(retry.TotalSeconds) : BusyRetryAfterSeconds,
+            cancellationToken);
+    }
+
+    /// <summary>The 429 answer for a sign-in refused because every password check is taken.</summary>
+    internal static ValueTask WriteBusyAsync(HttpContext context, CancellationToken cancellationToken) =>
+        WriteTooManyAsync(context, false, BusyRetryAfterSeconds, cancellationToken);
+
+    private static async ValueTask WriteTooManyAsync(
+        HttpContext context,
+        bool windowRejected,
+        int retryAfter,
+        CancellationToken cancellationToken)
+    {
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         context.Response.Headers.RetryAfter = retryAfter.ToString(CultureInfo.InvariantCulture);
         context.Response.ContentType = "text/html; charset=utf-8";

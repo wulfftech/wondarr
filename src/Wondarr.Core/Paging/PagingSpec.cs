@@ -3,7 +3,7 @@ namespace Wondarr.Core.Paging;
 /// <summary>
 /// One page request: which page, how large, sorted by which key and in which direction. The values
 /// are clamped on construction, so a hostile query string cannot ask for page <c>-3</c> of a million
-/// rows. <c>SortKey</c> is passed through as the caller wrote it — a service decides what it means.
+/// rows, nor for a page so high that <see cref="Skip"/> overflows. <c>SortKey</c> is passed through as the caller wrote it — a service decides what it means.
 /// </summary>
 public sealed record PagingSpec
 {
@@ -13,14 +13,17 @@ public sealed record PagingSpec
     /// <summary>The smallest page size a caller may ask for.</summary>
     public const int MinPageSize = 1;
 
+    /// <summary>The highest page number a caller may ask for; <see cref="Skip"/> for it still fits an <see cref="int"/>.</summary>
+    public const int MaxPage = int.MaxValue / MaxPageSize;
+
     /// <summary>Initialises a new instance of the <see cref="PagingSpec"/> class, clamping the request.</summary>
-    /// <param name="page">The 1-based page number; anything below 1 becomes 1.</param>
+    /// <param name="page">The 1-based page number; clamped to 1–<see cref="MaxPage"/>.</param>
     /// <param name="pageSize">The rows per page; clamped to <see cref="MinPageSize"/>–<see cref="MaxPageSize"/>.</param>
     /// <param name="sortKey">The requested sort key, or <see langword="null"/> for the caller's default.</param>
     /// <param name="descending">Whether the caller asked for the sort to run backwards.</param>
     public PagingSpec(int page, int pageSize, string? sortKey, bool descending)
     {
-        Page = Math.Max(page, 1);
+        Page = Math.Clamp(page, 1, MaxPage);
         PageSize = Math.Clamp(pageSize, MinPageSize, MaxPageSize);
         SortKey = string.IsNullOrWhiteSpace(sortKey) ? null : sortKey;
         Descending = descending;

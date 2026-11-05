@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Wondarr.Api.Authentication;
 using Wondarr.Api.Extensions;
 using Wondarr.Core.Messaging;
 using Wondarr.Sources.Slskd;
@@ -71,7 +72,7 @@ public sealed partial class SlskdWebhookController : ControllerBase
         var remote = HttpContext.GetRemoteIp();
 
         // A forwarded request came through a proxy, not straight from the bundled slskd.
-        if (remote is null || !IPAddress.IsLoopback(remote) || Request.Headers.ContainsKey("X-Forwarded-For"))
+        if (remote is null || !IPAddress.IsLoopback(remote) || LocalCallerRules.HasProxyHeader(Request))
         {
             LogRejectedAddress(_logger, remote);
 

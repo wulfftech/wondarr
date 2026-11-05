@@ -230,6 +230,59 @@ public sealed class LoginSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task Two_logins_still_sending_their_bodies_do_not_stop_a_complete_login()
+    {
+        using var factory = Create();
+        await SetCredentialsAsync(factory, Username, Password);
+
+        using var slowOne = new StalledForm();
+        using var slowTwo = new StalledForm();
+        using var first = factory.CreateClient("8.8.2.1");
+        using var second = factory.CreateClient("8.8.2.2");
+        using var third = factory.CreateClient("8.8.2.3");
+
+        var firstLogin = first.PostAsync(new Uri("/login", UriKind.Relative), slowOne);
+        var secondLogin = second.PostAsync(new Uri("/login", UriKind.Relative), slowTwo);
+        await slowOne.Started.WaitAsync(TimeSpan.FromSeconds(30));
+        await slowTwo.Started.WaitAsync(TimeSpan.FromSeconds(30));
+
+        using var owner = await third.PostAsync(new Uri("/login", UriKind.Relative), LoginForm(Username, Password));
+
+        owner.StatusCode.Should().Be(HttpStatusCode.Found);
+        owner.Headers.Contains("Set-Cookie").Should().BeTrue();
+
+        slowOne.Abandon();
+        slowTwo.Abandon();
+        await Task.WhenAll(
+            firstLogin.ContinueWith(_ => { }, TaskScheduler.Default),
+            secondLogin.ContinueWith(_ => { }, TaskScheduler.Default));
+    }
+
+    [Theory]
+    [InlineData("/login")]
+    [InlineData("/login/setup")]
+    public async Task A_login_form_over_the_size_limit_is_refused_before_any_password_check(string path)
+    {
+        var counter = new CountingCredentialStore();
+        using var factory = new WondarrAppFactory(
+            configureServices: services =>
+            {
+                var original = services.Single(descriptor => descriptor.ServiceType == typeof(ICredentialStore));
+                services.Remove(original);
+                services.AddScoped<ICredentialStore>(provider =>
+                    new CountingCredentialStore(ActivatorUtilities.CreateInstance<CredentialStore>(provider), counter));
+            });
+        _factories.Add(factory);
+        await SetCredentialsAsync(factory, Username, Password);
+
+        using var client = factory.CreateClient(RemoteAddress);
+        using var response = await client.PostAsync(new Uri(path, UriKind.Relative), LoginForm(Username, new string('x', 100_000)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        counter.Checks.Should().Be(0);
+    }
+
+    [Fact]
     public async Task The_cookie_is_secure_over_https()
     {
         using var factory = Create();
@@ -338,6 +391,77 @@ public sealed class LoginSessionTests : IDisposable
         using var response = await client.SendAsync(request);
 
         return response.StatusCode;
+    }
+
+    /// <summary>A form body that has sent a few bytes and then stalls, like a client trickling its upload.</summary>
+    private sealed class StalledForm : HttpContent
+    {
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _abandon = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public StalledForm() => Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-www-form-urlencoded");
+
+        public Task Started => _started.Task;
+
+        public void Abandon() => _abandon.TrySetResult();
+
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            await stream.WriteAsync("username=adm"u8.ToArray());
+            await stream.FlushAsync();
+            _started.TrySetResult();
+            await _abandon.Task;
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = -1;
+
+            return false;
+        }
+    }
+
+    /// <summary>Counts the password checks that reach the store.</summary>
+    private sealed class CountingCredentialStore : ICredentialStore
+    {
+        private readonly ICredentialStore? _inner;
+        private readonly CountingCredentialStore? _shared;
+        private int _checks;
+
+        public CountingCredentialStore()
+        {
+        }
+
+        public CountingCredentialStore(ICredentialStore inner, CountingCredentialStore shared)
+        {
+            _inner = inner;
+            _shared = shared;
+        }
+
+        public int Checks => _checks;
+
+        public Task<bool> IsConfiguredAsync(CancellationToken cancellationToken) => _inner!.IsConfiguredAsync(cancellationToken);
+
+        public Task<string?> GetUsernameAsync(CancellationToken cancellationToken) => _inner!.GetUsernameAsync(cancellationToken);
+
+        public Task<string?> GetStampAsync(CancellationToken cancellationToken) => _inner!.GetStampAsync(cancellationToken);
+
+        public Task SetAsync(string username, string password, CancellationToken cancellationToken) =>
+            _inner!.SetAsync(username, password, cancellationToken);
+
+        public Task<bool> TrySetInitialAsync(string username, string password, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _shared!._checks);
+
+            return _inner!.TrySetInitialAsync(username, password, cancellationToken);
+        }
+
+        public Task<bool> VerifyAsync(string username, string password, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _shared!._checks);
+
+            return _inner!.VerifyAsync(username, password, cancellationToken);
+        }
     }
 
     /// <summary>Holds password checks open until released, and says when two are in progress.</summary>
