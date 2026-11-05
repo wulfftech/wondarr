@@ -15,7 +15,7 @@ Authentication is set in the `server` section of `/config/config.yml`:
 | `auth_required` | `enabled`, `disabledForLocalAddresses` | `disabledForLocalAddresses` |
 
 - `forms` is a login page with a username and password stored by Wondarr.
-- `none` turns authentication off. Only use it on a network you trust.
+- `none` turns authentication off. Only use it on a network you trust. Wondarr then answers only a request addressed to a local name (the same `Host` rule as below), so open it by its IP address or a local name, list other names in `server.allowed_hosts`, or turn off **Only answer local host names** under **Settings → General → Security** (`server.require_local_host: false`).
 - `external` leaves authentication to a reverse proxy in front of Wondarr.
 - With `auth_required: disabledForLocalAddresses`, callers on your local network skip the login: the request comes from a loopback, link-local or private address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), carries no reverse-proxy header (`X-Forwarded-For`, `Forwarded`, `X-Real-IP` and the like), and is addressed to a local-looking name (an IP address, `localhost`, a name with no dot, or one ending in `.local`, `.lan`, `.home.arpa` or `.internal`). Behind a reverse proxy everyone logs in. To add other names, list them in `server.allowed_hosts` ([Configuration](/wondarr/reference/configuration/#who-counts-as-local)). Set `auth_required: enabled` to require a login from every address.
 

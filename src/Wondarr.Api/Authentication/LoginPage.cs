@@ -81,6 +81,10 @@ internal static class LoginPage
     private const string UntrustedHostHint =
         """<p class="hint">No login exists yet. You opened Wondarr as <strong>__HOST__</strong>, a name it does not trust for setting up the first login. Open it by its IP address or a <code>.lan</code>/<code>.local</code> name, or add <code>__HOST__</code> to <code>server.allowed_hosts</code> in <code>config.yml</code>, then reload.</p>""";
 
+    // With auth: none (api-02). The wording matches LocalHostAuthorizationResultHandler's problem detail.
+    private const string LocalHostRequiredHint =
+        """<p class="hint">You opened Wondarr as <strong>__HOST__</strong>, which is not a local name. With authentication off it only answers local names. Open it by its IP address or a local name (<code>.lan</code>/<code>.local</code>), add <code>__HOST__</code> to <code>server.allowed_hosts</code> in <code>config.yml</code>, or turn off <em>Only answer local host names</em> under Settings → General → Security (reached by a local name).</p>""";
+
     private const string HostToken = "__HOST__";
 
     /// <summary>What <c>GET /login</c> shows, depending on whether a login exists and who is asking.</summary>
@@ -97,17 +101,20 @@ internal static class LoginPage
 
         /// <summary>No login exists, the caller is on the local network, but the <c>Host</c> it used is not trusted: an explanation and no form.</summary>
         CreateWithUntrustedHost,
+
+        /// <summary>Authentication is off and the <c>Host</c> the caller used is not a local name: an explanation and no UI.</summary>
+        LocalHostRequired,
     }
 
     /// <summary>Renders the page for the given URL base and state.</summary>
     /// <param name="urlBase">The URL base the app is served under.</param>
     /// <param name="loginFailed">Whether to show the "incorrect username or password" error.</param>
-    /// <param name="variant">Which of the four pages to render.</param>
+    /// <param name="variant">Which of the pages to render.</param>
     /// <param name="returnUrl">An already validated local URL to land on after signing in.</param>
     /// <param name="error">An error to show in place of the login-failed one.</param>
     /// <param name="username">The username to keep filled in on the create form. A password is never echoed.</param>
     /// <param name="notice">A plain notice to show above the sign-in form.</param>
-    /// <param name="host">The <c>Host</c> the caller used, without a port. Only the untrusted-host page shows it.</param>
+    /// <param name="host">The <c>Host</c> the caller used, without a port. Only the untrusted-host and local-host-required pages show it.</param>
     public static string Render(
         string urlBase,
         bool loginFailed,
@@ -148,6 +155,9 @@ internal static class LoginPage
                 body = string.IsNullOrWhiteSpace(host)
                     ? RemoteHint
                     : UntrustedHostHint.Replace(HostToken, encoder.Encode(host.Trim()), StringComparison.Ordinal);
+                break;
+            case Variant.LocalHostRequired:
+                body = LocalHostRequiredHint.Replace(HostToken, encoder.Encode(host?.Trim() ?? string.Empty), StringComparison.Ordinal);
                 break;
             default:
                 body = SignInForm.Replace(FormActionToken, encoder.Encode($"{urlBase}/login{query}"), StringComparison.Ordinal);

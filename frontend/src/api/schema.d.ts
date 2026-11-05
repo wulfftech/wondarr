@@ -5315,6 +5315,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/security": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SecuritySettingsResource"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SecuritySettingsUpdateResource"];
+                    "application/*+json": components["schemas"]["SecuritySettingsUpdateResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SecuritySettingsResource"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/album/lookup": {
         parameters: {
             query?: never;
@@ -6700,6 +6759,13 @@ export interface components {
         };
         /** @enum {string} */
         SearchOutcome: "grabbed" | "noAcceptableCandidate" | "noResults" | "sourceUnavailable" | "failed" | "cancelled" | "noFreeSlot";
+        SecuritySettingsResource: {
+            requireLocalHost: boolean;
+            requireLocalHostLocked: boolean;
+        };
+        SecuritySettingsUpdateResource: {
+            requireLocalHost?: null | boolean;
+        };
         SongAddResource: {
             mbRecordingId: null | string;
             /** Format: int64 */

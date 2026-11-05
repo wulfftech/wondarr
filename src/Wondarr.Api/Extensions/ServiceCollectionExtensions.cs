@@ -46,6 +46,8 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IAuthorizationPolicyProvider, UiAuthorizationPolicyProvider>();
         services.AddSingleton<IAuthorizationHandler, UiAuthorizationHandler>();
+        services.AddSingleton<IAuthorizationHandler, LocalHostAuthorizationHandler>();
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, LocalHostAuthorizationResultHandler>();
 
         services.AddAuthorization(options =>
         {
@@ -68,6 +70,11 @@ public static class ServiceCollectionExtensions
         // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a service.
         services.AddScoped<IImportSettingsService>(provider => new ImportSettingsService(
             provider.GetRequiredService<IOptionsMonitor<ImportOptions>>(),
+            provider.GetRequiredService<IConfigFileWriter>(),
+            Environment.GetEnvironmentVariables()));
+
+        services.AddScoped<ISecuritySettingsService>(provider => new SecuritySettingsService(
+            provider.GetRequiredService<IOptionsMonitor<ServerOptions>>(),
             provider.GetRequiredService<IConfigFileWriter>(),
             Environment.GetEnvironmentVariables()));
 

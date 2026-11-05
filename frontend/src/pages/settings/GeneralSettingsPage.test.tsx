@@ -299,3 +299,89 @@ describe('GeneralSettingsPage metadata services card', () => {
     expect(screen.queryByRole('button', { name: 'Remove Last.fm API key' })).not.toBeInTheDocument();
   });
 });
+
+describe('GeneralSettingsPage host name switch', () => {
+  function installSecurity(
+    authentication: 'none' | 'forms' | 'external',
+    stored: { requireLocalHost: boolean; requireLocalHostLocked: boolean },
+  ): FetchMock {
+    let current = stored;
+
+    return installFetch(async (url, init) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse({ ...SYSTEM_STATUS, authentication });
+      }
+
+      if (url.includes('/api/v1/health')) {
+        return jsonResponse(HEALTH_ENTRIES);
+      }
+
+      if (url.includes('/api/v1/auth/user')) {
+        return jsonResponse({ configured: false, username: null });
+      }
+
+      if (url.includes('/api/v1/config/security')) {
+        if (init?.method === 'PUT') {
+          const request = vi.mocked(fetch).mock.calls.at(-1)?.[0];
+          const body = (await (request instanceof Request ? request.clone().json() : Promise.resolve({}))) as {
+            requireLocalHost: boolean;
+          };
+          current = { ...current, requireLocalHost: body.requireLocalHost };
+        }
+
+        return jsonResponse(current);
+      }
+
+      return new Response('not found', { status: 404 });
+    });
+  }
+
+  const ON = { requireLocalHost: true, requireLocalHostLocked: false };
+
+  it('shows the switch, on by default, when authentication is none', async () => {
+    installSecurity('none', ON);
+
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: /Only answer local host names/ });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText(/cannot read the API key/)).toBeInTheDocument();
+  });
+
+  it.each(['forms', 'external'] as const)('hides the switch when authentication is %s', async (authentication) => {
+    installSecurity(authentication, ON);
+
+    renderApp();
+
+    await screen.findByText('API key');
+    await waitFor(() => expect(screen.getByText(/Change these in/)).toBeInTheDocument());
+    expect(screen.queryByRole('switch', { name: /Only answer local host names/ })).not.toBeInTheDocument();
+    expect(sent().some((call) => call.url.includes('/api/v1/config/security'))).toBe(false);
+  });
+
+  it('sends the new value when the switch is turned off, and shows it off', async () => {
+    const user = userEvent.setup();
+    installSecurity('none', ON);
+
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: /Only answer local host names/ });
+    await user.click(toggle);
+
+    await waitFor(() => expect(toggle).not.toBeChecked());
+
+    const put = sent().find((call) => call.method === 'PUT' && call.url.includes('/api/v1/config/security'));
+    expect(put).toBeDefined();
+    expect(JSON.parse(await (put?.body ?? Promise.resolve('{}')))).toEqual({ requireLocalHost: false });
+  });
+
+  it('shows a setting the environment owns as read-only', async () => {
+    installSecurity('none', { requireLocalHost: false, requireLocalHostLocked: true });
+
+    renderApp();
+
+    const toggle = await screen.findByRole('switch', { name: /Only answer local host names/ });
+    expect(toggle).toBeDisabled();
+    expect(screen.getByText('APP__SERVER__REQUIRE_LOCAL_HOST')).toBeInTheDocument();
+  });
+});

@@ -26,6 +26,7 @@ import {
   type MetadataKeyService,
   type MetadataSettingsResource,
 } from '../../api/metadata';
+import { useSaveSecuritySettings, useSecuritySettings } from '../../api/securitySettings';
 import { useSaveUpdateSettings, useUpdateSettings, type UpdateSettings } from '../../api/update';
 import { ErrorState, LoadingState } from '../../components/DataState';
 import { FeedbackSettingsCard } from './FeedbackSettingsCard';
@@ -71,6 +72,54 @@ function ApiKeyBlock() {
         Give this key to Prowlarr, autobrr, Homepage or Unpackerr. It is set in <Code>/config/config.yml</Code> (
         <Code>server.api_key</Code>) or <Code>APP__SERVER__API_KEY</Code>.
       </Text>
+    </Stack>
+  );
+}
+
+/**
+ * With authentication off, Wondarr answers only a request addressed to a local host name, so a web page that
+ * reaches it under its own name (DNS rebinding) cannot read the API key. Shown only under `auth: none`: with
+ * any other method the setting has no effect.
+ */
+function LocalHostBlock() {
+  const status = useSystemStatus();
+
+  return status.data?.authentication === 'none' ? <LocalHostSwitch /> : null;
+}
+
+function LocalHostSwitch() {
+  const settings = useSecuritySettings();
+  const save = useSaveSecuritySettings();
+
+  return (
+    <Stack gap="xs">
+      {settings.isPending ? (
+        <LoadingState label="Loading the host name setting…" />
+      ) : settings.isError ? (
+        <ErrorState title="The host name setting could not be loaded" message={settings.error.message} />
+      ) : (
+        <>
+          <Switch
+            label="Only answer local host names"
+            description="With authentication off, a web page that reaches Wondarr under its own name cannot read the API key. Turn this off if you open Wondarr by a name that is not local and do not want to list it in server.allowed_hosts."
+            checked={settings.data.requireLocalHost}
+            disabled={settings.data.requireLocalHostLocked || save.isPending}
+            onChange={(event) => {
+              save.mutate(event.currentTarget.checked);
+            }}
+          />
+          {settings.data.requireLocalHostLocked && (
+            <Text size="sm" c="dimmed">
+              This is set by <Code>APP__SERVER__REQUIRE_LOCAL_HOST</Code> and cannot be changed here.
+            </Text>
+          )}
+          {save.isError && (
+            <Alert color="red" icon={<CircleAlert size={16} />}>
+              {save.error.message}
+            </Alert>
+          )}
+        </>
+      )}
     </Stack>
   );
 }
@@ -469,6 +518,7 @@ export function GeneralSettingsPage() {
           <Title order={4}>Security</Title>
           <ApiKeyBlock />
           <LoginBlock />
+          <LocalHostBlock />
         </Stack>
       </Card>
       <MetadataServicesCard />

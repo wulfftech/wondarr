@@ -61,6 +61,16 @@ public sealed class ServerOptions
     public List<string> AllowedHosts { get; set; } = [];
 
     /// <summary>
+    /// With <see cref="AuthenticationMethod.None"/>, whether the web UI answers only a request addressed
+    /// to a local host name (the <see cref="AllowedHosts"/> rule: an IP literal, <c>localhost</c>, a
+    /// single-label name, the <c>.local</c>, <c>.lan</c>, <c>.home.arpa</c> and <c>.internal</c> suffixes, or
+    /// an allowed name). Without it, a web page that reaches Wondarr under its own name (DNS rebinding)
+    /// can read the API key from <c>/initialize.json</c>. Ignored with <c>forms</c> and <c>external</c>.
+    /// API-key callers are never affected. <see langword="true"/> by default.
+    /// </summary>
+    public bool RequireLocalHost { get; set; } = true;
+
+    /// <summary>
     /// Origins, such as <c>https://dash.example.lan</c>, that may frame the web UI in addition to
     /// itself (CSP <c>frame-ancestors</c>). Empty by default.
     /// </summary>

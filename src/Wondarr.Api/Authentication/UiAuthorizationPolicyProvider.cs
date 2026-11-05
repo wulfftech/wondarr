@@ -44,8 +44,17 @@ public sealed class UiAuthorizationPolicyProvider : IAuthorizationPolicyProvider
             return FallbackPolicyProvider.GetPolicyAsync(policyName);
         }
 
-        var policy = new AuthorizationPolicyBuilder(_serverOptions.CurrentValue.Auth.ToString())
+        var options = _serverOptions.CurrentValue;
+
+        var policy = new AuthorizationPolicyBuilder(options.Auth.ToString())
             .AddRequirements(new BypassableDenyAnonymousAuthorizationRequirement());
+
+        // The None scheme authenticates everyone, so without this a rebound public name could read the API
+        // key from /initialize.json. External is left out: its proxy's Host is legitimately public.
+        if (options.Auth == AuthenticationMethod.None && options.RequireLocalHost)
+        {
+            policy.AddRequirements(new LocalHostAuthorizationRequirement());
+        }
 
         return Task.FromResult<AuthorizationPolicy?>(policy.Build());
     }
