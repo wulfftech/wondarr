@@ -83,12 +83,13 @@ function ApiKeyBlock() {
  */
 function LocalHostBlock() {
   const status = useSystemStatus();
+
+  return status.data?.authentication === 'none' ? <LocalHostSwitch /> : null;
+}
+
+function LocalHostSwitch() {
   const settings = useSecuritySettings();
   const save = useSaveSecuritySettings();
-
-  if (status.data?.authentication !== 'none') {
-    return null;
-  }
 
   return (
     <Stack gap="xs">
