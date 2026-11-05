@@ -80,8 +80,12 @@ public static class SoulseekFilenameParser
     /// <summary>A segment separator: hyphen, en or em dash, surrounded by whitespace.</summary>
     private static readonly Regex DashSeparatorRegex = new(@"\s[-–—]\s", RegexOptions.CultureInvariant);
 
-    /// <summary>A segment that carries nothing but a track number.</summary>
-    private static readonly Regex DigitsOnlyRegex = new(@"^\d+$", RegexOptions.CultureInvariant);
+    /// <summary>
+    /// A segment that carries nothing but a track number. Four digits at most, the same bound as
+    /// <see cref="LeadingTrackTokenRegex"/> (disc and track, <c>0959</c>): a longer run of digits is a
+    /// catalogue number or a timestamp, so it stays a plain segment.
+    /// </summary>
+    private static readonly Regex DigitsOnlyRegex = new(@"^\d{1,4}$", RegexOptions.CultureInvariant);
 
     /// <summary>One bracketed group of a file name.</summary>
     private static readonly Regex BracketGroupRegex = new(@"\([^()]*\)|\[[^\[\]]*\]", RegexOptions.CultureInvariant);
@@ -342,12 +346,22 @@ public static class SoulseekFilenameParser
             }
 
             // "1975 - Born to Run" is a year, not track 1975.
-            if (!stripped && YearOnlyTokenRegex.IsMatch(token) && int.Parse(token, CultureInfo.InvariantCulture) is >= 1900 and <= 2099)
+            // \d also matches non-ASCII digits (Arabic-Indic and others), which do not parse: such a token
+            // is plain text, not a track number.
+            if (!stripped
+                && YearOnlyTokenRegex.IsMatch(token)
+                && int.TryParse(token, NumberStyles.None, CultureInfo.InvariantCulture, out var year)
+                && year is >= 1900 and <= 2099)
             {
                 break;
             }
 
-            lastNumber = LastNumberIn(token);
+            if (LastNumberIn(token) is not { } number)
+            {
+                break;
+            }
+
+            lastNumber = number;
             stripped = true;
             working = rest[separator.Length..].TrimStart();
         }
@@ -375,11 +389,17 @@ public static class SoulseekFilenameParser
     private static int TrackNumberFrom(int value) => value >= 100 ? value % 100 : value;
 
     /// <summary>The last number inside one token, e.g. <c>6</c> for <c>01-06</c>.</summary>
-    private static int LastNumberIn(string token)
+    private static int? LastNumberIn(string token)
     {
         var matches = NumberRegex.Matches(token);
+        if (matches.Count == 0)
+        {
+            return 0;
+        }
 
-        return matches.Count == 0 ? 0 : int.Parse(matches[matches.Count - 1].Value, CultureInfo.InvariantCulture);
+        return int.TryParse(matches[matches.Count - 1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
     }
 
     /// <summary>Rule 5: splits the remainder on dashes and takes out the track-number-only segments.</summary>
@@ -395,9 +415,9 @@ public static class SoulseekFilenameParser
                 continue;
             }
 
-            if (DigitsOnlyRegex.IsMatch(trimmed))
+            if (DigitsOnlyRegex.IsMatch(trimmed) && int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out var number))
             {
-                trackNumber ??= TrackNumberFrom(int.Parse(trimmed, CultureInfo.InvariantCulture));
+                trackNumber ??= TrackNumberFrom(number);
                 continue;
             }
 

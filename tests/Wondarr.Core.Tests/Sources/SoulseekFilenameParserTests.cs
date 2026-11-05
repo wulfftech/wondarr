@@ -77,6 +77,20 @@ public class SoulseekFilenameParserTests
         result.IsAudio.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("Music\\١٩٩٨ - Title.mp3")]
+    [InlineData("Music\\١٢ - Title.mp3")]
+    [InlineData("Music\\Artist - ١٩٩٨ - Title.mp3")]
+    [InlineData("Music\\٠١-٠٦ Title.mp3")]
+    public void Reads_a_name_with_non_ascii_digits_without_throwing(string path)
+    {
+        var act = () => SoulseekFilenameParser.Parse(path);
+
+        act.Should().NotThrow();
+        act().IsAudio.Should().BeTrue();
+        act().Parsed.Title.Should().NotBeNullOrEmpty();
+    }
+
     [Fact]
     public void Reads_a_path_with_forward_slashes_like_the_one_with_backslashes()
     {

@@ -493,6 +493,11 @@ public sealed partial class SongSearchService : ISongSearchService
         var candidates = new List<Candidate>();
         string? sourceMessage = null;
 
+        // Peer reputation is read as candidates arrive, so the early-stop checks judge a pool the way
+        // the final evaluation will: a candidate from a peer on cooldown does not stop the ladder.
+        var reputationCache = new ReputationCache(_users);
+        context = context with { Reputation = reputationCache.Known };
+
         // The sources run in tier order (MATCHING_ENGINE §6.4): Soulseek first, YouTube only when it
         // found nothing the engine accepts, torrents last. A manual (interactive) search fans out over
         // every tier, because the user asked for the whole pool.
@@ -513,7 +518,7 @@ public sealed partial class SongSearchService : ISongSearchService
                 {
                     // The interactive search runs every query so the user sees the whole pool; an
                     // automatic run stops early once a candidate is good enough (MATCHING_ENGINE §6.4).
-                    IsPoolGoodEnough = trigger == SearchTrigger.Manual ? null : PoolIsGoodEnough(context),
+                    IsPoolGoodEnough = trigger == SearchTrigger.Manual ? null : PoolIsGoodEnough(context, reputationCache),
                     MbRecordingId = song.MbRecordingId,
                     AlbumKind = song.AlbumContext?.Kind,
                     AlbumMbReleaseId = song.AlbumContext?.MbReleaseId,
@@ -531,26 +536,20 @@ public sealed partial class SongSearchService : ISongSearchService
                 }
             }
 
-            // The same caveat as the pool callback: the verdict is taken with the reputation known
-            // before the search, so a candidate this check accepts can still be rejected by the final
-            // evaluation. Stopping here only means the later tiers are not asked.
-            if (trigger != SearchTrigger.Manual
-                && _engine.Evaluate(context, candidates).Any(decision => decision.Accepted))
+            // Judged with the reputation of the peers so far loaded, as the final evaluation will, so a
+            // candidate it would reject for a cooldown does not stop the ladder.
+            if (trigger != SearchTrigger.Manual)
             {
-                break;
+                await reputationCache.LoadAsync(candidates, cancellationToken).ConfigureAwait(false);
+
+                if (_engine.Evaluate(context, candidates).Any(decision => decision.Accepted))
+                {
+                    break;
+                }
             }
         }
 
-        var reputation = await _users
-            .GetReputationAsync(
-                candidates
-                    .Select(candidate => candidate.Provider)
-                    .Where(provider => !string.IsNullOrEmpty(provider))
-                    .Select(provider => provider!),
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        context = context with { Reputation = reputation };
+        await reputationCache.LoadAsync(candidates, cancellationToken).ConfigureAwait(false);
 
         var decisions = _engine.Evaluate(context, candidates);
 
@@ -688,14 +687,18 @@ public sealed partial class SongSearchService : ISongSearchService
     /// already holds a candidate the engine accepts (MATCHING_ENGINE §6.4).
     /// </summary>
     /// <remarks>
-    /// The verdict is taken with the reputation known <em>before</em> the search: the peer statistics
-    /// are read once, after every source has answered. A candidate this callback accepts can therefore
-    /// still be rejected by the final evaluation, and that is not a failure — the run simply keeps the
-    /// candidates it has, judges them all against the final context, and grabs the best one that
-    /// survives. Stopping early only means the sources are not asked for more.
+    /// The pool is judged with the reputation of its peers loaded (once per peer for the whole run, see
+    /// <see cref="ReputationCache"/>), so a candidate from a peer on cooldown does not count as good
+    /// enough. The callback is synchronous, so a peer not seen before is read with a blocking call;
+    /// the sources call it between queries, never while the service uses the database.
     /// </remarks>
-    private Func<IReadOnlyList<Candidate>, bool> PoolIsGoodEnough(DecisionContext context) =>
-        pool => _engine.Evaluate(context, pool).Any(_engine.IsGoodEnough);
+    private Func<IReadOnlyList<Candidate>, bool> PoolIsGoodEnough(DecisionContext context, ReputationCache reputation) =>
+        pool =>
+        {
+            reputation.Load(pool);
+
+            return _engine.Evaluate(context, pool).Any(_engine.IsGoodEnough);
+        };
 
     /// <summary>The tier a source runs in (MATCHING_ENGINE §6.4): Soulseek, then YouTube, then torrents.</summary>
     private static int SourceTier(ISourceProvider provider) => DecisionEngine.SourceTierOf(provider.SourceType);
@@ -1822,6 +1825,57 @@ public sealed partial class SongSearchService : ISongSearchService
         string? Release = null,
         int BundledWith = 0,
         IReadOnlyList<BundledSongData>? BundledSongs = null);
+
+    /// <summary>
+    /// The reputation of every peer seen in one run, read once per peer. <see cref="Known"/> is the
+    /// dictionary a <see cref="DecisionContext"/> carries; it fills in place as peers are loaded.
+    /// </summary>
+    private sealed class ReputationCache(ISoulseekUserService users)
+    {
+        private readonly HashSet<string> _asked = new(StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<string, UserReputation> Known { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public async Task LoadAsync(IEnumerable<Candidate> candidates, CancellationToken cancellationToken)
+        {
+            var missing = Unasked(candidates);
+            if (missing.Count == 0)
+            {
+                return;
+            }
+
+            Add(missing, await users.GetReputationAsync(missing, cancellationToken).ConfigureAwait(false));
+        }
+
+        public void Load(IEnumerable<Candidate> candidates)
+        {
+            var missing = Unasked(candidates);
+            if (missing.Count == 0)
+            {
+                return;
+            }
+
+            Add(missing, users.GetReputationAsync(missing, CancellationToken.None).GetAwaiter().GetResult());
+        }
+
+        private List<string> Unasked(IEnumerable<Candidate> candidates) => candidates
+            .Select(candidate => candidate.Provider)
+            .Where(provider => !string.IsNullOrEmpty(provider))
+            .Select(provider => provider!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(provider => !_asked.Contains(provider))
+            .ToList();
+
+        private void Add(List<string> asked, IReadOnlyDictionary<string, UserReputation> loaded)
+        {
+            _asked.UnionWith(asked);
+
+            foreach (var (name, reputation) in loaded)
+            {
+                Known[name] = reputation;
+            }
+        }
+    }
 
     /// <summary>One other song that rode along on a container grab, as the history shows it.</summary>
     private sealed record BundledSongData(long SongId, string Title);

@@ -56,6 +56,20 @@ public class ContainerMatcherTests
     }
 
     [Fact]
+    public void Finds_the_track_when_another_file_has_a_ten_digit_dash_segment()
+    {
+        var files = FlacAlbum();
+        files.Add(new ContainerFile(files.Count, "Artist - 9999999999 - Title.mp3", Bytes(240, 320)));
+
+        var match = ContainerMatcher.Find(
+            files,
+            new ContainerMatchRequest("Harder, Better, Faster, Stronger", VersionFlags.None, 4, 240_000, Flac));
+
+        match.Should().NotBeNull();
+        match!.File.Index.Should().Be(5);
+    }
+
+    [Fact]
     public void Finds_the_track_by_title_when_the_track_number_is_unknown_or_different()
     {
         // A deluxe edition numbers its tracks differently from the album context's release.
