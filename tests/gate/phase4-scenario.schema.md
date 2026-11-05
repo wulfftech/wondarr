@@ -1,6 +1,6 @@
 # Phase 4 gate scenario
 
-What `tools/the fake yt-dlp` (the stand-in yt-dlp) answers for each video, and what the gate expects the app
+What the fake yt-dlp (`tools/FakeSlskd/FakeYtDlp.cs`, started as `FakeSlskd --fake-ytdlp`) answers for each video, and what the gate expects Wondarr
 to do with it. `scripts/phase4-scenario.py` writes the file; the smoke test passes its path as
 `FAKE_YT_SCENARIO`.
 
@@ -28,7 +28,7 @@ to do with it. `scripts/phase4-scenario.py` writes the file; the smoke test pass
       "frequency": 440,
 
       // What the AcoustID stub should answer for this file's fingerprint: the recording the app's
-      // verification resolves it to. the fake yt-dlp registers it with the stub right after generating the
+      // verification resolves it to. The fake yt-dlp registers it with the stub right after it generates the
       // file (FAKE_ACOUSTID_REGISTER points at the stub's /v2/register).
       "identity": {
         "recordingId": "833f00e1-781f-4edd-90e4-e52712618862",
