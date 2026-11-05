@@ -29,7 +29,7 @@ If a file disappears from the folder, its song keeps counting as owned for now. 
 
 If a scan finds more than 10 % of a library's owned files missing at once, or more than 200 of them (whichever is smaller, and never fewer than 3 files), Wondarr assumes the share is not mounted. It marks them missing but releases nothing, and Health shows a warning naming the library and the count. The warning clears by itself when the files are back or fewer are missing.
 
-A file that is edited (a new size or modification time) is read and identified again, unless you skipped it or it was adopted: your choice stays, and only its size and measurements are refreshed. If an edited file no longer decodes, it becomes unreadable and its song lets go of it at once: it follows a second copy of the recording if you have one, and is wanted again otherwise.
+A file that is edited (a new size or modification time) is read and identified again, unless you skipped it or it was adopted: your choice stays, and only its size and measurements are refreshed. If an edited file no longer decodes, it becomes unreadable. Once it has stayed unreadable for the same 24 hours as a missing file (so a file that is still being copied does not count), its song lets go of it: the song follows a second copy of the recording if you have one, and is wanted again otherwise.
 
 ## The scan
 

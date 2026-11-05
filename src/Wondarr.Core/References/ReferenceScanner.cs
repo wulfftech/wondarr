@@ -413,11 +413,18 @@ public sealed partial class ReferenceScanner(
             LogReplacedGone(logger, referenceLibraryId, replacedGone);
         }
 
-        // A file that stopped decoding is no longer the song it was, whatever the share is doing.
+        // A file that stopped decoding is no longer the song it was, whatever the share is doing, but one
+        // written to a moment ago may still be being copied: it keeps its song until its own last-write
+        // time is older than the missing-file grace. Every later scan probes it again.
         var unreadableIds = unreadableOwned.Select(entry => entry.Row.Id).ToHashSet();
 
         foreach (var (row, songId) in unreadableOwned)
         {
+            if (now - row.ModifiedAt < ReferenceMissingRules.Grace)
+            {
+                continue;
+            }
+
             var alive = await FindAliveCopyAsync(row.Id, songId, referenceLibraryId, seen, unreadableIds, cancellationToken)
                 .ConfigureAwait(false);
 

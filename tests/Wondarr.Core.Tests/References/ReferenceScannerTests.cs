@@ -533,7 +533,7 @@ public sealed class ReferenceScannerTests : IDisposable
         await scanner.ScanAsync(library.Id, null, CancellationToken.None);
         var songId = await OwnAsync(database, "a.mp3");
 
-        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(-25));
         _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("a.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
 
@@ -568,7 +568,7 @@ public sealed class ReferenceScannerTests : IDisposable
         await database.SaveChangesAsync();
         database.ChangeTracker.Clear();
 
-        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(1));
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddHours(-25));
         _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("a.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
 
@@ -584,6 +584,38 @@ public sealed class ReferenceScannerTests : IDisposable
         rows.Single(row => row.RelativePath == "a.mp3").SongId.Should().BeNull();
         rows.Single(row => row.RelativePath == "a.mp3").State.Should().Be(ReferenceFileState.Unreadable);
         rows.Single(row => row.RelativePath == "b.mp3").SongId.Should().Be(songId);
+    }
+
+    [Fact]
+    public async Task A_file_still_being_written_keeps_its_song_until_it_has_stayed_unreadable_past_the_grace()
+    {
+        var path = Write("a.mp3", "one");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        // Written a minute ago and not decodable yet: a copy that has not finished.
+        File.SetLastWriteTimeUtc(path, Start.UtcDateTime.AddMinutes(-1));
+        _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("a.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
+
+        var first = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        first.Released.Should().Be(0);
+        (await SongFileCountAsync(database, songId)).Should().Be(1);
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync(row => row.RelativePath == "a.mp3")).SongId.Should().Be(songId);
+
+        // The file is left alone and stays unreadable; once the grace has passed the song lets go.
+        _time.Advance(TimeSpan.FromHours(25));
+        var later = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        later.Released.Should().Be(1);
+        (await SongFileCountAsync(database, songId)).Should().Be(0);
+        (await database.ReferenceFiles.AsNoTracking().SingleAsync(row => row.RelativePath == "a.mp3")).SongId.Should().BeNull();
     }
 
     [Fact]
