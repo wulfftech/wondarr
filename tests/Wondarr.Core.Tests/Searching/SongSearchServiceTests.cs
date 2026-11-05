@@ -742,7 +742,7 @@ public async Task An_interactive_search_with_an_acceptable_candidate_finishes_ca
 }
 
 [Fact]
-public async Task A_candidate_the_reputation_rejects_afterwards_does_not_fail_the_run()
+public async Task A_candidate_the_reputation_rejects_does_not_stop_the_search_and_does_not_fail_the_run()
 {
     await using var host = await SearchTestHost.CreateAsync();
     var songId = await host.SeedSongAsync();
@@ -753,8 +753,8 @@ public async Task A_candidate_the_reputation_rejects_afterwards_does_not_fail_th
     host.Provider.Candidates.Add(rejectedLater);
     host.Provider.Candidates.Add(grabbed);
 
-    // The early-stop callback only sees the bad peer's file, before the reputation is read, and
-    // accepts it: the pool is good enough and the source may stop asking.
+    // The early-stop callback only sees the bad peer's file. The peer is on cooldown, so the pool
+    // is not good enough and the source keeps asking.
     host.Provider.PoolCandidates = [rejectedLater];
 
     for (var failure = 0; failure < 2; failure++)
@@ -764,7 +764,7 @@ public async Task A_candidate_the_reputation_rejects_afterwards_does_not_fail_th
 
     var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: true, Token);
 
-    host.Provider.PoolVerdict.Should().BeTrue("the pool was judged before the reputation was known");
+    host.Provider.PoolVerdict.Should().BeFalse("the pool was judged with the reputation known");
     result.Outcome.Should().Be(SearchOutcome.Grabbed, "the final evaluation keeps the candidate it accepts");
     host.Provider.Grabs.Should().ContainSingle();
     host.Provider.Grabs[0].Candidate.BlocklistKey.Should().Be(grabbed.BlocklistKey);

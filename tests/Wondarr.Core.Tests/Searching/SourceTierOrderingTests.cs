@@ -47,6 +47,31 @@ public class SourceTierOrderingTests
     }
 
     [Fact]
+    public async Task Asks_youtube_when_every_soulseek_candidate_is_from_a_peer_on_cooldown()
+    {
+        await using var host = await TierTestHost.CreateAsync(soulseekAccepted: true, youtubeAccepts: true);
+        var songId = await host.SeedSongAsync();
+        await host.FailTwiceAsync("peer");
+
+        var result = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
+
+        host.YouTube.Searches.Should().Be(1, "every Soulseek candidate is rejected for the peer's cooldown");
+        result.Outcome.Should().NotBe(SearchOutcome.NoAcceptableCandidate);
+    }
+
+    [Fact]
+    public async Task Stops_at_soulseek_when_its_candidate_is_from_a_peer_in_good_standing()
+    {
+        await using var host = await TierTestHost.CreateAsync(soulseekAccepted: true, youtubeAccepts: true);
+        var songId = await host.SeedSongAsync();
+        await host.FailOnceAsync("peer");
+
+        await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
+
+        host.YouTube.Searches.Should().Be(0, "one failure is not a cooldown");
+    }
+
+    [Fact]
     public async Task Manual_search_fans_out()
     {
         await using var host = await TierTestHost.CreateAsync(soulseekAccepted: true);
@@ -92,11 +117,24 @@ internal sealed class TierTestHost : IAsyncDisposable
 
     public Task<long> SeedSongAsync() => _inner.SeedSongAsync();
 
-    public static async Task<TierTestHost> CreateAsync(bool soulseekAccepted)
+    public Task FailTwiceAsync(string username) => FailAsync(username, 2);
+
+    public Task FailOnceAsync(string username) => FailAsync(username, 1);
+
+    private async Task FailAsync(string username, int times)
+    {
+        var users = _scope.ServiceProvider.GetRequiredService<ISoulseekUserService>();
+        for (var i = 0; i < times; i++)
+        {
+            await users.RecordFailureAsync(username, CancellationToken.None);
+        }
+    }
+
+    public static async Task<TierTestHost> CreateAsync(bool soulseekAccepted, bool youtubeAccepts = false)
     {
         var inner = await SearchTestHost.CreateAsync();
         var soulseek = new TierFakeSoulseek(soulseekAccepted);
-        var youtube = new TierFakeYouTube();
+        var youtube = new TierFakeYouTube(youtubeAccepts);
 
         // A second service collection over the same database, with the two tier fakes as its
         // providers — the inner host's own single scripted source is not used for searching.
@@ -165,7 +203,7 @@ internal sealed class TierFakeSoulseek(bool accepted) : ISourceProvider
 }
 
 /// <summary>A YouTube-shaped fake that records whether it was searched.</summary>
-internal sealed class TierFakeYouTube : ISourceProvider
+internal sealed class TierFakeYouTube(bool accepts = false) : ISourceProvider
 {
     public int Searches { get; private set; }
 
@@ -177,7 +215,12 @@ internal sealed class TierFakeYouTube : ISourceProvider
     public Task<SourceSearchResult> SearchAsync(SongSearchRequest request, CancellationToken cancellationToken)
     {
         Searches++;
-        return Task.FromResult(new SourceSearchResult([], ["aphex twin alpha"]));
+
+        IReadOnlyList<Candidate> found = accepts
+            ? [SearchTestHost.Candidate("Music\\Aphex Twin\\Alpha.flac", provider: "tube") with { SourceType = SourceTypes.YouTube }]
+            : [];
+
+        return Task.FromResult(new SourceSearchResult(found, ["aphex twin alpha"]));
     }
 
     public Task<GrabHandle> GrabAsync(Candidate candidate, string destination, CancellationToken cancellationToken) =>
