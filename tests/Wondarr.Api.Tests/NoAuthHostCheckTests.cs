@@ -235,6 +235,47 @@ public sealed class NoAuthHostCheckTests : IDisposable
         (await File.ReadAllTextAsync(Path.Combine(factory.ConfigDir, "config.yml"))).Should().NotContain("require_local_host");
     }
 
+    [Fact]
+    public async Task A_hostile_host_is_html_encoded_in_the_page_and_escaped_in_the_problem_body()
+    {
+        const string hostile = "\"><script>x</script>.example";
+
+        using var factory = Create(("Server:Auth", "None"));
+        using var browser = factory.CreateClient(LocalAddress);
+        browser.DefaultRequestHeaders.TryAddWithoutValidation("Host", hostile);
+        browser.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/html");
+
+        using var page = await browser.GetAsync(new Uri("/", UriKind.Relative));
+        var html = await page.Content.ReadAsStringAsync();
+
+        page.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        html.Should().NotContain("<script>x</script>");
+        html.Should().Contain("&lt;script&gt;x&lt;/script&gt;");
+
+        using var api = factory.CreateClient(LocalAddress);
+        api.DefaultRequestHeaders.TryAddWithoutValidation("Host", hostile);
+
+        using var problem = await api.GetAsync(new Uri(Initialize, UriKind.Relative));
+        var body = JsonNode.Parse(await problem.Content.ReadAsStringAsync())!;
+
+        problem.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        body["detail"]!.GetValue<string>().Should().Contain(hostile);
+        (await problem.Content.ReadAsStringAsync()).Should().NotContain(factory.ApiKey);
+    }
+
+    [Fact]
+    public async Task Forms_with_the_default_settings_treats_a_public_host_as_it_always_did()
+    {
+        using var factory = Create(("Server:Auth", "Forms"));
+        using var client = factory.CreateClient(LocalAddress);
+        client.DefaultRequestHeaders.Host = "evil.example:1077";
+
+        using var response = await client.GetAsync(new Uri(Initialize, UriKind.Relative));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await response.Content.ReadAsStringAsync()).Should().NotContain("not a local name");
+    }
+
     public void Dispose()
     {
         foreach (var factory in _factories)

@@ -55,6 +55,7 @@ public sealed class LocalHostAuthorizationResultHandler : IAuthorizationMiddlewa
     private async Task RefuseAsync(HttpContext context)
     {
         var host = context.Request.Host.Host;
+        var shownHost = string.IsNullOrWhiteSpace(host) ? "(no host name)" : host;
 
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         context.Response.Headers.CacheControl = "no-store";
@@ -67,7 +68,7 @@ public sealed class LocalHostAuthorizationResultHandler : IAuthorizationMiddlewa
                 _serverOptions.CurrentValue.UrlBase,
                 loginFailed: false,
                 LoginPage.Variant.LocalHostRequired,
-                host: string.IsNullOrWhiteSpace(host) ? "(no host name)" : host);
+                host: shownHost);
 
             await context.Response.WriteAsync(page, context.RequestAborted).ConfigureAwait(false);
 
@@ -77,7 +78,7 @@ public sealed class LocalHostAuthorizationResultHandler : IAuthorizationMiddlewa
         await Results.Problem(
                 statusCode: StatusCodes.Status403Forbidden,
                 title: "Host name is not local",
-                detail: Detail(string.IsNullOrWhiteSpace(host) ? "(no host name)" : host))
+                detail: Detail(shownHost))
             .ExecuteAsync(context)
             .ConfigureAwait(false);
     }
