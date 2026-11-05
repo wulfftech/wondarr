@@ -1405,8 +1405,44 @@ public sealed partial class IndexerSourceGrabTests : IDisposable
         status.State.Should().Be(DownloadState.Failed);
         _usenet.Single().Removed.Should().BeTrue();
 
-        // The file was named in the listing: the client lost it, the release is not shown to be wrong.
-        status.BlocklistCandidate.Should().BeFalse();
+        // The folder holds audio and the matcher found no "Digital Love" among it: the post is not the song's.
+        status.BlocklistCandidate.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_listed_file_the_client_renamed_for_a_character_its_file_system_forbids_is_found_by_the_matcher()
+    {
+        _indexer.Download = new IndexerDownload(Nzb(("03 - Digital Love?.flac", TrackSize), ("Discovery.par2", 40_000L)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love?.flac"), "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", "sanitised");
+        WriteFile(Path.Combine(folder, "03 - Digital Love_.flac"), "three");
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Completed);
+        File.ReadAllText(status.CompletedPath!).Should().Be("three");
+        _usenet.Single().Removed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_listed_file_that_is_neither_in_the_folder_nor_found_by_the_matcher_fails_the_item_as_a_blocklist_candidate()
+    {
+        _indexer.Download = new IndexerDownload(Nzb(("03 - Digital Love?.flac", TrackSize), ("Discovery.par2", 40_000L)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love?.flac"), "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", "no-match");
+        WriteFile(Path.Combine(folder, "99 - Something Else.flac"), "x");
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.Message.Should().Be("The song is not in the downloaded post.");
+        status.BlocklistCandidate.Should().BeTrue("the matcher has looked at the folder, so the song is not in the post");
+        _usenet.Single().Removed.Should().BeTrue();
+        Directory.Exists(folder).Should().BeFalse();
     }
 
     [Fact]
@@ -1455,7 +1491,7 @@ public sealed partial class IndexerSourceGrabTests : IDisposable
 
         status.State.Should().Be(DownloadState.Failed);
         status.Message.Should().Be("The song is not in the downloaded post.");
-        status.BlocklistCandidate.Should().BeFalse("the song was named in the listing: the client lost it, the release is not shown to be wrong");
+        status.BlocklistCandidate.Should().BeTrue("the folder holds audio and the matcher found no \"Digital Love\" in it");
         job.Removed.Should().BeTrue();
         Directory.Exists(folder).Should().BeFalse("the item failed and the job went; so does what it left behind");
     }
