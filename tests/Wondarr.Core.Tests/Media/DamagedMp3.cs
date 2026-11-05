@@ -1,3 +1,7 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Media;
 using Xunit;
@@ -6,34 +10,23 @@ namespace Wondarr.Core.Tests.Media;
 
 /// <summary>
 /// A fact that only runs where ffmpeg and ffprobe (and, with <c>fpcalc</c> set, fpcalc) are on PATH: it
-/// builds a damaged MP3 and decodes it with the real tools. The dev machines have no ffmpeg; these run
-/// inside the image and on any box with the tools installed.
+/// builds a damaged MP3 and decodes it with the real tools. The error-line counts and thresholds under test
+/// are calibrated to the ffmpeg the image pins, so it also skips on any other major version (a distro
+/// ffmpeg words and counts decode errors differently). Set <c>WONDARR_FFMPEG_TESTS=1</c> to run anyway.
 /// </summary>
 public sealed class FfmpegFactAttribute : FactAttribute
 {
     /// <summary>Initialises a new instance of the <see cref="FfmpegFactAttribute"/> class.</summary>
     /// <param name="fpcalc">Whether the test also needs fpcalc.</param>
-    public FfmpegFactAttribute(bool fpcalc = false)
-    {
-        if (!DamagedMp3.ToolsAvailable(fpcalc))
-        {
-            Skip = fpcalc ? "ffmpeg, ffprobe and fpcalc are not on PATH" : "ffmpeg and ffprobe are not on PATH";
-        }
-    }
+    public FfmpegFactAttribute(bool fpcalc = false) => Skip = DamagedMp3.SkipReason(fpcalc);
 }
 
-/// <summary>A theory that only runs where the real tools are on PATH, like <see cref="FfmpegFactAttribute"/>.</summary>
+/// <summary>A theory that only runs where the pinned ffmpeg is on PATH, like <see cref="FfmpegFactAttribute"/>.</summary>
 public sealed class FfmpegTheoryAttribute : TheoryAttribute
 {
     /// <summary>Initialises a new instance of the <see cref="FfmpegTheoryAttribute"/> class.</summary>
     /// <param name="fpcalc">Whether the test also needs fpcalc.</param>
-    public FfmpegTheoryAttribute(bool fpcalc = false)
-    {
-        if (!DamagedMp3.ToolsAvailable(fpcalc))
-        {
-            Skip = fpcalc ? "ffmpeg, ffprobe and fpcalc are not on PATH" : "ffmpeg and ffprobe are not on PATH";
-        }
-    }
+    public FfmpegTheoryAttribute(bool fpcalc = false) => Skip = DamagedMp3.SkipReason(fpcalc);
 }
 
 /// <summary>
@@ -45,12 +38,72 @@ internal static class DamagedMp3
 {
     private static readonly Lazy<Task<byte[]>> Clean = new(EncodeAsync);
 
+    /// <summary>The ffmpeg major version the image pins. Source: the mwader/static-ffmpeg tag in <c>docker/Dockerfile</c>.</summary>
+    private const int PinnedFfmpegMajor = 9;
+
+    private const string ForceVariable = "WONDARR_FFMPEG_TESTS";
+
+    private static readonly Lazy<string?> FfmpegVersionLine = new(ReadFfmpegVersionLine);
+
+    /// <summary>Why the live tests cannot run here, or <c>null</c> when they can.</summary>
+    /// <param name="fpcalc">Whether fpcalc is needed too.</param>
+    public static string? SkipReason(bool fpcalc = false)
+    {
+        if (!ToolsAvailable(fpcalc))
+        {
+            return fpcalc ? "ffmpeg, ffprobe and fpcalc are not on PATH" : "ffmpeg and ffprobe are not on PATH";
+        }
+
+        if (Environment.GetEnvironmentVariable(ForceVariable) == "1")
+        {
+            return null;
+        }
+
+        var line = FfmpegVersionLine.Value;
+        var match = line is null ? null : Regex.Match(line, @"^ffmpeg version n?(\d+)\.");
+
+        if (match is { Success: true } && int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) == PinnedFfmpegMajor)
+        {
+            return null;
+        }
+
+        return $"Expected ffmpeg {PinnedFfmpegMajor}.x (the image pin in docker/Dockerfile) but found '{line ?? "unknown"}'; set {ForceVariable}=1 to run anyway";
+    }
+
     /// <summary>Whether the real tools the live tests need are installed.</summary>
     /// <param name="fpcalc">Whether fpcalc is needed too.</param>
     public static bool ToolsAvailable(bool fpcalc = false) =>
         MediaToolsFactAttribute.OnPath("ffmpeg")
         && MediaToolsFactAttribute.OnPath("ffprobe")
         && (!fpcalc || MediaToolsFactAttribute.OnPath("fpcalc"));
+
+    private static string? ReadFfmpegVersionLine()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo("ffmpeg", "-version")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+
+            if (process is null)
+            {
+                return null;
+            }
+
+            var first = process.StandardOutput.ReadLine();
+            process.WaitForExit(10_000);
+
+            return first;
+        }
+        catch (Win32Exception)
+        {
+            return null;
+        }
+    }
 
     /// <summary>A real fingerprinter over the real tools on PATH.</summary>
     public static Fingerprinter RealFingerprinter() =>
