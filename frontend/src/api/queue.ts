@@ -9,6 +9,7 @@ import { useApiClient } from './context';
 import { ApiError } from './errors';
 import { pagingValues, type Paging } from './paging';
 import type { components } from './schema';
+import { BLOCKLIST_QUERY_KEY, HISTORY_QUERY_KEY, WANTED_QUERY_KEY } from './wanted';
 
 /**
  * The queue and the interactive search (ARCHITECTURE §5.6): what is downloading, how it is going,
@@ -30,6 +31,12 @@ export type ReleaseRejectionResource = components['schemas']['ReleaseRejectionRe
  */
 export const QUEUE_QUERY_KEY = ['queue'] as const;
 export const QUEUE_STATUS_QUERY_KEY = ['queue', 'status'] as const;
+
+/**
+ * The interactive search's root key. It sits outside `['queue']` on purpose: every search submits a
+ * fresh Soulseek search against a shared budget, so a queue push or a grab must never refetch it.
+ */
+export const INTERACTIVE_SEARCH_QUERY_KEY = ['interactive-search'] as const;
 
 /** The states of a queue item, as the document lists them (the API sends the camelCase names). */
 export type QueueItemStateName = components['schemas']['QueueItemState'];
@@ -127,7 +134,20 @@ export function useRemoveQueueItem(): UseMutationResult<void, Error, RemoveQueue
         );
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY }),
+    onSuccess: async (_data, input) => {
+      const invalidations = [queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY })];
+
+      // A blocklisted removal adds a blocklist entry and makes the song wanted again.
+      if (input.blocklist === true) {
+        invalidations.push(
+          queryClient.invalidateQueries({ queryKey: BLOCKLIST_QUERY_KEY }),
+          queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY }),
+          queryClient.invalidateQueries({ queryKey: WANTED_QUERY_KEY }),
+        );
+      }
+
+      await Promise.all(invalidations);
+    },
   });
 }
 
@@ -143,7 +163,7 @@ export function useInteractiveSearch(
   const client = useApiClient();
 
   return useQuery({
-    queryKey: [...QUEUE_QUERY_KEY, 'search', songId],
+    queryKey: [...INTERACTIVE_SEARCH_QUERY_KEY, songId],
     enabled: enabled && songId !== null,
     staleTime: 0,
     gcTime: 0,
@@ -180,7 +200,13 @@ export function useGrabRelease(): UseMutationResult<void, Error, number> {
         );
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY }),
+    // A grab writes a `grabbed` history event. The interactive search is not touched.
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: QUEUE_QUERY_KEY }),
+        queryClient.invalidateQueries({ queryKey: HISTORY_QUERY_KEY }),
+      ]);
+    },
   });
 }
 

@@ -102,7 +102,9 @@ function policyState(policy: YouTubeSettingsResource['outputPolicy']): PolicySta
   const source = (policy ?? {}) as Record<string, unknown>;
   const codec = typeof source.codec === 'string' ? source.codec : '';
   const mode = typeof source.mode === 'string' ? source.mode : '';
-  const sampleRate = typeof source.sampleRate === 'string' ? source.sampleRate : '';
+  // The server stores a rate as a JSON number and "keep" as a string (`OutputPolicy.ParseSampleRate`).
+  const sampleRate =
+    typeof source.sampleRate === 'number' && source.sampleRate > 0 ? String(source.sampleRate) : 'keep';
 
   return {
     // 'keepOpus' (and the 'keep-opus' an earlier page sent) are the old spellings of 'keep'.
@@ -115,7 +117,7 @@ function policyState(policy: YouTubeSettingsResource['outputPolicy']): PolicySta
     mode: mode === 'cbr' || mode === 'vbr' ? mode : 'cbr',
     bitrateKbps: typeof source.bitrateKbps === 'number' ? source.bitrateKbps : 256,
     vbrQuality: typeof source.vbrQuality === 'number' ? source.vbrQuality : 0,
-    sampleRate: sampleRate === 'keep' || sampleRate === '44100' || sampleRate === '48000' ? sampleRate : 'keep',
+    sampleRate,
   };
 }
 
@@ -240,7 +242,7 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
       mode: policy.mode,
       bitrateKbps: policy.bitrateKbps,
       vbrQuality: policy.vbrQuality,
-      sampleRate: policy.sampleRate,
+      sampleRate: policy.sampleRate === 'keep' ? 'keep' : Number(policy.sampleRate),
     };
 
     save.mutate(body, {

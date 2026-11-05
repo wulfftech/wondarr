@@ -184,6 +184,45 @@ describe('YouTubeSettingsPage', () => {
     });
   });
 
+  it('saves a 44.1 kHz sample rate as the number 44100', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+    await user.click(screen.getByText('44.1 kHz'));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const put = sent().find((request) => request.method === 'PUT');
+      const body: unknown = put === undefined ? null : JSON.parse(await put.body);
+
+      expect(body).toMatchObject({ outputPolicy: { sampleRate: 44100 } });
+    });
+  });
+
+  it('shows a stored numeric sample rate as that rate and saves it back unchanged', async () => {
+    install({
+      outputPolicy: { codec: 'aac', mode: 'cbr', bitrateKbps: 256, vbrQuality: 0, sampleRate: 48000 } as never,
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+    expect(screen.getByRole('radio', { name: '48 kHz' })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const put = sent().find((request) => request.method === 'PUT');
+      const body: unknown = put === undefined ? null : JSON.parse(await put.body);
+
+      expect(body).toMatchObject({ outputPolicy: { sampleRate: 48000 } });
+    });
+  });
+
   it('shows the server validation errors', async () => {
     install({}, () =>
       jsonResponse(
