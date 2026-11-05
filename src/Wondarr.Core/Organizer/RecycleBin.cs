@@ -156,6 +156,7 @@ public sealed class RecycleBin : IRecycleBin
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 RecycleBinLog.StampFailed(_logger, recycled, exception.Message);
+                recycled = ReplaceWithOwnCopy(recycled);
             }
 
             RecycleBinLog.Recycled(_logger, path, recycled);
@@ -168,6 +169,70 @@ public sealed class RecycleBin : IRecycleBin
         }
 
         return Task.FromResult(recycled);
+    }
+
+    /// <summary>
+    /// Gives a recycled file whose time stamp was refused a clock of its own: a copy made by
+    /// Wondarr, in the same folder, carries the current time and Wondarr's uid, so cleanup keeps
+    /// reading one clock (the mtime) and needs no marker files. Best effort: any step that fails
+    /// keeps the original (the file is already in the bin) and warns that cleanup may remove it early.
+    /// Returns the path that holds the file afterwards: <paramref name="recycled"/>, or the copy's own
+    /// name when it replaced the original but could not take its name.
+    /// </summary>
+    private string ReplaceWithOwnCopy(string recycled)
+    {
+        var temporary = $"{recycled}.{Guid.NewGuid():N}.wondarr-tmp";
+
+        try
+        {
+            _disk.CopyFile(recycled, temporary);
+
+            if (_disk.GetFileSize(temporary) != _disk.GetFileSize(recycled))
+            {
+                throw new IOException("The copy is not the size of the original.");
+            }
+
+            // The copy is ours, so this works where stamping the original did not; .NET may carry
+            // the original's old time over to a copy, so the time is set rather than assumed.
+            _disk.SetLastWriteTimeUtc(temporary, _timeProvider.GetUtcNow().UtcDateTime);
+            _disk.DeleteFile(recycled);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            RemoveTemporary(temporary);
+            RecycleBinLog.OwnCopyFailed(_logger, recycled, exception.Message);
+            return recycled;
+        }
+
+        try
+        {
+            _disk.MoveFile(temporary, recycled);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The original is gone and the copy could not take its name: the copy is the file now,
+            // and it stays where it is, with the current time.
+            RecycleBinLog.OwnCopyNotRenamed(_logger, temporary, recycled, exception.Message);
+
+            return temporary;
+        }
+
+        return recycled;
+    }
+
+    private void RemoveTemporary(string temporary)
+    {
+        try
+        {
+            if (_disk.FileExists(temporary))
+            {
+                _disk.DeleteFile(temporary);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            RecycleBinLog.DeleteFailed(_logger, temporary, exception.Message);
+        }
     }
 
     /// <inheritdoc />
@@ -431,8 +496,20 @@ internal static partial class RecycleBinLog
     /// <summary>Stamping the cleanup clock on a recycled file failed; the file is in the bin regardless.</summary>
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "Recycled {Path} but could not set its time: {Reason}. Cleanup will use the file's own time, which may be old")]
+        Message = "Recycled {Path} but could not set its time: {Reason}. Trying a copy of its own with the current time")]
     internal static partial void StampFailed(ILogger logger, string path, string reason);
+
+    /// <summary>The own-copy fallback failed: the file keeps its old time and cleanup may remove it early.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Could not give the recycled file {Path} a new time stamp ({Reason}); it keeps its old time and may be removed at the next cleanup")]
+    internal static partial void OwnCopyFailed(ILogger logger, string path, string reason);
+
+    /// <summary>The own copy replaced the original but could not take its name.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Recycled file is kept as {Temporary} because it could not be renamed to {Path}: {Reason}")]
+    internal static partial void OwnCopyNotRenamed(ILogger logger, string temporary, string path, string reason);
 
     /// <summary>The configured bin sits inside a library or reference root, so cleanup did nothing.</summary>
     [LoggerMessage(

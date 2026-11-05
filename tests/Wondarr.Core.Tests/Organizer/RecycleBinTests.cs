@@ -1,6 +1,7 @@
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Organizer;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -35,16 +36,40 @@ public class RecycleBinTests : IDisposable
     /// <summary>Marks the bin root the way the bin itself does, so cleanup will walk it.</summary>
     private string MarkBin() => _temp.CreateFile("recycle/.wondarr-recycle-bin", string.Empty);
 
-    private RecycleBin Bin()
+    private RecycleBin Bin(IDiskOperations? disk = null, ILogger<RecycleBin>? logger = null)
     {
-        var disk = new DiskOperations();
+        disk ??= new DiskOperations();
 
         return new RecycleBin(
             disk,
             new TestOptionsMonitor<ImportOptions>(_options),
             new WondarrPaths(_temp.Full("config")),
             _time,
-            NullLogger<RecycleBin>.Instance);
+            logger ?? NullLogger<RecycleBin>.Instance);
+    }
+
+    /// <summary>Keeps the warnings a bin logs, rendered.</summary>
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
     }
 
     [Fact]
@@ -89,6 +114,96 @@ public class RecycleBinTests : IDisposable
         recycled.Should().Be(_temp.Full("recycle/leftover.mp3"));
         File.ReadAllText(recycled).Should().Be("loose");
         File.Exists(loose).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_recycled_file_whose_time_stamp_was_refused_survives_the_next_cleanup()
+    {
+        // The library file is old and owned by another uid: the move works, the stamp does not.
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        File.SetLastWriteTimeUtc(replaced, new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var recycledPath = _temp.Full("recycle/Artist/Album/track.mp3");
+
+        var disk = new FilePlacerTests.FaultyDisk
+        {
+            FailStampPath = path => PathRules.AreEqual(path, recycledPath),
+        };
+
+        var recycled = await Bin(disk).RecycleAsync(replaced, Library, CancellationToken.None);
+
+        recycled.Should().Be(recycledPath);
+        File.ReadAllText(recycled).Should().Be("old");
+
+        _time.Advance(TimeSpan.FromDays(1));
+
+        (await Bin(disk).CleanupAsync(CancellationToken.None)).Should().Be(0);
+        File.ReadAllText(recycled).Should().Be("old", "the retention runs from the recycle, not from the file's age");
+        _temp.Files().Where(path => path.EndsWith(".wondarr-tmp", StringComparison.Ordinal)).Should().BeEmpty();
+
+        _time.Advance(TimeSpan.FromDays(7));
+
+        (await Bin(disk).CleanupAsync(CancellationToken.None)).Should().Be(1, "it goes once the retention has passed");
+    }
+
+    [Fact]
+    public async Task Returns_the_copys_own_path_when_it_replaced_the_original_but_could_not_take_its_name()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var recycledPath = _temp.Full("recycle/Artist/Album/track.mp3");
+
+        var disk = new FilePlacerTests.FaultyDisk
+        {
+            FailStampPath = path => PathRules.AreEqual(path, recycledPath),
+            FailMoveSource = path => path.EndsWith(".wondarr-tmp", StringComparison.Ordinal),
+        };
+
+        var recycled = await Bin(disk).RecycleAsync(replaced, Library, CancellationToken.None);
+
+        File.Exists(recycled).Should().BeTrue("the path returned holds the file");
+        File.ReadAllText(recycled).Should().Be("old");
+        File.Exists(recycledPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Keeps_and_returns_the_original_when_it_cannot_be_deleted_for_the_own_copy()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var recycledPath = _temp.Full("recycle/Artist/Album/track.mp3");
+
+        var disk = new FilePlacerTests.FaultyDisk
+        {
+            FailStampPath = path => PathRules.AreEqual(path, recycledPath),
+            FailDelete = path => PathRules.AreEqual(path, recycledPath),
+        };
+
+        var recycled = await Bin(disk).RecycleAsync(replaced, Library, CancellationToken.None);
+
+        recycled.Should().Be(recycledPath);
+        File.ReadAllText(recycled).Should().Be("old");
+        _temp.Files().Where(path => path.EndsWith(".wondarr-tmp", StringComparison.Ordinal)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_recycle_still_succeeds_and_warns_when_the_own_copy_fails_too()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var recycledPath = _temp.Full("recycle/Artist/Album/track.mp3");
+        var logger = new CapturingLogger<RecycleBin>();
+
+        var disk = new FilePlacerTests.FaultyDisk
+        {
+            FailStampPath = path => PathRules.AreEqual(path, recycledPath),
+            FailCopyTarget = path => path.EndsWith(".wondarr-tmp", StringComparison.Ordinal),
+        };
+
+        var recycled = await Bin(disk, logger).RecycleAsync(replaced, Library, CancellationToken.None);
+
+        recycled.Should().Be(recycledPath);
+        File.ReadAllText(recycled).Should().Be("old", "the original is kept");
+        _temp.Files().Where(path => path.EndsWith(".wondarr-tmp", StringComparison.Ordinal)).Should().BeEmpty();
+        logger.Warnings.Should().Contain(message =>
+            message.Contains(recycledPath, StringComparison.Ordinal)
+            && message.Contains("removed at the next cleanup", StringComparison.Ordinal));
     }
 
     [Fact]
