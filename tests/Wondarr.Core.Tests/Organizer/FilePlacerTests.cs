@@ -425,6 +425,27 @@ public class FilePlacerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_the_target_when_the_move_linked_it_and_then_failed_to_unlink_the_download()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        var target = _temp.Full("library/Artist/Album/track.mp3");
+
+        var disk = new FaultyDisk
+        {
+            MoveCopiesThenFails = path => PathRules.AreEqual(path, target),
+            MoveLeavesHardLink = true,
+        };
+
+        var result = await Placer(disk).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().Be(target, "the link is in the library and has to be recorded");
+        File.ReadAllText(target).Should().Be("audio");
+    }
+
+    [Fact]
     public async Task Leaves_a_file_another_placement_put_at_the_target_alone_when_the_move_finds_the_name_taken()
     {
         var source = _temp.CreateFile("downloads/track.mp3", "audio");
@@ -705,6 +726,12 @@ public class FilePlacerTests : IDisposable
         /// </summary>
         public (string Path, string Contents)? OtherFileAppears { get; init; }
 
+        /// <summary>Makes <see cref="MoveCopiesThenFails"/> leave a hard link to the source, as a same-device move does.</summary>
+        public bool MoveLeavesHardLink { get; init; }
+
+        /// <summary>Fails every move whose source this matches.</summary>
+        public Func<string, bool>? FailMoveSource { get; init; }
+
         /// <summary>How many bytes of the source the failed move leaves at the target; null for all.</summary>
         public int? LeftoverBytes { get; init; }
 
@@ -733,8 +760,15 @@ public class FilePlacerTests : IDisposable
         {
             if (MoveCopiesThenFails?.Invoke(target) == true)
             {
-                var bytes = File.ReadAllBytes(source);
-                File.WriteAllBytes(target, LeftoverBytes is { } count ? bytes[..count] : bytes);
+                if (MoveLeavesHardLink)
+                {
+                    _inner.TryCreateHardLink(source, target).Should().BeTrue("the test needs a real hard link");
+                }
+                else
+                {
+                    var bytes = File.ReadAllBytes(source);
+                    File.WriteAllBytes(target, LeftoverBytes is { } count ? bytes[..count] : bytes);
+                }
 
                 throw MoveFailsWithAccessDenied
                     ? new UnauthorizedAccessException($"Simulated a move to '{target}' that could not unlink the source.")
@@ -744,6 +778,11 @@ public class FilePlacerTests : IDisposable
             if (OtherFileAppears is not null && PathRules.AreEqual(target, OtherFileAppears.Value.Path))
             {
                 throw new IOException($"Simulated a move to '{target}' that found the name taken.");
+            }
+
+            if (FailMoveSource?.Invoke(source) == true)
+            {
+                throw new IOException($"Simulated a failed move of '{source}'.");
             }
 
             if (!_moveFailed && FailMoveTarget?.Invoke(target) == true)

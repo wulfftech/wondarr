@@ -146,6 +146,44 @@ public class RecycleBinTests : IDisposable
     }
 
     [Fact]
+    public async Task Returns_the_copys_own_path_when_it_replaced_the_original_but_could_not_take_its_name()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var recycledPath = _temp.Full("recycle/Artist/Album/track.mp3");
+
+        var disk = new FilePlacerTests.FaultyDisk
+        {
+            FailStampPath = path => PathRules.AreEqual(path, recycledPath),
+            FailMoveSource = path => path.EndsWith(".wondarr-tmp", StringComparison.Ordinal),
+        };
+
+        var recycled = await Bin(disk).RecycleAsync(replaced, Library, CancellationToken.None);
+
+        File.Exists(recycled).Should().BeTrue("the path returned holds the file");
+        File.ReadAllText(recycled).Should().Be("old");
+        File.Exists(recycledPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Keeps_and_returns_the_original_when_it_cannot_be_deleted_for_the_own_copy()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var recycledPath = _temp.Full("recycle/Artist/Album/track.mp3");
+
+        var disk = new FilePlacerTests.FaultyDisk
+        {
+            FailStampPath = path => PathRules.AreEqual(path, recycledPath),
+            FailDelete = path => PathRules.AreEqual(path, recycledPath),
+        };
+
+        var recycled = await Bin(disk).RecycleAsync(replaced, Library, CancellationToken.None);
+
+        recycled.Should().Be(recycledPath);
+        File.ReadAllText(recycled).Should().Be("old");
+        _temp.Files().Where(path => path.EndsWith(".wondarr-tmp", StringComparison.Ordinal)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_recycle_still_succeeds_and_warns_when_the_own_copy_fails_too()
     {
         var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");

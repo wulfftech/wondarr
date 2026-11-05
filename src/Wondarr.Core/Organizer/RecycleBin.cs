@@ -156,7 +156,7 @@ public sealed class RecycleBin : IRecycleBin
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 RecycleBinLog.StampFailed(_logger, recycled, exception.Message);
-                ReplaceWithOwnCopy(recycled);
+                recycled = ReplaceWithOwnCopy(recycled);
             }
 
             RecycleBinLog.Recycled(_logger, path, recycled);
@@ -176,8 +176,10 @@ public sealed class RecycleBin : IRecycleBin
     /// Wondarr, in the same folder, carries the current time and Wondarr's uid, so cleanup keeps
     /// reading one clock (the mtime) and needs no marker files. Best effort: any step that fails
     /// keeps the original (the file is already in the bin) and warns that cleanup may remove it early.
+    /// Returns the path that holds the file afterwards: <paramref name="recycled"/>, or the copy's own
+    /// name when it replaced the original but could not take its name.
     /// </summary>
-    private void ReplaceWithOwnCopy(string recycled)
+    private string ReplaceWithOwnCopy(string recycled)
     {
         var temporary = $"{recycled}.{Guid.NewGuid():N}.wondarr-tmp";
 
@@ -199,7 +201,7 @@ public sealed class RecycleBin : IRecycleBin
         {
             RemoveTemporary(temporary);
             RecycleBinLog.OwnCopyFailed(_logger, recycled, exception.Message);
-            return;
+            return recycled;
         }
 
         try
@@ -211,7 +213,11 @@ public sealed class RecycleBin : IRecycleBin
             // The original is gone and the copy could not take its name: the copy is the file now,
             // and it stays where it is, with the current time.
             RecycleBinLog.OwnCopyNotRenamed(_logger, temporary, recycled, exception.Message);
+
+            return temporary;
         }
+
+        return recycled;
     }
 
     private void RemoveTemporary(string temporary)

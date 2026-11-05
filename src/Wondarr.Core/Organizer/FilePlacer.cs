@@ -370,8 +370,7 @@ public sealed class FilePlacer : IFilePlacer
                 }
                 catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
                     && !targetExisted
-                    && _disk.FileExists(target)
-                    && !_disk.AreSameFile(source, target))
+                    && _disk.FileExists(target))
                 {
                     // .NET's own cross-device move copies to the target and then unlinks the source;
                     // when the unlink fails the copy stays at the target and this exception surfaces.
@@ -384,9 +383,11 @@ public sealed class FilePlacer : IFilePlacer
                     }
 
                     // A half-written copy is not the download. Nothing was at the target just before
-                    // the move, so what is there now is this move's own leftover: drop it and keep
-                    // the download, so no unrecorded file stays in the library. (A file that was
-                    // already there is another placement's and never reaches this catch.)
+                    // the move, so what is there now is this move's own leftover (a hard link to the
+                    // download included): drop a partial one and keep the download, so no unrecorded
+                    // file stays in the library. A file that was there before the move does not reach
+                    // this catch; one that appears in the instant between the check and the move cannot
+                    // be told apart, which is the accepted residual risk.
                     TryDeletePartialTarget(target);
 
                     throw;
