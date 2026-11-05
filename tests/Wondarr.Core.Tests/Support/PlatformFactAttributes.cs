@@ -38,6 +38,24 @@ public sealed class UnixFactAttribute : FactAttribute
 }
 
 /// <summary>
+/// A fact that needs the file system to enforce permissions. Root ignores the mode bits and the read-only
+/// attribute on Unix, so under uid 0 (common in containers and CI images) the test is reported as skipped
+/// rather than failing on a write that was never going to be refused. On Windows it always runs: an elevated
+/// process is still refused a write to a read-only file.
+/// </summary>
+public sealed class NotRootFactAttribute : FactAttribute
+{
+    /// <summary>Initialises a new instance of the <see cref="NotRootFactAttribute"/> class.</summary>
+    public NotRootFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows() && Environment.IsPrivilegedProcess)
+        {
+            Skip = "Running as root, which ignores file permissions.";
+        }
+    }
+}
+
+/// <summary>
 /// A fact that needs to create symbolic links. Windows only allows that to administrators or with
 /// Developer Mode on, so where it cannot the test is reported as skipped rather than passing without
 /// ever exercising the link guard.

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Wondarr.Core.Tagging;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Tagging;
@@ -13,7 +14,7 @@ public sealed class TagWriterSafetyTests
 
     private static TagWriter Writer => new(NullLogger<TagWriter>.Instance);
 
-    [Fact]
+    [NotRootFact]
     public async Task Leaves_a_read_only_file_untouched_and_returns_failure()
     {
         using var media = new TestMedia();
