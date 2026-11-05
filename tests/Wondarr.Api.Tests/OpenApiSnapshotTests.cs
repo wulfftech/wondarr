@@ -32,8 +32,7 @@ public sealed class OpenApiSnapshotTests : IDisposable
         document.Should().Contain("\"/api/v1/auth/user\"");
         document.Should().NotContain("\"servers\"");
 
-        // /api/v1/system/status is owned by P0-04b and is not on this branch yet. Add the assertion
-        // back — and regenerate the snapshot — once P0-04b has merged.
+        document.Should().Contain("\"/api/v1/system/status\"");
 
         var snapshotPath = Path.Combine(FindRepositoryRoot(), SnapshotRelativePath.Replace('/', Path.DirectorySeparatorChar));
 
