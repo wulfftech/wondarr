@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using Wondarr.Core.Configuration;
+using Wondarr.Core.Paging;
 using Serilog.Events;
 
 namespace Wondarr.Core.Logging;
@@ -70,9 +71,6 @@ public sealed class LogFileReader : ILogFileReader
     /// <summary>How much log data one request may scan before it reports the rest as truncated.</summary>
     private const long MaxScanBytes = 10 * 1024 * 1024;
 
-    /// <summary>The largest page size a caller may ask for.</summary>
-    private const int MaxPageSize = 1000;
-
     /// <summary>
     /// The most entries held at once while scanning. A page needs the newest
     /// <c>skip + pageSize</c> matches; a page number beyond this cap still counts matches but
@@ -140,8 +138,9 @@ public sealed class LogFileReader : ILogFileReader
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
-        var skip = (Math.Max(query.Page, 1) - 1) * pageSize;
+        var paging = new PagingSpec(query.Page, query.PageSize, null, false);
+        var pageSize = paging.PageSize;
+        var skip = paging.Skip;
         var keepEntries = skip + pageSize <= MaxBufferedEntries;
         var capacity = keepEntries ? skip + pageSize : 0;
 
