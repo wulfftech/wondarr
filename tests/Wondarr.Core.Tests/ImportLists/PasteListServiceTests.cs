@@ -393,6 +393,72 @@ public class PasteListServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_survives_one_line_a_client_refuses_with_an_argument_exception()
+    {
+        await using var context = await ContextAsync();
+        StubResolver();
+
+        _resolver
+            .ResolveAsync(FailingLine, Arg.Any<CancellationToken>())
+            .Returns<Task<ResolveResult>>(_ => throw new ArgumentException("'isrc' must be an ISRC."));
+
+        var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111");
+
+        _songs
+            .AddIdentitiesAsync(Arg.Any<IReadOnlyList<SongIdentity>>(), Arg.Any<SongAddOptions>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<IReadOnlyList<SongAddResult>>(
+                [new SongAddResult(call.Arg<IReadOnlyList<SongIdentity>>()[0], SongAddOutcome.Added, queen)]));
+
+        var service = NewService(context);
+        var list = await service.CreateAsync($"{FailingLine}\n{ResolvableLine}", null, null, CancellationToken.None);
+
+        await service.ProcessAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        var items = await context.ImportListItems.OrderBy(item => item.Id).ToListAsync();
+
+        items[0].State.Should().Be(ImportListItemState.Unresolved);
+        items[0].Reason.Should().StartWith("Lookup failed:");
+        items[1].State.Should().Be(ImportListItemState.Added);
+        list.LastSyncedAt.Should().Be(Now.UtcDateTime);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_marks_the_all_zero_id_unsupported_and_adds_the_next_line()
+    {
+        const string zeroId = "00000000-0000-0000-0000-000000000000";
+
+        await using var context = await ContextAsync();
+        StubResolver();
+
+        // The reason is the one the real parser gives the all-zero id.
+        _resolver
+            .ResolveAsync(zeroId, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ResolveResult
+            {
+                Status = ResolveStatus.Unsupported,
+                Reason = LookupInput.Parse(zeroId).UnsupportedReason,
+            }));
+
+        var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111");
+
+        _songs
+            .AddIdentitiesAsync(Arg.Any<IReadOnlyList<SongIdentity>>(), Arg.Any<SongAddOptions>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<IReadOnlyList<SongAddResult>>(
+                [new SongAddResult(call.Arg<IReadOnlyList<SongIdentity>>()[0], SongAddOutcome.Added, queen)]));
+
+        var service = NewService(context);
+        var list = await service.CreateAsync($"{zeroId}\n{ResolvableLine}", null, null, CancellationToken.None);
+
+        await service.ProcessAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        var items = await context.ImportListItems.OrderBy(item => item.Id).ToListAsync();
+
+        items[0].State.Should().Be(ImportListItemState.Skipped);
+        items[0].Reason.Should().Be("The all-zero id is not a MusicBrainz recording");
+        items[1].State.Should().Be(ImportListItemState.Added);
+    }
+
+    [Fact]
     public async Task ProcessAsync_stops_when_the_caller_cancels()
     {
         await using var context = await ContextAsync();

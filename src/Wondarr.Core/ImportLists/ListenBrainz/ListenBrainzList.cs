@@ -130,7 +130,7 @@ internal static class ListenBrainzSettings
         var text = value.Trim();
 
         return Guid.TryParseExact(text, "D", out var id)
-            ? id.ToString("D", CultureInfo.InvariantCulture)
+            ? (id == Guid.Empty ? null : id.ToString("D", CultureInfo.InvariantCulture))
             : RecordingMbid([text]);
     }
 
@@ -165,7 +165,7 @@ internal static class ListenBrainzSettings
                 tail = tail[..end];
             }
 
-            if (Guid.TryParseExact(tail, "D", out var id))
+            if (Guid.TryParseExact(tail, "D", out var id) && id != Guid.Empty)
             {
                 return id.ToString("D", CultureInfo.InvariantCulture);
             }

@@ -24,6 +24,15 @@ public sealed class ListenBrainzProvidersTests
     /// <summary>The base address the named <c>listenbrainz</c> client is registered with.</summary>
     private static readonly string BaseAddress = Wondarr.Core.Metadata.ServiceCollectionExtensions.ListenBrainzBaseUrl;
 
+    [Theory]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    [InlineData("https://musicbrainz.org/recording/00000000-0000-0000-0000-000000000000")]
+    public void RecordingMbid_reads_the_all_zero_id_as_no_recording(string value)
+    {
+        ListenBrainzSettings.RecordingMbid(value).Should().BeNull();
+        ListenBrainzSettings.RecordingMbid([value]).Should().BeNull();
+    }
+
     [Fact]
     public async Task Loved_reads_the_recorded_page_and_stops_when_the_total_is_reached()
     {

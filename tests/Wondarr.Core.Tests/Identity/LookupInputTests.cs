@@ -9,6 +9,26 @@ public sealed class LookupInputTests
 {
     private const string BohemianRhapsodyId = "b1a9c0e9-d987-4042-ae91-78d6a3267d69";
 
+    [Theory]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    [InlineData("https://musicbrainz.org/recording/00000000-0000-0000-0000-000000000000")]
+    public void The_all_zero_id_is_unsupported(string raw)
+    {
+        var input = LookupInput.Parse(raw);
+
+        input.Kind.Should().Be(LookupKind.Unsupported);
+        input.MbRecordingId.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("FR-Z03-14-00030", "FRZ031400030")]
+    [InlineData(" frz031400030 ", "FRZ031400030")]
+    [InlineData("FRZ03140003", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void NormalizeIsrc_strips_hyphens_and_rejects_what_is_not_an_isrc(string? value, string? expected) =>
+        LookupInput.NormalizeIsrc(value).Should().Be(expected);
+
     [Fact]
     public void A_dash_separated_line_is_an_artist_and_a_title()
     {
