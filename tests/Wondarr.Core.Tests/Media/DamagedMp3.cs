@@ -11,8 +11,8 @@ namespace Wondarr.Core.Tests.Media;
 /// <summary>
 /// A fact that only runs where ffmpeg and ffprobe (and, with <c>fpcalc</c> set, fpcalc) are on PATH: it
 /// builds a damaged MP3 and decodes it with the real tools. The error-line counts and thresholds under test
-/// are calibrated to the ffmpeg the image pins, so it also skips on any other major version (a distro
-/// ffmpeg words and counts decode errors differently). Set <c>WONDARR_FFMPEG_TESTS=1</c> to run anyway.
+/// are calibrated to the ffmpeg the image pins, so it also skips on an older major version (a distro
+/// ffmpeg 6 words and counts decode errors differently). Set <c>WONDARR_FFMPEG_TESTS=1</c> to run anyway.
 /// </summary>
 public sealed class FfmpegFactAttribute : FactAttribute
 {
@@ -21,7 +21,7 @@ public sealed class FfmpegFactAttribute : FactAttribute
     public FfmpegFactAttribute(bool fpcalc = false) => Skip = DamagedMp3.SkipReason(fpcalc);
 }
 
-/// <summary>A theory that only runs where the pinned ffmpeg is on PATH, like <see cref="FfmpegFactAttribute"/>.</summary>
+/// <summary>A theory that only runs where a new enough ffmpeg is on PATH, like <see cref="FfmpegFactAttribute"/>.</summary>
 public sealed class FfmpegTheoryAttribute : TheoryAttribute
 {
     /// <summary>Initialises a new instance of the <see cref="FfmpegTheoryAttribute"/> class.</summary>
@@ -38,8 +38,12 @@ internal static class DamagedMp3
 {
     private static readonly Lazy<Task<byte[]>> Clean = new(EncodeAsync);
 
-    /// <summary>The ffmpeg major version the image pins. Source: the mwader/static-ffmpeg tag in <c>docker/Dockerfile</c>.</summary>
-    private const int PinnedFfmpegMajor = 9;
+    /// <summary>
+    /// The oldest ffmpeg major version the decode-tolerance checks are known to pass on. Calibrated on the
+    /// image's 9.0.2 (mwader/static-ffmpeg in <c>docker/Dockerfile</c>); 8.0.1 verified on the test host on
+    /// 2026-11-05; Ubuntu's 6.1.1 fails (review finding tests-01).
+    /// </summary>
+    private const int MinimumFfmpegMajor = 8;
 
     private const string ForceVariable = "WONDARR_FFMPEG_TESTS";
 
@@ -62,12 +66,12 @@ internal static class DamagedMp3
         var line = FfmpegVersionLine.Value;
         var match = line is null ? null : Regex.Match(line, @"^ffmpeg version n?(\d+)\.");
 
-        if (match is { Success: true } && int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) == PinnedFfmpegMajor)
+        if (match is { Success: true } && int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) >= MinimumFfmpegMajor)
         {
             return null;
         }
 
-        return $"Expected ffmpeg {PinnedFfmpegMajor}.x (the image pin in docker/Dockerfile) but found '{line ?? "unknown"}'; set {ForceVariable}=1 to run anyway";
+        return $"Expected ffmpeg {MinimumFfmpegMajor} or newer (the image pins 9.0.2 in docker/Dockerfile) but found '{line ?? "unknown"}'; set {ForceVariable}=1 to run anyway";
     }
 
     /// <summary>Whether the real tools the live tests need are installed.</summary>
