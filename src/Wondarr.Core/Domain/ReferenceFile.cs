@@ -17,7 +17,7 @@ public enum ReferenceFileState
     /// <summary>Identified as nothing Wondarr knows.</summary>
     Unmatched,
 
-    /// <summary>Moved into a managed library.</summary>
+    /// <summary>Copied into a managed library; the original is left in place.</summary>
     Adopted,
 
     /// <summary>The file is not decodable audio.</summary>

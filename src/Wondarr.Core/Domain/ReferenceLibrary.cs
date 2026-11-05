@@ -8,7 +8,7 @@ public enum ReferenceLibraryMode
     /// <summary>Read only: the files stay where they are and are only counted as owned.</summary>
     Reference,
 
-    /// <summary>Adopt: identified files are re-tagged and moved into a managed library.</summary>
+    /// <summary>Adopt: identified files are copied into a managed library and the copy is re-tagged; the original is left in place.</summary>
     Adopt,
 }
 

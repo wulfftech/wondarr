@@ -41,7 +41,7 @@ public sealed record ReferenceLibrarySummary(ReferenceLibrary Library, Reference
 /// <param name="Identified">Identified as a song.</param>
 /// <param name="Ambiguous">Ranked candidates the user has to choose between.</param>
 /// <param name="Unmatched">Nothing was found.</param>
-/// <param name="Adopted">Moved into a managed library.</param>
+/// <param name="Adopted">Copied into a managed library; the original is left in place.</param>
 /// <param name="Unreadable">Not decodable audio.</param>
 /// <param name="Missing">Gone from disk.</param>
 /// <param name="Skipped">The user asked Wondarr to leave the file alone.</param>
@@ -340,7 +340,16 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
 
         await ValidateAsync(input, id, cancellationToken).ConfigureAwait(false);
 
+        var oldRoot = library.RootPath;
+
         Apply(library, input);
+
+        // Remounting a share is why a root is edited: the files the library owns follow it, in the same
+        // save, so the guards that compare a song's path with the row's path keep matching.
+        if (!PathRules.AreEqual(oldRoot, library.RootPath))
+        {
+            await MoveOwnedFilesAsync(id, oldRoot, library.RootPath, cancellationToken).ConfigureAwait(false);
+        }
 
         try
         {
@@ -473,6 +482,39 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         }
 
         return songIds.Count;
+    }
+
+    /// <summary>
+    /// Rewrites the <c>path</c> of every <c>song_file</c> this library owns from the old root to the new
+    /// one. Only the database rows change; nothing under either root is touched. A row whose path is not
+    /// the old root plus its reference row's relative path is left alone: it is not where the library
+    /// put it, so it is not this move's to correct.
+    /// </summary>
+    private async Task MoveOwnedFilesAsync(long referenceLibraryId, string oldRoot, string newRoot, CancellationToken cancellationToken)
+    {
+        var owned = await OwnedFilesAsync(referenceLibraryId, track: true, cancellationToken).ConfigureAwait(false);
+
+        if (owned.Count == 0)
+        {
+            return;
+        }
+
+        var relativePaths = await _database.ReferenceFiles
+            .AsNoTracking()
+            .Where(row => row.ReferenceLibraryId == referenceLibraryId)
+            .ToDictionaryAsync(row => row.Id, row => row.RelativePath, cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var file in owned)
+        {
+            var rowId = JsonSerializer.Deserialize<ReferenceSourceRef>(file.SourceRef!, StoredJson)!.ReferenceFileId;
+
+            if (relativePaths.TryGetValue(rowId, out var relative)
+                && string.Equals(file.Path, ReferenceOwnership.AbsolutePath(oldRoot, relative), StringComparison.OrdinalIgnoreCase))
+            {
+                file.Path = ReferenceOwnership.AbsolutePath(newRoot, relative);
+            }
+        }
     }
 
     /// <summary>The reference <c>song_file</c> rows that point at one of this library's files.</summary>

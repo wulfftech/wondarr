@@ -413,6 +413,95 @@ internal static class ReferenceOwnership
         return deleted > 0;
     }
 
+    /// <summary>What <see cref="FollowOrReleaseAsync(WondarrDbContext, long, string, ReferenceFile?, string?, DateTime, CancellationToken)"/> did.</summary>
+    public enum LeaveOutcome
+    {
+        /// <summary>The song's file now points at its other Identified copy.</summary>
+        Followed,
+
+        /// <summary>The song's reference file was removed, so the song has none.</summary>
+        Released,
+
+        /// <summary>The song held no reference file at that path, so nothing changed.</summary>
+        Unchanged,
+    }
+
+    /// <summary>
+    /// Lets a song go from one reference file the way every path agrees it should: its file follows
+    /// another Identified row of the same song when there is one, and is released otherwise. Finds the
+    /// copy itself with a database query and returns the context's tracked instance of it, so the row it
+    /// follows is saved with the caller's changes. The caller clears the leaving row's <c>SongId</c> and ends the transaction.
+    /// </summary>
+    /// <param name="database">The Wondarr database.</param>
+    /// <param name="songId">The song the leaving row is.</param>
+    /// <param name="leavingRowId">The leaving row, which is never its own second copy.</param>
+    /// <param name="fromPath">The absolute path of the leaving row's file.</param>
+    /// <param name="now">The instant a followed file is recorded as imported.</param>
+    /// <param name="cancellationToken">Cancels the read and the writes.</param>
+    public static async Task<LeaveOutcome> FollowOrReleaseAsync(
+        WondarrDbContext database,
+        long songId,
+        long leavingRowId,
+        string fromPath,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+
+        var copy = await database.ReferenceFiles
+            .Include(candidate => candidate.ReferenceLibrary)
+            .Where(candidate => candidate.SongId == songId
+                && candidate.State == ReferenceFileState.Identified
+                && candidate.Id != leavingRowId)
+            .OrderBy(candidate => candidate.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return await FollowOrReleaseAsync(
+                database,
+                songId,
+                fromPath,
+                copy,
+                copy?.ReferenceLibrary.RootPath,
+                now,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// As the overload that finds the copy, for a caller that has already chosen it (the scanner checks
+    /// which copies are still on disk). The copy must be tracked by the context.
+    /// </summary>
+    /// <param name="database">The Wondarr database.</param>
+    /// <param name="songId">The song.</param>
+    /// <param name="fromPath">The absolute path of the leaving row's file.</param>
+    /// <param name="copy">The Identified row to follow, or <see langword="null"/> to release.</param>
+    /// <param name="copyRoot">The root of the copy's library.</param>
+    /// <param name="now">The instant a followed file is recorded as imported.</param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    public static async Task<LeaveOutcome> FollowOrReleaseAsync(
+        WondarrDbContext database,
+        long songId,
+        string fromPath,
+        ReferenceFile? copy,
+        string? copyRoot,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+
+        if (copy is not null
+            && copyRoot is not null
+            && await RepointAsync(database, songId, fromPath, copy, copyRoot, now, cancellationToken).ConfigureAwait(false))
+        {
+            return LeaveOutcome.Followed;
+        }
+
+        return await ReleaseAsync(database, songId, fromPath, cancellationToken).ConfigureAwait(false)
+            ? LeaveOutcome.Released
+            : LeaveOutcome.Unchanged;
+    }
+
     /// <summary>
     /// The file a song currently holds. A file this run added a moment ago counts: a chunk saves once,
     /// so two reference files of one recording meet in the change tracker before either is in the

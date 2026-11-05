@@ -91,6 +91,142 @@ public class ReferenceLibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Moving_a_libraries_root_moves_the_paths_of_the_songs_it_owns()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+        var oldRoot = Path.GetFullPath("/reference/music");
+        var newRoot = Path.GetFullPath("/reference/remounted");
+
+        var added = await service.AddAsync(
+            new ReferenceLibraryInput("Music", oldRoot, ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+        var other = await service.AddAsync(
+            new ReferenceLibraryInput("Other", Path.GetFullPath("/reference/other"), ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var songId = await AddSongAsync(context, "Get Lucky");
+        var otherSongId = await AddSongAsync(context, "Lose Yourself");
+        AddFile(context, added.Library.Id, "a/b.flac", ReferenceFileState.Identified, songId);
+        AddFile(context, other.Library.Id, "c/d.flac", ReferenceFileState.Identified, otherSongId);
+        await context.SaveChangesAsync();
+
+        var row = await context.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.ReferenceLibraryId == added.Library.Id);
+        var otherRow = await context.ReferenceFiles.AsNoTracking().SingleAsync(candidate => candidate.ReferenceLibraryId == other.Library.Id);
+        var otherPath = Path.Combine(Path.GetFullPath("/reference/other"), "c", "d.flac");
+        var oldPath = Path.Combine(oldRoot, "a", "b.flac");
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = oldPath,
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{added.Library.Id},\"referenceFileId\":{row.Id}}}",
+            QualityId = 1,
+        });
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = otherSongId,
+            Path = otherPath,
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{other.Library.Id},\"referenceFileId\":{otherRow.Id}}}",
+            QualityId = 1,
+        });
+        await context.SaveChangesAsync();
+
+        await service.UpdateAsync(
+            added.Library.Id,
+            new ReferenceLibraryInput("Music", newRoot, ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var newPath = Path.Combine(newRoot, "a", "b.flac");
+        (await context.SongFiles.AsNoTracking().SingleAsync(file => file.SongId == songId)).Path.Should().Be(newPath);
+        (await context.SongFiles.AsNoTracking().SingleAsync(file => file.SongId == otherSongId)).Path
+            .Should().Be(otherPath, "another library's files stay where they are");
+
+        // The release guard matches the moved path again, so a file that later goes frees its song.
+        (await ReferenceOwnership.ReleaseAsync(context, songId, newPath, CancellationToken.None)).Should().BeTrue();
+        await ReferenceOwnership.RollbackAsync(context);
+    }
+
+    [Fact]
+    public async Task Moving_a_libraries_root_leaves_a_song_path_that_was_not_under_the_old_root()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+        var root = Path.GetFullPath("/reference/music");
+
+        var added = await service.AddAsync(
+            new ReferenceLibraryInput("Music", root, ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var songId = await AddSongAsync(context, "Get Lucky");
+        AddFile(context, added.Library.Id, "a/b.flac", ReferenceFileState.Identified, songId);
+        await context.SaveChangesAsync();
+
+        var row = await context.ReferenceFiles.AsNoTracking().SingleAsync();
+        var stalePath = Path.Combine(Path.GetFullPath("/somewhere/else"), "b.flac");
+
+        // A path that is not where the library put it is not a move's to correct.
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = stalePath,
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{added.Library.Id},\"referenceFileId\":{row.Id}}}",
+            QualityId = 1,
+        });
+        await context.SaveChangesAsync();
+
+        await service.UpdateAsync(
+            added.Library.Id,
+            new ReferenceLibraryInput("Music renamed", Path.GetFullPath("/reference/remounted"), ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        (await context.SongFiles.AsNoTracking().SingleAsync()).Path.Should().Be(stalePath);
+    }
+
+    [Fact]
+    public async Task Saving_a_library_with_the_same_root_changes_no_song_path()
+    {
+        await using var context = await ContextAsync();
+        var service = Service(context);
+        var root = Path.GetFullPath("/reference/music");
+
+        var added = await service.AddAsync(
+            new ReferenceLibraryInput("Music", root, ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var songId = await AddSongAsync(context, "Get Lucky");
+        AddFile(context, added.Library.Id, "a/b.flac", ReferenceFileState.Identified, songId);
+        await context.SaveChangesAsync();
+
+        var row = await context.ReferenceFiles.AsNoTracking().SingleAsync();
+        var path = Path.Combine(root, "a", "b.flac");
+
+        context.SongFiles.Add(new SongFile
+        {
+            SongId = songId,
+            Path = path,
+            SourceType = SourceTypes.Reference,
+            SourceRef = $"{{\"referenceLibraryId\":{added.Library.Id},\"referenceFileId\":{row.Id}}}",
+            QualityId = 1,
+        });
+        await context.SaveChangesAsync();
+        var before = await context.SongFiles.AsNoTracking().SingleAsync();
+
+        _timeProvider.Advance(TimeSpan.FromHours(1));
+        await service.UpdateAsync(
+            added.Library.Id,
+            new ReferenceLibraryInput("Music renamed", root + Path.DirectorySeparatorChar, ReferenceLibraryMode.Reference, null, true),
+            CancellationToken.None);
+
+        var after = await context.SongFiles.AsNoTracking().SingleAsync();
+        after.Path.Should().Be(path);
+        after.UpdatedAt.Should().Be(before.UpdatedAt);
+    }
+
+    [Fact]
     public async Task A_relative_root_is_refused()
     {
         await using var context = await ContextAsync();

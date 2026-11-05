@@ -176,6 +176,14 @@ public sealed partial class ReferenceScanner(
         var unreadable = 0;
         var scanned = 0;
 
+        // Rows that held a song and failed to decode in this scan, on the first probe or a later one: none
+        // of them is a second copy another song can follow.
+        var unreadableNow = new HashSet<long>();
+
+        // The subset that was already unreadable before this scan and still is: the only ones whose song
+        // can let go, because one failed probe says little (a transient ffprobe failure, a remount).
+        var unreadableOwned = new List<(ReferenceFile Row, long SongId)>();
+
         foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -228,6 +236,12 @@ public sealed partial class ReferenceScanner(
                 if (row.State == ReferenceFileState.Unreadable)
                 {
                     unreadable++;
+
+                    if (!isNew && row.SongId is { } ownedSong)
+                    {
+                        unreadableNow.Add(row.Id);
+                        unreadableOwned.Add((row, ownedSong));
+                    }
                 }
             }
             else if (sameFile)
@@ -267,6 +281,11 @@ public sealed partial class ReferenceScanner(
                 if (row.State == ReferenceFileState.Unreadable)
                 {
                     unreadable++;
+
+                    if (!isNew && row.SongId is { } ownedSong)
+                    {
+                        unreadableNow.Add(row.Id);
+                    }
                 }
             }
 
@@ -388,22 +407,8 @@ public sealed partial class ReferenceScanner(
                 }
 
                 var fromPath = ReferenceOwnership.AbsolutePath(root, row.RelativePath);
-
-                // A second copy of the recording that is still there (another Identified row of the same
-                // song, seen by this scan or present on disk) keeps the song owned: the song's file
-                // follows it instead of being released.
-                var other = await database.ReferenceFiles
-                    .AsNoTracking()
-                    .Where(candidate => candidate.SongId == songId
-                        && candidate.State == ReferenceFileState.Identified
-                        && candidate.Id != row.Id)
-                    .Select(candidate => new { Row = candidate, candidate.ReferenceLibrary.RootPath })
-                    .ToListAsync(cancellationToken)
+                var alive = await FindAliveCopyAsync(row.Id, songId, referenceLibraryId, seen, unreadableNow, cancellationToken)
                     .ConfigureAwait(false);
-
-                var alive = other.FirstOrDefault(candidate => candidate.Row.ReferenceLibraryId == referenceLibraryId
-                    ? seen.Contains(candidate.Row.RelativePath)
-                    : File.Exists(ReferenceOwnership.AbsolutePath(candidate.RootPath, candidate.Row.RelativePath)));
 
                 leaving.Add((row, songId, fromPath, alive?.Row, alive?.RootPath));
             }
@@ -412,6 +417,27 @@ public sealed partial class ReferenceScanner(
         if (replacedGone > 0)
         {
             LogReplacedGone(logger, referenceLibraryId, replacedGone);
+        }
+
+        // A file that is still unreadable on a later scan is no longer the song it was, but only once it was
+        // last written longer ago than the missing-file grace: a file still being copied keeps its song,
+        // and so does every file while the scan suspects a mount problem. Every scan probes it again.
+        foreach (var (row, songId) in unreadableOwned)
+        {
+            if (mountProblem || now - row.ModifiedAt < ReferenceMissingRules.Grace)
+            {
+                continue;
+            }
+
+            var alive = await FindAliveCopyAsync(row.Id, songId, referenceLibraryId, seen, unreadableNow, cancellationToken)
+                .ConfigureAwait(false);
+
+            leaving.Add((
+                row,
+                songId,
+                ReferenceOwnership.AbsolutePath(root, row.RelativePath),
+                alive?.Row,
+                alive?.RootPath));
         }
 
         var released = 0;
@@ -426,35 +452,25 @@ public sealed partial class ReferenceScanner(
         {
             foreach (var (row, songId, fromPath, copy, copyRoot) in leaving)
             {
-                if (copy is not null)
-                {
-                    var target = Track(copy);
+                // The song's file follows its second copy when there is one; otherwise it goes, so the
+                // song has none and every wanted path sees it again. Only a reference file at this row's
+                // path is removed; a library file the song holds, or the file of another row, stays.
+                var target = copy is null ? null : Track(copy);
 
-                    if (await ReferenceOwnership
-                        .RepointAsync(database, songId, fromPath, target, copyRoot!, now, cancellationToken)
-                        .ConfigureAwait(false))
-                    {
-                        touched.Add(target);
-                        var follower = Track(row);
-                        follower.SongId = null;
-                        touched.Add(follower);
-
-                        continue;
-                    }
-                }
-
-                // The song's reference file goes, so the song has none and every wanted path sees it
-                // again. Only a reference file at this row's path is removed; a library file the song
-                // holds, or the file of another row, stays.
-                var removed = await ReferenceOwnership
-                    .ReleaseAsync(database, songId, fromPath, cancellationToken)
+                var outcome = await ReferenceOwnership
+                    .FollowOrReleaseAsync(database, songId, fromPath, target, copyRoot, now, cancellationToken)
                     .ConfigureAwait(false);
+
+                if (outcome == ReferenceOwnership.LeaveOutcome.Followed)
+                {
+                    touched.Add(target!);
+                }
 
                 var tracked = Track(row);
                 tracked.SongId = null;
                 touched.Add(tracked);
 
-                if (removed)
+                if (outcome == ReferenceOwnership.LeaveOutcome.Released)
                 {
                     released++;
                     LogReleased(logger, row.Id, songId);
@@ -535,6 +551,35 @@ public sealed partial class ReferenceScanner(
                 LogTolerated(logger, path, tolerated);
             }
         }
+    }
+
+    /// <summary>
+    /// Another Identified row of the same song that is still there (seen by this scan, or present on disk
+    /// in another library), or <see langword="null"/>. Loaded without tracking.
+    /// </summary>
+    private async Task<(ReferenceFile Row, string RootPath)?> FindAliveCopyAsync(
+        long leavingRowId,
+        long songId,
+        long referenceLibraryId,
+        HashSet<string> seen,
+        HashSet<long> excluded,
+        CancellationToken cancellationToken)
+    {
+        var other = await database.ReferenceFiles
+            .AsNoTracking()
+            .Where(candidate => candidate.SongId == songId
+                && candidate.State == ReferenceFileState.Identified
+                && candidate.Id != leavingRowId)
+            .Select(candidate => new { Row = candidate, candidate.ReferenceLibrary.RootPath })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var alive = other.FirstOrDefault(candidate => !excluded.Contains(candidate.Row.Id)
+            && (candidate.Row.ReferenceLibraryId == referenceLibraryId
+                ? seen.Contains(candidate.Row.RelativePath)
+                : File.Exists(ReferenceOwnership.AbsolutePath(candidate.RootPath, candidate.Row.RelativePath))));
+
+        return alive is null ? null : (alive.Row, alive.RootPath);
     }
 
     /// <summary>

@@ -8,7 +8,7 @@ A reference library is a folder of music you already own. Wondarr scans it, work
 ## Settings
 
 - **Name**.
-- **Root path**: "The folder to walk, as the container sees it." Mount it into the container, for example under `/data`.
+- **Root path**: "The folder to walk, as the container sees it." Mount it into the container, for example under `/data`. If you remount the share and change the root, the songs the library owns follow it; files that are not at the new path are handled like any other missing file, below.
 - **Mode**: **Reference** or **Adopt** (below).
 - **Target library**: with Reference, songs found here are filed under this library; with Adopt, "Adopted files are copied into this library."
 - **Scan daily**: on by default.
@@ -29,7 +29,7 @@ If a file disappears from the folder, its song keeps counting as owned for now. 
 
 If a scan finds more than 10 % of a library's owned files missing at once, or more than 200 of them (whichever is smaller, and never fewer than 3 files), Wondarr assumes the share is not mounted. It marks them missing but releases nothing, and Health shows a warning naming the library and the count. The warning clears by itself when the files are back or fewer are missing.
 
-A file that is edited (a new size or modification time) is read and identified again, unless you skipped it or it was adopted: your choice stays, and only its size and measurements are refreshed.
+A file that is edited (a new size or modification time) is read and identified again, unless you skipped it or it was adopted: your choice stays, and only its size and measurements are refreshed. If an edited file no longer decodes, it becomes unreadable and is checked again on every scan. The song lets go of it when the file is still unreadable on a later scan and was last written more than 24 hours ago (so a file that is still being copied keeps its song, and one failed check never releases it): the song follows a second copy of the recording if you have one, and is wanted again otherwise.
 
 ## The scan
 
