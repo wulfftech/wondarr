@@ -148,10 +148,11 @@ internal static partial class ImportRecovery
                         Path.GetDirectoryName(target) ?? string.Empty,
                         $"{Path.GetFileNameWithoutExtension(target)} ({suffix}){Path.GetExtension(target)}");
 
-                // A file the song row already points at is the song's own; one written before the
-                // import began is somebody else's. Only a file this import wrote counts.
+                // One written before the import began is somebody else's (or the song's old file). Only
+                // a file this import wrote counts, and that includes the song's own row path: an
+                // in-place upgrade places the new file at exactly the old file's path. Nothing else
+                // rewrites a song's file while it has an Importing item.
                 if (File.Exists(candidate)
-                    && !(song.File is { } held && PathRules.AreEqual(held.Path, candidate))
                     && File.GetLastWriteTimeUtc(candidate) >= since)
                 {
                     // A file another song already owns is that song's, however new it is.

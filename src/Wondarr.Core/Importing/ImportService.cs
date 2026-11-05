@@ -410,6 +410,11 @@ public sealed partial class ImportService : IImportService
                     // The renamed file is the download from here on: a rejection deletes it, and a
                     // deferred import finds it (and renames nothing) when the poll brings it back.
                     item.DownloadPath = renamed;
+
+                    // Saved at once, with no token, as the transcode below does it: the .opus is gone,
+                    // and a row that still names it would send a restart to a file that does not
+                    // exist and orphan this one.
+                    await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
                 }
             }
             else if (extension != rule.Container)
