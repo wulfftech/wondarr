@@ -4851,6 +4851,57 @@
         }
       }
     },
+    "/api/v1/config/security": {
+      "get": {
+        "tags": [
+          "SecuritySettings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecuritySettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "SecuritySettings"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecuritySettingsUpdateResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/SecuritySettingsUpdateResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecuritySettingsResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/album/lookup": {
       "get": {
         "tags": [
@@ -10444,6 +10495,32 @@
         ],
         "type": "string"
       },
+      "SecuritySettingsResource": {
+        "required": [
+          "requireLocalHost",
+          "requireLocalHostLocked"
+        ],
+        "type": "object",
+        "properties": {
+          "requireLocalHost": {
+            "type": "boolean"
+          },
+          "requireLocalHostLocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SecuritySettingsUpdateResource": {
+        "type": "object",
+        "properties": {
+          "requireLocalHost": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
       "SongAddResource": {
         "required": [
           "mbRecordingId",
@@ -13046,6 +13123,9 @@
     },
     {
       "name": "AuthUser"
+    },
+    {
+      "name": "SecuritySettings"
     },
     {
       "name": "Album"
