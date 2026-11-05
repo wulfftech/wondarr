@@ -263,6 +263,28 @@ public class ImportServiceFileRecordTests
     }
 
     [Fact]
+    public async Task The_ogg_rename_is_saved_even_when_the_import_is_cancelled_during_verification()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        await host.SetLibraryOutputPolicyAsync("""{"version":2,"youtube":{"codec":"keep","opusContainer":"ogg"}}""");
+        host.Verifier.OnVerifyAsync = _ => throw new OperationCanceledException();
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.SourceType = SourceTypes.YouTube;
+            options.DownloadName = "dQw4w9WgXcQ.opus";
+            options.RemotePath = "dQw4w9WgXcQ";
+        });
+
+        var import = () => host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+        await import.Should().ThrowAsync<OperationCanceledException>();
+
+        // The .opus is gone from disk; a row that still names it would strand the .ogg on restart.
+        var item = await host.Context.QueueItems.AsNoTracking().SingleAsync();
+        item.DownloadPath.Should().Be(Path.Combine(seed.DownloadDirectory, "dQw4w9WgXcQ.ogg"));
+    }
+
+    [Fact]
     public async Task A_decided_item_forgets_its_key_deferral_count()
     {
         await using var host = await ImportTestHost.CreateAsync();

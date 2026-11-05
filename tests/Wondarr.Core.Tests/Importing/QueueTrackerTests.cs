@@ -533,6 +533,54 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
+    public async Task Records_an_upgrade_that_landed_at_the_path_the_songs_own_file_row_names()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        // An in-place upgrade: the placer recycled the old file and put the new one at the very same
+        // path, so the song's row still points at it when the import stops before recording.
+        var landed = await host.LandFileAsync(seed, "flac");
+        File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(1));
+        await host.AddSongFileAsync(seed.SongId, landed, SourceTypes.Soulseek, SeedData.Opus160QualityId);
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        (await host.ItemAsync(seed.QueueItemId)).State.Should().Be(QueueItemState.Imported);
+
+        var file = await host.SongFileAsync(seed.SongId);
+        file!.Path.Should().Be(landed);
+        file.Codec.Should().Be("flac");
+        file.QualityId.Should().NotBe(SeedData.Opus160QualityId, "the row carries the upgraded file's quality");
+    }
+
+    [Fact]
+    public async Task Does_not_record_the_songs_own_old_file_when_it_predates_the_import()
+    {
+        await using var host = await QueueTestHost.CreateAsync();
+        var seed = await host.SeedAsync(options =>
+        {
+            options.State = QueueItemState.Importing;
+            options.WithDownloadPath = true;
+            options.WithAlbum = true;
+        });
+
+        var landed = await host.LandFileAsync(seed, "flac");
+        File.SetLastWriteTimeUtc(landed, host.Time.GetUtcNow().UtcDateTime.AddMinutes(-30));
+        await host.AddSongFileAsync(seed.SongId, landed, SourceTypes.Soulseek, SeedData.Opus160QualityId);
+
+        await host.Tracker.RecoverAsync(CancellationToken.None);
+
+        (await host.ItemAsync(seed.QueueItemId)).State.Should().Be(QueueItemState.Completed);
+        (await host.SongFileAsync(seed.SongId))!.QualityId.Should().Be(SeedData.Opus160QualityId);
+    }
+
+    [Fact]
     public async Task Does_not_record_a_file_another_song_already_owns()
     {
         await using var host = await QueueTestHost.CreateAsync();
