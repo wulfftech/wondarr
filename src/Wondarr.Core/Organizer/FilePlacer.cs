@@ -365,6 +365,26 @@ public sealed class FilePlacer : IFilePlacer
                             target);
                     }
                 }
+                catch (IOException exception) when (_disk.FileExists(target)
+                    && !_disk.AreSameFile(source, target))
+                {
+                    // .NET's own cross-device move copies to the target and then unlinks the source;
+                    // when the unlink fails the copy stays at the target and this exception surfaces.
+                    if (_disk.GetFileSize(target) == _disk.GetFileSize(source))
+                    {
+                        // The whole file landed: the library holds it, so the caller must record it.
+                        throw new PlacementTransferException(
+                            $"Placed '{target}', but could not remove the download '{source}': {exception.Message}",
+                            target);
+                    }
+
+                    // A half-written copy is not the download. The target was free when the placer
+                    // chose it, so what is there now is this move's own leftover: drop it and keep
+                    // the download, so no unrecorded file stays in the library.
+                    TryDeletePartialTarget(target);
+
+                    throw;
+                }
 
                 return TransferMode.Move;
 
@@ -386,6 +406,18 @@ public sealed class FilePlacer : IFilePlacer
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown transfer mode.");
+        }
+    }
+
+    private void TryDeletePartialTarget(string target)
+    {
+        try
+        {
+            _disk.DeleteFile(target);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            FilePlacerLog.PartialTargetKept(_logger, target, exception.Message);
         }
     }
 
@@ -473,6 +505,12 @@ internal static partial class FilePlacerLog
         Level = LogLevel.Warning,
         Message = "Recycling {Path} failed ({Reason}) but the file is no longer at its path; it is probably in the recycle bin")]
     internal static partial void ReplacedFileGone(ILogger logger, string path, string reason);
+
+    /// <summary>A half-written file was left at the target by a failed move and could not be removed.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "A failed move left a partial file at {Target} and it could not be removed: {Reason}")]
+    internal static partial void PartialTargetKept(ILogger logger, string target, string reason);
 
     /// <summary>A recycled file could not be put back after a later step failed.</summary>
     [LoggerMessage(

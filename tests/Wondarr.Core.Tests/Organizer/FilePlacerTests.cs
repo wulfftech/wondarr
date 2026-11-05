@@ -345,6 +345,65 @@ public class FilePlacerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_the_target_when_the_move_copied_it_and_then_failed_to_unlink_the_download()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        var target = _temp.Full("library/Artist/Album/track.mp3");
+
+        var disk = new FaultyDisk { MoveCopiesThenFails = path => PathRules.AreEqual(path, target) };
+
+        var result = await Placer(disk).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().Be(target, "the caller has to know the library already holds it");
+        File.ReadAllText(target).Should().Be("audio");
+        File.ReadAllText(source).Should().Be("audio");
+    }
+
+    [Fact]
+    public async Task Does_not_roll_the_recycled_file_back_over_a_new_file_the_move_left_at_the_target()
+    {
+        var replaced = _temp.CreateFile("library/Artist/Album/track.mp3", "old");
+        var source = _temp.CreateFile("downloads/track.mp3", "new audio");
+        var target = _temp.Full("library/Artist/Album/track.mp3");
+
+        var disk = new FaultyDisk { MoveCopiesThenFails = path => PathRules.AreEqual(path, target) };
+
+        var result = await Placer(disk).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move, replaced),
+            CancellationToken.None);
+
+        result.FinalPath.Should().Be(target);
+        result.RecycledPath.Should().Be(_temp.Full("recycle/Artist/Album/track.mp3"));
+        File.ReadAllText(target).Should().Be("new audio");
+        File.ReadAllText(result.RecycledPath!).Should().Be("old");
+    }
+
+    [Fact]
+    public async Task Removes_a_half_written_target_a_failed_move_left_behind()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        var target = _temp.Full("library/Artist/Album/track.mp3");
+
+        var disk = new FaultyDisk
+        {
+            MoveCopiesThenFails = path => PathRules.AreEqual(path, target),
+            LeftoverBytes = 2,
+        };
+
+        var result = await Placer(disk).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().BeNull("a half file is not a placement");
+        File.Exists(target).Should().BeFalse("no unrecorded file stays in the library");
+        File.ReadAllText(source).Should().Be("audio", "the download is kept for a later attempt");
+    }
+
+    [Fact]
     public async Task Placing_a_file_the_library_already_holds_does_nothing()
     {
         var source = _temp.CreateFile("library/Artist/Album/track.mp3", "audio");
@@ -586,6 +645,18 @@ public class FilePlacerTests : IDisposable
         /// <summary>Fails every attempt to set a file's time, as a file owned by another uid does.</summary>
         public bool FailStamp { get; init; }
 
+        /// <summary>Refuses to set the time of the files this matches, as a file owned by another uid does.</summary>
+        public Func<string, bool>? FailStampPath { get; init; }
+
+        /// <summary>
+        /// A move to a target this matches copies the file there and then throws, as .NET's
+        /// cross-device move does when it cannot unlink the source.
+        /// </summary>
+        public Func<string, bool>? MoveCopiesThenFails { get; init; }
+
+        /// <summary>How many bytes of the source the failed move leaves at the target; null for all.</summary>
+        public int? LeftoverBytes { get; init; }
+
         /// <summary>Throws this from every attempt to set a file's time.</summary>
         public Exception? StampFailure { get; init; }
 
@@ -601,6 +672,14 @@ public class FilePlacerTests : IDisposable
 
         public void MoveFile(string source, string target)
         {
+            if (MoveCopiesThenFails?.Invoke(target) == true)
+            {
+                var bytes = File.ReadAllBytes(source);
+                File.WriteAllBytes(target, LeftoverBytes is { } count ? bytes[..count] : bytes);
+
+                throw new IOException($"Simulated a move to '{target}' that could not unlink the source.");
+            }
+
             if (!_moveFailed && FailMoveTarget?.Invoke(target) == true)
             {
                 // Once only: the rollback that follows a failure is a move to the same folder.
@@ -649,6 +728,11 @@ public class FilePlacerTests : IDisposable
             if (StampFailure is not null)
             {
                 throw StampFailure;
+            }
+
+            if (FailStampPath?.Invoke(path) == true)
+            {
+                throw new UnauthorizedAccessException($"Simulated a refused time stamp on '{path}'.");
             }
 
             if (FailStamp)
