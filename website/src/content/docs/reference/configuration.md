@@ -42,7 +42,7 @@ With `auth_required: disabledForLocalAddresses`, a request skips the login only 
 
 A wildcard in `allowed_hosts` needs at least two labels after `*.` (`*.example.com`, not `*.com`). A name with a trailing dot (`nas.lan.`) is not treated as local.
 
-Failed sign-ins are limited to 10 a minute per address (per /64 for IPv6). Behind a reverse proxy every visitor shares the proxy's address unless the proxy's forwarded headers are processed, so someone hammering the login page can lock the owner out of signing in for up to a minute.
+Failed sign-ins are limited to 10 a minute per address (per /64 for IPv6). Wondarr never trusts forwarded headers (`X-Forwarded-For` and the like), so behind a reverse proxy every visitor shares the proxy's address and one limit, and someone hammering the login page can lock the owner out of signing in for up to a minute.
 
 A request that fails the rule is not refused: it gets the login page, as with `auth_required: enabled`. If you reach Wondarr by a public name from inside your network and want to skip the login, add that name to `allowed_hosts`.
 

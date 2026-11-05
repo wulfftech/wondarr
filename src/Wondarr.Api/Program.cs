@@ -85,12 +85,11 @@ LoggingSetup.RegisterServerApiKey(
     app.Services.GetRequiredService<ISecretRegistry>(),
     app.Services.GetRequiredService<IOptionsMonitor<ServerOptions>>());
 
-// The *arr pipeline order (Lidarr's Startup.Configure): forwarded headers, request logging, URL
+// The *arr pipeline order (Lidarr's Startup.Configure): request logging, URL
 // base, static files, routing, authentication, authorization, then the URL-base redirect and the
 // endpoints. The SPA fallback is registered last so it only sees paths no endpoint matched.
 var urlBase = app.Services.GetRequiredService<IOptions<ServerOptions>>().Value.UrlBase;
 
-app.UseForwardedHeaders();
 app.UseSerilogRequestLogging(options =>
 {
     options.Logger = app.Services.GetRequiredService<Serilog.ILogger>();
