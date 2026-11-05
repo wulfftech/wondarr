@@ -334,6 +334,9 @@ public sealed class FilePlacer : IFilePlacer
         switch (mode)
         {
             case TransferMode.Move:
+                // Taken just before the move: a file that is at the target now is not this move's.
+                var targetExisted = _disk.FileExists(target);
+
                 try
                 {
                     _disk.MoveFile(source, target);
@@ -365,7 +368,9 @@ public sealed class FilePlacer : IFilePlacer
                             target);
                     }
                 }
-                catch (IOException exception) when (_disk.FileExists(target)
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                    && !targetExisted
+                    && _disk.FileExists(target)
                     && !_disk.AreSameFile(source, target))
                 {
                     // .NET's own cross-device move copies to the target and then unlinks the source;
@@ -378,9 +383,10 @@ public sealed class FilePlacer : IFilePlacer
                             target);
                     }
 
-                    // A half-written copy is not the download. The target was free when the placer
-                    // chose it, so what is there now is this move's own leftover: drop it and keep
-                    // the download, so no unrecorded file stays in the library.
+                    // A half-written copy is not the download. Nothing was at the target just before
+                    // the move, so what is there now is this move's own leftover: drop it and keep
+                    // the download, so no unrecorded file stays in the library. (A file that was
+                    // already there is another placement's and never reaches this catch.)
                     TryDeletePartialTarget(target);
 
                     throw;

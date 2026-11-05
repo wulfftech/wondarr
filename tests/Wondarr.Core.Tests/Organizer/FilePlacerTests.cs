@@ -404,6 +404,47 @@ public class FilePlacerTests : IDisposable
     }
 
     [Fact]
+    public async Task Reports_the_target_when_the_move_copied_it_and_then_was_denied_unlinking_the_download()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        var target = _temp.Full("library/Artist/Album/track.mp3");
+
+        var disk = new FaultyDisk
+        {
+            MoveCopiesThenFails = path => PathRules.AreEqual(path, target),
+            MoveFailsWithAccessDenied = true,
+        };
+
+        var result = await Placer(disk).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().Be(target);
+        File.ReadAllText(target).Should().Be("audio");
+    }
+
+    [Fact]
+    public async Task Leaves_a_file_another_placement_put_at_the_target_alone_when_the_move_finds_the_name_taken()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        var target = _temp.Full("library/Artist/Album/track.mp3");
+
+        // Another song's placement lands a different-sized file at the chosen name after the
+        // collision check and before the move.
+        var disk = new FaultyDisk { OtherFileAppears = (target, "someone else's file, longer than the download") };
+
+        var result = await Placer(disk).PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().BeNull();
+        File.ReadAllText(target).Should().Be("someone else's file, longer than the download");
+        File.ReadAllText(source).Should().Be("audio");
+    }
+
+    [Fact]
     public async Task Placing_a_file_the_library_already_holds_does_nothing()
     {
         var source = _temp.CreateFile("library/Artist/Album/track.mp3", "audio");
@@ -654,6 +695,16 @@ public class FilePlacerTests : IDisposable
         /// </summary>
         public Func<string, bool>? MoveCopiesThenFails { get; init; }
 
+        /// <summary>Makes <see cref="MoveCopiesThenFails"/> throw an access error instead of an IO error.</summary>
+        public bool MoveFailsWithAccessDenied { get; init; }
+
+        /// <summary>
+        /// A file that lands at this path once the placer has created its folder (so after the
+        /// collision check and before the move), as another song's placement would put it there.
+        /// The move then throws an IO error, as a move onto an existing name does.
+        /// </summary>
+        public (string Path, string Contents)? OtherFileAppears { get; init; }
+
         /// <summary>How many bytes of the source the failed move leaves at the target; null for all.</summary>
         public int? LeftoverBytes { get; init; }
 
@@ -664,7 +715,15 @@ public class FilePlacerTests : IDisposable
 
         public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
 
-        public void CreateDirectory(string path) => _inner.CreateDirectory(path);
+        public void CreateDirectory(string path)
+        {
+            _inner.CreateDirectory(path);
+
+            if (OtherFileAppears is { } other && PathRules.AreEqual(Path.GetDirectoryName(other.Path)!, path))
+            {
+                File.WriteAllText(other.Path, other.Contents);
+            }
+        }
 
         public void CreateEmptyFile(string path) => _inner.CreateEmptyFile(path);
 
@@ -677,7 +736,14 @@ public class FilePlacerTests : IDisposable
                 var bytes = File.ReadAllBytes(source);
                 File.WriteAllBytes(target, LeftoverBytes is { } count ? bytes[..count] : bytes);
 
-                throw new IOException($"Simulated a move to '{target}' that could not unlink the source.");
+                throw MoveFailsWithAccessDenied
+                    ? new UnauthorizedAccessException($"Simulated a move to '{target}' that could not unlink the source.")
+                    : new IOException($"Simulated a move to '{target}' that could not unlink the source.");
+            }
+
+            if (OtherFileAppears is not null && PathRules.AreEqual(target, OtherFileAppears.Value.Path))
+            {
+                throw new IOException($"Simulated a move to '{target}' that found the name taken.");
             }
 
             if (!_moveFailed && FailMoveTarget?.Invoke(target) == true)
