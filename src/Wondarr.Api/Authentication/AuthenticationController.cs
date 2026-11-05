@@ -21,18 +21,25 @@ namespace Wondarr.Api.Authentication;
 [ApiController]
 public sealed partial class AuthenticationController : Controller
 {
+    // The largest legitimate form is a username (at most 64 characters), a password and the
+    // remember-me box, well under a kilobyte; 8 KB leaves room for a long passphrase and percent-encoding.
+    private const int MaxFormBytes = 8 * 1024;
+
     private readonly ICredentialStore _credentials;
     private readonly IOptionsMonitor<ServerOptions> _serverOptions;
+    private readonly LoginHashLimiter _hashLimiter;
     private readonly ILogger<AuthenticationController> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="AuthenticationController"/> class.</summary>
     public AuthenticationController(
         ICredentialStore credentials,
         IOptionsMonitor<ServerOptions> serverOptions,
+        LoginHashLimiter hashLimiter,
         ILogger<AuthenticationController> logger)
     {
         _credentials = credentials;
         _serverOptions = serverOptions;
+        _hashLimiter = hashLimiter;
         _logger = logger;
     }
 
@@ -58,6 +65,7 @@ public sealed partial class AuthenticationController : Controller
 
     /// <summary>Verifies the form and starts a Forms session.</summary>
     [HttpPost("login")]
+    [LoginFormSizeLimit(MaxFormBytes)]
     public async Task<IActionResult> Login(
         [FromForm] LoginResource resource,
         [FromQuery] string? returnUrl,
@@ -65,9 +73,20 @@ public sealed partial class AuthenticationController : Controller
     {
         var urlBase = _serverOptions.CurrentValue.UrlBase;
 
-        if (resource?.Username is null ||
-            resource.Password is null ||
-            !await _credentials.VerifyAsync(resource.Username, resource.Password, cancellationToken).ConfigureAwait(false))
+        if (resource?.Username is null || resource.Password is null)
+        {
+            return Redirect($"{urlBase}/login?returnUrl={Uri.EscapeDataString(returnUrl ?? string.Empty)}&loginFailed=true");
+        }
+
+        // The form is read by now; only the hash is capped, so a slow body holds no permit.
+        using var lease = _hashLimiter.TryAcquire();
+
+        if (lease is null)
+        {
+            return new LoginBusyResult();
+        }
+
+        if (!await _credentials.VerifyAsync(resource.Username, resource.Password, cancellationToken).ConfigureAwait(false))
         {
             return Redirect($"{urlBase}/login?returnUrl={Uri.EscapeDataString(returnUrl ?? string.Empty)}&loginFailed=true");
         }
@@ -81,6 +100,7 @@ public sealed partial class AuthenticationController : Controller
     /// token.
     /// </summary>
     [HttpPost("login/setup")]
+    [LoginFormSizeLimit(MaxFormBytes)]
     [ApiExplorerSettings(IgnoreApi = true)]
     public async Task<IActionResult> Setup(
         [FromForm] SetupResource resource,
@@ -130,6 +150,13 @@ public sealed partial class AuthenticationController : Controller
             return Page(
                 StatusCodes.Status400BadRequest,
                 LoginPage.Render(options.UrlBase, false, LoginPage.Variant.Create, safeReturnUrl, error, username));
+        }
+
+        using var lease = _hashLimiter.TryAcquire();
+
+        if (lease is null)
+        {
+            return new LoginBusyResult();
         }
 
         if (!await _credentials.TrySetInitialAsync(username!, password!, cancellationToken).ConfigureAwait(false))
