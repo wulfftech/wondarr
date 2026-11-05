@@ -101,6 +101,16 @@ describe('applyEventMessage', () => {
     expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(false);
   });
 
+  it('does not touch a cached interactive search when a queue push arrives', () => {
+    const queryClient = cacheWithEntries();
+
+    queryClient.setQueryData(['interactive-search', 1], { releases: [] });
+    applyEventMessage(queryClient, serverMessage('queue', 'updated', { id: 31, songId: 1, state: 'downloading' }));
+
+    expect(isInvalidated(queryClient, ['queue', 'status'])).toBe(true);
+    expect(isInvalidated(queryClient, ['interactive-search', 1])).toBe(false);
+  });
+
   it('invalidates the songs, wanted and history lists when a song is imported', () => {
     const queryClient = cacheWithEntries();
 
@@ -290,7 +300,7 @@ describe('connectEventStream', () => {
 
     expect(hub.start).toHaveBeenCalledTimes(3);
     expect(status).toHaveBeenLastCalledWith(true);
-    expect(invalidate).toHaveBeenCalledWith();
+    expect(invalidate).toHaveBeenCalledWith({ predicate: expect.any(Function) as unknown });
 
     await stream.stop();
   });
@@ -321,7 +331,24 @@ describe('connectEventStream', () => {
 
     hub.reconnected?.();
     expect(status).toHaveBeenLastCalledWith(true);
-    expect(invalidate).toHaveBeenCalledWith();
+    expect(invalidate).toHaveBeenCalledWith({ predicate: expect.any(Function) as unknown });
+
+    await stream.stop();
+  });
+
+  it('catches up on a reconnect without invalidating the interactive search', async () => {
+    hub.start.mockResolvedValue(undefined);
+    const queryClient = cacheWithEntries();
+
+    queryClient.setQueryData(['interactive-search', 1], { releases: [] });
+
+    const stream = connectEventStream(createTestConfig(), queryClient);
+    await vi.advanceTimersByTimeAsync(0);
+    hub.reconnected?.();
+
+    expect(isInvalidated(queryClient, ['queue', 'status'])).toBe(true);
+    expect(isInvalidated(queryClient, ['songs', { page: 1 }])).toBe(true);
+    expect(isInvalidated(queryClient, ['interactive-search', 1])).toBe(false);
 
     await stream.stop();
   });
@@ -343,7 +370,7 @@ describe('connectEventStream', () => {
 
     expect(hub.start).toHaveBeenCalledTimes(2);
     expect(status).toHaveBeenLastCalledWith(true);
-    expect(invalidate).toHaveBeenCalledWith();
+    expect(invalidate).toHaveBeenCalledWith({ predicate: expect.any(Function) as unknown });
 
     await stream.stop();
   });

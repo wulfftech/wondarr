@@ -3,7 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { AppConfig } from '../api/bootstrap';
 import { HEALTH_QUERY_KEY, TASKS_QUERY_KEY } from '../api/hooks';
-import { QUEUE_QUERY_KEY } from '../api/queue';
+import { INTERACTIVE_SEARCH_QUERY_KEY, QUEUE_QUERY_KEY } from '../api/queue';
 import { MATCH_QUEUE_QUERY_KEY } from '../api/references';
 import { COMMANDS_QUERY_KEY, invalidateLibrary, isFinished, SONGS_QUERY_KEY } from '../api/songs';
 import { asHealthEntries } from '../api/types';
@@ -177,7 +177,10 @@ export function connectEventStream(
 
   const catchUp = () => {
     onStatus(true);
-    void queryClient.invalidateQueries();
+    // Everything but the interactive search: refetching it would submit a fresh Soulseek search.
+    void queryClient.invalidateQueries({
+      predicate: (query) => query.queryKey[0] !== INTERACTIVE_SEARCH_QUERY_KEY[0],
+    });
   };
 
   connection.onreconnecting(() => onStatus(false));
