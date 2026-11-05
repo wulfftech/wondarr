@@ -57,6 +57,12 @@ public class SourceTierOrderingTests
 
         host.YouTube.Searches.Should().Be(1, "every Soulseek candidate is rejected for the peer's cooldown");
         result.Outcome.Should().NotBe(SearchOutcome.NoAcceptableCandidate);
+
+        // grab: false only judges, which the run records as Cancelled with "N acceptable of M".
+        result.Outcome.Should().Be(SearchOutcome.Cancelled);
+        result.Message.Should().StartWith("1 acceptable of 2 results");
+        result.Decisions.Where(decision => decision.Accepted).Should().ContainSingle()
+            .Which.Candidate.SourceType.Should().Be(SourceTypes.YouTube);
     }
 
     [Fact]
