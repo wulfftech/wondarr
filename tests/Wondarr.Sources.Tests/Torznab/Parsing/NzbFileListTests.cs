@@ -176,6 +176,20 @@ public class NzbFileListTests
     }
 
     [Theory]
+    [InlineData(512, "Album - 01.flac")]
+    [InlineData(513, null)]
+    public void Reads_a_quoted_name_from_a_subject_of_512_characters_and_none_from_one_of_513(int length, string? expected)
+    {
+        var subject = "&quot;Album - 01.flac&quot; yEnc " + new string('x', length - "\"Album - 01.flac\" yEnc ".Length);
+        var nzb = $"<nzb><file subject=\"{subject}\"><segments><segment bytes=\"1\">x</segment></segments></file></nzb>";
+
+        var files = NzbFileList.Parse(new MemoryStream(Encoding.UTF8.GetBytes(nzb)));
+
+        files.Single().Subject!.Length.Should().Be(length);
+        files.Single().FileName.Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("Album.vol00+1.PAR2")]
     [InlineData("Album.Par2")]
     [InlineData("album.par2")]

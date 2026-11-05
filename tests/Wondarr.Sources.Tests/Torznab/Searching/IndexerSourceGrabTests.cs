@@ -1427,6 +1427,48 @@ public sealed partial class IndexerSourceGrabTests : IDisposable
     }
 
     [Fact]
+    public async Task A_listed_file_missing_from_a_folder_of_audio_is_not_held_against_the_release_when_there_is_no_song_to_match()
+    {
+        _indexer.Download = new IndexerDownload(Nzb(("03 - Digital Love?.flac", TrackSize), ("Discovery.par2", 40_000L)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var candidate = UsenetCandidate("03 - Digital Love?.flac");
+        var handle = await provider.GrabAsync(candidate with { Release = candidate.Release! with { Song = null } }, "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", "listed-no-song");
+        WriteFile(Path.Combine(folder, "03 - Digital Love_.flac"), "three");
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.BlocklistCandidate.Should().BeFalse("the matcher had no song to look for, so nothing was compared");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_listed_file_missing_from_a_folder_without_audio_is_the_clients_problem_not_the_releases(bool withArchive)
+    {
+        _indexer.Download = new IndexerDownload(Nzb(("03 - Digital Love?.flac", TrackSize), ("Discovery.par2", 40_000L)), null);
+        var provider = Provider(DownloadProtocol.Usenet);
+        var handle = await provider.GrabAsync(UsenetCandidate("03 - Digital Love?.flac"), "wondarr/one", CancellationToken.None);
+        var folder = Path.Combine(_root, "usenet", withArchive ? "listed-archive" : "listed-empty");
+        Directory.CreateDirectory(folder);
+
+        if (withArchive)
+        {
+            WriteFile(Path.Combine(folder, "Discovery.part01.rar"), "x");
+        }
+
+        _usenet.Single().Complete(folder);
+
+        var status = await provider.GetStatusAsync(handle, CancellationToken.None);
+
+        status.State.Should().Be(DownloadState.Failed);
+        status.BlocklistCandidate.Should().BeFalse("the post was not unpacked, so nothing is known about the release");
+        _usenet.Single().Removed.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task A_listed_file_that_is_neither_in_the_folder_nor_found_by_the_matcher_fails_the_item_as_a_blocklist_candidate()
     {
         _indexer.Download = new IndexerDownload(Nzb(("03 - Digital Love?.flac", TrackSize), ("Discovery.par2", 40_000L)), null);
