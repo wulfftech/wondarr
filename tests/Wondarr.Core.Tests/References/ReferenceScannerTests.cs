@@ -537,6 +537,12 @@ public sealed class ReferenceScannerTests : IDisposable
         _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("a.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
 
+        var first = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        first.Unreadable.Should().Be(1);
+        first.Released.Should().Be(0, "one failed probe says little: a transient failure must not free the song");
+        (await SongFileCountAsync(database, songId)).Should().Be(1);
+
         var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
 
         result.Unreadable.Should().Be(1);
@@ -572,6 +578,7 @@ public sealed class ReferenceScannerTests : IDisposable
         _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("a.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
 
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
         var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
 
         result.Released.Should().Be(0, "the song is still owned through b.mp3");
@@ -609,6 +616,12 @@ public sealed class ReferenceScannerTests : IDisposable
         (await SongFileCountAsync(database, songId)).Should().Be(1);
         (await database.ReferenceFiles.AsNoTracking().SingleAsync(row => row.RelativePath == "a.mp3")).SongId.Should().Be(songId);
 
+        // Unreadable again, but written too recently: still a copy in progress.
+        var second = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        second.Released.Should().Be(0);
+        (await SongFileCountAsync(database, songId)).Should().Be(1);
+
         // The file is left alone and stays unreadable; once the grace has passed the song lets go.
         _time.Advance(TimeSpan.FromHours(25));
         var later = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
@@ -616,6 +629,40 @@ public sealed class ReferenceScannerTests : IDisposable
         later.Released.Should().Be(1);
         (await SongFileCountAsync(database, songId)).Should().Be(0);
         (await database.ReferenceFiles.AsNoTracking().SingleAsync(row => row.RelativePath == "a.mp3")).SongId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_missing_file_does_not_hand_its_song_to_a_second_copy_that_stopped_decoding_in_the_same_scan()
+    {
+        var path = Write("a.mp3", "one");
+        var copyPath = Write("b.mp3", "one, again");
+        Write("keep.mp3", "two");
+
+        await using var database = await ContextAsync();
+        var library = await AddLibraryAsync(database, _root);
+        var scanner = Scanner(database);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        var songId = await OwnAsync(database, "a.mp3");
+
+        var copy = await database.ReferenceFiles.SingleAsync(row => row.RelativePath == "b.mp3");
+        copy.SongId = songId;
+        copy.State = ReferenceFileState.Identified;
+        await database.SaveChangesAsync();
+        database.ChangeTracker.Clear();
+
+        File.Delete(path);
+        await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+        _time.Advance(TimeSpan.FromHours(25));
+
+        // b.mp3 is overwritten with a broken copy in the scan that also finishes a.mp3's grace.
+        File.SetLastWriteTimeUtc(copyPath, Start.UtcDateTime.AddHours(-48));
+        _probe.ProbeReferenceAsync(Arg.Is<string>(candidate => candidate.EndsWith("b.mp3", StringComparison.Ordinal)), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new MediaProbeResult(false, null, "Invalid data found when processing input")));
+
+        var result = await scanner.ScanAsync(library.Id, null, CancellationToken.None);
+
+        result.Released.Should().Be(1, "the only other copy no longer decodes, so the song is not handed to it");
+        (await SongFileCountAsync(database, songId)).Should().Be(0);
     }
 
     [Fact]

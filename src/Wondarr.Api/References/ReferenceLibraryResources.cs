@@ -39,7 +39,7 @@ public sealed record ReferenceLibraryResource(
 /// <param name="Identified">Identified as a song.</param>
 /// <param name="Ambiguous">Ranked candidates the user has to choose between.</param>
 /// <param name="Unmatched">Nothing was found.</param>
-/// <param name="Adopted">Moved into a managed library.</param>
+/// <param name="Adopted">Copied into a managed library; the original is left in place.</param>
 /// <param name="Unreadable">Not decodable audio.</param>
 /// <param name="Missing">Gone from disk.</param>
 /// <param name="Skipped">The user asked Wondarr to leave the file alone.</param>

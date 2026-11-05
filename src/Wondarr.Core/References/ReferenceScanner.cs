@@ -176,7 +176,12 @@ public sealed partial class ReferenceScanner(
         var unreadable = 0;
         var scanned = 0;
 
-        // Rows that held a song and now fail to decode: the file is no longer that song, so the song lets go.
+        // Rows that held a song and failed to decode in this scan, on the first probe or a later one: none
+        // of them is a second copy another song can follow.
+        var unreadableNow = new HashSet<long>();
+
+        // The subset that was already unreadable before this scan and still is: the only ones whose song
+        // can let go, because one failed probe says little (a transient ffprobe failure, a remount).
         var unreadableOwned = new List<(ReferenceFile Row, long SongId)>();
 
         foreach (var file in files)
@@ -234,6 +239,7 @@ public sealed partial class ReferenceScanner(
 
                     if (!isNew && row.SongId is { } ownedSong)
                     {
+                        unreadableNow.Add(row.Id);
                         unreadableOwned.Add((row, ownedSong));
                     }
                 }
@@ -278,7 +284,7 @@ public sealed partial class ReferenceScanner(
 
                     if (!isNew && row.SongId is { } ownedSong)
                     {
-                        unreadableOwned.Add((row, ownedSong));
+                        unreadableNow.Add(row.Id);
                     }
                 }
             }
@@ -401,7 +407,7 @@ public sealed partial class ReferenceScanner(
                 }
 
                 var fromPath = ReferenceOwnership.AbsolutePath(root, row.RelativePath);
-                var alive = await FindAliveCopyAsync(row.Id, songId, referenceLibraryId, seen, [], cancellationToken)
+                var alive = await FindAliveCopyAsync(row.Id, songId, referenceLibraryId, seen, unreadableNow, cancellationToken)
                     .ConfigureAwait(false);
 
                 leaving.Add((row, songId, fromPath, alive?.Row, alive?.RootPath));
@@ -413,19 +419,17 @@ public sealed partial class ReferenceScanner(
             LogReplacedGone(logger, referenceLibraryId, replacedGone);
         }
 
-        // A file that stopped decoding is no longer the song it was, whatever the share is doing, but one
-        // written to a moment ago may still be being copied: it keeps its song until its own last-write
-        // time is older than the missing-file grace. Every later scan probes it again.
-        var unreadableIds = unreadableOwned.Select(entry => entry.Row.Id).ToHashSet();
-
+        // A file that is still unreadable on a later scan is no longer the song it was, but only once it was
+        // last written longer ago than the missing-file grace: a file still being copied keeps its song,
+        // and so does every file while the scan suspects a mount problem. Every scan probes it again.
         foreach (var (row, songId) in unreadableOwned)
         {
-            if (now - row.ModifiedAt < ReferenceMissingRules.Grace)
+            if (mountProblem || now - row.ModifiedAt < ReferenceMissingRules.Grace)
             {
                 continue;
             }
 
-            var alive = await FindAliveCopyAsync(row.Id, songId, referenceLibraryId, seen, unreadableIds, cancellationToken)
+            var alive = await FindAliveCopyAsync(row.Id, songId, referenceLibraryId, seen, unreadableNow, cancellationToken)
                 .ConfigureAwait(false);
 
             leaving.Add((

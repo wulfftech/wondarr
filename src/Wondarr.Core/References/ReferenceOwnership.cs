@@ -429,8 +429,8 @@ internal static class ReferenceOwnership
     /// <summary>
     /// Lets a song go from one reference file the way every path agrees it should: its file follows
     /// another Identified row of the same song when there is one, and is released otherwise. Finds the
-    /// copy itself, among the rows the context tracks, so the row it follows is saved with the caller's
-    /// changes. The caller clears the leaving row's <c>SongId</c> and ends the transaction.
+    /// copy itself with a database query and returns the context's tracked instance of it, so the row it
+    /// follows is saved with the caller's changes. The caller clears the leaving row's <c>SongId</c> and ends the transaction.
     /// </summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="songId">The song the leaving row is.</param>
