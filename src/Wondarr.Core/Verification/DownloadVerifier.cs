@@ -62,6 +62,12 @@ public sealed record VerificationRequest(
 /// Whether a <see cref="VerificationOutcome.Deferred"/> verdict is because AcoustID refused the client
 /// key. That will not mend itself, so the import bounds how long it keeps waiting on it.
 /// </param>
+/// <param name="DifferentRecording">
+/// Whether a <see cref="VerificationOutcome.Failed"/> verdict is because AcoustID knows the file's
+/// fingerprint as another recording. That is about the recording the source's file stands for, not
+/// about one copy of it (a wrong length or a failed decode is), so the import learns from this
+/// verdict alone.
+/// </param>
 public sealed record VerificationResult(
     VerificationOutcome Outcome,
     string Reason,
@@ -72,7 +78,8 @@ public sealed record VerificationResult(
     string? MatchedRecordingId,
     string? LearnedMbRecordingId,
     bool FingerprintVerified,
-    bool KeyRejected = false);
+    bool KeyRejected = false,
+    bool DifferentRecording = false);
 
 /// <summary>Decides whether a downloaded file is the wanted recording.</summary>
 public interface IDownloadVerifier
@@ -362,7 +369,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         return new Verdict(
             VerificationOutcome.Failed,
             $"Fingerprint belongs to a different recording: {identified.Title ?? "unknown title"} "
-                + $"({identified.Id}), score {Score(best.Score)}");
+                + $"({identified.Id}), score {Score(best.Score)}",
+            DifferentRecording: true);
     }
 
     /// <summary>
@@ -561,7 +569,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             verdict.MatchedRecordingId,
             verdict.LearnedMbRecordingId,
             verdict.FingerprintVerified,
-            keyRejected);
+            keyRejected,
+            verdict.DifferentRecording);
     }
 
     /// <summary>Whole seconds, for the lines a human reads.</summary>
@@ -584,5 +593,6 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         string Reason,
         bool FingerprintVerified = false,
         string? MatchedRecordingId = null,
-        string? LearnedMbRecordingId = null);
+        string? LearnedMbRecordingId = null,
+        bool DifferentRecording = false);
 }

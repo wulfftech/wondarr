@@ -209,6 +209,15 @@ public sealed class DecisionEngine
                 RejectionReason.Blocklisted,
                 "Blocklisted: this file was rejected before."));
         }
+        else if (candidate.SourceType == SourceTypes.Soulseek
+            && BlocklistKeys.SoulseekFile(candidate.RemotePath) is { } learned
+            && context.IsBlocklisted(learned))
+        {
+            // The same folder and file name from another user was fingerprinted as a different recording.
+            rejections.Add(new Rejection(
+                RejectionReason.Blocklisted,
+                "Blocklisted: the same file from another user was a different recording."));
+        }
 
         // A container whose file list is unknown has no extension yet: the release itself is the candidate
         // and the song's file is found once the client has the metadata or the post is unpacked. Every
@@ -469,13 +478,27 @@ public sealed class DecisionEngine
         // two of the artist's name in a folder (the "Days" of "Nine Days") is not the artist either: the
         // artist must be the file name's or a whole folder's (an artist folder above an OST album), or
         // the file's own title must be the song's title in full. Checked before the ordinary overlap
-        // for exactly that reason.
+        // for exactly that reason. A full title match still fails when the file name itself names
+        // another artist ("18 The Cryan Shames - Sugar and Spice.flac").
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
-            if (CompilationPathNamesArtist(context, candidate) ||
-                similarity is null ||
-                CandidateTitleMatcher.IsFullTitleMatch(context.SongTitle, candidate, context.SongFlags))
+            if (CompilationPathNamesArtist(context, candidate) || similarity is null)
             {
+                return;
+            }
+
+            if (CandidateTitleMatcher.IsFullTitleMatch(context.SongTitle, candidate, context.SongFlags))
+            {
+                if (FileNameNamesOtherArtist(context, candidate) is { } other)
+                {
+                    rejections.Add(new Rejection(
+                        RejectionReason.ArtistMismatch,
+                        string.Concat(
+                            "Artist mismatch: Various Artists path and the file names another artist (",
+                            other,
+                            ").")));
+                }
+
                 return;
             }
 
@@ -530,6 +553,65 @@ public sealed class DecisionEngine
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The artist a Soulseek file's own name names when it is none of the song's artists, or
+    /// <see langword="null"/>. Only the last path segment is read, with
+    /// <see cref="SoulseekFilenameParser"/> on that segment alone: <c>candidate.Parsed.Artist</c> may come from a
+    /// grandparent folder, and this must be what the file says. The field is no artist when it is a
+    /// compilation marker, when it is the parent folder's name (the album: <c>Kids Hits - 05 - Sugar and
+    /// Spice.mp3</c> in <c>Kids Hits</c>) or when it is the song's title (a reversed name).
+    /// </summary>
+    private static string? FileNameNamesOtherArtist(DecisionContext context, Candidate candidate)
+    {
+        if (candidate.SourceType != SourceTypes.Soulseek)
+        {
+            return null;
+        }
+
+        var segments = candidate.RemotePath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length == 0 || SoulseekFilenameParser.Parse(segments[^1]).Parsed.Artist is not { Length: > 0 } field)
+        {
+            return null;
+        }
+
+        var fieldTokens = ArtistTokens(field);
+
+        if (fieldTokens.Count == 0 || fieldTokens.Any(CompilationMarkers.Contains))
+        {
+            return null;
+        }
+
+        if (context.MainArtists.Any(artist => ArtistTokens(artist).Overlaps(fieldTokens)))
+        {
+            return null;
+        }
+
+        if (TextMatching.Similarity(field, context.SongTitle) >= AlbumThreshold)
+        {
+            return null;
+        }
+
+        if (segments.Length >= 2 && TextMatching.Similarity(field, segments[^2]) >= AlbumThreshold)
+        {
+            return null;
+        }
+
+        return candidate.Parsed.Album is { Length: > 0 } album && TextMatching.Similarity(field, album) >= AlbumThreshold
+            ? null
+            : field;
+    }
+
+    /// <summary>The words of an artist name, without the article that "Saddle Club, The" and "The Saddle Club" differ by.</summary>
+    private static HashSet<string> ArtistTokens(string artist)
+    {
+        var all = TextMatching.Normalize(artist).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var withoutArticle = all.Where(token => token != "the").ToArray();
+
+        // "The The" is all article.
+        return new HashSet<string>(withoutArticle.Length > 0 ? withoutArticle : all, StringComparer.Ordinal);
     }
 
     /// <summary>Whether every word of one of the song's artists is in the file name (not the folders).</summary>

@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 
 namespace Wondarr.Core.Sources;
@@ -275,6 +277,84 @@ public static class BlocklistKeys
         ArgumentException.ThrowIfNullOrEmpty(username);
         ArgumentException.ThrowIfNullOrEmpty(remotePath);
         return string.Concat(username, Separator.ToString(), remotePath);
+    }
+
+    /// <summary>The marker that opens a <see cref="SoulseekFile"/> key.</summary>
+    private const string SoulseekFilePrefix = "soulseek-file";
+
+    /// <summary>A folder that only numbers the discs of a release: <c>CD1</c>, <c>CD 01</c>, <c>Disc 2</c>, <c>Disk 1</c>.</summary>
+    private static readonly Regex DiscFolderRegex = new(
+        @"^(?:cd|disc|disk)\s*\d+$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// Soulseek: the file as the network spells it, whoever shares it. It holds the parent folder's name and
+    /// the file name without its extension, each normalised (<see cref="TextMatching.Normalize"/>) so that
+    /// case, punctuation and the extension do not matter: <c>1-18 Sugar And Spice.flac</c> and
+    /// <c>1-18 sugar and spice.MP3</c> in the same folder are one key. When the parent is a disc folder
+    /// (<c>CD1</c>, <c>Disc 2</c>) the grandparent's name joins it, since <c>CD1</c> alone names nothing.
+    /// </summary>
+    /// <remarks>
+    /// The key has two <see cref="Separator"/> characters and opens with a fixed word; a
+    /// <see cref="Soulseek"/> key has exactly one, so the two never collide.
+    /// </remarks>
+    /// <param name="remotePath">The remote path, with either kind of separator.</param>
+    /// <param name="songTitle">
+    /// The song's title, when the key is about to be learned: a file named just the title is too common to
+    /// stand for one recording and has no key. Left out when only the candidate's own key is wanted.
+    /// </param>
+    /// <returns>
+    /// The key, or <see langword="null"/> when the file has no parent folder (or a disc folder with nothing
+    /// above it), or its name is only the song's title.
+    /// </returns>
+    public static string? SoulseekFile(string remotePath, string? songTitle = null)
+    {
+        ArgumentNullException.ThrowIfNull(remotePath);
+
+        var segments = remotePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (segments.Length < 2)
+        {
+            return null;
+        }
+
+        var file = segments[^1];
+        var dot = file.LastIndexOf('.');
+
+        if (dot > 0 && file.Length - dot - 1 is >= 1 and <= 5 && file[(dot + 1)..].All(char.IsAsciiLetterOrDigit))
+        {
+            file = file[..dot];
+        }
+
+        var stem = TextMatching.Normalize(file);
+        var folder = TextMatching.Normalize(segments[^2]);
+
+        if (stem.Length == 0 || folder.Length == 0)
+        {
+            return null;
+        }
+
+        if (songTitle is not null && stem == TextMatching.Normalize(songTitle))
+        {
+            return null;
+        }
+
+        if (DiscFolderRegex.IsMatch(segments[^2]))
+        {
+            var album = segments.Length >= 3 ? TextMatching.Normalize(segments[^3]) : string.Empty;
+
+            if (album.Length == 0)
+            {
+                return null;
+            }
+
+            folder = string.Concat(album, "/", folder);
+        }
+
+        var separator = Separator.ToString();
+
+        return string.Concat(SoulseekFilePrefix, separator, folder, separator, stem);
     }
 
     /// <summary>A file inside a torrent: the info-hash and the file's path in it.</summary>
