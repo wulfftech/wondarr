@@ -565,6 +565,11 @@ public sealed partial class PasteListService : IPasteListService
         {
             Fail(item, exception);
         }
+        catch (ArgumentException exception)
+        {
+            // An id a client refuses is one bad line, never the end of the run.
+            Fail(item, exception);
+        }
         catch (Exception exception) when (exception is JsonException
             || (exception is OperationCanceledException
                 && !CancellationRules.IsCallerCancellation(exception, cancellationToken)))

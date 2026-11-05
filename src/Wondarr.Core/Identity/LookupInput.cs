@@ -112,10 +112,10 @@ public sealed record LookupInput(
             return Recording(guid.ToString("D"));
         }
 
-        var isrc = text.Replace("-", string.Empty, StringComparison.Ordinal);
-        if (IsrcRegex.IsMatch(isrc))
+        var isrc = NormalizeIsrc(text);
+        if (isrc is not null)
         {
-            return new LookupInput(LookupKind.Isrc, text, null, null, null, isrc.ToUpperInvariant(), null, null);
+            return new LookupInput(LookupKind.Isrc, text, null, null, null, isrc, null, null);
         }
 
         var deezerUrl = DeezerUrlRegex.Match(text);
@@ -161,9 +161,29 @@ public sealed record LookupInput(
         return new LookupInput(LookupKind.FreeText, text, null, null, null, null, null, null);
     }
 
-    /// <summary>Builds a recording lookup, lower-casing the id.</summary>
+    /// <summary>
+    /// The canonical form of an ISRC: hyphens stripped, upper-case. The one rule every ISRC goes through
+    /// before it reaches MusicBrainz.
+    /// </summary>
+    /// <param name="value">An ISRC as a person or a provider wrote it.</param>
+    /// <returns>The canonical ISRC, or <see langword="null"/> when <paramref name="value"/> is not one.</returns>
+    public static string? NormalizeIsrc(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var isrc = value.Trim().Replace("-", string.Empty, StringComparison.Ordinal);
+
+        return IsrcRegex.IsMatch(isrc) ? isrc.ToUpperInvariant() : null;
+    }
+
+    /// <summary>Builds a recording lookup, lower-casing the id. The all-zero id is no recording.</summary>
     private static LookupInput Recording(string id) =>
-        new(LookupKind.MbRecordingId, id, null, null, id.ToLowerInvariant(), null, null, null);
+        Guid.TryParse(id, out var guid) && guid == Guid.Empty
+            ? Unsupported(id, "The all-zero id is not a MusicBrainz recording")
+            : new(LookupKind.MbRecordingId, id, null, null, id.ToLowerInvariant(), null, null, null);
 
     /// <summary>Builds a Deezer track lookup.</summary>
     private static LookupInput DeezerTrack(string text, string id) =>

@@ -470,12 +470,13 @@ public sealed partial class IdentityResolver : IIdentityResolver
         var referenceDurationMs = reference is null || reference.Duration <= 0 ? null : (int?)(reference.Duration * 1000);
 
         IReadOnlyList<MbRecording> viaIsrc = [];
-        if (query is not null && !string.IsNullOrWhiteSpace(reference?.Isrc))
+        var referenceIsrc = LookupInput.NormalizeIsrc(reference?.Isrc);
+        if (query is not null && referenceIsrc is not null)
         {
             viaIsrc = await GuardedAsync(
                     ProviderKeys.MusicBrainz,
                     tracker,
-                    () => _musicBrainz.GetRecordingsByIsrcAsync(reference!.Isrc!, cancellationToken),
+                    () => _musicBrainz.GetRecordingsByIsrcAsync(referenceIsrc, cancellationToken),
                     [],
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -985,13 +986,15 @@ public sealed partial class IdentityResolver : IIdentityResolver
         int? referenceDurationMs,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(track.Isrc))
+        // A Deezer ISRC can be hyphenated or short; one that is not an ISRC skips the bridge.
+        var isrc = LookupInput.NormalizeIsrc(track.Isrc);
+        if (isrc is null)
         {
             return [];
         }
 
         var recordings = await _musicBrainz
-            .GetRecordingsByIsrcAsync(track.Isrc!, cancellationToken)
+            .GetRecordingsByIsrcAsync(isrc, cancellationToken)
             .ConfigureAwait(false);
 
         return RecordingsOf(RankAcceptable(recordings, query, referenceDurationMs, viaIsrc: false));

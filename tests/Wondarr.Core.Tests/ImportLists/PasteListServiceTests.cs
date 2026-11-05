@@ -393,6 +393,36 @@ public class PasteListServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessAsync_survives_one_line_a_client_refuses_with_an_argument_exception()
+    {
+        await using var context = await ContextAsync();
+        StubResolver();
+
+        _resolver
+            .ResolveAsync(FailingLine, Arg.Any<CancellationToken>())
+            .Returns<Task<ResolveResult>>(_ => throw new ArgumentException("'isrc' must be an ISRC."));
+
+        var queen = await SeedSongAsync(context, "Bohemian Rhapsody", "11111111-1111-1111-1111-111111111111");
+
+        _songs
+            .AddIdentitiesAsync(Arg.Any<IReadOnlyList<SongIdentity>>(), Arg.Any<SongAddOptions>(), Arg.Any<CancellationToken>())
+            .Returns(call => Task.FromResult<IReadOnlyList<SongAddResult>>(
+                [new SongAddResult(call.Arg<IReadOnlyList<SongIdentity>>()[0], SongAddOutcome.Added, queen)]));
+
+        var service = NewService(context);
+        var list = await service.CreateAsync($"{FailingLine}\n{ResolvableLine}", null, null, CancellationToken.None);
+
+        await service.ProcessAsync(list.Id, _ => Task.CompletedTask, CancellationToken.None);
+
+        var items = await context.ImportListItems.OrderBy(item => item.Id).ToListAsync();
+
+        items[0].State.Should().Be(ImportListItemState.Unresolved);
+        items[0].Reason.Should().StartWith("Lookup failed:");
+        items[1].State.Should().Be(ImportListItemState.Added);
+        list.LastSyncedAt.Should().Be(Now.UtcDateTime);
+    }
+
+    [Fact]
     public async Task ProcessAsync_stops_when_the_caller_cancels()
     {
         await using var context = await ContextAsync();
