@@ -1291,6 +1291,12 @@ public sealed partial class ImportService : IImportService
 
         var next = await TryNextAsync(item, cancellationToken).ConfigureAwait(false);
 
+        if (next == NoMoreCandidates)
+        {
+            await FruitlessRun.RecordAsync(_database, item, "Nothing this run grabbed was imported:", reason, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         // Where the refusal led can only be known after the grab, so the history entry is completed
         // with it — that is the one thing the refusal could not know in advance.
         historyItem.Data = JsonSerializer.Serialize(data with { NextQueueItemId = next }, Json);
@@ -1338,6 +1344,12 @@ public sealed partial class ImportService : IImportService
         }
 
         var next = await TryNextAsync(item, cancellationToken).ConfigureAwait(false);
+
+        if (next == NoMoreCandidates)
+        {
+            await FruitlessRun.RecordAsync(_database, item, "Nothing this run grabbed was imported:", message, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         historyItem.Data = JsonSerializer.Serialize(data with { NextQueueItemId = next }, Json);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
