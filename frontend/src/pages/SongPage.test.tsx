@@ -293,6 +293,23 @@ describe('SongPage', () => {
     expect(screen.getByRole('heading', { name: 'Get Lucky' })).toBeInTheDocument();
   });
 
+  it('offers Remove file for a file Wondarr downloaded', async () => {
+    install();
+
+    renderApp();
+
+    expect(await screen.findByRole('button', { name: 'Remove file…' })).toBeInTheDocument();
+  });
+
+  it.each(['reference', 'adopted'])("offers no Remove file for a %s file, the user's own", async (sourceType) => {
+    install({ song: { ...SONG, file: { ...SONG.file, sourceType } } });
+
+    renderApp();
+
+    expect(await screen.findByRole('button', { name: 'Delete' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove file…' })).not.toBeInTheDocument();
+  });
+
   it('falls back to the Deezer cover when the album has none', async () => {
     install({ song: { ...SONG, albumContext: { ...SONG.albumContext, coverUrl: null } } });
 

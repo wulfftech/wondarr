@@ -17,13 +17,16 @@ namespace Wondarr.Core.Songs;
 /// <param name="Blocklisted">Whether the download it came from is now blocklisted for the song.</param>
 public sealed record SongFileRemoval(string Path, string? RecycledPath, bool Blocklisted);
 
-/// <summary>A song's file is a reference library's, the user's own copy, which Wondarr never removes.</summary>
+/// <summary>
+/// A song's file came from a reference library: the user's own file, or a copy adopted from it. Wondarr never
+/// removes either, and the next adoption would only bring an adopted copy back.
+/// </summary>
 public sealed class SongFileIsReferenceException : Exception
 {
     /// <summary>Initialises a new instance of the <see cref="SongFileIsReferenceException"/> class.</summary>
     public SongFileIsReferenceException()
-        : base("The song's file is in a reference library, so it is your own copy and Wondarr does not remove it. "
-            + "To have Wondarr find another one, use Skip or Replace in the Match queue.")
+        : base("The song's file came from a reference library (your own file, or a copy adopted from it), so Wondarr does "
+            + "not remove it. To have Wondarr find another one, use Skip or Replace in the Match queue.")
     {
     }
 }
@@ -41,7 +44,7 @@ public interface ISongFileRemover
     /// <param name="blocklist">Whether to blocklist the download the file came from.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>What was done, or <see langword="null"/> when the song is unknown or has no file.</returns>
-    /// <exception cref="SongFileIsReferenceException">The file is a reference library's.</exception>
+    /// <exception cref="SongFileIsReferenceException">The file is a reference library's, or adopted from one.</exception>
     /// <exception cref="SongsBusyException">A download or an import for the song is still in flight.</exception>
     /// <exception cref="SongsCompactingException">A compaction has the song's file.</exception>
     Task<SongFileRemoval?> RemoveAsync(long songId, bool blocklist, CancellationToken cancellationToken);
@@ -90,7 +93,7 @@ public sealed partial class SongFileRemover : ISongFileRemover
             return null;
         }
 
-        if (file.SourceType == SourceTypes.Reference)
+        if (file.SourceType is SourceTypes.Reference or SourceTypes.Adopted)
         {
             throw new SongFileIsReferenceException();
         }

@@ -194,12 +194,15 @@ export function SongHeader({
                 Move…
               </Button>
             )}
-            {/* A reference library's file is the user's own copy, which Wondarr never removes. */}
-            {song.file !== undefined && song.file !== null && song.file.sourceType !== 'reference' && (
-              <Button size="xs" variant="light" color="red" leftSection={<FileX size={14} />} onClick={onRemoveFile}>
-                Remove file…
-              </Button>
-            )}
+            {/* A reference library's file, or a copy adopted from one, is the user's own: Wondarr never removes it. */}
+            {song.file !== undefined &&
+              song.file !== null &&
+              song.file.sourceType !== 'reference' &&
+              song.file.sourceType !== 'adopted' && (
+                <Button size="xs" variant="light" color="red" leftSection={<FileX size={14} />} onClick={onRemoveFile}>
+                  Remove file…
+                </Button>
+              )}
             <Button size="xs" variant="light" color="red" leftSection={<Trash2 size={14} />} onClick={onDelete}>
               Delete
             </Button>
