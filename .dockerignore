@@ -1,4 +1,7 @@
 **/bin
+# ...but not the image's own /usr/local/bin (the health check script)
+!docker/root/usr/local/bin
+!docker/root/usr/local/bin/**
 **/obj
 **/node_modules
 .git
