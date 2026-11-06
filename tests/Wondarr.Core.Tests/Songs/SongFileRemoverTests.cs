@@ -104,11 +104,13 @@ public sealed class SongFileRemoverTests : IDisposable
         (await fresh.SongFiles.CountAsync()).Should().Be(0);
     }
 
-    [Fact]
-    public async Task A_reference_file_is_never_removed()
+    [Theory]
+    [InlineData(SourceTypes.Reference)]
+    [InlineData(SourceTypes.Adopted)]
+    public async Task A_reference_or_adopted_file_is_never_removed(string sourceType)
     {
         await using var context = await ContextAsync();
-        var (song, file, _) = await SeedAsync(context, SourceTypes.Reference);
+        var (song, file, _) = await SeedAsync(context, sourceType);
 
         var act = () => Remover(context).RemoveAsync(song.Id, blocklist: true, CancellationToken.None);
 
