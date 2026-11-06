@@ -62,6 +62,12 @@ public sealed record VerificationRequest(
 /// Whether a <see cref="VerificationOutcome.Deferred"/> verdict is because AcoustID refused the client
 /// key. That will not mend itself, so the import bounds how long it keeps waiting on it.
 /// </param>
+/// <param name="DifferentRecording">
+/// Whether a <see cref="VerificationOutcome.Failed"/> verdict is because AcoustID knows the file's
+/// fingerprint as another recording. That is about the recording the source's file stands for, not
+/// about one copy of it (a wrong length or a failed decode is), so the import learns from this
+/// verdict alone.
+/// </param>
 public sealed record VerificationResult(
     VerificationOutcome Outcome,
     string Reason,
@@ -72,7 +78,8 @@ public sealed record VerificationResult(
     string? MatchedRecordingId,
     string? LearnedMbRecordingId,
     bool FingerprintVerified,
-    bool KeyRejected = false);
+    bool KeyRejected = false,
+    bool DifferentRecording = false);
 
 /// <summary>Decides whether a downloaded file is the wanted recording.</summary>
 public interface IDownloadVerifier
@@ -350,11 +357,25 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         // AcoustID has no fingerprint for this recording at all — common for new or obscure music.
         return !HasRecordings(lookup)
             ? new Verdict(VerificationOutcome.Passed, "Not in AcoustID; verified by probe and duration only")
-            : DifferentRecording(results);
+            : DifferentRecording(
+                results,
+                learnable: !WantedRecordingPresent(wanted, results)
+                    && SameTitleMatch(request, results, 0, probedDurationMs) is null);
     }
 
+    /// <summary>Whether the song's own recording is among the results, at any score.</summary>
+    private static bool WantedRecordingPresent(string? wanted, List<AcoustIdResult> results) =>
+        !string.IsNullOrWhiteSpace(wanted)
+        && results.Any(result => result.Recordings.Any(
+            recording => string.Equals(recording.Id, wanted, StringComparison.OrdinalIgnoreCase)));
+
     /// <summary>The failure that names what the fingerprint actually is.</summary>
-    private static Verdict DifferentRecording(List<AcoustIdResult> results)
+    /// <param name="results">The lookup's results, best first.</param>
+    /// <param name="learnable">
+    /// Whether the verdict says the file is another recording. False when the wanted recording, or a
+    /// same-song recording at any score, is among the results: the file may be the right one with a weak match.
+    /// </param>
+    private static Verdict DifferentRecording(List<AcoustIdResult> results, bool learnable)
     {
         var best = results.First(result => result.Recordings.Count > 0);
         var identified = best.Recordings[0];
@@ -362,7 +383,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         return new Verdict(
             VerificationOutcome.Failed,
             $"Fingerprint belongs to a different recording: {identified.Title ?? "unknown title"} "
-                + $"({identified.Id}), score {Score(best.Score)}");
+                + $"({identified.Id}), score {Score(best.Score)}",
+            DifferentRecording: learnable);
     }
 
     /// <summary>
@@ -561,7 +583,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             verdict.MatchedRecordingId,
             verdict.LearnedMbRecordingId,
             verdict.FingerprintVerified,
-            keyRejected);
+            keyRejected,
+            verdict.DifferentRecording);
     }
 
     /// <summary>Whole seconds, for the lines a human reads.</summary>
@@ -584,5 +607,6 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         string Reason,
         bool FingerprintVerified = false,
         string? MatchedRecordingId = null,
-        string? LearnedMbRecordingId = null);
+        string? LearnedMbRecordingId = null,
+        bool DifferentRecording = false);
 }

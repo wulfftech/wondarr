@@ -667,7 +667,8 @@ public sealed partial class ImportService : IImportService
                     verification.Reason,
                     verification.Reason,
                     verification.MeasuredQualityId,
-                    cancellationToken)
+                    cancellationToken,
+                    verification.DifferentRecording)
                 .ConfigureAwait(false);
         }
 
@@ -1235,13 +1236,19 @@ public sealed partial class ImportService : IImportService
     /// <param name="verification">What the verifier said, when it was asked at all.</param>
     /// <param name="qualityId">The measured quality, when it was measured at all.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
+    /// <param name="differentRecording">
+    /// Whether the fingerprint says the file is another recording. A Soulseek file refused for that is
+    /// blocklisted for the song a second time by its folder and file name, so the same file from another user
+    /// is skipped.
+    /// </param>
     private async Task<ImportOutcome> RejectAsync(
         QueueItem item,
         Song song,
         string reason,
         string? verification,
         long? qualityId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool differentRecording = false)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var candidate = item.Candidate;
@@ -1275,6 +1282,23 @@ public sealed partial class ImportService : IImportService
             Reason = reason,
             ExpiresAt = null,
         });
+
+        if (differentRecording
+            && item.SourceType == SourceTypes.Soulseek
+            && BlocklistKeys.SoulseekFile(candidate.RemotePath, song.Title) is { } fileKey
+            && !await _database.Blocklist
+                .AnyAsync(entry => entry.SongId == song.Id && entry.BlocklistKey == fileKey, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            _database.Blocklist.Add(new BlocklistItem
+            {
+                SongId = song.Id,
+                SourceType = item.SourceType,
+                BlocklistKey = fileKey,
+                Reason = reason,
+                ExpiresAt = null,
+            });
+        }
 
         await RecordPeerAsync(item, delivered: false, now, cancellationToken).ConfigureAwait(false);
 

@@ -481,6 +481,18 @@ public static class SoulseekFilenameParser
         return flags;
     }
 
+    /// <summary>
+    /// Whether a folder says nothing about the album: a disc, volume, format or bitrate folder, a category
+    /// folder (<c>Singles</c>, <c>Live</c>), or a generic one (<c>Music</c>, a share root).
+    /// </summary>
+    /// <param name="segment">The folder's name.</param>
+    public static bool NamesNoAlbum(string segment)
+    {
+        ArgumentNullException.ThrowIfNull(segment);
+
+        return IsSkipFolder(segment) || IsCategoryFolder(segment) || IsGenericFolder(segment);
+    }
+
     private static bool IsSkipFolder(string segment) =>
         SkipDiscFolderRegex.IsMatch(segment) || SkipFormatFolderRegex.IsMatch(segment);
 

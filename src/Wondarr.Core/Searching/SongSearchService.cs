@@ -1062,6 +1062,15 @@ public sealed partial class SongSearchService : ISongSearchService
                 continue;
             }
 
+            // The same folder and file name another user shared was a different recording (learned by the
+            // import): a candidate accepted before that rejection is skipped here, in the same run.
+            if (candidate.SourceType == SourceTypes.Soulseek
+                && BlocklistKeys.SoulseekFile(candidate.RemotePath) is { } learned
+                && blocked.Contains(learned))
+            {
+                continue;
+            }
+
             // A container whose link was cleared or is past its day cannot be fetched: that is no failure
             // of the candidate and spends none of the budget. If nothing else is grabbable the run ends
             // with null and the song's own backoff searches again.

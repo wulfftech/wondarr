@@ -225,6 +225,48 @@ public sealed class DownloadVerifierTests
     }
 
     [Fact]
+    public async Task Marks_a_clear_different_recording_so_the_import_can_learn_from_it()
+    {
+        var (verifier, _, _, _) = Create(lookup: Fixture("lookup-other-recording.json"));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.DifferentRecording.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Does_not_mark_a_failure_when_the_wanted_recording_is_among_the_results_at_a_low_score()
+    {
+        var weak = new AcoustIdLookupResult(
+            AcoustIdStatus.Ok,
+            [new AcoustIdResult("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", 0.2, [new AcoustIdRecording(GetLuckyId, "Other Title", 369.0, ["Daft Punk"])])],
+            null);
+        var (verifier, _, _, _) = Create(lookup: weak, secondLookup: weak);
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.Reason.Should().Contain("different recording");
+        result.DifferentRecording.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Does_not_mark_a_length_or_a_decode_failure()
+    {
+        var (lengthVerifier, _, _, _) = Create(probe: Probed(Mp3 with { DurationMs = 248000 }));
+        var (decodeVerifier, _, _, _) = Create(probe: new MediaProbeResult(false, null, "Invalid data found"));
+
+        var length = await lengthVerifier.VerifyAsync(Request(), CancellationToken.None);
+        var decode = await decodeVerifier.VerifyAsync(Request(), CancellationToken.None);
+
+        length.Outcome.Should().Be(VerificationOutcome.Failed);
+        length.DifferentRecording.Should().BeFalse();
+        decode.Outcome.Should().Be(VerificationOutcome.Failed);
+        decode.DifferentRecording.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Rejects_a_live_recording_when_the_song_is_the_studio_take()
     {
         // Deezer-only song: nothing but the title, the artist, the flags and the length can decide.
