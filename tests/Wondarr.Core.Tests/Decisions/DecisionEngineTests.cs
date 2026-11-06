@@ -828,7 +828,29 @@ public class DecisionEngineTests
             parsed: GoodParse with { Artist = "Phrenia" });
 
         Judge(Context(), candidate).Rejections.Should().ContainSingle()
-            .Which.Message.Should().Be("Artist mismatch: none of the song's artists appears in the candidate's path.");
+            .Which.Message.Should().Be("Artist mismatch: none of the song's artists appears in full in the candidate's path.");
+    }
+
+    [Fact]
+    public void A_word_of_the_artist_is_not_the_artist()
+    {
+        // "The Miles Away Club" passed for The Saddle Club on one shared word (production, 2026-11-02).
+        var candidate = NewCandidate(
+            remotePath: @"@@b\Music\Punk Collective\06 Punk Collective - Get Lucky.mp3",
+            parsed: GoodParse with { Artist = "Punk Collective" });
+
+        Judge(Context(), candidate).Rejections.Should().ContainSingle()
+            .Which.Reason.Should().Be(RejectionReason.ArtistMismatch);
+    }
+
+    [Fact]
+    public void Every_word_of_the_artist_in_the_path_is_the_artist()
+    {
+        var candidate = NewCandidate(
+            remotePath: @"@@b\Music\Punk, Daft\Random Access Memories\08 Get Lucky.mp3",
+            parsed: ParsedName.Empty with { Title = "Get Lucky", TrackNo = 8 });
+
+        Judge(Context(), candidate).Rejections.Should().NotContain(rejection => rejection.Reason == RejectionReason.ArtistMismatch);
     }
 
     [Theory]

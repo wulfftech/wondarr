@@ -79,6 +79,9 @@ public sealed partial class ImportService : IImportService
     /// <summary>How long an import waits while a compaction has the song's file in its staging folder.</summary>
     private static readonly TimeSpan CompactionWait = TimeSpan.FromMinutes(1);
 
+    /// <summary>How long a file whose tags could not be written is skipped for its song.</summary>
+    internal static readonly TimeSpan TaggingFailureBlocklist = TimeSpan.FromDays(7);
+
     /// <summary>What a compaction-deferred item says, as the user reads it.</summary>
     internal const string CompactionWaitMessage = "Waiting for a library compaction to finish with this song";
 
@@ -798,9 +801,21 @@ public sealed partial class ImportService : IImportService
         if (placement.Failure == OrganizeFailure.Tagging)
         {
             // The file passed verification, so a tagging failure is the tag writer's problem, not the
-            // peer's: no blocklist entry and no next candidate (every other file would hit the same
-            // problem — seen live on 2026-09-29, where a year-only date burned every good candidate).
-            // The song stays wanted and the next missing search tries again.
+            // peer's: no next candidate (every other file would hit the same problem — seen live on
+            // 2026-09-29, where a year-only date burned every good candidate). The song stays wanted and
+            // the next missing search tries again, but not with this file for a week: one file whose tags
+            // would not read back was grabbed three times over two days (2026-11-04).
+            LogTaggingFailed(_logger, item.Id, song.Id, placement.Error ?? string.Empty);
+
+            _database.Blocklist.Add(new BlocklistItem
+            {
+                SongId = song.Id,
+                SourceType = item.SourceType,
+                BlocklistKey = item.Candidate.BlocklistKey,
+                Reason = $"Tagging failed: {placement.Error}",
+                ExpiresAt = _timeProvider.GetUtcNow().UtcDateTime + TaggingFailureBlocklist,
+            });
+
             await DiscardAlbumAlignmentAsync(album, cancellationToken).ConfigureAwait(false);
 
             await FailAsync(
@@ -1845,6 +1860,9 @@ public sealed partial class ImportService : IImportService
             Directory.Delete(folder);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Tagging failed for queue item {QueueItemId} of song {SongId}, so the file was not imported and is skipped for a week: {Error}")]
+    private static partial void LogTaggingFailed(ILogger logger, long queueItemId, long songId, string error);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Imported {SongId} from queue item {QueueItemId} to {Path} ({Quality})")]
     private static partial void LogImported(

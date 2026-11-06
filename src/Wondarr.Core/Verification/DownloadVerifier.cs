@@ -4,6 +4,7 @@ using Wondarr.Core.Identity;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.AcoustId;
+using Wondarr.Core.Tagging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -122,6 +123,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     private readonly IAcoustIdClient _client;
     private readonly IOptionsMonitor<AcoustIdOptions> _options;
     private readonly ILogger<DownloadVerifier> _logger;
+    private readonly ITagReader? _tagReader;
 
     /// <summary>Initialises a new instance of the <see cref="DownloadVerifier"/> class.</summary>
     /// <param name="probe">Measures the file and checks that it decodes.</param>
@@ -129,12 +131,17 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     /// <param name="client">Answers what recording a fingerprint belongs to.</param>
     /// <param name="options">The score thresholds and the strict switch.</param>
     /// <param name="logger">Logs one line per file at Information.</param>
+    /// <param name="tagReader">
+    /// Reads the artist a file AcoustID cannot vouch for names. Without one (a test host) such a file
+    /// passes on its length, as it did before the artist check.
+    /// </param>
     public DownloadVerifier(
         IMediaProbe probe,
         IFingerprinter fingerprinter,
         IAcoustIdClient client,
         IOptionsMonitor<AcoustIdOptions> options,
-        ILogger<DownloadVerifier> logger)
+        ILogger<DownloadVerifier> logger,
+        ITagReader? tagReader = null)
     {
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(fingerprinter);
@@ -147,6 +154,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         _client = client;
         _options = options;
         _logger = logger;
+        _tagReader = tagReader;
     }
 
     /// <inheritdoc />
@@ -254,9 +262,49 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             }
         }
 
+        // 6. Only the length vouches for the file (AcoustID does not know it, or is not set up): it has to
+        // say whose song it is. Same-titled songs by other artists are everywhere and AcoustID rarely knows
+        // obscure ones; on 2026-11-06, 11 of production's 16 such imports were someone else's song.
+        if (verdict.Outcome == VerificationOutcome.Passed && !verdict.FingerprintVerified && _tagReader is not null)
+        {
+            verdict = WithArtistEvidence(verdict, request, options);
+        }
+
         LogVerified(_logger, request.Path, verdict.Outcome, verdict.Reason);
 
         return Finish(verdict, media, quality, lookup, keyRejected: lookup.Status == AcoustIdStatus.InvalidKey);
+    }
+
+    /// <summary>
+    /// Holds a pass that only the length supports against what the file says about its artist
+    /// (<see cref="ArtistEvidence"/>): another artist named fails it, as a different recording would, and
+    /// no artist named at all leaves it for review (a failure when the profile is strict).
+    /// </summary>
+    private Verdict WithArtistEvidence(Verdict verdict, VerificationRequest request, AcoustIdOptions options)
+    {
+        if (request.MainArtists.Count == 0)
+        {
+            return verdict;
+        }
+
+        var evidence = ArtistEvidence.Judge(_tagReader!.Read(request.Path), request.Path, request.MainArtists);
+
+        // "Not in AcoustID" or "AcoustID not configured": what the verdict stood on before this step.
+        var basis = verdict.Reason.Split(';')[0];
+
+        return evidence.Kind switch
+        {
+            ArtistEvidenceKind.Named => verdict with
+            {
+                Reason = $"{basis}; verified by probe, duration and the {evidence.Source} ({evidence.Artist})",
+            },
+            ArtistEvidenceKind.Other => new Verdict(
+                VerificationOutcome.Failed,
+                $"{basis}, and the {evidence.Source} names another artist ({evidence.Artist})"),
+            _ => new Verdict(
+                options.Strict ? VerificationOutcome.Failed : VerificationOutcome.NeedsReview,
+                $"{basis}, and nothing in the file names the artist"),
+        };
     }
 
     /// <summary>Fingerprints the middle window, or <c>null</c> when fpcalc fails there too.</summary>

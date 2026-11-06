@@ -59,7 +59,14 @@ public sealed class SmtpSender : ISmtpSender
 {
     private const int TimeoutMilliseconds = 15_000;
 
+    /// <summary>
+    /// How long a send the server answered with a temporary refusal (4xx) waits before its one retry. With
+    /// three 15 s steps either side it stays inside <see cref="NotificationHttp.DeliveryBudget"/>.
+    /// </summary>
+    internal static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(20);
+
     private readonly Func<ISmtpClient> _clients;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 
     /// <summary>Initialises a new instance of the <see cref="SmtpSender"/> class with MailKit's client.</summary>
     public SmtpSender()
@@ -69,7 +76,12 @@ public sealed class SmtpSender : ISmtpSender
 
     /// <summary>Initialises a new instance of the <see cref="SmtpSender"/> class with the client a test supplies.</summary>
     /// <param name="clients">Makes the client one send uses; it is disposed afterwards.</param>
-    internal SmtpSender(Func<ISmtpClient> clients) => _clients = clients;
+    /// <param name="delay">Waits before a retry; <see cref="Task.Delay(TimeSpan, CancellationToken)"/> when not given.</param>
+    internal SmtpSender(Func<ISmtpClient> clients, Func<TimeSpan, CancellationToken, Task>? delay = null)
+    {
+        _clients = clients;
+        _delay = delay ?? Task.Delay;
+    }
 
     /// <inheritdoc />
     public async Task SendAsync(SmtpEndpoint endpoint, MimeMessage message, CancellationToken cancellationToken)
@@ -77,6 +89,27 @@ public sealed class SmtpSender : ISmtpSender
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(message);
 
+        try
+        {
+            await SendOnceAsync(endpoint, message, cancellationToken).ConfigureAwait(false);
+        }
+        catch (NotificationSendException exception) when (IsTemporary(exception))
+        {
+            // A 4xx reply is SMTP's "try again later" (greylisting, a rate limit). Without a retry an
+            // immediate notification was lost: two were, to a 450, on 2026-11-06, while the next digest
+            // three minutes later went through.
+            await _delay(RetryDelay, cancellationToken).ConfigureAwait(false);
+            await SendOnceAsync(endpoint, message, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Whether the server refused the message only for now: an SMTP 4xx reply.</summary>
+    private static bool IsTemporary(NotificationSendException exception) =>
+        exception.InnerException is SmtpCommandException command && (int)command.StatusCode is >= 400 and < 500;
+
+    /// <summary>One connection: connect, log in when the endpoint has a login, send and disconnect.</summary>
+    private async Task SendOnceAsync(SmtpEndpoint endpoint, MimeMessage message, CancellationToken cancellationToken)
+    {
         using var client = _clients();
         client.Timeout = TimeoutMilliseconds;
 

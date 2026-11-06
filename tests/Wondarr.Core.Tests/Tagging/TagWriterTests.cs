@@ -306,6 +306,32 @@ public sealed class TagWriterTests(ITestOutputHelper output)
         frames.Should().NotContain(frame => frame.Text.Contains("TXXX:", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Writing_an_mp3_prints_nothing_to_the_console()
+    {
+        // ATL prints the stack trace of an exception it swallows. Removing MP3's native tag system, which
+        // MP3 does not have, did that on every MP3 import in production.
+        using var media = new TestMedia();
+        var path = media.Copy("tone-320.mp3");
+        var console = new StringWriter();
+        var (previousOut, previousError) = (Console.Out, Console.Error);
+        Console.SetOut(console);
+        Console.SetError(console);
+
+        try
+        {
+            var result = await Writer.WriteAsync(path, GetLucky, CancellationToken.None);
+            result.Success.Should().BeTrue(result.Error);
+        }
+        finally
+        {
+            Console.SetOut(previousOut);
+            Console.SetError(previousError);
+        }
+
+        console.ToString().Should().NotContain("not implemented");
+    }
+
     private void DumpOnFailure(TagWriteResult result, string path)
     {
         if (result.Success)

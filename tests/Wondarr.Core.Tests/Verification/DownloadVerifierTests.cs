@@ -2,6 +2,7 @@ using System.Text.Json;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.AcoustId;
+using Wondarr.Core.Tagging;
 using Wondarr.Core.Verification;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -307,6 +308,67 @@ public sealed class DownloadVerifierTests
         result.FingerprintVerified.Should().BeTrue();
         result.LearnedMbRecordingId.Should().Be(DuplicateId);
         result.MatchedRecordingId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_file_acoustid_does_not_know_passes_when_its_artist_tag_names_the_artist()
+    {
+        var (verifier, _, _, _) = Create(lookup: Fixture("lookup-empty.json"), tagReader: new FakeTagReader("Daft Punk"));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
+        result.FingerprintVerified.Should().BeFalse();
+        result.Reason.Should().Be("Not in AcoustID; verified by probe, duration and the artist tag (Daft Punk)");
+    }
+
+    [Fact]
+    public async Task A_file_acoustid_does_not_know_fails_when_it_names_another_artist()
+    {
+        var (verifier, _, _, _) = Create(lookup: Fixture("lookup-empty.json"), tagReader: new FakeTagReader("Diskoflex"));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.Reason.Should().Be("Not in AcoustID, and the artist tag names another artist (Diskoflex)");
+        result.DifferentRecording.Should().BeFalse("only a fingerprint says which recording a file is");
+    }
+
+    [Theory]
+    [InlineData(false, VerificationOutcome.NeedsReview)]
+    [InlineData(true, VerificationOutcome.Failed)]
+    public async Task A_file_acoustid_does_not_know_that_names_no_artist_is_left_for_review(bool strict, VerificationOutcome expected)
+    {
+        var (verifier, _, _, _) = Create(lookup: Fixture("lookup-empty.json"), strict: strict, tagReader: new FakeTagReader(null));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(expected);
+        result.Reason.Should().Be("Not in AcoustID, and nothing in the file names the artist");
+    }
+
+    [Fact]
+    public async Task Without_acoustid_a_file_that_names_another_artist_fails_too()
+    {
+        var (verifier, _, _, _) = Create(
+            lookup: new AcoustIdLookupResult(AcoustIdStatus.NotConfigured, [], null),
+            tagReader: new FakeTagReader("Diskoflex"));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.Reason.Should().Be("AcoustID not configured, and the artist tag names another artist (Diskoflex)");
+    }
+
+    [Fact]
+    public async Task A_fingerprint_match_is_not_held_against_the_tags()
+    {
+        var (verifier, _, _, _) = Create(lookup: Fixture("lookup-match.json"), tagReader: new FakeTagReader("Someone Else"));
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Passed);
+        result.FingerprintVerified.Should().BeTrue();
     }
 
     [Fact]
@@ -656,7 +718,8 @@ public sealed class DownloadVerifierTests
         FakeFingerprinter? fingerprinter = null,
         AcoustIdLookupResult? lookup = null,
         AcoustIdLookupResult? secondLookup = null,
-        bool strict = false)
+        bool strict = false,
+        ITagReader? tagReader = null)
     {
         var fakeProbe = new FakeMediaProbe(probe ?? Probed(Mp3));
         var fakeFingerprinter = fingerprinter ?? new FakeFingerprinter(
@@ -674,7 +737,8 @@ public sealed class DownloadVerifierTests
             fakeFingerprinter,
             fakeClient,
             new StaticOptionsMonitor<AcoustIdOptions>(options),
-            NullLogger<DownloadVerifier>.Instance);
+            NullLogger<DownloadVerifier>.Instance,
+            tagReader);
 
         return (verifier, fakeProbe, fakeFingerprinter, fakeClient);
     }
@@ -798,4 +862,12 @@ public sealed class DownloadVerifierTests
 
         public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
+}
+
+/// <summary>Answers every read with one artist tag, or with no tags at all.</summary>
+internal sealed class FakeTagReader(string? artist) : ITagReader
+{
+    public FileTags? Read(string path) => artist is null
+        ? null
+        : new FileTags(null, artist, null, null, null, null, null, null, null, null, null, null, null, null, null);
 }

@@ -409,10 +409,11 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
-    public async Task Fails_without_blocklisting_or_moving_on_when_the_file_could_not_be_tagged()
+    public async Task Fails_without_moving_on_and_skips_only_that_file_for_a_week_when_it_could_not_be_tagged()
     {
-        // A verified file that cannot be tagged is the tag writer's problem: blocklisting it (and every
-        // next candidate, which would fail the same way) burned good files on the first live run.
+        // A verified file that cannot be tagged is the tag writer's problem: blocklisting every next
+        // candidate, which would fail the same way, burned good files on the first live run. The file
+        // itself is skipped for a week, so the next search does not grab it again straight away.
         await using var host = await ImportTestHost.CreateAsync();
         host.TagWriter.Success = false;
         host.TagWriter.Error = "The file is not a writable container";
@@ -427,8 +428,13 @@ public sealed class ImportServiceTests
         item.State.Should().Be(QueueItemState.Failed);
         item.Message.Should().Be("Tagging failed: The file is not a writable container");
         host.Placer.Requests.Should().BeEmpty();
-        (await host.Context.Blocklist.CountAsync()).Should().Be(0);
         host.Search.Grabs.Should().BeEmpty();
+
+        var entry = await host.Context.Blocklist.SingleAsync();
+        entry.BlocklistKey.Should().Be(seed.BlocklistKey);
+        entry.Reason.Should().Be("Tagging failed: The file is not a writable container");
+        entry.ExpiresAt.Should().NotBeNull();
+        (entry.ExpiresAt!.Value - entry.CreatedAt).Should().BeCloseTo(ImportService.TaggingFailureBlocklist, TimeSpan.FromMinutes(1));
     }
 
     // The transcode-step tests (YouTube item, KeepOpus, Soulseek never, failed transcode) live in
