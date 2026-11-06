@@ -4,6 +4,15 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.17] — 2026-11-07
+
+Wondarr no longer fills a song AcoustID does not know with another artist's song of the same title, and **Remove file…** on the song page takes a wrong file away. Also in this release: the fixes from a code review of the whole project. Update by pulling `:0.1` (or `:0.1.17`), from `ghcr.io/wulfftech/wondarr` or `wulfftech/wondarr` on Docker Hub.
+
+**Upgrading from 0.1.16:**
+- **No database migration.**
+- **With `auth: none`, open Wondarr by a local name, or allow yours.** Wondarr now answers the web UI under `auth: none` only for an IP address, `localhost`, a name without a dot, or one ending in `.local`, `.lan`, `.home.arpa` or `.internal`. If you open it by another name, add that name to `server.allowed_hosts`, or turn off **Only answer local host names** under **Settings → General → Security**. With `auth: forms` nothing changes.
+- **Files already in your library are not checked again.** A song AcoustID did not know may hold someone else's song of the same title: its **File** tab shows no verified fingerprint. Use **Remove file…** on its page to take the file away, and Wondarr looks for the song again.
+
 ### Added
 - **Remove file… on the song page takes a wrong file away from its song.** The file and its lyrics file go to the recycle bin, the song is missing again so the next search looks for it, and the download it came from is blocklisted for the song unless you untick that. The dialog can start a search straight away. A reference library's file, or a copy adopted from one, is never removed. The API is `DELETE /api/v1/song/{id}/file?blocklist=true`.
 
