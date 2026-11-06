@@ -83,6 +83,12 @@ public sealed class DecisionEngine
     /// <summary><see cref="CompilationMarkerTokens"/> as a lookup.</summary>
     private static readonly HashSet<string> CompilationMarkers = new(CompilationMarkerTokens, StringComparer.Ordinal);
 
+    /// <summary>A file-name field that is a disc, track, side or volume marker (or only digits), never an artist.</summary>
+    private static readonly System.Text.RegularExpressions.Regex NonArtistFieldRegex = new(
+        @"^(?:\d+|(?:cd|disc|disk|track|side|vol(?:ume)?)\.?(?:\s*(?:\d+|[a-d]))?)$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
     /// <summary>The two separators a remote path can use, whichever platform the source runs on.</summary>
     private static readonly char[] PathSeparators = ['\\', '/'];
 
@@ -589,19 +595,40 @@ public sealed class DecisionEngine
             return null;
         }
 
+        // A disc, track, side or volume prefix ("CD1 - 05 - Title", "Track 05 - Title") or a bare number.
+        if (NonArtistFieldRegex.IsMatch(field.Trim()))
+        {
+            return null;
+        }
+
         if (TextMatching.Similarity(field, context.SongTitle) >= AlbumThreshold)
         {
             return null;
         }
 
-        if (segments.Length >= 2 && TextMatching.Similarity(field, segments[^2]) >= AlbumThreshold)
+        if (segments.Length >= 2 && NamesAlbum(field, segments[^2]))
         {
             return null;
         }
 
-        return candidate.Parsed.Album is { Length: > 0 } album && TextMatching.Similarity(field, album) >= AlbumThreshold
-            ? null
-            : field;
+        return candidate.Parsed.Album is { Length: > 0 } album && NamesAlbum(field, album) ? null : field;
+    }
+
+    /// <summary>
+    /// Whether the field is the album: as close as <see cref="AlbumThreshold"/>, or every word of it is a
+    /// whole word of the album's name (<c>Kids Hits</c> in <c>VA - Kids Hits</c>, <c>Nuggets</c> in a long title).
+    /// </summary>
+    private static bool NamesAlbum(string field, string album)
+    {
+        if (TextMatching.Similarity(field, album) >= AlbumThreshold)
+        {
+            return true;
+        }
+
+        var words = TextMatching.Normalize(field).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var albumWords = TextMatching.Normalize(album).Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
+
+        return words.Length > 0 && words.All(albumWords.Contains);
     }
 
     /// <summary>The words of an artist name, without the article that "Saddle Club, The" and "The Saddle Club" differ by.</summary>

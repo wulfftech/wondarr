@@ -177,6 +177,44 @@ public sealed class CompilationArtistMatchTests
             .Count(character => character == BlocklistKeys.Separator).Should().Be(1);
     }
 
+    [Theory]
+    [InlineData(@"@@b\Various\CD1 - 05 - Sugar and Spice.mp3")]
+    [InlineData(@"@@b\OST\Track 05 - Sugar and Spice.mp3")]
+    [InlineData(@"@@b\OST\Disc 1 - Sugar and Spice.mp3")]
+    [InlineData(@"@@b\OST\Side A - Sugar and Spice.mp3")]
+    [InlineData(@"@@b\OST\Vol 2 - Sugar and Spice.mp3")]
+    [InlineData(@"@@b\OST\Volume 2 - Sugar and Spice.mp3")]
+    [InlineData(@"@@b\OST\2005 - Sugar and Spice.mp3")]
+    public void Passes_a_compilation_file_whose_prefix_is_a_disc_track_side_or_volume(string remotePath) =>
+        Judge(Context(), remotePath).Rejections.Should().BeEmpty();
+
+    [Theory]
+    [InlineData(@"@@b\Various\VA - Kids Hits\Kids Hits - 05 - Sugar and Spice.mp3")]
+    [InlineData(@"@@b\Various\Nuggets Original Artyfacts Box Set\Nuggets - 18 - Sugar and Spice.mp3")]
+    public void Passes_a_compilation_file_whose_artist_field_is_made_of_words_of_the_album_folder(string remotePath) =>
+        Judge(Context(), remotePath).Rejections.Should().BeEmpty();
+
+    [Theory]
+    [InlineData(@"@@a\The Saddle Club\Soundtrack\05 - Sugar and Spice.mp3", @"@@a\Other\Soundtrack\05 - Sugar and Spice.mp3")]
+    [InlineData(@"@@a\Nuggets\FLAC\05 - Sugar and Spice.flac", @"@@a\Other Album\FLAC\05 - Sugar and Spice.flac")]
+    [InlineData(@"@@a\Nuggets\Various Artists\05 - Sugar and Spice.flac", @"@@a\Other Album\VA\05 - Sugar and Spice.flac")]
+    [InlineData(@"@@a\Nuggets\Music\05 - Sugar and Spice.flac", @"@@a\Other Album\Music\05 - Sugar and Spice.flac")]
+    public void A_generic_parent_folder_takes_the_folder_above_it_into_the_key(string left, string right)
+    {
+        var leftKey = BlocklistKeys.SoulseekFile(left);
+
+        leftKey.Should().NotBeNull();
+        BlocklistKeys.SoulseekFile(right).Should().NotBeNull().And.NotBe(leftKey);
+    }
+
+    [Theory]
+    [InlineData(@"Music\05 - Sugar and Spice.mp3")]
+    [InlineData(@"@@a\Music\05 - Sugar and Spice.mp3")]
+    [InlineData(@"@@a\Soundtrack\05 - Sugar and Spice.mp3")]
+    [InlineData(@"@@a\Music\FLAC\05 - Sugar and Spice.mp3")]
+    public void A_generic_parent_folder_with_nothing_meaningful_above_it_gives_no_key(string remotePath) =>
+        BlocklistKeys.SoulseekFile(remotePath).Should().BeNull();
+
     private static CandidateDecision Judge(DecisionContext context, string remotePath) =>
         Engine.Evaluate(context, [Candidate("peer", remotePath)]).Single();
 

@@ -357,11 +357,25 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         // AcoustID has no fingerprint for this recording at all — common for new or obscure music.
         return !HasRecordings(lookup)
             ? new Verdict(VerificationOutcome.Passed, "Not in AcoustID; verified by probe and duration only")
-            : DifferentRecording(results);
+            : DifferentRecording(
+                results,
+                learnable: !WantedRecordingPresent(wanted, results)
+                    && SameTitleMatch(request, results, 0, probedDurationMs) is null);
     }
 
+    /// <summary>Whether the song's own recording is among the results, at any score.</summary>
+    private static bool WantedRecordingPresent(string? wanted, List<AcoustIdResult> results) =>
+        !string.IsNullOrWhiteSpace(wanted)
+        && results.Any(result => result.Recordings.Any(
+            recording => string.Equals(recording.Id, wanted, StringComparison.OrdinalIgnoreCase)));
+
     /// <summary>The failure that names what the fingerprint actually is.</summary>
-    private static Verdict DifferentRecording(List<AcoustIdResult> results)
+    /// <param name="results">The lookup's results, best first.</param>
+    /// <param name="learnable">
+    /// Whether the verdict says the file is another recording. False when the wanted recording, or a
+    /// same-song recording at any score, is among the results: the file may be the right one with a weak match.
+    /// </param>
+    private static Verdict DifferentRecording(List<AcoustIdResult> results, bool learnable)
     {
         var best = results.First(result => result.Recordings.Count > 0);
         var identified = best.Recordings[0];
@@ -370,7 +384,7 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             VerificationOutcome.Failed,
             $"Fingerprint belongs to a different recording: {identified.Title ?? "unknown title"} "
                 + $"({identified.Id}), score {Score(best.Score)}",
-            DifferentRecording: true);
+            DifferentRecording: learnable);
     }
 
     /// <summary>

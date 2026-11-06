@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 
@@ -282,18 +281,19 @@ public static class BlocklistKeys
     /// <summary>The marker that opens a <see cref="SoulseekFile"/> key.</summary>
     private const string SoulseekFilePrefix = "soulseek-file";
 
-    /// <summary>A folder that only numbers the discs of a release: <c>CD1</c>, <c>CD 01</c>, <c>Disc 2</c>, <c>Disk 1</c>.</summary>
-    private static readonly Regex DiscFolderRegex = new(
-        @"^(?:cd|disc|disk)\s*\d+$",
-        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
-        TimeSpan.FromSeconds(1));
+    /// <summary>The folder names that are only a compilation marker, once normalised.</summary>
+    private static readonly HashSet<string> CompilationFolderWords = new(StringComparer.Ordinal)
+    {
+        "various", "artists", "va", "soundtrack", "soundtracks", "ost", "compilation", "compilations",
+    };
 
     /// <summary>
     /// Soulseek: the file as the network spells it, whoever shares it. It holds the parent folder's name and
     /// the file name without its extension, each normalised (<see cref="TextMatching.Normalize"/>) so that
     /// case, punctuation and the extension do not matter: <c>1-18 Sugar And Spice.flac</c> and
-    /// <c>1-18 sugar and spice.MP3</c> in the same folder are one key. When the parent is a disc folder
-    /// (<c>CD1</c>, <c>Disc 2</c>) the grandparent's name joins it, since <c>CD1</c> alone names nothing.
+    /// <c>1-18 sugar and spice.MP3</c> in the same folder are one key. When the parent says nothing about the
+    /// album (a disc, volume, format or generic folder such as <c>CD1</c>, <c>FLAC</c> or <c>Music</c>, or a bare
+    /// compilation marker such as <c>Soundtrack</c>) the folder above it joins it.
     /// </summary>
     /// <remarks>
     /// The key has two <see cref="Separator"/> characters and opens with a fixed word; a
@@ -305,8 +305,8 @@ public static class BlocklistKeys
     /// stand for one recording and has no key. Left out when only the candidate's own key is wanted.
     /// </param>
     /// <returns>
-    /// The key, or <see langword="null"/> when the file has no parent folder (or a disc folder with nothing
-    /// above it), or its name is only the song's title.
+    /// The key, or <see langword="null"/> when the file has no parent folder (or such a folder with no named
+    /// folder above it), or its name is only the song's title.
     /// </returns>
     public static string? SoulseekFile(string remotePath, string? songTitle = null)
     {
@@ -340,16 +340,21 @@ public static class BlocklistKeys
             return null;
         }
 
-        if (DiscFolderRegex.IsMatch(segments[^2]))
+        if (SoulseekFilenameParser.NamesNoAlbum(segments[^2])
+            || folder.Split(' ').All(CompilationFolderWords.Contains))
         {
-            var album = segments.Length >= 3 ? TextMatching.Normalize(segments[^3]) : string.Empty;
+            // The parent says nothing about the album (a disc, format or generic folder, a bare
+            // compilation marker): the folder above it joins, and without one there is no key.
+            var above = segments.Length >= 3 && !SoulseekFilenameParser.NamesNoAlbum(segments[^3])
+                ? TextMatching.Normalize(segments[^3])
+                : string.Empty;
 
-            if (album.Length == 0)
+            if (above.Length == 0)
             {
                 return null;
             }
 
-            folder = string.Concat(album, "/", folder);
+            folder = string.Concat(above, "/", folder);
         }
 
         var separator = Separator.ToString();
