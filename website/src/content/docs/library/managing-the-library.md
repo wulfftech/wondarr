@@ -49,6 +49,7 @@ The top of the page shows the album cover, the title with its version badges, th
 
 - **Search** runs the automatic search; **Interactive search** shows every candidate right below the header, so you can pick one by hand.
 - **Change album…**, **Convert…**, **Move…** (with more than one library) and **Delete** are the same dialogs as in the Library's row menu. A song on many releases gets a filter box in Change album.
+- **Remove file…** takes a wrong file away from the song: the file (and its lyrics file) goes to the recycle bin, and the song is **Missing** again, so the next search looks for it. **Blocklist the download it came from** (on by default) stops any search grabbing that file for the song again, and **Search for the song now** starts one straight away. It shows only for a file Wondarr downloaded: a reference library's file is your own copy and is never removed. A song that is still downloading or importing is refused.
 - A **preview** button plays 30 seconds when Deezer has one.
 
 Below that, the tabs are:

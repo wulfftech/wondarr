@@ -1475,6 +1475,65 @@
         }
       }
     },
+    "/api/v1/song/{id}/file": {
+      "delete": {
+        "tags": [
+          "SongFile"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "blocklist",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SongFileRemovedResource"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/song/move": {
       "post": {
         "tags": [
@@ -10942,6 +11001,28 @@
           }
         }
       },
+      "SongFileRemovedResource": {
+        "required": [
+          "path",
+          "recycledPath",
+          "blocklisted"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "recycledPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "blocklisted": {
+            "type": "boolean"
+          }
+        }
+      },
       "SongFileResource": {
         "required": [
           "path",
@@ -13033,6 +13114,9 @@
     },
     {
       "name": "SongEditor"
+    },
+    {
+      "name": "SongFile"
     },
     {
       "name": "SongMove"

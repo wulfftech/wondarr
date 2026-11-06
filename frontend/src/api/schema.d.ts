@@ -1642,6 +1642,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/song/{id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: {
+                    blocklist?: boolean;
+                };
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SongFileRemovedResource"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/song/move": {
         parameters: {
             query?: never;
@@ -6840,6 +6897,11 @@ export interface components {
         SongEditorResultResource: {
             songs: components["schemas"]["SongResource"][];
             moveCommandIds: (number | string)[];
+        };
+        SongFileRemovedResource: {
+            path: string;
+            recycledPath: null | string;
+            blocklisted: boolean;
         };
         SongFileResource: {
             path: string;

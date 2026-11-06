@@ -1,5 +1,5 @@
 import { Anchor, Badge, Button, Card, Flex, Group, Select, Stack, Switch, Text, Title } from '@mantine/core';
-import { ArrowRightLeft, Disc3, Search, Trash2, UserSearch, Wand2 } from 'lucide-react';
+import { ArrowRightLeft, Disc3, FileX, Search, Trash2, UserSearch, Wand2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { type LibraryResource, type QualityProfileResource } from '../../api/profiles';
 import type { SongDetailsResource, SongResource } from '../../api/songs';
@@ -58,6 +58,8 @@ export interface SongHeaderProps {
   onChangeAlbum: () => void;
   onConvert: () => void;
   onMove: () => void;
+  /** Opens the dialog that takes a wrong file away; the button shows only for a file Wondarr grabbed. */
+  onRemoveFile: () => void;
   onDelete: () => void;
 }
 
@@ -77,6 +79,7 @@ export function SongHeader({
   onChangeAlbum,
   onConvert,
   onMove,
+  onRemoveFile,
   onDelete,
 }: SongHeaderProps) {
   const cover = song.albumContext?.coverUrl ?? details?.deezer?.albumCoverUrl ?? null;
@@ -189,6 +192,12 @@ export function SongHeader({
             {libraries.length > 1 && (
               <Button size="xs" variant="default" leftSection={<ArrowRightLeft size={14} />} onClick={onMove}>
                 Move…
+              </Button>
+            )}
+            {/* A reference library's file is the user's own copy, which Wondarr never removes. */}
+            {song.file !== undefined && song.file !== null && song.file.sourceType !== 'reference' && (
+              <Button size="xs" variant="light" color="red" leftSection={<FileX size={14} />} onClick={onRemoveFile}>
+                Remove file…
               </Button>
             )}
             <Button size="xs" variant="light" color="red" leftSection={<Trash2 size={14} />} onClick={onDelete}>
