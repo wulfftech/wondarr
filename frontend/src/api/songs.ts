@@ -235,6 +235,35 @@ export function useDeleteSong(): UseMutationResult<void, Error, number> {
   });
 }
 
+/** What removing a song's file asks for. */
+export interface RemoveSongFileInput {
+  id: number;
+  /** Blocklists the download the file came from, so no search grabs it again. */
+  blocklist: boolean;
+}
+
+/**
+ * Takes a wrong file away from its song: it goes to the recycle bin and the song is missing again, so the
+ * next search tries again. A reference library's file is the user's own and is refused (409).
+ */
+export function useRemoveSongFile(): UseMutationResult<void, Error, RemoveSongFileInput> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, blocklist }: RemoveSongFileInput): Promise<void> => {
+      const { error, response } = await client.DELETE('/api/v1/song/{id}/file', {
+        params: { path: { id }, query: { blocklist } },
+      });
+
+      if (!response.ok) {
+        throw problemError(response.status, error, 'The file could not be removed.');
+      }
+    },
+    onSuccess: () => invalidateLibrary(queryClient),
+  });
+}
+
 /** How the mass editor's tags combine with the ones a song already has. */
 export type ApplyTags = 'add' | 'remove' | 'replace';
 

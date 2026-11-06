@@ -13,6 +13,7 @@ import { ChangeAlbumModal } from '../components/song/ChangeAlbumModal';
 import { ConvertSongModal } from '../components/song/ConvertSongModal';
 import { DeleteSongModal } from '../components/song/DeleteSongModal';
 import { MoveSongModal } from '../components/song/MoveSongModal';
+import { RemoveFileModal } from '../components/song/RemoveFileModal';
 import { BlocklistTab, HistoryTab } from './ActivityPage';
 import { QueuePage } from './QueuePage';
 import { AboutTab } from './song/AboutTab';
@@ -27,7 +28,7 @@ type SongTab = 'file' | 'about' | 'lastfm' | 'lyrics' | 'history' | 'queue';
 const TABS: SongTab[] = ['file', 'about', 'lastfm', 'lyrics', 'history', 'queue'];
 
 /** The dialogs the header opens. */
-type SongDialog = 'album' | 'convert' | 'move' | 'delete';
+type SongDialog = 'album' | 'convert' | 'move' | 'removeFile' | 'delete';
 
 /** Sets the browser tab's title for as long as the page is shown. */
 function useDocumentTitle(title: string | null) {
@@ -137,6 +138,7 @@ export function SongPage() {
         onChangeAlbum={() => setDialog('album')}
         onConvert={() => setDialog('convert')}
         onMove={() => setDialog('move')}
+        onRemoveFile={() => setDialog('removeFile')}
         onDelete={() => setDialog('delete')}
       />
 
@@ -237,6 +239,7 @@ export function SongPage() {
       <ChangeAlbumModal song={data} opened={dialog === 'album'} onClose={close} />
       <ConvertSongModal song={data} opened={dialog === 'convert'} onClose={close} />
       <MoveSongModal song={data} opened={dialog === 'move'} onClose={close} />
+      <RemoveFileModal song={data} opened={dialog === 'removeFile'} onClose={close} />
       <DeleteSongModal
         song={data}
         opened={dialog === 'delete'}
