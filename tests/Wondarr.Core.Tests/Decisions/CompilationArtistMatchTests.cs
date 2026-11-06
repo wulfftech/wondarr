@@ -103,7 +103,7 @@ public sealed class CompilationArtistMatchTests
         Judge(Context(), @"@@b\Music\Nuggets\18 The Cryan Shames - Sugar and Spice.flac").Rejections.Should().ContainSingle()
             .Which.Should().Be(new Rejection(
                 RejectionReason.ArtistMismatch,
-                "Artist mismatch: none of the song's artists appears in the candidate's path."));
+                "Artist mismatch: none of the song's artists appears in full in the candidate's path."));
     }
 
     [Fact]

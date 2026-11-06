@@ -266,6 +266,13 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
 
         foreach (var tagType in StrippableTagTypes)
         {
+            // MP3 and raw AAC have no tag system of their own. ATL's stand-in for it throws on removal and,
+            // although ATL carries on, prints the stack trace to the console on every import.
+            if (tagType == MetaDataIOFactory.TagType.NATIVE && !HasNativeTagSystem(track.Path))
+            {
+                continue;
+            }
+
             // False just means the file carried no tag of that system; a failed removal throws.
             track.Remove(tagType);
         }
@@ -430,6 +437,10 @@ public sealed partial class TagWriter(ILogger<TagWriter> logger) : ITagWriter
         MetaDataIOFactory.TagType.APE,
         MetaDataIOFactory.TagType.NATIVE,
     ];
+
+    /// <summary>Whether the container has a tag system of its own (<c>NATIVE</c>); MP3 and raw AAC have only ID3 and APE.</summary>
+    private static bool HasNativeTagSystem(string path) =>
+        Path.GetExtension(path).TrimStart('.').ToLowerInvariant() is not ("mp3" or "aac");
 
     private static Dictionary<string, string> ReadFields(string tempPath, FormatKeys keys)
     {

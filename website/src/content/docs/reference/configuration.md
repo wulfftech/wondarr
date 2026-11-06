@@ -141,7 +141,7 @@ See [YouTube Music](/wondarr/sources/youtube/) for every key, including `enabled
 | `client_key` | none | Your AcoustID client key (get one at `acoustid.org/new-application`). Without it, downloads are verified by probe and length only. Also set under **Settings → General → Metadata services**, where it is never shown again. |
 | `accept_score` | `0.7` | Fingerprint score that counts as a match. |
 | `review_score` | `0.5` | Score at which a match is imported with a low-confidence badge. |
-| `strict` | `false` | Fail a download that scores below `accept_score` instead of reviewing it. |
+| `strict` | `false` | Fail a download instead of marking it for review: one that scores below `accept_score`, or one AcoustID does not know that names no artist. |
 | `requests_per_second` | `3` | AcoustID allows three. |
 
 ## lastfm

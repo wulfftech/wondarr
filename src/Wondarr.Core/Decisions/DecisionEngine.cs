@@ -515,14 +515,14 @@ public sealed class DecisionEngine
             return;
         }
 
-        if (ArtistOverlap(context, candidate) > 0)
+        if (ArtistNamed(context, candidate))
         {
             return;
         }
 
         rejections.Add(new Rejection(
             RejectionReason.ArtistMismatch,
-            "Artist mismatch: none of the song's artists appears in the candidate's path."));
+            "Artist mismatch: none of the song's artists appears in full in the candidate's path."));
     }
 
     /// <summary>
@@ -532,7 +532,7 @@ public sealed class DecisionEngine
     private static bool ArtistGenuinelyNamed(DecisionContext context, Candidate candidate) =>
         ContainsCompilationMarker(candidate.RemotePath)
             ? CompilationPathNamesArtist(context, candidate)
-            : ArtistOverlap(context, candidate) > 0;
+            : ArtistNamed(context, candidate);
 
     /// <summary>
     /// On a compilation path: every word of one of the song's artists is in the file name, or a whole
@@ -821,6 +821,41 @@ public sealed class DecisionEngine
         }
 
         return Round(100 * Math.Exp(-0.1 * (differenceMs / 1000.0)));
+    }
+
+    /// <summary>
+    /// Whether the candidate names one of the song's artists: every word of it, or a shorter form of it that
+    /// adds no word of its own, as the parsed artist or, for a path-shaped candidate, a whole folder
+    /// (<c>Beethoven</c> for Ludwig van Beethoven). One shared word is not enough when the rest are someone
+    /// else's: "Penny To The Grave" by The Miles Away Club once passed for The Saddle Club's "When the Penny
+    /// Drops" on the word "club".
+    /// </summary>
+    private static bool ArtistNamed(DecisionContext context, Candidate candidate)
+    {
+        if (ArtistOverlap(context, candidate) >= 1.0)
+        {
+            return true;
+        }
+
+        var artists = context.MainArtists.Select(ArtistTokens).Where(tokens => tokens.Count > 0).ToList();
+
+        bool IsShortForm(string text)
+        {
+            var tokens = ArtistTokens(text);
+            tokens.Remove("and");
+
+            return tokens.Count > 0 && artists.Any(tokens.IsSubsetOf);
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate.Parsed.Artist))
+        {
+            return IsShortForm(candidate.Parsed.Artist);
+        }
+
+        var folders = candidate.RemotePath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries);
+
+        // Not the share root (@@user) nor the file itself.
+        return folders.Take(folders.Length - 1).Where(folder => !folder.StartsWith("@@", StringComparison.Ordinal)).Any(IsShortForm);
     }
 
     /// <summary>The share of the song's artist tokens that occur in the candidate's path, 1.0 at best.</summary>
