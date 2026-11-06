@@ -633,10 +633,15 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
         {
             item.Message = string.Concat(message, " (", NoMoreCandidates, ")");
 
-            if (blocklist)
-            {
-                await UndoGrabbedRunAsync(database, item, message, cancellationToken).ConfigureAwait(false);
-            }
+            // A run with nothing left and nothing imported brought the song nothing: fruitless, not a
+            // success that would reset the song's backoff to its shortest step.
+            await FruitlessRun.RecordAsync(
+                    database,
+                    item,
+                    blocklist ? "The grabbed release was not the song:" : "Nothing this run grabbed was imported:",
+                    message,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         database.History.Add(new HistoryItem
@@ -659,32 +664,6 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
                 },
                 cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// A run whose grabbed candidate turned out not to be the song, with no candidate left to try, did not
-    /// find the song: it is recorded as fruitless, so the song's backoff counts it as a failed search and
-    /// does not treat it as a success that resets the wait to the shortest step.
-    /// </summary>
-    /// <param name="database">The cycle's database context; saved by the caller.</param>
-    /// <param name="item">The item that failed.</param>
-    /// <param name="reason">Why the grabbed candidate was not the song.</param>
-    /// <param name="cancellationToken">Cancels the read.</param>
-    private static async Task UndoGrabbedRunAsync(
-        WondarrDbContext database,
-        QueueItem item,
-        string reason,
-        CancellationToken cancellationToken)
-    {
-        var run = await database.SearchRuns
-            .FirstOrDefaultAsync(entry => entry.Id == item.SearchRunId, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (run is { Outcome: SearchOutcome.Grabbed })
-        {
-            run.Outcome = SearchOutcome.NoAcceptableCandidate;
-            run.Message = string.Concat(run.Message, " The grabbed release was not the song: ", reason);
-        }
     }
 
     /// <summary>Records the peer's failure for Soulseek; other sources have no reputation yet.</summary>

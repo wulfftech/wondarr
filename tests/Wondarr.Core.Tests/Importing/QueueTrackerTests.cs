@@ -197,7 +197,7 @@ public sealed class QueueTrackerTests
     }
 
     [Fact]
-    public async Task A_failure_that_is_the_transfers_and_not_the_candidates_blocklists_nothing_and_leaves_the_run_a_grab()
+    public async Task A_failure_that_is_the_transfers_and_not_the_candidates_blocklists_nothing_and_a_run_with_nothing_left_is_fruitless()
     {
         await using var host = await QueueTestHost.CreateAsync();
         host.SearchService.Next = null;
@@ -208,8 +208,9 @@ public sealed class QueueTrackerTests
 
         await host.Tracker.RunCycleAsync(CancellationToken.None);
 
+        // Nothing is blocklisted, but the run brought the song nothing and has nothing left to try.
         (await host.BlocklistAsync()).Should().BeEmpty();
-        (await host.SearchRunAsync(seed.SearchRunId)).Outcome.Should().Be(SearchOutcome.Grabbed);
+        (await host.SearchRunAsync(seed.SearchRunId)).Outcome.Should().Be(SearchOutcome.NoAcceptableCandidate);
     }
 
     [Fact]
@@ -707,6 +708,9 @@ internal sealed class QueueTestHost : IAsyncDisposable
         _downloads = downloads;
         Time = time;
     }
+
+    /// <summary>The temp database the host runs on.</summary>
+    public SqliteTestDatabase Database => _database;
 
     /// <summary>The fake clock the tracker and the database read; it starts at 2026-09-29T12:00Z.</summary>
     public FakeTimeProvider Time { get; }

@@ -5,9 +5,11 @@ namespace Wondarr.Core.Searching;
 /// <summary>
 /// The per-song re-search backoff both scheduled search loops share (MATCHING_ENGINE §6.6): the nth
 /// consecutive fruitless run waits <c>BackoffHours[min(n − 1, last)]</c> before the song is searched
-/// again. A run that grabbed something resets the wait, a run that errored does not count as an
-/// attempt, and the missing-song loop counts every run but the user's own while the upgrade loop
-/// counts only its own, so neither loop's history delays the other. A run a release push opened
+/// again. A run that grabbed something that imported (or is still in flight) resets the wait, a run
+/// whose last grab ended with nothing imported is recorded as fruitless (<see cref="FruitlessRun"/>),
+/// a run that errored does not count as an attempt, and the missing-song loop counts every run but
+/// the user's own while the upgrade loop counts only its own, so neither loop's history delays the
+/// other. A run a release push opened
 /// (autobrr) counts for neither: a rejected push says nothing about when the song's own search
 /// should try again, and frequent pushes must not push that search out by up to a week.
 /// </summary>

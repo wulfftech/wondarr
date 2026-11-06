@@ -1030,14 +1030,22 @@ internal sealed class FakeSongSearchService : ISongSearchService
     /// <summary>Every next-attempt ask, as the run and the attempt it was given.</summary>
     public List<(long SearchRunId, int Attempt)> Grabs { get; } = [];
 
+    /// <summary>Run inside every <see cref="GrabBestAsync"/> call, before it answers.</summary>
+    public Func<Task>? OnGrabAsync { get; set; }
+
     /// <inheritdoc />
-    public Task<long?> GrabBestAsync(long searchRunId, int attempt, CancellationToken cancellationToken)
+    public async Task<long?> GrabBestAsync(long searchRunId, int attempt, CancellationToken cancellationToken)
     {
         Grabs.Add((searchRunId, attempt));
 
+        if (OnGrabAsync is { } hook)
+        {
+            await hook();
+        }
+
         return GrabFailure is { } failure
-            ? Task.FromException<long?>(failure)
-            : Task.FromResult(Next);
+            ? throw failure
+            : Next;
     }
 
     /// <inheritdoc />

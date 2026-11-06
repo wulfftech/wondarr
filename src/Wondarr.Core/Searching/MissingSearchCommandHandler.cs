@@ -260,7 +260,8 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     /// for (<see cref="SearchTrigger.Manual"/>) says nothing about when this loop should try again, and
     /// a run that neither found a candidate nor reached a verdict — failed, cancelled, or with no
     /// source to ask — counts as neither a fruitless attempt (which would lengthen the wait) nor a
-    /// success (which would reset it).
+    /// success (which would reset it). A run whose grabs all failed or were rejected after the grab is
+    /// stored as fruitless by the time its last attempt ends, so it lengthens the wait too.
     /// </remarks>
     private static bool IsEligible(IReadOnlyList<SearchRun> runs, SearchOptions options, DateTime now) =>
         SearchBackoff.IsEligible(runs, options, now, run => run.Trigger != SearchTrigger.Manual);
