@@ -23,7 +23,11 @@ const SONG = {
   },
 } as unknown as SongResource;
 
-const REMOVED = { path: '/data/music/Daft Punk/Singles/Get Lucky.mp3', recycledPath: '/config/recycle/Get Lucky.mp3', blocklisted: true };
+const REMOVED = {
+  path: '/data/music/Daft Punk/Singles/Get Lucky.mp3',
+  recycledPath: '/config/recycle/Get Lucky.mp3',
+  blocklisted: true,
+};
 
 function install(remove: () => Response = () => jsonResponse(REMOVED)): FetchMock {
   return installFetch((url) => {
@@ -106,7 +110,11 @@ describe('RemoveFileModal', () => {
   it("shows the server's reason when the file cannot be removed", async () => {
     install(() =>
       jsonResponse(
-        { title: 'Your own copy', status: 409, detail: 'The song’s file is in a reference library, so it is your own copy.' },
+        {
+          title: 'Your own copy',
+          status: 409,
+          detail: 'The song’s file is in a reference library, so it is your own copy.',
+        },
         409,
       ),
     );

@@ -31,8 +31,8 @@ function RemoveFileForm({ song, onClose }: { song: SongResource | null; onClose:
   return (
     <Stack gap="md">
       <Text size="sm">
-        Remove the file of “{song?.title ?? ''}”? It goes to the recycle bin, and the song is missing again, so
-        Wondarr looks for it on its next search.
+        Remove the file of “{song?.title ?? ''}”? It goes to the recycle bin, and the song is missing again, so Wondarr
+        looks for it on its next search.
       </Text>
       {song?.file?.path !== undefined && (
         <Text size="xs" c="dimmed" style={{ wordBreak: 'break-all' }}>
