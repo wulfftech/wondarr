@@ -140,8 +140,10 @@ def main() -> int:
     for index, song in enumerate(keep):
         seed = 1000 + index * 10
         if index == 0:
-            # The trap: the best-ranked file is a live take the fingerprint exposes.
-            files.append(file_entry(song, 1, user="fastpeer", codec="flac", seed=seed, free=True, speed=5_000_000,
+            # The trap: the best-ranked file is a live take the fingerprint exposes. It is another file than
+            # the studio one (another track number), as a take from another release is on a real share: the
+            # rejection blocklists the live file's folder and name for the song, and must not block the studio file.
+            files.append(file_entry(song, 7, user="fastpeer", codec="flac", seed=seed, free=True, speed=5_000_000,
                                     queue=0, identity=identity_of(song, recording_id=LIVE_MBID, title=f"{song['title']} (live)")))
             files.append(file_entry(song, 1, user="slowpeer", codec="mp3", seed=seed + 1, free=False, speed=400_000,
                                     queue=5, identity=identity_of(song)))
