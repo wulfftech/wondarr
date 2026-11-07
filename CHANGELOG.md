@@ -4,6 +4,14 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+## [0.1.18] — 2026-11-08
+
+Wondarr stops downloading the same wrong song over and over, and the "Grabbed" notifications that came with each copy stop with it. Update by pulling `:0.1` (or `:0.1.18`), from `ghcr.io/wulfftech/wondarr` or `wulfftech/wondarr` on Docker Hub.
+
+**Upgrading from 0.1.17:**
+- **No database migration.**
+- **What was refused before the update is not looked at again.** A song keeps learning from its next refused download, so one more wrong copy may be fetched before the repeats stop.
+
 ### Fixed
 - **Wondarr stops downloading the same wrong song over and over.** The fingerprint check refused each wrong file, but the next search downloaded another copy, and each grab sent a "Grabbed" notification: on one install, 80 copies of Phil Collins' "Please Come Out Tonight" for Phil's "Please Come Tonight" in three days. When AcoustID names a download as a recording with another title, no file with that title is downloaded for the song again, whoever shares it. And when two files on a compilation path ("Various Artists", "VA", "Compilations") that only their title let through turn out to be other artists' songs, that song stops accepting such files without the artist's name, which ends the stream of jazz and rock songs called "Out on a Limb" and "Be My Friend". Both are entries on **Activity → Blocklist** that you can remove.
 
