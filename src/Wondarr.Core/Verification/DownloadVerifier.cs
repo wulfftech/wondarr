@@ -69,6 +69,10 @@ public sealed record VerificationRequest(
 /// about one copy of it (a wrong length or a failed decode is), so the import learns from this
 /// verdict alone.
 /// </param>
+/// <param name="OtherRecordingTitle">
+/// The title of the recording AcoustID named instead, when <paramref name="DifferentRecording"/> is set and
+/// the recording has a title. A file titled that is not the song either, so the import remembers it.
+/// </param>
 public sealed record VerificationResult(
     VerificationOutcome Outcome,
     string Reason,
@@ -80,7 +84,8 @@ public sealed record VerificationResult(
     string? LearnedMbRecordingId,
     bool FingerprintVerified,
     bool KeyRejected = false,
-    bool DifferentRecording = false);
+    bool DifferentRecording = false,
+    string? OtherRecordingTitle = null);
 
 /// <summary>Decides whether a downloaded file is the wanted recording.</summary>
 public interface IDownloadVerifier
@@ -408,7 +413,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             : DifferentRecording(
                 results,
                 learnable: !WantedRecordingPresent(wanted, results)
-                    && SameTitleMatch(request, results, 0, probedDurationMs) is null);
+                    && SameTitleMatch(request, results, 0, probedDurationMs) is null,
+                options.AcceptScore);
     }
 
     /// <summary>Whether the song's own recording is among the results, at any score.</summary>
@@ -423,7 +429,11 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     /// Whether the verdict says the file is another recording. False when the wanted recording, or a
     /// same-song recording at any score, is among the results: the file may be the right one with a weak match.
     /// </param>
-    private static Verdict DifferentRecording(List<AcoustIdResult> results, bool learnable)
+    /// <param name="acceptScore">
+    /// The score a match must reach to pass. The recording's title is only handed on when the fingerprint
+    /// names it at least that surely: the import blocks every file titled that for the song, for good.
+    /// </param>
+    private static Verdict DifferentRecording(List<AcoustIdResult> results, bool learnable, double acceptScore)
     {
         var best = results.First(result => result.Recordings.Count > 0);
         var identified = best.Recordings[0];
@@ -432,7 +442,10 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             VerificationOutcome.Failed,
             $"Fingerprint belongs to a different recording: {identified.Title ?? "unknown title"} "
                 + $"({identified.Id}), score {Score(best.Score)}",
-            DifferentRecording: learnable);
+            DifferentRecording: learnable,
+            OtherRecordingTitle: learnable && best.Score >= acceptScore && !string.IsNullOrWhiteSpace(identified.Title)
+                ? identified.Title
+                : null);
     }
 
     /// <summary>
@@ -632,7 +645,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             verdict.LearnedMbRecordingId,
             verdict.FingerprintVerified,
             keyRejected,
-            verdict.DifferentRecording);
+            verdict.DifferentRecording,
+            verdict.OtherRecordingTitle);
     }
 
     /// <summary>Whole seconds, for the lines a human reads.</summary>
@@ -656,5 +670,6 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         bool FingerprintVerified = false,
         string? MatchedRecordingId = null,
         string? LearnedMbRecordingId = null,
-        bool DifferentRecording = false);
+        bool DifferentRecording = false,
+        string? OtherRecordingTitle = null);
 }

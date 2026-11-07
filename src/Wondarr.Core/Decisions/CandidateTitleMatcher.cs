@@ -155,26 +155,51 @@ public static class CandidateTitleMatcher
         ArgumentNullException.ThrowIfNull(songTitle);
         ArgumentNullException.ThrowIfNull(candidate);
 
+        var titleForms = TitleForms(songTitle);
+
+        return titleForms.Count > 0
+            && FullTitleForms(candidate, songFlags) is { } candidateForms
+            && candidateForms.Overlaps(titleForms);
+    }
+
+    /// <summary>
+    /// The folded texts a title is in full (<see cref="IsFullTitleMatch"/>): the whole title, its base title,
+    /// and a bracketed part of it that is a title of its own. Worked out once per title and reused.
+    /// </summary>
+    /// <param name="title">A song's or a recording's title.</param>
+    public static IReadOnlySet<string> TitleForms(string title)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+
+        // The song's whole title, its base title, and a bracketed part of it that is a title of its own
+        // ("Story of a Girl" out of "Absolutely (Story of a Girl)", which MusicBrainz lists both ways).
+        // A one-word part ("Reprise") or one that reads as a version ("Live at Home") is not.
+        return new[] { title, VersionFlagParser.Parse(title).BaseTitle }
+            .Concat(AlternativeTitles(title))
+            .Select(text => TextMatching.Normalize(text))
+            .Where(text => text.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The folded texts a candidate's own track title is in full, for a song with
+    /// <paramref name="songFlags"/>: each whole text, and its base title when the hard version markers it
+    /// carries are all the song's too. A title is the candidate's title in full when one of these is one of
+    /// its <see cref="TitleForms"/>. Worked out once per candidate when several titles are compared.
+    /// </summary>
+    /// <param name="candidate">The candidate.</param>
+    /// <param name="songFlags">The version flags the song carries.</param>
+    /// <returns><see langword="null"/> when the candidate carries no title of its own.</returns>
+    public static IReadOnlySet<string>? FullTitleForms(Candidate candidate, VersionFlags songFlags)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+
         var parsedTitle = candidate.Parsed.Title;
         var hasParsedTitle = !string.IsNullOrWhiteSpace(parsedTitle);
 
         if (!hasParsedTitle && candidate.Container != CandidateContainer.SingleFile)
         {
-            return false;
-        }
-
-        // The song's whole title, its base title, and a bracketed part of it that is a title of its own
-        // ("Story of a Girl" out of "Absolutely (Story of a Girl)", which MusicBrainz lists both ways).
-        // A one-word part ("Reprise") or one that reads as a version ("Live at Home") is not.
-        var songTexts = new[] { songTitle, VersionFlagParser.Parse(songTitle).BaseTitle }
-            .Concat(AlternativeTitles(songTitle))
-            .Select(text => TextMatching.Normalize(text))
-            .Where(text => text.Length > 0)
-            .ToHashSet(StringComparer.Ordinal);
-
-        if (songTexts.Count == 0)
-        {
-            return false;
+            return null;
         }
 
         // Whole texts only: no bracket stripping on the file's side, so "Lonely Girl" never becomes
@@ -194,23 +219,22 @@ public static class CandidateTitleMatcher
 
         // A hard version marker is only part of the title when the song has it too; a soft one
         // (remaster, explicit, clean) is not a different song and is left out of the comparison.
+        var forms = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var text in candidateTexts)
         {
-            if (songTexts.Contains(TextMatching.Normalize(text)))
-            {
-                return true;
-            }
+            forms.Add(TextMatching.Normalize(text));
 
             var info = VersionFlagParser.Parse(text);
             var strangeMarkers = (info.Flags | candidate.Parsed.VersionFlags) & VersionFlagNames.HardFlags & ~songFlags;
 
-            if (strangeMarkers == VersionFlags.None && songTexts.Contains(TextMatching.Normalize(info.BaseTitle)))
+            if (strangeMarkers == VersionFlags.None)
             {
-                return true;
+                forms.Add(TextMatching.Normalize(info.BaseTitle));
             }
         }
 
-        return false;
+        return forms;
     }
 
     /// <summary>

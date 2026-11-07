@@ -237,6 +237,34 @@ public sealed class DownloadVerifierTests
     }
 
     [Fact]
+    public async Task Hands_on_the_title_of_a_surely_identified_other_recording()
+    {
+        var other = Lookup("Instant Crush", "Daft Punk", 337.0);
+        var (verifier, _, _, _) = Create(lookup: other, secondLookup: other);
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.DifferentRecording.Should().BeTrue();
+        result.OtherRecordingTitle.Should().Be("Instant Crush");
+    }
+
+    [Fact]
+    public async Task Hands_on_no_title_when_the_other_recording_scores_below_the_accept_score()
+    {
+        var unsure = new AcoustIdLookupResult(
+            AcoustIdStatus.Ok,
+            [new AcoustIdResult("9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a", 0.5, [new AcoustIdRecording("f0e1d2c3-b4a5-4968-8776-655443322110", "Instant Crush", 337.0, ["Daft Punk"])])],
+            null);
+        var (verifier, _, _, _) = Create(lookup: unsure, secondLookup: unsure);
+
+        var result = await verifier.VerifyAsync(Request(), CancellationToken.None);
+
+        result.Outcome.Should().Be(VerificationOutcome.Failed);
+        result.DifferentRecording.Should().BeTrue();
+        result.OtherRecordingTitle.Should().BeNull("a title is blocked for good, so only a sure fingerprint may name it");
+    }
+
+    [Fact]
     public async Task Does_not_mark_a_failure_when_the_wanted_recording_is_among_the_results_at_a_low_score()
     {
         var weak = new AcoustIdLookupResult(
