@@ -5,7 +5,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Compaction;
+using Wondarr.Core.Decisions;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Identity;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
@@ -671,7 +673,8 @@ public sealed partial class ImportService : IImportService
                     verification.Reason,
                     verification.MeasuredQualityId,
                     cancellationToken,
-                    verification.DifferentRecording)
+                    verification.DifferentRecording,
+                    verification.OtherRecordingTitle)
                 .ConfigureAwait(false);
         }
 
@@ -1254,8 +1257,9 @@ public sealed partial class ImportService : IImportService
     /// <param name="differentRecording">
     /// Whether the fingerprint says the file is another recording. A Soulseek file refused for that is
     /// blocklisted for the song a second time by its folder and file name, so the same file from another user
-    /// is skipped.
+    /// is skipped; see <see cref="LearnFromOtherRecordingAsync"/> for what else the song learns.
     /// </param>
+    /// <param name="otherRecordingTitle">The title of the recording the fingerprint named, when it did.</param>
     private async Task<ImportOutcome> RejectAsync(
         QueueItem item,
         Song song,
@@ -1263,7 +1267,8 @@ public sealed partial class ImportService : IImportService
         string? verification,
         long? qualityId,
         CancellationToken cancellationToken,
-        bool differentRecording = false)
+        bool differentRecording = false,
+        string? otherRecordingTitle = null)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var candidate = item.Candidate;
@@ -1315,6 +1320,12 @@ public sealed partial class ImportService : IImportService
             });
         }
 
+        if (differentRecording)
+        {
+            await LearnFromOtherRecordingAsync(item, song, reason, otherRecordingTitle, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await RecordPeerAsync(item, delivered: false, now, cancellationToken).ConfigureAwait(false);
 
         DeleteDownload(item, item.DownloadPath);
@@ -1344,6 +1355,106 @@ public sealed partial class ImportService : IImportService
         LogRejected(_logger, item.Id, song.Id, reason, next);
 
         return ImportOutcome.Rejected;
+    }
+
+    /// <summary>
+    /// What a file the fingerprint showed to be another recording teaches about the song, beyond the file
+    /// itself (MATCHING_ENGINE §6.2): the other recording's title, when it is not the song's own in another
+    /// form, so that no copy titled that is grabbed again; and, when the file passed the artist rule on a
+    /// compilation path only on its full title, one compilation miss. Both are blocklist rows for the song
+    /// with no expiry, added in the caller's save.
+    /// </summary>
+    private async Task LearnFromOtherRecordingAsync(
+        QueueItem item,
+        Song song,
+        string reason,
+        string? otherRecordingTitle,
+        CancellationToken cancellationToken)
+    {
+        if (otherRecordingTitle is not null && LearnedEvidence.TitleToLearn(otherRecordingTitle, song.Title) is { } title)
+        {
+            // One row per title, however AcoustID capitalised it this time.
+            var normalised = TextMatching.Normalize(title);
+            var known = await _database.Blocklist
+                .AsNoTracking()
+                .Where(entry => entry.SongId == song.Id)
+                .Select(entry => entry.BlocklistKey)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!BlocklistKeys.OtherTitles(known).Any(other => TextMatching.Normalize(other) == normalised))
+            {
+                AddLearned(item, song, BlocklistKeys.OtherTitle(title), reason);
+            }
+        }
+
+        if (StoredCandidate(item.Candidate) is { } candidate)
+        {
+            var mainArtists = song.OrderedCredits()
+                .Where(credit => credit.Role == ArtistRole.Main)
+                .Select(credit => credit.Artist.Name)
+                .ToList();
+
+            if (DecisionEngine.PassesArtistOnTitleAlone(mainArtists, song.Title, ParseFlags(song.VersionFlags), candidate))
+            {
+                var key = BlocklistKeys.CompilationMiss(item.Candidate.BlocklistKey);
+
+                if (!await _database.Blocklist
+                        .AnyAsync(entry => entry.SongId == song.Id && entry.BlocklistKey == key, cancellationToken)
+                        .ConfigureAwait(false))
+                {
+                    AddLearned(item, song, key, reason);
+                }
+            }
+        }
+    }
+
+    /// <summary>Adds one learned row for the song, permanent like the file's own.</summary>
+    private void AddLearned(QueueItem item, Song song, string key, string reason) =>
+        _database.Blocklist.Add(new BlocklistItem
+        {
+            SongId = song.Id,
+            SourceType = item.SourceType,
+            BlocklistKey = key,
+            Reason = reason,
+            ExpiresAt = null,
+        });
+
+    /// <summary>
+    /// The candidate as the search judged it, read back from its snapshot; for an older row without one, what
+    /// its path says (a Soulseek path parsed as the search would have).
+    /// </summary>
+    private static Candidate? StoredCandidate(CandidateRecord record)
+    {
+        try
+        {
+            if (JsonSerializer.Deserialize<Candidate>(record.Normalised, SongSearchService.Json) is { } stored)
+            {
+                return stored;
+            }
+        }
+        catch (JsonException)
+        {
+            // An empty snapshot ("{}") lacks the required fields; the row's own columns are enough here.
+        }
+
+        if (string.IsNullOrEmpty(record.RemotePath) || string.IsNullOrEmpty(record.BlocklistKey))
+        {
+            return null;
+        }
+
+        return new Candidate
+        {
+            SourceType = record.SourceType,
+            BlocklistKey = record.BlocklistKey,
+            DisplayName = record.DisplayName,
+            RemotePath = record.RemotePath,
+            Provider = record.Provider,
+            QualityId = record.QualityId,
+            Parsed = record.SourceType == SourceTypes.Soulseek
+                ? SoulseekFilenameParser.Parse(record.RemotePath).Parsed
+                : ParsedName.Empty,
+        };
     }
 
     /// <summary>Fails an item without a blocklist entry, optionally moving on to the next candidate.</summary>

@@ -362,6 +362,76 @@ public static class BlocklistKeys
         return string.Concat(SoulseekFilePrefix, separator, folder, separator, stem);
     }
 
+    /// <summary>The marker that opens a key the import learned about a song rather than about one file.</summary>
+    private const string LearnedPrefix = "learned";
+
+    /// <summary>The kind of <see cref="OtherTitle"/> keys.</summary>
+    private const string OtherTitleKind = "other-title";
+
+    /// <summary>The kind of <see cref="CompilationMiss"/> keys.</summary>
+    private const string CompilationMissKind = "compilation-miss";
+
+    /// <summary>
+    /// A title the song's fingerprint check named instead of the song: AcoustID knew a downloaded file as a
+    /// recording called this, and a file that is titled this is that recording, not the song, whoever shares
+    /// it and from whichever source. The row carries the song, so the title blocks nothing for another song.
+    /// </summary>
+    /// <remarks>
+    /// Like every learned key it has at least two <see cref="Separator"/> characters and opens with a fixed
+    /// word, so it never collides with a <see cref="Soulseek"/> key (exactly one) or a
+    /// <see cref="SoulseekFile"/> key (another word).
+    /// </remarks>
+    /// <param name="title">The recording's title, as AcoustID gave it with its version hints removed.</param>
+    public static string OtherTitle(string title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        var separator = Separator.ToString();
+
+        return string.Concat(LearnedPrefix, separator, OtherTitleKind, separator, title.Trim());
+    }
+
+    /// <summary>The titles of the <see cref="OtherTitle"/> keys among a song's blocked keys, in key order.</summary>
+    /// <param name="keys">The keys a search treats as blocked for the song.</param>
+    public static IReadOnlyList<string> OtherTitles(IEnumerable<string> keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+
+        var opening = string.Concat(LearnedPrefix, Separator.ToString(), OtherTitleKind, Separator.ToString());
+
+        return keys
+            .Where(key => key.StartsWith(opening, StringComparison.Ordinal) && key.Length > opening.Length)
+            .Select(key => key[opening.Length..])
+            .Order(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
+    /// One file that passed the artist rule on a compilation path only because its title is the song's in
+    /// full, and that the fingerprint check then showed to be another recording. The key counts misses; it
+    /// blocks no file of its own (the file itself has its ordinary key as well).
+    /// </summary>
+    /// <param name="candidateKey">The file's own <see cref="Candidate.BlocklistKey"/>.</param>
+    public static string CompilationMiss(string candidateKey)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(candidateKey);
+
+        var separator = Separator.ToString();
+
+        return string.Concat(LearnedPrefix, separator, CompilationMissKind, separator, candidateKey);
+    }
+
+    /// <summary>How many <see cref="CompilationMiss"/> keys are among a song's blocked keys.</summary>
+    /// <param name="keys">The keys a search treats as blocked for the song.</param>
+    public static int CompilationMisses(IEnumerable<string> keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+
+        var opening = string.Concat(LearnedPrefix, Separator.ToString(), CompilationMissKind, Separator.ToString());
+
+        return keys.Count(key => key.StartsWith(opening, StringComparison.Ordinal));
+    }
+
     /// <summary>A file inside a torrent: the info-hash and the file's path in it.</summary>
     /// <param name="infoHash">The torrent's info-hash (lower-cased here).</param>
     /// <param name="path">The file's path inside the torrent, or the release title while unknown.</param>

@@ -35,6 +35,72 @@ public sealed class SongSearchLearnedFileTests
         host.Provider.Grabs.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task The_rest_of_the_run_skips_every_copy_titled_like_a_learned_other_recording()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync(title: "Please Come Tonight");
+        var first = Named(@"Music\Aphex Twin\Both Sides\11 - Please Come Out Tonight.flac", "userA");
+        var second = Named(@"Share\Aphex Twin\Love Songs\09. Please Come out Tonight.flac", "userB");
+        host.Provider.Candidates.Add(first);
+        host.Provider.Candidates.Add(second);
+        var search = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
+        search.Decisions.Should().OnlyContain(decision => decision.Accepted, "every word of the song's title is in theirs");
+
+        // What the import writes when userA's file is fingerprinted as "Please Come Out Tonight".
+        await host.Blocklist.AddAsync(Row(songId, first.BlocklistKey), Token);
+        await host.Blocklist.AddAsync(Row(songId, BlocklistKeys.OtherTitle("Please Come Out Tonight")), Token);
+
+        var queueItemId = await host.Search.GrabBestAsync(search.SearchRunId, 1, Token);
+
+        queueItemId.Should().BeNull("userB's file has the title the fingerprint named instead of the song");
+        host.Provider.Grabs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_learned_other_title_leaves_a_copy_titled_like_the_song_to_be_grabbed()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync(title: "Please Come Tonight");
+        var wrong = Named(@"Music\Aphex Twin\Both Sides\11 - Please Come Out Tonight.flac", "userA");
+        var right = Named(@"Music\Aphex Twin\Singles\Aphex Twin - Please Come Tonight.flac", "userB");
+        host.Provider.Candidates.Add(wrong);
+        host.Provider.Candidates.Add(right);
+        var search = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
+        await host.Blocklist.AddAsync(Row(songId, BlocklistKeys.OtherTitle("Please Come Out Tonight")), Token);
+
+        var queueItemId = await host.Search.GrabBestAsync(search.SearchRunId, 1, Token);
+
+        queueItemId.Should().NotBeNull();
+        host.Provider.Grabs.Should().ContainSingle().Which.Candidate.RemotePath.Should().Be(right.RemotePath);
+    }
+
+    [Fact]
+    public async Task The_rest_of_the_run_skips_compilation_files_that_pass_on_their_title_alone_after_two_misses()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync();
+        var first = Named(@"Share\Various Artists\Chill Out 2004\05 Alpha.flac", "userA");
+        var second = Named(@"Share\VA - Ambient Hits\03 - Alpha.flac", "userB");
+        host.Provider.Candidates.Add(first);
+        host.Provider.Candidates.Add(second);
+        var search = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
+        search.Decisions.Should().OnlyContain(decision => decision.Accepted, "a compilation file passes on its full title");
+
+        await host.Blocklist.AddAsync(Row(songId, first.BlocklistKey), Token);
+        await host.Blocklist.AddAsync(Row(songId, BlocklistKeys.CompilationMiss(first.BlocklistKey)), Token);
+        await host.Blocklist.AddAsync(Row(songId, BlocklistKeys.CompilationMiss(BlocklistKeys.Soulseek("userX", @"VA\Hits\01 Alpha.mp3"))), Token);
+
+        var queueItemId = await host.Search.GrabBestAsync(search.SearchRunId, 1, Token);
+
+        queueItemId.Should().BeNull("two files like userB's were other recordings");
+        host.Provider.Grabs.Should().BeEmpty();
+    }
+
+    /// <summary>A candidate parsed from its path the way the Soulseek source parses it.</summary>
+    private static Candidate Named(string remotePath, string provider) =>
+        SearchTestHost.Candidate(remotePath, provider: provider) with { Parsed = SoulseekFilenameParser.Parse(remotePath).Parsed };
+
     private static BlocklistItem Row(long songId, string key) => new()
     {
         SongId = songId,

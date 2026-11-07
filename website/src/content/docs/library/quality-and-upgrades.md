@@ -64,6 +64,13 @@ Before a download is imported, Wondarr:
 
 A wrong file is refused: History shows a **Rejected** event with the reason, the candidate is blocklisted for that song (see **Activity → Blocklist**), and Wondarr tries the next candidate, up to `search.max_auto_attempts_per_search` (4) per search, and then the next source. When the reason is "Fingerprint belongs to a different recording" (AcoustID knows the file as another recording, not as a weak match for the wanted one) and the file came from Soulseek, Wondarr also blocklists the file's folder and file name (with the folder above it when the parent names no album, such as `CD1`, `FLAC` or `Music`), so the same file offered by another user is skipped for that song. That entry shows on **Activity → Blocklist** like any other and can be removed there. A file named only with the song's title is not remembered this way.
 
+From any source, the same verdict teaches the song two more things, each an entry on **Activity → Blocklist** for that song:
+
+- **The other recording's title**, when it is not the song's own. If AcoustID says a download for "Please Come Tonight" is "Please Come Out Tonight", no file titled "Please Come Out Tonight" is downloaded for that song again, whoever shares it. A different recording with the song's own title (a cover, another artist's song of that name) teaches no title, since a right file has that title too.
+- **A compilation miss**, when the file was on a "Various Artists", "VA", "Compilation" or soundtrack path and only its title let it through (neither its name nor a whole folder named the artist). After two misses, such files need the artist like any other for that song.
+
+Removing an entry undoes what it taught.
+
 ## Fake-lossless check
 
 A lossless download (FLAC, ALAC, WAV, AIFF, WavPack, APE) can be a lossy file re-saved as lossless. Wondarr decodes a 60 second window of the file and looks for the sharp cut-off in the spectrum that a lossy encoder leaves. If the spectrum stops below 19.5 kHz, the import is refused with a reason such as "Fake lossless: the spectrum stops at 16.2 kHz", the file is blocklisted for the song and the next candidate is tried.

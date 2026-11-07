@@ -69,6 +69,10 @@ public sealed record VerificationRequest(
 /// about one copy of it (a wrong length or a failed decode is), so the import learns from this
 /// verdict alone.
 /// </param>
+/// <param name="OtherRecordingTitle">
+/// The title of the recording AcoustID named instead, when <paramref name="DifferentRecording"/> is set and
+/// the recording has a title. A file titled that is not the song either, so the import remembers it.
+/// </param>
 public sealed record VerificationResult(
     VerificationOutcome Outcome,
     string Reason,
@@ -80,7 +84,8 @@ public sealed record VerificationResult(
     string? LearnedMbRecordingId,
     bool FingerprintVerified,
     bool KeyRejected = false,
-    bool DifferentRecording = false);
+    bool DifferentRecording = false,
+    string? OtherRecordingTitle = null);
 
 /// <summary>Decides whether a downloaded file is the wanted recording.</summary>
 public interface IDownloadVerifier
@@ -432,7 +437,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             VerificationOutcome.Failed,
             $"Fingerprint belongs to a different recording: {identified.Title ?? "unknown title"} "
                 + $"({identified.Id}), score {Score(best.Score)}",
-            DifferentRecording: learnable);
+            DifferentRecording: learnable,
+            OtherRecordingTitle: learnable && !string.IsNullOrWhiteSpace(identified.Title) ? identified.Title : null);
     }
 
     /// <summary>
@@ -632,7 +638,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             verdict.LearnedMbRecordingId,
             verdict.FingerprintVerified,
             keyRejected,
-            verdict.DifferentRecording);
+            verdict.DifferentRecording,
+            verdict.OtherRecordingTitle);
     }
 
     /// <summary>Whole seconds, for the lines a human reads.</summary>
@@ -656,5 +663,6 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         bool FingerprintVerified = false,
         string? MatchedRecordingId = null,
         string? LearnedMbRecordingId = null,
-        bool DifferentRecording = false);
+        bool DifferentRecording = false,
+        string? OtherRecordingTitle = null);
 }

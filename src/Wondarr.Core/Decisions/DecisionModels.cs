@@ -199,6 +199,19 @@ public sealed record DecisionContext
     /// <summary>Tells whether a blocklist key is blocked. Default: nothing is blocked.</summary>
     public Func<string, bool> IsBlocklisted { get; init; } = AlwaysFalse;
 
+    /// <summary>
+    /// The titles the song's fingerprint checks named in its place (<see cref="BlocklistKeys.OtherTitles"/>):
+    /// a candidate titled one of them is blocklisted, unless its title is the song's too.
+    /// </summary>
+    public IReadOnlyList<string> OtherRecordingTitles { get; init; } = [];
+
+    /// <summary>
+    /// How many files that passed on a compilation path on their title alone were other recordings
+    /// (<see cref="BlocklistKeys.CompilationMisses"/>). From <see cref="LearnedEvidence.CompilationMissLimit"/>
+    /// on, such a file needs the artist like any other.
+    /// </summary>
+    public int CompilationMisses { get; init; }
+
     /// <summary>Providers whose results are ignored; compared ordinal-ignore-case.</summary>
     public IReadOnlySet<string> IgnoredUsers { get; init; } = EmptyUsers;
 

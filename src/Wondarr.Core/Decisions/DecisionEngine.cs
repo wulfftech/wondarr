@@ -224,6 +224,13 @@ public sealed class DecisionEngine
                 RejectionReason.Blocklisted,
                 "Blocklisted: the same file from another user was a different recording."));
         }
+        else if (LearnedEvidence.OtherTitleOf(context.OtherRecordingTitles, context.SongTitle, context.SongFlags, candidate) is { } otherTitle)
+        {
+            // A file titled this was fingerprinted as that other recording: every copy of it is.
+            rejections.Add(new Rejection(
+                RejectionReason.Blocklisted,
+                string.Concat("Blocklisted: a file titled '", otherTitle, "' was fingerprinted as another recording.")));
+        }
 
         // A container whose file list is unknown has no extension yet: the release itself is the candidate
         // and the song's file is found once the client has the metadata or the post is unpacked. Every
@@ -488,7 +495,7 @@ public sealed class DecisionEngine
         // another artist ("18 The Cryan Shames - Sugar and Spice.flac").
         if (ContainsCompilationMarker(candidate.RemotePath))
         {
-            if (CompilationPathNamesArtist(context, candidate) || similarity is null)
+            if (CompilationPathNamesArtist(context.MainArtists, candidate) || similarity is null)
             {
                 return;
             }
@@ -503,6 +510,17 @@ public sealed class DecisionEngine
                             "Artist mismatch: Various Artists path and the file names another artist (",
                             other,
                             ").")));
+                }
+                else if (context.CompilationMisses >= LearnedEvidence.CompilationMissLimit)
+                {
+                    // The title alone has let other artists' songs through for this song before: on a
+                    // compilation path it now needs the artist like any other file.
+                    rejections.Add(new Rejection(
+                        RejectionReason.ArtistMismatch,
+                        string.Concat(
+                            "Artist mismatch: Various Artists path without the artist, and ",
+                            context.CompilationMisses.ToString(CultureInfo.InvariantCulture),
+                            " such files were other recordings.")));
                 }
 
                 return;
@@ -526,12 +544,39 @@ public sealed class DecisionEngine
     }
 
     /// <summary>
+    /// Whether a candidate passes the artist rule only because its own title is the song's in full on a
+    /// compilation path: neither the file name nor a whole folder names one of the song's artists. The import
+    /// counts such files that the fingerprint check shows to be other recordings
+    /// (<see cref="LearnedEvidence.CompilationMissLimit"/>).
+    /// </summary>
+    /// <param name="mainArtists">The song's main artists.</param>
+    /// <param name="songTitle">The song's title as MusicBrainz lists it.</param>
+    /// <param name="songFlags">The version flags the song carries.</param>
+    /// <param name="candidate">The candidate.</param>
+    public static bool PassesArtistOnTitleAlone(
+        IReadOnlyList<string> mainArtists,
+        string songTitle,
+        VersionFlags songFlags,
+        Candidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(mainArtists);
+        ArgumentNullException.ThrowIfNull(songTitle);
+        ArgumentNullException.ThrowIfNull(candidate);
+
+        return mainArtists.Count > 0
+            && !IsUnlistedContainer(candidate)
+            && ContainsCompilationMarker(candidate.RemotePath)
+            && !CompilationPathNamesArtist(mainArtists, candidate)
+            && CandidateTitleMatcher.IsFullTitleMatch(songTitle, candidate, songFlags);
+    }
+
+    /// <summary>
     /// Whether the artist is genuinely matched: on a compilation path only the file name or a whole
     /// folder can name it; elsewhere any overlap with the path counts.
     /// </summary>
     private static bool ArtistGenuinelyNamed(DecisionContext context, Candidate candidate) =>
         ContainsCompilationMarker(candidate.RemotePath)
-            ? CompilationPathNamesArtist(context, candidate)
+            ? CompilationPathNamesArtist(context.MainArtists, candidate)
             : ArtistNamed(context, candidate);
 
     /// <summary>
@@ -539,9 +584,9 @@ public sealed class DecisionEngine
     /// folder name is one of the song's artists (<c>Hans Zimmer/Inception OST/05 Time.flac</c>). A word
     /// or two inside a longer folder name never counts.
     /// </summary>
-    private static bool CompilationPathNamesArtist(DecisionContext context, Candidate candidate)
+    private static bool CompilationPathNamesArtist(IReadOnlyList<string> mainArtists, Candidate candidate)
     {
-        if (FileNameNamesArtist(context, candidate))
+        if (FileNameNamesArtist(mainArtists, candidate))
         {
             return true;
         }
@@ -552,7 +597,7 @@ public sealed class DecisionEngine
         {
             var folder = TextMatching.NormalizeArtist(segments[index]);
 
-            if (folder.Length > 0 && context.MainArtists.Any(artist => TextMatching.NormalizeArtist(artist) == folder))
+            if (folder.Length > 0 && mainArtists.Any(artist => TextMatching.NormalizeArtist(artist) == folder))
             {
                 return true;
             }
@@ -642,11 +687,11 @@ public sealed class DecisionEngine
     }
 
     /// <summary>Whether every word of one of the song's artists is in the file name (not the folders).</summary>
-    private static bool FileNameNamesArtist(DecisionContext context, Candidate candidate)
+    private static bool FileNameNamesArtist(IReadOnlyList<string> mainArtists, Candidate candidate)
     {
         var fileTokens = TokenizePath(LastSegment(candidate.RemotePath));
 
-        foreach (var artist in context.MainArtists)
+        foreach (var artist in mainArtists)
         {
             var tokens = TextMatching.NormalizeArtist(artist).Split(' ', StringSplitOptions.RemoveEmptyEntries);
 

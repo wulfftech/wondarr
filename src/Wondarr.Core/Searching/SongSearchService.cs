@@ -1044,6 +1044,11 @@ public sealed partial class SongSearchService : ISongSearchService
                     .ConfigureAwait(false));
         }
 
+        // What the import may have learned since the run judged its candidates: a title the fingerprint
+        // named instead of the song, or enough compilation files that passed on their title alone and were
+        // another recording. Only then is the song read.
+        var learnedSong = await LoadLearnedSongAsync(candidates[0].SongId, blocked, cancellationToken).ConfigureAwait(false);
+
         // One search run may only try so many candidates: the attempt number the caller passes in
         // comes from the queue tracker (P2-13), and the budget keeps a run from working through a
         // whole page of dead peers in one go.
@@ -1067,6 +1072,13 @@ public sealed partial class SongSearchService : ISongSearchService
             if (candidate.SourceType == SourceTypes.Soulseek
                 && BlocklistKeys.SoulseekFile(candidate.RemotePath) is { } learned
                 && blocked.Contains(learned))
+            {
+                continue;
+            }
+
+            // The same goes for a file titled like a recording the import learned is not the song, and for a
+            // compilation file that only its title let through once two such files were other recordings.
+            if (learnedSong is not null && learnedSong.Rejects(candidate))
             {
                 continue;
             }
@@ -1553,6 +1565,48 @@ public sealed partial class SongSearchService : ISongSearchService
             .FirstOrDefaultAsync(song => song.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 
+    /// <summary>
+    /// The song's title, flags and artists with what its blocklist has learned, or <see langword="null"/> when
+    /// it has learned nothing a grab would act on (and then the song is not read at all).
+    /// </summary>
+    private async Task<LearnedSong?> LoadLearnedSongAsync(
+        long songId,
+        IReadOnlySet<string> blocked,
+        CancellationToken cancellationToken)
+    {
+        var otherTitles = BlocklistKeys.OtherTitles(blocked);
+        var compilationMisses = BlocklistKeys.CompilationMisses(blocked);
+
+        if (otherTitles.Count == 0 && compilationMisses < LearnedEvidence.CompilationMissLimit)
+        {
+            return null;
+        }
+
+        var song = await _database.Songs
+            .AsNoTracking()
+            .Include(entry => entry.Artists)
+                .ThenInclude(credit => credit.Artist)
+            .FirstOrDefaultAsync(entry => entry.Id == songId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (song is null)
+        {
+            return null;
+        }
+
+        return new LearnedSong(
+            song.Title,
+            ParseFlags(song.VersionFlags),
+            [
+                .. song.Artists
+                    .Where(credit => credit.Role == ArtistRole.Main)
+                    .OrderBy(credit => credit.Position)
+                    .Select(credit => credit.Artist.Name),
+            ],
+            otherTitles,
+            compilationMisses);
+    }
+
     /// <summary>The keys the song is currently blocked on, for every source that is about to be asked.</summary>
     private async Task<IReadOnlySet<string>> LoadBlockedKeysAsync(
         IReadOnlyList<ISourceProvider> providers,
@@ -1628,6 +1682,8 @@ public sealed partial class SongSearchService : ISongSearchService
             CurrentFileIdentityScore = await ReadHeldIdentityAsync(song.File, cancellationToken).ConfigureAwait(false),
             IsManualGrab = trigger == SearchTrigger.Manual,
             IsBlocklisted = key => blockedKeys.Contains(key),
+            OtherRecordingTitles = BlocklistKeys.OtherTitles(blockedKeys),
+            CompilationMisses = BlocklistKeys.CompilationMisses(blockedKeys),
             IgnoredUsers = ignored,
             MaxContainerSizeBytes = _options.CurrentValue.MaxContainerSizeMb * 1024L * 1024L,
         };
@@ -1753,6 +1809,46 @@ public sealed partial class SongSearchService : ISongSearchService
         var explained = string.Join(", ", counts);
 
         return explained.Length == 0 ? "every candidate failed a rule" : explained;
+    }
+
+    /// <summary>What a grab needs to apply the song's learned evidence to a stored candidate.</summary>
+    /// <param name="Title">The song's title.</param>
+    /// <param name="Flags">The song's version flags.</param>
+    /// <param name="MainArtists">The song's main artists, in credit order.</param>
+    /// <param name="OtherTitles">The titles the fingerprint check named in the song's place.</param>
+    /// <param name="CompilationMisses">How many compilation files that passed on their title alone were other recordings.</param>
+    private sealed record LearnedSong(
+        string Title,
+        VersionFlags Flags,
+        IReadOnlyList<string> MainArtists,
+        IReadOnlyList<string> OtherTitles,
+        int CompilationMisses)
+    {
+        /// <summary>Whether the stored candidate is one the engine would now turn away for what was learned.</summary>
+        /// <param name="record">The stored candidate.</param>
+        public bool Rejects(CandidateRecord record)
+        {
+            Candidate? candidate;
+
+            try
+            {
+                candidate = JsonSerializer.Deserialize<Candidate>(record.Normalised, Json);
+            }
+            catch (JsonException)
+            {
+                // A row without its snapshot cannot be judged again; the engine accepted it, so it stays.
+                return false;
+            }
+
+            if (candidate is null)
+            {
+                return false;
+            }
+
+            return LearnedEvidence.OtherTitleOf(OtherTitles, Title, Flags, candidate) is not null
+                || (CompilationMisses >= LearnedEvidence.CompilationMissLimit
+                    && DecisionEngine.PassesArtistOnTitleAlone(MainArtists, Title, Flags, candidate));
+        }
     }
 
     /// <summary>The song's stored version flags as a mask; unknown names are ignored.</summary>
