@@ -66,7 +66,7 @@ A wrong file is refused: History shows a **Rejected** event with the reason, the
 
 From any source, the same verdict teaches the song two more things, each an entry on **Activity → Blocklist** for that song:
 
-- **The other recording's title**, when it is not the song's own. If AcoustID says a download for "Please Come Tonight" is "Please Come Out Tonight", no file titled "Please Come Out Tonight" is downloaded for that song again, whoever shares it. A different recording with the song's own title (a cover, another artist's song of that name) teaches no title, since a right file has that title too.
+- **The other recording's title**, when it is not the song's own. If AcoustID is sure (a score of at least `acoustid.accept_score`) that a download for "Please Come Tonight" is "Please Come Out Tonight", no file titled "Please Come Out Tonight" is downloaded for that song again, whoever shares it and from whichever source. A different recording with the song's own title (a cover, another artist's song of that name) teaches no title, since a right file has that title too.
 - **A compilation miss**, when the file was on a "Various Artists", "VA", "Compilation" or soundtrack path and only its title let it through (neither its name nor a whole folder named the artist). After two misses, such files need the artist like any other for that song.
 
 Removing an entry undoes what it taught.

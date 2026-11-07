@@ -413,7 +413,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             : DifferentRecording(
                 results,
                 learnable: !WantedRecordingPresent(wanted, results)
-                    && SameTitleMatch(request, results, 0, probedDurationMs) is null);
+                    && SameTitleMatch(request, results, 0, probedDurationMs) is null,
+                options.AcceptScore);
     }
 
     /// <summary>Whether the song's own recording is among the results, at any score.</summary>
@@ -428,7 +429,11 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
     /// Whether the verdict says the file is another recording. False when the wanted recording, or a
     /// same-song recording at any score, is among the results: the file may be the right one with a weak match.
     /// </param>
-    private static Verdict DifferentRecording(List<AcoustIdResult> results, bool learnable)
+    /// <param name="acceptScore">
+    /// The score a match must reach to pass. The recording's title is only handed on when the fingerprint
+    /// names it at least that surely: the import blocks every file titled that for the song, for good.
+    /// </param>
+    private static Verdict DifferentRecording(List<AcoustIdResult> results, bool learnable, double acceptScore)
     {
         var best = results.First(result => result.Recordings.Count > 0);
         var identified = best.Recordings[0];
@@ -438,7 +443,9 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             $"Fingerprint belongs to a different recording: {identified.Title ?? "unknown title"} "
                 + $"({identified.Id}), score {Score(best.Score)}",
             DifferentRecording: learnable,
-            OtherRecordingTitle: learnable && !string.IsNullOrWhiteSpace(identified.Title) ? identified.Title : null);
+            OtherRecordingTitle: learnable && best.Score >= acceptScore && !string.IsNullOrWhiteSpace(identified.Title)
+                ? identified.Title
+                : null);
     }
 
     /// <summary>

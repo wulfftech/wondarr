@@ -76,6 +76,16 @@ public sealed class LearnedEvidenceTests
             .Accepted.Should().BeTrue();
 
     [Fact]
+    public void Several_learned_titles_are_each_matched()
+    {
+        var context = PhilContext() with { OtherRecordingTitles = ["Believe Her", "Please Come Out Tonight", "Mona Lisa"] };
+
+        Judge(context, @"@@a\Music\Phil Collins\Both Sides\11 Please Come Out Tonight.flac").Rejections.Should()
+            .ContainSingle(rejection => rejection.Message.Contains("'Please Come Out Tonight'", StringComparison.Ordinal));
+        Judge(context, @"@@a\Music\Phil\Singles\Phil - Please Come Tonight.mp3").Accepted.Should().BeTrue();
+    }
+
+    [Fact]
     public void A_live_copy_of_the_learned_title_is_refused_as_that_recording_too()
     {
         var decision = Judge(
@@ -114,6 +124,7 @@ public sealed class LearnedEvidenceTests
     [InlineData(@"@@a\Compilations\The Saddle Club\Kids Hits 2004\05 Out on a Limb.mp3", false)]
     [InlineData(@"@@a\Music\Jazz\Lennie Tristano\01 Out on a Limb.mp3", false)]
     [InlineData(@"@@a\Various Artists\Jazz Gems\01 Out on a Limb Blues.mp3", false)]
+    [InlineData(@"@@b\Various Artists\Nuggets\Disc 1\18 The Cryan Shames - Out on a Limb.flac", false)]
     public void Tells_a_file_that_passes_the_artist_rule_on_its_title_alone(string remotePath, bool alone) =>
         DecisionEngine.PassesArtistOnTitleAlone(["The Saddle Club"], "Out on a Limb", VersionFlags.None, Candidate(remotePath))
             .Should().Be(alone);
@@ -134,6 +145,7 @@ public sealed class LearnedEvidenceTests
         BlocklistKeys.OtherTitles(keys).Should().Equal("Believe Her", "Please Come Out Tonight");
         BlocklistKeys.CompilationMisses(keys).Should().Be(2);
         BlocklistKeys.OtherTitles([BlocklistKeys.Soulseek("learned", "other-title")]).Should().BeEmpty();
+        keys.Where(key => key.StartsWith(BlocklistKeys.LearnedOpening, StringComparison.Ordinal)).Should().HaveCount(4);
     }
 
     private static CandidateDecision Judge(DecisionContext context, string remotePath) =>

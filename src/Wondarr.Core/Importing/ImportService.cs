@@ -1421,8 +1421,9 @@ public sealed partial class ImportService : IImportService
         });
 
     /// <summary>
-    /// The candidate as the search judged it, read back from its snapshot; for an older row without one, what
-    /// its path says (a Soulseek path parsed as the search would have).
+    /// The candidate as the search judged it, read back from its snapshot; for an older Soulseek row without
+    /// one, what its path says, parsed as the search would have. Another source's row without a snapshot has
+    /// no title of its own to read (a torrent's path is its release name), so nothing is learned from it.
     /// </summary>
     private static Candidate? StoredCandidate(CandidateRecord record)
     {
@@ -1438,7 +1439,9 @@ public sealed partial class ImportService : IImportService
             // An empty snapshot ("{}") lacks the required fields; the row's own columns are enough here.
         }
 
-        if (string.IsNullOrEmpty(record.RemotePath) || string.IsNullOrEmpty(record.BlocklistKey))
+        if (record.SourceType != SourceTypes.Soulseek
+            || string.IsNullOrEmpty(record.RemotePath)
+            || string.IsNullOrEmpty(record.BlocklistKey))
         {
             return null;
         }
@@ -1451,9 +1454,7 @@ public sealed partial class ImportService : IImportService
             RemotePath = record.RemotePath,
             Provider = record.Provider,
             QualityId = record.QualityId,
-            Parsed = record.SourceType == SourceTypes.Soulseek
-                ? SoulseekFilenameParser.Parse(record.RemotePath).Parsed
-                : ParsedName.Empty,
+            Parsed = SoulseekFilenameParser.Parse(record.RemotePath).Parsed,
         };
     }
 

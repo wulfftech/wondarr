@@ -1,6 +1,7 @@
 using Wondarr.Core.Domain;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.Sources;
 using Microsoft.EntityFrameworkCore;
 
 namespace Wondarr.Core.Blocklisting;
@@ -40,7 +41,9 @@ public interface IBlocklistService
     /// <summary>
     /// Gets the keys a search must treat as blocked before judging its candidates, in one query.
     /// A song's searches see the entries recorded for it <em>and</em> the song-less ones: a file that
-    /// was wrong for one song may be the right file for another (a live take, a remix).
+    /// was wrong for one song may be the right file for another (a live take, a remix). The song's
+    /// learned keys (<see cref="Sources.BlocklistKeys.LearnedOpening"/>) come with every source type, since
+    /// a title the fingerprint check named is no more the song on YouTube than it was on Soulseek.
     /// </summary>
     /// <param name="sourceType">The source the keys belong to, for example <c>soulseek</c>.</param>
     /// <param name="songId">The song being searched for.</param>
@@ -158,7 +161,7 @@ public sealed class BlocklistService : IBlocklistService
 
         var keys = await _database.Blocklist
             .AsNoTracking()
-            .Where(item => item.SourceType == sourceType
+            .Where(item => (item.SourceType == sourceType || item.BlocklistKey.StartsWith(BlocklistKeys.LearnedOpening))
                 && (item.SongId == null || item.SongId == songId)
                 && (item.ExpiresAt == null || item.ExpiresAt > now))
             .Select(item => item.BlocklistKey)

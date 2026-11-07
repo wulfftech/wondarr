@@ -60,30 +60,75 @@ public static class LearnedEvidence
 
         return shared ? null : baseTitle;
     }
+}
+
+/// <summary>
+/// A song's learned other titles, folded once per search (<see cref="CandidateTitleMatcher.TitleForms"/>) so
+/// that each candidate's own title is worked out once however many titles the song has learned.
+/// </summary>
+public sealed class LearnedTitles
+{
+    /// <summary>The shared "nothing learned" instance.</summary>
+    public static readonly LearnedTitles None = new([], new HashSet<string>(StringComparer.Ordinal), VersionFlags.None);
+
+    private readonly IReadOnlyList<(string Title, IReadOnlySet<string> Forms)> _titles;
+    private readonly IReadOnlySet<string> _songForms;
+    private readonly VersionFlags _songFlags;
+
+    private LearnedTitles(
+        IReadOnlyList<(string Title, IReadOnlySet<string> Forms)> titles,
+        IReadOnlySet<string> songForms,
+        VersionFlags songFlags)
+    {
+        _titles = titles;
+        _songForms = songForms;
+        _songFlags = songFlags;
+    }
+
+    /// <summary>Gets a value indicating whether the song has learned no title.</summary>
+    public bool IsEmpty => _titles.Count == 0;
+
+    /// <summary>Folds a song's learned titles for one search.</summary>
+    /// <param name="otherTitles">The song's learned titles (<see cref="BlocklistKeys.OtherTitles"/>).</param>
+    /// <param name="songTitle">The song's title as MusicBrainz lists it.</param>
+    /// <param name="songFlags">The version flags the song carries.</param>
+    public static LearnedTitles For(IReadOnlyList<string> otherTitles, string songTitle, VersionFlags songFlags)
+    {
+        ArgumentNullException.ThrowIfNull(otherTitles);
+        ArgumentNullException.ThrowIfNull(songTitle);
+
+        if (otherTitles.Count == 0)
+        {
+            return None;
+        }
+
+        var titles = otherTitles
+            .Select(title => (Title: title, Forms: CandidateTitleMatcher.TitleForms(title)))
+            .Where(entry => entry.Forms.Count > 0)
+            .ToList();
+
+        return new LearnedTitles(titles, CandidateTitleMatcher.TitleForms(songTitle), songFlags);
+    }
 
     /// <summary>
     /// The learned title a candidate's own title is in full, or <see langword="null"/>: none of them, or the
     /// candidate's title is the song's as well (a file can be named both ways, and the song's name wins).
     /// </summary>
-    /// <param name="otherTitles">The song's learned titles (<see cref="BlocklistKeys.OtherTitles"/>).</param>
-    /// <param name="songTitle">The song's title as MusicBrainz lists it.</param>
-    /// <param name="songFlags">The version flags the song carries.</param>
     /// <param name="candidate">The candidate.</param>
-    public static string? OtherTitleOf(
-        IReadOnlyList<string> otherTitles,
-        string songTitle,
-        VersionFlags songFlags,
-        Candidate candidate)
+    public string? OtherTitleOf(Candidate candidate)
     {
-        ArgumentNullException.ThrowIfNull(otherTitles);
-        ArgumentNullException.ThrowIfNull(songTitle);
         ArgumentNullException.ThrowIfNull(candidate);
 
-        foreach (var title in otherTitles)
+        if (_titles.Count == 0 || CandidateTitleMatcher.FullTitleForms(candidate, _songFlags) is not { } forms)
         {
-            if (CandidateTitleMatcher.IsFullTitleMatch(title, candidate, songFlags))
+            return null;
+        }
+
+        foreach (var (title, titleForms) in _titles)
+        {
+            if (forms.Overlaps(titleForms))
             {
-                return CandidateTitleMatcher.IsFullTitleMatch(songTitle, candidate, songFlags) ? null : title;
+                return forms.Overlaps(_songForms) ? null : title;
             }
         }
 

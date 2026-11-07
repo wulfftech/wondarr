@@ -1594,16 +1594,18 @@ public sealed partial class SongSearchService : ISongSearchService
             return null;
         }
 
+        var flags = ParseFlags(song.VersionFlags);
+
         return new LearnedSong(
             song.Title,
-            ParseFlags(song.VersionFlags),
+            flags,
             [
                 .. song.Artists
                     .Where(credit => credit.Role == ArtistRole.Main)
                     .OrderBy(credit => credit.Position)
                     .Select(credit => credit.Artist.Name),
             ],
-            otherTitles,
+            LearnedTitles.For(otherTitles, song.Title, flags),
             compilationMisses);
     }
 
@@ -1815,13 +1817,13 @@ public sealed partial class SongSearchService : ISongSearchService
     /// <param name="Title">The song's title.</param>
     /// <param name="Flags">The song's version flags.</param>
     /// <param name="MainArtists">The song's main artists, in credit order.</param>
-    /// <param name="OtherTitles">The titles the fingerprint check named in the song's place.</param>
+    /// <param name="OtherTitles">The titles the fingerprint check named in the song's place, folded.</param>
     /// <param name="CompilationMisses">How many compilation files that passed on their title alone were other recordings.</param>
     private sealed record LearnedSong(
         string Title,
         VersionFlags Flags,
         IReadOnlyList<string> MainArtists,
-        IReadOnlyList<string> OtherTitles,
+        LearnedTitles OtherTitles,
         int CompilationMisses)
     {
         /// <summary>Whether the stored candidate is one the engine would now turn away for what was learned.</summary>
@@ -1845,7 +1847,7 @@ public sealed partial class SongSearchService : ISongSearchService
                 return false;
             }
 
-            return LearnedEvidence.OtherTitleOf(OtherTitles, Title, Flags, candidate) is not null
+            return OtherTitles.OtherTitleOf(candidate) is not null
                 || (CompilationMisses >= LearnedEvidence.CompilationMissLimit
                     && DecisionEngine.PassesArtistOnTitleAlone(MainArtists, Title, Flags, candidate));
         }

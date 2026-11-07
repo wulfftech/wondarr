@@ -365,6 +365,13 @@ public static class BlocklistKeys
     /// <summary>The marker that opens a key the import learned about a song rather than about one file.</summary>
     private const string LearnedPrefix = "learned";
 
+    /// <summary>
+    /// How every learned key starts (<see cref="OtherTitle"/>, <see cref="CompilationMiss"/>). What such a key
+    /// says is about the song, not about the source the file came from, so the blocklist hands it to a search
+    /// of any source.
+    /// </summary>
+    public const string LearnedOpening = "learned\u001f";
+
     /// <summary>The kind of <see cref="OtherTitle"/> keys.</summary>
     private const string OtherTitleKind = "other-title";
 

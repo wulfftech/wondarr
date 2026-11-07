@@ -44,6 +44,20 @@ public sealed class ImportServiceLearnedEvidenceTests
     }
 
     [Fact]
+    public async Task A_title_learned_from_one_source_applies_to_a_search_of_any_source()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = Failed(OtherReason, differentRecording: true, otherTitle: "Please Come Out Tonight");
+        var seed = await host.SeedAsync(options => Phil(options, @"@@a\Music\Phil Collins\Both Sides (1993)\11 - Please Come Out Tonight.flac"));
+
+        await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        var youTubeKeys = await host.Blocklist.GetActiveKeysAsync(SourceTypes.YouTube, seed.SongId, CancellationToken.None);
+        youTubeKeys.Should().Contain(BlocklistKeys.OtherTitle("Please Come Out Tonight"))
+            .And.NotContain(seed.BlocklistKey, "a Soulseek file's own key means nothing to another source");
+    }
+
+    [Fact]
     public async Task A_title_the_song_already_learned_is_not_added_twice()
     {
         await using var host = await ImportTestHost.CreateAsync();
@@ -97,6 +111,21 @@ public sealed class ImportServiceLearnedEvidenceTests
             .SingleAsync();
         miss.SongId.Should().Be(seed.SongId);
         miss.ExpiresAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_same_compilation_miss_is_not_counted_twice()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = Failed(SameTitleReason, differentRecording: true, otherTitle: "Sugar and Spice");
+        var seed = await host.SeedAsync(options => SaddleClub(options, @"@@a\Various Artists\Nuggets\Disc 1\1-18 Sugar And Spice.flac"));
+        host.Context.Blocklist.Add(Row(seed.SongId, BlocklistKeys.CompilationMiss(seed.BlocklistKey)));
+        await host.Context.SaveChangesAsync();
+
+        await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        var keys = await host.Context.Blocklist.Select(row => row.BlocklistKey).ToListAsync();
+        BlocklistKeys.CompilationMisses(keys).Should().Be(1);
     }
 
     [Theory]
