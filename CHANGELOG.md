@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Changed
+- **Dependencies updated:** Quartz.Extensions.Hosting 4.7.3 (its one migration is for persistent job stores; Wondarr's schedule lives in memory, and Wondarr builds no cron expressions), Scalar 2.19.0, Mantine 9.7.5, and test and build tooling (vite, typescript-eslint, user-event, docker/login-action, actions/setup-dotnet).
+
 ## [0.1.18] — 2026-11-08
 
 Wondarr stops downloading the same wrong song over and over, and the "Grabbed" notifications that came with each copy stop with it. Update by pulling `:0.1` (or `:0.1.18`), from `ghcr.io/wulfftech/wondarr` or `wulfftech/wondarr` on Docker Hub.
