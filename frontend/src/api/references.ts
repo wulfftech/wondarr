@@ -7,7 +7,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { useApiClient } from './context';
-import { ApiError } from './errors';
+import { ApiError, countOrThrow } from './errors';
 import { firstPage, pagingValues, type Paging } from './paging';
 import { validationFields, ValidationError } from './profiles';
 import type { components } from './schema';
@@ -195,7 +195,7 @@ export function useReferenceLibraryOwnedSongs(id: number | null): UseQueryResult
         throw new ApiError(response.status, 'The number of songs this library owns could not be read.');
       }
 
-      return Number(data.count);
+      return countOrThrow(data.count, response.status, 'The number of songs this library owns could not be read.');
     },
   });
 }
@@ -331,11 +331,11 @@ export function useMatchQueueTotal(): number | null {
         throw new ApiError(response.status, 'The Match queue request failed.');
       }
 
-      return Number(data.totalRecords);
+      return countOrThrow(data.totalRecords, response.status, 'The Match queue total could not be read.');
     },
   });
 
-  return query.data === undefined || !Number.isFinite(query.data) ? null : query.data;
+  return query.data ?? null;
 }
 
 /** Settles one file: a ranked candidate, an id picked from a search, or "leave it alone". */
