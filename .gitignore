@@ -65,6 +65,7 @@ docs/build/MODEL_VALUE_MATRIX.md
 docs/build/NEXT_SESSION_PROMPT.md
 docs/build/WORKER_*.md
 docs/build/PHASE_*_TASKS.md
+docs/build/archive/
 scripts/worker.py
 scripts/worker_agent.py
 scripts/test_worker_agent.py

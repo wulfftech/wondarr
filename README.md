@@ -56,7 +56,7 @@ docker compose up -d
 
 The same image is on Docker Hub as `wulfftech/wondarr`, with the same tags. Use it if your NAS's container app only searches Docker Hub.
 
-Unraid? There's a template — see [the Unraid guide](https://wulfftech.github.io/wondarr/getting-started/unraid/).
+Unraid? There's a template — see [the Unraid guide](https://wulfftech.github.io/wondarr/getting-started/unraid/). TrueNAS? It's in the community apps catalogue: **Apps → Discover → Wondarr**.
 
 ## Your first ten minutes
 
@@ -98,7 +98,7 @@ C# / .NET 10 (ASP.NET Core, EF Core + SQLite) and a React 19 + Mantine front end
 | [`NOTICE.md`](NOTICE.md) | Ported-code attributions and the third-party programs bundled in the image |
 | [`docs/adr/`](docs/adr/) | The architectural decisions, as ADRs |
 | [`docs/architecture/`](docs/architecture/) | Architecture, the matching engine, library output, stack, deployment, quality definitions |
-| [`docs/build/`](docs/build/) | Coding standards, repository layout |
+| [`docs/build/`](docs/build/) | Coding standards, repository layout, distribution channels |
 
 </details>
 

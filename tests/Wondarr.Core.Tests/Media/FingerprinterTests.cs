@@ -65,7 +65,7 @@ public sealed class FingerprinterTests
     }
 
     // fpcalc 1.6.1 stops at the first bad frame of a damaged MP3: exit 3 with a stub of a fingerprint when the
-    // error comes after some audio, exit 2 "Empty fingerprint" when it comes first. Recorded on ch01.
+    // error comes after some audio, exit 2 "Empty fingerprint" when it comes first. Recorded live.
     private const string StubFingerprint = "{\"duration\": 30.00, \"fingerprint\": \"AQAAKUmUaEkSZSoAAAAAAAAAAAAAAAAAAAAA\"}\n";
 
     private const string ReadError = "ERROR: Error reading from the audio source (Invalid data found when processing input)\n";

@@ -15,6 +15,7 @@ Wondarr ships as one image with everything bundled: the API and web UI, slskd (t
 |---|---|
 | Docker or Docker Compose | `ghcr.io/wulfftech/wondarr` or `wulfftech/wondarr`, below |
 | Unraid | The template, from its URL; see [Unraid](/wondarr/getting-started/unraid/) |
+| TrueNAS Community Edition | **Apps → Discover**, search for Wondarr (community train). The form sets the user, group, storage and Soulseek login. The web UI is on port 30536 and Soulseek on 30537, not 1077 and 50300 |
 
 ## Docker Compose
 
@@ -149,6 +150,6 @@ docker compose pull
 docker compose up -d
 ```
 
-If the image is pinned to a tag such as `:0.1`, change the tag to move to a new minor version; `:latest` follows every release. With `docker run`, pull the image, stop and remove the container, then create it again with the same command. On Unraid, open the **Docker** tab, choose **Check for updates**, then apply the update on the Wondarr container.
+If the image is pinned to a tag such as `:0.1`, change the tag to move to a new minor version; `:latest` follows every release. With `docker run`, pull the image, stop and remove the container, then create it again with the same command. On Unraid, open the **Docker** tab, choose **Check for updates**, then apply the update on the Wondarr container. On TrueNAS, update the app from **Apps → Installed** once the catalogue has the release; TrueNAS's bot adds each one after it is published.
 
 The database migrates itself when the new version starts. Wondarr does not take a backup first, so make one before a major upgrade: the **Backup** page in the web UI (in the left-hand navigation) has a **Back up now** button. Scheduled backups also run weekly into `/config/backups`.

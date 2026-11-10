@@ -7,7 +7,7 @@ namespace Wondarr.Sources.Tests.Slskd;
 public class SlskdLogWatcherTests
 {
     [Theory]
-    // The lines recorded live from the bundled slskd on ch01 on 2026-09-29.
+    // The lines recorded live from the bundled slskd on 2026-09-29.
     [InlineData("[23:05:36 INF] Logged in to the Soulseek server as wondarr-soulseek", SlskdLogSignal.LoggedIn)]
     [InlineData("[23:00:14 ERR] Disconnected from the Soulseek server: invalid username or password", SlskdLogSignal.InvalidCredentials)]
     [InlineData("[23:00:14 ERR] Failed to reconnect: The server rejected login attempt: INVALIDUSERNAME", SlskdLogSignal.InvalidCredentials)]
