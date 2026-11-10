@@ -196,7 +196,7 @@ public sealed class MediaProbeTests
     }
 
     // --- Reference files: a few bad frames are tolerated ----------------------------------------
-    // tone-320.mp3 is 3 000 ms. The shape of ffmpeg's output for a damaged file was recorded on ch01 with
+    // tone-320.mp3 is 3 000 ms. The shape of ffmpeg's output for a damaged file was recorded live with
     // ffmpeg 9.0.2: each bad frame is two or three stderr lines at -v error, and the lenient run exits 0.
 
     private const string Decoded3s = "out_time_us=3000000\nout_time=00:00:03.000000\nprogress=end\n";

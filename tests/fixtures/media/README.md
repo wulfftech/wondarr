@@ -1,6 +1,6 @@
 # Media fixtures
 
-Recorded 2026-09-29 inside `ghcr.io/wulfftech/wondarr:develop` (ffmpeg/ffprobe 9.0.2, fpcalc 1.6.1) on `ch01`.
+Recorded 2026-09-29 inside `ghcr.io/wulfftech/wondarr:develop` (ffmpeg/ffprobe 9.0.2, fpcalc 1.6.1) on a live test host.
 
 | File | Made with |
 |---|---|

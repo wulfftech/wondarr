@@ -28,24 +28,13 @@ scripts/remote-run.sh bash -c 'dotnet build -warnaserror && dotnet test'
 # Docker image (web UI on 1077, Soulseek on 50300)
 docker compose -f docker/docker-compose.yml up --build
 
-# Phase 0 gate smoke test against a built image (needs Docker, curl, jq)
+# the smoke test (every phase gate) against a built image (needs Docker, curl, jq)
 scripts/smoke-test.sh <image> [docker command]
 ```
 
 ## Repository map
 
-```
-src/Wondarr.Core/          # domain, matching engine, import pipeline, tagging, persistence (no ASP.NET)
-src/Wondarr.Api/           # ASP.NET Core host: /api/v1 controllers, auth, SignalR, SPA hosting
-src/Wondarr.Sources.*/     # slskd, YouTube Music (yt-dlp), Torznab/torrent/usenet providers
-frontend/                    # React 19 + TypeScript + Vite + Mantine + TanStack Query
-tests/                       # xUnit unit/integration tests and recorded fixtures
-docker/                      # Dockerfile, s6-overlay root files, docker-compose.yml
-scripts/                     # fetch-slskd.sh, smoke-test.sh, check-notice.py
-docs/                        # ADRs, architecture and build documentation
-```
-
-The full tree, including intended project and test names, is in [`docs/build/REPO_LAYOUT.md`](docs/build/REPO_LAYOUT.md).
+The tree, folder by folder, is in [`docs/build/REPO_LAYOUT.md`](docs/build/REPO_LAYOUT.md).
 
 ## Coding rules
 

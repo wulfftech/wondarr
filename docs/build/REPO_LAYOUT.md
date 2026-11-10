@@ -1,57 +1,38 @@
-# Intended repository layout
-
-Created incrementally from Phase 0 onward. Names are binding unless an ADR changes them.
+# Repository layout
 
 ```
 wondarr/
-├── README.md · LICENSE (GPL-3.0) · NOTICE.md (ported-code attributions) · CHANGELOG.md
-├── .env.example · .editorconfig · .gitignore
+├── README.md · LICENSE (GPL-3.0) · NOTICE.md (ported-code attributions) · CHANGELOG.md · CONTRIBUTING.md
 ├── global.json                    # pins the .NET 10 SDK
-├── Directory.Build.props          # nullable, warnings-as-errors, analyzers, InvariantGlobalization
+├── Directory.Build.props          # nullable, warnings as errors, analyzers, InvariantGlobalization
 ├── Directory.Packages.props       # central package versions
 ├── Wondarr.sln
 ├── src/
-│   ├── Wondarr.Core/            # domain, decision engine, import pipeline, metadata, organizer, tagging (no ASP.NET)
-│   │   ├── Domain/                # Song, Artist, AlbumContext, Quality, Profiles, Library, ReferenceLibrary…
-│   │   ├── Metadata/              # MusicBrainz, CAA, Deezer, iTunes, AcoustID, LRCLIB clients + cache + rate limiter
-│   │   ├── Decision/              # Candidate, specifications (rejections), scoring
-│   │   ├── Import/                # probe, verify, tag, organize, place, notify
-│   │   ├── Organizer/             # naming template engine (Lidarr-style tokens), album policy ("fewest albums")
-│   │   ├── Tagging/               # ATL-based writer, Picard mapping
-│   │   ├── Sources/               # ISourceProvider, IDownloadClient abstractions
-│   │   ├── ImportLists/           # CSV (Exportify), Deezer, YouTube Music, Last.fm, ListenBrainz, reference library
-│   │   ├── Notifications/         # ported providers
-│   │   ├── Jobs/                  # command queue, scheduled jobs
-│   │   └── Persistence/           # EF Core DbContext, migrations
-│   ├── Wondarr.Sources.Slskd/   # slskd HTTP client, SlskdHost (bundled process supervisor), settings rendering
-│   ├── Wondarr.Sources.YouTube/ # YouTube Music (InnerTube) search, yt-dlp runner, output policy
-│   ├── Wondarr.Sources.Torznab/ # Torznab/Newznab + Prowlarr + Gazelle-direct, qBittorrent, SABnzbd (ported)
-│   ├── Wondarr.Api/             # ASP.NET Core host: controllers (/api/v1), auth, SignalR, static SPA hosting
-│   └── Wondarr.Host/            # Program.cs, DI composition, hosted services (optional split from Api)
-├── frontend/                      # React 19 + TypeScript + Vite + Mantine + TanStack
-│   ├── src/{app,pages,components,api,hooks,theme}/
-│   └── package.json
+│   ├── Wondarr.Core/              # everything but HTTP and the sources: one folder per area
+│   │                              #   Decisions (rejections, scoring), Searching, Importing, Verification,
+│   │                              #   Identity, Metadata, Organizer, Tagging, References, ImportLists, Plex,
+│   │                              #   Notifications, Jobs, Persistence (EF Core, migrations), …
+│   ├── Wondarr.Sources.Slskd/     # slskd HTTP client, the bundled-process supervisor, settings rendering
+│   ├── Wondarr.Sources.YouTube/   # YouTube Music (InnerTube) search, the yt-dlp runner, output policy
+│   ├── Wondarr.Sources.Torznab/   # Torznab, Newznab, Prowlarr, Gazelle; qBittorrent and SABnzbd
+│   └── Wondarr.Api/               # ASP.NET Core host: /api/v1 controllers, auth, SignalR, the SPA, Program.cs
+├── frontend/src/{app,api,components,pages,theme,test}/   # React 19, TypeScript, Vite, Mantine, TanStack Query
 ├── tests/
-│   ├── Wondarr.Core.Tests/      # xUnit + FluentAssertions; golden tests for parsing/scoring/naming
-│   ├── Wondarr.Api.Tests/       # WebApplicationFactory integration tests
-│   ├── Wondarr.Sources.Tests/   # contract tests against recorded fixtures (slskd, qBittorrent, SABnzbd, MB, AcoustID)
-│   └── fixtures/                  # recorded JSON/XML responses, sample audio (tiny), sample NZB/torrent files
-├── docker/
-│   ├── Dockerfile                 # multi-stage: frontend build → dotnet publish → runtime (+ffmpeg, fpcalc, deno, slskd)
-│   ├── root/                      # s6-overlay init scripts, PUID/PGID handling
-│   └── docker-compose.yml
-├── scripts/
-│   ├── worker.py                  # cheap-worker runner (OpenRouter)
-│   ├── worker_agent.py            # sandboxed tool-calling agent loop used by worker.py run
-│   ├── test_worker_agent.py       # offline tests for it (python scripts/test_worker_agent.py)
-│   ├── openrouter_value.py        # live price/benchmark value matrix generator
-│   ├── fetch-slskd.sh             # downloads + verifies the pinned slskd release at image build
-│   └── dev.sh / dev.ps1           # run API + frontend locally
-├── .github/workflows/             # ci.yml (build/test/lint), release.yml (multi-arch image → GHCR), codeql.yml
-├── .claude/
-│   ├── agents/                    # subagent definitions (worker, reviewer, researcher)
-│   └── settings.json              # project permissions + hooks
-└── docs/                          # this documentation set (see README.md map)
+│   ├── Wondarr.Core.Tests/        # xUnit + FluentAssertions
+│   ├── Wondarr.Api.Tests/         # WebApplicationFactory integration tests
+│   ├── Wondarr.Sources.Tests/     # contract tests against recorded fixtures
+│   ├── fixtures/                  # recorded responses, tiny sample audio, NZB and torrent files
+│   └── gate/                      # phase-gate scenarios and the recorded metadata the smoke test replays
+├── tools/FakeSlskd/               # the fake slskd, AcoustID and container stubs the gates run against
+├── docker/                        # Dockerfile (frontend → publish → runtime with ffmpeg, fpcalc, deno, slskd),
+│                                  #   root/ (s6-overlay, PUID/PGID), docker-compose.yml, DOCKERHUB.md
+├── scripts/                       # smoke-test.sh, phase<n>-gate.py, metadata-replay.py, safe-merge.sh,
+│                                  #   remote-run.sh, check-notice.py, fetch-slskd.sh; tests/ for the shell scripts
+├── website/                       # the docs site (Starlight), published to GitHub Pages by docs.yml
+├── packaging/                     # catalogue entries for TrueNAS, Cosmos and DockSTARTer (see its README)
+├── unraid/ · ca_profile.xml       # the Unraid template and Community Applications profile
+├── .github/workflows/             # ci.yml, release.yml, mirror-dockerhub.yml, docs.yml, record-gate-metadata.yml
+└── docs/                          # adr/, architecture/, build/, api/openapi.json, screenshots/
 ```
 
-Solution-wide conventions live in `docs/build/CODING_STANDARDS.md`.
+Solution-wide conventions are in `docs/build/CODING_STANDARDS.md`.

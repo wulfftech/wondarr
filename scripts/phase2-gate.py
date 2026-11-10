@@ -6,7 +6,7 @@ imports in a manual audit of 30 files; a deliberately wrong file (live version) 
 next candidate tried without user action; the search budget is never exceeded; toggling 'Share my
 library' changes slskd's shares."
 
-What this script does, against any running instance (CI with FakeSlskd, or ch01 with real Soulseek):
+What this script does, against any running instance (CI with FakeSlskd, or a live test host with real Soulseek):
   1. optionally pastes a song list (POST /api/v1/song/bulk) and waits for it;
   2. runs MissingSearch until no wanted song is left untried (or --rounds is reached) and waits for
      the download queue to drain;
