@@ -76,6 +76,21 @@ If your music and downloads are mounted somewhere else, set `WONDARR_MEDIA_ROOT`
 
 One mount matters because torrent imports are hard links: Wondarr links the finished file out of the torrent client's download folder so the torrent keeps seeding. A hard link cannot cross filesystems, so the torrent client's downloads and Wondarr's staging folder must be on the same mount. When a link is not possible Wondarr copies the file instead. See [qBittorrent](/wondarr/sources/qbittorrent/).
 
+### Network shares
+
+When your music is on an NFS or SMB share mounted on the host, two things go wrong while the share is not mounted:
+
+- **Docker can't start the container.** If the bind source is an automount (`x-systemd.automount` in `/etc/fstab`) that fails, Docker's start fails with `no such device`, and a restart policy never retries a container that failed to start. Mount the share normally, with `nofail`, so the container starts either way.
+- **Files land on the host's own disk.** An unmounted mount point is an empty folder on the host, and anything written there is hidden once the share mounts over it. Make the folder immutable, once, while the share is unmounted:
+
+  ```bash
+  sudo umount /mnt/music && sudo chattr +i /mnt/music && sudo mount /mnt/music
+  ```
+
+  Nothing can write into it then, root included, and the share still mounts over it. Bind it with `rslave` propagation (`/mnt/music:/data/music:rslave`) so a share mounted after the container started shows up inside it.
+
+Wondarr itself writes into a library only while the library's folder holds its `.wondarr-library` file, and reports a library without it as a health error (see [Managing the library](/wondarr/library/managing-the-library/#when-the-library-folder-is-missing)).
+
 ## Ports
 
 | Port | Use |

@@ -28,6 +28,8 @@ description: What the health messages mean, why a song stays wanted, and the usu
 | `yt-dlp could not be run: it is not installed or not on PATH …` | Only shown when the YouTube source is on. Pull the image again. A missing Deno runtime is reported as well. |
 | `Plex partial scan failed: …` | Wondarr could not ask Plex to scan. Check that Plex is running and reachable, press **Test** under **Settings → Plex**, and check the path mapping. See [Plex](/wondarr/sources/plex/). |
 | `<path> is not writable: …` for `/config` or `/config/logs` | See Permissions below. |
+| `Library "<name>": <folder> does not exist. …` | The library's folder, or the share it is on, is not there. Mount it; downloads for the library wait in the queue until then. See [Managing the library](/wondarr/library/managing-the-library/#when-the-library-folder-is-missing). |
+| `Library "<name>": <folder> has no .wondarr-library file, …` | The folder is there but is not the library's: usually an unmounted share, which is an empty folder. Mount it. If you emptied or moved the library on purpose, press **This is the right folder** under **Settings → Library**. |
 | `Database is not available: …` | The database could not be opened. Check `/config/wondarr.db` and the free space; restore a [backup](/wondarr/operations/tasks-backups-logs/) if it is damaged. |
 
 ## A song stays wanted
@@ -61,6 +63,10 @@ chown -R 1000:1000 /srv/data/music /srv/data/downloads
 ```
 
 Use the same ids as the other \*arr containers so they can all read each other's files. `UMASK=002` makes new files group-writable. If Plex cannot read the library, check the ownership and mode of the library folder, or turn on `import.set_permissions` (see [Configuration](/wondarr/reference/configuration/)).
+
+## The container does not start after a reboot
+
+`docker ps -a` shows Wondarr as `Exited (128)`, and `docker inspect wondarr` names an error like `error mounting "/mnt/music" to rootfs at "/data/music": … no such device`. The music share was not mounted yet when Docker started the container (the network or DNS was not up), and Docker does not retry a container that failed to start. Start it with `docker compose up -d` once the share is up. To stop it happening again, mount the share without `x-systemd.automount`; see [Network shares](/wondarr/getting-started/install/#network-shares).
 
 ## Hard links failing
 

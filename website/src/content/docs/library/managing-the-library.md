@@ -1,6 +1,6 @@
 ---
 title: Managing the library
-description: Filter the Library page, save views, tag songs, and change many songs at once.
+description: Filter the Library page, save views, tag songs, change many songs at once, and what happens when a library's folder is missing.
 ---
 
 The **Library** page lists every song Wondarr manages. Above the table is a filter bar; select rows to change many songs at once.
@@ -59,3 +59,21 @@ Below that, the tabs are:
 - **Last.fm:** only when you have set a Last.fm key in Settings. Listeners, plays, tags, the wiki summary (with a link to read more on Last.fm), a short artist bio and similar tracks; one that you already own links to its own page.
 - **Lyrics:** looked up only when you open the tab: a lyrics file next to the song, else LRCLIB. Timestamps are not shown.
 - **History** and **Queue & blocklist:** only this song's entries; queue items and blocklist entries can be removed here just as on the Activity page.
+
+## When the library folder is missing
+
+Every library's folder holds a small `.wondarr-library` file. Wondarr writes into a library only while that file is there, so an unmounted share is never filled with files that the share would hide when it comes back.
+
+While the file or the folder is missing:
+
+| What | What happens |
+|---|---|
+| Health | **System** shows `Library "<name>": …` as an error, and a [health notification](/wondarr/operations/notifications/) goes out if you have one. |
+| Downloads | They wait in the queue with that message and import once the folder is back. Nothing is blocklisted or counted as a failure. |
+| Searches | The scheduled searches skip the library's songs. Interactive search still works; a manual grab waits in the queue. |
+| Compact, conversions, playlists, Soulseek shares | They wait too: nothing is moved, converted or written, and the share is not rescanned. |
+
+Mount the share and the library carries on by itself within a few minutes.
+
+**A folder you emptied or moved on purpose** has no file yet: press **This is the right folder** on the library under **Settings → Library**. A library you create gets the file straight away. A library from an earlier version gets it the first time Wondarr finds one of its recent files in the folder, or at once when it holds no files yet.
+
