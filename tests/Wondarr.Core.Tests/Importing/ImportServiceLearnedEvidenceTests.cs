@@ -20,6 +20,8 @@ public sealed class ImportServiceLearnedEvidenceTests
     private const string OtherReason =
         "Fingerprint belongs to a different recording: Please Come Out Tonight (c80ad2a5), score 0.97";
 
+    private const string ArtistReason = "Not in AcoustID, and the artist tag names another artist (Middle M)";
+
     private const string SameTitleReason =
         "Fingerprint belongs to a different recording: Sugar and Spice (id-1), score 0.97";
 
@@ -144,6 +146,55 @@ public sealed class ImportServiceLearnedEvidenceTests
     }
 
     [Fact]
+    public async Task An_artist_rule_refusal_of_a_compilation_file_that_passed_on_its_title_alone_counts_a_miss()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = Failed(ArtistReason, differentRecording: false, otherTitle: null, otherArtist: true);
+        var seed = await host.SeedAsync(options => SaddleClub(options, @"@@a\Various Artists\Nuggets\Disc 1\1-18 Sugar And Spice.flac"));
+
+        var outcome = await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        outcome.Should().Be(ImportOutcome.Rejected);
+
+        var learned = await host.Context.Blocklist
+            .Where(row => row.BlocklistKey.StartsWith(BlocklistKeys.LearnedOpening))
+            .ToListAsync();
+        var miss = learned.Should().ContainSingle("no other recording's title is known, so only the miss is counted").Subject;
+        miss.BlocklistKey.Should().Be(BlocklistKeys.CompilationMiss(seed.BlocklistKey));
+        miss.SongId.Should().Be(seed.SongId);
+        miss.Reason.Should().Be(ArtistReason);
+        miss.ExpiresAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_same_artist_rule_miss_is_not_counted_twice()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = Failed(ArtistReason, differentRecording: false, otherTitle: null, otherArtist: true);
+        var seed = await host.SeedAsync(options => SaddleClub(options, @"@@a\Various Artists\Nuggets\Disc 1\1-18 Sugar And Spice.flac"));
+        host.Context.Blocklist.Add(Row(seed.SongId, BlocklistKeys.CompilationMiss(seed.BlocklistKey)));
+        await host.Context.SaveChangesAsync();
+
+        await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        var keys = await host.Context.Blocklist.Select(row => row.BlocklistKey).ToListAsync();
+        BlocklistKeys.CompilationMisses(keys).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task An_artist_rule_refusal_of_a_file_that_was_not_on_a_compilation_path_counts_no_miss()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.Verifier.Result = Failed(ArtistReason, differentRecording: false, otherTitle: null, otherArtist: true);
+        var seed = await host.SeedAsync(options => SaddleClub(options, @"@@a\Music\Nuggets\CD1\18 Sugar and Spice.flac"));
+
+        await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None);
+
+        var keys = await host.Context.Blocklist.Select(row => row.BlocklistKey).ToListAsync();
+        keys.Should().NotContain(key => key.StartsWith(BlocklistKeys.LearnedOpening, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task After_the_second_miss_the_next_search_refuses_such_files_for_this_song_only()
     {
         await using var host = await ImportTestHost.CreateAsync();
@@ -191,7 +242,7 @@ public sealed class ImportServiceLearnedEvidenceTests
         Reason = "earlier",
     };
 
-    private static VerificationResult Failed(string reason, bool differentRecording, string? otherTitle) =>
+    private static VerificationResult Failed(string reason, bool differentRecording, string? otherTitle, bool otherArtist = false) =>
         new(
             VerificationOutcome.Failed,
             reason,
@@ -203,7 +254,8 @@ public sealed class ImportServiceLearnedEvidenceTests
             null,
             false,
             DifferentRecording: differentRecording,
-            OtherRecordingTitle: otherTitle);
+            OtherRecordingTitle: otherTitle,
+            OtherArtist: otherArtist);
 
     /// <summary>Judges a candidate the way a search for the song does: against the song's active blocklist keys.</summary>
     private static async Task<CandidateDecision> Judge(ImportTestHost host, long songId, Candidate candidate)

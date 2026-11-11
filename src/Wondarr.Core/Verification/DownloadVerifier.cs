@@ -73,6 +73,11 @@ public sealed record VerificationRequest(
 /// The title of the recording AcoustID named instead, when <paramref name="DifferentRecording"/> is set and
 /// the recording has a title. A file titled that is not the song either, so the import remembers it.
 /// </param>
+/// <param name="OtherArtist">
+/// Whether a <see cref="VerificationOutcome.Failed"/> verdict is because the file's own tag or name names
+/// another artist while AcoustID did not know it. Like <paramref name="DifferentRecording"/> it says the
+/// source's file is not this song, so the import counts a compilation miss; there is no other title to learn.
+/// </param>
 public sealed record VerificationResult(
     VerificationOutcome Outcome,
     string Reason,
@@ -85,7 +90,8 @@ public sealed record VerificationResult(
     bool FingerprintVerified,
     bool KeyRejected = false,
     bool DifferentRecording = false,
-    string? OtherRecordingTitle = null);
+    string? OtherRecordingTitle = null,
+    bool OtherArtist = false);
 
 /// <summary>Decides whether a downloaded file is the wanted recording.</summary>
 public interface IDownloadVerifier
@@ -305,7 +311,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             },
             ArtistEvidenceKind.Other => new Verdict(
                 VerificationOutcome.Failed,
-                $"{basis}, and the {evidence.Source} names another artist ({evidence.Artist})"),
+                $"{basis}, and the {evidence.Source} names another artist ({evidence.Artist})",
+                OtherArtist: true),
             _ => new Verdict(
                 options.Strict ? VerificationOutcome.Failed : VerificationOutcome.NeedsReview,
                 $"{basis}, and nothing in the file names the artist"),
@@ -646,7 +653,8 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
             verdict.FingerprintVerified,
             keyRejected,
             verdict.DifferentRecording,
-            verdict.OtherRecordingTitle);
+            verdict.OtherRecordingTitle,
+            verdict.OtherArtist);
     }
 
     /// <summary>Whole seconds, for the lines a human reads.</summary>
@@ -671,5 +679,6 @@ public sealed partial class DownloadVerifier : IDownloadVerifier
         string? MatchedRecordingId = null,
         string? LearnedMbRecordingId = null,
         bool DifferentRecording = false,
-        string? OtherRecordingTitle = null);
+        string? OtherRecordingTitle = null,
+        bool OtherArtist = false);
 }
