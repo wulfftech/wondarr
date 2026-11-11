@@ -36,6 +36,11 @@ namespace Wondarr.Api.Profiles;
 /// Whether every file placed in this library carries ReplayGain track gain and peak tags. Off by
 /// default; the audio is never changed. On a PUT an omitted key keeps the stored value; on a POST it means off.
 /// </param>
+/// <param name="RootStatus">
+/// Whether the root folder is safe to write into, checked live on every read: <c>ready</c> (it exists and
+/// holds the <c>.wondarr-library</c> marker), <c>missing</c> (it does not exist) or <c>unmarked</c> (it
+/// exists without the marker, which is how an unmounted share looks). Ignored on a POST or PUT.
+/// </param>
 public sealed record LibraryResource(
     long Id,
     string Name,
@@ -49,7 +54,8 @@ public sealed record LibraryResource(
     string? PlexSectionId,
     string? PlexLibraryPath,
     bool IsDefault,
-    bool? ReplayGain = null);
+    bool? ReplayGain = null,
+    LibraryRootStatus RootStatus = LibraryRootStatus.Ready);
 
 /// <summary>Maps between <see cref="Library"/> and <see cref="LibraryResource"/>.</summary>
 public static class LibraryResourceMapper
@@ -59,7 +65,8 @@ public static class LibraryResourceMapper
 
     /// <summary>Builds the resource for <paramref name="library"/>.</summary>
     /// <param name="library">The stored library.</param>
-    public static LibraryResource ToResource(this Library library)
+    /// <param name="rootStatus">What a live check of the root found.</param>
+    public static LibraryResource ToResource(this Library library, LibraryRootStatus rootStatus)
     {
         ArgumentNullException.ThrowIfNull(library);
 
@@ -79,7 +86,8 @@ public static class LibraryResourceMapper
             library.PlexSectionId,
             library.PlexLibraryPath,
             library.IsDefault,
-            library.ReplayGain);
+            library.ReplayGain,
+            rootStatus);
     }
 
     /// <summary>Builds the library <paramref name="resource"/> describes.</summary>

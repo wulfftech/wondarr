@@ -6,6 +6,7 @@ using Wondarr.Core.Jobs;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Searching;
 
@@ -475,7 +476,7 @@ public async Task A_run_that_found_no_free_slot_neither_resets_nor_lengthens_the
     }
 
     private static MissingSearchCommandHandler Handler(SearchTestHost host) =>
-        new(host.Scopes, host.Monitor, host.Time, NullLogger<MissingSearchCommandHandler>.Instance);
+        new(host.Scopes, host.Monitor, host.Time, TestLibraryRoots.Real, NullLogger<MissingSearchCommandHandler>.Instance);
 
     private static CommandContext Context(List<string> progress) =>
         new(1, null, CommandTrigger.Scheduled, message =>

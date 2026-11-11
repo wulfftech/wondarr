@@ -76,6 +76,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, RecycleBinHealthCheck>();
         services.AddScoped<IHealthCheck, ProtectedPathsHealthCheck>();
         services.AddScoped<IHealthCheck, ReferenceMissingFilesHealthCheck>();
+        services.AddScoped<IHealthCheck, LibraryRootHealthCheck>();
         services.AddScoped<IHealthCheck, CompactMoveHealthCheck>();
         services.AddScoped<IHealthCheck, ImportListReadHealthCheck>();
         services.AddScoped<IHealthCheck, ImportListScanWaitHealthCheck>();
@@ -176,6 +177,12 @@ public static class ServiceCollectionExtensions
         // File placement: the disk seam and the three services that use it hold no request state, so
         // they are singletons like the rest of the pipeline's stateless parts.
         services.AddSingleton<IDiskOperations, DiskOperations>();
+
+        // The marker check every write into a library goes through, live on the disk and never cached;
+        // the adopter marks the libraries that predate it and runs at startup and from the health check.
+        services.AddSingleton<ILibraryRoots, LibraryRoots>();
+        services.AddScoped<ILibraryRootAdopter, LibraryRootAdopter>();
+        services.AddHostedService<LibraryRootAdoptionHostedService>();
         services.AddSingleton<IRemotePathMapper, RemotePathMapper>();
         services.AddSingleton<IRecycleBin, RecycleBin>();
         services.AddSingleton<IFilePlacer, FilePlacer>();
@@ -460,7 +467,13 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<WondarrDbContext>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DatabaseMigrator>>(),
             () => provider.GetService<IBackupService>(),
-            newLibraryRoot: provider.GetService<WondarrPaths>()?.DefaultLibraryRoot));
+            newLibraryRoot: provider.GetService<WondarrPaths>()?.DefaultLibraryRoot,
+
+            // A new database's library root is created and marked here, where the user has no files
+            // yet; adoption never creates a root.
+            prepareNewLibraryRoot: provider.GetService<Wondarr.Core.Organizer.ILibraryRoots>() is { } roots
+                ? roots.Mark
+                : null));
         services.AddHostedService<DatabaseMigrationHostedService>();
 
         // After the migration, so the notification table exists: stored notification secrets reach the log redactor.

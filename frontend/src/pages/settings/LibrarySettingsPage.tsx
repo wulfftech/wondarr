@@ -28,6 +28,7 @@ import {
   ALBUM_POLICIES,
   LIBRARY_LAYOUTS,
   readOutputPolicy,
+  useConfirmLibraryRoot,
   useCreateLibrary,
   useDeleteLibrary,
   useLibraries,
@@ -624,6 +625,83 @@ function DeleteLibraryModal({
 }
 
 /** The library settings: one panel per library, each with its form, rules and commands. */
+/** Whether Wondarr is holding writes into this library back (LIBRARY_OUTPUT §7.9). */
+function isRootNotReady(library: LibraryResource): boolean {
+  return library.rootStatus === 'missing' || library.rootStatus === 'unmarked' || library.rootStatus === 'unresponsive';
+}
+
+/**
+ * Says why Wondarr is not writing into a library whose folder is missing or has no `.wondarr-library`
+ * file (an unmounted share looks like that), with the confirm button for a folder emptied or moved on
+ * purpose (LIBRARY_OUTPUT §7.9). Nothing for a ready library.
+ */
+export function LibraryRootAlert({ library }: { library: LibraryResource }) {
+  const confirm = useConfirmLibraryRoot();
+
+  if (!isRootNotReady(library)) {
+    return null;
+  }
+
+  const failure =
+    confirm.error instanceof ValidationError
+      ? Object.values(confirm.error.fields).join(' ') || confirm.error.message
+      : confirm.error?.message;
+
+  if (library.rootStatus === 'unresponsive') {
+    return (
+      <Alert color="red" icon={<CircleAlert size={16} />} title="The library folder is not answering">
+        <Text size="sm">
+          {library.rootPath} did not answer within 5 seconds, so its share may be hung. Downloads for this library wait
+          in the queue until it answers; bring the server back or remount the share.
+        </Text>
+      </Alert>
+    );
+  }
+
+  if (library.rootStatus === 'missing') {
+    return (
+      <Alert color="red" icon={<CircleAlert size={16} />} title="The library folder is missing">
+        <Text size="sm">
+          {library.rootPath} does not exist. Downloads for this library wait in the queue until it is back; if it is on
+          a share, mount it.
+        </Text>
+      </Alert>
+    );
+  }
+
+  return (
+    <Alert color="red" icon={<CircleAlert size={16} />} title="This folder is not marked as the library">
+      <Stack gap="xs">
+        <Text size="sm">
+          {library.rootPath} has no .wondarr-library file, so it looks like an unmounted share. Downloads for this
+          library wait in the queue, and nothing is written into the folder. If the share is mounted and this is the
+          right folder (you emptied or moved the library yourself), confirm it.
+        </Text>
+        {failure !== undefined && (
+          <Text size="sm" c="red">
+            {failure}
+          </Text>
+        )}
+        <Group>
+          <Button
+            variant="light"
+            color="red"
+            loading={confirm.isPending}
+            onClick={() =>
+              confirm.mutate(Number(library.id), {
+                onSuccess: () =>
+                  notifications.show({ message: `${library.name}: the folder is confirmed.`, color: 'green' }),
+              })
+            }
+          >
+            This is the right folder
+          </Button>
+        </Group>
+      </Stack>
+    </Alert>
+  );
+}
+
 export function LibrarySettingsPage() {
   const libraries = useLibraries();
   const [adding, setAdding] = useState(false);
@@ -681,6 +759,11 @@ export function LibrarySettingsPage() {
                     default
                   </Badge>
                 )}
+                {isRootNotReady(library) && (
+                  <Badge variant="light" color="red" ml="xs">
+                    folder not ready
+                  </Badge>
+                )}
               </Tabs.Tab>
             ))}
           </Tabs.List>
@@ -712,6 +795,8 @@ export function LibrarySettingsPage() {
                     )}
                   </Group>
                 </Group>
+
+                <LibraryRootAlert library={library} />
 
                 <LibraryForm key={String(library.id)} library={library} />
               </Stack>

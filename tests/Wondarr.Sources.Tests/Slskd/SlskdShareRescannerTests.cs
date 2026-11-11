@@ -1,5 +1,8 @@
 using FluentAssertions;
+using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Organizer;
+using Wondarr.Core.Profiles;
 using Wondarr.Sources.Slskd;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,6 +19,8 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new();
     private readonly SlskdStatus _status = new();
     private readonly ISlskdClient _client = Substitute.For<ISlskdClient>();
+    private readonly ILibraryService _libraries = Substitute.For<ILibraryService>();
+    private readonly ILibraryRoots _roots = Substitute.For<ILibraryRoots>();
     private readonly IOptionsMonitor<SoulseekOptions> _monitor = Substitute.For<IOptionsMonitor<SoulseekOptions>>();
     private readonly List<Action<SoulseekOptions, string?>> _listeners = [];
     private readonly ServiceProvider _provider;
@@ -37,8 +42,16 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
 
         _client.RescanSharesAsync(Arg.Any<CancellationToken>()).Returns(SlskdRescanOutcome.Started);
 
+        // One library under the shared folder, ready unless a test says otherwise.
+        _libraries.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Library>>([new Library { Id = 1, Name = "Music", RootPath = "/data/music/library" }]));
+        _roots.CheckAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(LibraryRootStatus.Ready));
+        _roots.Describe(Arg.Any<Library>(), Arg.Any<LibraryRootStatus>()).Returns("Library \"Music\" is not ready.");
+
         var services = new ServiceCollection();
         services.AddScoped(_ => _client);
+        services.AddScoped(_ => _libraries);
+        services.AddSingleton(_roots);
         _provider = services.BuildServiceProvider();
 
         _rescanner = new SlskdShareRescanner(
@@ -242,6 +255,60 @@ public sealed class SlskdShareRescannerTests : IAsyncDisposable
 
         result.Should().StartWith("Nothing to do: sharing is off");
         Scans().Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(LibraryRootStatus.Missing)]
+    [InlineData(LibraryRootStatus.Unmarked)]
+    public async Task A_rescan_waits_for_nothing_while_a_library_under_a_shared_folder_is_not_ready(LibraryRootStatus status)
+    {
+        _roots.CheckAsync("/data/music/library", Arg.Any<CancellationToken>()).Returns(Task.FromResult(status));
+
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().StartWith("Nothing to do: a shared library folder is not ready").And.Contain("Library \"Music\" is not ready.");
+        Scans().Should().Be(0, "a rescan of an empty mount point would tell Soulseek peers the share is empty");
+
+        _roots.CheckAsync("/data/music/library", Arg.Any<CancellationToken>()).Returns(Task.FromResult(LibraryRootStatus.Ready));
+
+        (await _rescanner.RescanNowAsync(CancellationToken.None)).Should().Be("Asked slskd to rescan its shares");
+        Scans().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_failing_library_lookup_waits_instead_of_faulting_the_service()
+    {
+        _libraries.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns<Task<IReadOnlyList<Library>>>(_ => throw new InvalidOperationException("database is locked"));
+
+        var result = await _rescanner.RescanNowAsync(CancellationToken.None);
+
+        result.Should().StartWith("Nothing to do:").And.Contain("could not be checked");
+        Scans().Should().Be(0);
+
+        // The background loop retries rather than dying.
+        await _rescanner.StartAsync(_stopping.Token);
+        _rescanner.RequestRescan();
+        await AdvanceAsync(SlskdShareRescanner.QuietPeriod + TimeSpan.FromSeconds(5));
+        _rescanner.IsPending.Should().BeTrue("a request that could not be assessed stays pending");
+    }
+
+    [Fact]
+    public async Task A_hung_library_folder_counts_as_not_ready()
+    {
+        _roots.CheckAsync("/data/music/library", Arg.Any<CancellationToken>()).Returns(Task.FromResult(LibraryRootStatus.Unresponsive));
+
+        (await _rescanner.RescanNowAsync(CancellationToken.None)).Should().StartWith("Nothing to do: a shared library folder is not ready");
+        Scans().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_library_outside_every_shared_folder_does_not_hold_the_rescan_back()
+    {
+        _options = new SoulseekOptions { ShareLibrary = true, SharedFolders = ["/data/other"] };
+        _roots.CheckAsync("/data/music/library", Arg.Any<CancellationToken>()).Returns(Task.FromResult(LibraryRootStatus.Unmarked));
+
+        (await _rescanner.RescanNowAsync(CancellationToken.None)).Should().Be("Asked slskd to rescan its shares");
     }
 
     [Fact]

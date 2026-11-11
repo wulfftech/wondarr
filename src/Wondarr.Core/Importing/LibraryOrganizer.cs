@@ -24,6 +24,12 @@ public enum OrganizeFailure
 
     /// <summary>The file was tagged but could not be placed.</summary>
     Placement,
+
+    /// <summary>
+    /// The library's root folder is missing or carries no marker file (an unmounted share looks like
+    /// that), so nothing was written. Not a failure of the file: the caller waits and tries later.
+    /// </summary>
+    LibraryUnavailable,
 }
 
 /// <summary>One file to file under a library: the song it is, where it is, and what it may replace.</summary>
@@ -140,6 +146,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     private readonly IFilePlacer _placer;
     private readonly ICoverFetcher _coverFetcher;
     private readonly IDiskOperations _disk;
+    private readonly ILibraryRoots _roots;
     private readonly WondarrDbContext _db;
     private readonly ICoverImageProcessor _coverProcessor;
     private readonly ILrclibClient _lrclib;
@@ -152,6 +159,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     /// <param name="placer">Puts the file at its library path, recycling what it replaces.</param>
     /// <param name="coverFetcher">Downloads the cover to embed.</param>
     /// <param name="disk">Stages the copy of a kept source and writes the folder's cover.</param>
+    /// <param name="roots">Refuses to write into a library whose root is not marked.</param>
     /// <param name="db">Reads the album contexts of the folder the file is landing in.</param>
     /// <param name="coverProcessor">Bounds the cover before it is embedded.</param>
     /// <param name="lrclib">Asks LRCLIB for the track's lyrics; a failure there is never an import failure.</param>
@@ -163,6 +171,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         IFilePlacer placer,
         ICoverFetcher coverFetcher,
         IDiskOperations disk,
+        ILibraryRoots roots,
         WondarrDbContext db,
         ICoverImageProcessor coverProcessor,
         ILrclibClient lrclib,
@@ -174,6 +183,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         ArgumentNullException.ThrowIfNull(placer);
         ArgumentNullException.ThrowIfNull(coverFetcher);
         ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(coverProcessor);
         ArgumentNullException.ThrowIfNull(lrclib);
@@ -185,6 +195,7 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
         _placer = placer;
         _coverFetcher = coverFetcher;
         _disk = disk;
+        _roots = roots;
         _db = db;
         _coverProcessor = coverProcessor;
         _lrclib = lrclib;
@@ -197,6 +208,20 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
     public async Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        // Before anything is written, staging copy included: a root that is missing or unmarked is
+        // probably an unmounted share, and creating the folders under it would fill the host's own disk.
+        var rootStatus = _roots.Check(request.Library.RootPath);
+
+        if (rootStatus != LibraryRootStatus.Ready)
+        {
+            return new OrganizeResult(
+                OrganizeFailure.LibraryUnavailable,
+                _roots.Describe(request.Library, rootStatus),
+                null,
+                null,
+                NothingWritten);
+        }
 
         var sidecar = LibrarySidecarOptions.Parse(request.Library.SidecarOptions);
 
@@ -282,9 +307,21 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
                         relative,
                         request.Extension,
                         TransferMode.Move,
-                        request.ReplacesPath),
+                        request.ReplacesPath,
+                        request.Library.Name),
                     cancellationToken)
                 .ConfigureAwait(false);
+
+            if (placement.RootUnavailable)
+            {
+                // The share dropped between the organizer's check and the placement: a wait.
+                return new OrganizeResult(
+                    OrganizeFailure.LibraryUnavailable,
+                    placement.Error,
+                    null,
+                    placement.RecycledPath,
+                    NothingWritten);
+            }
 
             if (!placement.Success || placement.FinalPath is null)
             {

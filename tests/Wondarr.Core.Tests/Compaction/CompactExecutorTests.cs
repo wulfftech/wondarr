@@ -19,6 +19,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Compaction;
 
@@ -84,7 +85,7 @@ public partial class CompactExecutorTests : IDisposable
         _bin = Path.Combine(Path.GetTempPath(), "wondarr-compact-tests", Guid.NewGuid().ToString("N"), "recycle");
         _config = Path.Combine(Path.GetTempPath(), "wondarr-compact-tests", Guid.NewGuid().ToString("N"), "config");
 
-        Directory.CreateDirectory(_root);
+        TestLibraryRoots.Mark(_root);
         Directory.CreateDirectory(_bin);
         Directory.CreateDirectory(_config);
 
@@ -148,6 +149,7 @@ public partial class CompactExecutorTests : IDisposable
             _planner,
             _organizer,
             _faulty,
+            TestLibraryRoots.Over(_disk),
             recycleBin,
             _connection,
             _plex,
@@ -341,6 +343,112 @@ public partial class CompactExecutorTests : IDisposable
         File.Exists(Path.Combine(_root, "Daft Punk", "Random Access Memories", "02 - Track 2.flac"))
             .Should()
             .BeTrue();
+    }
+
+    [Fact]
+    public async Task A_library_whose_root_is_unmarked_is_not_compacted_at_all()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        Plan(context, [song]);
+        File.Delete(Path.Combine(_root, LibraryRoots.MarkerFileName));
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Moved.Should().Be(0);
+        result.Failed.Should().Be(0);
+        result.WaitingNote.Should().Contain("has no .wondarr-library file");
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.CompactMoves.CountAsync()).Should().Be(0, "nothing is planned, staged or recorded");
+        _organizer.Requests.Should().BeEmpty();
+        Directory.Exists(Path.Combine(_root, ".wondarr-compact")).Should().BeFalse();
+        File.Exists(Path.Combine(_root, "Daft Punk", "Single 1", "01 - Track 1.flac")).Should().BeTrue("the file never left its folder");
+    }
+
+    [Fact]
+    public async Task A_share_that_drops_under_a_move_leaves_the_row_staged_and_not_failed_and_a_later_run_finishes_it()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+
+        _refreshing.Enqueue(true);
+        _refreshing.Enqueue(false);
+        _organizer.UnavailableFor = "Track 1";
+        Plan(context, [song]);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Moved.Should().Be(0);
+        result.Failed.Should().Be(0, "a share that is down is not a failure of the move");
+        result.WaitingNote.Should().Contain("no longer available");
+
+        await using (var fresh = _database.CreateContext(_timeProvider))
+        {
+            var row = await fresh.CompactMoves.SingleAsync();
+            row.State.Should().Be(CompactMoveState.Staged);
+            row.Message.Should().BeNull();
+            File.Exists(row.StagedPath).Should().BeTrue("the file is parked, not lost");
+        }
+
+        // The share is back: the next run resumes the staged row and places it.
+        _organizer.UnavailableFor = null;
+        _refreshing.Enqueue(true);
+        _refreshing.Enqueue(false);
+
+        var second = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        second.Moved.Should().Be(1);
+        second.Resumed.Should().Be(1);
+
+        await using var after = _database.CreateContext(_timeProvider);
+        (await after.CompactMoves.SingleAsync()).State.Should().Be(CompactMoveState.Placed);
+    }
+
+    [Fact]
+    public async Task Giving_up_on_a_move_while_the_root_is_gone_leaves_the_row_and_creates_no_folder()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var staged = Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+        await context.CompactMoves.ExecuteUpdateAsync(set => set.SetProperty(row => row.Attempts, CompactMoveRules.MaxAttempts));
+
+        var old = (await context.CompactMoves.AsNoTracking().SingleAsync()).FromPath!;
+        Directory.Delete(Path.GetDirectoryName(old)!, recursive: true);
+
+        // Ready for the run's own check, gone by the time the give-up would recreate the old folder.
+        var roots = Substitute.For<ILibraryRoots>();
+        roots.Check(Arg.Any<string>()).Returns(LibraryRootStatus.Ready, LibraryRootStatus.Missing);
+        roots.Describe(Arg.Any<Library>(), Arg.Any<LibraryRootStatus>()).Returns("the root is gone");
+        var recycleBin = new RecycleBin(
+            _disk,
+            new TestOptionsMonitor<ImportOptions>(new ImportOptions { RecycleBinPath = _bin }),
+            new WondarrPaths(_config),
+            _timeProvider,
+            NullLogger<RecycleBin>.Instance);
+        var executor = new CompactExecutor(
+            _database.CreateContext(_timeProvider),
+            _planner,
+            _organizer,
+            _disk,
+            roots,
+            recycleBin,
+            _connection,
+            _plex,
+            _updater,
+            _timeProvider,
+            new SongFileLock(),
+            NullLogger<CompactExecutor>.Instance);
+
+        var result = await executor.RunAsync(SeedData.DefaultLibraryId, null, CancellationToken.None, resumeOnly: true);
+
+        result.GivenUp.Should().Be(0);
+        Directory.Exists(Path.GetDirectoryName(old)!).Should().BeFalse("the old folder is not recreated");
+        File.Exists(staged).Should().BeTrue();
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.CompactMoves.SingleAsync()).State.Should().Be(CompactMoveState.Staged, "the row is left as it is for a later run");
     }
 
     [Fact]
@@ -999,6 +1107,9 @@ public partial class CompactExecutorTests : IDisposable
         /// <summary>The song title this organizer refuses, or <see langword="null"/> to refuse nothing.</summary>
         public string? FailFor { get; set; }
 
+        /// <summary>The song title whose library root "went away": the organizer answers <see cref="OrganizeFailure.LibraryUnavailable"/> and moves nothing.</summary>
+        public string? UnavailableFor { get; set; }
+
         /// <summary>Every request the executor made, in order.</summary>
         public List<OrganizeRequest> Requests { get; } = [];
 
@@ -1018,6 +1129,12 @@ public partial class CompactExecutorTests : IDisposable
 
             Requests.Add(request);
             log.Add("organize " + request.Song.Title);
+
+            if (UnavailableFor is not null && request.Song.Title == UnavailableFor)
+            {
+                return Task.FromResult(
+                    new OrganizeResult(OrganizeFailure.LibraryUnavailable, "the library folder is gone", null, null, new Dictionary<string, string>()));
+            }
 
             if (FailFor is not null && request.Song.Title == FailFor)
             {
@@ -1068,6 +1185,10 @@ internal sealed class FaultyDisk(IDiskOperations inner) : IDiskOperations
     public void CreateDirectory(string path) => inner.CreateDirectory(path);
 
     public void CreateEmptyFile(string path) => inner.CreateEmptyFile(path);
+
+    public void WriteNewFile(string path, byte[] bytes) => inner.WriteNewFile(path, bytes);
+
+    public bool HasAnyEntry(string directory) => inner.HasAnyEntry(directory);
 
     public long GetFileSize(string path) => inner.GetFileSize(path);
 

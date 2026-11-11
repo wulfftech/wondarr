@@ -2610,6 +2610,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/library/{id}/root/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LibraryResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library/{id}/preview": {
         parameters: {
             query?: never;
@@ -6222,7 +6277,13 @@ export interface components {
             plexLibraryPath: null | string;
             isDefault: boolean;
             replayGain?: null | boolean;
+            rootStatus?: components["schemas"]["LibraryRootStatus"];
         };
+        /**
+         * @default 0
+         * @enum {string}
+         */
+        LibraryRootStatus: "ready" | "missing" | "unmarked" | "unresponsive";
         LogFileResource: {
             /** Format: int64 */
             id: number | string;

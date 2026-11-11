@@ -1,4 +1,6 @@
 using Wondarr.Core.Compaction;
+using Wondarr.Core.Domain;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Profiles;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,17 +16,21 @@ public sealed class LibraryController : ControllerBase
 {
     private readonly ILibraryService _libraries;
     private readonly ICompactPlanner _compaction;
+    private readonly ILibraryRoots _roots;
 
     /// <summary>Initialises a new instance of the <see cref="LibraryController"/> class.</summary>
     /// <param name="libraries">The library service.</param>
     /// <param name="compaction">The Compact library task's planner, which this endpoint dry-runs.</param>
-    public LibraryController(ILibraryService libraries, ICompactPlanner compaction)
+    /// <param name="roots">Reports whether each root is ready, and marks one the user confirms.</param>
+    public LibraryController(ILibraryService libraries, ICompactPlanner compaction, ILibraryRoots roots)
     {
         ArgumentNullException.ThrowIfNull(libraries);
         ArgumentNullException.ThrowIfNull(compaction);
+        ArgumentNullException.ThrowIfNull(roots);
 
         _libraries = libraries;
         _compaction = compaction;
+        _roots = roots;
     }
 
     /// <summary>Lists every library, ordered by id.</summary>
@@ -35,7 +41,14 @@ public sealed class LibraryController : ControllerBase
     {
         var libraries = await _libraries.GetAllAsync(cancellationToken).ConfigureAwait(false);
 
-        return Ok(libraries.Select(library => library.ToResource()).ToList());
+        var resources = new List<LibraryResource>(libraries.Count);
+
+        foreach (var library in libraries)
+        {
+            resources.Add(await ResourceAsync(library, cancellationToken).ConfigureAwait(false));
+        }
+
+        return Ok(resources);
     }
 
     /// <summary>Reads one library.</summary>
@@ -47,7 +60,7 @@ public sealed class LibraryController : ControllerBase
     {
         var library = await _libraries.GetAsync(id, cancellationToken).ConfigureAwait(false);
 
-        return library is null ? NotFound() : Ok(library.ToResource());
+        return library is null ? NotFound() : Ok(await ResourceAsync(library, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -72,6 +85,60 @@ public sealed class LibraryController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Says that the library's root folder is the right one: writes the <c>.wondarr-library</c> marker
+    /// into it, so imports, searches and the health check treat it as ready. It is how a user accepts an
+    /// empty or moved folder that Wondarr took for an unmounted share.
+    /// </summary>
+    /// <param name="id">The library id.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>200 and the library; 400 (<c>rootPath</c>) when the folder does not exist or cannot be written; 404 for an unknown id.</returns>
+    [HttpPost("{id:long}/root/confirm")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(LibraryResource), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<LibraryResource>> ConfirmLibraryRoot(long id, CancellationToken cancellationToken)
+    {
+        var library = await _libraries.GetAsync(id, cancellationToken).ConfigureAwait(false);
+
+        if (library is null)
+        {
+            return NotFound();
+        }
+
+        // Only a folder that exists is confirmed: a missing one is an unmounted share or a typo, and
+        // creating it here would be exactly the write the marker exists to prevent.
+        var status = await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false);
+
+        if (status == LibraryRootStatus.Unresponsive)
+        {
+            ModelState.AddModelError("rootPath", $"{library.RootPath} did not answer in time, so its share may be hung; try again when it answers.");
+
+            return ValidationProblem(ModelState);
+        }
+
+        if (status == LibraryRootStatus.Missing)
+        {
+            ModelState.AddModelError("rootPath", $"{library.RootPath} does not exist; mount or create it first.");
+
+            return ValidationProblem(ModelState);
+        }
+
+        try
+        {
+            _roots.Mark(library.RootPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            ModelState.AddModelError("rootPath", $"the marker file could not be written into {library.RootPath}: {exception.Message}");
+
+            return ValidationProblem(ModelState);
+        }
+
+        return Ok(await ResourceAsync(library, cancellationToken).ConfigureAwait(false));
+    }
+
     /// <summary>Creates a library.</summary>
     /// <param name="resource">The new library's values; the body's <c>id</c> is ignored.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -91,7 +158,7 @@ public sealed class LibraryController : ControllerBase
                 .CreateAsync(resource.ToLibrary(0), cancellationToken)
                 .ConfigureAwait(false);
 
-            return CreatedAtAction(nameof(GetLibrary), new { id = created.Id }, created.ToResource());
+            return CreatedAtAction(nameof(GetLibrary), new { id = created.Id }, await ResourceAsync(created, cancellationToken).ConfigureAwait(false));
         }
         catch (ProfileValidationException exception)
         {
@@ -174,7 +241,7 @@ public sealed class LibraryController : ControllerBase
 
             var updated = await _libraries.UpdateAsync(replacement, cancellationToken).ConfigureAwait(false);
 
-            return Ok(updated.ToResource());
+            return Ok(await ResourceAsync(updated, cancellationToken).ConfigureAwait(false));
         }
         catch (ProfileValidationException exception)
         {
@@ -186,4 +253,8 @@ public sealed class LibraryController : ControllerBase
             return ValidationProblem(ModelState);
         }
     }
+
+    /// <summary>The resource for <paramref name="library"/>, with its root checked on the disk now.</summary>
+    private async Task<LibraryResource> ResourceAsync(Library library, CancellationToken cancellationToken) =>
+        library.ToResource(await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false));
 }

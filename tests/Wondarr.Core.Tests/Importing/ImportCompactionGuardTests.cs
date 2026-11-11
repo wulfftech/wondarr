@@ -14,6 +14,7 @@ using Wondarr.Core.Plex;
 using Wondarr.Core.Tests.Persistence;
 using Wondarr.Core.Tests.Searching;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Importing;
 
@@ -118,7 +119,7 @@ public sealed class ImportCompactionGuardTests : IDisposable
 
         // The library the compaction works on: this test's root, and no Plex link.
         var library = await host.Context.Libraries.SingleAsync(entry => entry.Id == SeedData.DefaultLibraryId);
-        library.RootPath = _root;
+        library.RootPath = TestLibraryRoots.Mark(_root);
         library.PlexSectionId = null;
         library.PlexLibraryPath = null;
         await host.Context.SaveChangesAsync();
@@ -231,6 +232,7 @@ public sealed class ImportCompactionGuardTests : IDisposable
             planner,
             organizer,
             disk,
+            TestLibraryRoots.Over(disk),
             recycleBin,
             Substitute.For<IPlexConnectionService>(),
             Substitute.For<IPlexServerClient>(),

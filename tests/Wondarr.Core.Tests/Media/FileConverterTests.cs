@@ -12,6 +12,7 @@ using Wondarr.Core.Profiles;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Importing;
 using Wondarr.Core.Tests.Persistence;
+using Wondarr.Core.Tests.Support;
 using Xunit;
 
 namespace Wondarr.Core.Tests.Media;
@@ -45,7 +46,7 @@ public sealed class FileConverterTests : IDisposable
         var work = Path.Combine(Path.GetTempPath(), "wondarr-convert-tests", Guid.NewGuid().ToString("N"));
         _root = Path.Combine(work, "music");
         _bin = Path.Combine(work, "recycle");
-        Directory.CreateDirectory(_root);
+        TestLibraryRoots.Mark(_root);
         Directory.CreateDirectory(_bin);
         _organizer = new FakeOrganizer(_bin);
     }
@@ -290,6 +291,7 @@ public sealed class FileConverterTests : IDisposable
             _replay,
             _songFileLock,
             _updater,
+            TestLibraryRoots.Real,
             NullLogger<FileConverter>.Instance);
 
     private async Task<WondarrDbContext> ContextAsync(string? outputPolicy)

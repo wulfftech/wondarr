@@ -1,8 +1,11 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.Organizer;
+using Wondarr.Core.Persistence;
 
 namespace Wondarr.Core.Searching;
 
@@ -25,15 +28,21 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
     private readonly ISongSearchService _search;
     private readonly SlotWaitContext _slotWait;
     private readonly ILogger<SongSearchCommandHandler> _logger;
+    private readonly WondarrDbContext? _database;
+    private readonly ILibraryRoots? _roots;
 
     /// <summary>Initialises a new instance of the <see cref="SongSearchCommandHandler"/> class.</summary>
     /// <param name="search">The search-and-grab service.</param>
     /// <param name="slotWait">Where this command offers its progress and its worker to a search that has to wait.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="database">Finds the song's library; without it (and <paramref name="roots"/>) no library check is made.</param>
+    /// <param name="roots">Keeps search on add away from a library whose folder is missing or unmarked.</param>
     public SongSearchCommandHandler(
         ISongSearchService search,
         SlotWaitContext slotWait,
-        ILogger<SongSearchCommandHandler> logger)
+        ILogger<SongSearchCommandHandler> logger,
+        WondarrDbContext? database = null,
+        ILibraryRoots? roots = null)
     {
         ArgumentNullException.ThrowIfNull(search);
         ArgumentNullException.ThrowIfNull(slotWait);
@@ -42,6 +51,8 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
         _search = search;
         _slotWait = slotWait;
         _logger = logger;
+        _database = database;
+        _roots = roots;
     }
 
     /// <inheritdoc />
@@ -57,6 +68,31 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
         ArgumentNullException.ThrowIfNull(context);
 
         var songId = ReadSongId(context.Body);
+
+        // Search on add (and any other automatic caller) skips a song whose library folder is missing
+        // or unmarked: the grab would only wait in the queue. A person pressing "search now" is not
+        // held back: their grab waits in the queue like a manual one.
+        if (context.Trigger != CommandTrigger.Manual
+            && _database is not null
+            && _roots is not null
+            && await _database.Songs
+                .AsNoTracking()
+                .Where(song => song.Id == songId)
+                .Join(_database.Libraries.AsNoTracking(), song => song.LibraryId, library => library.Id, (song, library) => library)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false) is { } library
+            && await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false) is var status
+            && status != LibraryRootStatus.Ready)
+        {
+            var reason = _roots.Describe(library, status);
+            LogSkipped(_logger, songId, reason);
+
+            return string.Concat(
+                "Song ",
+                songId.ToString(CultureInfo.InvariantCulture),
+                ": Skipped — ",
+                reason);
+        }
 
         LogSearching(_logger, songId);
 
@@ -112,6 +148,9 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
     /// <param name="Name">The command name, echoed by the API for readability.</param>
     /// <param name="SongId">The song to search for.</param>
     private sealed record SongSearchBody(string? Name, long SongId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Not searching for song {SongId}: {Reason}")]
+    private static partial void LogSkipped(ILogger logger, long songId, string reason);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Searching for song {SongId} on request")]
     private static partial void LogSearching(ILogger logger, long songId);

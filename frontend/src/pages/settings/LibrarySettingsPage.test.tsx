@@ -67,6 +67,7 @@ function install(
     libraries?: unknown[];
     create?: () => Response;
     remove?: () => Response;
+    confirm?: () => Response;
     plexState?: unknown;
   } = {},
 ): FetchMock {
@@ -100,6 +101,10 @@ function install(
 
     if (url.includes('/api/v1/command')) {
       return jsonResponse({ id: 9, name: 'ApplyReplayGain', status: 'queued' }, 201);
+    }
+
+    if (url.includes('/root/confirm')) {
+      return options.confirm?.() ?? jsonResponse({ ...(libraries[0] as object), rootStatus: 'ready' });
     }
 
     if (url.includes('/api/v1/library')) {
@@ -499,5 +504,76 @@ describe('LibrarySettingsPage several libraries', () => {
     expect(
       within(dialog).getByText('/data/singles is inside the library Singles at /data/singles.'),
     ).toBeInTheDocument();
+  });
+});
+
+describe('LibrarySettingsPage library folder', () => {
+  it('shows nothing for a library whose folder is ready', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], rootStatus: 'ready' } });
+
+    renderApp();
+
+    await screen.findByDisplayValue('Music');
+    expect(screen.queryByText('folder not ready')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'This is the right folder' })).toBeNull();
+  });
+
+  it('says a missing folder waits for its share, with nothing to confirm', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], rootStatus: 'missing' } });
+
+    renderApp();
+
+    expect(await screen.findByText('The library folder is missing')).toBeInTheDocument();
+    expect(screen.getByText('folder not ready')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'This is the right folder' })).toBeNull();
+  });
+
+  it('says a share that does not answer may be hung', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], rootStatus: 'unresponsive' } });
+
+    renderApp();
+
+    expect(await screen.findByText('The library folder is not answering')).toBeInTheDocument();
+    expect(screen.getByText('folder not ready')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'This is the right folder' })).toBeNull();
+  });
+
+  it('confirms an unmarked folder', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], rootStatus: 'unmarked' } });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    expect(await screen.findByText('This folder is not marked as the library')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'This is the right folder' }));
+
+    await waitFor(() => {
+      expect(
+        sent().some((request) => request.method === 'POST' && request.url.endsWith('/api/v1/library/1/root/confirm')),
+      ).toBe(true);
+    });
+  });
+
+  it('shows why the folder could not be confirmed', async () => {
+    install(undefined, {
+      library: { ...LIBRARIES[0], rootStatus: 'unmarked' },
+      confirm: () =>
+        jsonResponse(
+          {
+            title: 'One or more validation errors occurred.',
+            status: 400,
+            errors: { rootPath: ['/data/music does not exist; mount or create it first.'] },
+          },
+          400,
+        ),
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await user.click(await screen.findByRole('button', { name: 'This is the right folder' }));
+
+    expect(await screen.findByText('/data/music does not exist; mount or create it first.')).toBeInTheDocument();
   });
 });

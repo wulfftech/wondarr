@@ -4,6 +4,9 @@ All notable changes are recorded here (Keep a Changelog format; Semantic Version
 
 ## [Unreleased]
 
+### Added
+- **Wondarr no longer fills an unmounted share.** Every library folder now holds a small `.wondarr-library` file, and Wondarr writes into a library only while it is there. When the share a library is on is not mounted, the folder is empty or gone: downloads wait in the queue instead of landing on the host's own disk, the scheduled searches skip the library's songs, Compact, conversions, playlists and Soulseek share rescans wait, and a health error names the library. Everything resumes by itself once the share is back. A library folder you emptied or moved on purpose is confirmed with **This is the right folder** under **Settings → Library**.
+
 ### Changed
 - **Dependencies updated:** Quartz.Extensions.Hosting 4.7.3 (its one migration is for persistent job stores; Wondarr's schedule lives in memory, and Wondarr builds no cron expressions), Scalar 2.19.0, Mantine 9.7.5, @tanstack/react-query 5.107.1 (a count the API sent malformed is now an error, not a cached `NaN`, which made 5.105.2 and later re-render the page header until React stopped it), and test and build tooling (vite, typescript-eslint, user-event, docker/login-action, actions/setup-dotnet).
 

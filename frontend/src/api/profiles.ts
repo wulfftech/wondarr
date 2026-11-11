@@ -463,6 +463,30 @@ export function useSaveLibrary(): UseMutationResult<LibraryResource, Error, Libr
 }
 
 /**
+ * Writes the `.wondarr-library` marker into a library's root folder: the user says an empty or moved
+ * folder is the right one. The API answers 400 (`rootPath`) when the folder does not exist.
+ */
+export function useConfirmLibraryRoot(): UseMutationResult<LibraryResource, Error, number> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: number): Promise<LibraryResource> => {
+      const { data, error, response } = await client.POST('/api/v1/library/{id}/root/confirm', {
+        params: { path: { id } },
+      });
+
+      if (!response.ok || data === undefined) {
+        throw readProblem(response.status, error, 'The library folder could not be confirmed.');
+      }
+
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: LIBRARIES_QUERY_KEY }),
+  });
+}
+
+/**
  * Renders a naming template against the library's sample song, for the live preview under the
  * template field. It is a POST because the template being previewed is not the stored one; nothing
  * is written and no query is invalidated.

@@ -19,6 +19,7 @@ using Wondarr.Core.Sources;
 using Wondarr.Core.Tagging;
 using Wondarr.Core.Tests.Persistence;
 using Wondarr.Core.Tests.Searching;
+using Wondarr.Core.Tests.Support;
 using Wondarr.Core.Verification;
 
 namespace Wondarr.Core.Tests.Importing;
@@ -154,7 +155,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         Directory.CreateDirectory(downloads);
 
         var libraryRoot = Path.Combine(downloads, "library").Replace('\\', '/');
-        Directory.CreateDirectory(libraryRoot);
+        TestLibraryRoots.Mark(libraryRoot);
 
         await using (var seedContext = database.CreateContext(time))
         {
@@ -212,6 +213,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddScoped<ISoulseekUserService, SoulseekUserService>();
         services.AddScoped<IHistoryService, HistoryService>();
         services.AddSingleton<IDiskOperations, DiskOperations>();
+        services.AddSingleton<ILibraryRoots, LibraryRoots>();
         services.AddScoped<ILibraryOrganizer, LibraryOrganizer>();
         services.AddScoped<IImportService, ImportService>();
 
@@ -829,10 +831,14 @@ internal sealed class FakeTagWriter : ITagWriter
     /// <summary>Every write the writer was asked for.</summary>
     public List<CapturedTagWrite> Writes { get; } = [];
 
+    /// <summary>Run after each write is recorded, to move the world under the organizer's feet.</summary>
+    public Action? AfterWrite { get; set; }
+
     /// <inheritdoc />
     public Task<TagWriteResult> WriteAsync(string path, TagSet tags, CancellationToken cancellationToken = default)
     {
         Writes.Add(new CapturedTagWrite(path, tags));
+        AfterWrite?.Invoke();
 
         return Task.FromResult(Success
             ? new TagWriteResult(true, null, Written)

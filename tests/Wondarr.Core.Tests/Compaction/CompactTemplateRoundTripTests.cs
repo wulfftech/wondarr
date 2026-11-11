@@ -22,6 +22,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Compaction;
 
@@ -163,7 +164,7 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
         var library = await context.Libraries.SingleAsync(candidate => candidate.Id == SeedData.DefaultLibraryId);
 
         // The seeded Plexamp copy: it follows the preset, which is the point of the whole pass.
-        library.RootPath = Root;
+        library.RootPath = TestLibraryRoots.Mark(Root);
         library.PlexSectionId = null;
         library.PlexLibraryPath = null;
         await context.SaveChangesAsync();
@@ -264,7 +265,7 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
         IDiskOperations disk = new DiskOperations();
         var options = new TestOptionsMonitor<ImportOptions>(new ImportOptions { RecycleBinPath = Path.Combine(_temp, "recycle") });
         var recycleBin = new RecycleBin(disk, options, new WondarrPaths(Path.Combine(_temp, "config")), _time, NullLogger<RecycleBin>.Instance);
-        var placer = new FilePlacer(disk, recycleBin, options, NullLogger<FilePlacer>.Instance);
+        var placer = new FilePlacer(disk, TestLibraryRoots.Over(disk), recycleBin, options, NullLogger<FilePlacer>.Instance);
 
         var tagWriter = Substitute.For<ITagWriter>();
         tagWriter
@@ -279,6 +280,7 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
             placer,
             covers,
             disk,
+            TestLibraryRoots.Over(disk),
             context,
             Substitute.For<ICoverImageProcessor>(),
             Substitute.For<ILrclibClient>(),
@@ -291,6 +293,7 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
             planner,
             organizer,
             disk,
+            TestLibraryRoots.Over(disk),
             recycleBin,
             Substitute.For<IPlexConnectionService>(),
             Substitute.For<IPlexServerClient>(),

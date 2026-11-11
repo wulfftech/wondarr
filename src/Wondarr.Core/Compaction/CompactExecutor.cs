@@ -28,6 +28,10 @@ namespace Wondarr.Core.Compaction;
 /// Why Plex's trash was not emptied, or <see langword="null"/> when it was (or there was nothing to
 /// forget).
 /// </param>
+/// <param name="WaitingNote">
+/// Why the run stopped early because the library's root is missing or unmarked, or
+/// <see langword="null"/> when it did not. The moves it did not reach stay as they were, none marked failed.
+/// </param>
 public sealed record CompactResult(
     int Moved,
     int ContextOnly,
@@ -35,7 +39,8 @@ public sealed record CompactResult(
     int Resumed,
     int GivenUp = 0,
     IReadOnlyList<string>? Stranded = null,
-    string? TrashNote = null);
+    string? TrashNote = null,
+    string? WaitingNote = null);
 
 /// <summary>Applies a Compact library plan to the disk, the tags and Plex (LIBRARY_OUTPUT.md §7.3).</summary>
 public interface ICompactExecutor
@@ -124,6 +129,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     private readonly ICompactPlanner _planner;
     private readonly ILibraryOrganizer _organizer;
     private readonly IDiskOperations _disk;
+    private readonly ILibraryRoots _roots;
     private readonly IRecycleBin _recycleBin;
     private readonly IPlexConnectionService _connection;
     private readonly IPlexServerClient _plex;
@@ -137,6 +143,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <param name="planner">The dry run, asked for a plan when there is nothing to resume.</param>
     /// <param name="organizer">Tags, names and places each file at its new path.</param>
     /// <param name="disk">Every file-system call, including the staging folder.</param>
+    /// <param name="roots">Stops a run while the library's root is missing or unmarked.</param>
     /// <param name="recycleBin">Where an album folder's leftover <c>cover.jpg</c> goes.</param>
     /// <param name="connection">The selected Plex server and its token; no token leaves it otherwise.</param>
     /// <param name="plex">The scans and the empty trash that make Plex forget a track.</param>
@@ -149,6 +156,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         ICompactPlanner planner,
         ILibraryOrganizer organizer,
         IDiskOperations disk,
+        ILibraryRoots roots,
         IRecycleBin recycleBin,
         IPlexConnectionService connection,
         IPlexServerClient plex,
@@ -161,6 +169,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         ArgumentNullException.ThrowIfNull(planner);
         ArgumentNullException.ThrowIfNull(organizer);
         ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(recycleBin);
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(plex);
@@ -173,6 +182,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         _planner = planner;
         _organizer = organizer;
         _disk = disk;
+        _roots = roots;
         _recycleBin = recycleBin;
         _connection = connection;
         _plex = plex;
@@ -223,6 +233,15 @@ public sealed partial class CompactExecutor : ICompactExecutor
                     "Library ",
                     libraryId.ToString(CultureInfo.InvariantCulture),
                     " does not exist."));
+
+        // A root that is missing or unmarked is probably an unmounted share: nothing is planned,
+        // staged or placed, and no row is marked failed for it.
+        if (WhyUnavailable(library) is { } unavailable)
+        {
+            LogLibraryUnavailable(_logger, libraryId, unavailable);
+
+            return new CompactResult(0, 0, 0, 0, WaitingNote: unavailable);
+        }
 
         var carried = await _database.CompactMoves
             .AsNoTracking()
@@ -296,10 +315,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
             if (row.Attempts >= CompactMoveRules.MaxAttempts)
             {
-                await GiveUpAsync(library, parked, row.Attempts, stranded).ConfigureAwait(false);
                 kept.Add(row.Id);
-                givenUpSongs.Add(row.SongId);
-                givenUp++;
+
+                // False: the library's folder is not ready, the row is left as it is for a later run.
+                if (await GiveUpAsync(library, parked, row.Attempts, stranded).ConfigureAwait(false))
+                {
+                    givenUpSongs.Add(row.SongId);
+                    givenUp++;
+                }
 
                 continue;
             }
@@ -387,6 +410,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         // --- 1. Move out ---------------------------------------------------------------------------
         var oldFolders = new List<string>();
         var ready = new List<Move>(work.Count);
+        string? waiting = null;
 
         foreach (var row in work)
         {
@@ -399,6 +423,18 @@ public sealed partial class CompactExecutor : ICompactExecutor
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+
+            // The share may drop mid-run: the rest stays as it is (Planned) for a later run.
+            if (waiting is null && WhyUnavailable(library) is { } dropped)
+            {
+                waiting = dropped;
+                LogLibraryUnavailable(_logger, libraryId, dropped);
+            }
+
+            if (waiting is not null)
+            {
+                continue;
+            }
 
             oldFolders.Add(Path.GetDirectoryName(row.FromPath) ?? library.RootPath);
 
@@ -443,6 +479,19 @@ public sealed partial class CompactExecutor : ICompactExecutor
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Checked before every move, so a share that drops mid-run stops the run: the remaining
+            // rows stay Staged (or Planned) and the next run finishes them; none is marked failed.
+            if (waiting is null && WhyUnavailable(library) is { } dropped)
+            {
+                waiting = dropped;
+                LogLibraryUnavailable(_logger, libraryId, dropped);
+            }
+
+            if (waiting is not null)
+            {
+                break;
+            }
+
             processed++;
 
             if (row.FromPath is null)
@@ -481,13 +530,26 @@ public sealed partial class CompactExecutor : ICompactExecutor
                     failed++;
                 }
             }
-            else if (await PlaceAsync(library, row, cancellationToken).ConfigureAwait(false))
-            {
-                moved++;
-            }
             else
             {
-                failed++;
+                var placed = await PlaceAsync(library, row, cancellationToken).ConfigureAwait(false);
+
+                if (placed is null)
+                {
+                    // The share dropped under this move: stop, the rest waits for a later run.
+                    waiting = WhyUnavailable(library) ?? "the library folder is no longer available";
+
+                    break;
+                }
+
+                if (placed.Value)
+                {
+                    moved++;
+                }
+                else
+                {
+                    failed++;
+                }
             }
 
             if (progress is not null && processed % ProgressEvery == 0)
@@ -512,7 +574,19 @@ public sealed partial class CompactExecutor : ICompactExecutor
             resumed,
             givenUp,
             stranded.Count == 0 ? null : stranded,
-            trashNote);
+            trashNote,
+            waiting);
+    }
+
+    /// <summary>
+    /// The sentence saying why the library's root cannot be written into, or <see langword="null"/>
+    /// when it can.
+    /// </summary>
+    private string? WhyUnavailable(Library library)
+    {
+        var status = _roots.Check(library.RootPath);
+
+        return status == LibraryRootStatus.Ready ? null : _roots.Describe(library, status);
     }
 
     /// <summary>
@@ -645,7 +719,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// song's file row is made to say where the file really is, the row is closed so planning goes
     /// ahead without it, and the log (and, for a file that stayed, the run's result) names the file.
     /// </summary>
-    private async Task GiveUpAsync(Library library, Move row, int attempts, List<string> stranded)
+    private async Task<bool> GiveUpAsync(Library library, Move row, int attempts, List<string> stranded)
     {
         // The per-song file guard: an import cannot replace the song's file between the check of where
         // it points and the update below.
@@ -654,6 +728,15 @@ public sealed partial class CompactExecutor : ICompactExecutor
         var staged = StagedFileOf(library, row);
         var from = row.FromPath;
         var restored = false;
+
+        // Putting the file back creates the old folder, which would recreate a root that is gone: while
+        // the library's folder is not ready the row stays exactly as it is, for a later run.
+        if (WhyUnavailable(library) is { } unavailable)
+        {
+            LogLibraryUnavailable(_logger, library.Id, unavailable);
+
+            return false;
+        }
 
         // Only a song that still points at this move's file (its old path or its staged path) is touched.
         // One that points elsewhere has moved on (an import replaced its file): the parked file is left
@@ -675,7 +758,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
             {
                 var directory = Path.GetDirectoryName(from);
 
-                if (!string.IsNullOrEmpty(directory))
+                // Only for a staged file that is there: no folder is made for a move that cannot happen.
+                if (!string.IsNullOrEmpty(directory) && _disk.FileExists(staged))
                 {
                     _disk.CreateDirectory(directory);
                 }
@@ -737,6 +821,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
         LogGaveUp(_logger, row.Id, message);
 
         await SetStateAsync(row.Id, CompactMoveState.GivenUp, staged: null, final: at, message).ConfigureAwait(false);
+
+        return true;
     }
 
     /// <summary>Puts the sidecars of a staged file back beside the audio file's old path; one that cannot go stays in staging.</summary>
@@ -1504,8 +1590,11 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <param name="library">The library the file goes back into.</param>
     /// <param name="row">The move being finished.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns><see langword="true"/> when the file is at its new path and recorded there.</returns>
-    private async Task<bool> PlaceAsync(Library library, Move row, CancellationToken cancellationToken)
+    /// <returns>
+    /// <see langword="true"/> when the file is at its new path and recorded there;
+    /// <see langword="null"/> when the library's root went away, so the move is neither done nor failed.
+    /// </returns>
+    private async Task<bool?> PlaceAsync(Library library, Move row, CancellationToken cancellationToken)
     {
         // No song lock here, on purpose: while this row is Staged, an import for the song defers
         // (its guard sees the unfinished move), so nothing but this executor can act on the song's
@@ -1615,6 +1704,17 @@ public sealed partial class CompactExecutor : ICompactExecutor
                 .ConfigureAwait(false);
 
             return false;
+        }
+
+        if (placement.Failure == OrganizeFailure.LibraryUnavailable)
+        {
+            // The share dropped under this move: the file is still in staging, the row stays Staged
+            // and nothing is recorded, so the "not again after it failed for the same target" rule
+            // cannot fire. A later run places it.
+            _database.ChangeTracker.Clear();
+            LogLibraryUnavailable(_logger, library.Id, placement.Error ?? string.Empty);
+
+            return null;
         }
 
         // A result that is not a success can still have put the file at FinalPath: a chmod that failed
@@ -1917,6 +2017,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Compaction of library {LibraryId}: dropping {Count} moves an earlier run could not finish (their files stayed where they were, or are recorded where they were placed)")]
     private static partial void LogFailedRowsDropped(ILogger logger, long libraryId, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Compaction of library {LibraryId} is waiting: {Reason}")]
+    private static partial void LogLibraryUnavailable(ILogger logger, long libraryId, string reason);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Library {LibraryId} has {Count} unfinished moves from an earlier compaction; finishing those")]
     private static partial void LogResuming(ILogger logger, long libraryId, int count);

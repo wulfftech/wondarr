@@ -27,6 +27,7 @@ public sealed partial class DatabaseMigrator
     private readonly Func<IBackupService?> _backups;
     private readonly TimeSpan _backupTimeout;
     private readonly string? _newLibraryRoot;
+    private readonly Action<string>? _prepareNewLibraryRoot;
 
     /// <summary>The longest the pre-migration backup may take before the migration is refused.</summary>
     public static readonly TimeSpan DefaultBackupTimeout = TimeSpan.FromMinutes(15);
@@ -54,12 +55,18 @@ public sealed partial class DatabaseMigrator
     /// The root the seeded "Music" library gets when this run creates the database
     /// (<see cref="WondarrPaths.DefaultLibraryRoot"/>); <see langword="null"/> keeps the seeded one.
     /// </param>
+    /// <param name="prepareNewLibraryRoot">
+    /// Creates and marks the seeded library's final root when this run creates the database (the user
+    /// has no files there yet, so nothing can be an unmounted share). Best effort: a failure is logged.
+    /// An existing database's root is never touched.
+    /// </param>
     public DatabaseMigrator(
         WondarrDbContext context,
         ILogger<DatabaseMigrator> logger,
         Func<IBackupService?> backups,
         TimeSpan? backupTimeout = null,
-        string? newLibraryRoot = null)
+        string? newLibraryRoot = null,
+        Action<string>? prepareNewLibraryRoot = null)
     {
         ArgumentNullException.ThrowIfNull(backups);
 
@@ -68,6 +75,7 @@ public sealed partial class DatabaseMigrator
         _backups = backups;
         _backupTimeout = backupTimeout ?? DefaultBackupTimeout;
         _newLibraryRoot = newLibraryRoot;
+        _prepareNewLibraryRoot = prepareNewLibraryRoot;
     }
 
     /// <summary>The <c>user_version</c> that encodes <paramref name="version"/>, or 0 when it has no usable numeric part.</summary>
@@ -127,6 +135,7 @@ public sealed partial class DatabaseMigrator
         if (applied.Count == 0)
         {
             await PlaceSeededLibraryAsync(cancellationToken).ConfigureAwait(false);
+            await PrepareSeededRootAsync(cancellationToken).ConfigureAwait(false);
         }
 
         var connection = _context.Database.GetDbConnection();
@@ -151,6 +160,36 @@ public sealed partial class DatabaseMigrator
             {
                 await connection.CloseAsync().ConfigureAwait(false);
             }
+        }
+    }
+
+    /// <summary>Creates and marks the seeded library's root on a new database, never throwing.</summary>
+    private async Task PrepareSeededRootAsync(CancellationToken cancellationToken)
+    {
+        if (_prepareNewLibraryRoot is null || string.IsNullOrWhiteSpace(_newLibraryRoot))
+        {
+            return;
+        }
+
+        string? root = null;
+
+        try
+        {
+            root = await _context.Libraries
+                .AsNoTracking()
+                .Where(library => library.Id == SeedData.DefaultLibraryId)
+                .Select(library => library.RootPath)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(root))
+            {
+                _prepareNewLibraryRoot(root);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogSeededRootFailed(root ?? "?", exception);
         }
     }
 
@@ -311,6 +350,9 @@ public sealed partial class DatabaseMigrator
 
     [LoggerMessage(Level = LogLevel.Information, Message = "New database: the Music library's root is {Root}, under the media root")]
     private partial void LogSeededLibraryPlaced(string root);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not create and mark the new library root {Root}; the library health check will report it")]
+    private partial void LogSeededRootFailed(string root, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SQLite journal mode is {JournalMode}")]
     private partial void LogJournalMode(string journalMode);

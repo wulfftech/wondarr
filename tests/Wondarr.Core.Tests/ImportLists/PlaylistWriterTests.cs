@@ -9,6 +9,7 @@ using Wondarr.Core.ImportLists;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Tests.Persistence;
+using Wondarr.Core.Tests.Support;
 using Xunit;
 
 namespace Wondarr.Core.Tests.ImportLists;
@@ -30,7 +31,7 @@ public sealed class PlaylistWriterTests : IDisposable
     public PlaylistWriterTests()
     {
         _root = Path.Combine(Path.GetTempPath(), "wondarr-playlist-tests", Guid.NewGuid().ToString("N"), "music");
-        Directory.CreateDirectory(_root);
+        TestLibraryRoots.Mark(_root);
 
         _connection.GetStateAsync(Arg.Any<CancellationToken>())
             .Returns(new PlexConnectionState(true, "http://plex:32400", "plex", Machine, "client"));
@@ -137,7 +138,7 @@ public sealed class PlaylistWriterTests : IDisposable
     }
 
     private PlaylistWriter Writer(WondarrDbContext context) =>
-        new(context, _connection, _plex, NullLogger<PlaylistWriter>.Instance);
+        new(context, _connection, _plex, TestLibraryRoots.Real, NullLogger<PlaylistWriter>.Instance);
 
     private async Task<WondarrDbContext> ContextAsync()
     {
