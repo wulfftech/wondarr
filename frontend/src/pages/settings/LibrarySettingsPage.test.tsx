@@ -560,7 +560,11 @@ describe('LibrarySettingsPage library folder', () => {
       library: { ...LIBRARIES[0], rootStatus: 'unmarked' },
       confirm: () =>
         jsonResponse(
-          { title: 'One or more validation errors occurred.', status: 400, errors: { rootPath: ['/data/music does not exist; mount or create it first.'] } },
+          {
+            title: 'One or more validation errors occurred.',
+            status: 400,
+            errors: { rootPath: ['/data/music does not exist; mount or create it first.'] },
+          },
           400,
         ),
     });

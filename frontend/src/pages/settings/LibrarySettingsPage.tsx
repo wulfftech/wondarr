@@ -662,8 +662,8 @@ export function LibraryRootAlert({ library }: { library: LibraryResource }) {
     return (
       <Alert color="red" icon={<CircleAlert size={16} />} title="The library folder is missing">
         <Text size="sm">
-          {library.rootPath} does not exist. Downloads for this library wait in the queue until it is back; if it is
-          on a share, mount it.
+          {library.rootPath} does not exist. Downloads for this library wait in the queue until it is back; if it is on
+          a share, mount it.
         </Text>
       </Alert>
     );
