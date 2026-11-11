@@ -831,10 +831,14 @@ internal sealed class FakeTagWriter : ITagWriter
     /// <summary>Every write the writer was asked for.</summary>
     public List<CapturedTagWrite> Writes { get; } = [];
 
+    /// <summary>Run after each write is recorded, to move the world under the organizer's feet.</summary>
+    public Action? AfterWrite { get; set; }
+
     /// <inheritdoc />
     public Task<TagWriteResult> WriteAsync(string path, TagSet tags, CancellationToken cancellationToken = default)
     {
         Writes.Add(new CapturedTagWrite(path, tags));
+        AfterWrite?.Invoke();
 
         return Task.FromResult(Success
             ? new TagWriteResult(true, null, Written)

@@ -315,10 +315,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
             if (row.Attempts >= CompactMoveRules.MaxAttempts)
             {
-                await GiveUpAsync(library, parked, row.Attempts, stranded).ConfigureAwait(false);
                 kept.Add(row.Id);
-                givenUpSongs.Add(row.SongId);
-                givenUp++;
+
+                // False: the library's folder is not ready, the row is left as it is for a later run.
+                if (await GiveUpAsync(library, parked, row.Attempts, stranded).ConfigureAwait(false))
+                {
+                    givenUpSongs.Add(row.SongId);
+                    givenUp++;
+                }
 
                 continue;
             }
@@ -715,7 +719,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// song's file row is made to say where the file really is, the row is closed so planning goes
     /// ahead without it, and the log (and, for a file that stayed, the run's result) names the file.
     /// </summary>
-    private async Task GiveUpAsync(Library library, Move row, int attempts, List<string> stranded)
+    private async Task<bool> GiveUpAsync(Library library, Move row, int attempts, List<string> stranded)
     {
         // The per-song file guard: an import cannot replace the song's file between the check of where
         // it points and the update below.
@@ -724,6 +728,15 @@ public sealed partial class CompactExecutor : ICompactExecutor
         var staged = StagedFileOf(library, row);
         var from = row.FromPath;
         var restored = false;
+
+        // Putting the file back creates the old folder, which would recreate a root that is gone: while
+        // the library's folder is not ready the row stays exactly as it is, for a later run.
+        if (WhyUnavailable(library) is { } unavailable)
+        {
+            LogLibraryUnavailable(_logger, library.Id, unavailable);
+
+            return false;
+        }
 
         // Only a song that still points at this move's file (its old path or its staged path) is touched.
         // One that points elsewhere has moved on (an import replaced its file): the parked file is left
@@ -745,7 +758,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
             {
                 var directory = Path.GetDirectoryName(from);
 
-                if (!string.IsNullOrEmpty(directory))
+                // Only for a staged file that is there: no folder is made for a move that cannot happen.
+                if (!string.IsNullOrEmpty(directory) && _disk.FileExists(staged))
                 {
                     _disk.CreateDirectory(directory);
                 }
@@ -807,6 +821,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
         LogGaveUp(_logger, row.Id, message);
 
         await SetStateAsync(row.Id, CompactMoveState.GivenUp, staged: null, final: at, message).ConfigureAwait(false);
+
+        return true;
     }
 
     /// <summary>Puts the sidecars of a staged file back beside the audio file's old path; one that cannot go stays in staging.</summary>

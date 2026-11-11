@@ -40,12 +40,17 @@ public sealed record PlacementRequest(
 /// <param name="RecycledPath">Where the replaced file went, when one was recycled and could not go back.</param>
 /// <param name="ModeUsed">How the bytes were transferred, when they were.</param>
 /// <param name="Error">What went wrong, when something did.</param>
+/// <param name="RootUnavailable">
+/// Whether the placement was refused because the library root is missing, unmarked or went away: a wait,
+/// not a failure of the file. Nothing was written under the root.
+/// </param>
 public sealed record PlacementResult(
     bool Success,
     string? FinalPath,
     string? RecycledPath,
     TransferMode? ModeUsed,
-    string? Error);
+    string? Error,
+    bool RootUnavailable = false);
 
 /// <summary>Puts a verified file at its library path without ever losing data.</summary>
 public interface IFilePlacer
@@ -119,9 +124,7 @@ public sealed class FilePlacer : IFilePlacer
 
         if (rootStatus != LibraryRootStatus.Ready)
         {
-            return Failed(_roots.Describe(
-                new Library { Name = request.LibraryName ?? root, RootPath = root },
-                rootStatus));
+            return RootGone(rootStatus, request, root);
         }
 
         // Already there: placing the file the library already holds has nothing to do, and nothing
@@ -211,6 +214,11 @@ public sealed class FilePlacer : IFilePlacer
         try
         {
             createdDirectories = EnsureDirectory(directory, root);
+        }
+        catch (RootGoneException)
+        {
+            // The root vanished between the check and the walk: creating a child would recreate it.
+            return RootGone(_roots.Check(root), request, root) with { RecycledPath = RollBack(recycled, replaces) };
         }
         catch (IOException exception)
         {
@@ -314,10 +322,11 @@ public sealed class FilePlacer : IFilePlacer
 
         while (!_disk.DirectoryExists(current))
         {
-            // The root is the library's own folder, put there (and marked) by the user: never created here.
+            // The root is the library's own folder, put there (and marked) by the user: never created
+            // here, and no child is created under a root that is gone (that would recreate it).
             if (string.Equals(current, root, PathRules.Comparison))
             {
-                break;
+                throw new RootGoneException();
             }
 
             created.Add(current);
@@ -508,6 +517,23 @@ public sealed class FilePlacer : IFilePlacer
 
     private static PlacementResult Failed(string error, string? recycled = null, string? finalPath = null) =>
         new(false, finalPath, recycled, null, error);
+
+    /// <summary>The refusal for a root that is not ready: the Describe sentence, flagged as a wait.</summary>
+    private PlacementResult RootGone(LibraryRootStatus status, PlacementRequest request, string root) =>
+        new(
+            false,
+            null,
+            null,
+            null,
+            _roots.Describe(
+                new Library { Name = request.LibraryName ?? root, RootPath = root },
+                status == LibraryRootStatus.Ready ? LibraryRootStatus.Missing : status),
+            RootUnavailable: true);
+
+    /// <summary>The library root does not exist where the placement needs to create folders.</summary>
+    private sealed class RootGoneException : Exception
+    {
+    }
 
     /// <summary>The file reached the target, and the step after it failed: the target stays.</summary>
     private sealed class PlacementTransferException(string message, string finalPath) : IOException(message)

@@ -312,6 +312,17 @@ public sealed partial class LibraryOrganizer : ILibraryOrganizer
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            if (placement.RootUnavailable)
+            {
+                // The share dropped between the organizer's check and the placement: a wait.
+                return new OrganizeResult(
+                    OrganizeFailure.LibraryUnavailable,
+                    placement.Error,
+                    null,
+                    placement.RecycledPath,
+                    NothingWritten);
+            }
+
             if (!placement.Success || placement.FinalPath is null)
             {
                 return new OrganizeResult(

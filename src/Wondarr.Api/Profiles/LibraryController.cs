@@ -41,7 +41,14 @@ public sealed class LibraryController : ControllerBase
     {
         var libraries = await _libraries.GetAllAsync(cancellationToken).ConfigureAwait(false);
 
-        return Ok(libraries.Select(Resource).ToList());
+        var resources = new List<LibraryResource>(libraries.Count);
+
+        foreach (var library in libraries)
+        {
+            resources.Add(await ResourceAsync(library, cancellationToken).ConfigureAwait(false));
+        }
+
+        return Ok(resources);
     }
 
     /// <summary>Reads one library.</summary>
@@ -53,7 +60,7 @@ public sealed class LibraryController : ControllerBase
     {
         var library = await _libraries.GetAsync(id, cancellationToken).ConfigureAwait(false);
 
-        return library is null ? NotFound() : Ok(Resource(library));
+        return library is null ? NotFound() : Ok(await ResourceAsync(library, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>
@@ -102,7 +109,16 @@ public sealed class LibraryController : ControllerBase
 
         // Only a folder that exists is confirmed: a missing one is an unmounted share or a typo, and
         // creating it here would be exactly the write the marker exists to prevent.
-        if (_roots.Check(library.RootPath) == LibraryRootStatus.Missing)
+        var status = await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false);
+
+        if (status == LibraryRootStatus.Unresponsive)
+        {
+            ModelState.AddModelError("rootPath", $"{library.RootPath} did not answer in time, so its share may be hung; try again when it answers.");
+
+            return ValidationProblem(ModelState);
+        }
+
+        if (status == LibraryRootStatus.Missing)
         {
             ModelState.AddModelError("rootPath", $"{library.RootPath} does not exist; mount or create it first.");
 
@@ -120,7 +136,7 @@ public sealed class LibraryController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
-        return Ok(Resource(library));
+        return Ok(await ResourceAsync(library, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>Creates a library.</summary>
@@ -142,7 +158,7 @@ public sealed class LibraryController : ControllerBase
                 .CreateAsync(resource.ToLibrary(0), cancellationToken)
                 .ConfigureAwait(false);
 
-            return CreatedAtAction(nameof(GetLibrary), new { id = created.Id }, Resource(created));
+            return CreatedAtAction(nameof(GetLibrary), new { id = created.Id }, await ResourceAsync(created, cancellationToken).ConfigureAwait(false));
         }
         catch (ProfileValidationException exception)
         {
@@ -225,7 +241,7 @@ public sealed class LibraryController : ControllerBase
 
             var updated = await _libraries.UpdateAsync(replacement, cancellationToken).ConfigureAwait(false);
 
-            return Ok(Resource(updated));
+            return Ok(await ResourceAsync(updated, cancellationToken).ConfigureAwait(false));
         }
         catch (ProfileValidationException exception)
         {
@@ -239,5 +255,6 @@ public sealed class LibraryController : ControllerBase
     }
 
     /// <summary>The resource for <paramref name="library"/>, with its root checked on the disk now.</summary>
-    private LibraryResource Resource(Library library) => library.ToResource(_roots.Check(library.RootPath));
+    private async Task<LibraryResource> ResourceAsync(Library library, CancellationToken cancellationToken) =>
+        library.ToResource(await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false));
 }

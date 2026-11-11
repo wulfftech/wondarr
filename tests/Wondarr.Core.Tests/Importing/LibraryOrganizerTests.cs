@@ -2,6 +2,7 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Lyrics;
@@ -180,6 +181,41 @@ public sealed class LibraryOrganizerTests : IDisposable
         _tagWriter.Writes.Should().BeEmpty("the file is not even tagged");
         Directory.Exists(StagingFolder).Should().BeFalse("not even the staging copy is made");
         Directory.GetFileSystemEntries(LibraryRoot).Should().BeEmpty();
+        File.ReadAllBytes(source).Should().Equal(SourceBytes);
+    }
+
+    [Fact]
+    public async Task A_share_that_drops_after_the_organizers_check_is_library_unavailable_through_the_real_placer()
+    {
+        var source = WriteSource();
+        var disk = new DiskOperations();
+        var options = new TestOptionsMonitor<ImportOptions>(_importOptions);
+        var bin = new RecycleBin(disk, options, new WondarrPaths(Path.Combine(_root, "config")), TimeProvider.System, NullLogger<RecycleBin>.Instance);
+        var realPlacer = new FilePlacer(disk, TestLibraryRoots.Real, bin, options, NullLogger<FilePlacer>.Instance);
+        var organizer = new LibraryOrganizer(
+            _tagWriter,
+            realPlacer,
+            _covers,
+            disk,
+            TestLibraryRoots.Real,
+            _context,
+            _coverProcessor,
+            _lrclib,
+            new TestOptionsMonitor<LyricsOptions>(_lyricsOptions),
+            options,
+            NullLogger<LibraryOrganizer>.Instance);
+
+        // The organizer's own check passed; the share is gone by the time the file is placed.
+        _tagWriter.AfterWrite = () => File.Delete(Path.Combine(LibraryRoot, LibraryRoots.MarkerFileName));
+
+        var result = await organizer.OrganizeAsync(Request(source, keepSource: true), CancellationToken.None);
+
+        result.Failure.Should().Be(OrganizeFailure.LibraryUnavailable);
+        result.Error.Should().Contain("has no .wondarr-library file");
+        result.FinalPath.Should().BeNull();
+        Directory.GetFileSystemEntries(LibraryRoot)
+            .Where(entry => !string.Equals(Path.GetFileName(entry), LibraryOrganizer.StagingFolderName, StringComparison.Ordinal))
+            .Should().BeEmpty("no album folder was made under the unmarked root");
         File.ReadAllBytes(source).Should().Equal(SourceBytes);
     }
 
@@ -823,6 +859,8 @@ public sealed class LibraryOrganizerTests : IDisposable
         public void CreateEmptyFile(string path) => _inner.CreateEmptyFile(path);
 
         public void WriteNewFile(string path, byte[] bytes) => _inner.WriteNewFile(path, bytes);
+
+        public bool HasAnyEntry(string directory) => _inner.HasAnyEntry(directory);
 
         public long GetFileSize(string path) => _inner.GetFileSize(path);
 

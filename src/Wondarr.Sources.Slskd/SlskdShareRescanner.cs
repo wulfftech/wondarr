@@ -251,7 +251,22 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         // A rescan of an empty mount point tells Soulseek peers the share is empty, so nothing is
         // rescanned while a library that overlaps a shared folder is not ready. slskd keeps its
         // previous share cache meanwhile.
-        if (await UnreadyLibraryAsync(options, cancellationToken).ConfigureAwait(false) is { } unready)
+        string? unready;
+
+        try
+        {
+            unready = await UnreadyLibraryAsync(options, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A database that is busy must not fault this BackgroundService and stop the host: the
+            // request waits and is asked again in a minute.
+            LogLibraryLookupFailed(_logger, exception.Message);
+
+            return (RescanReadiness.Wait, "the library folders could not be checked");
+        }
+
+        if (unready is not null)
         {
             LogLibraryNotReady(_logger, unready);
 
@@ -300,7 +315,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
                 continue;
             }
 
-            var status = roots.Check(library.RootPath);
+            var status = await roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false);
 
             if (status != LibraryRootStatus.Ready)
             {
@@ -413,6 +428,9 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "slskd is already scanning its shares; scanning again in a minute")]
     private static partial void LogBusy(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not check the library folders before a share rescan: {Reason}; trying again in a minute")]
+    private static partial void LogLibraryLookupFailed(ILogger logger, string reason);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No share rescan: {Reason}")]
     private static partial void LogLibraryNotReady(ILogger logger, string reason);

@@ -156,7 +156,22 @@ public sealed class LibraryRootsTests : IDisposable
         new(context, _roots, new DiskOperations(), NullLogger<LibraryRootAdopter>.Instance);
 
     [Fact]
-    public async Task Adoption_marks_the_root_of_a_library_that_holds_no_files()
+    public async Task Adoption_marks_a_library_without_files_when_its_folder_holds_something()
+    {
+        await using var context = await ContextAsync();
+        var root = _temp.Full("holds-something");
+        _temp.CreateFile("holds-something/Artist/song.mp3");
+        context.Libraries.Single(library => library.Id == SeedData.DefaultLibraryId).RootPath = root;
+        await context.SaveChangesAsync();
+
+        var adopted = await Adopter(context).AdoptAsync(CancellationToken.None);
+
+        adopted.Should().Be(1);
+        _roots.Check(root).Should().Be(LibraryRootStatus.Ready);
+    }
+
+    [Fact]
+    public async Task Adoption_leaves_an_empty_existing_folder_of_a_library_without_files_unmarked()
     {
         await using var context = await ContextAsync();
         var root = _temp.Full("empty");
@@ -166,8 +181,165 @@ public sealed class LibraryRootsTests : IDisposable
 
         var adopted = await Adopter(context).AdoptAsync(CancellationToken.None);
 
+        adopted.Should().Be(0, "an unmounted mount point is an empty folder");
+        _roots.Check(root).Should().Be(LibraryRootStatus.Unmarked);
+    }
+
+    [Fact]
+    public async Task Adoption_never_creates_the_missing_root_of_a_library_without_files()
+    {
+        await using var context = await ContextAsync();
+        var root = _temp.Full("not-there");
+        context.Libraries.Single(library => library.Id == SeedData.DefaultLibraryId).RootPath = root;
+        await context.SaveChangesAsync();
+
+        var adopted = await Adopter(context).AdoptAsync(CancellationToken.None);
+
+        adopted.Should().Be(0);
+        Directory.Exists(root).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task One_library_that_throws_does_not_stop_the_others_being_adopted()
+    {
+        await using var context = await ContextAsync();
+        var bad = _temp.Full("bad");
+        var good = _temp.Full("good");
+        _temp.CreateFile("bad/a.mp3");
+        _temp.CreateFile("good/a.mp3");
+        await AddLibraryAsync(context, "Bad", bad);
+        await AddLibraryAsync(context, "Good", good);
+        var roots = new ThrowingRoots(_roots, bad);
+        var adopter = new LibraryRootAdopter(context, roots, new DiskOperations(), NullLogger<LibraryRootAdopter>.Instance);
+
+        var adopted = await adopter.AdoptAsync(CancellationToken.None);
+
         adopted.Should().Be(1);
-        _roots.Check(root).Should().Be(LibraryRootStatus.Ready);
+        _roots.Check(good).Should().Be(LibraryRootStatus.Ready);
+        _roots.Check(bad).Should().Be(LibraryRootStatus.Unmarked);
+    }
+
+    private sealed class ThrowingRoots(ILibraryRoots inner, string badRoot) : ILibraryRoots
+    {
+        public LibraryRootStatus Check(string rootPath) => inner.Check(rootPath);
+
+        public Task<LibraryRootStatus> CheckAsync(string rootPath, CancellationToken cancellationToken) =>
+            string.Equals(rootPath, badRoot, StringComparison.Ordinal)
+                ? throw new InvalidOperationException("boom")
+                : inner.CheckAsync(rootPath, cancellationToken);
+
+        public bool MarkExisting(string rootPath) => inner.MarkExisting(rootPath);
+
+        public void Mark(string rootPath) => inner.Mark(rootPath);
+
+        public string Describe(Library library, LibraryRootStatus status) => inner.Describe(library, status);
+    }
+
+    [Fact]
+    public async Task A_check_that_does_not_answer_in_time_is_unresponsive_and_describes_itself()
+    {
+        using var release = new ManualResetEventSlim();
+        var roots = new LibraryRoots(new BlockingDisk(release), TimeSpan.FromMilliseconds(200));
+
+        try
+        {
+            var status = await roots.CheckAsync("/hung/share", CancellationToken.None);
+
+            status.Should().Be(LibraryRootStatus.Unresponsive);
+            roots.Describe(new Library { Name = "Music", RootPath = "/hung/share" }, status).Should().Be(
+                "Library \"Music\": /hung/share did not answer within 5 seconds, so its share may be hung. Imports into it wait until it answers.");
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task A_check_cancelled_by_the_caller_throws_instead_of_reporting_a_status()
+    {
+        using var release = new ManualResetEventSlim();
+        var roots = new LibraryRoots(new BlockingDisk(release), TimeSpan.FromSeconds(30));
+        using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        try
+        {
+            var act = async () => await roots.CheckAsync("/hung/share", cancel.Token);
+
+            await act.Should().ThrowAsync<OperationCanceledException>();
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task Check_async_matches_check_on_a_disk_that_answers()
+    {
+        var root = TestLibraryRoots.Mark(_temp.Full("library"));
+
+        (await _roots.CheckAsync(root, CancellationToken.None)).Should().Be(LibraryRootStatus.Ready);
+        (await _roots.CheckAsync(_temp.Full("nowhere"), CancellationToken.None)).Should().Be(LibraryRootStatus.Missing);
+    }
+
+    [Fact]
+    public void Marking_an_existing_folder_never_creates_a_missing_one()
+    {
+        var missing = _temp.Full("missing");
+
+        _roots.MarkExisting(missing).Should().BeFalse();
+        Directory.Exists(missing).Should().BeFalse();
+
+        Directory.CreateDirectory(missing);
+
+        _roots.MarkExisting(missing).Should().BeTrue();
+        _roots.Check(missing).Should().Be(LibraryRootStatus.Ready);
+    }
+
+    /// <summary>A disk whose every answer blocks until released, as a hung network mount does.</summary>
+    private sealed class BlockingDisk(ManualResetEventSlim release) : IDiskOperations
+    {
+        public bool DirectoryExists(string path)
+        {
+            release.Wait(TimeSpan.FromSeconds(30));
+
+            return true;
+        }
+
+        public bool FileExists(string path) => throw new NotSupportedException();
+
+        public void CreateDirectory(string path) => throw new NotSupportedException();
+
+        public void CreateEmptyFile(string path) => throw new NotSupportedException();
+
+        public void WriteNewFile(string path, byte[] bytes) => throw new NotSupportedException();
+
+        public bool HasAnyEntry(string directory) => throw new NotSupportedException();
+
+        public long GetFileSize(string path) => throw new NotSupportedException();
+
+        public void MoveFile(string source, string target) => throw new NotSupportedException();
+
+        public void CopyFile(string source, string target) => throw new NotSupportedException();
+
+        public bool TryCreateHardLink(string source, string target) => throw new NotSupportedException();
+
+        public void WriteAllBytes(string path, byte[] bytes) => throw new NotSupportedException();
+
+        public void DeleteFile(string path) => throw new NotSupportedException();
+
+        public void SetUnixFileMode(string path, UnixFileMode mode) => throw new NotSupportedException();
+
+        public bool AreSameFile(string first, string second) => throw new NotSupportedException();
+
+        public IEnumerable<string> EnumerateFiles(string directory) => throw new NotSupportedException();
+
+        public DateTime GetLastWriteTimeUtc(string path) => throw new NotSupportedException();
+
+        public void SetLastWriteTimeUtc(string path, DateTime utc) => throw new NotSupportedException();
+
+        public void DeleteEmptyDirectory(string path) => throw new NotSupportedException();
     }
 
     [Fact]
@@ -243,7 +415,7 @@ public sealed class LibraryRootsTests : IDisposable
     {
         await using var context = await ContextAsync();
         var root = _temp.Full("refs-only");
-        Directory.CreateDirectory(root);
+        _temp.CreateFile("refs-only/something.txt");
         var id = await AddLibraryAsync(context, "Refs", root);
         await AddFileAsync(context, id, "/somewhere/else.mp3", _time.GetUtcNow().UtcDateTime, SourceTypes.Reference);
 

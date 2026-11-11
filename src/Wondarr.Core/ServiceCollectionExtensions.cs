@@ -467,7 +467,13 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<WondarrDbContext>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<DatabaseMigrator>>(),
             () => provider.GetService<IBackupService>(),
-            newLibraryRoot: provider.GetService<WondarrPaths>()?.DefaultLibraryRoot));
+            newLibraryRoot: provider.GetService<WondarrPaths>()?.DefaultLibraryRoot,
+
+            // A new database's library root is created and marked here, where the user has no files
+            // yet; adoption never creates a root.
+            prepareNewLibraryRoot: provider.GetService<Wondarr.Core.Organizer.ILibraryRoots>() is { } roots
+                ? roots.Mark
+                : null));
         services.AddHostedService<DatabaseMigrationHostedService>();
 
         // After the migration, so the notification table exists: stored notification secrets reach the log redactor.

@@ -10,7 +10,7 @@ namespace Wondarr.Core.Organizer;
 /// library root health check repeats the pass, so a share that was down at this moment is adopted
 /// when it returns.
 /// </summary>
-public sealed partial class LibraryRootAdoptionHostedService : IHostedService
+public sealed partial class LibraryRootAdoptionHostedService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<LibraryRootAdoptionHostedService> _logger;
@@ -30,13 +30,16 @@ public sealed partial class LibraryRootAdoptionHostedService : IHostedService
     }
 
     /// <inheritdoc />
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Yields first: a hung mount must never hold up the host's start.
+        await Task.Yield();
+
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var adopter = scope.ServiceProvider.GetRequiredService<ILibraryRootAdopter>();
-            await adopter.AdoptAsync(cancellationToken).ConfigureAwait(false);
+            await adopter.AdoptAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -44,9 +47,6 @@ public sealed partial class LibraryRootAdoptionHostedService : IHostedService
             LogFailed(_logger, exception);
         }
     }
-
-    /// <inheritdoc />
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Could not mark the library roots at startup")]
     private static partial void LogFailed(ILogger logger, Exception exception);

@@ -49,7 +49,7 @@ public sealed class LibraryRootHealthCheck : IHealthCheck
 
         foreach (var library in libraries)
         {
-            var status = _roots.Check(library.RootPath);
+            var status = await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false);
 
             if (status != LibraryRootStatus.Ready)
             {
