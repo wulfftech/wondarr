@@ -41,9 +41,19 @@ internal static partial class SearchLibraryGuard
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var unavailable = libraries
-            .Where(library => roots.Check(library.RootPath) != LibraryRootStatus.Ready)
-            .ToDictionary(library => library.Id);
+        var unavailable = new Dictionary<long, Wondarr.Core.Domain.Library>();
+        var statuses = new Dictionary<long, LibraryRootStatus>();
+
+        foreach (var library in libraries)
+        {
+            var status = await roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false);
+
+            if (status != LibraryRootStatus.Ready)
+            {
+                unavailable[library.Id] = library;
+                statuses[library.Id] = status;
+            }
+        }
 
         if (unavailable.Count == 0)
         {
@@ -69,7 +79,7 @@ internal static partial class SearchLibraryGuard
 
             var library = unavailable[group.Key];
             var count = group.Count();
-            var reason = roots.Describe(library, roots.Check(library.RootPath));
+            var reason = roots.Describe(library, statuses[group.Key]);
             LogSkipped(logger, search, count, library.Name, reason);
         }
 

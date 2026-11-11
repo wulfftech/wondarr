@@ -178,6 +178,40 @@ public class FilePlacerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_root_that_vanishes_after_the_check_is_root_unavailable_and_no_child_recreates_it()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        Directory.Delete(Library, recursive: true);
+
+        // The check says ready (the share was there a moment ago); the folder walk finds it gone.
+        var roots = Substitute.For<ILibraryRoots>();
+        roots.Check(Arg.Any<string>()).Returns(LibraryRootStatus.Ready, LibraryRootStatus.Missing);
+        roots.Describe(Arg.Any<Wondarr.Core.Domain.Library>(), Arg.Any<LibraryRootStatus>()).Returns("the root is gone");
+        var disk = new DiskOperations();
+        var monitor = new TestOptionsMonitor<ImportOptions>(_options);
+        var bin = new RecycleBin(disk, monitor, new WondarrPaths(_temp.Full("config")), TimeProvider.System, NullLogger<RecycleBin>.Instance);
+
+        var result = await new FilePlacer(disk, roots, bin, monitor, NullLogger<FilePlacer>.Instance)
+            .PlaceAsync(Request(source, "Artist/Album/track", TransferMode.Move), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.RootUnavailable.Should().BeTrue();
+        Directory.Exists(Library).Should().BeFalse("Directory.CreateDirectory(child) would have recreated the root");
+        File.Exists(source).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_root_refusal_is_flagged_as_root_unavailable()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        File.Delete(Path.Combine(Library, LibraryRoots.MarkerFileName));
+
+        var result = await Placer().PlaceAsync(Request(source, "Artist/Album/track", TransferMode.Move), CancellationToken.None);
+
+        result.RootUnavailable.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Never_creates_the_library_root_itself_when_it_does_not_exist()
     {
         var source = _temp.CreateFile("downloads/track.mp3", "audio");
@@ -793,6 +827,8 @@ public class FilePlacerTests : IDisposable
         public void CreateEmptyFile(string path) => _inner.CreateEmptyFile(path);
 
         public void WriteNewFile(string path, byte[] bytes) => _inner.WriteNewFile(path, bytes);
+
+        public bool HasAnyEntry(string directory) => _inner.HasAnyEntry(directory);
 
         public long GetFileSize(string path) => _inner.GetFileSize(path);
 

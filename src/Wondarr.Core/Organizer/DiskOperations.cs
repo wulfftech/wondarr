@@ -27,6 +27,9 @@ public interface IDiskOperations
     /// </summary>
     void WriteNewFile(string path, byte[] bytes);
 
+    /// <summary>Whether <paramref name="directory"/> holds at least one file or folder (not recursive).</summary>
+    bool HasAnyEntry(string directory);
+
     /// <summary>The size of the file at <paramref name="path"/> in bytes.</summary>
     long GetFileSize(string path);
 
@@ -131,6 +134,10 @@ public sealed class DiskOperations : IDiskOperations
             // Another writer got there between the check and the open: its file stays as it is.
         }
     }
+
+    /// <inheritdoc />
+    public bool HasAnyEntry(string directory) =>
+        Directory.Exists(directory) && Directory.EnumerateFileSystemEntries(directory).Any();
 
     /// <inheritdoc />
     public long GetFileSize(string path) => new FileInfo(path).Length;

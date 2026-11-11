@@ -7889,7 +7889,8 @@
         "enum": [
           "ready",
           "missing",
-          "unmarked"
+          "unmarked",
+          "unresponsive"
         ],
         "type": "string",
         "default": 0

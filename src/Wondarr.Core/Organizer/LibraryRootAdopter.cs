@@ -7,9 +7,10 @@ using Wondarr.Core.Sources;
 namespace Wondarr.Core.Organizer;
 
 /// <summary>
-/// Puts the marker into the root of every library that already is what it claims to be: a library with
-/// no files of its own (a new or empty one has nothing to protect), or one whose recorded files are
-/// still on the disk. A library whose files are all gone is an unmounted share and stays unmarked.
+/// Puts the marker into the root of a library whose folder exists and looks like the real thing: one
+/// whose recorded files are still on the disk, or, with no files on record, one whose folder holds
+/// something (an unmounted mount point is empty). It never creates a root and never marks a missing,
+/// hung or empty-and-suspicious one; those stay unmarked for the health check and the user to settle.
 /// </summary>
 public interface ILibraryRootAdopter
 {
@@ -65,40 +66,18 @@ public sealed partial class LibraryRootAdopter : ILibraryRootAdopter
 
         foreach (var library in libraries)
         {
-            if (_roots.Check(library.RootPath) == LibraryRootStatus.Ready)
-            {
-                continue;
-            }
-
-            var paths = await _database.Songs
-                .AsNoTracking()
-                .Where(song => song.LibraryId == library.Id
-                    && song.File != null
-                    && song.File.SourceType != SourceTypes.Reference)
-                .OrderByDescending(song => song.File!.ImportedAt)
-                .ThenByDescending(song => song.File!.Id)
-                .Select(song => song.File!.Path)
-                .Take(SampleSize)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (paths.Count > 0
-                && !(_disk.DirectoryExists(library.RootPath) && paths.Any(_disk.FileExists)))
-            {
-                // Files are recorded and none is there: the share is not mounted, so the root is not
-                // marked. The health check says so until it is back or the user confirms the folder.
-                LogLeftUnmarked(_logger, library.Name, library.RootPath);
-                continue;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
 
             try
             {
-                _roots.Mark(library.RootPath);
-                adopted++;
-                LogAdopted(_logger, library.Name, library.RootPath);
+                if (await AdoptOneAsync(library, cancellationToken).ConfigureAwait(false))
+                {
+                    adopted++;
+                }
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
+                // One bad root never aborts the pass (or the health check that runs it).
                 LogMarkFailed(_logger, library.Name, library.RootPath, exception);
             }
         }
@@ -106,10 +85,56 @@ public sealed partial class LibraryRootAdopter : ILibraryRootAdopter
         return adopted;
     }
 
+    /// <summary>Marks one library's root when the rules allow it; never creates a root.</summary>
+    private async Task<bool> AdoptOneAsync(Library library, CancellationToken cancellationToken)
+    {
+        // Only an existing folder without the marker is ever adopted. A missing root is never marked
+        // (that would create it on the host's own disk), and a hung one is left for a later pass.
+        if (await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false) != LibraryRootStatus.Unmarked)
+        {
+            return false;
+        }
+
+        var paths = await _database.Songs
+            .AsNoTracking()
+            .Where(song => song.LibraryId == library.Id
+                && song.File != null
+                && song.File.SourceType != SourceTypes.Reference)
+            .OrderByDescending(song => song.File!.ImportedAt)
+            .ThenByDescending(song => song.File!.Id)
+            .Select(song => song.File!.Path)
+            .Take(SampleSize)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // Files on record: one of the latest must be on the disk. None on record: an unmounted mount
+        // point is empty, so the folder must hold something. Otherwise it stays unmarked and the
+        // health check reports it; the user can confirm it.
+        var plausible = paths.Count > 0
+            ? paths.Any(_disk.FileExists)
+            : _disk.HasAnyEntry(library.RootPath);
+
+        if (!plausible)
+        {
+            LogLeftUnmarked(_logger, library.Name, library.RootPath);
+
+            return false;
+        }
+
+        if (!_roots.MarkExisting(library.RootPath))
+        {
+            return false;
+        }
+
+        LogAdopted(_logger, library.Name, library.RootPath);
+
+        return true;
+    }
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Marked the root of library {Library} ({Root}) with the Wondarr marker file")]
     private static partial void LogAdopted(ILogger logger, string library, string root);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Library {Library} ({Root}) holds recorded files but none was found, so its root was not marked; it may be an unmounted share")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Library {Library} ({Root}) is an empty folder or holds no recorded file, so its root was not marked; it may be an unmounted share")]
     private static partial void LogLeftUnmarked(ILogger logger, string library, string root);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not mark the root of library {Library} ({Root})")]

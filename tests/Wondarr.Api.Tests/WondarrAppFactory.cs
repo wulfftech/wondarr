@@ -128,6 +128,11 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
     {
         public LibraryRootStatus Check(string rootPath) => LibraryRootStatus.Ready;
 
+        public Task<LibraryRootStatus> CheckAsync(string rootPath, CancellationToken cancellationToken) =>
+            Task.FromResult(LibraryRootStatus.Ready);
+
+        public bool MarkExisting(string rootPath) => true;
+
         public void Mark(string rootPath)
         {
         }

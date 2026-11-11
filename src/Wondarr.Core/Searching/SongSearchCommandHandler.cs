@@ -81,7 +81,7 @@ public sealed partial class SongSearchCommandHandler : ICommandHandler
                 .Join(_database.Libraries.AsNoTracking(), song => song.LibraryId, library => library.Id, (song, library) => library)
                 .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false) is { } library
-            && _roots.Check(library.RootPath) is var status
+            && await _roots.CheckAsync(library.RootPath, cancellationToken).ConfigureAwait(false) is var status
             && status != LibraryRootStatus.Ready)
         {
             var reason = _roots.Describe(library, status);

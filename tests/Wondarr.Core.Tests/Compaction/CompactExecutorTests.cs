@@ -406,6 +406,52 @@ public partial class CompactExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task Giving_up_on_a_move_while_the_root_is_gone_leaves_the_row_and_creates_no_folder()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var staged = Stage(context, song, "01 - Track 1.flac");
+        await context.SaveChangesAsync();
+        await context.CompactMoves.ExecuteUpdateAsync(set => set.SetProperty(row => row.Attempts, CompactMoveRules.MaxAttempts));
+
+        var old = (await context.CompactMoves.AsNoTracking().SingleAsync()).FromPath!;
+        Directory.Delete(Path.GetDirectoryName(old)!, recursive: true);
+
+        // Ready for the run's own check, gone by the time the give-up would recreate the old folder.
+        var roots = Substitute.For<ILibraryRoots>();
+        roots.Check(Arg.Any<string>()).Returns(LibraryRootStatus.Ready, LibraryRootStatus.Missing);
+        roots.Describe(Arg.Any<Library>(), Arg.Any<LibraryRootStatus>()).Returns("the root is gone");
+        var recycleBin = new RecycleBin(
+            _disk,
+            new TestOptionsMonitor<ImportOptions>(new ImportOptions { RecycleBinPath = _bin }),
+            new WondarrPaths(_config),
+            _timeProvider,
+            NullLogger<RecycleBin>.Instance);
+        var executor = new CompactExecutor(
+            _database.CreateContext(_timeProvider),
+            _planner,
+            _organizer,
+            _disk,
+            roots,
+            recycleBin,
+            _connection,
+            _plex,
+            _updater,
+            _timeProvider,
+            new SongFileLock(),
+            NullLogger<CompactExecutor>.Instance);
+
+        var result = await executor.RunAsync(SeedData.DefaultLibraryId, null, CancellationToken.None, resumeOnly: true);
+
+        result.GivenUp.Should().Be(0);
+        Directory.Exists(Path.GetDirectoryName(old)!).Should().BeFalse("the old folder is not recreated");
+        File.Exists(staged).Should().BeTrue();
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.CompactMoves.SingleAsync()).State.Should().Be(CompactMoveState.Staged, "the row is left as it is for a later run");
+    }
+
+    [Fact]
     public async Task A_run_finishes_the_staged_rows_an_interrupted_run_left()
     {
         await using var context = await ContextAsync(section: Section);
@@ -1141,6 +1187,8 @@ internal sealed class FaultyDisk(IDiskOperations inner) : IDiskOperations
     public void CreateEmptyFile(string path) => inner.CreateEmptyFile(path);
 
     public void WriteNewFile(string path, byte[] bytes) => inner.WriteNewFile(path, bytes);
+
+    public bool HasAnyEntry(string directory) => inner.HasAnyEntry(directory);
 
     public long GetFileSize(string path) => inner.GetFileSize(path);
 
