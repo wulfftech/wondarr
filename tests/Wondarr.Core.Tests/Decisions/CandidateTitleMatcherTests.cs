@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Wondarr.Core.Decisions;
+using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Sources;
 using Xunit;
@@ -174,6 +175,57 @@ public class CandidateTitleMatcherTests
 
         CandidateTitleMatcher.IsFullTitleMatch("Story of a Girl", release, VersionFlags.None)
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_title_never_reaches_back_past_a_track_number()
+    {
+        var forms = CandidateTitleMatcher.FullTitleForms(
+            Candidate(@"Music\Lisa Marie Presley\Storm & Grace (2012)\Lisa Marie Presley - Storm & Grace - 02 - You Ain't Seen Nothin' Yet.flac", null),
+            VersionFlags.None)!;
+
+        forms.Should().Contain(TextMatching.Normalize("You Ain't Seen Nothin' Yet"));
+        forms.Should().Contain(TextMatching.Normalize("02 - You Ain't Seen Nothin' Yet"));
+        forms.Should().NotContain(form => form.Contains("storm", StringComparison.Ordinal) || form.Contains("lisa", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_title_never_includes_the_name_of_a_folder_the_file_is_in()
+    {
+        var forms = CandidateTitleMatcher.FullTitleForms(
+            Candidate(@"share\Aaron Neville\Orchid in the Storm (2002)\Aaron Neville - Orchid in the Storm - Mona Lisa.mp3", null),
+            VersionFlags.None)!;
+
+        forms.Should().Contain(TextMatching.Normalize("Mona Lisa"));
+        forms.Should().NotContain(form => form.Contains("storm", StringComparison.Ordinal) || form.Contains("neville", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_dash_in_the_title_still_joins_when_no_folder_or_track_number_is_in_the_way()
+    {
+        var candidate = Candidate(@"Music\Beethoven\Symphony No.5 - I. Allegro con brio.flac", null);
+
+        CandidateTitleMatcher.FullTitleForms(candidate, VersionFlags.None)!.Should()
+            .Contain(TextMatching.Normalize("I. Allegro con brio"))
+            .And.Contain(TextMatching.Normalize("Symphony No.5 - I. Allegro con brio"));
+        CandidateTitleMatcher.IsFullTitleMatch("Symphony No.5 - I. Allegro con brio", candidate, VersionFlags.None).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_title_before_the_artist_still_matches()
+    {
+        CandidateTitleMatcher.Similarity("Hey Jude", Candidate(@"@@u\The Beatles\Hey Jude - The Beatles.flac", null))
+            .Should().BeApproximately(1.0, 0.001);
+    }
+
+    [Theory]
+    [InlineData(@"Music\Lisa Marie Presley\Storm & Grace (2012)\Lisa Marie Presley - Storm & Grace - 02 - You Ain't Seen Nothin' Yet.flac")]
+    [InlineData(@"share\Aaron Neville\Orchid in the Storm (2002)\Aaron Neville - Orchid in the Storm - 06 - Mona Lisa (Dedicated to Bette Midler).mp3")]
+    public void The_album_part_of_a_file_name_is_not_a_title(string path)
+    {
+        var candidate = Candidate(path, null) with { Parsed = SoulseekFilenameParser.Parse(path).Parsed };
+
+        CandidateTitleMatcher.Similarity("Storm", candidate).Should().BeLessThan(0.6);
     }
 
     private static Candidate Candidate(string path, string? parsedTitle) => new()
