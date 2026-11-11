@@ -528,6 +528,16 @@ describe('LibrarySettingsPage library folder', () => {
     expect(screen.queryByRole('button', { name: 'This is the right folder' })).toBeNull();
   });
 
+  it('says a share that does not answer may be hung', async () => {
+    install(undefined, { library: { ...LIBRARIES[0], rootStatus: 'unresponsive' } });
+
+    renderApp();
+
+    expect(await screen.findByText('The library folder is not answering')).toBeInTheDocument();
+    expect(screen.getByText('folder not ready')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'This is the right folder' })).toBeNull();
+  });
+
   it('confirms an unmarked folder', async () => {
     install(undefined, { library: { ...LIBRARIES[0], rootStatus: 'unmarked' } });
     const user = userEvent.setup();

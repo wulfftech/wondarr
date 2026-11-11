@@ -625,6 +625,11 @@ function DeleteLibraryModal({
 }
 
 /** The library settings: one panel per library, each with its form, rules and commands. */
+/** Whether Wondarr is holding writes into this library back (LIBRARY_OUTPUT §7.9). */
+function isRootNotReady(library: LibraryResource): boolean {
+  return library.rootStatus === 'missing' || library.rootStatus === 'unmarked' || library.rootStatus === 'unresponsive';
+}
+
 /**
  * Says why Wondarr is not writing into a library whose folder is missing or has no `.wondarr-library`
  * file (an unmounted share looks like that), with the confirm button for a folder emptied or moved on
@@ -633,7 +638,7 @@ function DeleteLibraryModal({
 export function LibraryRootAlert({ library }: { library: LibraryResource }) {
   const confirm = useConfirmLibraryRoot();
 
-  if (library.rootStatus !== 'missing' && library.rootStatus !== 'unmarked') {
+  if (!isRootNotReady(library)) {
     return null;
   }
 
@@ -641,6 +646,17 @@ export function LibraryRootAlert({ library }: { library: LibraryResource }) {
     confirm.error instanceof ValidationError
       ? Object.values(confirm.error.fields).join(' ') || confirm.error.message
       : confirm.error?.message;
+
+  if (library.rootStatus === 'unresponsive') {
+    return (
+      <Alert color="red" icon={<CircleAlert size={16} />} title="The library folder is not answering">
+        <Text size="sm">
+          {library.rootPath} did not answer within 5 seconds, so its share may be hung. Downloads for this library wait
+          in the queue until it answers; bring the server back or remount the share.
+        </Text>
+      </Alert>
+    );
+  }
 
   if (library.rootStatus === 'missing') {
     return (
@@ -743,7 +759,7 @@ export function LibrarySettingsPage() {
                     default
                   </Badge>
                 )}
-                {(library.rootStatus === 'missing' || library.rootStatus === 'unmarked') && (
+                {isRootNotReady(library) && (
                   <Badge variant="light" color="red" ml="xs">
                     folder not ready
                   </Badge>

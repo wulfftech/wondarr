@@ -6283,7 +6283,7 @@ export interface components {
          * @default 0
          * @enum {string}
          */
-        LibraryRootStatus: "ready" | "missing" | "unmarked";
+        LibraryRootStatus: "ready" | "missing" | "unmarked" | "unresponsive";
         LogFileResource: {
             /** Format: int64 */
             id: number | string;
