@@ -479,6 +479,9 @@ public static class ServiceCollectionExtensions
         // After the migration, so the notification table exists: stored notification secrets reach the log redactor.
         services.AddHostedService<NotificationSecretRegistrar>();
 
+        // Also after the migration: teaches each song what its refusals recorded before 0.1.18, once per database.
+        services.AddHostedService<Wondarr.Core.Decisions.LearnedEvidenceBackfill>();
+
         return services;
     }
 }
