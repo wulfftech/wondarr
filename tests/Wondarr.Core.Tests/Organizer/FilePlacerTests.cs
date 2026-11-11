@@ -20,6 +20,7 @@ public class FilePlacerTests : IDisposable
         // Everything the tests touch — library, downloads and recycle bin — lives under one root
         // that Dispose removes and checks.
         _options.RecycleBinPath = _temp.Full("recycle");
+        TestLibraryRoots.Mark(Library);
     }
 
     public void Dispose()
@@ -156,7 +157,40 @@ public class FilePlacerTests : IDisposable
         result.Success.Should().BeFalse();
         result.FinalPath.Should().BeNull();
         result.Error.Should().Contain("does not exist");
-        Directory.Exists(Library).Should().BeFalse();
+        Directory.GetFileSystemEntries(Library).Should().ContainSingle().Which.Should().EndWith(LibraryRoots.MarkerFileName);
+    }
+
+    [Fact]
+    public async Task Refuses_a_root_without_the_marker_and_writes_nothing()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        File.Delete(Path.Combine(Library, LibraryRoots.MarkerFileName));
+
+        var result = await Placer().PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.FinalPath.Should().BeNull();
+        result.Error.Should().Contain("has no .wondarr-library file").And.Contain("looks like an unmounted share");
+        Directory.GetFileSystemEntries(Library).Should().BeEmpty("not even the album folder is made");
+        File.Exists(source).Should().BeTrue("a refused placement leaves the download alone");
+    }
+
+    [Fact]
+    public async Task Never_creates_the_library_root_itself_when_it_does_not_exist()
+    {
+        var source = _temp.CreateFile("downloads/track.mp3", "audio");
+        Directory.Delete(Library, recursive: true);
+
+        var result = await Placer().PlaceAsync(
+            Request(source, "Artist/Album/track", TransferMode.Move),
+            CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("does not exist");
+        Directory.Exists(Library).Should().BeFalse("the root is never created by a placement");
+        File.Exists(source).Should().BeTrue();
     }
 
     [Fact]
@@ -478,7 +512,7 @@ public class FilePlacerTests : IDisposable
         result.Success.Should().BeTrue(result.Error);
         result.FinalPath.Should().Be(source);
         File.ReadAllText(source).Should().Be("audio");
-        _temp.Files().Should().HaveCount(1, "nothing was copied, numbered or recycled");
+        _temp.Files().Where(file => !file.EndsWith(LibraryRoots.MarkerFileName, StringComparison.Ordinal)).Should().HaveCount(1, "nothing was copied, numbered or recycled");
     }
 
     [Fact]

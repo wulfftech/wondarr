@@ -164,7 +164,7 @@ public sealed class CompactTemplateRoundTripTests : IDisposable
         var library = await context.Libraries.SingleAsync(candidate => candidate.Id == SeedData.DefaultLibraryId);
 
         // The seeded Plexamp copy: it follows the preset, which is the point of the whole pass.
-        library.RootPath = Root;
+        library.RootPath = TestLibraryRoots.Mark(Root);
         library.PlexSectionId = null;
         library.PlexLibraryPath = null;
         await context.SaveChangesAsync();

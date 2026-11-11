@@ -51,7 +51,7 @@ public sealed class LibraryOrganizerTests : IDisposable
 
     public LibraryOrganizerTests()
     {
-        Directory.CreateDirectory(Path.Combine(_root, "library"));
+        TestLibraryRoots.Mark(Path.Combine(_root, "library"));
         Directory.CreateDirectory(Path.Combine(_root, "source"));
 
         _database.MigrateAsync(TimeProvider.System).GetAwaiter().GetResult();
@@ -160,6 +160,40 @@ public sealed class LibraryOrganizerTests : IDisposable
         _placer.Requests.Should().BeEmpty();
         Directory.EnumerateFiles(StagingFolder).Should().BeEmpty();
         File.ReadAllBytes(source).Should().Equal(SourceBytes);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_root_without_the_marker_is_library_unavailable_and_nothing_is_created(bool keepSource)
+    {
+        var source = WriteSource();
+        File.Delete(Path.Combine(LibraryRoot, LibraryRoots.MarkerFileName));
+
+        var result = await Organizer().OrganizeAsync(Request(source, keepSource: keepSource), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Failure.Should().Be(OrganizeFailure.LibraryUnavailable);
+        result.Error.Should().Contain("has no .wondarr-library file").And.Contain(LibraryRoot);
+        result.FinalPath.Should().BeNull();
+        _placer.Requests.Should().BeEmpty();
+        _tagWriter.Writes.Should().BeEmpty("the file is not even tagged");
+        Directory.Exists(StagingFolder).Should().BeFalse("not even the staging copy is made");
+        Directory.GetFileSystemEntries(LibraryRoot).Should().BeEmpty();
+        File.ReadAllBytes(source).Should().Equal(SourceBytes);
+    }
+
+    [Fact]
+    public async Task A_root_that_does_not_exist_is_library_unavailable_and_is_not_created()
+    {
+        var source = WriteSource();
+        Directory.Delete(LibraryRoot, recursive: true);
+
+        var result = await Organizer().OrganizeAsync(Request(source, keepSource: true), CancellationToken.None);
+
+        result.Failure.Should().Be(OrganizeFailure.LibraryUnavailable);
+        result.Error.Should().Contain("does not exist");
+        Directory.Exists(LibraryRoot).Should().BeFalse();
     }
 
     [Fact]

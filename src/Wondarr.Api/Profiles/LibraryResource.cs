@@ -55,7 +55,7 @@ public sealed record LibraryResource(
     string? PlexLibraryPath,
     bool IsDefault,
     bool? ReplayGain = null,
-    LibraryRootStatus? RootStatus = null);
+    LibraryRootStatus RootStatus = LibraryRootStatus.Ready);
 
 /// <summary>Maps between <see cref="Library"/> and <see cref="LibraryResource"/>.</summary>
 public static class LibraryResourceMapper
@@ -65,8 +65,8 @@ public static class LibraryResourceMapper
 
     /// <summary>Builds the resource for <paramref name="library"/>.</summary>
     /// <param name="library">The stored library.</param>
-    /// <param name="rootStatus">What a live check of the root found; <see langword="null"/> when none was made.</param>
-    public static LibraryResource ToResource(this Library library, LibraryRootStatus? rootStatus = null)
+    /// <param name="rootStatus">What a live check of the root found.</param>
+    public static LibraryResource ToResource(this Library library, LibraryRootStatus rootStatus)
     {
         ArgumentNullException.ThrowIfNull(library);
 
