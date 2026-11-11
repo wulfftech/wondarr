@@ -211,6 +211,31 @@ public class CandidateTitleMatcherTests
         CandidateTitleMatcher.IsFullTitleMatch("Symphony No.5 - I. Allegro con brio", candidate, VersionFlags.None).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("Hey Jude", @"Music\The Beatles\Hey Jude\Hey Jude - The Beatles.flac")]
+    [InlineData("Hey Jude", @"Music\The Beatles\Hey Jude\01 - Hey Jude - The Beatles.flac")]
+    [InlineData("Please Come Tonight", @"Music\Phil\Please Come Tonight\Phil - Please Come Tonight - Single Version.mp3")]
+    [InlineData("Symphony No. 5", @"Beethoven\Symphony No.5\Symphony No.5 - I. Allegro con brio.flac")]
+    public void A_folder_named_after_the_song_does_not_hide_the_songs_title(string song, string path)
+    {
+        var candidate = Candidate(path, null) with { Parsed = SoulseekFilenameParser.Parse(path).Parsed };
+
+        CandidateTitleMatcher.Similarity(song, candidate).Should().BeGreaterThanOrEqualTo(0.6);
+    }
+
+    [Fact]
+    public void The_full_title_forms_of_a_single_reach_the_folder_named_after_the_song_only_when_it_is_compared()
+    {
+        var candidate = Candidate(@"Music\The Beatles\Hey Jude\Hey Jude - The Beatles.flac", null);
+        var joined = TextMatching.Normalize("Hey Jude - The Beatles");
+
+        CandidateTitleMatcher.FullTitleForms(candidate, VersionFlags.None)!.Should().NotContain(joined);
+        CandidateTitleMatcher.FullTitleForms(candidate, VersionFlags.None, CandidateTitleMatcher.TitleForms("Hey Jude"))!
+            .Should().Contain(joined);
+        CandidateTitleMatcher.IsFullTitleMatch("Hey Jude", Candidate(@"Music\The Beatles\Hey Jude\01 - Hey Jude.flac", null), VersionFlags.None)
+            .Should().BeTrue();
+    }
+
     [Fact]
     public void A_title_before_the_artist_still_matches()
     {

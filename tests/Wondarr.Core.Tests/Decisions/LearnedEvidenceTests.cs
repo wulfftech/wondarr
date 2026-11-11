@@ -107,7 +107,17 @@ public sealed class LearnedEvidenceTests
 
         var decision = Engine.Evaluate(context, [Candidate(remotePath) with { DurationMs = 223_000 }]).Single();
 
-        decision.Accepted.Should().BeFalse("the file's own title is not 'Storm'");
+        decision.Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch, "the file's own title is not 'Storm'");
+    }
+
+    [Fact]
+    public void A_folder_named_after_a_learned_title_does_not_hide_it()
+    {
+        var decision = Judge(
+            PhilContext() with { OtherRecordingTitles = ["Please Come Out Tonight"] },
+            @"Music\Phil Collins\Please Come Out Tonight\Please Come Out Tonight - Phil Collins.flac");
+
+        decision.Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.Blocklisted);
     }
 
     [Fact]

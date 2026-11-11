@@ -190,7 +190,43 @@ public sealed class LearnedEvidenceBackfillTests : IDisposable
 
         var learned = await LearnedRowsAsync();
         learned.Should().ContainSingle().Which.SongId.Should().Be(fine);
+        (await SettingAsync()).Should().Be(0, "a failed song is retried at the next start");
+
+        _failSongIds.Clear();
+        await RunAsync();
+
+        (await LearnedRowsAsync()).Select(row => row.SongId).Should().BeEquivalentTo([fine, failing]);
         (await SettingAsync()).Should().Be(LearnedEvidenceBackfill.CurrentVersion);
+    }
+
+    [Fact]
+    public async Task Never_learns_unknown_title()
+    {
+        var songId = await SeedSongAsync("Please Come Tonight", "Phil");
+        await RefuseAsync(songId, "p1", @"Music\X\Title One.flac", Fingerprint("unknown title"));
+        await RefuseAsync(songId, "p2", @"Music\Y\Title Two.flac", Fingerprint("Unknown Title"));
+
+        await RunAsync();
+
+        (await LearnedRowsAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_refusal_naming_the_songs_own_recording_teaches_nothing()
+    {
+        var songId = await SeedSongAsync("Out on a Limb", "The Saddle Club");
+        await using (var context = _database.CreateContext(_time))
+        {
+            (await context.Songs.SingleAsync(row => row.Id == songId)).MbRecordingId = OtherId.ToUpperInvariant();
+            await context.SaveChangesAsync();
+        }
+
+        await RefuseWithCandidateAsync(songId, "a", CompilationPath, Fingerprint("Believe Her"));
+        await RefuseWithCandidateAsync(songId, "b", @"@@b\Various Artists\Nuggets\Disc 1\1-19 Out on a Limb.flac", Fingerprint("Believe Her"));
+
+        await RunAsync();
+
+        (await LearnedRowsAsync()).Should().BeEmpty();
     }
 
     public void Dispose()

@@ -28,7 +28,7 @@ namespace Wondarr.Core.Decisions;
 /// <remarks>
 /// It never blocks startup (it yields first, like the library root adoption) and records
 /// <see cref="SettingKey"/> once the pass is through, so a later start does not repeat it. A song that fails is
-/// logged and skipped; cancellation stops the pass and leaves the setting unset, and the pass is idempotent.
+/// logged and skipped; the setting is left unset after a failed song and after cancellation, so the next start repeats the pass, which is idempotent.
 /// </remarks>
 public sealed partial class LearnedEvidenceBackfill : BackgroundService
 {
@@ -38,6 +38,7 @@ public sealed partial class LearnedEvidenceBackfill : BackgroundService
     /// <summary>The version of the backfill this build runs; a database below it is run once.</summary>
     public const int CurrentVersion = 1;
 
+    private const string UnknownTitle = "unknown title";
     private const string FingerprintReasonOpening = "Fingerprint belongs to a different recording:";
     private const string ArtistReasonMiddle = ", and the ";
     private const string ArtistReasonEnd = " names another artist (";
@@ -95,6 +96,7 @@ public sealed partial class LearnedEvidenceBackfill : BackgroundService
 
         var learnedTitles = 0;
         var countedMisses = 0;
+        var failed = false;
 
         foreach (var songId in songIds)
         {
@@ -108,6 +110,7 @@ public sealed partial class LearnedEvidenceBackfill : BackgroundService
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
+                failed = true;
                 LogSongFailed(_logger, songId, exception);
             }
             finally
@@ -116,7 +119,11 @@ public sealed partial class LearnedEvidenceBackfill : BackgroundService
             }
         }
 
-        await settings.SetAsync(SettingKey, CurrentVersion, cancellationToken).ConfigureAwait(false);
+        // A song that failed (a locked database, say) is retried at the next start: the pass is idempotent.
+        if (!failed)
+        {
+            await settings.SetAsync(SettingKey, CurrentVersion, cancellationToken).ConfigureAwait(false);
+        }
 
         LogDone(_logger, songIds.Count, learnedTitles, countedMisses);
     }
@@ -161,7 +168,7 @@ public sealed partial class LearnedEvidenceBackfill : BackgroundService
             .Select(row => row.Key)
             .ToHashSet(StringComparer.Ordinal);
 
-        var fingerprint = new List<(Row Row, string Title)>();
+        var fingerprint = new List<(Row Row, string Title, string Id)>();
         var other = new List<Row>();
 
         foreach (var row in rows)
@@ -175,7 +182,7 @@ public sealed partial class LearnedEvidenceBackfill : BackgroundService
                 && double.TryParse(match.Groups["score"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var score)
                 && score >= acceptScore)
             {
-                fingerprint.Add((row, match.Groups["title"].Value));
+                fingerprint.Add((row, match.Groups["title"].Value, match.Groups["id"].Value));
             }
             else if (row.Reason == SongFileRemover.Reason
                 || (row.Reason.Contains(ArtistReasonMiddle, StringComparison.Ordinal)
@@ -201,11 +208,20 @@ public sealed partial class LearnedEvidenceBackfill : BackgroundService
             return (0, 0);
         }
 
+        // A refusal that names the song's own recording says nothing about another one.
+        if (song.MbRecordingId is { Length: > 0 } ownRecording)
+        {
+            fingerprint.RemoveAll(entry => string.Equals(entry.Id, ownRecording, StringComparison.OrdinalIgnoreCase));
+        }
+
         var added = 0;
         var titles = 0;
 
         // Other titles: one refusal writes its rows in one save, so rows sharing a CreatedAt are one refusal.
-        foreach (var group in fingerprint.GroupBy(entry => TextMatching.Normalize(entry.Title)))
+        // "unknown title" is what the verifier writes when AcoustID's recording has none, and the import learns nothing then.
+        foreach (var group in fingerprint
+            .Where(entry => !string.Equals(entry.Title.Trim(), UnknownTitle, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(entry => TextMatching.Normalize(entry.Title)))
         {
             var refusals = group.Select(entry => entry.Row.CreatedAt).Distinct().Count();
             var newest = group.MaxBy(entry => entry.Row.CreatedAt);

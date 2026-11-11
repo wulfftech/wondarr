@@ -107,7 +107,7 @@ public static class CandidateTitleMatcher
             AddWithDashSuffixes(candidateTexts, parsedTitle!);
         }
 
-        var folders = FolderNames(candidate.RemotePath);
+        var folders = FolderNames(candidate.RemotePath, songVariants);
 
         for (var passes = 1; passes <= 2; passes++)
         {
@@ -165,7 +165,7 @@ public static class CandidateTitleMatcher
         var titleForms = TitleForms(songTitle);
 
         return titleForms.Count > 0
-            && FullTitleForms(candidate, songFlags) is { } candidateForms
+            && FullTitleForms(candidate, songFlags, titleForms) is { } candidateForms
             && candidateForms.Overlaps(titleForms);
     }
 
@@ -196,8 +196,12 @@ public static class CandidateTitleMatcher
     /// </summary>
     /// <param name="candidate">The candidate.</param>
     /// <param name="songFlags">The version flags the song carries.</param>
+    /// <param name="comparedTitles">
+    /// The folded titles the forms are about to be compared with: a folder named like one of them is not a
+    /// boundary of the file name's title (a single in a folder named after its song).
+    /// </param>
     /// <returns><see langword="null"/> when the candidate carries no title of its own.</returns>
-    public static IReadOnlySet<string>? FullTitleForms(Candidate candidate, VersionFlags songFlags)
+    public static IReadOnlySet<string>? FullTitleForms(Candidate candidate, VersionFlags songFlags, IReadOnlySet<string>? comparedTitles = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
 
@@ -219,7 +223,7 @@ public static class CandidateTitleMatcher
         }
 
         // Without a track number stripped as well: "21 Guns.flac" is the song "21 Guns".
-        var folders = FolderNames(candidate.RemotePath);
+        var folders = FolderNames(candidate.RemotePath, comparedTitles);
 
         for (var passes = 0; passes <= 2; passes++)
         {
@@ -409,15 +413,25 @@ public static class CandidateTitleMatcher
         }
     }
 
-    /// <summary>The names of the folders a remote path is in, bracketed groups such as a year removed and normalised.</summary>
-    private static HashSet<string> FolderNames(string remotePath)
+    /// <summary>
+    /// The names of the folders a remote path is in, bracketed groups such as a year removed and normalised,
+    /// except one that is the very title being compared (a single in a folder named after it).
+    /// </summary>
+    private static HashSet<string> FolderNames(string remotePath, IEnumerable<string>? comparedTitles)
     {
         var segments = remotePath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var titles = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var title in comparedTitles ?? [])
+        {
+            titles.Add(TextMatching.Normalize(title));
+            titles.Add(NormalizeFolder(title));
+        }
 
         return segments
             .Take(Math.Max(0, segments.Length - 1))
             .Select(NormalizeFolder)
-            .Where(name => name.Length > 0)
+            .Where(name => name.Length > 0 && !titles.Contains(name))
             .ToHashSet(StringComparer.Ordinal);
     }
 

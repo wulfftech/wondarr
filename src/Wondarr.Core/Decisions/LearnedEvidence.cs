@@ -82,6 +82,7 @@ public sealed class LearnedTitles
     private readonly IReadOnlyList<(string Title, IReadOnlySet<string> Forms, IReadOnlyList<string> Variants)> _titles;
     private readonly IReadOnlySet<string> _songForms;
     private readonly IReadOnlyList<string> _songVariants;
+    private readonly IReadOnlySet<string> _allForms;
     private readonly VersionFlags _songFlags;
 
     private LearnedTitles(
@@ -94,6 +95,7 @@ public sealed class LearnedTitles
         _songForms = songForms;
         _songVariants = songVariants;
         _songFlags = songFlags;
+        _allForms = songForms.Concat(titles.SelectMany(entry => entry.Forms)).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>Gets a value indicating whether the song has learned no title.</summary>
@@ -142,7 +144,7 @@ public sealed class LearnedTitles
             return null;
         }
 
-        if (CandidateTitleMatcher.FullTitleForms(candidate, _songFlags) is { } forms)
+        if (CandidateTitleMatcher.FullTitleForms(candidate, _songFlags, _allForms) is { } forms)
         {
             foreach (var (title, titleForms, _) in _titles)
             {
