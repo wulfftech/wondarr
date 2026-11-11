@@ -12,6 +12,7 @@ using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Media;
 using Wondarr.Core.Tests.Persistence;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Importing;
 
@@ -694,6 +695,7 @@ public sealed class LibraryOrganizerTests : IDisposable
             _placer,
             _covers,
             disk ?? new DiskOperations(),
+            TestLibraryRoots.Over(disk ?? new DiskOperations()),
             _context,
             _coverProcessor,
             _lrclib,
@@ -785,6 +787,8 @@ public sealed class LibraryOrganizerTests : IDisposable
         public void CreateDirectory(string path) => _inner.CreateDirectory(path);
 
         public void CreateEmptyFile(string path) => _inner.CreateEmptyFile(path);
+
+        public void WriteNewFile(string path, byte[] bytes) => _inner.WriteNewFile(path, bytes);
 
         public long GetFileSize(string path) => _inner.GetFileSize(path);
 

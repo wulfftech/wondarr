@@ -7,6 +7,7 @@ using Wondarr.Core.Jobs;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Searching;
 
@@ -222,6 +223,7 @@ public sealed class SearchLoopTests
             host.Scopes,
             host.Monitor,
             host.Time,
+            TestLibraryRoots.Real,
             NullLogger<UpgradeSearchCommandHandler>.Instance);
         var running = handler.ExecuteAsync(ContextWith(lease), Token);
 
@@ -401,7 +403,7 @@ public sealed class SearchLoopTests
     }
 
     private static MissingSearchCommandHandler Handler(SearchTestHost host) =>
-        new(host.Scopes, host.Monitor, host.Time, NullLogger<MissingSearchCommandHandler>.Instance);
+        new(host.Scopes, host.Monitor, host.Time, TestLibraryRoots.Real, NullLogger<MissingSearchCommandHandler>.Instance);
 
     private static CommandContext Context() =>
         new(1, null, CommandTrigger.Scheduled, _ => Task.CompletedTask);

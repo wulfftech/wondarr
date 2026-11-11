@@ -234,6 +234,17 @@ public sealed partial class ReferenceAdopter(
                 continue;
             }
 
+            if (placement.Failure == OrganizeFailure.LibraryUnavailable)
+            {
+                // The target library's root is missing or unmarked (an unmounted share): not a failure
+                // of this file. The row stays Identified for a later run, and nothing more is adopted
+                // into this library in this one.
+                database.ChangeTracker.Clear();
+                LogTargetUnavailable(logger, target.Id, placement.Error ?? string.Empty);
+
+                break;
+            }
+
             if (!placement.Success || placement.FinalPath is null)
             {
                 // The organizer corrects the tracked album context before it does anything that can
@@ -400,6 +411,9 @@ public sealed partial class ReferenceAdopter(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Adopting reference file {ReferenceFileId} failed; the next file is still adopted")]
     private static partial void LogOrganizeFailed(ILogger logger, long referenceFileId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Adoption into library {LibraryId} stopped: {Reason}")]
+    private static partial void LogTargetUnavailable(ILogger logger, long libraryId, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Recording the adoption of reference file {ReferenceFileId} failed")]
     private static partial void LogRecordFailed(ILogger logger, long referenceFileId, Exception exception);

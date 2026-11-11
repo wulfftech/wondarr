@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Wondarr.Testing;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Organizer;
 
@@ -36,7 +37,7 @@ public class FilePlacerTests : IDisposable
         var monitor = new TestOptionsMonitor<ImportOptions>(_options);
         var recycleBin = new RecycleBin(disk, monitor, paths, TimeProvider.System, NullLogger<RecycleBin>.Instance);
 
-        return new FilePlacer(disk, recycleBin, monitor, NullLogger<FilePlacer>.Instance);
+        return new FilePlacer(disk, TestLibraryRoots.Over(disk), recycleBin, monitor, NullLogger<FilePlacer>.Instance);
     }
 
     private PlacementRequest Request(
@@ -569,6 +570,7 @@ public class FilePlacerTests : IDisposable
 
         var placer = new FilePlacer(
             new DiskOperations(),
+            TestLibraryRoots.Real,
             bin,
             new TestOptionsMonitor<ImportOptions>(_options),
             NullLogger<FilePlacer>.Instance);
@@ -611,6 +613,7 @@ public class FilePlacerTests : IDisposable
 
         var result = await new FilePlacer(
                 new DiskOperations(),
+                TestLibraryRoots.Real,
                 bin,
                 new TestOptionsMonitor<ImportOptions>(_options),
                 NullLogger<FilePlacer>.Instance)
@@ -634,6 +637,7 @@ public class FilePlacerTests : IDisposable
 
         var result = await new FilePlacer(
                 disk,
+                TestLibraryRoots.Over(disk),
                 bin,
                 new TestOptionsMonitor<ImportOptions>(_options),
                 NullLogger<FilePlacer>.Instance)
@@ -753,6 +757,8 @@ public class FilePlacerTests : IDisposable
         }
 
         public void CreateEmptyFile(string path) => _inner.CreateEmptyFile(path);
+
+        public void WriteNewFile(string path, byte[] bytes) => _inner.WriteNewFile(path, bytes);
 
         public long GetFileSize(string path) => _inner.GetFileSize(path);
 

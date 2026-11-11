@@ -14,6 +14,7 @@ using Wondarr.Core.Plex;
 using Wondarr.Core.Tests.Persistence;
 using Wondarr.Core.Tests.Searching;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Importing;
 
@@ -231,6 +232,7 @@ public sealed class ImportCompactionGuardTests : IDisposable
             planner,
             organizer,
             disk,
+            TestLibraryRoots.Over(disk),
             recycleBin,
             Substitute.For<IPlexConnectionService>(),
             Substitute.For<IPlexServerClient>(),

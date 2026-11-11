@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 
@@ -41,27 +42,32 @@ public sealed partial class PlaylistWriter : IPlaylistWriter
     private readonly WondarrDbContext _database;
     private readonly IPlexConnectionService _connection;
     private readonly IPlexServerClient _plex;
+    private readonly ILibraryRoots _roots;
     private readonly ILogger<PlaylistWriter> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="PlaylistWriter"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="connection">The Plex connection: the server, the token and the machine id.</param>
     /// <param name="plex">The Plex server client.</param>
+    /// <param name="roots">Keeps the <c>.m3u8</c> out of a library root that is missing or unmarked.</param>
     /// <param name="logger">The logger.</param>
     public PlaylistWriter(
         WondarrDbContext database,
         IPlexConnectionService connection,
         IPlexServerClient plex,
+        ILibraryRoots roots,
         ILogger<PlaylistWriter> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(plex);
+        ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
         _connection = connection;
         _plex = plex;
+        _roots = roots;
         _logger = logger;
     }
 
@@ -208,6 +214,16 @@ public sealed partial class PlaylistWriter : IPlaylistWriter
             .AsNoTracking()
             .FirstAsync(candidate => candidate.Id == list.LibraryId, cancellationToken)
             .ConfigureAwait(false);
+
+        // A root that is missing or unmarked is probably an unmounted share: the folder is not made.
+        var rootStatus = _roots.Check(library.RootPath);
+
+        if (rootStatus != LibraryRootStatus.Ready)
+        {
+            LogM3uSkipped(_logger, list.Id, library.Id);
+
+            return $"the .m3u8 was not written: {_roots.Describe(library, rootStatus)}";
+        }
 
         var folder = Path.Combine(library.RootPath, PlaylistsFolder);
         var path = Path.Combine(folder, SafeFileName(list.Name) + ".m3u8");
@@ -408,6 +424,9 @@ public sealed partial class PlaylistWriter : IPlaylistWriter
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Writing the Plex playlist of import list {ImportListId} failed")]
     private static partial void LogPlexFailed(ILogger logger, long importListId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Skipped the .m3u8 of import list {ImportListId}: the root of library {LibraryId} is missing or unmarked")]
+    private static partial void LogM3uSkipped(ILogger logger, long importListId, long libraryId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Writing the .m3u8 of import list {ImportListId} failed")]
     private static partial void LogM3uFailed(ILogger logger, long importListId, Exception exception);

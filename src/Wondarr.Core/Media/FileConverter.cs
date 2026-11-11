@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Profiles;
@@ -143,6 +144,7 @@ public sealed partial class FileConverter : IFileConverter
     private readonly IReplayGainAnalyzer _replayGain;
     private readonly ISongFileLock _songFileLock;
     private readonly IPlexLibraryUpdater _updater;
+    private readonly ILibraryRoots _roots;
     private readonly ILogger<FileConverter> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="FileConverter"/> class.</summary>
@@ -153,6 +155,7 @@ public sealed partial class FileConverter : IFileConverter
     /// <param name="replayGain">Measures the converted file again when the library has ReplayGain on.</param>
     /// <param name="songFileLock">The per-song lock imports and compaction take.</param>
     /// <param name="updater">Asks Plex to scan the folder.</param>
+    /// <param name="roots">Holds a conversion back while the library's root is missing or unmarked.</param>
     /// <param name="logger">The logger.</param>
     public FileConverter(
         WondarrDbContext database,
@@ -162,6 +165,7 @@ public sealed partial class FileConverter : IFileConverter
         IReplayGainAnalyzer replayGain,
         ISongFileLock songFileLock,
         IPlexLibraryUpdater updater,
+        ILibraryRoots roots,
         ILogger<FileConverter> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -171,6 +175,7 @@ public sealed partial class FileConverter : IFileConverter
         ArgumentNullException.ThrowIfNull(replayGain);
         ArgumentNullException.ThrowIfNull(songFileLock);
         ArgumentNullException.ThrowIfNull(updater);
+        ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
@@ -180,6 +185,7 @@ public sealed partial class FileConverter : IFileConverter
         _replayGain = replayGain;
         _songFileLock = songFileLock;
         _updater = updater;
+        _roots = roots;
         _logger = logger;
     }
 
@@ -324,6 +330,15 @@ public sealed partial class FileConverter : IFileConverter
             return new ConvertSongResult(songId, ConvertOutcome.Refused, "The song's file is being moved or imported; try again later.", file.Codec);
         }
 
+        // Before the current file is probed and before the work folder is made: an unmounted root is
+        // "waiting" (refused, try again later), never a recorded conversion failure.
+        var rootStatus = _roots.Check(library.RootPath);
+
+        if (rootStatus != LibraryRootStatus.Ready)
+        {
+            return new ConvertSongResult(songId, ConvertOutcome.Refused, _roots.Describe(library, rootStatus), file.Codec);
+        }
+
         var currentPath = file.Path;
         var probed = await _probe.ProbeAsync(currentPath, cancellationToken).ConfigureAwait(false);
 
@@ -438,6 +453,19 @@ public sealed partial class FileConverter : IFileConverter
                 LogFailed(_logger, songId, exception);
 
                 return new ConvertSongResult(songId, ConvertOutcome.Failed, $"Placing the converted file failed: {exception.Message}", info.Codec, CodecName(rule));
+            }
+
+            if (placement.Failure == OrganizeFailure.LibraryUnavailable)
+            {
+                // The share dropped while the file was converted: wait, the original is untouched.
+                _database.ChangeTracker.Clear();
+
+                return new ConvertSongResult(
+                    songId,
+                    ConvertOutcome.Refused,
+                    placement.Error ?? "The library folder is not available.",
+                    info.Codec,
+                    CodecName(rule));
             }
 
             string finalPath;

@@ -19,6 +19,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Compaction;
 
@@ -84,7 +85,7 @@ public partial class CompactExecutorTests : IDisposable
         _bin = Path.Combine(Path.GetTempPath(), "wondarr-compact-tests", Guid.NewGuid().ToString("N"), "recycle");
         _config = Path.Combine(Path.GetTempPath(), "wondarr-compact-tests", Guid.NewGuid().ToString("N"), "config");
 
-        Directory.CreateDirectory(_root);
+        TestLibraryRoots.Mark(_root);
         Directory.CreateDirectory(_bin);
         Directory.CreateDirectory(_config);
 
@@ -148,6 +149,7 @@ public partial class CompactExecutorTests : IDisposable
             _planner,
             _organizer,
             _faulty,
+            TestLibraryRoots.Over(_disk),
             recycleBin,
             _connection,
             _plex,
@@ -1068,6 +1070,8 @@ internal sealed class FaultyDisk(IDiskOperations inner) : IDiskOperations
     public void CreateDirectory(string path) => inner.CreateDirectory(path);
 
     public void CreateEmptyFile(string path) => inner.CreateEmptyFile(path);
+
+    public void WriteNewFile(string path, byte[] bytes) => inner.WriteNewFile(path, bytes);
 
     public long GetFileSize(string path) => inner.GetFileSize(path);
 
