@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Wondarr.Core.Metadata;
 using System.Threading.Channels;
 using Wondarr.Core.Jobs;
@@ -78,6 +79,14 @@ internal sealed class JobTestHost : IAsyncDisposable
         await using (var scope = provider.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<DatabaseMigrator>().MigrateAsync(CancellationToken.None);
+
+            // The seeded library's root is a folder that does not exist on the test machine, which the
+            // searches treat as an unmounted share. A marked folder is what a working library looks like.
+            var libraryRoot = Wondarr.Core.Tests.Support.TestLibraryRoots.Mark(Path.Combine(directory, "library"));
+            var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            await context.Libraries
+                .Where(library => library.Id == Wondarr.Core.Domain.SeedData.DefaultLibraryId)
+                .ExecuteUpdateAsync(set => set.SetProperty(library => library.RootPath, libraryRoot));
         }
 
         return new JobTestHost(provider, directory, databasePath, timeProvider);

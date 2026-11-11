@@ -5,6 +5,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Organizer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Wondarr.Core.Profiles;
@@ -51,7 +52,7 @@ public interface ILibraryService
 /// JSON object. Exactly one library is the default, so marking one clears the others in the same
 /// transaction and the current default cannot be cleared on its own.
 /// </summary>
-public sealed class LibraryService : ILibraryService
+public sealed partial class LibraryService : ILibraryService
 {
     /// <summary>The token a naming template must contain to place the file name.</summary>
     public const string TrackTitleToken = "{Track Title}";
@@ -65,21 +66,29 @@ public sealed class LibraryService : ILibraryService
     private readonly WondarrDbContext _context;
     private readonly IOptionsMonitor<ImportOptions>? _importOptions;
     private readonly WondarrPaths? _paths;
+    private readonly ILibraryRoots? _roots;
+    private readonly ILogger<LibraryService>? _logger;
 
     /// <summary>Initialises a new instance of the <see cref="LibraryService"/> class.</summary>
     /// <param name="context">The database context.</param>
     /// <param name="importOptions">Where the recycle bin is, so a root that holds or sits inside it is refused.</param>
     /// <param name="paths">The resolved paths, which decide the default recycle bin.</param>
+    /// <param name="roots">Marks the root a user just chose; without it nothing is marked.</param>
+    /// <param name="logger">Where a root that could not be marked is logged.</param>
     public LibraryService(
         WondarrDbContext context,
         IOptionsMonitor<ImportOptions>? importOptions = null,
-        WondarrPaths? paths = null)
+        WondarrPaths? paths = null,
+        ILibraryRoots? roots = null,
+        ILogger<LibraryService>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         _context = context;
         _importOptions = importOptions;
         _paths = paths;
+        _roots = roots;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -161,6 +170,8 @@ public sealed class LibraryService : ILibraryService
             }
         }
 
+        var rootChanged = !PathRules.AreEqual(stored.RootPath, library.RootPath);
+
         stored.Name = library.Name;
         stored.RootPath = library.RootPath;
         stored.Layout = library.Layout;
@@ -180,6 +191,12 @@ public sealed class LibraryService : ILibraryService
         stored.IsDefault = library.IsDefault;
 
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        if (rootChanged)
+        {
+            // The user just chose this folder (a root only moves for a library without files).
+            TryMarkRoot(stored);
+        }
 
         return stored;
     }
@@ -222,6 +239,8 @@ public sealed class LibraryService : ILibraryService
         _context.Libraries.Add(library);
 
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        TryMarkRoot(library);
 
         return library;
     }
@@ -273,6 +292,33 @@ public sealed class LibraryService : ILibraryService
 
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Writes the marker into the root the user just chose. A folder that cannot be written is not a
+    /// validation error: it is logged, and the library root health check reports it.
+    /// </summary>
+    private void TryMarkRoot(Library library)
+    {
+        if (_roots is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _roots.Mark(library.RootPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            if (_logger is not null)
+            {
+                LogMarkFailed(_logger, library.Name, library.RootPath, exception);
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not write the marker file into the root of library {Library} ({Root}); imports into it wait until it is there")]
+    private static partial void LogMarkFailed(ILogger logger, string library, string root, Exception exception);
 
     /// <summary>Clears the default flag on every library but <paramref name="id"/>.</summary>
     private async Task ClearOtherDefaultsAsync(long id, CancellationToken cancellationToken)

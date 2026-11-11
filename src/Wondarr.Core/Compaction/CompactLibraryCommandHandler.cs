@@ -90,6 +90,11 @@ public sealed partial class CompactLibraryCommandHandler(
             message = string.Concat(message, ". Files left where they are: ", string.Join("; ", stranded));
         }
 
+        if (result.WaitingNote is not null)
+        {
+            message = string.Concat(message, ". ", result.WaitingNote);
+        }
+
         if (result.TrashNote is not null)
         {
             message = string.Concat(message, ". ", result.TrashNote);

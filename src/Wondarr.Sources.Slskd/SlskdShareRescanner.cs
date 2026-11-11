@@ -1,5 +1,7 @@
 using Wondarr.Core.Importing;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.Organizer;
+using Wondarr.Core.Profiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -199,7 +201,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
     /// </summary>
     private async Task<bool> TryRescanAsync(CancellationToken cancellationToken)
     {
-        var (readiness, _) = Assess();
+        var (readiness, _) = await AssessAsync(cancellationToken).ConfigureAwait(false);
 
         return readiness switch
         {
@@ -224,7 +226,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
     }
 
     /// <summary>What a scan would do right now, and in words why not when it would do nothing.</summary>
-    private (RescanReadiness Readiness, string? Reason) Assess()
+    private async Task<(RescanReadiness Readiness, string? Reason)> AssessAsync(CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
 
@@ -246,6 +248,16 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
             return (RescanReadiness.Drop, "sharing is off (soulseek.share_library) or no folder is shared");
         }
 
+        // A rescan of an empty mount point tells Soulseek peers the share is empty, so nothing is
+        // rescanned while a library that overlaps a shared folder is not ready. slskd keeps its
+        // previous share cache meanwhile.
+        if (await UnreadyLibraryAsync(options, cancellationToken).ConfigureAwait(false) is { } unready)
+        {
+            LogLibraryNotReady(_logger, unready);
+
+            return (RescanReadiness.Drop, unready);
+        }
+
         var state = _status.Current.State;
 
         // A start restores the share cache instead of scanning, so the request waits for the process the
@@ -264,6 +276,39 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
         }
 
         return (RescanReadiness.Ask, null);
+    }
+
+    /// <summary>
+    /// The sentence for the first library whose root is missing or unmarked and overlaps a shared folder
+    /// (one inside the other), or <see langword="null"/> when every such library is ready.
+    /// </summary>
+    private async Task<string?> UnreadyLibraryAsync(SoulseekOptions options, CancellationToken cancellationToken)
+    {
+        using var scope = _scopes.CreateScope();
+        var libraries = await scope.ServiceProvider.GetRequiredService<ILibraryService>()
+            .GetAllAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var roots = scope.ServiceProvider.GetRequiredService<ILibraryRoots>();
+
+        foreach (var library in libraries)
+        {
+            var overlaps = options.SharedFolders.Any(folder =>
+                PathRules.IsInside(folder, library.RootPath) || PathRules.IsInside(library.RootPath, folder));
+
+            if (!overlaps)
+            {
+                continue;
+            }
+
+            var status = roots.Check(library.RootPath);
+
+            if (status != LibraryRootStatus.Ready)
+            {
+                return string.Concat("a shared library folder is not ready, so slskd keeps its previous share. ", roots.Describe(library, status));
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The state of slskd as a short phrase for a task result.</summary>
@@ -288,7 +333,7 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
     /// <returns>What was done, or why nothing was.</returns>
     public async Task<string> RescanNowAsync(CancellationToken cancellationToken)
     {
-        var (readiness, reason) = Assess();
+        var (readiness, reason) = await AssessAsync(cancellationToken).ConfigureAwait(false);
 
         if (readiness != RescanReadiness.Ask)
         {
@@ -368,6 +413,9 @@ public sealed partial class SlskdShareRescanner : BackgroundService, IHandle<Son
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "slskd is already scanning its shares; scanning again in a minute")]
     private static partial void LogBusy(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No share rescan: {Reason}")]
+    private static partial void LogLibraryNotReady(ILogger logger, string reason);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No share rescan: slskd is {State}, not a process Wondarr runs")]
     private static partial void LogSkipped(ILogger logger, SlskdState state);

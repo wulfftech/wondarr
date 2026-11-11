@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Domain;
 
 namespace Wondarr.Core.Organizer;
 
@@ -23,13 +24,15 @@ public enum TransferMode
 /// <param name="Extension">The extension without its dot, for example <c>mp3</c>.</param>
 /// <param name="Mode">How to move the bytes.</param>
 /// <param name="ReplacesPath">The file this placement upgrades, recycled first when it exists.</param>
+/// <param name="LibraryName">The library's name for the message when its root is not ready; the root when <see langword="null"/>.</param>
 public sealed record PlacementRequest(
     string SourcePath,
     string LibraryRoot,
     string RelativePathWithoutExtension,
     string Extension,
     TransferMode Mode,
-    string? ReplacesPath);
+    string? ReplacesPath,
+    string? LibraryName = null);
 
 /// <summary>What became of a placement. A failure carries whatever the caller still needs to know.</summary>
 /// <param name="Success">Whether the file is now at <paramref name="FinalPath"/> as asked.</param>
@@ -63,6 +66,7 @@ public sealed class FilePlacer : IFilePlacer
     internal const int MaxCollisionSuffix = 99;
 
     private readonly IDiskOperations _disk;
+    private readonly ILibraryRoots _roots;
     private readonly IRecycleBin _recycleBin;
     private readonly IOptionsMonitor<ImportOptions> _options;
     private readonly ILogger<FilePlacer> _logger;
@@ -70,16 +74,19 @@ public sealed class FilePlacer : IFilePlacer
     /// <summary>Creates the placer over the disk, the recycle bin and the import options.</summary>
     public FilePlacer(
         IDiskOperations disk,
+        ILibraryRoots roots,
         IRecycleBin recycleBin,
         IOptionsMonitor<ImportOptions> options,
         ILogger<FilePlacer> logger)
     {
         ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(recycleBin);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
 
         _disk = disk;
+        _roots = roots;
         _recycleBin = recycleBin;
         _options = options;
         _logger = logger;
@@ -104,6 +111,17 @@ public sealed class FilePlacer : IFilePlacer
         if (!_disk.FileExists(request.SourcePath))
         {
             return Failed($"Source file '{request.SourcePath}' does not exist.");
+        }
+
+        // The organizer checks first; this is the second line of defence for every other caller. A
+        // root that is missing or unmarked is probably an unmounted share, and nothing is written.
+        var rootStatus = _roots.Check(root);
+
+        if (rootStatus != LibraryRootStatus.Ready)
+        {
+            return Failed(_roots.Describe(
+                new Library { Name = request.LibraryName ?? root, RootPath = root },
+                rootStatus));
         }
 
         // Already there: placing the file the library already holds has nothing to do, and nothing
@@ -296,12 +314,13 @@ public sealed class FilePlacer : IFilePlacer
 
         while (!_disk.DirectoryExists(current))
         {
-            created.Add(current);
-
+            // The root is the library's own folder, put there (and marked) by the user: never created here.
             if (string.Equals(current, root, PathRules.Comparison))
             {
                 break;
             }
+
+            created.Add(current);
 
             var parent = Path.GetDirectoryName(current);
 

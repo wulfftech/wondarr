@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Searching;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Searching;
 
@@ -78,6 +79,7 @@ public sealed class SlotGateTests
             host.Scopes,
             host.Monitor,
             host.Time,
+            TestLibraryRoots.Real,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<MissingSearchCommandHandler>.Instance);
         var message = await handler.ExecuteAsync(
             new Wondarr.Core.Jobs.CommandContext(1, null, Wondarr.Core.Jobs.CommandTrigger.Scheduled, _ => Task.CompletedTask),

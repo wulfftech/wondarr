@@ -13,6 +13,7 @@ using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Persistence;
+using Wondarr.Core.Tests.Support;
 using Wondarr.Testing;
 
 namespace Wondarr.Core.Tests.Searching;
@@ -26,20 +27,26 @@ internal sealed class SearchTestHost : IAsyncDisposable
     private readonly SqliteTestDatabase _database;
     private readonly ServiceProvider _services;
     private readonly IServiceScope _scope;
+    private readonly string _libraryRoot;
 
     private SearchTestHost(
         SqliteTestDatabase database,
         ServiceProvider services,
         IServiceScope scope,
         TrackingTimeProvider time,
-        FakeSourceProvider provider)
+        FakeSourceProvider provider,
+        string libraryRoot)
     {
+        _libraryRoot = libraryRoot;
         _database = database;
         _services = services;
         _scope = scope;
         Time = time;
         Provider = provider;
     }
+
+    /// <summary>The default library's root: a temporary folder that holds the marker, so searches are not held back.</summary>
+    public string LibraryRoot => _libraryRoot;
 
     /// <summary>The temp database the host runs on, for the tests that seed rows of their own.</summary>
     public SqliteTestDatabase Database => _database;
@@ -116,6 +123,19 @@ internal sealed class SearchTestHost : IAsyncDisposable
         var time = new TrackingTimeProvider(new DateTimeOffset(2026, 9, 29, 12, 0, 0, TimeSpan.Zero));
         await database.MigrateAsync(time);
 
+        // The seeded library's root is a folder that does not exist on the test machine: searches for
+        // its songs would be held back, as they are for an unmounted share. A marked temp folder is what
+        // a working library looks like.
+        var libraryRoot = Path.Combine(Path.GetTempPath(), "wondarr-search-" + Guid.NewGuid().ToString("N"));
+        TestLibraryRoots.Mark(libraryRoot);
+
+        await using (var seed = database.CreateContext(time))
+        {
+            await seed.Libraries
+                .Where(library => library.Id == SeedData.DefaultLibraryId)
+                .ExecuteUpdateAsync(set => set.SetProperty(library => library.RootPath, libraryRoot));
+        }
+
         var options = new SearchOptions();
         configure?.Invoke(options);
 
@@ -153,7 +173,7 @@ internal sealed class SearchTestHost : IAsyncDisposable
         var built = services.BuildServiceProvider();
         var scope = built.CreateScope();
 
-        var host = new SearchTestHost(database, built, scope, time, provider)
+        var host = new SearchTestHost(database, built, scope, time, provider, libraryRoot)
         {
             Options = options,
             Monitor = built.GetRequiredService<IOptionsMonitor<SearchOptions>>(),
@@ -450,6 +470,14 @@ internal sealed class SearchTestHost : IAsyncDisposable
         _scope.Dispose();
         await _services.DisposeAsync();
         _database.Dispose();
+
+        try
+        {
+            Directory.Delete(_libraryRoot, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
     }
 }
 

@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.Organizer;
 using YamlDotNet.RepresentationModel;
 
 namespace Wondarr.Api.Tests;
@@ -111,8 +113,26 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
                 services.AddSingleton<IScheduledTaskCatalog, NoScheduledTasks>();
             }
 
+            // The seeded library lives at /data/music, which a test machine does not have (and a test run
+            // must not create). Its root reads as ready unless a test registers the real LibraryRoots
+            // through configureServices, as the tests about the marker do.
+            services.RemoveAll<ILibraryRoots>();
+            services.AddSingleton<ILibraryRoots, ReadyLibraryRoots>();
+
             _configureServices?.Invoke(services);
         });
+    }
+
+    /// <summary>Every root is ready and marking writes nothing: no test machine has the seeded <c>/data/music</c>.</summary>
+    private sealed class ReadyLibraryRoots : ILibraryRoots
+    {
+        public LibraryRootStatus Check(string rootPath) => LibraryRootStatus.Ready;
+
+        public void Mark(string rootPath)
+        {
+        }
+
+        public string Describe(Library library, LibraryRootStatus status) => string.Empty;
     }
 
     /// <summary>A catalog with nothing in it, so the scheduler has no task to start.</summary>

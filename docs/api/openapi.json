@@ -2467,6 +2467,57 @@
         }
       }
     },
+    "/api/v1/library/{id}/root/confirm": {
+      "post": {
+        "tags": [
+          "Library"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/library/{id}/preview": {
       "post": {
         "tags": [
@@ -7828,8 +7879,20 @@
               "null",
               "boolean"
             ]
+          },
+          "rootStatus": {
+            "$ref": "#/components/schemas/LibraryRootStatus"
           }
         }
+      },
+      "LibraryRootStatus": {
+        "enum": [
+          "ready",
+          "missing",
+          "unmarked"
+        ],
+        "type": "string",
+        "default": 0
       },
       "LogFileResource": {
         "required": [

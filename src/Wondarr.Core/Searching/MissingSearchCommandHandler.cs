@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.ImportLists;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
 
@@ -32,27 +33,32 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
     private readonly IServiceScopeFactory _scopes;
     private readonly IOptionsMonitor<SearchOptions> _options;
     private readonly TimeProvider _timeProvider;
+    private readonly ILibraryRoots _roots;
     private readonly ILogger<MissingSearchCommandHandler> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="MissingSearchCommandHandler"/> class.</summary>
     /// <param name="scopes">Builds the per-song scope every search runs in.</param>
     /// <param name="options">The batch size, the backoff and the download-slot limit.</param>
     /// <param name="timeProvider">The clock the slot wait is measured against.</param>
+    /// <param name="roots">Leaves out the songs of a library whose folder is missing or unmarked.</param>
     /// <param name="logger">The logger.</param>
     public MissingSearchCommandHandler(
         IServiceScopeFactory scopes,
         IOptionsMonitor<SearchOptions> options,
         TimeProvider timeProvider,
+        ILibraryRoots roots,
         ILogger<MissingSearchCommandHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(roots);
         ArgumentNullException.ThrowIfNull(logger);
 
         _scopes = scopes;
         _options = options;
         _timeProvider = timeProvider;
+        _roots = roots;
         _logger = logger;
     }
 
@@ -186,6 +192,13 @@ public sealed partial class MissingSearchCommandHandler : ICommandHandler
                 .Select(song => new MissingSongRow(song.Id, song.CreatedAt, null))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            // A library whose folder is missing or unmarked is not searched for: the grab would only
+            // wait in the queue behind an import that cannot happen.
+            var unavailable = await SearchLibraryGuard
+                .UnavailableSongsAsync(database, _roots, [.. candidates.Select(candidate => candidate.SongId)], "Missing search", _logger, cancellationToken)
+                .ConfigureAwait(false);
+            candidates.RemoveAll(candidate => unavailable.Contains(candidate.SongId));
 
             // One query for the candidate songs and one for their runs: asking per song would be a
             // query per wanted song on every scheduled run. The backoff step is the number of fruitless

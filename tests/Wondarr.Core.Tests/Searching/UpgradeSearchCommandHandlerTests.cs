@@ -6,6 +6,7 @@ using Wondarr.Core.Jobs;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
 using Xunit;
+using Wondarr.Core.Tests.Support;
 
 namespace Wondarr.Core.Tests.Searching;
 
@@ -395,7 +396,7 @@ public sealed class UpgradeSearchCommandHandlerTests
     }
 
     private static UpgradeSearchCommandHandler Handler(SearchTestHost host) =>
-        new(host.Scopes, host.Monitor, host.Time, NullLogger<UpgradeSearchCommandHandler>.Instance);
+        new(host.Scopes, host.Monitor, host.Time, TestLibraryRoots.Real, NullLogger<UpgradeSearchCommandHandler>.Instance);
 
     private static CommandContext Context(List<string> progress) =>
         new(1, null, CommandTrigger.Scheduled, message =>

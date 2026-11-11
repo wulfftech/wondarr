@@ -2201,6 +2201,8 @@ public sealed partial class IndexerSourceGrabTests : IDisposable
 
         public void CreateEmptyFile(string path) => _real.CreateEmptyFile(path);
 
+        public void WriteNewFile(string path, byte[] bytes) => _real.WriteNewFile(path, bytes);
+
         public long GetFileSize(string path) => _real.GetFileSize(path);
 
         public void MoveFile(string source, string target)

@@ -81,6 +81,9 @@ public sealed partial class ImportService : IImportService
     /// <summary>How long an import waits while a compaction has the song's file in its staging folder.</summary>
     private static readonly TimeSpan CompactionWait = TimeSpan.FromMinutes(1);
 
+    /// <summary>How long an item waits for its library's root to be ready (mounted and marked) before the next try.</summary>
+    internal static readonly TimeSpan LibraryWait = TimeSpan.FromMinutes(5);
+
     /// <summary>How long a file whose tags could not be written is skipped for its song.</summary>
     internal static readonly TimeSpan TaggingFailureBlocklist = TimeSpan.FromDays(7);
 
@@ -125,6 +128,7 @@ public sealed partial class ImportService : IImportService
     private readonly ISongFileLock _songFileLock;
     private readonly ILogger<ImportService> _logger;
     private readonly AcoustIdKeyState _keyState;
+    private readonly ILibraryRoots _libraryRoots;
 
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the song and the file are written through it.</param>
@@ -141,6 +145,7 @@ public sealed partial class ImportService : IImportService
     /// <param name="timeProvider">The clock every timestamp comes from.</param>
     /// <param name="songFileLock">The per-song lock the compaction's stage step also takes.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="libraryRoots">Tells whether the library root is mounted and marked before anything is written.</param>
     /// <param name="keyState">Counts how long imports have waited on a rejected AcoustID key.</param>
     public ImportService(
         WondarrDbContext database,
@@ -157,6 +162,7 @@ public sealed partial class ImportService : IImportService
         TimeProvider timeProvider,
         ISongFileLock songFileLock,
         ILogger<ImportService> logger,
+        ILibraryRoots libraryRoots,
         AcoustIdKeyState? keyState = null)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -173,6 +179,7 @@ public sealed partial class ImportService : IImportService
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(songFileLock);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(libraryRoots);
 
         _database = database;
         _verifier = verifier;
@@ -188,6 +195,7 @@ public sealed partial class ImportService : IImportService
         _timeProvider = timeProvider;
         _songFileLock = songFileLock;
         _logger = logger;
+        _libraryRoots = libraryRoots;
         _keyState = keyState ?? new AcoustIdKeyState();
     }
 
@@ -301,6 +309,21 @@ public sealed partial class ImportService : IImportService
         if (await HasUnfinishedCompactionMoveAsync(song.Id, cancellationToken).ConfigureAwait(false))
         {
             return await DeferForCompactionAsync(item, downloadPath, cancellationToken).ConfigureAwait(false);
+        }
+
+        // --- Library root guard -------------------------------------------------------------------
+        // A root that is missing or carries no marker is probably an unmounted share: writing into it
+        // would fill the host's own disk. The item waits exactly like it does for a compaction.
+        var rootStatus = _libraryRoots.Check(library.RootPath);
+
+        if (rootStatus != LibraryRootStatus.Ready)
+        {
+            return await DeferForLibraryAsync(
+                    item,
+                    downloadPath,
+                    _libraryRoots.Describe(library, rootStatus),
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         item.State = QueueItemState.Importing;
@@ -801,6 +824,21 @@ public sealed partial class ImportService : IImportService
                 cancellationToken)
             .ConfigureAwait(false);
 
+        if (placement.Failure == OrganizeFailure.LibraryUnavailable)
+        {
+            // The share dropped since the check at the top: a wait, not a failure of the file or the
+            // peer. The item points at the current import path (the transcode, when one ran), the
+            // organizer's in-memory album alignment is dropped, and nothing is counted or blocklisted.
+            await DiscardAlbumAlignmentAsync(album, cancellationToken).ConfigureAwait(false);
+
+            return await DeferForLibraryAsync(
+                    item,
+                    convertTemp.Path is null ? importPath : downloadPath,
+                    placement.Error ?? _libraryRoots.Describe(library, _libraryRoots.Check(library.RootPath)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         if (placement.Failure == OrganizeFailure.Tagging)
         {
             // The file passed verification, so a tagging failure is the tag writer's problem, not the
@@ -1046,17 +1084,43 @@ public sealed partial class ImportService : IImportService
     /// path, so the next pass finds it (and skips the transcode) instead of a deleted original.
     /// </param>
     /// <param name="cancellationToken">Cancels the writes.</param>
-    private async Task<ImportOutcome> DeferForCompactionAsync(
+    private Task<ImportOutcome> DeferForCompactionAsync(
         QueueItem item,
         string importPath,
+        CancellationToken cancellationToken) =>
+        DeferWaitingAsync(item, importPath, CompactionWait, CompactionWaitMessage, cancellationToken);
+
+    /// <summary>
+    /// Defers an item while its library's root is missing or unmarked (an unmounted share looks like
+    /// that): back to <see cref="QueueItemState.Completed"/> with a check <see cref="LibraryWait"/> out,
+    /// the message saying why. No attempt is counted, nothing is blocklisted and no history row is
+    /// written — the download is exactly where it was and nothing was created under the root.
+    /// </summary>
+    /// <param name="item">The item being imported.</param>
+    /// <param name="importPath">Where the file to import is right now (see <see cref="DeferForCompactionAsync"/>).</param>
+    /// <param name="message">The sentence naming the library and what to do.</param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    private Task<ImportOutcome> DeferForLibraryAsync(
+        QueueItem item,
+        string importPath,
+        string message,
+        CancellationToken cancellationToken) =>
+        DeferWaitingAsync(item, importPath, LibraryWait, message, cancellationToken);
+
+    /// <summary>The shared deferral: back to Completed with a later check and a message, nothing else touched.</summary>
+    private async Task<ImportOutcome> DeferWaitingAsync(
+        QueueItem item,
+        string importPath,
+        TimeSpan wait,
+        string message,
         CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         item.State = QueueItemState.Completed;
         item.StateChangedAt = now;
-        item.NextCheckAt = now + CompactionWait;
-        item.Message = CompactionWaitMessage;
+        item.NextCheckAt = now + wait;
+        item.Message = message;
 
         if (!string.Equals(item.DownloadPath, importPath, StringComparison.Ordinal))
         {
@@ -1066,7 +1130,7 @@ public sealed partial class ImportService : IImportService
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         await PublishQueueItemAsync(item, cancellationToken).ConfigureAwait(false);
 
-        LogDeferred(_logger, item.Id, CompactionWaitMessage);
+        LogDeferred(_logger, item.Id, message);
 
         return ImportOutcome.Deferred;
     }

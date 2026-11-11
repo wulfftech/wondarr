@@ -21,6 +21,12 @@ public interface IDiskOperations
     /// </summary>
     void CreateEmptyFile(string path);
 
+    /// <summary>
+    /// Writes <paramref name="bytes"/> to a new file at <paramref name="path"/>, doing nothing when one
+    /// is already there: an existing file is never truncated or replaced.
+    /// </summary>
+    void WriteNewFile(string path, byte[] bytes);
+
     /// <summary>The size of the file at <paramref name="path"/> in bytes.</summary>
     long GetFileSize(string path);
 
@@ -103,6 +109,27 @@ public sealed class DiskOperations : IDiskOperations
         // CreateNew rather than Create: a marker that appeared between the check and now is left as
         // it is, never truncated.
         using var created = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+    }
+
+    /// <inheritdoc />
+    public void WriteNewFile(string path, byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        if (File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            using var created = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            created.Write(bytes);
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+            // Another writer got there between the check and the open: its file stays as it is.
+        }
     }
 
     /// <inheritdoc />
