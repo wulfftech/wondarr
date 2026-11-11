@@ -697,7 +697,8 @@ public sealed partial class ImportService : IImportService
                     verification.MeasuredQualityId,
                     cancellationToken,
                     verification.DifferentRecording,
-                    verification.OtherRecordingTitle)
+                    verification.OtherRecordingTitle,
+                    verification.OtherArtist)
                 .ConfigureAwait(false);
         }
 
@@ -1324,6 +1325,10 @@ public sealed partial class ImportService : IImportService
     /// is skipped; see <see cref="LearnFromOtherRecordingAsync"/> for what else the song learns.
     /// </param>
     /// <param name="otherRecordingTitle">The title of the recording the fingerprint named, when it did.</param>
+    /// <param name="otherArtist">
+    /// Whether the file's own tag or name names another artist, which is as sure a "not this song" as a
+    /// fingerprint and counts a compilation miss the same way (no other title is learned from it).
+    /// </param>
     private async Task<ImportOutcome> RejectAsync(
         QueueItem item,
         Song song,
@@ -1332,7 +1337,8 @@ public sealed partial class ImportService : IImportService
         long? qualityId,
         CancellationToken cancellationToken,
         bool differentRecording = false,
-        string? otherRecordingTitle = null)
+        string? otherRecordingTitle = null,
+        bool otherArtist = false)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var candidate = item.Candidate;
@@ -1388,6 +1394,10 @@ public sealed partial class ImportService : IImportService
         {
             await LearnFromOtherRecordingAsync(item, song, reason, otherRecordingTitle, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        else if (otherArtist)
+        {
+            await LearnCompilationMissAsync(item, song, reason, cancellationToken).ConfigureAwait(false);
         }
 
         await RecordPeerAsync(item, delivered: false, now, cancellationToken).ConfigureAwait(false);
@@ -1452,24 +1462,27 @@ public sealed partial class ImportService : IImportService
             }
         }
 
-        if (StoredCandidate(item.Candidate) is { } candidate)
+        await LearnCompilationMissAsync(item, song, reason, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Counts one compilation miss for the song when the candidate passed the artist rule on a compilation
+    /// path only on its full title and then turned out not to be the song: the fingerprint named another
+    /// recording, or the file's own tag names another artist (MATCHING_ENGINE §6.2). One row per candidate.
+    /// </summary>
+    private async Task LearnCompilationMissAsync(
+        QueueItem item,
+        Song song,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        var row = await LearnedMisses
+            .MissRowAsync(_database, song, item.Candidate, item.SourceType, reason, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (row is not null)
         {
-            var mainArtists = song.OrderedCredits()
-                .Where(credit => credit.Role == ArtistRole.Main)
-                .Select(credit => credit.Artist.Name)
-                .ToList();
-
-            if (DecisionEngine.PassesArtistOnTitleAlone(mainArtists, song.Title, ParseFlags(song.VersionFlags), candidate))
-            {
-                var key = BlocklistKeys.CompilationMiss(item.Candidate.BlocklistKey);
-
-                if (!await _database.Blocklist
-                        .AnyAsync(entry => entry.SongId == song.Id && entry.BlocklistKey == key, cancellationToken)
-                        .ConfigureAwait(false))
-                {
-                    AddLearned(item, song, key, reason);
-                }
-            }
+            _database.Blocklist.Add(row);
         }
     }
 
@@ -1483,44 +1496,6 @@ public sealed partial class ImportService : IImportService
             Reason = reason,
             ExpiresAt = null,
         });
-
-    /// <summary>
-    /// The candidate as the search judged it, read back from its snapshot; for an older Soulseek row without
-    /// one, what its path says, parsed as the search would have. Another source's row without a snapshot has
-    /// no title of its own to read (a torrent's path is its release name), so nothing is learned from it.
-    /// </summary>
-    private static Candidate? StoredCandidate(CandidateRecord record)
-    {
-        try
-        {
-            if (JsonSerializer.Deserialize<Candidate>(record.Normalised, SongSearchService.Json) is { } stored)
-            {
-                return stored;
-            }
-        }
-        catch (JsonException)
-        {
-            // An empty snapshot ("{}") lacks the required fields; the row's own columns are enough here.
-        }
-
-        if (record.SourceType != SourceTypes.Soulseek
-            || string.IsNullOrEmpty(record.RemotePath)
-            || string.IsNullOrEmpty(record.BlocklistKey))
-        {
-            return null;
-        }
-
-        return new Candidate
-        {
-            SourceType = record.SourceType,
-            BlocklistKey = record.BlocklistKey,
-            DisplayName = record.DisplayName,
-            RemotePath = record.RemotePath,
-            Provider = record.Provider,
-            QualityId = record.QualityId,
-            Parsed = SoulseekFilenameParser.Parse(record.RemotePath).Parsed,
-        };
-    }
 
     /// <summary>Fails an item without a blocklist entry, optionally moving on to the next candidate.</summary>
     private async Task FailAsync(

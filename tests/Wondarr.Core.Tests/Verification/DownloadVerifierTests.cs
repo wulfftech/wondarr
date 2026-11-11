@@ -360,6 +360,7 @@ public sealed class DownloadVerifierTests
         result.Outcome.Should().Be(VerificationOutcome.Failed);
         result.Reason.Should().Be("Not in AcoustID, and the artist tag names another artist (Diskoflex)");
         result.DifferentRecording.Should().BeFalse("only a fingerprint says which recording a file is");
+        result.OtherArtist.Should().BeTrue("the import counts it as a file that was not the song");
     }
 
     [Theory]

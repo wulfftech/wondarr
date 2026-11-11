@@ -8,6 +8,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
+using Wondarr.Core.Searching;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Tests.Persistence;
@@ -19,6 +20,8 @@ namespace Wondarr.Core.Tests.Songs;
 public sealed class SongFileRemoverTests : IDisposable
 {
     private const string RemotePath = @"@@peer1\_Music - Various Artists (compilations)\Artur - Wonderland (Vyze)\01 Artur - Wonderland.mp3";
+
+    private const string CompilationPath = @"@@peer1\Various Artists\Nuggets\Disc 1\1-18 Wonderland.mp3";
 
     private readonly SqliteTestDatabase _database = new();
     private readonly FakeTimeProvider _time = new();
@@ -73,6 +76,69 @@ public sealed class SongFileRemoverTests : IDisposable
         data.RootElement.GetProperty("blocklisted").GetBoolean().Should().BeTrue();
 
         _plex.Received(1).RequestFolder(song.LibraryId, Path.GetDirectoryName(file)!);
+    }
+
+    [Fact]
+    public async Task Blocklisting_a_compilation_file_that_passed_on_its_title_alone_counts_a_miss()
+    {
+        await using var context = await ContextAsync();
+        var (song, _, candidate) = await SeedAsync(context, remote: CompilationPath);
+        await StoreSnapshotAsync(context, candidate);
+
+        await Remover(context).RemoveAsync(song.Id, blocklist: true, CancellationToken.None);
+
+        await using var fresh = _database.CreateContext(_time);
+        var miss = await fresh.Blocklist.SingleAsync(entry => entry.BlocklistKey == BlocklistKeys.CompilationMiss(candidate.BlocklistKey));
+        miss.SongId.Should().Be(song.Id);
+        miss.Reason.Should().Be(SongFileRemover.Reason);
+        miss.ExpiresAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_removal_that_counted_its_miss_already_does_not_count_it_twice()
+    {
+        await using var context = await ContextAsync();
+        var (song, _, candidate) = await SeedAsync(context, remote: CompilationPath);
+        await StoreSnapshotAsync(context, candidate);
+        context.Blocklist.Add(new BlocklistItem
+        {
+            SongId = song.Id,
+            SourceType = SourceTypes.Soulseek,
+            BlocklistKey = BlocklistKeys.CompilationMiss(candidate.BlocklistKey),
+            Reason = "earlier",
+        });
+        await context.SaveChangesAsync();
+
+        await Remover(context).RemoveAsync(song.Id, blocklist: true, CancellationToken.None);
+
+        await using var fresh = _database.CreateContext(_time);
+        BlocklistKeys.CompilationMisses(await fresh.Blocklist.Select(entry => entry.BlocklistKey).ToListAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Without_blocklist_no_miss_is_counted()
+    {
+        await using var context = await ContextAsync();
+        var (song, _, candidate) = await SeedAsync(context, remote: CompilationPath);
+        await StoreSnapshotAsync(context, candidate);
+
+        await Remover(context).RemoveAsync(song.Id, blocklist: false, CancellationToken.None);
+
+        await using var fresh = _database.CreateContext(_time);
+        (await fresh.Blocklist.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_file_on_a_path_that_names_the_artist_counts_no_miss()
+    {
+        await using var context = await ContextAsync();
+        var (song, _, candidate) = await SeedAsync(context, remote: @"@@peer1\Music\The Saddle Club\Singles\01 The Saddle Club - Wonderland.mp3");
+        await StoreSnapshotAsync(context, candidate);
+
+        await Remover(context).RemoveAsync(song.Id, blocklist: true, CancellationToken.None);
+
+        await using var fresh = _database.CreateContext(_time);
+        BlocklistKeys.CompilationMisses(await fresh.Blocklist.Select(entry => entry.BlocklistKey).ToListAsync()).Should().Be(0);
     }
 
     [Fact]
@@ -176,8 +242,10 @@ public sealed class SongFileRemoverTests : IDisposable
     /// <summary>A song in the default library, moved under the temp root, with a real file from a Soulseek grab.</summary>
     private async Task<(Song Song, string File, CandidateRecord Candidate)> SeedAsync(
         WondarrDbContext context,
-        string sourceType = SourceTypes.Soulseek)
+        string sourceType = SourceTypes.Soulseek,
+        string? remote = null)
     {
+        var remotePath = remote ?? RemotePath;
         var library = await context.Libraries.SingleAsync(row => row.Id == SeedData.DefaultLibraryId);
         library.RootPath = Path.Combine(_root, "music");
         await context.SaveChangesAsync();
@@ -189,9 +257,9 @@ public sealed class SongFileRemoverTests : IDisposable
             SearchRun = run,
             SongId = song.Id,
             SourceType = sourceType,
-            BlocklistKey = BlocklistKeys.Soulseek("peer1", RemotePath),
+            BlocklistKey = BlocklistKeys.Soulseek("peer1", remotePath),
             DisplayName = "01 Artur - Wonderland.mp3",
-            RemotePath = RemotePath,
+            RemotePath = remotePath,
             Provider = "peer1",
         };
         context.Candidates.Add(candidate);
@@ -210,12 +278,32 @@ public sealed class SongFileRemoverTests : IDisposable
             QualityId = (await context.Qualities.FirstAsync()).Id,
             SourceType = sourceType,
             SourceRef = JsonSerializer.Serialize(
-                new { provider = "peer1", remotePath = RemotePath, candidateId = candidate.Id, queueItemId = 0, searchRunId = run.Id }),
+                new { provider = "peer1", remotePath, candidateId = candidate.Id, queueItemId = 0, searchRunId = run.Id }),
         });
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
         return (song, path, candidate);
+    }
+
+    /// <summary>Gives the stored candidate the snapshot a search writes, as a current database has.</summary>
+    private static async Task StoreSnapshotAsync(WondarrDbContext context, CandidateRecord record)
+    {
+        var stored = await context.Candidates.SingleAsync(row => row.Id == record.Id);
+        stored.Normalised = JsonSerializer.Serialize(
+            new Candidate
+            {
+                SourceType = stored.SourceType,
+                BlocklistKey = stored.BlocklistKey,
+                DisplayName = stored.DisplayName,
+                RemotePath = stored.RemotePath,
+                Provider = stored.Provider,
+                QualityId = stored.QualityId,
+                Parsed = SoulseekFilenameParser.Parse(stored.RemotePath).Parsed,
+            },
+            SongSearchService.Json);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
     }
 
     private async Task<WondarrDbContext> ContextAsync()

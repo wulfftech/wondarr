@@ -58,6 +58,33 @@ public sealed class SongSearchLearnedFileTests
     }
 
     [Fact]
+    public async Task The_rest_of_the_run_skips_copies_that_hold_the_learned_title_among_other_words()
+    {
+        await using var host = await SearchTestHost.CreateAsync();
+        var songId = await host.SeedSongAsync(title: "Please Come Tonight");
+        var first = Named(@"Music\Aphex Twin\Both Sides\11 - Please Come Out Tonight.flac", "userA");
+        var copies = new[]
+        {
+            Named(@"Music\Aphex Twin\Aphex Twin - Both Sides - 11 - Please Come Out Tonight FLAC.flac", "userB"),
+            Named(@"music\Aphex Twin\111_aphex_twin_-_please_come_out_tonight_(2015_remaster)-soundly.mp3", "userC"),
+            Named(@"music\Aphex Twin\111-aphex_twin-please_come_out_tonight.flac", "userD"),
+        };
+        host.Provider.Candidates.Add(first);
+        host.Provider.Candidates.AddRange(copies);
+        var search = await host.Search.SearchAsync(songId, SearchTrigger.Automatic, grab: false, Token);
+        search.Decisions.Should().OnlyContain(decision => decision.Accepted, "every word of the song's title is in theirs");
+
+        // What the import writes when the first grab is fingerprinted as "Please Come Out Tonight".
+        await host.Blocklist.AddAsync(Row(songId, first.BlocklistKey), Token);
+        await host.Blocklist.AddAsync(Row(songId, BlocklistKeys.OtherTitle("Please Come Out Tonight")), Token);
+
+        var queueItemId = await host.Search.GrabBestAsync(search.SearchRunId, 1, Token);
+
+        queueItemId.Should().BeNull("the three copies are the recording the fingerprint named, however they are spelled");
+        host.Provider.Grabs.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_learned_other_title_leaves_a_copy_titled_like_the_song_to_be_grabbed()
     {
         await using var host = await SearchTestHost.CreateAsync();

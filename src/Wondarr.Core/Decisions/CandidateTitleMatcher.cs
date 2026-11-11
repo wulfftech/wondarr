@@ -21,6 +21,11 @@ public static class CandidateTitleMatcher
         @"^[A-D]?\d{1,3}(?:[-.]\d{1,3})?(?:\s*[-.)]\s*|\s+)",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+    /// <summary>A segment that is only a track number: <c>02</c>, <c>A1</c>, <c>104</c>.</summary>
+    private static readonly Regex TrackNumberOnlyRegex = new(
+        @"^[A-D]?\d{1,3}$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     /// <summary>A segment separator: hyphen, en or em dash, surrounded by whitespace.</summary>
     private static readonly Regex DashSeparatorRegex = new(@"\s[-–—]\s", RegexOptions.CultureInvariant);
 
@@ -102,9 +107,11 @@ public static class CandidateTitleMatcher
             AddWithDashSuffixes(candidateTexts, parsedTitle!);
         }
 
+        var folders = FolderNames(candidate.RemotePath, songVariants);
+
         for (var passes = 1; passes <= 2; passes++)
         {
-            foreach (var segment in JoinedSuffixes(TitleSegments(candidate.RemotePath, passes)))
+            foreach (var segment in JoinedSuffixes(TitleSegments(candidate.RemotePath, passes), folders))
             {
                 candidateTexts.AddRange(Variants(segment));
             }
@@ -158,7 +165,7 @@ public static class CandidateTitleMatcher
         var titleForms = TitleForms(songTitle);
 
         return titleForms.Count > 0
-            && FullTitleForms(candidate, songFlags) is { } candidateForms
+            && FullTitleForms(candidate, songFlags, titleForms) is { } candidateForms
             && candidateForms.Overlaps(titleForms);
     }
 
@@ -189,8 +196,12 @@ public static class CandidateTitleMatcher
     /// </summary>
     /// <param name="candidate">The candidate.</param>
     /// <param name="songFlags">The version flags the song carries.</param>
+    /// <param name="comparedTitles">
+    /// The folded titles the forms are about to be compared with: a folder named like one of them is not a
+    /// boundary of the file name's title (a single in a folder named after its song).
+    /// </param>
     /// <returns><see langword="null"/> when the candidate carries no title of its own.</returns>
-    public static IReadOnlySet<string>? FullTitleForms(Candidate candidate, VersionFlags songFlags)
+    public static IReadOnlySet<string>? FullTitleForms(Candidate candidate, VersionFlags songFlags, IReadOnlySet<string>? comparedTitles = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
 
@@ -212,9 +223,11 @@ public static class CandidateTitleMatcher
         }
 
         // Without a track number stripped as well: "21 Guns.flac" is the song "21 Guns".
+        var folders = FolderNames(candidate.RemotePath, comparedTitles);
+
         for (var passes = 0; passes <= 2; passes++)
         {
-            candidateTexts.AddRange(JoinedSuffixes(TitleSegments(candidate.RemotePath, passes)));
+            candidateTexts.AddRange(JoinedSuffixes(TitleSegments(candidate.RemotePath, passes), folders));
         }
 
         // A hard version marker is only part of the title when the song has it too; a soft one
@@ -369,14 +382,60 @@ public static class CandidateTitleMatcher
             .ToList();
     }
 
-    /// <summary>"c", "b - c", "a - b - c": a title with a dash in it is still one of these.</summary>
-    private static IEnumerable<string> JoinedSuffixes(List<string> segments)
+    /// <summary>
+    /// "c", "b - c", "a - b - c": a title with a dash in it is still one of these. For the segments of a
+    /// remote path's file name (<paramref name="folders"/> given) the join stops at a boundary: it may start
+    /// at a track number ("02 - Title") but never before one, and never includes a segment that is the name
+    /// of a folder the file is in ("Artist - Album - Title" in the album's folder). The last segment is
+    /// always yielded.
+    /// </summary>
+    private static IEnumerable<string> JoinedSuffixes(List<string> segments, HashSet<string>? folders = null)
     {
         for (var start = segments.Count - 1; start >= 0; start--)
         {
+            if (folders is not null && start < segments.Count - 1)
+            {
+                if (folders.Contains(NormalizeFolder(segments[start])))
+                {
+                    yield break;
+                }
+            }
+
             yield return string.Join(" - ", segments.Skip(start));
+
+            if (folders is not null
+                && start < segments.Count - 1
+                && TrackNumberOnlyRegex.IsMatch(segments[start])
+                && segments.Skip(start + 1).Any(segment => segment.Any(char.IsLetter)))
+            {
+                yield break;
+            }
         }
     }
+
+    /// <summary>
+    /// The names of the folders a remote path is in, bracketed groups such as a year removed and normalised,
+    /// except one that is the very title being compared (a single in a folder named after it).
+    /// </summary>
+    private static HashSet<string> FolderNames(string remotePath, IEnumerable<string>? comparedTitles)
+    {
+        var segments = remotePath.Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var titles = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var title in comparedTitles ?? [])
+        {
+            titles.Add(TextMatching.Normalize(title));
+            titles.Add(NormalizeFolder(title));
+        }
+
+        return segments
+            .Take(Math.Max(0, segments.Length - 1))
+            .Select(NormalizeFolder)
+            .Where(name => name.Length > 0 && !titles.Contains(name))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static string NormalizeFolder(string name) => TextMatching.Normalize(BracketRegex.Replace(name, " "));
 
     /// <summary>
     /// The texts one title can be compared as: whole, without hints and <c>feat.</c> clauses, without

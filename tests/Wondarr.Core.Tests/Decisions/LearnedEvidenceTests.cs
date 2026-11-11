@@ -75,6 +75,84 @@ public sealed class LearnedEvidenceTests
         Judge(PhilContext() with { OtherRecordingTitles = ["Please Come Out Tonight"] }, remotePath)
             .Accepted.Should().BeTrue();
 
+    [Theory]
+    [InlineData(@"Music\Phil Collins\Phil Collins - Both Sides - 11 - Please Come Out Tonight FLAC.flac")]
+    [InlineData(@"music\Phil Collins\111_phil_collins_-_please_come_out_tonight_(2015_remaster)-soundly.mp3")]
+    [InlineData(@"music\Phil Collins\111-phil_collins-please_come_out_tonight.flac")]
+    public void A_learned_title_blocklists_a_copy_that_holds_it_among_other_words(string remotePath)
+    {
+        // The song's own words are all in these (0.9), the learned title is contiguous in them (1.0).
+        Judge(PhilContext(), remotePath).Accepted.Should().BeTrue();
+
+        var decision = Judge(PhilContext() with { OtherRecordingTitles = ["Please Come Out Tonight"] }, remotePath);
+
+        decision.Rejections.Should().ContainSingle().Which.Should().Be(new Rejection(
+            RejectionReason.Blocklisted,
+            "Blocklisted: a file titled 'Please Come Out Tonight' was fingerprinted as another recording."));
+    }
+
+    [Theory]
+    [InlineData(@"Music\Lisa Marie Presley\Storm & Grace (2012)\Lisa Marie Presley - Storm & Grace - 02 - You Ain't Seen Nothin' Yet.flac")]
+    [InlineData(@"share\Aaron Neville\Orchid in the Storm (2002)\Aaron Neville - Orchid in the Storm - 06 - Mona Lisa (Dedicated to Bette Midler).mp3")]
+    public void An_albums_name_in_a_file_name_does_not_pass_for_the_songs_title(string remotePath)
+    {
+        var context = new DecisionContext
+        {
+            SongTitle = "Storm",
+            MainArtists = ["Lisa"],
+            SongDurationMs = 223_000,
+            Profile = Standard,
+            Qualities = Qualities,
+        };
+
+        var decision = Engine.Evaluate(context, [Candidate(remotePath) with { DurationMs = 223_000 }]).Single();
+
+        decision.Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.TitleMismatch, "the file's own title is not 'Storm'");
+    }
+
+    [Fact]
+    public void A_folder_named_after_a_learned_title_does_not_hide_it()
+    {
+        var decision = Judge(
+            PhilContext() with { OtherRecordingTitles = ["Please Come Out Tonight"] },
+            @"Music\Phil Collins\Please Come Out Tonight\Please Come Out Tonight - Phil Collins.flac");
+
+        decision.Rejections.Should().Contain(rejection => rejection.Reason == RejectionReason.Blocklisted);
+    }
+
+    [Fact]
+    public void A_learned_title_keeps_a_copy_that_is_closer_to_the_song_than_to_it()
+    {
+        var learned = LearnedTitles.For(["Please Come Out Tonight"], "Please Come Tonight", VersionFlags.None);
+
+        learned.OtherTitleOf(Candidate(@"Music\Phil\Phil - Please Come Tonight.mp3")).Should().BeNull();
+        learned.OtherTitleOf(Candidate(@"Music\Phil Collins\111-phil_collins-please_come_out_tonight.flac"))
+            .Should().Be("Please Come Out Tonight");
+    }
+
+    [Fact]
+    public void A_learned_title_keeps_a_copy_that_scores_the_same_for_both()
+    {
+        // "Alpha Beta" is a contiguous part of the song "Alpha Beta Gamma" and of the learned "Alpha Beta
+        // Delta" alike: 1.0 each, a tie, and the song's name wins.
+        var learned = LearnedTitles.For(["Alpha Beta Delta"], "Alpha Beta Gamma", VersionFlags.None);
+
+        learned.OtherTitleOf(Candidate(@"Music\X\01 - Alpha Beta.flac")).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_learned_title_never_refuses_a_candidate_with_no_title_of_its_own()
+    {
+        var release = Candidate("Phil Collins - Both Sides - Please Come Out Tonight [FLAC]") with
+        {
+            Container = CandidateContainer.AlbumContainer,
+            Parsed = ParsedName.Empty,
+        };
+
+        LearnedTitles.For(["Please Come Out Tonight"], "Please Come Tonight", VersionFlags.None)
+            .OtherTitleOf(release).Should().BeNull();
+    }
+
     [Fact]
     public void Several_learned_titles_are_each_matched()
     {

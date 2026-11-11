@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Compaction;
+using Wondarr.Core.Decisions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Lyrics;
 using Wondarr.Core.Organizer;
@@ -85,6 +86,8 @@ public sealed partial class SongFileRemover : ISongFileRemover
     {
         var song = await _database.Songs
             .Include(candidate => candidate.File)
+            .Include(candidate => candidate.Artists)
+                .ThenInclude(credit => credit.Artist)
             .FirstOrDefaultAsync(candidate => candidate.Id == songId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -215,6 +218,16 @@ public sealed partial class SongFileRemover : ISongFileRemover
                 Reason = Reason,
                 ExpiresAt = null,
             });
+        }
+
+        // A file that passed the artist rule on a compilation path only on its title, and that the user says is
+        // the wrong one, counts as a miss like one the fingerprint refused (MATCHING_ENGINE §6.2).
+        if (candidate is not null
+            && LearnedMisses.HasSnapshot(candidate)
+            && await LearnedMisses.MissRowAsync(_database, song, candidate, file.SourceType, Reason, cancellationToken)
+                .ConfigureAwait(false) is { } miss)
+        {
+            _database.Blocklist.Add(miss);
         }
 
         return true;

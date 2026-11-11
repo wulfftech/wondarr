@@ -63,26 +63,39 @@ public static class LearnedEvidence
 }
 
 /// <summary>
-/// A song's learned other titles, folded once per search (<see cref="CandidateTitleMatcher.TitleForms"/>) so
-/// that each candidate's own title is worked out once however many titles the song has learned.
+/// A song's learned other titles, folded once per search (<see cref="CandidateTitleMatcher.TitleForms"/>,
+/// <see cref="CandidateTitleMatcher.SongVariants"/>) so that each candidate's own title is worked out once
+/// however many titles the song has learned.
 /// </summary>
 public sealed class LearnedTitles
 {
-    /// <summary>The shared "nothing learned" instance.</summary>
-    public static readonly LearnedTitles None = new([], new HashSet<string>(StringComparer.Ordinal), VersionFlags.None);
+    /// <summary>
+    /// How close a candidate's title has to be to a learned title to be that recording when its whole title is
+    /// not the learned title in full: "Phil Collins - Both Sides - 11 - Please Come Out Tonight FLAC" holds the
+    /// title, and the song's own "Please Come Tonight" scores lower on it.
+    /// </summary>
+    public const double ComparisonFloor = 0.85;
 
-    private readonly IReadOnlyList<(string Title, IReadOnlySet<string> Forms)> _titles;
+    /// <summary>The shared "nothing learned" instance.</summary>
+    public static readonly LearnedTitles None = new([], new HashSet<string>(StringComparer.Ordinal), [], VersionFlags.None);
+
+    private readonly IReadOnlyList<(string Title, IReadOnlySet<string> Forms, IReadOnlyList<string> Variants)> _titles;
     private readonly IReadOnlySet<string> _songForms;
+    private readonly IReadOnlyList<string> _songVariants;
+    private readonly IReadOnlySet<string> _allForms;
     private readonly VersionFlags _songFlags;
 
     private LearnedTitles(
-        IReadOnlyList<(string Title, IReadOnlySet<string> Forms)> titles,
+        IReadOnlyList<(string Title, IReadOnlySet<string> Forms, IReadOnlyList<string> Variants)> titles,
         IReadOnlySet<string> songForms,
+        IReadOnlyList<string> songVariants,
         VersionFlags songFlags)
     {
         _titles = titles;
         _songForms = songForms;
+        _songVariants = songVariants;
         _songFlags = songFlags;
+        _allForms = songForms.Concat(titles.SelectMany(entry => entry.Forms)).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>Gets a value indicating whether the song has learned no title.</summary>
@@ -103,35 +116,62 @@ public sealed class LearnedTitles
         }
 
         var titles = otherTitles
-            .Select(title => (Title: title, Forms: CandidateTitleMatcher.TitleForms(title)))
+            .Select(title => (Title: title, Forms: CandidateTitleMatcher.TitleForms(title), Variants: CandidateTitleMatcher.SongVariants(title)))
             .Where(entry => entry.Forms.Count > 0)
             .ToList();
 
-        return new LearnedTitles(titles, CandidateTitleMatcher.TitleForms(songTitle), songFlags);
+        return new LearnedTitles(
+            titles,
+            CandidateTitleMatcher.TitleForms(songTitle),
+            CandidateTitleMatcher.SongVariants(songTitle),
+            songFlags);
     }
 
     /// <summary>
-    /// The learned title a candidate's own title is in full, or <see langword="null"/>: none of them, or the
-    /// candidate's title is the song's as well (a file can be named both ways, and the song's name wins).
+    /// The learned title a candidate is, or <see langword="null"/>. It is one when its own title is the
+    /// learned title in full and not the song's as well (a file can be named both ways, and the song's name
+    /// wins), or when its title is at least <see cref="ComparisonFloor"/> close to the learned title and
+    /// strictly closer to it than to the song's own (a tie keeps the candidate). A candidate with no title of
+    /// its own is never refused by the second rule.
     /// </summary>
     /// <param name="candidate">The candidate.</param>
     public string? OtherTitleOf(Candidate candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
 
-        if (_titles.Count == 0 || CandidateTitleMatcher.FullTitleForms(candidate, _songFlags) is not { } forms)
+        if (_titles.Count == 0)
         {
             return null;
         }
 
-        foreach (var (title, titleForms) in _titles)
+        if (CandidateTitleMatcher.FullTitleForms(candidate, _songFlags, _allForms) is { } forms)
         {
-            if (forms.Overlaps(titleForms))
+            foreach (var (title, titleForms, _) in _titles)
             {
-                return forms.Overlaps(_songForms) ? null : title;
+                if (forms.Overlaps(titleForms))
+                {
+                    return forms.Overlaps(_songForms) ? null : title;
+                }
             }
         }
 
-        return null;
+        if (CandidateTitleMatcher.Similarity(_songVariants, candidate) is not { } own)
+        {
+            return null;
+        }
+
+        string? closest = null;
+        var closestScore = ComparisonFloor;
+
+        foreach (var (title, _, variants) in _titles)
+        {
+            if (CandidateTitleMatcher.Similarity(variants, candidate) is { } score && score >= closestScore && score > own)
+            {
+                closest = title;
+                closestScore = score;
+            }
+        }
+
+        return closest;
     }
 }
