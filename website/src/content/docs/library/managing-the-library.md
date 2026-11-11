@@ -64,7 +64,7 @@ Below that, the tabs are:
 
 Every library's folder holds a small `.wondarr-library` file. Wondarr writes into a library only while that file is there, so an unmounted share is never filled with files that the share would hide when it comes back.
 
-While the file or the folder is missing:
+While the file or the folder is missing, or the share does not answer within 5 seconds:
 
 | What | What happens |
 |---|---|
@@ -75,5 +75,5 @@ While the file or the folder is missing:
 
 Mount the share and the library carries on by itself within a few minutes.
 
-**A folder you emptied or moved on purpose** has no file yet: press **This is the right folder** on the library under **Settings → Library**. A library you create gets the file straight away. A library from an earlier version gets it the first time Wondarr finds one of its recent files in the folder, or at once when it holds no files yet.
+**Where the file comes from.** A new install writes it into its Music folder on the first start, and a library you create gets it straight away. A library from an earlier version gets it the first time Wondarr finds one of its recent files in the folder; one that holds no files yet gets it once its folder has anything in it. An empty folder is never marked by itself, because an unmounted share looks exactly like one: press **This is the right folder** on the library under **Settings → Library**. Do the same for a folder you emptied or moved on purpose.
 

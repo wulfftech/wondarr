@@ -29,6 +29,7 @@ description: What the health messages mean, why a song stays wanted, and the usu
 | `Plex partial scan failed: …` | Wondarr could not ask Plex to scan. Check that Plex is running and reachable, press **Test** under **Settings → Plex**, and check the path mapping. See [Plex](/wondarr/sources/plex/). |
 | `<path> is not writable: …` for `/config` or `/config/logs` | See Permissions below. |
 | `Library "<name>": <folder> does not exist. …` | The library's folder, or the share it is on, is not there. Mount it; downloads for the library wait in the queue until then. See [Managing the library](/wondarr/library/managing-the-library/#when-the-library-folder-is-missing). |
+| `Library "<name>": <folder> did not answer within 5 seconds, …` | The share the library is on is hung (an NFS or SMB server that went away while mounted). Bring the server back or remount the share; downloads wait meanwhile. |
 | `Library "<name>": <folder> has no .wondarr-library file, …` | The folder is there but is not the library's: usually an unmounted share, which is an empty folder. Mount it. If you emptied or moved the library on purpose, press **This is the right folder** under **Settings → Library**. |
 | `Database is not available: …` | The database could not be opened. Check `/config/wondarr.db` and the free space; restore a [backup](/wondarr/operations/tasks-backups-logs/) if it is damaged. |
 
