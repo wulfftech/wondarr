@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -123,7 +125,14 @@ public sealed partial class DiscoverService : IDiscoverService
     /// <summary>How many suggestions an answer carries when the caller does not say.</summary>
     public const int DefaultLimit = 50;
 
+    /// <summary>How long one request may spend asking sources before it returns what has answered.</summary>
+    public static readonly TimeSpan RequestDeadline = TimeSpan.FromSeconds(20);
+
+    /// <summary>How long a result is cached when one source failed and another answered.</summary>
+    public static readonly TimeSpan PartialCacheTime = TimeSpan.FromMinutes(5);
+
     private readonly WondarrDbContext _database;
+    private readonly TimeProvider _time;
     private readonly IReadOnlyList<IRecommendationSource> _sources;
     private readonly IMemoryCache _cache;
     private readonly IOptionsMonitor<DiscoverOptions> _options;
@@ -135,12 +144,14 @@ public sealed partial class DiscoverService : IDiscoverService
     /// <param name="cache">Holds the merged candidates per seed.</param>
     /// <param name="options">The Discover settings.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="timeProvider">The clock the request deadline runs on; tests drive it with a fake.</param>
     public DiscoverService(
         WondarrDbContext database,
         IEnumerable<IRecommendationSource> sources,
         IMemoryCache cache,
         IOptionsMonitor<DiscoverOptions> options,
-        ILogger<DiscoverService> logger)
+        ILogger<DiscoverService> logger,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(sources);
@@ -149,6 +160,7 @@ public sealed partial class DiscoverService : IDiscoverService
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
+        _time = timeProvider ?? TimeProvider.System;
         _sources = [.. sources];
         _cache = cache;
         _options = options;
@@ -164,8 +176,11 @@ public sealed partial class DiscoverService : IDiscoverService
             return null;
         }
 
-        var run = await RunAsync($"discover:radio:{songId.ToString(CultureInfo.InvariantCulture)}", seeds, cancellationToken)
-            .ConfigureAwait(false);
+        var only = seeds[0];
+        var key = string.Create(
+            CultureInfo.InvariantCulture,
+            $"discover:radio:{songId}:{only.MbRecordingId}:{only.DeezerId}:{_options.CurrentValue.ListenBrainzAlgorithm}");
+        var run = await RunAsync(key, seeds, cancellationToken).ConfigureAwait(false);
 
         return await FinishAsync("radio", null, run, limit, cancellationToken).ConfigureAwait(false);
     }
@@ -186,7 +201,11 @@ public sealed partial class DiscoverService : IDiscoverService
         var sample = Sample(ids, count, seed);
         var seeds = await LoadSeedsAsync(sample, cancellationToken).ConfigureAwait(false);
 
-        var key = string.Create(CultureInfo.InvariantCulture, $"discover:mix:{seed}:{count}:{ids.Count}");
+        var sampled = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            string.Join(',', sample.Select(id => id.ToString(CultureInfo.InvariantCulture)))))).ToLowerInvariant();
+        var key = string.Create(
+            CultureInfo.InvariantCulture,
+            $"discover:mix:{seed}:{count}:{_options.CurrentValue.ListenBrainzAlgorithm}:{sampled}");
         var run = await RunAsync(key, seeds, cancellationToken).ConfigureAwait(false);
 
         return await FinishAsync("mix", seed, run, limit, cancellationToken).ConfigureAwait(false);
@@ -251,7 +270,26 @@ public sealed partial class DiscoverService : IDiscoverService
             TitleKey = titleKey,
         };
         _database.DiscoverDismissals.Add(row);
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            // A second request dismissed the same song first: the unique index kept one row, and that is the answer.
+            _database.Entry(row).State = EntityState.Detached;
+
+            var winner = await _database.DiscoverDismissals
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    candidate => (mbid != null && candidate.MbRecordingId == mbid)
+                        || (candidate.ArtistKey == artistKey && candidate.TitleKey == titleKey),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return winner ?? throw new InvalidOperationException("The dismissal could not be stored.");
+        }
 
         return row;
     }
@@ -345,7 +383,11 @@ public sealed partial class DiscoverService : IDiscoverService
         // A person is waiting on the page: a source behind a long Retry-After fails at once.
         using var interactive = InteractiveRequests.Begin();
 
-        var runs = await Task.WhenAll(_sources.Select(source => AskAsync(source, seeds, cancellationToken)))
+        // The deadline covers every source together; the caller's own cancellation still propagates.
+        using var deadline = new CancellationTokenSource(RequestDeadline, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+
+        var runs = await Task.WhenAll(_sources.Select(source => AskAsync(source, seeds, linked.Token, cancellationToken)))
             .ConfigureAwait(false);
 
         var run = new CachedRun(
@@ -353,22 +395,28 @@ public sealed partial class DiscoverService : IDiscoverService
             [.. runs.Select(item => new DiscoverSourceInfo(item.Name, StatusName(item.Status)))],
             SuggestionMerger.Merge(runs));
 
-        // A request in which no source answered says nothing about the song; try again next time.
+        // A request in which no source answered says nothing about the song; try again next time. One in
+        // which a source failed is kept only briefly, so the failure does not outlive the outage.
         var hours = _options.CurrentValue.CacheHours;
         if (hours > 0 && runs.Any(item => item.Status == RecommendationSourceStatus.Answered))
         {
-            _cache.Set(cacheKey, run, TimeSpan.FromHours(hours));
+            _cache.Set(cacheKey, run, runs.Any(item => item.HadFailure) ? PartialCacheTime : TimeSpan.FromHours(hours));
         }
 
         return run;
     }
 
-    /// <summary>Asks one source about every seed, in turn. A failing seed does not stop the next one.</summary>
+    /// <summary>
+    /// Asks one source about each seed in turn, and stops at the first failure. When the request deadline
+    /// fires, the seeds not yet asked count as failed; the caller's own cancellation is rethrown.
+    /// </summary>
     private async Task<SourceRun> AskAsync(
         IRecommendationSource source,
         IReadOnlyList<RecommendationSeed> seeds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CancellationToken callerToken)
     {
+        var asked = 0;
         var lists = new List<IReadOnlyList<RecommendationCandidate>>();
         var answered = false;
         var failed = false;
@@ -381,10 +429,15 @@ public sealed partial class DiscoverService : IDiscoverService
             {
                 result = await source.GetAsync(seed, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            catch (Exception exception) when (exception is not OperationCanceledException || !callerToken.IsCancellationRequested)
             {
                 LogSourceFailed(_logger, source.Name, exception);
                 result = RecommendationSourceResult.Failed;
+            }
+
+            if (result.Status != RecommendationSourceStatus.Skipped)
+            {
+                asked++;
             }
 
             switch (result.Status)
@@ -399,13 +452,18 @@ public sealed partial class DiscoverService : IDiscoverService
                 default:
                     break;
             }
+
+            if (failed)
+            {
+                break;
+            }
         }
 
         var status = answered
             ? RecommendationSourceStatus.Answered
             : failed ? RecommendationSourceStatus.Failed : RecommendationSourceStatus.Skipped;
 
-        return new SourceRun(source.Name, source.Weight, status, lists);
+        return new SourceRun(source.Name, source.Weight, status, lists, failed, asked);
     }
 
     /// <summary>Applies the filters that must not be cached: the library, the seeds and the dismissals.</summary>

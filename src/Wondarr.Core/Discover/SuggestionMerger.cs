@@ -7,11 +7,15 @@ namespace Wondarr.Core.Discover;
 /// <param name="Weight">The source's weight.</param>
 /// <param name="Status">Whether it answered for at least one seed, failed for all, or had nothing to ask.</param>
 /// <param name="Lists">One ranked list per seed the source answered for.</param>
+/// <param name="HadFailure">Whether the source failed for at least one seed.</param>
+/// <param name="SeedsAsked">How many seeds the source was asked about and did not skip; defaults to the lists it answered.</param>
 internal sealed record SourceRun(
     string Name,
     double Weight,
     RecommendationSourceStatus Status,
-    IReadOnlyList<IReadOnlyList<RecommendationCandidate>> Lists);
+    IReadOnlyList<IReadOnlyList<RecommendationCandidate>> Lists,
+    bool HadFailure = false,
+    int? SeedsAsked = null);
 
 /// <summary>The columns of a library song the filters compare a suggestion against.</summary>
 /// <param name="MbRecordingId">The recording MBID.</param>
@@ -36,9 +40,10 @@ internal static class SuggestionMerger
 {
     /// <summary>
     /// Merges the sources' lists. Two candidates are one suggestion when they share a recording MBID, else an
-    /// ISRC, else a normalised artist and title. A source's rank becomes a score of
-    /// <c>weight × (n − index) / n</c>; a candidate keeps the best score each source gave it, and the
-    /// scores of different sources add up.
+    /// ISRC, else a normalised artist and title (never an empty one). A rank in one seed's list becomes a score of
+    /// <c>weight × (n − index) / n</c>. Within a source the scores a song earns across seeds are summed and
+    /// divided by the number of seeds asked, so a song several seeds agree on ranks higher and a radio (one
+    /// seed) is unchanged; the scores of different sources then add up.
     /// </summary>
     /// <param name="runs">The sources, in the order whose first answer wins a field.</param>
     public static List<DiscoverSuggestion> Merge(IReadOnlyList<SourceRun> runs)
@@ -50,8 +55,12 @@ internal static class SuggestionMerger
 
         foreach (var run in runs)
         {
-            foreach (var list in run.Lists)
+            var asked = Math.Max(run.SeedsAsked ?? run.Lists.Count, 1);
+
+            for (var listIndex = 0; listIndex < run.Lists.Count; listIndex++)
             {
+                var list = run.Lists[listIndex];
+
                 for (var index = 0; index < list.Count; index++)
                 {
                     var candidate = list[index];
@@ -67,7 +76,7 @@ internal static class SuggestionMerger
 
                     var group = (mbid is not null && byMbid.TryGetValue(mbid, out var found) ? found : null)
                         ?? (isrc is not null && byIsrc.TryGetValue(isrc, out var foundByIsrc) ? foundByIsrc : null)
-                        ?? (byText.TryGetValue(text, out var foundByText) ? foundByText : null);
+                        ?? (text is not null && byText.TryGetValue(text, out var foundByText) ? foundByText : null);
 
                     if (group is null)
                     {
@@ -89,10 +98,13 @@ internal static class SuggestionMerger
                         byIsrc.TryAdd(isrc, group);
                     }
 
-                    byText.TryAdd(text, group);
+                    if (text is not null)
+                    {
+                        byText.TryAdd(text, group);
+                    }
 
                     var score = run.Weight * (list.Count - index) / list.Count;
-                    group.Credit(run.Name, score);
+                    group.Credit(run.Name, listIndex, score, asked);
                 }
             }
         }
@@ -136,8 +148,8 @@ internal static class SuggestionMerger
                 AddIfPresent(ownedIsrcs, NormalizeIsrc(isrc));
             }
 
-            ownedText.Add(TextKey(row.ArtistName, row.Title));
-            ownedText.Add(TextKey(row.ArtistCredit, row.Title));
+            AddIfPresent(ownedText, TextKey(row.ArtistName, row.Title));
+            AddIfPresent(ownedText, TextKey(row.ArtistCredit, row.Title));
         }
 
         foreach (var seed in seeds)
@@ -149,7 +161,7 @@ internal static class SuggestionMerger
                 ownedDeezer.Add(deezerId);
             }
 
-            ownedText.Add(TextKey(seed.Artist, seed.Title));
+            AddIfPresent(ownedText, TextKey(seed.Artist, seed.Title));
         }
 
         var dismissedMbids = new HashSet<string>(StringComparer.Ordinal);
@@ -158,7 +170,10 @@ internal static class SuggestionMerger
         foreach (var dismissal in dismissals)
         {
             AddIfPresent(dismissedMbids, NormalizeMbid(dismissal.MbRecordingId));
-            dismissedText.Add(dismissal.ArtistKey + "|" + dismissal.TitleKey);
+            if (dismissal.ArtistKey.Length > 0 && dismissal.TitleKey.Length > 0)
+            {
+                dismissedText.Add(dismissal.ArtistKey + "|" + dismissal.TitleKey);
+            }
         }
 
         var perArtist = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -173,9 +188,10 @@ internal static class SuggestionMerger
             var owned = (mbid is not null && ownedMbids.Contains(mbid))
                 || (isrc is not null && ownedIsrcs.Contains(isrc))
                 || (suggestion.DeezerId is { } deezerId && ownedDeezer.Contains(deezerId))
-                || ownedText.Contains(text);
+                || (text is not null && ownedText.Contains(text));
 
-            var dismissed = (mbid is not null && dismissedMbids.Contains(mbid)) || dismissedText.Contains(text);
+            var dismissed = (mbid is not null && dismissedMbids.Contains(mbid))
+                || (text is not null && dismissedText.Contains(text));
 
             if (owned || dismissed)
             {
@@ -205,8 +221,16 @@ internal static class SuggestionMerger
         }
     }
 
-    private static string TextKey(string artist, string title) =>
-        TextMatching.NormalizeArtist(artist) + "|" + TextMatching.Normalize(title);
+    /// <summary>The artist-and-title key, or <see langword="null"/> when either normalises to nothing.</summary>
+    private static string? TextKey(string artist, string title)
+    {
+        var normalizedArtist = TextMatching.NormalizeArtist(artist);
+        var normalizedTitle = TextMatching.Normalize(title);
+
+        return normalizedArtist.Length == 0 || normalizedTitle.Length == 0
+            ? null
+            : normalizedArtist + "|" + normalizedTitle;
+    }
 
     private static string? NormalizeMbid(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
@@ -217,7 +241,8 @@ internal static class SuggestionMerger
     /// <summary>One suggestion being assembled from the candidates that agree on what it is.</summary>
     private sealed class Group
     {
-        private readonly Dictionary<string, double> _scores = new(StringComparer.Ordinal);
+        private readonly Dictionary<(string Source, int List), double> _best = [];
+        private readonly Dictionary<string, int> _asked = new(StringComparer.Ordinal);
         private readonly List<string> _sources = [];
 
         private string? _album;
@@ -249,19 +274,19 @@ internal static class SuggestionMerger
             _durationMs ??= other.DurationMs;
         }
 
-        public void Credit(string source, double score)
+        /// <summary>Records a score from one seed's list; a repeat in the same list keeps the better one.</summary>
+        public void Credit(string source, int list, double score, int seedsAsked)
         {
-            if (!_scores.TryGetValue(source, out var best))
+            if (!_asked.ContainsKey(source))
             {
                 _sources.Add(source);
-                _scores[source] = score;
-
-                return;
+                _asked[source] = seedsAsked;
             }
 
-            if (score > best)
+            var key = (source, list);
+            if (!_best.TryGetValue(key, out var best) || score > best)
             {
-                _scores[source] = score;
+                _best[key] = score;
             }
         }
 
@@ -275,7 +300,7 @@ internal static class SuggestionMerger
             _deezerId,
             _durationMs,
             _sources,
-            _scores.Values.Sum());
+            _sources.Sum(source => _best.Where(pair => pair.Key.Source == source).Sum(pair => pair.Value) / _asked[source]));
 
         private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }

@@ -11,7 +11,7 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    [Migration("20261117144441_AddDiscoverDismissals")]
+    [Migration("20261117145929_AddDiscoverDismissals")]
     partial class AddDiscoverDismissals
     {
         /// <inheritdoc />
@@ -65,9 +65,12 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasName("pk_discover_dismissal");
 
                     b.HasIndex("MbRecordingId")
-                        .HasDatabaseName("ix_discover_dismissal_mb_recording_id");
+                        .IsUnique()
+                        .HasDatabaseName("ix_discover_dismissal_mb_recording_id")
+                        .HasFilter("mb_recording_id IS NOT NULL");
 
                     b.HasIndex("ArtistKey", "TitleKey")
+                        .IsUnique()
                         .HasDatabaseName("ix_discover_dismissal_artist_key_title_key");
 
                     b.ToTable("discover_dismissal", (string)null);

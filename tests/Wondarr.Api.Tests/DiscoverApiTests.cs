@@ -235,6 +235,20 @@ public sealed class DiscoverApiTests
     }
 
     [Fact]
+    public async Task A_preview_by_name_refuses_an_artist_or_title_over_200_characters()
+    {
+        using var factory = SongApiTests.FakeProviders();
+        using var client = SongApiTests.Authenticated(factory);
+        var longName = new string('a', 201);
+
+        using var longArtist = await client.GetAsync(new Uri($"/api/v1/preview?artist={longName}&title=T", UriKind.Relative));
+        longArtist.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var longTitle = await client.GetAsync(new Uri($"/api/v1/preview?artist=A&title={longName}", UriKind.Relative));
+        longTitle.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task A_deezer_id_wins_over_a_name_and_no_search_is_made()
     {
         var deezer = Substitute.For<IDeezerClient>();

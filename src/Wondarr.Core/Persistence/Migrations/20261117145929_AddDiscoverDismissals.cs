@@ -33,12 +33,15 @@ namespace Wondarr.Core.Persistence.Migrations
             migrationBuilder.CreateIndex(
                 name: "ix_discover_dismissal_artist_key_title_key",
                 table: "discover_dismissal",
-                columns: new[] { "artist_key", "title_key" });
+                columns: new[] { "artist_key", "title_key" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_discover_dismissal_mb_recording_id",
                 table: "discover_dismissal",
-                column: "mb_recording_id");
+                column: "mb_recording_id",
+                unique: true,
+                filter: "mb_recording_id IS NOT NULL");
         }
 
         /// <inheritdoc />

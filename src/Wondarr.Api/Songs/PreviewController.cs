@@ -18,6 +18,9 @@ namespace Wondarr.Api.Songs;
 [Route("api/v1/preview")]
 public sealed class PreviewController : ControllerBase
 {
+    /// <summary>The longest artist or title a search by name accepts.</summary>
+    public const int MaxNameLength = 200;
+
     private readonly IDeezerClient _deezer;
     private readonly ISongService _songs;
 
@@ -58,6 +61,14 @@ public sealed class PreviewController : ControllerBase
         var named = (deezerId is not null ? 1 : 0)
             + (string.IsNullOrWhiteSpace(isrc) ? 0 : 1)
             + (songId is not null ? 1 : 0);
+
+        if (artist?.Length > MaxNameLength || title?.Length > MaxNameLength)
+        {
+            return Problem(
+                title: "artist or title is too long",
+                detail: $"artist and title may each be at most {MaxNameLength} characters.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
         var byName = !string.IsNullOrWhiteSpace(artist) && !string.IsNullOrWhiteSpace(title);
 

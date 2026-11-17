@@ -62,9 +62,12 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasName("pk_discover_dismissal");
 
                     b.HasIndex("MbRecordingId")
-                        .HasDatabaseName("ix_discover_dismissal_mb_recording_id");
+                        .IsUnique()
+                        .HasDatabaseName("ix_discover_dismissal_mb_recording_id")
+                        .HasFilter("mb_recording_id IS NOT NULL");
 
                     b.HasIndex("ArtistKey", "TitleKey")
+                        .IsUnique()
                         .HasDatabaseName("ix_discover_dismissal_artist_key_title_key");
 
                     b.ToTable("discover_dismissal", (string)null);

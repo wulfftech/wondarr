@@ -17,7 +17,7 @@ internal sealed class DiscoverDismissalConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.Title).IsRequired().HasMaxLength(512);
         builder.Property(x => x.ArtistKey).IsRequired();
         builder.Property(x => x.TitleKey).IsRequired();
-        builder.HasIndex(x => x.MbRecordingId);
-        builder.HasIndex(x => new { x.ArtistKey, x.TitleKey });
+        builder.HasIndex(x => x.MbRecordingId).IsUnique().HasFilter("mb_recording_id IS NOT NULL");
+        builder.HasIndex(x => new { x.ArtistKey, x.TitleKey }).IsUnique();
     }
 }

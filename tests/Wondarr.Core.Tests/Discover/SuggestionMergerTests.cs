@@ -143,6 +143,61 @@ public sealed class SuggestionMergerTests
         kept.Select(item => item.Title).Should().Equal("A1", "A2", "Other", "A3");
     }
 
+    [Fact]
+    public void A_song_several_seeds_agree_on_outranks_one_only_a_single_seed_lists()
+    {
+        var run = new SourceRun(
+            "listenbrainz",
+            1.0,
+            RecommendationSourceStatus.Answered,
+            [
+                [new RecommendationCandidate("Shared", "A"), new RecommendationCandidate("Only Here", "B")],
+                [new RecommendationCandidate("Shared", "A")],
+            ]);
+
+        var merged = SuggestionMerger.Merge([run]);
+
+        merged.Select(item => item.Title).Should().Equal("Shared", "Only Here");
+        merged[0].Score.Should().BeApproximately(1.0, 1e-9, "(1.0 + 1.0) over two seeds asked");
+        merged[1].Score.Should().BeApproximately(0.25, 1e-9, "0.5 over two seeds asked");
+    }
+
+    [Fact]
+    public void A_seed_that_failed_still_counts_in_the_divisor()
+    {
+        var run = new SourceRun(
+            "lastfm",
+            1.0,
+            RecommendationSourceStatus.Answered,
+            [[new RecommendationCandidate("One", "A")]],
+            HadFailure: true,
+            SeedsAsked: 2);
+
+        SuggestionMerger.Merge([run])[0].Score.Should().BeApproximately(0.5, 1e-9);
+    }
+
+    [Fact]
+    public void A_name_that_normalises_to_nothing_never_matches_on_text()
+    {
+        var merged = SuggestionMerger.Merge(
+        [
+            Run("a", 1.0, new RecommendationCandidate("???", "Same Artist"), new RecommendationCandidate("!!!", "Same Artist")),
+        ]);
+
+        merged.Should().HaveCount(2, "two titles with no letters are not the same song");
+
+        List<LibraryRow> library = [new(null, null, [], "...", "Same Artist", "Same Artist")];
+        RecommendationSeed[] seeds = [new(1, "---", "Same Artist", null, null)];
+        DiscoverDismissal[] dismissals = [new() { ArtistKey = "same artist", TitleKey = string.Empty }];
+
+        SuggestionMerger.Filter(merged, library, seeds, dismissals, maxPerArtist: 5).Should().HaveCount(2);
+
+        var byMbid = SuggestionMerger.Merge([Run("a", 1.0, new RecommendationCandidate("???", "Same Artist", MbRecordingId: Mbid))]);
+        List<LibraryRow> owned = [new(Mbid, null, [], "Anything", "Anybody", "Anybody")];
+
+        SuggestionMerger.Filter(byMbid, owned, [], [], maxPerArtist: 5).Should().BeEmpty("an MBID still matches");
+    }
+
     private static SourceRun Run(string name, double weight, params RecommendationCandidate[] candidates) =>
         new(name, weight, RecommendationSourceStatus.Answered, [candidates]);
 }
