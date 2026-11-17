@@ -39,6 +39,7 @@ export default defineConfig({
           label: 'Library',
           items: [
             { slug: 'library/adding-songs' },
+            { slug: 'library/discover' },
             { slug: 'library/managing-the-library' },
             { slug: 'library/import-lists' },
             { slug: 'library/reference-libraries' },

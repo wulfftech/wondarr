@@ -1,5 +1,5 @@
 import { Anchor, Badge, Button, Card, Flex, Group, Select, Stack, Switch, Text, Title } from '@mantine/core';
-import { ArrowRightLeft, Disc3, FileX, Search, Trash2, UserSearch, Wand2 } from 'lucide-react';
+import { ArrowRightLeft, Disc3, FileX, Radio, Search, Trash2, UserSearch, Wand2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { type LibraryResource, type QualityProfileResource } from '../../api/profiles';
 import type { SongDetailsResource, SongResource } from '../../api/songs';
@@ -182,6 +182,15 @@ export function SongHeader({
               onClick={onToggleInteractive}
             >
               Interactive search
+            </Button>
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<Radio size={14} />}
+              component={Link}
+              to={`/discover/${String(song.id)}`}
+            >
+              Discover from this
             </Button>
             <Button size="xs" variant="default" leftSection={<Disc3 size={14} />} onClick={onChangeAlbum}>
               Change album…

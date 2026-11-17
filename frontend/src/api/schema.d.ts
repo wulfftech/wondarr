@@ -1016,6 +1016,8 @@ export interface paths {
                     deezerId?: number | string;
                     isrc?: string;
                     songId?: number | string;
+                    artist?: string;
+                    title?: string;
                 };
                 header?: never;
                 path?: never;
@@ -4941,6 +4943,139 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    songId?: number | string;
+                    mixSeed?: number | string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiscoverResource"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discover/dismissals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiscoverDismissalResource"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DiscoverDismissalInputResource"];
+                    "application/*+json": components["schemas"]["DiscoverDismissalInputResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiscoverDismissalResource"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discover/dismissals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customfilter": {
         parameters: {
             query?: never;
@@ -5940,6 +6075,59 @@ export interface components {
             type: string;
             label: string;
             filters: components["schemas"]["JsonElement"];
+        };
+        DiscoverDismissalInputResource: {
+            mbRecordingId: null | string;
+            artist: string;
+            title: string;
+        };
+        DiscoverDismissalResource: {
+            /** Format: int64 */
+            id: number | string;
+            mbRecordingId: null | string;
+            artist: string;
+            title: string;
+            artistKey: string;
+            titleKey: string;
+            /** Format: date-time */
+            created: string;
+        };
+        DiscoverResource: {
+            mode: string;
+            /** Format: int32 */
+            mixSeed: null | number | string;
+            /** Format: int32 */
+            limit: number | string;
+            /** Format: int32 */
+            totalBeforeLimit: number | string;
+            seeds: components["schemas"]["DiscoverSeedResource"][];
+            sources: components["schemas"]["DiscoverSourceResource"][];
+            suggestions: components["schemas"]["DiscoverSuggestionResource"][];
+        };
+        DiscoverSeedResource: {
+            /** Format: int64 */
+            songId: number | string;
+            title: string;
+            artist: string;
+        };
+        DiscoverSourceResource: {
+            name: string;
+            status: string;
+        };
+        DiscoverSuggestionResource: {
+            title: string;
+            artist: string;
+            album: null | string;
+            coverUrl: null | string;
+            mbRecordingId: null | string;
+            isrc: null | string;
+            /** Format: int64 */
+            deezerId: null | number | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            sources: string[];
+            /** Format: double */
+            score: number | string;
         };
         DownloadClientFieldResource: {
             name: string;

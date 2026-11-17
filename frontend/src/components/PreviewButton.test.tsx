@@ -48,6 +48,20 @@ function installPreview(response: () => Response) {
 }
 
 describe('PreviewButton', () => {
+  it('searches by artist and title when there is no id or ISRC', async () => {
+    const mock = installPreview(() => jsonResponse(PREVIEW));
+    const user = userEvent.setup();
+
+    renderPreview(<PreviewButton deezerId={null} artist="Portishead" title="Roads" />);
+
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+
+    await waitFor(() => expect(play).toHaveBeenCalled());
+    expect(mock.calls.some((call) => call.url.includes('artist=Portishead') && call.url.includes('title=Roads'))).toBe(
+      true,
+    );
+  });
+
   it('asks for a fresh url and plays it', async () => {
     const mock = installPreview(() => jsonResponse(PREVIEW));
     const user = userEvent.setup();
