@@ -37,6 +37,9 @@ public enum HistoryEventType
 
     /// <summary>A song's music video was removed; its files went to the recycle bin.</summary>
     MusicVideoDeleted,
+
+    /// <summary>A song's music video was downloaded, checked and filed.</summary>
+    MusicVideoImported,
 }
 
 /// <summary>

@@ -1,6 +1,7 @@
 using System.Net;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.ImportLists;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Sources;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -60,6 +61,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IYtDlpRunner, YtDlpRunner>();
         services.AddSingleton<YtDlpAvailability>();
         services.AddSingleton<IHealthCheck, YtDlpHealthCheck>();
+
+        // Music videos (ADR-0014): the finder and the downloader replace the stand-ins Wondarr.Core registers, whichever
+        // of the two Add calls came first. Scoped, because the finder takes the typed InnerTube client.
+        services.Replace(ServiceDescriptor.Scoped<IMusicVideoFinder, YouTubeMusicVideoFinder>());
+        services.Replace(ServiceDescriptor.Scoped<IMusicVideoDownloader, YtDlpMusicVideoDownloader>());
 
         // The provider is a singleton, so the ISRC reader opens its own scope per call.
         services.AddSingleton<ISongIsrcSource, SongIsrcSource>();

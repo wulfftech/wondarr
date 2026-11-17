@@ -117,6 +117,23 @@ public static class ArtistEvidence
             : new ArtistEvidenceResult(ArtistEvidenceKind.Other, "file name", fromName);
     }
 
+    /// <summary>
+    /// Whether <paramref name="credit"/>, or one of the names it lists, is one of <paramref name="songArtists"/> as a
+    /// whole name (DECISIONS build session 14 #36): "Lisa" is not "Lisa Abbott". Used for a music video's credited
+    /// artists, which are judged by the same rule as a downloaded file's.
+    /// </summary>
+    /// <param name="credit">The credit as written: one artist's name, or several joined by <c>&amp;</c>, <c>feat.</c> and the like.</param>
+    /// <param name="songArtists">The song's artists.</param>
+    public static bool NamesAnyOf(string credit, IReadOnlyList<string> songArtists)
+    {
+        ArgumentNullException.ThrowIfNull(credit);
+        ArgumentNullException.ThrowIfNull(songArtists);
+
+        var wanted = songArtists.Select(Key).Where(key => key.Length > 0).ToHashSet(StringComparer.Ordinal);
+
+        return wanted.Count > 0 && IsArtist(credit) && NamesAny(credit, wanted);
+    }
+
     /// <summary>Whether the credit, or one of the names it lists, is one of the wanted artists.</summary>
     private static bool NamesAny(string credit, HashSet<string> wanted) =>
         wanted.Contains(Key(credit))

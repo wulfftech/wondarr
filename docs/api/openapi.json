@@ -3330,6 +3330,197 @@
         }
       }
     },
+    "/api/v1/musicvideo/song/{songId}/search": {
+      "post": {
+        "tags": [
+          "MusicVideo"
+        ],
+        "parameters": [
+          {
+            "name": "songId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicVideoSearchResultResource"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/song/{songId}/grab": {
+      "post": {
+        "tags": [
+          "MusicVideo"
+        ],
+        "parameters": [
+          {
+            "name": "songId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoGrabResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoGrabResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicVideoGrabAcceptedResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/search": {
+      "post": {
+        "tags": [
+          "MusicVideo"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoBulkSearchResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoBulkSearchResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicVideoBulkSearchAcceptedResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/musicvideo/settings": {
       "get": {
         "tags": [
@@ -7473,7 +7664,8 @@
           "deleted",
           "renamed",
           "converted",
-          "musicVideoDeleted"
+          "musicVideoDeleted",
+          "musicVideoImported"
         ],
         "type": "string"
       },
@@ -8997,6 +9189,122 @@
           }
         }
       },
+      "MusicVideoBulkSearchAcceptedResource": {
+        "required": [
+          "queued",
+          "commandIds"
+        ],
+        "type": "object",
+        "properties": {
+          "queued": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "commandIds": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "MusicVideoBulkSearchResource": {
+        "required": [
+          "songIds"
+        ],
+        "type": "object",
+        "properties": {
+          "songIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "MusicVideoCandidateKind": {
+        "enum": [
+          "unknown",
+          "officialVideo",
+          "artTrack",
+          "userUpload"
+        ],
+        "type": "string"
+      },
+      "MusicVideoCandidateResource": {
+        "required": [
+          "videoId",
+          "title",
+          "artists",
+          "kind",
+          "durationMs",
+          "thumbnailUrl",
+          "confident",
+          "foundBy",
+          "score"
+        ],
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artists": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MusicVideoCandidateKind"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "thumbnailUrl": {
+            "type": "string"
+          },
+          "confident": {
+            "type": "boolean"
+          },
+          "foundBy": {
+            "$ref": "#/components/schemas/MusicVideoFoundBy"
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "MusicVideoFoundBy": {
         "enum": [
           "musicBrainz",
@@ -9004,6 +9312,36 @@
           "manual"
         ],
         "type": "string"
+      },
+      "MusicVideoGrabAcceptedResource": {
+        "required": [
+          "commandId"
+        ],
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "MusicVideoGrabResource": {
+        "required": [
+          "youTubeVideoId"
+        ],
+        "type": "object",
+        "properties": {
+          "youTubeVideoId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "MusicVideoRemovedResource": {
         "required": [
@@ -9145,6 +9483,24 @@
           }
         }
       },
+      "MusicVideoSearchResultResource": {
+        "required": [
+          "queued",
+          "candidates"
+        ],
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MusicVideoCandidateResource"
+            }
+          }
+        }
+      },
       "MusicVideoSettingsResource": {
         "required": [
           "enabled",
@@ -9156,6 +9512,8 @@
           "writeNfo",
           "writeThumbnail",
           "scheduledSearchLimit",
+          "scheduledSearchEnabled",
+          "scheduledSearchIntervalHours",
           "readOnlyFields",
           "rootStatus",
           "rootNeedsConfirmation"
@@ -9196,6 +9554,17 @@
             "type": "boolean"
           },
           "scheduledSearchLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "scheduledSearchEnabled": {
+            "type": "boolean"
+          },
+          "scheduledSearchIntervalHours": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -9279,6 +9648,21 @@
             ]
           },
           "scheduledSearchLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "scheduledSearchEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "scheduledSearchIntervalHours": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",

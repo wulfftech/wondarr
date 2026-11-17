@@ -17,6 +17,13 @@ namespace Wondarr.Sources.YouTube;
 /// <param name="Extension">The file's extension, without the dot — always <c>opus</c>.</param>
 public sealed record YtDlpDownload(string VideoId, string FilePath, string Extension);
 
+/// <summary>A completed music video download: the merged MKV, its converted thumbnail, and the length yt-dlp reported.</summary>
+/// <param name="VideoId">The YouTube video id that was fetched.</param>
+/// <param name="FilePath">The path yt-dlp printed with <c>--print after_move:filepath</c>; always a <c>.mkv</c>.</param>
+/// <param name="ThumbnailPath">Where yt-dlp writes the thumbnail it converted to <c>.jpg</c>; the file may not exist.</param>
+/// <param name="DurationMs">The length yt-dlp reported for the video, in milliseconds, or <see langword="null"/> when it printed none.</param>
+public sealed record YtDlpVideoDownload(string VideoId, string FilePath, string ThumbnailPath, int? DurationMs);
+
 /// <summary>The result of the formats probe: yt-dlp's <c>-F</c> output and whether a JS runtime answered.</summary>
 /// <param name="VideoId">The probed video id.</param>
 /// <param name="StandardOutput">Everything <c>yt-dlp -F</c> wrote to stdout.</param>
@@ -146,6 +153,52 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
             }
 
             return HandleDownloadResult(videoId, result, options.Ytdlp.TimeoutSeconds);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<YtDlpVideoDownload> DownloadVideoAsync(
+        string videoId,
+        string destinationDir,
+        int? maxHeight,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationDir);
+
+        if (maxHeight is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxHeight), "The height cap must be above 0, or null for no cap.");
+        }
+
+        // The same gate as the audio download: YouTube sees one client at a time.
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            var options = _options.CurrentValue;
+            var arguments = BuildVideoDownloadArguments(videoId, destinationDir, maxHeight, options);
+
+            ProcessResult result;
+
+            try
+            {
+                result = await _runner.RunAsync(
+                    options.Ytdlp.BinaryPath,
+                    arguments,
+                    TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (MediaToolMissingException exception)
+            {
+                throw new YtDlpException(videoId, YtDlpErrorKind.ToolMissing, exception.Message, exception);
+            }
+
+            return HandleVideoDownloadResult(videoId, result, options.Ytdlp.TimeoutSeconds);
         }
         finally
         {
@@ -377,6 +430,60 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
     }
 
     /// <summary>
+    /// A music video download: the best video and audio up to the height cap, merged and remuxed into MKV (never
+    /// WebM, which not every player takes), with the thumbnail converted to JPEG beside it. The file's path and then
+    /// the video's length are printed once the file is in place. Retries, sleeps, cookies and the PO token are the
+    /// audio download's.
+    /// </summary>
+    internal static List<string> BuildVideoDownloadArguments(
+        string videoId,
+        string destinationDir,
+        int? maxHeight,
+        YouTubeOptions options)
+    {
+        var ytdlp = options.Ytdlp;
+        var format = maxHeight is { } height
+            ? string.Create(CultureInfo.InvariantCulture, $"bv*[height<={height}]+ba/b[height<={height}]")
+            : "bv*+ba/b";
+
+        var arguments = new List<string>
+        {
+            "-f",
+            format,
+            "--merge-output-format",
+            "mkv",
+            "--remux-video",
+            "mkv",
+            "--write-thumbnail",
+            "--convert-thumbnails",
+            "jpg",
+            "--no-playlist",
+            "--no-progress",
+            "--retries",
+            ytdlp.Retries.ToString(CultureInfo.InvariantCulture),
+            "--sleep-requests",
+            Number(ytdlp.SleepRequestsSeconds),
+            "--sleep-interval",
+            ytdlp.SleepIntervalSeconds.ToString(CultureInfo.InvariantCulture),
+            "--max-sleep-interval",
+            ytdlp.MaxSleepIntervalSeconds.ToString(CultureInfo.InvariantCulture),
+            "--print",
+            "after_move:filepath",
+            "--print",
+            "after_move:%(duration)s",
+            "-o",
+            $"{destinationDir}/%(id)s.%(ext)s",
+        };
+
+        AddAccessArguments(arguments, options);
+
+        arguments.Add("--");
+        arguments.Add(YouTubeVideoLinks.WatchUrl(videoId));
+
+        return arguments;
+    }
+
+    /// <summary>
     /// A details read: one JSON object on stdout and nothing written. A video whose formats need a JS
     /// runtime still has its details, so a missing format is not an error here.
     /// </summary>
@@ -465,6 +572,65 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         throw Classify(videoId, result);
     }
 
+    private YtDlpVideoDownload HandleVideoDownloadResult(string videoId, ProcessResult result, int timeoutSeconds)
+    {
+        if (result.TimedOut)
+        {
+            throw new YtDlpException(videoId, YtDlpErrorKind.TimedOut, $"yt-dlp was killed after {timeoutSeconds}s.");
+        }
+
+        if (result.ExitCode == 101)
+        {
+            // See ProbeFormatsAsync: exit 101 is a failed run, never the caller's cancellation.
+            throw new YtDlpException(
+                videoId,
+                YtDlpErrorKind.Unknown,
+                $"yt-dlp stopped the download of '{videoId}' (exit code 101).");
+        }
+
+        if (result.ExitCode != 0)
+        {
+            throw Classify(videoId, result);
+        }
+
+        string? filePath = null;
+        int? durationMs = null;
+
+        // Two lines: the file's path, then the length in seconds. A path never reads as a number.
+        foreach (var line in result.StandardOutput.Split('\n').Select(text => text.Trim()).Where(text => text.Length > 0))
+        {
+            if (double.TryParse(line, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
+            {
+                durationMs = seconds is > 0 and < int.MaxValue / 1000 ? (int)Math.Round(seconds * 1000) : null;
+            }
+            else
+            {
+                // The first line is the path; a later one that is not a number ("NA" for an unknown length) is not.
+                filePath ??= line;
+            }
+        }
+
+        if (filePath is null)
+        {
+            throw new YtDlpException(videoId, YtDlpErrorKind.Unknown, "yt-dlp exited 0 but printed no file path.");
+        }
+
+        var extension = Path.GetExtension(filePath).TrimStart('.').ToLowerInvariant();
+
+        if (extension != "mkv")
+        {
+            // A .webm (or .mp4) result means the merge and remux into MKV did not run: nothing but MKV is kept.
+            throw new YtDlpException(
+                videoId,
+                YtDlpErrorKind.Unknown,
+                $"yt-dlp produced a .{extension} file, not the expected .mkv.");
+        }
+
+        LogVideoDownloaded(_logger, videoId);
+
+        return new YtDlpVideoDownload(videoId, filePath, Path.ChangeExtension(filePath, ".jpg"), durationMs);
+    }
+
     private static YtDlpException Classify(string videoId, ProcessResult result)
     {
         // Exit 2 is a usage error: a flag we pass is wrong, so the stderr is the message.
@@ -538,6 +704,9 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
         return false;
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Downloaded '{VideoId}' as MKV.")]
+    private static partial void LogVideoDownloaded(ILogger logger, string videoId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Downloaded '{VideoId}' as Opus.")]
     private static partial void LogDownloaded(ILogger logger, string videoId);

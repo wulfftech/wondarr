@@ -3,6 +3,7 @@ using System.Text.Json;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
 using Microsoft.EntityFrameworkCore;
@@ -111,12 +112,14 @@ public sealed class SongEditorService : ISongEditorService
     private readonly WondarrDbContext _database;
     private readonly ISongService _songs;
     private readonly ICommandQueue _commands;
+    private readonly IMusicVideoService? _musicVideos;
 
     /// <summary>Initialises a new instance of the <see cref="SongEditorService"/> class.</summary>
     /// <param name="database">The database.</param>
     /// <param name="songs">The song service, which deletes.</param>
     /// <param name="commands">The command queue the library move runs on.</param>
-    public SongEditorService(WondarrDbContext database, ISongService songs, ICommandQueue commands)
+    /// <param name="musicVideos">Recycles the music video files of the songs a delete removes; none leaves them where they are.</param>
+    public SongEditorService(WondarrDbContext database, ISongService songs, ICommandQueue commands, IMusicVideoService? musicVideos = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(songs);
@@ -125,6 +128,7 @@ public sealed class SongEditorService : ISongEditorService
         _database = database;
         _songs = songs;
         _commands = commands;
+        _musicVideos = musicVideos;
     }
 
     private enum TagMode
@@ -290,6 +294,13 @@ public sealed class SongEditorService : ISongEditorService
         if (compacting.Count > 0)
         {
             throw new SongsCompactingException([.. compacting.Order()]);
+        }
+
+        // The music videos' files go to the recycle bin before the cascade removes their rows, so no video is left
+        // behind with nothing pointing at it. A video that cannot be moved stays, and the delete goes on.
+        if (_musicVideos is not null)
+        {
+            await _musicVideos.RecycleForDeletedSongsAsync(ids, cancellationToken).ConfigureAwait(false);
         }
 
         // One SaveChanges is one transaction: every song goes, or none does. As with a single

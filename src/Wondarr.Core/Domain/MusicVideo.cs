@@ -95,3 +95,19 @@ public sealed class MusicVideoBlocklistItem : EntityBase
     /// <summary>Gets or sets the song the video was rejected for.</summary>
     public Song Song { get; set; } = null!;
 }
+
+/// <summary>
+/// When the scheduled task last searched for a song's music video and found nothing it may download, so the song is
+/// left alone for a while (ADR-0014). Stored in the <c>music_video_last_search</c> table, one row per song.
+/// </summary>
+public sealed class MusicVideoLastSearch : EntityBase
+{
+    /// <summary>Gets or sets the song that was searched for.</summary>
+    public long SongId { get; set; }
+
+    /// <summary>Gets or sets the UTC instant of the search.</summary>
+    public DateTime SearchedAt { get; set; }
+
+    /// <summary>Gets or sets the song that was searched for.</summary>
+    public Song Song { get; set; } = null!;
+}

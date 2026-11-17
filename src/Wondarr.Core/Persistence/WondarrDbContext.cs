@@ -66,6 +66,9 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the YouTube videos rejected for a song.</summary>
     public DbSet<MusicVideoBlocklistItem> MusicVideoBlocklist => Set<MusicVideoBlocklistItem>();
 
+    /// <summary>Gets when the scheduled task last found nothing for a song's music video.</summary>
+    public DbSet<MusicVideoLastSearch> MusicVideoLastSearches => Set<MusicVideoLastSearch>();
+
     /// <summary>Gets the blocklist.</summary>
     public DbSet<BlocklistItem> Blocklist => Set<BlocklistItem>();
 

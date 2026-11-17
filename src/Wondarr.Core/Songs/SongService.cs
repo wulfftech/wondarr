@@ -7,6 +7,7 @@ using Wondarr.Core.Jobs;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.CoverArt;
 using Wondarr.Core.Metadata.MusicBrainz;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
@@ -150,6 +151,7 @@ public sealed partial class SongService : ISongService
     private readonly ICommandQueue _commands;
     private readonly IOptionsMonitor<SearchOptions> _searchOptions;
     private readonly ILogger<SongService> _logger;
+    private readonly IMusicVideoService? _musicVideos;
 
     /// <summary>Initialises a new instance of the <see cref="SongService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
@@ -160,6 +162,7 @@ public sealed partial class SongService : ISongService
     /// <param name="commands">The command queue, for the search a monitored add starts.</param>
     /// <param name="searchOptions">The search settings, for <c>search.search_on_add</c>.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="musicVideos">Recycles the song's music video files when the song is deleted; none leaves them where they are.</param>
     public SongService(
         WondarrDbContext database,
         IIdentityResolver resolver,
@@ -168,7 +171,8 @@ public sealed partial class SongService : ISongService
         ICoverArtResolver coverArt,
         ICommandQueue commands,
         IOptionsMonitor<SearchOptions> searchOptions,
-        ILogger<SongService> logger)
+        ILogger<SongService> logger,
+        IMusicVideoService? musicVideos = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(resolver);
@@ -187,6 +191,7 @@ public sealed partial class SongService : ISongService
         _commands = commands;
         _searchOptions = searchOptions;
         _logger = logger;
+        _musicVideos = musicVideos;
     }
 
     /// <inheritdoc />
@@ -522,6 +527,13 @@ public sealed partial class SongService : ISongService
         if (await HasUnfinishedMoveAsync(id, cancellationToken).ConfigureAwait(false))
         {
             throw new SongsCompactingException([id]);
+        }
+
+        // The music video's files go to the recycle bin before the cascade removes its row, so no video is left
+        // behind with nothing pointing at it. A video that cannot be moved stays, and the delete goes on.
+        if (_musicVideos is not null)
+        {
+            await _musicVideos.RecycleForDeletedSongsAsync([id], cancellationToken).ConfigureAwait(false);
         }
 
         // The credits, the album context and the file row cascade in the database; the artists stay.

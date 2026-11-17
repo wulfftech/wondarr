@@ -1138,6 +1138,39 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.ToTable("music_video_blocklist", (string)null);
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideoLastSearch", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("SearchedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("searched_at");
+
+                    b.Property<long>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_music_video_last_search");
+
+                    b.HasIndex("SongId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_music_video_last_search_song_id");
+
+                    b.ToTable("music_video_last_search", (string)null);
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.Notification", b =>
                 {
                     b.Property<long>("Id")
@@ -2943,6 +2976,18 @@ namespace Wondarr.Core.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_music_video_blocklist_songs_song_id");
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideoLastSearch", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.Song", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_music_video_last_search_song_song_id");
 
                     b.Navigation("Song");
                 });

@@ -14,6 +14,8 @@ namespace Wondarr.Api.MusicVideos;
 /// <param name="WriteNfo">Whether a <c>.nfo</c> file is written beside the video.</param>
 /// <param name="WriteThumbnail">Whether a thumbnail is written beside the video.</param>
 /// <param name="ScheduledSearchLimit">How many songs one run of the scheduled task may search for.</param>
+/// <param name="ScheduledSearchEnabled">Whether the scheduled task that finds missing videos runs (off by default).</param>
+/// <param name="ScheduledSearchIntervalHours">How often the scheduled task runs, in hours.</param>
 /// <param name="ReadOnlyFields">camelCase names of the fields the environment sets through <c>APP__MUSIC_VIDEOS__…</c>.</param>
 /// <param name="RootStatus">What a live check of the root found, or <see langword="null"/> when no root is set.</param>
 /// <param name="RootNeedsConfirmation">
@@ -30,6 +32,8 @@ public sealed record MusicVideoSettingsResource(
     bool WriteNfo,
     bool WriteThumbnail,
     int ScheduledSearchLimit,
+    bool ScheduledSearchEnabled,
+    int ScheduledSearchIntervalHours,
     IReadOnlyList<string> ReadOnlyFields,
     LibraryRootStatus? RootStatus,
     bool RootNeedsConfirmation)
@@ -50,6 +54,8 @@ public sealed record MusicVideoSettingsResource(
             settings.WriteNfo,
             settings.WriteThumbnail,
             settings.ScheduledSearchLimit,
+            settings.ScheduledSearchEnabled,
+            settings.ScheduledSearchIntervalHours,
             settings.ReadOnlyFields,
             settings.RootStatus,
             settings.RootNeedsConfirmation);
@@ -66,6 +72,8 @@ public sealed record MusicVideoSettingsResource(
 /// <param name="WriteNfo">New state of the <c>.nfo</c> switch.</param>
 /// <param name="WriteThumbnail">New state of the thumbnail switch.</param>
 /// <param name="ScheduledSearchLimit">New per-run limit of the scheduled task.</param>
+/// <param name="ScheduledSearchEnabled">New state of the switch for the scheduled task.</param>
+/// <param name="ScheduledSearchIntervalHours">New interval of the scheduled task, in hours.</param>
 public sealed record MusicVideoSettingsUpdateResource(
     bool? Enabled = null,
     string? RootPath = null,
@@ -75,7 +83,9 @@ public sealed record MusicVideoSettingsUpdateResource(
     int? MaxHeight = null,
     bool? WriteNfo = null,
     bool? WriteThumbnail = null,
-    int? ScheduledSearchLimit = null)
+    int? ScheduledSearchLimit = null,
+    bool? ScheduledSearchEnabled = null,
+    int? ScheduledSearchIntervalHours = null)
 {
     /// <summary>Maps the body to the service's change.</summary>
     public MusicVideoSettingsUpdate ToUpdate() => new(
@@ -87,7 +97,9 @@ public sealed record MusicVideoSettingsUpdateResource(
         MaxHeight,
         WriteNfo,
         WriteThumbnail,
-        ScheduledSearchLimit);
+        ScheduledSearchLimit,
+        ScheduledSearchEnabled,
+        ScheduledSearchIntervalHours);
 }
 
 /// <summary>A song's music video.</summary>
@@ -153,3 +165,65 @@ public sealed record MusicVideoResource(
 /// <param name="RecycledPaths">Where the video and its sidecars are now, in the recycle bin.</param>
 /// <param name="Blocklisted">Whether the YouTube video is now blocklisted for the song.</param>
 public sealed record MusicVideoRemovedResource(string? Path, IReadOnlyList<string> RecycledPaths, bool Blocklisted);
+
+/// <summary>One YouTube video that may be the song's music video.</summary>
+/// <param name="VideoId">The YouTube video id.</param>
+/// <param name="Title">The title the source shows.</param>
+/// <param name="Artists">The artists the source credits; empty when it names none.</param>
+/// <param name="Kind">What the source says the upload is.</param>
+/// <param name="DurationMs">The length the source shows, in milliseconds, or <see langword="null"/>.</param>
+/// <param name="ThumbnailUrl">YouTube's thumbnail for the video.</param>
+/// <param name="Confident">Whether Wondarr may download it without asking.</param>
+/// <param name="FoundBy">Where the candidate came from.</param>
+/// <param name="Score">The ranking score: higher is better.</param>
+public sealed record MusicVideoCandidateResource(
+    string VideoId,
+    string Title,
+    IReadOnlyList<string> Artists,
+    MusicVideoCandidateKind Kind,
+    int? DurationMs,
+    string ThumbnailUrl,
+    bool Confident,
+    MusicVideoFoundBy FoundBy,
+    int Score)
+{
+    /// <summary>Maps a candidate.</summary>
+    /// <param name="candidate">The candidate to map.</param>
+    public static MusicVideoCandidateResource From(MusicVideoCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+
+        return new MusicVideoCandidateResource(
+            candidate.VideoId,
+            candidate.Title,
+            candidate.Artists,
+            candidate.Kind,
+            candidate.DurationMs,
+            candidate.ThumbnailUrl,
+            candidate.Confident,
+            candidate.FoundBy,
+            candidate.Score);
+    }
+}
+
+/// <summary>What searching for a song's music video found.</summary>
+/// <param name="Queued">Whether a confident candidate was found and its download queued.</param>
+/// <param name="Candidates">The candidates, best first.</param>
+public sealed record MusicVideoSearchResultResource(bool Queued, IReadOnlyList<MusicVideoCandidateResource> Candidates);
+
+/// <summary>A manual pick: the video to download for a song.</summary>
+/// <param name="YouTubeVideoId">The YouTube video id, or a link to the video.</param>
+public sealed record MusicVideoGrabResource(string? YouTubeVideoId);
+
+/// <summary>A queued download.</summary>
+/// <param name="CommandId">The queued <c>MusicVideoDownload</c> command.</param>
+public sealed record MusicVideoGrabAcceptedResource(long CommandId);
+
+/// <summary>Songs to search music videos for, confident matches only.</summary>
+/// <param name="SongIds">The songs; at most 200.</param>
+public sealed record MusicVideoBulkSearchResource(IReadOnlyList<long>? SongIds);
+
+/// <summary>The searches a bulk request queued.</summary>
+/// <param name="Queued">How many songs a search was queued for.</param>
+/// <param name="CommandIds">The queued <c>MusicVideoSearch</c> commands.</param>
+public sealed record MusicVideoBulkSearchAcceptedResource(int Queued, IReadOnlyList<long> CommandIds);

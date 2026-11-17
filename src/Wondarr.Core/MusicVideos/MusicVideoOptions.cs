@@ -51,6 +51,15 @@ public sealed class MusicVideoOptions
 
     /// <summary>How many songs one run of the scheduled task may search for.</summary>
     public int ScheduledSearchLimit { get; set; } = 25;
+
+    /// <summary>
+    /// Whether the scheduled "Find missing music videos" task runs. Off by default, and it runs only while
+    /// <see cref="Enabled"/> is on too.
+    /// </summary>
+    public bool ScheduledSearchEnabled { get; set; }
+
+    /// <summary>How often the scheduled task runs, in hours.</summary>
+    public int ScheduledSearchIntervalHours { get; set; } = 24;
 }
 
 /// <summary>
@@ -105,6 +114,9 @@ public sealed class MusicVideoOptionsValidator : IValidateOptions<MusicVideoOpti
     /// <summary>The most songs one scheduled run may search for.</summary>
     public const int MaxScheduledSearchLimit = 500;
 
+    /// <summary>The longest wait between two scheduled runs, in hours (30 days).</summary>
+    public const int MaxScheduledSearchIntervalHours = 720;
+
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, MusicVideoOptions options)
     {
@@ -137,6 +149,12 @@ public sealed class MusicVideoOptionsValidator : IValidateOptions<MusicVideoOpti
         {
             failures.Add(
                 $"music_videos.scheduled_search_limit: must be between 1 and {MaxScheduledSearchLimit} (was {options.ScheduledSearchLimit})");
+        }
+
+        if (options.ScheduledSearchIntervalHours is < 1 or > MaxScheduledSearchIntervalHours)
+        {
+            failures.Add(
+                $"music_videos.scheduled_search_interval_hours: must be between 1 and {MaxScheduledSearchIntervalHours} (was {options.ScheduledSearchIntervalHours})");
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);

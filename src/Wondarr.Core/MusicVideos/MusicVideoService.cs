@@ -46,6 +46,16 @@ public sealed class MusicVideoPathException : Exception
     }
 }
 
+/// <summary>The song's video is queued or downloading, so it cannot be removed yet; the download would put it back.</summary>
+public sealed class MusicVideoDownloadInProgressException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="MusicVideoDownloadInProgressException"/> class.</summary>
+    public MusicVideoDownloadInProgressException()
+        : base("A download is in progress")
+    {
+    }
+}
+
 /// <summary>A file could not be moved into the recycle bin; the files already moved were put back.</summary>
 public sealed class MusicVideoFileException : Exception
 {
@@ -95,11 +105,34 @@ public interface IMusicVideoService
     /// <param name="blocklist">Whether the YouTube video is blocklisted for the song.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>What was done, or <see langword="null"/> when the song has no video.</returns>
+    /// <exception cref="MusicVideoDownloadInProgressException">The video is queued or downloading.</exception>
     /// <exception cref="MusicVideoInReferenceLibraryException">The file is inside a reference library.</exception>
     /// <exception cref="MusicVideoPathException">The row's path is not one Wondarr may act on.</exception>
     /// <exception cref="MusicVideoFileException">A file could not be moved.</exception>
     /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
     Task<MusicVideoRemoval?> DeleteAsync(long songId, bool blocklist, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves the video file and its sidecars to the recycle bin and leaves the row alone: a replaced video's
+    /// old files go this way. If a move fails, the files already moved are put back.
+    /// </summary>
+    /// <param name="video">The row whose files are recycled.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Where the files are now; empty when the row has no file.</returns>
+    /// <exception cref="MusicVideoInReferenceLibraryException">The file is inside a reference library.</exception>
+    /// <exception cref="MusicVideoPathException">The row's path is not one Wondarr may act on.</exception>
+    /// <exception cref="MusicVideoFileException">A file could not be moved.</exception>
+    /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
+    Task<IReadOnlyList<string>> RecycleFilesAsync(MusicVideo video, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Recycles the video files of songs that are about to be deleted, before the cascade removes their rows.
+    /// A video that may not or cannot be moved (inside a reference library, outside the folders Wondarr writes
+    /// to, busy, on a silent disk) is left where it is and logged, and never stops the song's deletion.
+    /// </summary>
+    /// <param name="songIds">The songs that are being deleted.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    Task RecycleForDeletedSongsAsync(IReadOnlyCollection<long> songIds, CancellationToken cancellationToken);
 }
 
 /// <inheritdoc />
@@ -193,28 +226,13 @@ public sealed partial class MusicVideoService : IMusicVideoService
             return null;
         }
 
-        var files = new List<string>();
-        string? binRoot = null;
-
-        if (!string.IsNullOrWhiteSpace(video.Path))
+        // The download that is on its way would write the file and the row again; it has to finish or fail first.
+        if (video.Status is MusicVideoStatus.Queued or MusicVideoStatus.Downloading)
         {
-            var audioPath = await _database.SongFiles
-                .AsNoTracking()
-                .Where(file => file.SongId == songId)
-                .Select(file => file.Path)
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            // No path from a row is trusted: it is acted on only inside the folders Wondarr writes videos to.
-            binRoot = await AllowedRootAsync(video.Path, audioPath, cancellationToken).ConfigureAwait(false)
-                ?? throw new MusicVideoPathException();
-
-            files = await FilesOfAsync(video.Path, audioPath, cancellationToken).ConfigureAwait(false);
-
-            await GuardReferenceLibrariesAsync(files, cancellationToken).ConfigureAwait(false);
+            throw new MusicVideoDownloadInProgressException();
         }
 
-        var recycledPaths = await Recycle(files, binRoot ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        var recycledPaths = await RecycleFilesAsync(video, cancellationToken).ConfigureAwait(false);
 
         // Already blocklisted counts as blocklisted: the video will not come back either way.
         MusicVideoBlocklistItem? blocked = null;
@@ -269,6 +287,70 @@ public sealed partial class MusicVideoService : IMusicVideoService
         LogRemoved(_logger, video.YouTubeVideoId, songId, video.Path ?? "(no file yet)", blocklist);
 
         return new MusicVideoRemoval(video.Path, recycledPaths, blocklist);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> RecycleFilesAsync(MusicVideo video, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(video);
+
+        if (string.IsNullOrWhiteSpace(video.Path))
+        {
+            return [];
+        }
+
+        var audioPath = await _database.SongFiles
+            .AsNoTracking()
+            .Where(file => file.SongId == video.SongId)
+            .Select(file => file.Path)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // No path from a row is trusted: it is acted on only inside the folders Wondarr writes videos to.
+        var binRoot = await AllowedRootAsync(video.Path, audioPath, cancellationToken).ConfigureAwait(false)
+            ?? throw new MusicVideoPathException();
+
+        var files = await FilesOfAsync(video.Path, audioPath, cancellationToken).ConfigureAwait(false);
+
+        await GuardReferenceLibrariesAsync(files, cancellationToken).ConfigureAwait(false);
+
+        return await Recycle(files, binRoot, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task RecycleForDeletedSongsAsync(IReadOnlyCollection<long> songIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(songIds);
+
+        if (songIds.Count == 0)
+        {
+            return;
+        }
+
+        var videos = await _database.MusicVideos
+            .AsNoTracking()
+            .Where(video => songIds.Contains(video.SongId) && video.Path != null)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var video in videos)
+        {
+            try
+            {
+                var recycled = await RecycleFilesAsync(video, cancellationToken).ConfigureAwait(false);
+
+                LogRecycledWithSong(_logger, video.SongId, recycled.Count);
+            }
+            catch (Exception exception) when (exception is MusicVideoInReferenceLibraryException
+                or MusicVideoPathException
+                or MusicVideoFileException
+                or MusicVideoTimeoutException)
+            {
+                // The song is deleted regardless: a video Wondarr may not or cannot move is left where it is,
+                // and the log says which one.
+                LogLeftWithSong(_logger, video.SongId, video.Path ?? string.Empty, exception);
+            }
+        }
     }
 
     private static bool IsUniqueViolation(DbUpdateException exception) =>
@@ -442,6 +524,12 @@ public sealed partial class MusicVideoService : IMusicVideoService
         string? Path,
         IReadOnlyList<string> RecycledPaths,
         bool Blocklisted);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Recycled {Count} music video file(s) of deleted song {SongId}")]
+    private static partial void LogRecycledWithSong(ILogger logger, long songId, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Deleted song {SongId} had a music video that was left where it is ({Path})")]
+    private static partial void LogLeftWithSong(ILogger logger, long songId, string path, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Removed the music video {YouTubeVideoId} of song {SongId} ({Path}) (blocklisted: {Blocklisted})")]
     private static partial void LogRemoved(ILogger logger, string youTubeVideoId, long songId, string path, bool blocklisted);
