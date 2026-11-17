@@ -7048,6 +7048,7 @@ export interface components {
         MusicVideoSearchResultResource: {
             queued: boolean;
             candidates: components["schemas"]["MusicVideoCandidateResource"][];
+            partial: boolean;
         };
         MusicVideoSettingsResource: {
             enabled: boolean;
@@ -7780,6 +7781,7 @@ export interface components {
             status: components["schemas"]["MusicVideoStatus"];
             /** Format: int32 */
             height: null | number | string;
+            failureReason: null | string;
         };
         SongReferenceFileResource: {
             /** Format: int64 */

@@ -91,7 +91,7 @@ function renderCell(musicVideo: SongResource['musicVideo'], routes: Routes = {})
     }
 
     if (url.endsWith('/musicvideo/song/12/search')) {
-      return jsonResponse(routes.search ?? { queued: false, candidates: CANDIDATES });
+      return jsonResponse(routes.search ?? { queued: false, partial: false, candidates: CANDIDATES });
     }
 
     if (url.endsWith('/musicvideo/song/12/grab')) {
@@ -137,7 +137,10 @@ describe('the music video icon', () => {
   it('shows a spinner for a queued video and opens the manage view', async () => {
     const user = userEvent.setup();
 
-    renderCell({ status: 'queued', height: null }, { video: { ...PRESENT_VIDEO, status: 'queued' } });
+    renderCell(
+      { status: 'queued', height: null, failureReason: null },
+      { video: { ...PRESENT_VIDEO, status: 'queued' } },
+    );
 
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
 
@@ -147,7 +150,7 @@ describe('the music video icon', () => {
   it('shows a filled video icon with the height for a present video', async () => {
     const user = userEvent.setup();
 
-    renderCell({ status: 'present', height: 1080 }, { video: PRESENT_VIDEO });
+    renderCell({ status: 'present', height: 1080, failureReason: null }, { video: PRESENT_VIDEO });
 
     const icon = screen.getByRole('button', { name: 'Music video for Get Lucky' });
 
@@ -167,7 +170,10 @@ describe('the music video icon', () => {
   it('shows a red crossed-out icon for a failed video and opens the candidates with the reason', async () => {
     const user = userEvent.setup();
 
-    renderCell({ status: 'failed', height: null }, { video: FAILED_VIDEO });
+    renderCell(
+      { status: 'failed', height: null, failureReason: 'The video folder has no marker file' },
+      { video: FAILED_VIDEO },
+    );
 
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky failed' }));
 
@@ -229,11 +235,56 @@ describe('finding a music video', () => {
   });
 });
 
+describe('partial searches and failure reasons', () => {
+  it('says so when MusicBrainz did not answer', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: false, partial: true, candidates: CANDIDATES } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(
+      await screen.findByText("MusicBrainz didn't answer, so these are YouTube results only."),
+    ).toBeInTheDocument();
+  });
+
+  it('does not say it when MusicBrainz answered', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null);
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+    await screen.findByText('Get Lucky (Official Video)');
+
+    expect(screen.queryByText(/MusicBrainz didn't answer/)).not.toBeInTheDocument();
+  });
+
+  it('shows the failure reason in the failed icon tooltip', async () => {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'failed', height: null, failureReason: 'The video folder has no marker file' });
+
+    await user.hover(screen.getByRole('button', { name: 'Music video for Get Lucky failed' }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('The video folder has no marker file');
+  });
+
+  it('falls back to a general tooltip when the list carries no reason', async () => {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'failed', height: null, failureReason: null });
+
+    await user.hover(screen.getByRole('button', { name: 'Music video for Get Lucky failed' }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('The download failed. Pick another video.');
+  });
+});
+
 describe('removing a music video', () => {
   async function openRemove() {
     const user = userEvent.setup();
 
-    renderCell({ status: 'present', height: 1080 }, { video: PRESENT_VIDEO });
+    renderCell({ status: 'present', height: 1080, failureReason: null }, { video: PRESENT_VIDEO });
 
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
     await user.click(await screen.findByRole('button', { name: 'Remove' }));
@@ -282,7 +333,7 @@ describe('removing a music video', () => {
       <MantineProvider env="test">
         <ApiProvider config={createTestConfig()}>
           <QueryClientProvider client={queryClient}>
-            <MusicVideoCell song={song({ status: 'present', height: 1080 })} />
+            <MusicVideoCell song={song({ status: 'present', height: 1080, failureReason: null })} />
           </QueryClientProvider>
         </ApiProvider>
       </MantineProvider>,

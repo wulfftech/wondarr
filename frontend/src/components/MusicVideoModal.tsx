@@ -193,6 +193,8 @@ export interface MusicVideoPanelProps {
   songId: number;
   /** Candidates a search already found, shown at once. */
   initialCandidates?: MusicVideoCandidateResource[];
+  /** Whether the search that found `initialCandidates` had no MusicBrainz answer. */
+  initialPartial?: boolean;
   /** Run the search as soon as the panel opens. */
   searchOnOpen?: boolean;
   /** Called when the panel has nothing left to show (a video was removed). */
@@ -204,11 +206,18 @@ export interface MusicVideoPanelProps {
  * inline. It shows the manage view while the song holds a video, and the ranked candidates while it holds
  * none, its download failed, or the person chose Replace…
  */
-export function MusicVideoPanel({ songId, initialCandidates, searchOnOpen = false, onRemoved }: MusicVideoPanelProps) {
+export function MusicVideoPanel({
+  songId,
+  initialCandidates,
+  initialPartial = false,
+  searchOnOpen = false,
+  onRemoved,
+}: MusicVideoPanelProps) {
   const video = useSongMusicVideo(songId);
   const search = useSearchMusicVideo();
   const grab = useGrabMusicVideo();
   const [picking, setPicking] = useState(initialCandidates !== undefined || searchOnOpen);
+  const [partial, setPartial] = useState(initialPartial);
   const [candidates, setCandidates] = useState<MusicVideoCandidateResource[] | null>(initialCandidates ?? null);
   const [grabbing, setGrabbing] = useState<string | null>(null);
   const started = useRef(false);
@@ -216,6 +225,7 @@ export function MusicVideoPanel({ songId, initialCandidates, searchOnOpen = fals
   const runSearch = () => {
     setPicking(true);
     setCandidates(null);
+    setPartial(false);
     search.mutate(songId, {
       onSuccess: (result) => {
         if (result.queued) {
@@ -225,6 +235,7 @@ export function MusicVideoPanel({ songId, initialCandidates, searchOnOpen = fals
           return;
         }
 
+        setPartial(result.partial);
         setCandidates(result.candidates);
       },
     });
@@ -298,6 +309,12 @@ export function MusicVideoPanel({ songId, initialCandidates, searchOnOpen = fals
       {search.error !== null && (
         <Alert color="red" icon={<CircleAlert size={16} />}>
           {search.error.message}
+        </Alert>
+      )}
+
+      {partial && candidates !== null && (
+        <Alert color="yellow" icon={<CircleAlert size={16} />}>
+          MusicBrainz didn&apos;t answer, so these are YouTube results only.
         </Alert>
       )}
 

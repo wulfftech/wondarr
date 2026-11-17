@@ -11,6 +11,7 @@ import { MusicVideoModal } from './MusicVideoModal';
 
 interface DialogState {
   initialCandidates?: MusicVideoCandidateResource[];
+  initialPartial?: boolean;
   searchOnOpen?: boolean;
 }
 
@@ -43,7 +44,7 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
           return;
         }
 
-        setDialog({ initialCandidates: result.candidates });
+        setDialog({ initialCandidates: result.candidates, initialPartial: result.partial });
       },
       onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
     });
@@ -71,7 +72,7 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
     onClick = () => setDialog({});
   } else {
     // The song list carries the status but not the reason; the candidate dialog shows it.
-    tooltip = 'The download failed. Pick another video.';
+    tooltip = state.failureReason ?? 'The download failed. Pick another video.';
     label = `Music video for ${song.title} failed`;
     icon = <VideoOff size={16} />;
     color = 'red';
@@ -98,6 +99,7 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
           songId={songId}
           songTitle={song.title}
           initialCandidates={dialog.initialCandidates}
+          initialPartial={dialog.initialPartial}
           searchOnOpen={dialog.searchOnOpen}
           opened
           onClose={() => setDialog(null)}
