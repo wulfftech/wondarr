@@ -87,6 +87,16 @@ import:
   fake_lossless_check: reject               # reject | off: refuse a lossless file whose spectrum shows a lossy encoder's low-pass (an MP3 in a FLAC)
   container_staging_path: /data/downloads/containers  # a finished torrent file is hard-linked here (keep it on the client's filesystem), a usenet file moved here
   clean_leftover_folders: true               # after an import, remove what the download left behind: a usenet job's folder (SABnzbd never deletes a completed job's) and Wondarr's own download folders, even with a partial or sidecar still in them; a torrent's data is never touched. Also a switch on Settings > Download clients
+music_videos:                              # opt-in music videos, one per song (ADR-0014; LIBRARY_OUTPUT §7.10). Env: APP__MUSIC_VIDEOS__ENABLED, ...
+  enabled: false                           # off: no video column, no actions, no task, and the API answers 409
+  root_path: /data/music-videos            # a folder of its own: absolute, outside /config and outside every library and reference library; it carries .wondarr-library like a library root
+  layout: folder                           # folder | beside_track (next to the song's audio file; a song held only by a reference library falls back to root_path)
+  naming_template: "{Artist}/{Artist} - {Title}"  # under root_path, no extension; only {Artist}, {AlbumArtist}, {Title}, {Album}, {Year}
+  beside_track_suffix: "-video"            # added to the audio file's name under beside_track
+  max_height:                              # tallest picture to download, in pixels; unset means no cap
+  write_nfo: true                          # a Kodi/Jellyfin .nfo beside the video
+  write_thumbnail: true                    # a thumbnail beside the video
+  scheduled_search_limit: 25               # songs one run of the scheduled task may search for
 libraries:
   - name: Plexamp
     root: /data/music

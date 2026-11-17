@@ -24,6 +24,7 @@ using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.CustomFilters;
 using Wondarr.Core.Notifications;
 using Wondarr.Core.Notifications.Apprise;
@@ -77,6 +78,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, ProtectedPathsHealthCheck>();
         services.AddScoped<IHealthCheck, ReferenceMissingFilesHealthCheck>();
         services.AddScoped<IHealthCheck, LibraryRootHealthCheck>();
+        services.AddSingleton<IHealthCheck, MusicVideoRootHealthCheck>();
         services.AddScoped<IHealthCheck, CompactMoveHealthCheck>();
         services.AddScoped<IHealthCheck, ImportListReadHealthCheck>();
         services.AddScoped<IHealthCheck, ImportListScanWaitHealthCheck>();
@@ -279,6 +281,22 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISongEditorService, SongEditorService>();
         services.AddScoped<ISongFileRemover, SongFileRemover>();
 
+        // Music videos (ADR-0014): reading, removing and the per-page video state of the song lists.
+        services.AddScoped<IMusicVideoService, MusicVideoService>();
+
+        // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a service.
+        services.AddScoped<IMusicVideoSettingsService>(provider => new MusicVideoSettingsService(
+            provider.GetRequiredService<IOptionsMonitor<MusicVideoOptions>>(),
+            provider.GetRequiredService<IConfigFileWriter>(),
+            provider.GetServices<IValidateOptions<MusicVideoOptions>>(),
+            provider.GetRequiredService<WondarrDbContext>(),
+            provider.GetRequiredService<ILibraryRoots>(),
+            provider.GetRequiredService<IDiskOperations>(),
+            provider.GetRequiredService<WondarrPaths>(),
+            provider.GetRequiredService<IOptionsMonitor<ImportOptions>>(),
+            System.Environment.GetEnvironmentVariables(),
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MusicVideoSettingsService>>()));
+
         // The song page's data: the stored identity, Deezer and the reference-library row (read only),
         // and the lyrics. The in-memory cache holds the Deezer (1 h) and LRCLIB (1 day) answers.
         services.AddMemoryCache();
@@ -392,6 +410,13 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<ImportOptions>, ImportOptionsValidator>();
+
+        // Music videos: off until the user turns them on; the root is validated by the settings service.
+        services.AddOptions<MusicVideoOptions>()
+            .Bind(configuration.GetSection("MusicVideos"))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<MusicVideoOptions>, MusicVideoOptionsValidator>();
 
         services.AddOptions<LogOptions>()
             .Bind(configuration.GetSection("Log"))

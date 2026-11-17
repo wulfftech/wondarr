@@ -33,6 +33,10 @@ namespace Wondarr.Api.Songs;
 /// Only on the reply to choosing an album: the command that moves and retags the song's file for the
 /// new album, or <see langword="null"/> when no file needed to move.
 /// </param>
+/// <param name="MusicVideo">
+/// The song's music video state. Filled by the Library and Wanted lists with one query per page; <see langword="null"/>
+/// while music videos are turned off, on every other endpoint, and for a song without a video.
+/// </param>
 public sealed record SongResource(
     long Id,
     string Title,
@@ -54,11 +58,17 @@ public sealed record SongResource(
     SongAlbumContextResource? AlbumContext,
     SongFileResource? File = null,
     IReadOnlyList<string>? Tags = null,
-    long? RefileCommandId = null)
+    long? RefileCommandId = null,
+    SongMusicVideoResource? MusicVideo = null)
 {
     /// <summary>Gets the song's tags; never <see langword="null"/>.</summary>
     public IReadOnlyList<string> Tags { get; init; } = Tags ?? [];
 }
+
+/// <summary>What a song table shows of the song's music video.</summary>
+/// <param name="Status">Where the video stands.</param>
+/// <param name="Height">The picture height in pixels, or <see langword="null"/> when unknown.</param>
+public sealed record SongMusicVideoResource(MusicVideoStatus Status, int? Height);
 
 /// <summary>The file a song holds: where it is, what is on disk and where it came from.</summary>
 /// <param name="Path">The file's path in the library.</param>

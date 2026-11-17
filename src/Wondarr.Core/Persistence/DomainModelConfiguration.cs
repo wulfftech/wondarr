@@ -221,6 +221,37 @@ internal static class DomainModelConfiguration
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<MusicVideo>(entity =>
+        {
+            entity.ToTable("music_video");
+            entity.Property(x => x.YouTubeVideoId).IsRequired();
+
+            // Stored as text so the rows stay readable and a renumbered enum cannot rewrite them.
+            entity.Property(x => x.Status).HasConversion<string>();
+            entity.Property(x => x.FoundBy).HasConversion<string>();
+
+            // At most one video per song.
+            entity.HasIndex(x => x.SongId).IsUnique();
+
+            entity.HasOne(x => x.Song)
+                .WithOne()
+                .HasForeignKey<MusicVideo>(x => x.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MusicVideoBlocklistItem>(entity =>
+        {
+            entity.ToTable("music_video_blocklist");
+            entity.Property(x => x.YouTubeVideoId).IsRequired();
+            entity.Property(x => x.Reason).IsRequired();
+            entity.HasIndex(x => new { x.SongId, x.YouTubeVideoId }).IsUnique();
+
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<ImportList>(entity =>
         {
             entity.ToTable("import_list");

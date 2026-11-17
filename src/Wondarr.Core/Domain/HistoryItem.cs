@@ -34,6 +34,9 @@ public enum HistoryEventType
 
     /// <summary>A file was converted to another format on demand; the original went to the recycle bin.</summary>
     Converted,
+
+    /// <summary>A song's music video was removed; its files went to the recycle bin.</summary>
+    MusicVideoDeleted,
 }
 
 /// <summary>

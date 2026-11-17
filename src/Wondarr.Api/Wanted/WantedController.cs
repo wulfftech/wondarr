@@ -1,5 +1,7 @@
+using Wondarr.Api.MusicVideos;
 using Wondarr.Api.Paging;
 using Wondarr.Api.Songs;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Wanted;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,14 +20,18 @@ public sealed class WantedController : ControllerBase
     private const string DefaultSortKey = "added";
 
     private readonly IWantedService _wanted;
+    private readonly IMusicVideoService _musicVideos;
 
     /// <summary>Initialises a new instance of the <see cref="WantedController"/> class.</summary>
     /// <param name="wanted">The wanted list service.</param>
-    public WantedController(IWantedService wanted)
+    /// <param name="musicVideos">Tells each listed song's music video state.</param>
+    public WantedController(IWantedService wanted, IMusicVideoService musicVideos)
     {
         ArgumentNullException.ThrowIfNull(wanted);
+        ArgumentNullException.ThrowIfNull(musicVideos);
 
         _wanted = wanted;
+        _musicVideos = musicVideos;
     }
 
     /// <summary>Lists monitored songs that have no file yet.</summary>
@@ -37,7 +43,9 @@ public sealed class WantedController : ControllerBase
         var paging = Request.ToPagingSpec();
         var page = await _wanted.GetMissingAsync(paging, cancellationToken).ConfigureAwait(false);
 
-        return Ok(page.ToPagingResource(paging, DefaultSortKey, song => song.ToResource()));
+        var resources = page.ToPagingResource(paging, DefaultSortKey, song => song.ToResource());
+
+        return Ok(await resources.WithMusicVideosAsync(_musicVideos, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>Lists monitored songs whose file is below the song's profile cutoff.</summary>
@@ -49,6 +57,8 @@ public sealed class WantedController : ControllerBase
         var paging = Request.ToPagingSpec();
         var page = await _wanted.GetCutoffUnmetAsync(paging, cancellationToken).ConfigureAwait(false);
 
-        return Ok(page.ToPagingResource(paging, DefaultSortKey, song => song.ToResource()));
+        var resources = page.ToPagingResource(paging, DefaultSortKey, song => song.ToResource());
+
+        return Ok(await resources.WithMusicVideosAsync(_musicVideos, cancellationToken).ConfigureAwait(false));
     }
 }

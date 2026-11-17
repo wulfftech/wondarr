@@ -1,0 +1,631 @@
+using System.Collections;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Wondarr.Core.Configuration;
+using Wondarr.Core.Organizer;
+using Wondarr.Core.Persistence;
+
+namespace Wondarr.Core.MusicVideos;
+
+/// <summary>What the music video settings page may read.</summary>
+/// <param name="Enabled">Whether music videos are on.</param>
+/// <param name="RootPath">The video root, or <see langword="null"/> until set.</param>
+/// <param name="Layout"><c>folder</c> or <c>beside_track</c>.</param>
+/// <param name="NamingTemplate">The path of a video under the root.</param>
+/// <param name="BesideTrackSuffix">What is added to the audio file's name under <c>beside_track</c>.</param>
+/// <param name="MaxHeight">The tallest picture to download, or <see langword="null"/> for no cap.</param>
+/// <param name="WriteNfo">Whether a <c>.nfo</c> file is written beside the video.</param>
+/// <param name="WriteThumbnail">Whether a thumbnail is written beside the video.</param>
+/// <param name="ScheduledSearchLimit">How many songs one run of the scheduled task may search for.</param>
+/// <param name="ReadOnlyFields">camelCase names of the fields the environment sets through <c>APP__MUSIC_VIDEOS__…</c>.</param>
+/// <param name="RootStatus">What the disk says about the root now, or <see langword="null"/> when no root is set.</param>
+public sealed record MusicVideoSettings(
+    bool Enabled,
+    string? RootPath,
+    string Layout,
+    string NamingTemplate,
+    string BesideTrackSuffix,
+    int? MaxHeight,
+    bool WriteNfo,
+    bool WriteThumbnail,
+    int ScheduledSearchLimit,
+    IReadOnlyList<string> ReadOnlyFields,
+    LibraryRootStatus? RootStatus)
+{
+    /// <summary>
+    /// Whether the root is set but not usable yet: it does not exist or holds no marker, so the user has to
+    /// confirm it (<see cref="IMusicVideoSettingsService.ConfirmRootAsync"/>) before videos are written there.
+    /// </summary>
+    public bool RootNeedsConfirmation => RootStatus is LibraryRootStatus.Missing or LibraryRootStatus.Unmarked;
+}
+
+/// <summary>
+/// A change to the music video settings. Every field is optional; an absent field is left alone.
+/// </summary>
+/// <param name="Enabled">New state of the switch.</param>
+/// <param name="RootPath">New video root; an empty string clears it.</param>
+/// <param name="Layout">New layout, <c>folder</c> or <c>beside_track</c>.</param>
+/// <param name="NamingTemplate">New naming template.</param>
+/// <param name="BesideTrackSuffix">New suffix for <c>beside_track</c>.</param>
+/// <param name="MaxHeight">New height cap in pixels; 0 removes the cap.</param>
+/// <param name="WriteNfo">New state of the <c>.nfo</c> switch.</param>
+/// <param name="WriteThumbnail">New state of the thumbnail switch.</param>
+/// <param name="ScheduledSearchLimit">New per-run limit of the scheduled task.</param>
+public sealed record MusicVideoSettingsUpdate(
+    bool? Enabled = null,
+    string? RootPath = null,
+    string? Layout = null,
+    string? NamingTemplate = null,
+    string? BesideTrackSuffix = null,
+    int? MaxHeight = null,
+    bool? WriteNfo = null,
+    bool? WriteThumbnail = null,
+    int? ScheduledSearchLimit = null);
+
+/// <summary>One reason a change was refused.</summary>
+/// <param name="Field">The camelCase name of the field the reason is about, or <c>settings</c> when it is about no single field.</param>
+/// <param name="Message">What is wrong.</param>
+public sealed record MusicVideoSettingsError(string Field, string Message);
+
+/// <summary>The outcome of a settings change or of confirming the root.</summary>
+/// <param name="Success">Whether the change was made. On failure nothing was written.</param>
+/// <param name="Errors">Why it was refused.</param>
+public sealed record MusicVideoSettingsResult(bool Success, IReadOnlyList<MusicVideoSettingsError> Errors);
+
+/// <summary>Reads and writes the <c>music_videos</c> section of <c>config.yml</c> for the settings page.</summary>
+public interface IMusicVideoSettingsService
+{
+    /// <summary>Reads the current settings and what the disk says about the root.</summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<MusicVideoSettings> GetAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Validates a change and, when it is valid, writes only the changed keys to <c>config.yml</c>; the options
+    /// reload, so nothing has to be restarted. A new root is marked when its folder exists and is empty, or
+    /// already holds the marker; otherwise <see cref="MusicVideoSettings.RootNeedsConfirmation"/> says it needs
+    /// confirming.
+    /// </summary>
+    /// <param name="update">The fields to change.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    Task<MusicVideoSettingsResult> UpdateAsync(MusicVideoSettingsUpdate update, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes the marker into the saved root, creating the folder when it is not there: the user has seen that it
+    /// is missing or unmarked and says it is the right place.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the check.</param>
+    Task<MusicVideoSettingsResult> ConfirmRootAsync(CancellationToken cancellationToken);
+}
+
+/// <inheritdoc />
+/// <remarks>
+/// A field the environment sets (<c>APP__MUSIC_VIDEOS__…</c>) is refused rather than silently overridden: the
+/// environment source is added after the YAML one, so a write to the file would be invisible to the app.
+/// </remarks>
+public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsService
+{
+    /// <summary>Section of <c>config.yml</c> these settings live in.</summary>
+    public const string Section = "music_videos";
+
+    private const string EnvironmentPrefix = "APP__MUSIC_VIDEOS__";
+
+    /// <summary>Every field this page owns: its <c>config.yml</c> key and the environment variable's suffix.</summary>
+    private static readonly Field[] Fields =
+    [
+        new("enabled", "ENABLED"),
+        new("root_path", "ROOT_PATH"),
+        new("layout", "LAYOUT"),
+        new("naming_template", "NAMING_TEMPLATE"),
+        new("beside_track_suffix", "BESIDE_TRACK_SUFFIX"),
+        new("max_height", "MAX_HEIGHT"),
+        new("write_nfo", "WRITE_NFO"),
+        new("write_thumbnail", "WRITE_THUMBNAIL"),
+        new("scheduled_search_limit", "SCHEDULED_SEARCH_LIMIT"),
+    ];
+
+    private readonly IOptionsMonitor<MusicVideoOptions> _options;
+    private readonly IConfigFileWriter _writer;
+    private readonly IReadOnlyCollection<IValidateOptions<MusicVideoOptions>> _validators;
+    private readonly WondarrDbContext _database;
+    private readonly ILibraryRoots _roots;
+    private readonly IDiskOperations _disk;
+    private readonly WondarrPaths _paths;
+    private readonly IOptionsMonitor<ImportOptions> _importOptions;
+    private readonly ILogger<MusicVideoSettingsService> _logger;
+    private readonly IReadOnlySet<string> _locked;
+
+    /// <summary>Initialises a new instance of the <see cref="MusicVideoSettingsService"/> class.</summary>
+    /// <param name="options">The live options, which already include the environment.</param>
+    /// <param name="writer">Writes the changed keys back to <c>config.yml</c>.</param>
+    /// <param name="validators">The options validators, so a change is judged by the rules start-up uses.</param>
+    /// <param name="database">Where the library and reference-library roots are.</param>
+    /// <param name="roots">Checks and marks the video root.</param>
+    /// <param name="disk">Tells whether the root's folder is empty.</param>
+    /// <param name="paths">Where Wondarr's data directory is.</param>
+    /// <param name="importOptions">Where the recycle bin is.</param>
+    /// <param name="environment">The process environment, used to find the fields the environment owns.</param>
+    /// <param name="logger">Receives a Debug line naming the keys that were written.</param>
+    public MusicVideoSettingsService(
+        IOptionsMonitor<MusicVideoOptions> options,
+        IConfigFileWriter writer,
+        IEnumerable<IValidateOptions<MusicVideoOptions>> validators,
+        WondarrDbContext database,
+        ILibraryRoots roots,
+        IDiskOperations disk,
+        WondarrPaths paths,
+        IOptionsMonitor<ImportOptions> importOptions,
+        IDictionary environment,
+        ILogger<MusicVideoSettingsService> logger)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(validators);
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(roots);
+        ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(importOptions);
+        ArgumentNullException.ThrowIfNull(environment);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        _options = options;
+        _writer = writer;
+        _validators = [.. validators];
+        _database = database;
+        _roots = roots;
+        _disk = disk;
+        _paths = paths;
+        _importOptions = importOptions;
+        _logger = logger;
+        _locked = EnvironmentOverrides.SectionKeys(environment, Section);
+    }
+
+    /// <inheritdoc />
+    public async Task<MusicVideoSettings> GetAsync(CancellationToken cancellationToken)
+    {
+        var options = _options.CurrentValue;
+
+        LibraryRootStatus? status = string.IsNullOrWhiteSpace(options.RootPath)
+            ? null
+            : await _roots.CheckAsync(options.RootPath, cancellationToken).ConfigureAwait(false);
+
+        return new MusicVideoSettings(
+            options.Enabled,
+            options.RootPath,
+            options.Layout,
+            options.NamingTemplate,
+            options.BesideTrackSuffix,
+            options.MaxHeight,
+            options.WriteNfo,
+            options.WriteThumbnail,
+            options.ScheduledSearchLimit,
+            [.. Fields.Where(field => IsLocked(field.Key)).Select(field => CamelCase(field.Key))],
+            status);
+    }
+
+    /// <inheritdoc />
+    public async Task<MusicVideoSettingsResult> UpdateAsync(
+        MusicVideoSettingsUpdate update,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+
+        var current = _options.CurrentValue;
+        var candidate = new MusicVideoOptions
+        {
+            Enabled = current.Enabled,
+            RootPath = current.RootPath,
+            Layout = current.Layout,
+            NamingTemplate = current.NamingTemplate,
+            BesideTrackSuffix = current.BesideTrackSuffix,
+            MaxHeight = current.MaxHeight,
+            WriteNfo = current.WriteNfo,
+            WriteThumbnail = current.WriteThumbnail,
+            ScheduledSearchLimit = current.ScheduledSearchLimit,
+        };
+
+        var changes = new Dictionary<string, object?>(StringComparer.Ordinal);
+        var errors = new List<MusicVideoSettingsError>();
+
+        ApplyFlag(update.Enabled, "enabled", current.Enabled, changes, errors, value => candidate.Enabled = value);
+        ApplyFlag(update.WriteNfo, "write_nfo", current.WriteNfo, changes, errors, value => candidate.WriteNfo = value);
+        ApplyFlag(update.WriteThumbnail, "write_thumbnail", current.WriteThumbnail, changes, errors, value => candidate.WriteThumbnail = value);
+
+        if (update.ScheduledSearchLimit is { } limit && limit != current.ScheduledSearchLimit && !Refuse("scheduled_search_limit", errors))
+        {
+            candidate.ScheduledSearchLimit = limit;
+            changes["scheduled_search_limit"] = limit;
+        }
+
+        ApplyMaxHeight(update.MaxHeight, current.MaxHeight, candidate, changes, errors);
+        ApplyLayout(update.Layout, current.Layout, candidate, changes, errors);
+        ApplyTemplate(update.NamingTemplate, current.NamingTemplate, candidate, changes, errors);
+        ApplySuffix(update.BesideTrackSuffix, current.BesideTrackSuffix, candidate, changes, errors);
+
+        var rootChanged = await ApplyRootAsync(update.RootPath, current.RootPath, candidate, changes, errors, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (errors.Count > 0)
+        {
+            return new MusicVideoSettingsResult(false, errors);
+        }
+
+        // The same rules as start-up: a change that the app would refuse to boot with is refused here.
+        foreach (var validator in _validators)
+        {
+            var validation = validator.Validate(Options.DefaultName, candidate);
+
+            if (validation.Failed)
+            {
+                return new MusicVideoSettingsResult(
+                    false,
+                    [.. (validation.Failures ?? []).Select(failure => new MusicVideoSettingsError("settings", failure))]);
+            }
+        }
+
+        if (changes.Count > 0)
+        {
+            await _writer.UpdateSectionAsync(Section, changes, cancellationToken).ConfigureAwait(false);
+
+            // Keys only: the root is a path on the user's own machine, and every config.yml write is logged this way.
+            var keys = string.Join(", ", changes.Keys);
+            LogUpdated(_logger, keys);
+        }
+
+        if (rootChanged && !string.IsNullOrWhiteSpace(candidate.RootPath))
+        {
+            await MarkNewRootAsync(candidate.RootPath, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new MusicVideoSettingsResult(true, []);
+    }
+
+    /// <inheritdoc />
+    public async Task<MusicVideoSettingsResult> ConfirmRootAsync(CancellationToken cancellationToken)
+    {
+        var root = _options.CurrentValue.RootPath;
+
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return Failed("rootPath", "rootPath is not set; save a root first.");
+        }
+
+        if (await _roots.CheckAsync(root, cancellationToken).ConfigureAwait(false) == LibraryRootStatus.Unresponsive)
+        {
+            return Failed("rootPath", $"{root} did not answer in time, so its share may be hung; try again when it answers.");
+        }
+
+        try
+        {
+            _roots.Mark(root);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return Failed("rootPath", $"the marker file could not be written into {root}: {exception.Message}");
+        }
+
+        return new MusicVideoSettingsResult(true, []);
+    }
+
+    private static MusicVideoSettingsResult Failed(string field, string message) =>
+        new(false, [new MusicVideoSettingsError(field, message)]);
+
+    /// <summary>Turns a <c>config.yml</c> key into the camelCase name the API and the UI use.</summary>
+    private static string CamelCase(string key)
+    {
+        var parts = key.Split('_');
+        var name = parts[0];
+
+        for (var index = 1; index < parts.Length; index++)
+        {
+            name += char.ToUpperInvariant(parts[index][0]) + parts[index][1..];
+        }
+
+        return name;
+    }
+
+    /// <summary>Whether a suffix can be part of a file name.</summary>
+    private static bool IsFileNameText(string text) =>
+        text.IndexOfAny([.. Path.GetInvalidFileNameChars(), '/', '\\']) < 0;
+
+    /// <summary>Whether <paramref name="path"/> names a place from the file system root down.</summary>
+    private static bool IsAbsolutePath(string path) =>
+        path.Length > 0
+        && (path[0] == '/'
+            || (path.Length >= 3
+                && char.IsAsciiLetter(path[0])
+                && path[1] == ':'
+                && path[2] is '\\' or '/'));
+
+    /// <summary>
+    /// Whether the folder holds nothing. It runs on the thread pool and gives up after the same five seconds
+    /// as the root check, so a share that hangs now cannot hold the request.
+    /// </summary>
+    private async Task<bool> IsEmptyAsync(string root, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var hasEntry = await Task.Run(() => _disk.HasAnyEntry(root), CancellationToken.None)
+                .WaitAsync(LibraryRoots.CheckTimeout, cancellationToken)
+                .ConfigureAwait(false);
+
+            return !hasEntry;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Marks a root the user just saved when that is safe: an existing empty folder. A folder that already holds the
+    /// marker needs nothing; a missing or non-empty unmarked one is left for the user to confirm, because an empty
+    /// mount point and a share that is not mounted look the same.
+    /// </summary>
+    private async Task MarkNewRootAsync(string root, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var status = await _roots.CheckAsync(root, cancellationToken).ConfigureAwait(false);
+
+            if (status == LibraryRootStatus.Unmarked && await IsEmptyAsync(root, cancellationToken).ConfigureAwait(false))
+            {
+                _roots.MarkExisting(root);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Not a validation error: the root is saved, the health check reports it and the user can confirm it.
+            LogMarkFailed(_logger, root, exception);
+        }
+    }
+
+    private async Task<bool> ApplyRootAsync(
+        string? supplied,
+        string? current,
+        MusicVideoOptions candidate,
+        Dictionary<string, object?> changes,
+        List<MusicVideoSettingsError> errors,
+        CancellationToken cancellationToken)
+    {
+        if (supplied is null)
+        {
+            return false;
+        }
+
+        var replacement = supplied.Trim().Length == 0 ? null : supplied.Trim();
+
+        if (string.Equals(replacement, current, StringComparison.Ordinal) || Refuse("root_path", errors))
+        {
+            return false;
+        }
+
+        if (replacement is not null)
+        {
+            var problems = await RootProblemsAsync(replacement, cancellationToken).ConfigureAwait(false);
+
+            if (problems.Count > 0)
+            {
+                errors.AddRange(problems.Select(problem => new MusicVideoSettingsError("rootPath", problem)));
+
+                return false;
+            }
+        }
+
+        candidate.RootPath = replacement;
+        changes["root_path"] = replacement;
+
+        return replacement is not null;
+    }
+
+    /// <summary>
+    /// Why <paramref name="root"/> cannot be the video root: not absolute, Wondarr's own data directory, or
+    /// overlapping a library, a reference library or the recycle bin.
+    /// </summary>
+    private async Task<List<string>> RootProblemsAsync(string root, CancellationToken cancellationToken)
+    {
+        if (!IsAbsolutePath(root))
+        {
+            return [@"rootPath must be an absolute path, for example /data/videos or D:\Videos."];
+        }
+
+        var problems = new List<string>();
+
+        try
+        {
+            if (ProtectedPaths.Reason(root, _paths) is { } reason)
+            {
+                problems.Add($"rootPath {reason}, where Wondarr keeps its API key, passwords and database.");
+            }
+
+            var libraries = await _database.Libraries
+                .AsNoTracking()
+                .Select(library => new { library.Name, library.RootPath })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var library in libraries.Where(library => Overlaps(root, library.RootPath)))
+            {
+                problems.Add($"rootPath overlaps the library '{library.Name}'; videos need a folder of their own.");
+            }
+
+            var references = await _database.ReferenceLibraries
+                .AsNoTracking()
+                .Select(reference => new { reference.Name, reference.RootPath })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var reference in references.Where(reference => Overlaps(root, reference.RootPath)))
+            {
+                problems.Add($"rootPath overlaps the reference library '{reference.Name}'; Wondarr never writes into one.");
+            }
+
+            var bin = _importOptions.CurrentValue.ResolveRecycleBinPath(_paths);
+
+            if (Overlaps(root, bin))
+            {
+                problems.Add($"rootPath overlaps the recycle bin '{bin}'; the bin's cleanup would delete the videos.");
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Not a usable path; the absolute-path rule above names the usual cases.
+            problems.Add("rootPath is not a usable path.");
+        }
+
+        return problems;
+    }
+
+    /// <summary>Whether two folders are the same, or one holds the other.</summary>
+    private static bool Overlaps(string first, string second) =>
+        PathRules.IsInside(second, first) || PathRules.IsInside(first, second);
+
+    private void ApplyLayout(
+        string? supplied,
+        string current,
+        MusicVideoOptions candidate,
+        Dictionary<string, object?> changes,
+        List<MusicVideoSettingsError> errors)
+    {
+        if (supplied is null || string.Equals(supplied, current, StringComparison.Ordinal) || Refuse("layout", errors))
+        {
+            return;
+        }
+
+        if (supplied is not (MusicVideoOptions.FolderLayout or MusicVideoOptions.BesideTrackLayout))
+        {
+            errors.Add(new MusicVideoSettingsError(
+                "layout",
+                $"layout must be {MusicVideoOptions.FolderLayout} or {MusicVideoOptions.BesideTrackLayout}."));
+
+            return;
+        }
+
+        candidate.Layout = supplied;
+        changes["layout"] = supplied;
+    }
+
+    private void ApplyTemplate(
+        string? supplied,
+        string current,
+        MusicVideoOptions candidate,
+        Dictionary<string, object?> changes,
+        List<MusicVideoSettingsError> errors)
+    {
+        if (supplied is null || string.Equals(supplied, current, StringComparison.Ordinal) || Refuse("naming_template", errors))
+        {
+            return;
+        }
+
+        if (MusicVideoTemplate.Problem(supplied) is { } problem)
+        {
+            errors.Add(new MusicVideoSettingsError("namingTemplate", $"namingTemplate {problem}."));
+
+            return;
+        }
+
+        candidate.NamingTemplate = supplied;
+        changes["naming_template"] = supplied;
+    }
+
+    private void ApplySuffix(
+        string? supplied,
+        string current,
+        MusicVideoOptions candidate,
+        Dictionary<string, object?> changes,
+        List<MusicVideoSettingsError> errors)
+    {
+        if (supplied is null || string.Equals(supplied, current, StringComparison.Ordinal) || Refuse("beside_track_suffix", errors))
+        {
+            return;
+        }
+
+        if (!IsFileNameText(supplied))
+        {
+            errors.Add(new MusicVideoSettingsError("besideTrackSuffix", "besideTrackSuffix must be text that can be part of a file name."));
+
+            return;
+        }
+
+        candidate.BesideTrackSuffix = supplied;
+        changes["beside_track_suffix"] = supplied;
+    }
+
+    private void ApplyMaxHeight(
+        int? supplied,
+        int? current,
+        MusicVideoOptions candidate,
+        Dictionary<string, object?> changes,
+        List<MusicVideoSettingsError> errors)
+    {
+        if (supplied is not { } value)
+        {
+            return;
+        }
+
+        // 0 means "no cap", so a form can clear the setting: an absent field cannot say it.
+        int? replacement = value == 0 ? null : value;
+
+        if (replacement == current || Refuse("max_height", errors))
+        {
+            return;
+        }
+
+        if (value < 0)
+        {
+            errors.Add(new MusicVideoSettingsError("maxHeight", "maxHeight must be above 0, or 0 for no cap."));
+
+            return;
+        }
+
+        candidate.MaxHeight = replacement;
+        changes["max_height"] = replacement;
+    }
+
+    private void ApplyFlag(
+        bool? supplied,
+        string key,
+        bool current,
+        Dictionary<string, object?> changes,
+        List<MusicVideoSettingsError> errors,
+        Action<bool> write)
+    {
+        if (supplied is not { } value || value == current || Refuse(key, errors))
+        {
+            return;
+        }
+
+        write(value);
+        changes[key] = value;
+    }
+
+    /// <summary>Refuses a change to a field the environment owns, naming the variable that sets it.</summary>
+    /// <returns><see langword="true"/> when the change was refused.</returns>
+    private bool Refuse(string key, List<MusicVideoSettingsError> errors)
+    {
+        if (!IsLocked(key))
+        {
+            return false;
+        }
+
+        var field = Fields.First(candidate => string.Equals(candidate.Key, key, StringComparison.Ordinal));
+
+        errors.Add(new MusicVideoSettingsError(
+            CamelCase(key),
+            $"{CamelCase(key)} is set by the environment variable {EnvironmentPrefix}{field.EnvironmentKey} and cannot be changed here"));
+
+        return true;
+    }
+
+    private bool IsLocked(string key) => _locked.Contains(key.Replace("_", string.Empty, StringComparison.Ordinal));
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Updated the music video settings ({Keys})")]
+    private static partial void LogUpdated(ILogger logger, string keys);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not write the marker file into the music video root {Root}; videos wait until it is there")]
+    private static partial void LogMarkFailed(ILogger logger, string root, Exception exception);
+
+    /// <summary>One editable field: its <c>config.yml</c> key and the environment variable that owns it.</summary>
+    private sealed record Field(string Key, string EnvironmentKey);
+}
