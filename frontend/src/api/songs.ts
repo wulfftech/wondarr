@@ -661,11 +661,14 @@ export function useAddSong(): UseMutationResult<AddSongResult, Error, AddSongInp
   });
 }
 
-/** What one preview request names: the Deezer track, its ISRC, or a song already in the library. */
+/** What one preview request names: the Deezer track, its ISRC, a song already in the library, or an artist and title. */
 export interface PreviewRequest {
   deezerId?: number;
   isrc?: string;
   songId?: number;
+  /** With `title`: a Deezer search by name, for a suggestion that carries no id. */
+  artist?: string;
+  title?: string;
 }
 
 /**

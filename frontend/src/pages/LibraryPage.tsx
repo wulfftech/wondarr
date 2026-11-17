@@ -15,7 +15,7 @@ import {
 } from '@mantine/core';
 import { CircleAlert, EllipsisVertical, Plus, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useSongAlbum, type AlbumRefResource } from '../api/albums';
 import { filterEntries, useCustomFilters, type CustomFilterResource } from '../api/customFilters';
 import { firstPage, type Paging } from '../api/paging';
@@ -279,6 +279,9 @@ function SongMenu({
       </Menu.Target>
       <Menu.Dropdown>
         {albumRef != null && <Menu.Item onClick={() => onRestOfAlbum(albumRef)}>Add the rest of this album</Menu.Item>}
+        <Menu.Item component={Link} to={`/discover/${String(song.id)}`}>
+          Discover from this
+        </Menu.Item>
         <Menu.Item onClick={() => onOpenAlbum(song)}>Change album…</Menu.Item>
         {canMove && <Menu.Item onClick={() => onOpenMove(song)}>Move to library…</Menu.Item>}
         <Menu.Item onClick={() => onOpenConvert(song)}>Convert…</Menu.Item>

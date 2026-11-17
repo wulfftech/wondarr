@@ -19,6 +19,7 @@ import { StatusPage } from '../pages/system/StatusPage';
 import { TasksPage } from '../pages/system/TasksPage';
 import { UpdatesPage } from '../pages/system/UpdatesPage';
 import { UnresolvedPage } from '../pages/UnresolvedPage';
+import { DiscoverPage } from '../pages/DiscoverPage';
 import { WantedPage } from '../pages/WantedPage';
 import { theme } from '../theme/theme';
 import { EventStreamStatusContext, useEventStream } from './signalr';
@@ -33,6 +34,8 @@ const ROUTES: RouteObject[] = [
       { path: 'song/:id', element: <SongPage /> },
       { path: 'add', element: <AddSongsPage /> },
       { path: 'add/unresolved', element: <UnresolvedPage /> },
+      { path: 'discover', element: <DiscoverPage /> },
+      { path: 'discover/:songId', element: <DiscoverPage /> },
       { path: 'match', element: <MatchQueuePage /> },
       { path: 'wanted', element: <WantedPage /> },
       { path: 'wanted/:tab', element: <WantedPage /> },

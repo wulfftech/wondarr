@@ -31,6 +31,8 @@ function previewRequest(
   deezerId: number | string | null,
   isrcs: string[],
   songId: number | undefined,
+  artist: string | undefined,
+  title: string | undefined,
 ): PreviewRequest | null {
   if (songId !== undefined) {
     return { songId };
@@ -42,7 +44,16 @@ function previewRequest(
 
   const isrc = isrcs.find((value) => value !== '');
 
-  return isrc === undefined ? null : { isrc };
+  if (isrc !== undefined) {
+    return { isrc };
+  }
+
+  // Last resort: the server searches Deezer by artist and title. It caps each at 200 characters.
+  if (artist !== undefined && artist !== '' && title !== undefined && title !== '') {
+    return { artist: artist.slice(0, 200), title: title.slice(0, 200) };
+  }
+
+  return null;
 }
 
 export interface PreviewButtonProps {
@@ -52,16 +63,19 @@ export interface PreviewButtonProps {
   isrcs?: string[];
   /** A song already in the library; the server resolves its preview from the song itself. */
   songId?: number;
+  /** With a title, lets the server search Deezer by name when there is no id or ISRC. */
+  artist?: string;
+  title?: string;
 }
 
-export function PreviewButton({ deezerId, isrcs = [], songId }: PreviewButtonProps) {
+export function PreviewButton({ deezerId, isrcs = [], songId, artist, title }: PreviewButtonProps) {
   const fetchPreview = usePreviewUrl();
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  const request = previewRequest(deezerId, isrcs, songId);
+  const request = previewRequest(deezerId, isrcs, songId, artist, title);
 
   const stop = useCallback(() => {
     sharedAudio().pause();
