@@ -1,4 +1,5 @@
 using Wondarr.Core.Configuration;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -377,7 +378,10 @@ public sealed class RecycleBin : IRecycleBin
 
             var roots = new List<string>();
 
-            foreach (var path in libraries.Concat(references))
+            // The music video root is somebody's collection too: cleanup never walks it.
+            var videoRoot = scope.ServiceProvider.GetService<IOptionsMonitor<MusicVideoOptions>>()?.CurrentValue.RootPath;
+
+            foreach (var path in libraries.Concat(references).Concat(videoRoot is null ? [] : [videoRoot]))
             {
                 if (string.IsNullOrWhiteSpace(path))
                 {

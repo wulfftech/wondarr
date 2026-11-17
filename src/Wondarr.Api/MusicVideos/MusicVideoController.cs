@@ -61,7 +61,8 @@ public sealed class MusicVideoController : ControllerBase
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>
     /// 200 with what was done; 404 when the song has no video; 409 while music videos are turned off, or when the
-    /// file is inside a reference library.
+    /// file is inside a reference library, its path is outside the music video folder or it is busy; 500 when it cannot
+    /// be moved for another reason; 504 when the disk does not answer.
     /// </returns>
     [HttpDelete("song/{songId:long}")]
     [Produces("application/json")]
@@ -89,6 +90,21 @@ public sealed class MusicVideoController : ControllerBase
         catch (MusicVideoInReferenceLibraryException exception)
         {
             return Problem(title: "Your own copy", detail: exception.Message, statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (MusicVideoPathException exception)
+        {
+            return Problem(title: "Path not allowed", detail: exception.Message, statusCode: StatusCodes.Status409Conflict);
+        }
+        catch (MusicVideoFileException exception)
+        {
+            // Busy or locked is the user's to retry; anything else is ours.
+            return exception.Busy
+                ? Problem(title: "File busy", detail: exception.Message, statusCode: StatusCodes.Status409Conflict)
+                : Problem(title: "Could not remove the video", detail: exception.Message, statusCode: StatusCodes.Status500InternalServerError);
+        }
+        catch (MusicVideoTimeoutException exception)
+        {
+            return Problem(title: exception.Message, detail: exception.Message, statusCode: StatusCodes.Status504GatewayTimeout);
         }
     }
 

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Paging;
 using Wondarr.Core.Persistence;
@@ -230,17 +231,20 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly WondarrPaths _paths;
     private readonly TimeProvider _timeProvider;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="ReferenceLibraryService"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
     /// <param name="importOptions">The import settings, for the recycle bin.</param>
     /// <param name="paths">The resolved paths.</param>
     /// <param name="timeProvider">The clock a repointed file is stamped with, or <see langword="null"/> for the system's.</param>
+    /// <param name="musicVideoOptions">Where the music video root is, so a root that overlaps it is refused.</param>
     public ReferenceLibraryService(
         WondarrDbContext database,
         IOptionsMonitor<ImportOptions> importOptions,
         WondarrPaths paths,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(importOptions);
@@ -250,6 +254,7 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         _importOptions = importOptions;
         _paths = paths;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -778,6 +783,15 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
                     "The reference library's folder overlaps the recycle bin (",
                     bin,
                     "); choose another folder."));
+        }
+
+        // Videos get a folder of their own: neither inside the music video root nor around it.
+        if (_musicVideoOptions?.CurrentValue.RootPath is { Length: > 0 } videoRoot
+            && MusicVideoRootRules.Overlaps(rootPath, videoRoot))
+        {
+            throw new ReferenceLibraryValidationException(
+                "rootPath",
+                "rootPath overlaps the music video folder; Wondarr writes videos there.");
         }
 
         // Wondarr's own data directory (and the file system root) holds the API key and the database.

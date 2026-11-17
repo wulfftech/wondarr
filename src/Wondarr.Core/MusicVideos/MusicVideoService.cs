@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -32,6 +33,40 @@ public sealed class MusicVideoInReferenceLibraryException : Exception
     }
 }
 
+/// <summary>
+/// The path a row holds is not one Wondarr may act on: it is outside the music video folder (or, under
+/// <c>beside_track</c>, outside every library), or it is a song's audio file. Nothing was touched.
+/// </summary>
+public sealed class MusicVideoPathException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="MusicVideoPathException"/> class.</summary>
+    public MusicVideoPathException()
+        : base("The video's path is outside the music video folder")
+    {
+    }
+}
+
+/// <summary>A file could not be moved into the recycle bin; the files already moved were put back.</summary>
+public sealed class MusicVideoFileException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="MusicVideoFileException"/> class.</summary>
+    /// <param name="path">The file that could not be moved.</param>
+    /// <param name="busy">Whether the file is busy or locked (an I/O or permission failure).</param>
+    /// <param name="innerException">What failed.</param>
+    public MusicVideoFileException(string path, bool busy, Exception innerException)
+        : base($"The file '{path}' could not be moved to the recycle bin: {innerException?.Message}", innerException)
+    {
+        Path = path;
+        Busy = busy;
+    }
+
+    /// <summary>Gets the file that could not be moved.</summary>
+    public string Path { get; }
+
+    /// <summary>Gets a value indicating whether the file is busy or locked.</summary>
+    public bool Busy { get; }
+}
+
 /// <summary>Reads and removes the music video of a song.</summary>
 public interface IMusicVideoService
 {
@@ -53,13 +88,17 @@ public interface IMusicVideoService
 
     /// <summary>
     /// Moves the video file and its <c>.nfo</c> and thumbnail sidecars to the recycle bin, optionally blocklists
-    /// the YouTube video for the song, deletes the row and writes a history event.
+    /// the YouTube video for the song, deletes the row and writes a history event. If a move fails, the files
+    /// already moved are put back and nothing else changes.
     /// </summary>
     /// <param name="songId">The song.</param>
     /// <param name="blocklist">Whether the YouTube video is blocklisted for the song.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>What was done, or <see langword="null"/> when the song has no video.</returns>
     /// <exception cref="MusicVideoInReferenceLibraryException">The file is inside a reference library.</exception>
+    /// <exception cref="MusicVideoPathException">The row's path is not one Wondarr may act on.</exception>
+    /// <exception cref="MusicVideoFileException">A file could not be moved.</exception>
+    /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
     Task<MusicVideoRemoval?> DeleteAsync(long songId, bool blocklist, CancellationToken cancellationToken);
 }
 
@@ -87,7 +126,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
     /// <param name="database">The database.</param>
     /// <param name="options">The <c>music_videos</c> settings.</param>
     /// <param name="recycleBin">Where the files go, the same bin Remove file uses.</param>
-    /// <param name="disk">Tells which files exist.</param>
+    /// <param name="disk">Tells which files exist, and puts a file back when a later one fails.</param>
     /// <param name="logger">Logs each removal.</param>
     public MusicVideoService(
         WondarrDbContext database,
@@ -154,87 +193,233 @@ public sealed partial class MusicVideoService : IMusicVideoService
             return null;
         }
 
-        var files = FilesOf(video);
+        var files = new List<string>();
+        string? binRoot = null;
 
-        if (files.Count > 0)
+        if (!string.IsNullOrWhiteSpace(video.Path))
         {
+            var audioPath = await _database.SongFiles
+                .AsNoTracking()
+                .Where(file => file.SongId == songId)
+                .Select(file => file.Path)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            // No path from a row is trusted: it is acted on only inside the folders Wondarr writes videos to.
+            binRoot = await AllowedRootAsync(video.Path, audioPath, cancellationToken).ConfigureAwait(false)
+                ?? throw new MusicVideoPathException();
+
+            files = await FilesOfAsync(video.Path, audioPath, cancellationToken).ConfigureAwait(false);
+
             await GuardReferenceLibrariesAsync(files, cancellationToken).ConfigureAwait(false);
         }
 
-        var binRoot = await BinRootAsync(video, cancellationToken).ConfigureAwait(false);
-        var recycled = new List<string>(files.Count);
-
-        foreach (var file in files)
-        {
-            recycled.Add(await _recycleBin.RecycleAsync(file, binRoot, cancellationToken).ConfigureAwait(false));
-        }
+        var recycledPaths = await Recycle(files, binRoot ?? string.Empty, cancellationToken).ConfigureAwait(false);
 
         // Already blocklisted counts as blocklisted: the video will not come back either way.
+        MusicVideoBlocklistItem? blocked = null;
+
         if (blocklist
             && !await _database.MusicVideoBlocklist
                 .AnyAsync(item => item.SongId == songId && item.YouTubeVideoId == video.YouTubeVideoId, cancellationToken)
                 .ConfigureAwait(false))
         {
-            _database.MusicVideoBlocklist.Add(new MusicVideoBlocklistItem
+            blocked = new MusicVideoBlocklistItem
             {
                 SongId = songId,
                 YouTubeVideoId = video.YouTubeVideoId,
                 Reason = Reason,
-            });
+            };
+            _database.MusicVideoBlocklist.Add(blocked);
         }
-
-        var blocklisted = blocklist;
 
         _database.History.Add(new HistoryItem
         {
             SongId = songId,
             EventType = HistoryEventType.MusicVideoDeleted,
             Data = JsonSerializer.Serialize(
-                new RemovalHistoryData(Reason, video.YouTubeVideoId, video.Path, recycled, blocklisted),
+                new RemovalHistoryData(Reason, video.YouTubeVideoId, video.Path, recycledPaths, blocklist),
                 Json),
         });
 
         _database.MusicVideos.Remove(video);
 
-        // The history, the blocklist row and the forgotten video in one save.
-        await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            try
+            {
+                // The history, the blocklist row and the forgotten video in one save.
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (DbUpdateException exception) when (blocked is not null && IsUniqueViolation(exception))
+            {
+                // A concurrent delete blocklisted the same video first: that is what was asked for.
+                _database.Entry(blocked).State = EntityState.Detached;
+                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The files are in the bin and the row is still there: say where they are, and do not guess.
+            LogSaveFailed(_logger, songId, string.Join("; ", recycledPaths), exception);
 
-        LogRemoved(_logger, video.YouTubeVideoId, songId, video.Path ?? "(no file yet)", blocklisted);
+            throw;
+        }
 
-        return new MusicVideoRemoval(video.Path, recycled, blocklisted);
+        LogRemoved(_logger, video.YouTubeVideoId, songId, video.Path ?? "(no file yet)", blocklist);
+
+        return new MusicVideoRemoval(video.Path, recycledPaths, blocklist);
     }
 
-    /// <summary>The video file and the sidecars that exist beside it.</summary>
-    private List<string> FilesOf(MusicVideo video)
+    private static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.InnerException is SqliteException { SqliteErrorCode: 19 } sqlite
+        && sqlite.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Moves every file into the recycle bin. When one fails, the ones already moved are put back, never over
+    /// anything, and the failure names the file.
+    /// </summary>
+    private async Task<List<string>> Recycle(List<string> files, string binRoot, CancellationToken cancellationToken)
     {
-        var files = new List<string>();
+        var moved = new List<(string Original, string Recycled)>(files.Count);
 
-        if (string.IsNullOrWhiteSpace(video.Path))
+        foreach (var file in files)
         {
-            return files;
-        }
-
-        if (_disk.FileExists(video.Path))
-        {
-            files.Add(video.Path);
-        }
-
-        var stem = System.IO.Path.Combine(
-            System.IO.Path.GetDirectoryName(video.Path) ?? string.Empty,
-            System.IO.Path.GetFileNameWithoutExtension(video.Path));
-
-        foreach (var suffix in SidecarSuffixes)
-        {
-            var sidecar = stem + suffix;
-
-            if (_disk.FileExists(sidecar) && !files.Contains(sidecar, StringComparer.Ordinal))
+            try
             {
-                files.Add(sidecar);
+                moved.Add((file, await _recycleBin.RecycleAsync(file, binRoot, cancellationToken).ConfigureAwait(false)));
+            }
+            catch (Exception exception)
+            {
+                // The bin may have moved the file and failed afterwards: that copy is in the bin too.
+                if (exception is RecycleMovedException late)
+                {
+                    moved.Add((file, late.RecycledPath));
+                }
+
+                PutBack(moved);
+
+                if (exception is OperationCanceledException)
+                {
+                    throw;
+                }
+
+                throw new MusicVideoFileException(file, busy: exception is IOException or UnauthorizedAccessException, exception);
             }
         }
 
-        return files;
+        return [.. moved.Select(entry => entry.Recycled)];
     }
+
+    private void PutBack(List<(string Original, string Recycled)> moved)
+    {
+        for (var index = moved.Count - 1; index >= 0; index--)
+        {
+            var (original, recycled) = moved[index];
+
+            try
+            {
+                // MoveFile never overwrites: a file that appeared in the meantime is kept and this one stays in the bin.
+                _disk.MoveFile(recycled, original);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                LogPutBackFailed(_logger, recycled, original, exception);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The folder the video's path is shown relative to in the bin, when the path may be acted on: strictly inside
+    /// the video root, or under <c>beside_track</c> strictly inside a library root, and never a song's audio file.
+    /// <see langword="null"/> when it may not.
+    /// </summary>
+    private async Task<string?> AllowedRootAsync(string path, string? audioPath, CancellationToken cancellationToken)
+    {
+        var options = _options.CurrentValue;
+
+        try
+        {
+            if (!Path.IsPathFullyQualified(path))
+            {
+                return null;
+            }
+
+            if ((audioPath is not null && PathRules.AreEqual(audioPath, path))
+                || await _database.SongFiles
+                    .AsNoTracking()
+                    .AnyAsync(file => file.Path == path, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.RootPath) && PathRules.IsStrictlyInside(options.RootPath, path))
+            {
+                return options.RootPath;
+            }
+
+            if (options.Layout == MusicVideoOptions.BesideTrackLayout)
+            {
+                var libraries = await _database.Libraries
+                    .AsNoTracking()
+                    .Select(library => library.RootPath)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                return libraries.FirstOrDefault(root => !string.IsNullOrWhiteSpace(root) && PathRules.IsStrictlyInside(root, path));
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The video file and the sidecars that exist beside it, asked of the disk with a time limit. A song's own audio
+    /// file and its sidecars are never listed, even when an old row's video shares the audio's name.
+    /// </summary>
+    private Task<List<string>> FilesOfAsync(string videoPath, string? audioPath, CancellationToken cancellationToken) =>
+        MusicVideoDisk.RunAsync(
+            () =>
+            {
+                var files = new List<string>();
+
+                if (_disk.FileExists(videoPath))
+                {
+                    files.Add(videoPath);
+                }
+
+                var directory = Path.GetDirectoryName(videoPath) ?? string.Empty;
+                var stem = Path.Combine(directory, Path.GetFileNameWithoutExtension(videoPath));
+
+                // The same name as the audio file: the .nfo and the thumbnail beside it may be the audio's, so they stay.
+                if (audioPath is not null
+                    && PathRules.AreEqual(
+                        Path.Combine(Path.GetDirectoryName(audioPath) ?? string.Empty, Path.GetFileNameWithoutExtension(audioPath)),
+                        stem))
+                {
+                    return files;
+                }
+
+                foreach (var suffix in SidecarSuffixes)
+                {
+                    var sidecar = stem + suffix;
+
+                    if (!files.Contains(sidecar, StringComparer.Ordinal)
+                        && (audioPath is null || !PathRules.AreEqual(audioPath, sidecar))
+                        && _disk.FileExists(sidecar))
+                    {
+                        files.Add(sidecar);
+                    }
+                }
+
+                return files;
+            },
+            cancellationToken);
 
     private async Task GuardReferenceLibrariesAsync(IEnumerable<string> files, CancellationToken cancellationToken)
     {
@@ -250,39 +435,6 @@ public sealed partial class MusicVideoService : IMusicVideoService
         }
     }
 
-    /// <summary>
-    /// The folder the video's path is shown relative to in the bin: the video root when the file is inside it, else
-    /// the root of the song's library, else the file's own folder.
-    /// </summary>
-    private async Task<string> BinRootAsync(MusicVideo video, CancellationToken cancellationToken)
-    {
-        var videoRoot = _options.CurrentValue.RootPath;
-
-        if (video.Path is null)
-        {
-            return videoRoot ?? string.Empty;
-        }
-
-        if (!string.IsNullOrWhiteSpace(videoRoot) && PathRules.IsInside(videoRoot, video.Path))
-        {
-            return videoRoot;
-        }
-
-        var libraryRoot = await _database.Songs
-            .AsNoTracking()
-            .Where(song => song.Id == video.SongId)
-            .Join(_database.Libraries, song => song.LibraryId, library => library.Id, (song, library) => library.RootPath)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!string.IsNullOrWhiteSpace(libraryRoot) && PathRules.IsInside(libraryRoot, video.Path))
-        {
-            return libraryRoot;
-        }
-
-        return System.IO.Path.GetDirectoryName(video.Path) ?? string.Empty;
-    }
-
     /// <summary>The history payload of a removed video.</summary>
     private sealed record RemovalHistoryData(
         string Reason,
@@ -293,4 +445,10 @@ public sealed partial class MusicVideoService : IMusicVideoService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Removed the music video {YouTubeVideoId} of song {SongId} ({Path}) (blocklisted: {Blocklisted})")]
     private static partial void LogRemoved(ILogger logger, string youTubeVideoId, long songId, string path, bool blocklisted);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The files of the music video of song {SongId} are in the recycle bin but the database change failed; they are at: {RecycledPaths}")]
+    private static partial void LogSaveFailed(ILogger logger, long songId, string recycledPaths, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not put {Recycled} back to {Original} after a later file failed; it stays in the recycle bin")]
+    private static partial void LogPutBackFailed(ILogger logger, string recycled, string original, Exception exception);
 }

@@ -71,7 +71,8 @@ public sealed record MusicVideoSettingsError(string Field, string Message);
 /// <summary>The outcome of a settings change or of confirming the root.</summary>
 /// <param name="Success">Whether the change was made. On failure nothing was written.</param>
 /// <param name="Errors">Why it was refused.</param>
-public sealed record MusicVideoSettingsResult(bool Success, IReadOnlyList<MusicVideoSettingsError> Errors);
+/// <param name="TimedOut">Whether the disk did not answer in time; the confirm endpoint answers 504 then.</param>
+public sealed record MusicVideoSettingsResult(bool Success, IReadOnlyList<MusicVideoSettingsError> Errors, bool TimedOut = false);
 
 /// <summary>Reads and writes the <c>music_videos</c> section of <c>config.yml</c> for the settings page.</summary>
 public interface IMusicVideoSettingsService
@@ -264,6 +265,18 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             }
         }
 
+        if (rootChanged && !string.IsNullOrWhiteSpace(candidate.RootPath))
+        {
+            try
+            {
+                await MarkNewRootAsync(candidate.RootPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (MusicVideoTimeoutException)
+            {
+                return Failed("rootPath", $"{candidate.RootPath} did not answer in time, so its share may be hung; nothing was saved. Try again when it answers.");
+            }
+        }
+
         if (changes.Count > 0)
         {
             await _writer.UpdateSectionAsync(Section, changes, cancellationToken).ConfigureAwait(false);
@@ -271,11 +284,6 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             // Keys only: the root is a path on the user's own machine, and every config.yml write is logged this way.
             var keys = string.Join(", ", changes.Keys);
             LogUpdated(_logger, keys);
-        }
-
-        if (rootChanged && !string.IsNullOrWhiteSpace(candidate.RootPath))
-        {
-            await MarkNewRootAsync(candidate.RootPath, cancellationToken).ConfigureAwait(false);
         }
 
         return new MusicVideoSettingsResult(true, []);
@@ -291,6 +299,16 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             return Failed("rootPath", "rootPath is not set; save a root first.");
         }
 
+        // A root set through config.yml or the environment never went through the save's checks.
+        var problems = await MusicVideoRootRules
+            .ProblemsAsync(root, _database, _paths, _importOptions, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (problems.Count > 0)
+        {
+            return new MusicVideoSettingsResult(false, [.. problems.Select(problem => new MusicVideoSettingsError("rootPath", problem))]);
+        }
+
         if (await _roots.CheckAsync(root, cancellationToken).ConfigureAwait(false) == LibraryRootStatus.Unresponsive)
         {
             return Failed("rootPath", $"{root} did not answer in time, so its share may be hung; try again when it answers.");
@@ -298,7 +316,18 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
 
         try
         {
-            _roots.Mark(root);
+            await MusicVideoDisk.RunAsync(
+                () =>
+                {
+                    _roots.Mark(root);
+
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (MusicVideoTimeoutException)
+        {
+            return new MusicVideoSettingsResult(false, [new MusicVideoSettingsError("rootPath", new MusicVideoTimeoutException().Message)], TimedOut: true);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -329,49 +358,31 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     private static bool IsFileNameText(string text) =>
         text.IndexOfAny([.. Path.GetInvalidFileNameChars(), '/', '\\']) < 0;
 
-    /// <summary>Whether <paramref name="path"/> names a place from the file system root down.</summary>
-    private static bool IsAbsolutePath(string path) =>
-        path.Length > 0
-        && (path[0] == '/'
-            || (path.Length >= 3
-                && char.IsAsciiLetter(path[0])
-                && path[1] == ':'
-                && path[2] is '\\' or '/'));
-
-    /// <summary>
-    /// Whether the folder holds nothing. It runs on the thread pool and gives up after the same five seconds
-    /// as the root check, so a share that hangs now cannot hold the request.
-    /// </summary>
-    private async Task<bool> IsEmptyAsync(string root, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var hasEntry = await Task.Run(() => _disk.HasAnyEntry(root), CancellationToken.None)
-                .WaitAsync(LibraryRoots.CheckTimeout, cancellationToken)
-                .ConfigureAwait(false);
-
-            return !hasEntry;
-        }
-        catch (TimeoutException)
-        {
-            return false;
-        }
-    }
+    /// <summary>Whether the folder holds nothing, asked of the disk with a time limit.</summary>
+    /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
+    private async Task<bool> IsEmptyAsync(string root, CancellationToken cancellationToken) =>
+        !await MusicVideoDisk.RunAsync(() => _disk.HasAnyEntry(root), cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Marks a root the user just saved when that is safe: an existing empty folder. A folder that already holds the
     /// marker needs nothing; a missing or non-empty unmarked one is left for the user to confirm, because an empty
     /// mount point and a share that is not mounted look the same.
     /// </summary>
+    /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
     private async Task MarkNewRootAsync(string root, CancellationToken cancellationToken)
     {
         try
         {
             var status = await _roots.CheckAsync(root, cancellationToken).ConfigureAwait(false);
 
+            if (status == LibraryRootStatus.Unresponsive)
+            {
+                throw new MusicVideoTimeoutException();
+            }
+
             if (status == LibraryRootStatus.Unmarked && await IsEmptyAsync(root, cancellationToken).ConfigureAwait(false))
             {
-                _roots.MarkExisting(root);
+                await MusicVideoDisk.RunAsync(() => _roots.MarkExisting(root), cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -403,7 +414,9 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
 
         if (replacement is not null)
         {
-            var problems = await RootProblemsAsync(replacement, cancellationToken).ConfigureAwait(false);
+            var problems = await MusicVideoRootRules
+                .ProblemsAsync(replacement, _database, _paths, _importOptions, cancellationToken)
+                .ConfigureAwait(false);
 
             if (problems.Count > 0)
             {
@@ -418,68 +431,6 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
 
         return replacement is not null;
     }
-
-    /// <summary>
-    /// Why <paramref name="root"/> cannot be the video root: not absolute, Wondarr's own data directory, or
-    /// overlapping a library, a reference library or the recycle bin.
-    /// </summary>
-    private async Task<List<string>> RootProblemsAsync(string root, CancellationToken cancellationToken)
-    {
-        if (!IsAbsolutePath(root))
-        {
-            return [@"rootPath must be an absolute path, for example /data/videos or D:\Videos."];
-        }
-
-        var problems = new List<string>();
-
-        try
-        {
-            if (ProtectedPaths.Reason(root, _paths) is { } reason)
-            {
-                problems.Add($"rootPath {reason}, where Wondarr keeps its API key, passwords and database.");
-            }
-
-            var libraries = await _database.Libraries
-                .AsNoTracking()
-                .Select(library => new { library.Name, library.RootPath })
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var library in libraries.Where(library => Overlaps(root, library.RootPath)))
-            {
-                problems.Add($"rootPath overlaps the library '{library.Name}'; videos need a folder of their own.");
-            }
-
-            var references = await _database.ReferenceLibraries
-                .AsNoTracking()
-                .Select(reference => new { reference.Name, reference.RootPath })
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var reference in references.Where(reference => Overlaps(root, reference.RootPath)))
-            {
-                problems.Add($"rootPath overlaps the reference library '{reference.Name}'; Wondarr never writes into one.");
-            }
-
-            var bin = _importOptions.CurrentValue.ResolveRecycleBinPath(_paths);
-
-            if (Overlaps(root, bin))
-            {
-                problems.Add($"rootPath overlaps the recycle bin '{bin}'; the bin's cleanup would delete the videos.");
-            }
-        }
-        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            // Not a usable path; the absolute-path rule above names the usual cases.
-            problems.Add("rootPath is not a usable path.");
-        }
-
-        return problems;
-    }
-
-    /// <summary>Whether two folders are the same, or one holds the other.</summary>
-    private static bool Overlaps(string first, string second) =>
-        PathRules.IsInside(second, first) || PathRules.IsInside(first, second);
 
     private void ApplyLayout(
         string? supplied,
@@ -538,6 +489,15 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     {
         if (supplied is null || string.Equals(supplied, current, StringComparison.Ordinal) || Refuse("beside_track_suffix", errors))
         {
+            return;
+        }
+
+        // An empty suffix would give the video the audio file's own name, and its .nfo and thumbnail would
+        // collide with the audio's sidecars.
+        if (string.IsNullOrWhiteSpace(supplied))
+        {
+            errors.Add(new MusicVideoSettingsError("besideTrackSuffix", "besideTrackSuffix must not be empty."));
+
             return;
         }
 

@@ -1,7 +1,10 @@
+using System.Data.Common;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wondarr.Core.Domain;
@@ -20,17 +23,19 @@ public sealed class MusicVideoApiTests : IDisposable
 {
     private const string Settings = "/api/v1/musicvideo/settings";
 
-    private readonly WondarrAppFactory _factory = new(
-        configureServices: services =>
-        {
-            services.RemoveAll<ILibraryRoots>();
-            services.AddSingleton<ILibraryRoots, LibraryRoots>();
-        });
-
+    private readonly VideoQueryCounter _queries = new();
+    private readonly WondarrAppFactory _factory;
     private readonly HttpClient _client;
 
     public MusicVideoApiTests()
     {
+        _factory = new WondarrAppFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ILibraryRoots>();
+                services.AddSingleton<ILibraryRoots, LibraryRoots>();
+                services.ConfigureDbContext<WondarrDbContext>(options => options.AddInterceptors(_queries));
+            });
         _client = _factory.CreateClient();
         _client.DefaultRequestHeaders.Add("X-Api-Key", _factory.ApiKey);
     }
@@ -192,7 +197,8 @@ public sealed class MusicVideoApiTests : IDisposable
     public async Task Deleting_recycles_the_files_blocklists_the_video_and_forgets_it()
     {
         var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
-        await EnableAsync();
+        Directory.CreateDirectory(VideoRoot);
+        (await SendAsync(HttpMethod.Put, Settings, RootBody(VideoRoot, enabled: true))).Status.Should().Be(HttpStatusCode.OK);
         var video = Path.Combine(VideoRoot, "Daft Punk", "Daft Punk - Teardrop.mkv");
         Directory.CreateDirectory(Path.GetDirectoryName(video)!);
         await File.WriteAllTextAsync(video, "video");
@@ -259,6 +265,58 @@ public sealed class MusicVideoApiTests : IDisposable
         angel["musicVideo"].Should().BeNull("this song has no video");
     }
 
+    [Theory]
+    [InlineData("/api/v1/song")]
+    [InlineData("/api/v1/wanted/missing")]
+    public async Task A_song_list_page_costs_one_video_query_through_the_controller(string list)
+    {
+        for (var index = 0; index < 4; index++)
+        {
+            var songId = await QueueApiTests.SeedSongAsync(_factory, $"Song {index}");
+            await SeedVideoAsync(songId, path: null, MusicVideoStatus.Present, height: 720);
+        }
+
+        await EnableAsync();
+        _queries.Reset();
+
+        var (status, body) = await SendAsync(HttpMethod.Get, list);
+
+        status.Should().Be(HttpStatusCode.OK);
+        body!["records"]!.AsArray().Should().HaveCount(4);
+        _queries.Count.Should().Be(1, "one video query for the page, not one per row");
+    }
+
+    [Fact]
+    public async Task While_the_feature_is_off_a_song_list_page_costs_no_video_query()
+    {
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
+        await SeedVideoAsync(songId, path: null, MusicVideoStatus.Present, height: 720);
+        _queries.Reset();
+
+        var (status, _) = await SendAsync(HttpMethod.Get, "/api/v1/song");
+
+        status.Should().Be(HttpStatusCode.OK);
+        _queries.Count.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Deleting_a_video_whose_row_names_a_path_outside_the_video_folder_is_a_409_and_touches_nothing()
+    {
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
+        await EnableAsync();
+        Directory.CreateDirectory(VideoRoot);
+        var outside = Path.Combine(_factory.DataDir, "elsewhere", "Teardrop.mkv");
+        Directory.CreateDirectory(Path.GetDirectoryName(outside)!);
+        await File.WriteAllTextAsync(outside, "x");
+        await SeedVideoAsync(songId, outside, MusicVideoStatus.Present);
+
+        var (status, problem) = await SendAsync(HttpMethod.Delete, $"/api/v1/musicvideo/song/{songId}");
+
+        status.Should().Be(HttpStatusCode.Conflict);
+        problem!["detail"]!.GetValue<string>().Should().Be("The video's path is outside the music video folder");
+        File.Exists(outside).Should().BeTrue();
+    }
+
     private static string RootBody(string root, bool enabled) =>
         new JsonObject { ["enabled"] = enabled, ["rootPath"] = root }.ToJsonString();
 
@@ -267,6 +325,43 @@ public sealed class MusicVideoApiTests : IDisposable
         var (status, body) = await SendAsync(HttpMethod.Put, Settings, """{"enabled":true}""");
 
         status.Should().Be(HttpStatusCode.OK, body?.ToJsonString());
+    }
+
+    /// <summary>Counts the commands that read or write the music video tables.</summary>
+    private sealed class VideoQueryCounter : DbCommandInterceptor
+    {
+        private int _count;
+
+        public int Count => Volatile.Read(ref _count);
+
+        public void Reset() => Interlocked.Exchange(ref _count, 0);
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("music_video", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _count);
+            }
+
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result)
+        {
+            if (command.CommandText.Contains("music_video", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _count);
+            }
+
+            return base.ReaderExecuting(command, eventData, result);
+        }
     }
 
     private async Task SeedVideoAsync(long songId, string? path, MusicVideoStatus status, int? height = null)

@@ -123,6 +123,11 @@ public sealed class MusicVideoOptionsValidator : IValidateOptions<MusicVideoOpti
             failures.Add($"music_videos.naming_template: {problem}");
         }
 
+        if (string.IsNullOrWhiteSpace(options.BesideTrackSuffix))
+        {
+            failures.Add("music_videos.beside_track_suffix: must not be empty");
+        }
+
         if (options.MaxHeight is <= 0)
         {
             failures.Add($"music_videos.max_height: must be above 0, or unset for no cap (was {options.MaxHeight})");

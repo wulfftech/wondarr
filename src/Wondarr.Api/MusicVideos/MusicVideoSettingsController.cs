@@ -71,7 +71,7 @@ public sealed class MusicVideoSettingsController : ControllerBase
     /// the user has seen that it is missing or unmarked and says it is the right place.
     /// </summary>
     /// <param name="cancellationToken">Cancels the check.</param>
-    /// <returns>200 with the settings; 400 (<c>rootPath</c>) when no root is saved, it did not answer, or the marker cannot be written.</returns>
+    /// <returns>200 with the settings; 400 (<c>rootPath</c>) when no root is saved, it did not answer, or the marker cannot be written; 504 when the disk does not answer.</returns>
     [HttpPost("root/confirm")]
     [Produces("application/json")]
     [ProducesResponseType(typeof(MusicVideoSettingsResource), StatusCodes.Status200OK)]
@@ -79,6 +79,13 @@ public sealed class MusicVideoSettingsController : ControllerBase
     public async Task<ActionResult<MusicVideoSettingsResource>> ConfirmRoot(CancellationToken cancellationToken)
     {
         var result = await _settings.ConfirmRootAsync(cancellationToken).ConfigureAwait(false);
+
+        if (result.TimedOut)
+        {
+            const string message = "The music video folder did not respond";
+
+            return Problem(title: message, detail: message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
 
         if (!result.Success)
         {

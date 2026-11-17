@@ -10,6 +10,7 @@ using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Tests.Organizer;
 using Wondarr.Core.Tests.Persistence;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.MusicVideos;
@@ -60,13 +61,99 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
 
     [Theory]
     [InlineData("/data/music")]
+    [InlineData("/data/music/")]
     [InlineData("/data/music/videos")]
-    public async Task A_root_inside_a_library_is_refused(string root)
+    [InlineData("/data/music/videos/")]
+    [InlineData("/data/music//videos")]
+    [InlineData("/data/./music/videos")]
+    [InlineData("/data/other/../music/videos")]
+    [InlineData("/data")]
+    public async Task A_root_inside_or_around_a_library_is_refused(string root)
     {
         var result = await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: root));
 
         result.Success.Should().BeFalse();
         result.Errors.Should().ContainSingle().Which.Message.Should().Contain("overlaps the library 'Music'");
+        _writer.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_root_that_differs_from_a_library_only_by_case_is_judged_as_the_platform_judges_paths()
+    {
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: "/DATA/MUSIC/videos"));
+
+        // Windows and macOS file systems are case-insensitive, so the same place; elsewhere it is another folder.
+        result.Success.Should().Be(!(OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()));
+    }
+
+    [LinuxFact]
+    public async Task A_windows_drive_path_is_not_absolute_on_linux()
+    {
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: @"C:\Videos"));
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Message.Should().Contain("absolute");
+    }
+
+    [WindowsFact]
+    public async Task A_unc_path_is_absolute_on_windows_and_a_rooted_path_without_a_drive_is_not()
+    {
+        (await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: @"\\nas\share\videos"))).Success.Should().BeTrue();
+        (await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: @"\videos"))).Success.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task An_empty_suffix_is_refused(string suffix)
+    {
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(BesideTrackSuffix: suffix));
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Field.Should().Be("besideTrackSuffix");
+        new MusicVideoOptionsValidator().Validate(null, new MusicVideoOptions { BesideTrackSuffix = suffix }).Failed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Confirming_a_root_set_outside_the_settings_save_runs_the_same_rules()
+    {
+        _options.RootPath = "/data/music/videos";
+
+        var confirmed = await Service().ConfirmRootAsync(CancellationToken.None);
+
+        confirmed.Success.Should().BeFalse();
+        confirmed.Errors.Should().ContainSingle().Which.Message.Should().Contain("overlaps the library 'Music'");
+    }
+
+    [Fact]
+    public async Task A_marker_write_that_hangs_on_confirm_times_out()
+    {
+        var root = _temp.Full("videos");
+        Directory.CreateDirectory(root);
+        _options.RootPath = root;
+        using var release = new ManualResetEventSlim();
+        var roots = new HangingRoots(release, hangMark: true);
+
+        var confirmed = await Service(roots: roots).ConfirmRootAsync(CancellationToken.None);
+        release.Set();
+
+        confirmed.Success.Should().BeFalse();
+        confirmed.TimedOut.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_marker_write_that_hangs_on_save_is_a_field_error_and_writes_nothing()
+    {
+        var root = _temp.Full("videos");
+        Directory.CreateDirectory(root);
+        using var release = new ManualResetEventSlim();
+        var roots = new HangingRoots(release, hangMark: false);
+
+        var result = await Service(roots: roots).UpdateAsync(new MusicVideoSettingsUpdate(RootPath: root), CancellationToken.None);
+        release.Set();
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Field.Should().Be("rootPath");
         _writer.Writes.Should().BeEmpty();
     }
 
@@ -257,7 +344,7 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
         return _database.CreateContext(_time);
     }
 
-    private MusicVideoSettingsService Service(IDictionary? environment = null)
+    private MusicVideoSettingsService Service(IDictionary? environment = null, ILibraryRoots? roots = null)
     {
         _database.MigrateAsync(_time).GetAwaiter().GetResult();
         var disk = new DiskOperations();
@@ -267,7 +354,7 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
             _writer,
             [new MusicVideoOptionsValidator()],
             _context ??= _database.CreateContext(_time),
-            new LibraryRoots(disk),
+            roots ?? new LibraryRoots(disk),
             disk,
             new WondarrPaths("/config"),
             new TestOptionsMonitor<ImportOptions>(new ImportOptions()),
@@ -279,6 +366,51 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
         Service().UpdateAsync(update, CancellationToken.None);
 
     private Task<MusicVideoSettings> GetAsync() => Service().GetAsync(CancellationToken.None);
+
+    /// <summary>Roots whose marker write (<c>Mark</c>, or <c>MarkExisting</c> on an empty folder) never returns until released.</summary>
+    private sealed class HangingRoots(ManualResetEventSlim release, bool hangMark) : ILibraryRoots
+    {
+        private readonly LibraryRoots _real = new(new DiskOperations());
+
+        public LibraryRootStatus Check(string rootPath) => _real.Check(rootPath);
+
+        public Task<LibraryRootStatus> CheckAsync(string rootPath, CancellationToken cancellationToken) =>
+            _real.CheckAsync(rootPath, cancellationToken);
+
+        public bool MarkExisting(string rootPath)
+        {
+            if (!hangMark)
+            {
+                release.Wait(TimeSpan.FromSeconds(30));
+            }
+
+            return _real.MarkExisting(rootPath);
+        }
+
+        public void Mark(string rootPath)
+        {
+            if (hangMark)
+            {
+                release.Wait(TimeSpan.FromSeconds(30));
+            }
+
+            _real.Mark(rootPath);
+        }
+
+        public string Describe(Library library, LibraryRootStatus status) => _real.Describe(library, status);
+    }
+
+    /// <summary>A fact that only runs on Windows.</summary>
+    private sealed class WindowsFactAttribute : FactAttribute
+    {
+        public WindowsFactAttribute()
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                Skip = "Needs Windows (drive letters and UNC paths).";
+            }
+        }
+    }
 
     /// <summary>Applies the written keys to the options, as reloading <c>config.yml</c> does.</summary>
     private sealed class ApplyingWriter(MusicVideoOptions options) : IConfigFileWriter
