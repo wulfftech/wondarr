@@ -77,6 +77,28 @@ public sealed class MusicVideoOrphanHealthCheckTests : IDisposable
     }
 
     [Fact]
+    public async Task A_video_stranded_in_the_compact_staging_folder_is_warned_about_though_the_file_exists()
+    {
+        await SeedAsync(missing: 0, present: 0);
+        var song = await SongSeed.AddAsync(_context!, "Stranded", "Artist");
+        var path = _temp.CreateFile("music/.wondarr-compact/7/Stranded-video.mkv");
+        _context!.MusicVideos.Add(new MusicVideo
+        {
+            SongId = song.Id,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "stranded",
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = path,
+        });
+        await _context.SaveChangesAsync();
+
+        var result = await CheckAsync(enabled: true);
+
+        result.Type.Should().Be(HealthCheckResult.Warning);
+        result.Message.Should().Contain("1 music video file is missing, or stranded").And.Contain(path);
+    }
+
+    [Fact]
     public async Task A_row_with_no_file_yet_is_not_an_orphan()
     {
         await SeedAsync(missing: 0, present: 0);

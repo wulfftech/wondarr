@@ -1085,51 +1085,25 @@ public sealed partial class ImportService : IImportService
 
     /// <summary>
     /// Takes the replaced file's sidecars (lyrics, and the music video with its own sidecars) to the new file's
-    /// name. A song with no file at all takes a video Remove file left behind in a library, when the layout is
-    /// still <c>beside_track</c>: it goes to the new file's folder and name plus the current suffix. A video in
-    /// the video root, or under the <c>folder</c> layout, is never moved.
+    /// name. A song with no managed file (Remove file recycled it, or only a reference file held it) takes its
+    /// video beside the new file under the current suffix when the layout is <c>beside_track</c>
+    /// (<see cref="BesideTrackVideoMover"/>).
     /// </summary>
     /// <returns>The song's video row, and where its file is now when it moved (otherwise <see langword="null"/>).</returns>
     private async Task<(MusicVideo? Video, string? NewPath)> MoveSidecarsAndVideoAsync(Song song, string finalPath)
     {
-        var video = await _database.MusicVideos
-            .FirstOrDefaultAsync(candidate => candidate.SongId == song.Id, CancellationToken.None)
-            .ConfigureAwait(false);
-
         if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
         {
-            return (video, FileConverter.MoveSidecars(replaced.Path, finalPath, video?.Path));
+            var held = await _database.MusicVideos
+                .FirstOrDefaultAsync(candidate => candidate.SongId == song.Id, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            return (held, FileConverter.MoveSidecars(replaced.Path, finalPath, held?.Path));
         }
 
-        if (song.File is not null
-            || video?.Path is not { } videoPath
-            || _musicVideoOptions?.CurrentValue is not { Layout: MusicVideoOptions.BesideTrackLayout } options)
-        {
-            return (video, null);
-        }
-
-        var libraryRoots = await _database.Libraries
-            .AsNoTracking()
-            .Select(library => library.RootPath)
-            .ToListAsync(CancellationToken.None)
+        return await BesideTrackVideoMover
+            .MoveAsync(_database, new DiskOperations(), _musicVideoOptions?.CurrentValue, song.Id, finalPath)
             .ConfigureAwait(false);
-
-        // Only a video in a library was ever beside a track; one in the video root is the folder layout's.
-        if (!Path.IsPathFullyQualified(videoPath)
-            || !libraryRoots.Any(root => !string.IsNullOrWhiteSpace(root) && PathRules.IsStrictlyInside(root, videoPath)))
-        {
-            return (video, null);
-        }
-
-        var disk = new DiskOperations();
-
-        var targetBase = Path.Combine(
-            Path.GetDirectoryName(finalPath) ?? string.Empty,
-            Path.GetFileNameWithoutExtension(finalPath) + options.BesideTrackSuffix);
-
-        var moved = SongFileRules.ApplyVideoMoves(disk, SongFileRules.VideoMovesTo(disk, videoPath, targetBase));
-
-        return (video, moved);
     }
 
     /// <summary>Writes where a moved video is on its own, after the import's record step failed.</summary>

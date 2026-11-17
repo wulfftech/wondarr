@@ -10,6 +10,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.References;
 using Wondarr.Core.Sources;
@@ -87,6 +88,105 @@ public sealed class ReferenceAdopterTests : IDisposable
 
         (await adopting.WaitAsync(TimeSpan.FromSeconds(30))).Should().Be(new ReferenceAdoptResult(1, 0, 0));
         _organizer.Requests.Should().ContainSingle();
+    }
+
+    // --- Music videos ----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_video_filed_in_the_video_root_moves_beside_the_adopted_copy_and_its_row_follows()
+    {
+        await using var context = await ContextAsync();
+        var (target, reference) = await LibrariesAsync(context, ReferenceLibraryMode.Adopt);
+        var artist = await ArtistAsync(context);
+        var song = await SongAsync(context, artist.Id, target.Id);
+        var row = await ReferenceFileAsync(context, reference.Id, song.Id);
+        await SongFileAsync(context, song.Id, AbsolutePath(row.RelativePath), SourceTypes.Reference);
+        var videoBase = Path.Combine(_temp, "videos", "Daft Punk", "Daft Punk - Get Lucky");
+        await SeedVideoAsync(context, song.Id, videoBase);
+        context.ChangeTracker.Clear();
+
+        var options = new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout, RootPath = Path.Combine(_temp, "videos"), BesideTrackSuffix = "-clip" };
+
+        (await Adopter(context, options).AdoptAsync(reference.Id, null, CancellationToken.None))
+            .Should().Be(new ReferenceAdoptResult(1, 0, 0));
+
+        var copy = Path.Combine(LibraryRoot, song.Title + ".flac");
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(Path.Combine(LibraryRoot, song.Title + "-clip" + suffix)).Should().BeTrue(suffix);
+            File.Exists(videoBase + suffix).Should().BeFalse(suffix);
+        }
+
+        File.Exists(copy).Should().BeTrue();
+        (await context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(LibraryRoot, song.Title + "-clip.mkv"));
+    }
+
+    [Fact]
+    public async Task A_video_whose_new_name_is_taken_stays_in_the_video_root_when_the_copy_is_adopted()
+    {
+        await using var context = await ContextAsync();
+        var (target, reference) = await LibrariesAsync(context, ReferenceLibraryMode.Adopt);
+        var artist = await ArtistAsync(context);
+        var song = await SongAsync(context, artist.Id, target.Id);
+        var row = await ReferenceFileAsync(context, reference.Id, song.Id);
+        await SongFileAsync(context, song.Id, AbsolutePath(row.RelativePath), SourceTypes.Reference);
+        var videoBase = Path.Combine(_temp, "videos", "Daft Punk", "Daft Punk - Get Lucky");
+        await SeedVideoAsync(context, song.Id, videoBase);
+        context.ChangeTracker.Clear();
+
+        Directory.CreateDirectory(LibraryRoot);
+        await File.WriteAllTextAsync(Path.Combine(LibraryRoot, song.Title + "-clip.mkv"), "somebody else's video");
+
+        var options = new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout, RootPath = Path.Combine(_temp, "videos"), BesideTrackSuffix = "-clip" };
+
+        await Adopter(context, options).AdoptAsync(reference.Id, null, CancellationToken.None);
+
+        File.ReadAllText(Path.Combine(LibraryRoot, song.Title + "-clip.mkv")).Should().Be("somebody else's video");
+        File.Exists(videoBase + ".mkv").Should().BeTrue();
+        (await context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(videoBase + ".mkv");
+    }
+
+    [Fact]
+    public async Task A_video_under_the_folder_layout_stays_in_the_video_root_when_the_copy_is_adopted()
+    {
+        await using var context = await ContextAsync();
+        var (target, reference) = await LibrariesAsync(context, ReferenceLibraryMode.Adopt);
+        var artist = await ArtistAsync(context);
+        var song = await SongAsync(context, artist.Id, target.Id);
+        var row = await ReferenceFileAsync(context, reference.Id, song.Id);
+        await SongFileAsync(context, song.Id, AbsolutePath(row.RelativePath), SourceTypes.Reference);
+        var videoBase = Path.Combine(_temp, "videos", "Daft Punk", "Daft Punk - Get Lucky");
+        await SeedVideoAsync(context, song.Id, videoBase);
+        context.ChangeTracker.Clear();
+
+        var options = new MusicVideoOptions { Layout = MusicVideoOptions.FolderLayout, RootPath = Path.Combine(_temp, "videos") };
+
+        await Adopter(context, options).AdoptAsync(reference.Id, null, CancellationToken.None);
+
+        File.Exists(videoBase + ".mkv").Should().BeTrue();
+        (await context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(videoBase + ".mkv");
+    }
+
+    private static async Task SeedVideoAsync(WondarrDbContext context, long songId, string videoBase)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(videoBase)!);
+
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            await File.WriteAllTextAsync(videoBase + extension, "video group " + extension);
+        }
+
+        context.MusicVideos.Add(new MusicVideo
+        {
+            SongId = songId,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "yt" + songId,
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = videoBase + ".mkv",
+        });
+
+        await context.SaveChangesAsync();
     }
 
     // --- The file ------------------------------------------------------------------------------
@@ -604,8 +704,15 @@ public sealed class ReferenceAdopterTests : IDisposable
         }
     }
 
-    private ReferenceAdopter Adopter(WondarrDbContext context) =>
-        new(context, _organizer, _events, new SongFileLock(), _time, NullLogger<ReferenceAdopter>.Instance);
+    private ReferenceAdopter Adopter(WondarrDbContext context, MusicVideoOptions? videoOptions = null) =>
+        new(
+            context,
+            _organizer,
+            _events,
+            new SongFileLock(),
+            _time,
+            NullLogger<ReferenceAdopter>.Instance,
+            videoOptions is null ? null : new TestOptionsMonitor<MusicVideoOptions>(videoOptions));
 
     private static ReferenceAdoptCommandHandler Handler(ServiceProvider provider) =>
         new(

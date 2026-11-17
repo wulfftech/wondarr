@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
@@ -11,7 +12,8 @@ namespace Wondarr.Core.HealthCheck;
 /// <summary>
 /// Warns about music videos whose file is no longer where their row says (ADR-0014): the video was moved or
 /// deleted outside Wondarr, or a move of the audio file missed it. It names at most
-/// <see cref="MaxNamed"/> of them and counts all. It is off while the feature is off, and a share that does not
+/// <see cref="MaxNamed"/> of them and counts all. A video whose row names a path inside a Compact staging folder
+/// counts too: it is where the row says, but beside no track. It is off while the feature is off, and a share that does not
 /// answer is a notice, not a warning: the files are not known to be gone.
 /// </summary>
 public sealed class MusicVideoOrphanHealthCheck : IHealthCheck
@@ -41,6 +43,13 @@ public sealed class MusicVideoOrphanHealthCheck : IHealthCheck
         _disk = disk;
     }
 
+    /// <summary>
+    /// Whether <paramref name="path"/> lies inside a Compact staging folder: a video left there (a taken name, a
+    /// move that could not go back) is not beside any track.
+    /// </summary>
+    private static bool InStagingFolder(string path) =>
+        path.Split('/', '\\').Contains(CompactExecutor.StagingFolderName, StringComparer.Ordinal);
+
     /// <inheritdoc />
     public string Name => nameof(MusicVideoOrphanHealthCheck);
 
@@ -66,7 +75,7 @@ public sealed class MusicVideoOrphanHealthCheck : IHealthCheck
         {
             // One bounded call for the whole list: a hung share costs one timeout, not one per video.
             missing = await MusicVideoDisk
-                .RunAsync(() => rows.Where(path => !_disk.FileExists(path)).ToList(), cancellationToken)
+                .RunAsync(() => rows.Where(path => InStagingFolder(path) || !_disk.FileExists(path)).ToList(), cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (MusicVideoTimeoutException)
@@ -94,7 +103,7 @@ public sealed class MusicVideoOrphanHealthCheck : IHealthCheck
             string.Concat(
                 missing.Count.ToString(CultureInfo.InvariantCulture),
                 missing.Count == 1 ? " music video file is" : " music video files are",
-                " missing from where Wondarr recorded ",
+                " missing, or stranded in a Compact staging folder, where Wondarr recorded ",
                 missing.Count == 1 ? "it" : "them",
                 ": ",
                 named,
