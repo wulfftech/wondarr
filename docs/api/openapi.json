@@ -9486,7 +9486,8 @@
       "MusicVideoSearchResultResource": {
         "required": [
           "queued",
-          "candidates"
+          "candidates",
+          "partial"
         ],
         "type": "object",
         "properties": {
@@ -9498,6 +9499,9 @@
             "items": {
               "$ref": "#/components/schemas/MusicVideoCandidateResource"
             }
+          },
+          "partial": {
+            "type": "boolean"
           }
         }
       },
@@ -12976,7 +12980,8 @@
       "SongMusicVideoResource": {
         "required": [
           "status",
-          "height"
+          "height",
+          "failureReason"
         ],
         "type": "object",
         "properties": {
@@ -12991,6 +12996,12 @@
               "string"
             ],
             "format": "int32"
+          },
+          "failureReason": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

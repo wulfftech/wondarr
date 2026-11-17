@@ -36,7 +36,7 @@ public static class SongMusicVideoMapping
             Records =
             [
                 .. page.Records.Select(song => states.TryGetValue(song.Id, out var state)
-                    ? song with { MusicVideo = new SongMusicVideoResource(state.Status, state.Height) }
+                    ? song with { MusicVideo = new SongMusicVideoResource(state.Status, state.Height, state.FailureReason) }
                     : song),
             ],
         };

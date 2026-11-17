@@ -119,7 +119,7 @@ public sealed partial class MusicVideoController : ControllerBase
             queued = outcome.Outcome == MusicVideoQueueOutcome.Queued;
         }
 
-        return Ok(new MusicVideoSearchResultResource(queued, [.. result.Candidates.Select(MusicVideoCandidateResource.From)]));
+        return Ok(new MusicVideoSearchResultResource(queued, [.. result.Candidates.Select(MusicVideoCandidateResource.From)], result.Partial));
     }
 
     /// <summary>

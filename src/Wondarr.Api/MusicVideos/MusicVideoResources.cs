@@ -209,7 +209,8 @@ public sealed record MusicVideoCandidateResource(
 /// <summary>What searching for a song's music video found.</summary>
 /// <param name="Queued">Whether a confident candidate was found and its download queued.</param>
 /// <param name="Candidates">The candidates, best first.</param>
-public sealed record MusicVideoSearchResultResource(bool Queued, IReadOnlyList<MusicVideoCandidateResource> Candidates);
+/// <param name="Partial">Whether MusicBrainz did not answer, so the candidates are YouTube search results only.</param>
+public sealed record MusicVideoSearchResultResource(bool Queued, IReadOnlyList<MusicVideoCandidateResource> Candidates, bool Partial);
 
 /// <summary>A manual pick: the video to download for a song.</summary>
 /// <param name="YouTubeVideoId">The YouTube video id, or a link to the video.</param>

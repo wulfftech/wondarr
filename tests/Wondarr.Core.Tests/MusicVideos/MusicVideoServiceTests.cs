@@ -214,9 +214,9 @@ public sealed class MusicVideoServiceTests : IDisposable
         _queries.Count.Should().Be(1, "one query for the page, not one per row");
         states.Should().NotBeNull();
         states!.Keys.Should().BeEquivalentTo([ids[0], ids[2], ids[4]]);
-        states[ids[0]].Should().Be(new MusicVideoState(MusicVideoStatus.Present, 720));
-        states[ids[2]].Should().Be(new MusicVideoState(MusicVideoStatus.Queued, null));
-        states[ids[4]].Should().Be(new MusicVideoState(MusicVideoStatus.Present, 724));
+        states[ids[0]].Should().Be(new MusicVideoState(MusicVideoStatus.Present, 720, null));
+        states[ids[2]].Should().Be(new MusicVideoState(MusicVideoStatus.Queued, null, null));
+        states[ids[4]].Should().Be(new MusicVideoState(MusicVideoStatus.Present, 724, null));
     }
 
     private MusicVideoService Service(WondarrDbContext context)
