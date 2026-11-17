@@ -2,10 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
@@ -71,6 +73,7 @@ public sealed partial class SongRefiler : ISongRefiler
     private readonly IPlexLibraryUpdater _updater;
     private readonly ISongFileLock _songFileLock;
     private readonly ILogger<SongRefiler> _logger;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="SongRefiler"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
@@ -80,6 +83,7 @@ public sealed partial class SongRefiler : ISongRefiler
     /// <param name="updater">The debounced partial Plex scan.</param>
     /// <param name="songFileLock">The per-song lock imports and compactions also take.</param>
     /// <param name="logger">The log sink.</param>
+    /// <param name="musicVideoOptions">The <c>music_videos</c> settings; without them no video moves with the file.</param>
     public SongRefiler(
         WondarrDbContext database,
         ILibraryOrganizer organizer,
@@ -87,7 +91,8 @@ public sealed partial class SongRefiler : ISongRefiler
         IRecycleBin recycleBin,
         IPlexLibraryUpdater updater,
         ISongFileLock songFileLock,
-        ILogger<SongRefiler> logger)
+        ILogger<SongRefiler> logger,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(organizer);
@@ -104,6 +109,7 @@ public sealed partial class SongRefiler : ISongRefiler
         _updater = updater;
         _songFileLock = songFileLock;
         _logger = logger;
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -192,6 +198,11 @@ public sealed partial class SongRefiler : ISongRefiler
 
         var credits = song.OrderedCredits();
 
+        // The song's video row is read before the audio moves, so a failed read costs nothing.
+        var video = await BesideTrackVideoMover
+            .TryLoadAsync(_database, song.Id, exception => LogVideoStepFailed(_logger, song.Id, exception))
+            .ConfigureAwait(false);
+
         OrganizeResult placement;
 
         try
@@ -253,9 +264,23 @@ public sealed partial class SongRefiler : ISongRefiler
         }
 
         var moved = !PathRules.AreEqual(finalPath, fromPath);
+        string? videoNow = null;
 
         if (moved)
         {
+            // The song's music video, when it sits beside the audio file, goes with it, and its row follows in
+            // the same save as the file's new path.
+            videoNow = SongFileRules.TryMoveVideo(
+                _disk,
+                _musicVideoOptions?.CurrentValue,
+                fromPath,
+                finalPath,
+                video?.Path,
+                null,
+                (sidecar, beside) => LogSidecarLeftBehind(_logger, sidecar, beside),
+                (sidecar, reason) => LogSidecarNotMoved(_logger, sidecar, reason),
+                exception => LogVideoStepFailed(_logger, song.Id, exception));
+
             // The sidecars travel with their file, under the placed file's own name.
             foreach (var (sidecar, beside, targetTaken) in SongFileRules.SidecarMoves(_disk, fromPath, finalPath))
             {
@@ -279,6 +304,11 @@ public sealed partial class SongRefiler : ISongRefiler
 
         try
         {
+            if (video is not null && videoNow is not null)
+            {
+                video.Path = videoNow;
+            }
+
             file.Path = finalPath;
             file.Size = _disk.GetFileSize(finalPath);
             file.TagsWritten = JsonSerializer.Serialize(placement.TagsWritten, Json);
@@ -318,6 +348,18 @@ public sealed partial class SongRefiler : ISongRefiler
                         update => update.SetProperty(candidate => candidate.Path, finalPath),
                         CancellationToken.None)
                     .ConfigureAwait(false);
+
+                if (videoNow is not null)
+                {
+                    var refiledSongId = song.Id;
+
+                    await _database.MusicVideos
+                        .Where(candidate => candidate.SongId == refiledSongId)
+                        .ExecuteUpdateAsync(
+                            update => update.SetProperty(candidate => candidate.Path, videoNow),
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
             }
             catch (Exception repair) when (repair is not OperationCanceledException)
             {
@@ -454,6 +496,10 @@ public sealed partial class SongRefiler : ISongRefiler
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not move the lyrics sidecar {Path} with its file: {Message}; it stays where it is")]
     private static partial void LogSidecarNotMoved(ILogger logger, string path, string message);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
+
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The emptied album folder {Path} was left as it is: {Reason}")]
     private static partial void LogFolderNotCleaned(ILogger logger, string path, string reason);

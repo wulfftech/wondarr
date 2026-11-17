@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
@@ -209,6 +210,11 @@ internal static partial class ImportRecovery
     /// <param name="landedPath">The file <see cref="FindLandedFileAsync"/> found.</param>
     /// <param name="now">The recovery's time.</param>
     /// <param name="cancellationToken">Cancels the probe and the reads.</param>
+    /// <param name="videoOptions">
+    /// The <c>music_videos</c> settings. Under <c>beside_track</c> a video that sat beside the file the stopped import
+    /// replaced, in the same folder, is moved beside the landed file; a crash during a rename across folders leaves
+    /// the video where it was.
+    /// </param>
     /// <returns><see langword="true"/> when the item was marked imported.</returns>
     internal static async Task<bool> RecordLandedFileAsync(
         WondarrDbContext database,
@@ -216,7 +222,8 @@ internal static partial class ImportRecovery
         QueueItem item,
         string landedPath,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        MusicVideoOptions? videoOptions = null)
     {
         var probed = await probe.ProbeAsync(landedPath, cancellationToken).ConfigureAwait(false);
 
@@ -261,6 +268,29 @@ internal static partial class ImportRecovery
         if (!upgraded)
         {
             database.SongFiles.Add(file);
+        }
+
+        // The stopped import may have placed the file and died before it moved the video. The same rule the
+        // import's record step uses puts the video beside the landed file; it never fails the recovery.
+        var video = await BesideTrackVideoMover.TryLoadAsync(database, song.Id).ConfigureAwait(false);
+
+        try
+        {
+            // Bounded like every other disk call of the video code: a hung share costs one timeout.
+            var alignedVideo = await MusicVideoDisk
+                .RunAsync(
+                    () => BesideTrackVideoMover.TryAlignAsync(database, new DiskOperations(), videoOptions, video, landedPath).GetAwaiter().GetResult(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (alignedVideo is not null && video is not null)
+            {
+                video.Path = alignedVideo;
+            }
+        }
+        catch (MusicVideoTimeoutException)
+        {
+            // The video stays where it was; the audio's record goes ahead.
         }
 
         database.History.Add(new HistoryItem

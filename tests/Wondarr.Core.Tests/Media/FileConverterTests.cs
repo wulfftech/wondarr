@@ -6,6 +6,7 @@ using NSubstitute;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Profiles;
@@ -73,6 +74,94 @@ public sealed class FileConverterTests : IDisposable
         _organizer.Requests.Single().ReplacesPath.Should().Be(path);
         (await context.History.AsNoTracking().SingleAsync()).EventType.Should().Be(HistoryEventType.Converted);
         _updater.Received().RequestFolder(SeedData.DefaultLibraryId, Path.GetDirectoryName(file.Path)!);
+    }
+
+    [Fact]
+    public async Task A_conversion_that_renames_the_file_takes_the_beside_track_video_nfo_and_thumbnail_with_it()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, path) = await SeedAsync(context, "flac", FlacQualityId, lyrics: true);
+        await SeedVideoAsync(context, songId, path, "-clip");
+        _organizer.RenameStemTo = "01 - Renamed";
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+
+        var folder = Path.GetDirectoryName(path)!;
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(Path.Combine(folder, "01 - Renamed-clip" + suffix)).Should().BeTrue(suffix);
+            File.Exists(Path.ChangeExtension(path, null) + "-clip" + suffix).Should().BeFalse(suffix);
+        }
+
+        File.Exists(Path.Combine(folder, "01 - Renamed.lrc")).Should().BeTrue("the lyrics follow as before");
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.SongFiles.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(folder, "01 - Renamed.mp3"));
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(folder, "01 - Renamed-clip.mkv"));
+    }
+
+    [Fact]
+    public async Task A_video_read_that_fails_never_stops_the_converted_files_path_being_recorded()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, path) = await SeedAsync(context, "flac", FlacQualityId, lyrics: true);
+        await SeedVideoAsync(context, songId, path, "-video");
+        _organizer.RenameStemTo = "01 - Renamed";
+        await context.Database.ExecuteSqlRawAsync("DROP TABLE music_video");
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+
+        var folder = Path.GetDirectoryName(path)!;
+        File.Exists(Path.Combine(folder, "01 - Renamed.lrc")).Should().BeTrue("the lyrics follow whatever the video does");
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.SongFiles.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(folder, "01 - Renamed.mp3"));
+    }
+
+    [Fact]
+    public async Task A_conversion_that_keeps_the_name_leaves_the_video_where_it_is()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, path) = await SeedAsync(context, "flac", FlacQualityId);
+        await SeedVideoAsync(context, songId, path, "-video");
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+
+        var videoPath = Path.ChangeExtension(path, null) + "-video.mkv";
+        File.Exists(videoPath).Should().BeTrue();
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(videoPath);
+    }
+
+    [Fact]
+    public async Task A_conversion_never_replaces_a_file_that_holds_the_videos_new_name()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, path) = await SeedAsync(context, "flac", FlacQualityId);
+        await SeedVideoAsync(context, songId, path, "-video");
+        _organizer.RenameStemTo = "01 - Renamed";
+
+        var folder = Path.GetDirectoryName(path)!;
+        await File.WriteAllTextAsync(Path.Combine(folder, "01 - Renamed-video.mkv"), "somebody else's video");
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+        File.ReadAllText(Path.Combine(folder, "01 - Renamed-video.mkv")).Should().Be("somebody else's video");
+
+        var oldVideo = Path.ChangeExtension(path, null) + "-video.mkv";
+        File.Exists(oldVideo).Should().BeTrue("a video that cannot take its new name stays, and its row says so");
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(oldVideo);
     }
 
     [Fact]
@@ -292,7 +381,8 @@ public sealed class FileConverterTests : IDisposable
             _songFileLock,
             _updater,
             TestLibraryRoots.Real,
-            NullLogger<FileConverter>.Instance);
+            NullLogger<FileConverter>.Instance,
+            new TestOptionsMonitor<MusicVideoOptions>(new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout }));
 
     private async Task<WondarrDbContext> ContextAsync(string? outputPolicy)
     {
@@ -306,6 +396,29 @@ public sealed class FileConverterTests : IDisposable
         context.ChangeTracker.Clear();
 
         return context;
+    }
+
+    /// <summary>A song's video next to its audio file: the <c>.mkv</c>, its <c>.nfo</c> and its thumbnail, and the row.</summary>
+    private static async Task SeedVideoAsync(WondarrDbContext context, long songId, string audioPath, string suffix)
+    {
+        var baseName = Path.ChangeExtension(audioPath, null) + suffix;
+
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            await File.WriteAllTextAsync(baseName + extension, "video group " + extension);
+        }
+
+        context.MusicVideos.Add(new MusicVideo
+        {
+            SongId = songId,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "yt" + songId,
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = baseName + ".mkv",
+        });
+
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
     }
 
     private async Task<(long SongId, string Path)> SeedAsync(
@@ -441,12 +554,17 @@ public sealed class FileConverterTests : IDisposable
         /// <summary>Run right after the files have moved, before the result is returned.</summary>
         public Action? AfterMove { get; set; }
 
+        /// <summary>When set, the file is placed under this name (without its extension) in the same folder.</summary>
+        public string? RenameStemTo { get; set; }
+
         public Task<OrganizeResult> OrganizeAsync(OrganizeRequest request, CancellationToken cancellationToken)
         {
             Requests.Add(request);
 
             var replaces = request.ReplacesPath!;
-            var target = Path.ChangeExtension(replaces, "." + request.Extension);
+            var target = RenameStemTo is null
+                ? Path.ChangeExtension(replaces, "." + request.Extension)
+                : Path.Combine(Path.GetDirectoryName(replaces)!, RenameStemTo + "." + request.Extension);
             var recycled = Path.Combine(bin, Path.GetFileName(replaces));
 
             File.Move(replaces, recycled);

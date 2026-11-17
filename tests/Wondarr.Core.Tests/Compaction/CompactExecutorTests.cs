@@ -6,6 +6,7 @@ using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
@@ -76,6 +77,7 @@ public partial class CompactExecutorTests : IDisposable
     private readonly string _config;
     private readonly CompactExecutor _executor;
     private readonly FaultyDisk _faulty;
+    private readonly MusicVideoOptions _videoOptions = new() { Layout = MusicVideoOptions.BesideTrackLayout };
 
     private Func<long, CancellationToken, Task<CompactPlan>> _planHandler = (_, _) => Task.FromResult(EmptyPlan);
 
@@ -156,7 +158,8 @@ public partial class CompactExecutorTests : IDisposable
             _updater,
             _timeProvider,
             new SongFileLock(),
-            NullLogger<CompactExecutor>.Instance);
+            NullLogger<CompactExecutor>.Instance,
+            new TestOptionsMonitor<MusicVideoOptions>(_videoOptions));
     }
 
     [Fact]

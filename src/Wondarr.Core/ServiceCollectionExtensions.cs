@@ -79,6 +79,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IHealthCheck, ReferenceMissingFilesHealthCheck>();
         services.AddScoped<IHealthCheck, LibraryRootHealthCheck>();
         services.AddScoped<IHealthCheck, MusicVideoRootHealthCheck>();
+        services.AddScoped<IHealthCheck, MusicVideoOrphanHealthCheck>();
         services.AddScoped<IHealthCheck, CompactMoveHealthCheck>();
         services.AddScoped<IHealthCheck, ImportListReadHealthCheck>();
         services.AddScoped<IHealthCheck, ImportListScanWaitHealthCheck>();

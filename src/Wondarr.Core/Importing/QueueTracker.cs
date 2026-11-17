@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Searching;
 using Wondarr.Core.Sources;
@@ -467,7 +468,14 @@ public sealed partial class QueueTracker : BackgroundService, IQueueTracker
                 if (probe is not null
                     && await ImportRecovery.FindLandedFileAsync(database, item, _logger, cancellationToken)
                         .ConfigureAwait(false) is { } landed
-                    && await ImportRecovery.RecordLandedFileAsync(database, probe, item, landed, now, cancellationToken)
+                    && await ImportRecovery.RecordLandedFileAsync(
+                            database,
+                            probe,
+                            item,
+                            landed,
+                            now,
+                            cancellationToken,
+                            scope.ServiceProvider.GetService<IOptionsMonitor<MusicVideoOptions>>()?.CurrentValue)
                         .ConfigureAwait(false))
                 {
                     recorded++;

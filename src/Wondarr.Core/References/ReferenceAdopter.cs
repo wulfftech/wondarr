@@ -3,10 +3,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.MusicVideos;
+using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
@@ -51,7 +54,8 @@ public sealed partial class ReferenceAdopter(
     IEventAggregator events,
     ISongFileLock songFileLock,
     TimeProvider timeProvider,
-    ILogger<ReferenceAdopter> logger) : IReferenceAdopter
+    ILogger<ReferenceAdopter> logger,
+    IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null) : IReferenceAdopter
 {
     /// <summary>How many adopted files there are between two progress messages.</summary>
     internal const int ProgressEvery = 25;
@@ -195,6 +199,11 @@ public sealed partial class ReferenceAdopter(
 
             var credits = song.OrderedCredits();
 
+            // The song's video row is read before anything moves, so a failed read costs nothing.
+            var video = await BesideTrackVideoMover
+                .TryLoadAsync(database, song.Id, exception => LogVideoStepFailed(logger, song.Id, exception))
+                .ConfigureAwait(false);
+
             var extension = Path.GetExtension(absolutePath).TrimStart('.').ToLowerInvariant();
 
             // KeepSource is the whole promise of adoption: the organizer stages a copy of the file and
@@ -262,9 +271,29 @@ public sealed partial class ReferenceAdopter(
             }
 
             var finalPath = placement.FinalPath;
+            string? videoNow = null;
 
             try
             {
+                // The song now holds a managed file: its video, filed in the video root while only the reference
+                // file held the song, goes beside the copy, and its row follows in this save.
+                videoNow = await BesideTrackVideoMover
+                    .TryAlignAsync(
+                        database,
+                        new DiskOperations(),
+                        musicVideoOptions?.CurrentValue,
+                        video,
+                        finalPath,
+                        (moved, target) => LogVideoLeftBehind(logger, moved, target),
+                        (moved, reason) => LogVideoNotMoved(logger, moved, reason),
+                        exception => LogVideoStepFailed(logger, song.Id, exception))
+                    .ConfigureAwait(false);
+
+                if (video is not null && videoNow is not null)
+                {
+                    video.Path = videoNow;
+                }
+
                 // The copy is a library file now and the song's own file row points at it.
                 file.Path = finalPath;
                 file.Size = new FileInfo(finalPath).Length;
@@ -298,8 +327,9 @@ public sealed partial class ReferenceAdopter(
                 adoptedRow.State = ReferenceFileState.Adopted;
                 adoptedRow.Message = null;
 
-                // One save per file: whatever happens next, this one is recorded whole or not at all.
-                await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                // One save per file: whatever happens next, this one is recorded whole or not at all. Once the video
+                // has moved the save is never cancelled, so a shutdown cannot separate the file from its record.
+                await database.SaveChangesAsync(videoNow is null ? cancellationToken : CancellationToken.None).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -311,6 +341,24 @@ public sealed partial class ReferenceAdopter(
                 // it is, and the row says so, so the user can see what happened rather than adopt it twice.
                 LogRecordFailed(logger, row.Id, exception);
                 database.ChangeTracker.Clear();
+
+                // The video moved with the copy, so its row says where it is even though the rest was not recorded.
+                if (videoNow is not null)
+                {
+                    var failedSongId = song.Id;
+
+                    try
+                    {
+                        await database.MusicVideos
+                            .Where(candidate => candidate.SongId == failedSongId)
+                            .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, videoNow), CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception repair) when (repair is not OperationCanceledException)
+                    {
+                        LogVideoStepFailed(logger, failedSongId, repair);
+                    }
+                }
 
                 failed++;
                 await MarkFailedAsync(
@@ -414,6 +462,15 @@ public sealed partial class ReferenceAdopter(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Adoption into library {LibraryId} stopped: {Reason}")]
     private static partial void LogTargetUnavailable(ILogger logger, long libraryId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video {Path} stays where it is: {Target} is taken")]
+    private static partial void LogVideoLeftBehind(ILogger logger, string path, string target);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video file {Path} could not be moved beside the adopted copy: {Reason}")]
+    private static partial void LogVideoNotMoved(ILogger logger, string path, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Recording the adoption of reference file {ReferenceFileId} failed")]
     private static partial void LogRecordFailed(ILogger logger, long referenceFileId, Exception exception);

@@ -12,6 +12,7 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.AcoustId;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
@@ -129,6 +130,7 @@ public sealed partial class ImportService : IImportService
     private readonly ILogger<ImportService> _logger;
     private readonly AcoustIdKeyState _keyState;
     private readonly ILibraryRoots _libraryRoots;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the song and the file are written through it.</param>
@@ -147,6 +149,10 @@ public sealed partial class ImportService : IImportService
     /// <param name="logger">The logger.</param>
     /// <param name="libraryRoots">Tells whether the library root is mounted and marked before anything is written.</param>
     /// <param name="keyState">Counts how long imports have waited on a rejected AcoustID key.</param>
+    /// <param name="musicVideoOptions">
+    /// The <c>music_videos</c> settings, so a video that Remove file left behind is moved beside the song's next
+    /// file under the current suffix; none leaves such a video where it is.
+    /// </param>
     public ImportService(
         WondarrDbContext database,
         IDownloadVerifier verifier,
@@ -163,7 +169,8 @@ public sealed partial class ImportService : IImportService
         ISongFileLock songFileLock,
         ILogger<ImportService> logger,
         ILibraryRoots libraryRoots,
-        AcoustIdKeyState? keyState = null)
+        AcoustIdKeyState? keyState = null,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(verifier);
@@ -197,6 +204,7 @@ public sealed partial class ImportService : IImportService
         _logger = logger;
         _libraryRoots = libraryRoots;
         _keyState = keyState ?? new AcoustIdKeyState();
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -800,6 +808,12 @@ public sealed partial class ImportService : IImportService
             ? await _replayGain.MeasureAsync(importPath, cancellationToken).ConfigureAwait(false)
             : null;
 
+        // The song's video row is read before the audio moves, so a failed read costs nothing and never
+        // touches the lyrics or the audio's own record.
+        var video = await BesideTrackVideoMover
+            .TryLoadAsync(_database, song.Id, exception => LogVideoStepFailed(_logger, song.Id, exception))
+            .ConfigureAwait(false);
+
         // --- Tag, name, place ---------------------------------------------------------------------
         var placement = await _organizer
             .OrganizeAsync(
@@ -933,10 +947,16 @@ public sealed partial class ImportService : IImportService
         // converter does (R-050). A reference file is the user's own and keeps its neighbours. A
         // library file changes only under the song lock this import holds, so the one read at the
         // start is still the song's.
+        //
+        // The song's music video follows the same way (ADR-0014): when it sits beside the replaced file it is
+        // moved to the new name with its .nfo and thumbnail; when Remove file left it behind with no audio
+        // file beside it, the song's next file takes it. Its row is updated in the record step's save.
         if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
         {
             FileConverter.MoveSidecars(replaced.Path, finalPath);
         }
+
+        var videoNow = await MoveVideoAsync(song, video, finalPath).ConfigureAwait(false);
 
         bool upgraded;
         SongFile file;
@@ -957,6 +977,11 @@ public sealed partial class ImportService : IImportService
 
             upgraded = heldNow is not null;
             file = heldNow ?? new SongFile { SongId = song.Id };
+
+            if (video is not null && videoNow is not null)
+            {
+                video.Path = videoNow;
+            }
 
             file.Path = finalPath;
             file.Size = media.SizeBytes;
@@ -1034,6 +1059,12 @@ public sealed partial class ImportService : IImportService
             // caller gets an outcome, never an exception.
             LogRecordFailed(_logger, item.Id, exception);
 
+            // The video moved with the file, so its row says where it is even though the rest was not recorded.
+            if (videoNow is not null)
+            {
+                await RepairVideoPathAsync(item.Id, song.Id, videoNow).ConfigureAwait(false);
+            }
+
             return await FailSafelyAsync(
                     item.Id,
                     $"Imported to {finalPath} but recording it failed: {exception.Message}",
@@ -1061,6 +1092,61 @@ public sealed partial class ImportService : IImportService
         LogImported(_logger, item.Id, song.Id, finalPath, measuredName);
 
         return upgraded ? ImportOutcome.Upgraded : ImportOutcome.Imported;
+    }
+
+    /// <summary>
+    /// Takes the song's music video to the new file's name: beside the new file, under its own suffix, when it sat
+    /// beside the replaced file; otherwise by the "align the video" rule (<see cref="BesideTrackVideoMover"/>) for a
+    /// song that had no managed file. Never throws: a video that cannot move leaves its row as it was.
+    /// </summary>
+    /// <returns>Where the video's file is now when it moved, otherwise <see langword="null"/>.</returns>
+    private async Task<string?> MoveVideoAsync(Song song, MusicVideo? video, string finalPath)
+    {
+        var options = _musicVideoOptions?.CurrentValue;
+
+        if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
+        {
+            return SongFileRules.TryMoveVideo(
+                new DiskOperations(),
+                options,
+                replaced.Path,
+                finalPath,
+
+                // Already beside the new name (a stopped earlier run moved it): nothing to do.
+                SongFileRules.AlreadyBesideNewName(replaced.Path, finalPath, video?.Path) ? null : video?.Path,
+                null,
+                (sidecar, target) => LogVideoLeftBehind(_logger, sidecar, target),
+                (sidecar, reason) => LogVideoNotMoved(_logger, sidecar, reason),
+                exception => LogVideoStepFailed(_logger, song.Id, exception));
+        }
+
+        return await BesideTrackVideoMover
+            .TryAlignAsync(
+                _database,
+                new DiskOperations(),
+                options,
+                video,
+                finalPath,
+                (sidecar, target) => LogVideoLeftBehind(_logger, sidecar, target),
+                (sidecar, reason) => LogVideoNotMoved(_logger, sidecar, reason),
+                exception => LogVideoStepFailed(_logger, song.Id, exception))
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Writes where a moved video is on its own, after the import's record step failed.</summary>
+    private async Task RepairVideoPathAsync(long itemId, long songId, string path)
+    {
+        try
+        {
+            await _database.MusicVideos
+                .Where(candidate => candidate.SongId == songId)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, path), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogRecordFailed(_logger, itemId, exception);
+        }
     }
 
     /// <summary>
@@ -2059,6 +2145,15 @@ public sealed partial class ImportService : IImportService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Not removing the leftovers of {Path}: {Reason}")]
     private static partial void LogLeftoverRefused(ILogger logger, string path, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video file {Path} stays where it is: {Target} is taken")]
+    private static partial void LogVideoLeftBehind(ILogger logger, string path, string target);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video file {Path} could not be moved: {Reason}")]
+    private static partial void LogVideoNotMoved(ILogger logger, string path, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The import of queue item {QueueItemId} could not be recorded")]
     private static partial void LogRecordFailed(ILogger logger, long queueItemId, Exception exception);

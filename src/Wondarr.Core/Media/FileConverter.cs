@@ -2,9 +2,11 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
@@ -133,7 +135,7 @@ public sealed partial class FileConverter : IFileConverter
     /// <summary>How far the converted file's length may be from the original's, in milliseconds.</summary>
     private const int DurationToleranceMs = 1_000;
 
-    private static readonly string[] SidecarExtensions = [".lrc", ".txt"];
+    private static readonly DiskOperations Disk = new();
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -146,6 +148,7 @@ public sealed partial class FileConverter : IFileConverter
     private readonly IPlexLibraryUpdater _updater;
     private readonly ILibraryRoots _roots;
     private readonly ILogger<FileConverter> _logger;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="FileConverter"/> class.</summary>
     /// <param name="database">The Wondarr database.</param>
@@ -157,6 +160,7 @@ public sealed partial class FileConverter : IFileConverter
     /// <param name="updater">Asks Plex to scan the folder.</param>
     /// <param name="roots">Holds a conversion back while the library's root is missing or unmarked.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="musicVideoOptions">The <c>music_videos</c> settings; without them no video moves with a renamed file.</param>
     public FileConverter(
         WondarrDbContext database,
         ITranscoder transcoder,
@@ -166,7 +170,8 @@ public sealed partial class FileConverter : IFileConverter
         ISongFileLock songFileLock,
         IPlexLibraryUpdater updater,
         ILibraryRoots roots,
-        ILogger<FileConverter> logger)
+        ILogger<FileConverter> logger,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(transcoder);
@@ -187,6 +192,7 @@ public sealed partial class FileConverter : IFileConverter
         _updater = updater;
         _roots = roots;
         _logger = logger;
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -416,6 +422,11 @@ public sealed partial class FileConverter : IFileConverter
                 ? await _replayGain.MeasureAsync(tempPath, cancellationToken).ConfigureAwait(false)
                 : null;
 
+            // The song's video row is read before the audio moves, so a failed read costs nothing.
+            var video = await BesideTrackVideoMover
+                .TryLoadAsync(_database, songId, exception => LogVideoStepFailed(_logger, songId, exception))
+                .ConfigureAwait(false);
+
             OrganizeResult placement;
 
             try
@@ -497,6 +508,26 @@ public sealed partial class FileConverter : IFileConverter
 
             MoveSidecars(currentPath, finalPath);
 
+            // The song's music video, when it sits beside the old file, goes with it; the row follows it in
+            // the same save as the file's new path. A video that cannot move never fails the conversion.
+            var videoNow = SongFileRules.TryMoveVideo(
+                Disk,
+                _musicVideoOptions?.CurrentValue,
+                currentPath,
+                finalPath,
+
+                // Already beside the new name (a stopped earlier run moved it): nothing to do.
+                SongFileRules.AlreadyBesideNewName(currentPath, finalPath, video?.Path) ? null : video?.Path,
+                null,
+                (sidecar, target) => LogVideoLeftBehind(_logger, sidecar, target),
+                (sidecar, reason) => LogVideoNotMoved(_logger, sidecar, reason),
+                exception => LogVideoStepFailed(_logger, songId, exception));
+
+            if (video is not null && videoNow is not null)
+            {
+                video.Path = videoNow;
+            }
+
             var from = new ConvertedFile(file.Codec, file.BitrateKbps, currentPath);
 
             file.Path = finalPath;
@@ -545,6 +576,12 @@ public sealed partial class FileConverter : IFileConverter
                             .SetProperty(candidate => candidate.Container, media.Container),
                         CancellationToken.None)
                     .ConfigureAwait(false);
+
+                // The video moved with the file, so its row says where it is too.
+                if (videoNow is not null)
+                {
+                    await RepairVideoPathAsync(songId, videoNow).ConfigureAwait(false);
+                }
 
                 return new ConvertSongResult(
                     songId,
@@ -683,25 +720,17 @@ public sealed partial class FileConverter : IFileConverter
     };
 
     /// <summary>
-    /// Moves the sidecars of the old file beside the new one when the name changed. A sidecar whose
-    /// new name is taken stays where it was: nothing is ever replaced.
+    /// Moves the lyrics sidecars of the old file beside the new one when the name changed. A sidecar whose new
+    /// name is taken stays where it was: nothing is ever replaced. The rules are <see cref="SongFileRules"/>'s,
+    /// the same ones the other movers use; a music video travels by <see cref="SongFileRules.TryMoveVideo"/>.
     /// </summary>
+    /// <param name="oldPath">The audio file that was replaced.</param>
+    /// <param name="newPath">The audio file that replaces it.</param>
     internal static void MoveSidecars(string oldPath, string newPath)
     {
-        var oldBase = Path.ChangeExtension(oldPath, null);
-        var newBase = Path.ChangeExtension(newPath, null);
-
-        if (oldBase is null || newBase is null || string.Equals(oldBase, newBase, StringComparison.Ordinal))
+        foreach (var (from, to, taken) in SongFileRules.SidecarMoves(Disk, oldPath, newPath))
         {
-            return;
-        }
-
-        foreach (var extension in SidecarExtensions)
-        {
-            var from = string.Concat(oldBase, extension);
-            var to = string.Concat(newBase, extension);
-
-            if (!File.Exists(from) || File.Exists(to))
+            if (taken)
             {
                 continue;
             }
@@ -715,6 +744,22 @@ public sealed partial class FileConverter : IFileConverter
                 // The sidecar is the user's lyrics; leaving it beside the recycled name is better
                 // than failing a conversion that already happened.
             }
+        }
+    }
+
+    /// <summary>Writes where a moved video is on its own, after the conversion's save failed; never throws.</summary>
+    private async Task RepairVideoPathAsync(long songId, string path)
+    {
+        try
+        {
+            await _database.MusicVideos
+                .Where(candidate => candidate.SongId == songId)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, path), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogVideoStepFailed(_logger, songId, exception);
         }
     }
 
@@ -744,6 +789,15 @@ public sealed partial class FileConverter : IFileConverter
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Converted song {SongId} reached {Path} but the placement reported an error ({Error}); recording it as placed")]
     private static partial void LogPlacedDespiteError(ILogger logger, long songId, string path, string error);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video file {Path} stays where it is: {Target} is taken")]
+    private static partial void LogVideoLeftBehind(ILogger logger, string path, string target);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video file {Path} could not be moved: {Reason}")]
+    private static partial void LogVideoNotMoved(ILogger logger, string path, string reason);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Converting song {SongId} failed")]
     private static partial void LogFailed(ILogger logger, long songId, Exception exception);

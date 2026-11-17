@@ -11,6 +11,7 @@ using Wondarr.Core.Lyrics;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Profiles;
 using Wondarr.Core.Persistence;
@@ -108,6 +109,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
     /// <summary>The import options the host runs on, so a test can switch the fake-lossless check.</summary>
     public ImportOptions ImportOptions { get; private init; } = null!;
 
+    /// <summary>The <c>music_videos</c> settings the import reads, which start at the defaults (the folder layout).</summary>
+    public MusicVideoOptions MusicVideoOptions { get; private init; } = null!;
+
     /// <summary>The scripted loudness analyzer, which finds a fixed gain unless a test says otherwise.</summary>
     public FakeReplayGainAnalyzer ReplayGain { get; private init; } = null!;
 
@@ -192,6 +196,9 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<IOptionsMonitor<SearchOptions>>(new TestOptionsMonitor<SearchOptions>(options));
         services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(importOptions));
         services.AddSingleton<IOptionsMonitor<LyricsOptions>>(new TestOptionsMonitor<LyricsOptions>(new LyricsOptions()));
+
+        var musicVideoOptions = new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout };
+        services.AddSingleton<IOptionsMonitor<MusicVideoOptions>>(new TestOptionsMonitor<MusicVideoOptions>(musicVideoOptions));
         services.AddSingleton<ILrclibClient>(lrclib);
         services.AddSingleton<ICoverImageProcessor>(coverProcessor);
         services.AddSingleton<IDownloadVerifier>(verifier);
@@ -229,6 +236,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
             Probe = probe,
             Spectral = spectral,
             ImportOptions = importOptions,
+            MusicVideoOptions = musicVideoOptions,
             TagWriter = tagWriter,
             ReplayGain = replayGain,
             Placer = placer,

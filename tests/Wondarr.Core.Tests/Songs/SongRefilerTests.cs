@@ -3,6 +3,7 @@ using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
@@ -53,6 +54,45 @@ public sealed class SongRefilerTests : IDisposable
         _updater
             .When(updater => updater.RequestFolder(Arg.Any<long>(), Arg.Any<string>()))
             .Do(call => _scans.Add(call.ArgAt<string>(1)));
+    }
+
+    [Fact]
+    public async Task A_beside_track_video_with_its_nfo_and_thumbnail_goes_with_the_file_and_the_row_follows()
+    {
+        await using var context = await ContextAsync();
+        var (song, from) = await SeedAsync(context, SourceTypes.Soulseek);
+        var videoBase = Path.ChangeExtension(from, null) + "-clip";
+
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            await File.WriteAllTextAsync(videoBase + extension, "video group " + extension);
+        }
+
+        context.MusicVideos.Add(new MusicVideo
+        {
+            SongId = song,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "yt1",
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = videoBase + ".mkv",
+        });
+        await context.SaveChangesAsync();
+        await ChooseAlbumAsync(context, song, "r1", "Random Access Memories");
+
+        var result = await Refiler(context).RefileAsync(song, CancellationToken.None);
+
+        result.Outcome.Should().Be(SongRefileOutcome.Refiled);
+
+        var targetFolder = Path.Combine(_root, "Daft Punk", "Random Access Memories");
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(Path.Combine(targetFolder, "01 - Track 1-clip" + suffix)).Should().BeTrue(suffix);
+            File.Exists(videoBase + suffix).Should().BeFalse(suffix);
+        }
+
+        await using var fresh = _database.CreateContext(_time);
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(targetFolder, "01 - Track 1-clip.mkv"));
     }
 
     [Fact]
@@ -290,7 +330,8 @@ public sealed class SongRefilerTests : IDisposable
                 NullLogger<RecycleBin>.Instance),
             _updater,
             new SongFileLock(),
-            NullLogger<SongRefiler>.Instance);
+            NullLogger<SongRefiler>.Instance,
+            new TestOptionsMonitor<MusicVideoOptions>(new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout }));
 
     private async Task<WondarrDbContext> ContextAsync()
     {
