@@ -4,6 +4,7 @@ import { CircleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ApiError } from '../api/errors';
+import { useMusicVideosEnabled } from '../api/musicVideos';
 import { useLibraries, useQualityDefinitions, useQualityProfiles } from '../api/profiles';
 import { useSongSearchCommand } from '../api/queue';
 import { useSong, useSongDetails, useUpdateSong } from '../api/songs';
@@ -20,12 +21,13 @@ import { AboutTab } from './song/AboutTab';
 import { FileTab } from './song/FileTab';
 import { LastFmTab } from './song/LastFmTab';
 import { LyricsTab } from './song/LyricsTab';
+import { MusicVideoTab } from './song/MusicVideoTab';
 import { SongHeader } from './song/SongHeader';
 
 /** The tabs under the header; Last.fm is only offered when the details carry a Last.fm section. */
-type SongTab = 'file' | 'about' | 'lastfm' | 'lyrics' | 'history' | 'queue';
+type SongTab = 'file' | 'about' | 'lastfm' | 'lyrics' | 'musicvideo' | 'history' | 'queue';
 
-const TABS: SongTab[] = ['file', 'about', 'lastfm', 'lyrics', 'history', 'queue'];
+const TABS: SongTab[] = ['file', 'about', 'lastfm', 'lyrics', 'musicvideo', 'history', 'queue'];
 
 /** The dialogs the header opens. */
 type SongDialog = 'album' | 'convert' | 'move' | 'removeFile' | 'delete';
@@ -79,6 +81,7 @@ export function SongPage() {
   const definitions = useQualityDefinitions();
   const update = useUpdateSong();
   const search = useSongSearchCommand();
+  const musicVideos = useMusicVideosEnabled();
 
   const data = song.data;
 
@@ -99,7 +102,9 @@ export function SongPage() {
   const lastFm = details.data?.lastFm ?? null;
   const requested = params.get('tab');
   const active: SongTab =
-    TABS.includes(requested as SongTab) && (requested !== 'lastfm' || lastFm !== null)
+    TABS.includes(requested as SongTab) &&
+    (requested !== 'lastfm' || lastFm !== null) &&
+    (requested !== 'musicvideo' || musicVideos)
       ? (requested as SongTab)
       : 'file';
 
@@ -181,6 +186,7 @@ export function SongPage() {
           <Tabs.Tab value="about">About</Tabs.Tab>
           {lastFm !== null && <Tabs.Tab value="lastfm">Last.fm</Tabs.Tab>}
           <Tabs.Tab value="lyrics">Lyrics</Tabs.Tab>
+          {musicVideos && <Tabs.Tab value="musicvideo">Music video</Tabs.Tab>}
           <Tabs.Tab value="history">History</Tabs.Tab>
           <Tabs.Tab value="queue">Queue &amp; blocklist</Tabs.Tab>
         </Tabs.List>
@@ -215,6 +221,12 @@ export function SongPage() {
         <Tabs.Panel value="lyrics" pt="md">
           {active === 'lyrics' && <LyricsTab songId={songId} />}
         </Tabs.Panel>
+
+        {musicVideos && (
+          <Tabs.Panel value="musicvideo" pt="md">
+            {active === 'musicvideo' && <MusicVideoTab songId={songId} />}
+          </Tabs.Panel>
+        )}
 
         <Tabs.Panel value="history" pt="md">
           {active === 'history' && <HistoryTab songId={songId} />}

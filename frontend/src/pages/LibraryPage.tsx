@@ -18,11 +18,13 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useSongAlbum, type AlbumRefResource } from '../api/albums';
 import { filterEntries, useCustomFilters, type CustomFilterResource } from '../api/customFilters';
+import { useMusicVideosEnabled } from '../api/musicVideos';
 import { firstPage, type Paging } from '../api/paging';
 import { useLibraries, useQualityProfiles } from '../api/profiles';
 import { useArtists, useSongs, useUpdateSong, type SongResource } from '../api/songs';
 import { useTags } from '../api/tags';
 import { SongSearchButtons } from '../components/InteractiveSearchModal';
+import { musicVideoColumn } from '../components/MusicVideoCell';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
 import { ChangeAlbumModal } from '../components/song/ChangeAlbumModal';
@@ -152,6 +154,7 @@ function libraryColumns(
   selection: SelectionControl,
   showTags: boolean,
   onTag: (tag: string) => void,
+  showMusicVideo: boolean,
 ): PagedColumn<SongResource>[] {
   const onPage = selection.rows.filter((song) => selection.selected.has(Number(song.id))).length;
 
@@ -221,6 +224,7 @@ function libraryColumns(
         />
       ),
     },
+    ...(showMusicVideo ? [musicVideoColumn()] : []),
     {
       label: 'Actions',
       sortKey: null,
@@ -344,6 +348,7 @@ export function LibraryPage() {
   const views = useCustomFilters(LIBRARY_VIEW_TYPE);
   const update = useUpdateSong();
   const songs = useSongs(paging, toSongFilters(filters));
+  const musicVideos = useMusicVideosEnabled();
 
   /** Any change of filters starts again from page 1 with nothing selected. */
   const changeFilters = (change: (current: LibraryFilters) => LibraryFilters, fromView: number | null = null) => {
@@ -573,6 +578,7 @@ export function LibraryPage() {
           selection,
           showTags,
           (tag) => changeFilters((current) => ({ ...current, tag })),
+          musicVideos,
         )}
         rows={rows}
         totalRecords={Number(songs.data?.totalRecords ?? 0)}
@@ -589,6 +595,7 @@ export function LibraryPage() {
         profiles={profileList}
         libraries={libraryList}
         knownTags={tagList}
+        musicVideos={musicVideos}
         onClear={() => {
           setSelected(new Set());
           setLastClicked(null);

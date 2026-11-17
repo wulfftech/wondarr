@@ -1,6 +1,8 @@
 import { Alert, Button, Group, Modal, Paper, Radio, Select, Stack, TagsInput, Text } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
+import { useBulkSearchMusicVideos } from '../../api/musicVideos';
 import type { LibraryResource, QualityProfileResource } from '../../api/profiles';
 import {
   isUnsuccessful,
@@ -19,6 +21,8 @@ interface MassEditorBarProps {
   libraries: LibraryResource[];
   /** The tags songs already carry, offered as suggestions. */
   knownTags: string[];
+  /** Whether music videos are on, which adds "Find music videos". */
+  musicVideos?: boolean;
   onClear: () => void;
 }
 
@@ -180,8 +184,16 @@ function DeleteSongsModal({
   );
 }
 
-export function MassEditorBar({ selectedIds, profiles, libraries, knownTags, onClear }: MassEditorBarProps) {
+export function MassEditorBar({
+  selectedIds,
+  profiles,
+  libraries,
+  knownTags,
+  musicVideos = false,
+  onClear,
+}: MassEditorBarProps) {
   const edit = useEditSongs();
+  const findVideos = useBulkSearchMusicVideos();
   const [profileId, setProfileId] = useState<string | null>(null);
   const [libraryId, setLibraryId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<'tags' | 'delete' | null>(null);
@@ -272,6 +284,25 @@ export function MassEditorBar({ selectedIds, profiles, libraries, knownTags, onC
             <Button variant="default" size="xs" onClick={() => setDialog('tags')}>
               Tags…
             </Button>
+            {musicVideos && (
+              <Button
+                variant="default"
+                size="xs"
+                loading={findVideos.isPending}
+                onClick={() =>
+                  findVideos.mutate(selectedIds, {
+                    onSuccess: (queued) =>
+                      notifications.show({
+                        message: `Queued a music video search for ${songs(queued)}`,
+                        color: 'blue',
+                      }),
+                    onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
+                  })
+                }
+              >
+                Find music videos
+              </Button>
+            )}
             <Button color="red" variant="light" size="xs" onClick={() => setDialog('delete')}>
               Delete…
             </Button>

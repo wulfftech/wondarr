@@ -777,4 +777,92 @@ describe('LibraryPage mass editor', () => {
 
     await waitFor(() => expect(songQueries().at(-1)?.get('tag')).toBe('rock'));
   });
+
+  describe('music videos', () => {
+    /** The settings route, with the feature on or off, and the bulk search's answer. */
+    function videoRoutes(enabled: boolean) {
+      return (url: string, method: string): Response | null => {
+        if (url.endsWith('/api/v1/musicvideo/settings')) {
+          return jsonResponse({ enabled });
+        }
+
+        if (url.endsWith('/api/v1/musicvideo/search') && method === 'POST') {
+          return jsonResponse({ queued: 2, commandIds: [1, 2] }, 202);
+        }
+
+        return null;
+      };
+    }
+
+    it('has no video column while the feature is off', async () => {
+      install({ songs: makeSongs(2), extra: videoRoutes(false) });
+
+      renderApp();
+
+      await screen.findByText('Song A');
+
+      expect(screen.queryByRole('columnheader', { name: 'Music video' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Find music video for Song A')).not.toBeInTheDocument();
+    });
+
+    it('has no video column when the settings cannot be read', async () => {
+      install({ songs: makeSongs(2) });
+
+      renderApp();
+
+      await screen.findByText('Song A');
+
+      expect(screen.queryByRole('columnheader', { name: 'Music video' })).not.toBeInTheDocument();
+    });
+
+    it('puts the video column after Search while the feature is on, with each song’s icon', async () => {
+      const [first, second] = makeSongs(2);
+
+      install({
+        songs: [first, { ...second, musicVideo: { status: 'present', height: 1080 } }],
+        extra: videoRoutes(true),
+      });
+
+      renderApp();
+
+      await screen.findByLabelText('Find music video for Song A');
+
+      const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
+      const search = screen.getByRole('columnheader', { name: 'Search' });
+      const video = screen.getByRole('columnheader', { name: 'Music video' });
+
+      expect(headers.indexOf('Search')).toBeGreaterThan(-1);
+      expect(search.nextElementSibling).toBe(video);
+      expect(screen.getByLabelText('Music video for Song B')).toBeInTheDocument();
+    });
+
+    it('queues a search for the selected songs and says how many', async () => {
+      install({ songs: makeSongs(2), extra: videoRoutes(true) });
+      const user = userEvent.setup();
+
+      renderApp();
+
+      await user.click(await screen.findByLabelText('Select all on this page'));
+      await user.click(screen.getByRole('button', { name: 'Find music videos' }));
+
+      expect(await screen.findByText('Queued a music video search for 2 songs')).toBeInTheDocument();
+
+      const body = await lastBody('POST');
+
+      expect(body?.url).toMatch(/\/musicvideo\/search$/);
+      expect(body?.body).toEqual({ songIds: [12, 13] });
+    });
+
+    it('does not offer the bulk search while the feature is off', async () => {
+      install({ songs: makeSongs(2), extra: videoRoutes(false) });
+      const user = userEvent.setup();
+
+      renderApp();
+
+      await user.click(await screen.findByLabelText('Select all on this page'));
+
+      expect(screen.getByText('2 selected')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Find music videos' })).not.toBeInTheDocument();
+    });
+  });
 });
