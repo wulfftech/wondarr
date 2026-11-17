@@ -16,3 +16,5 @@ One file per decision, numbered, never deleted; superseded ADRs get a "Supersede
 | 0010 | *arr-compatible API, Docker conventions, port 1077 | Accepted |
 | 0011 | Agentic build workflow: Opus 5.5 orchestrator, cheap OpenRouter workers, review gates | Accepted |
 | 0012 | Inputs: reference libraries with a match queue, Exportify CSV, playlist and scrobble lists | Accepted |
+| 0013 | Discover: song radio from ListenBrainz, Last.fm and Deezer, with previews | Accepted |
+| 0014 | Music videos: opt-in, one per song, MKV from YouTube, folder or beside-the-track layout | Accepted |
