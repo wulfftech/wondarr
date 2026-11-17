@@ -7,6 +7,7 @@ The app is pointed at this proxy through its `metadata.*_base_url` settings:
     APP__METADATA__COVER_ART_ARCHIVE_BASE_URL=http://HOST:PORT/caa/
     APP__METADATA__DEEZER_BASE_URL=http://HOST:PORT/deezer/
     APP__METADATA__ITUNES_BASE_URL=http://HOST:PORT/itunes/
+    APP__METADATA__LISTENBRAINZ_LABS_BASE_URL=http://HOST:PORT/lbl/
 
 `--mode record` forwards every request to the real service (spacing requests per host so the
 MusicBrainz 1 req/s rule holds even if the app misbehaves) and stores the answer; `--mode replay`
@@ -36,6 +37,7 @@ UPSTREAMS = {
     "caa": ("https://coverartarchive.org", 0.25),
     "deezer": ("https://api.deezer.com", 0.15),
     "itunes": ("https://itunes.apple.com", 3.1),
+    "lbl": ("https://labs.api.listenbrainz.org", 1.1),
 }
 
 # Headers worth keeping from a recorded answer; everything else is noise for the app.
@@ -63,6 +65,8 @@ def not_found(service: str, path: str) -> tuple[int, dict[str, str], bytes]:
         return 200, json_type, b'{"error":{"type":"DataException","message":"no data","code":800}}'
     if service == "itunes":
         return 200, json_type, b'{"resultCount":0,"results":[]}'
+    if service == "lbl":
+        return 200, json_type, b"[]"
     return 404, {"content-type": "text/plain"}, b"not found"
 
 

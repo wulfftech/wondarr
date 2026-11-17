@@ -20,6 +20,15 @@ public sealed class MetadataOptions
     /// <summary>Base URL of the iTunes Search API.</summary>
     public string ITunesBaseUrl { get; set; } = "https://itunes.apple.com/";
 
+    /// <summary>Base URL of the Last.fm 2.0 API.</summary>
+    public string LastFmBaseUrl { get; set; } = "https://ws.audioscrobbler.com/2.0/";
+
+    /// <summary>Base URL of the ListenBrainz API; its 1.0 endpoints live under <c>1/</c>.</summary>
+    public string ListenBrainzBaseUrl { get; set; } = "https://api.listenbrainz.org/";
+
+    /// <summary>Base URL of ListenBrainz Labs, which serves similar recordings.</summary>
+    public string ListenBrainzLabsBaseUrl { get; set; } = "https://labs.api.listenbrainz.org/";
+
     /// <summary>Contact URL sent in the <c>User-Agent</c>, as MusicBrainz asks callers to do.</summary>
     public string ContactUrl { get; set; } = "https://github.com/wulfftech/wondarr";
 
@@ -72,6 +81,9 @@ public sealed class MetadataOptionsValidator : IValidateOptions<MetadataOptions>
         Check("metadata.cover_art_archive_base_url", options.CoverArtArchiveBaseUrl, failures);
         Check("metadata.deezer_base_url", options.DeezerBaseUrl, failures);
         Check("metadata.itunes_base_url", options.ITunesBaseUrl, failures);
+        Check("metadata.lastfm_base_url", options.LastFmBaseUrl, failures);
+        Check("metadata.listenbrainz_base_url", options.ListenBrainzBaseUrl, failures);
+        Check("metadata.listenbrainz_labs_base_url", options.ListenBrainzLabsBaseUrl, failures);
         Check("metadata.contact_url", options.ContactUrl, failures);
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
@@ -104,6 +116,9 @@ public sealed class MetadataOptionsPostConfigure : IPostConfigureOptions<Metadat
         options.CoverArtArchiveBaseUrl = WithTrailingSlash(options.CoverArtArchiveBaseUrl);
         options.DeezerBaseUrl = WithTrailingSlash(options.DeezerBaseUrl);
         options.ITunesBaseUrl = WithTrailingSlash(options.ITunesBaseUrl);
+        options.LastFmBaseUrl = WithTrailingSlash(options.LastFmBaseUrl);
+        options.ListenBrainzBaseUrl = WithTrailingSlash(options.ListenBrainzBaseUrl);
+        options.ListenBrainzLabsBaseUrl = WithTrailingSlash(options.ListenBrainzLabsBaseUrl);
         options.ContactUrl = (options.ContactUrl ?? string.Empty).Trim();
     }
 

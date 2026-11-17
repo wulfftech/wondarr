@@ -2,6 +2,7 @@ using System.Net;
 using System.Reflection;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Identity;
+using Wondarr.Core.Discover;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Logging;
 using Wondarr.Core.Lyrics;
@@ -11,6 +12,7 @@ using Wondarr.Core.Metadata.Deezer;
 using Wondarr.Core.Metadata.Http;
 using Wondarr.Core.Metadata.ITunes;
 using Wondarr.Core.Metadata.LastFm;
+using Wondarr.Core.Metadata.ListenBrainz;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.MusicBrainz;
 using Wondarr.Core.Plex;
@@ -47,17 +49,17 @@ public static class ServiceCollectionExtensions
     /// <summary>The key the Last.fm request-spacing gate is registered under.</summary>
     public const string LastFmGateKey = "lastfm";
 
+    /// <summary>The key the ListenBrainz Labs request-spacing gate is registered under.</summary>
+    public const string ListenBrainzLabsGateKey = "listenbrainz-labs";
+
     /// <summary>The name of the <see cref="HttpClient"/> the Last.fm import-list providers and the song page read through.</summary>
     public const string LastFmClientName = "lastfm";
 
     /// <summary>The name of the <see cref="HttpClient"/> the ListenBrainz import-list providers read through.</summary>
     public const string ListenBrainzClientName = "listenbrainz";
 
-    /// <summary>Last.fm's 2.0 API, which the loved and top lists are read from.</summary>
-    public const string LastFmBaseUrl = "https://ws.audioscrobbler.com/2.0/";
-
-    /// <summary>ListenBrainz's 1.0 API, which the loved and playlist lists are read from.</summary>
-    public const string ListenBrainzBaseUrl = "https://api.listenbrainz.org/1/";
+    /// <summary>The path under <see cref="MetadataOptions.ListenBrainzBaseUrl"/> the import lists read ListenBrainz's 1.0 API from.</summary>
+    public const string ListenBrainzApiPath = "1/";
 
     /// <summary>How long one Last.fm or ListenBrainz request may take.</summary>
     private static readonly TimeSpan ListClientTimeout = TimeSpan.FromSeconds(30);
@@ -79,6 +81,9 @@ public static class ServiceCollectionExtensions
 
     /// <summary>How long one Last.fm request is spaced from the next: four a second, under the five Last.fm allows.</summary>
     private static readonly TimeSpan LastFmInterval = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>How long one ListenBrainz Labs request is spaced from the next: one a second.</summary>
+    private static readonly TimeSpan ListenBrainzLabsInterval = TimeSpan.FromSeconds(1);
 
     /// <summary>How long one Cover Art Archive request is spaced from the next. Undocumented, so polite.</summary>
     private static readonly TimeSpan CoverArtArchiveInterval = TimeSpan.FromMilliseconds(200);
@@ -341,7 +346,7 @@ public static class ServiceCollectionExtensions
         {
             var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
 
-            client.BaseAddress = new Uri(LastFmBaseUrl, UriKind.Absolute);
+            client.BaseAddress = new Uri(options.LastFmBaseUrl, UriKind.Absolute);
             client.Timeout = ListClientTimeout;
             AddProviderHeaders(client, options);
         });
@@ -393,7 +398,7 @@ public static class ServiceCollectionExtensions
         {
             var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
 
-            client.BaseAddress = new Uri(ListenBrainzBaseUrl, UriKind.Absolute);
+            client.BaseAddress = new Uri(new Uri(options.ListenBrainzBaseUrl, UriKind.Absolute), ListenBrainzApiPath);
             client.Timeout = ListClientTimeout;
             AddProviderHeaders(client, options);
         });
@@ -420,6 +425,28 @@ public static class ServiceCollectionExtensions
             });
         });
 
+        // ListenBrainz Labs (similar recordings, for Discover) has its own host and its own gate: one
+        // request a second, and a Retry-After from a 429 holds every later caller back.
+        services.AddKeyedSingleton(ListenBrainzLabsGateKey, (serviceProvider, _) => new RequestSpacingGate(
+            ListenBrainzLabsInterval,
+            serviceProvider.GetRequiredService<TimeProvider>()));
+
+        var listenBrainzLabs = services.AddHttpClient<IListenBrainzLabsClient, ListenBrainzLabsClient>(
+            (serviceProvider, client) =>
+            {
+                var options = serviceProvider.GetRequiredService<IOptions<MetadataOptions>>().Value;
+
+                client.BaseAddress = new Uri(options.ListenBrainzLabsBaseUrl, UriKind.Absolute);
+                client.Timeout = Timeout.InfiniteTimeSpan;
+                AddProviderHeaders(client, options);
+            });
+
+        listenBrainzLabs.AddHttpMessageHandler(serviceProvider => new RequestSpacingHandler(
+            serviceProvider.GetRequiredKeyedService<RequestSpacingGate>(ListenBrainzLabsGateKey),
+            ListenBrainzLabsClient.Provider));
+
+        listenBrainzLabs.AddHttpMessageHandler(serviceProvider => AttemptLimit(serviceProvider, ListenBrainzLabsClient.Provider));
+
         // The cover client the import pipeline downloads embedded artwork with. Named rather than
         // typed: its one operation is "GET this image URL and hand me the bytes", which a typed
         // client interface would only restate. It carries the same identifying User-Agent as the
@@ -445,6 +472,9 @@ public static class ServiceCollectionExtensions
         // Lyrics come from LRCLIB, which is not one of the metadata providers but is registered with the
         // same identifying User-Agent and the same shape of client.
         services.AddWondarrLyrics(configuration);
+
+        // Discover reads the clients above (and Last.fm and Deezer) for song suggestions.
+        services.AddWondarrDiscover(configuration);
 
         return services;
     }

@@ -21,9 +21,12 @@ public sealed record DeezerAlbumRef
 
     /// <summary>Gets the 1000×1000 cover URL, when Deezer has one.</summary>
     public string? CoverXl { get; init; }
+
+    /// <summary>Gets the 250×250 cover URL, as a radio or search row carries it.</summary>
+    public string? CoverMedium { get; init; }
 }
 
-/// <summary>A Deezer track: the closest thing Deezer has to "one song".</summary>
+/// <summary>A Deezer track:the closest thing Deezer has to "one song".</summary>
 public sealed record DeezerTrack
 {
     /// <summary>Gets the Deezer track id.</summary>

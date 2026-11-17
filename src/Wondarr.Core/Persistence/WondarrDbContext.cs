@@ -1,3 +1,4 @@
+using Wondarr.Core.Discover;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.Metadata;
@@ -107,6 +108,9 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the file moves a Compact library run is making.</summary>
     public DbSet<CompactMoveRecord> CompactMoves => Set<CompactMoveRecord>();
 
+    /// <summary>Gets the Discover suggestions the user turned down.</summary>
+    public DbSet<DiscoverDismissal> DiscoverDismissals => Set<DiscoverDismissal>();
+
     /// <summary>
     /// SQLite has no date type, so values come back with <see cref="DateTimeKind.Unspecified"/>.
     /// Everything is stored as UTC; mark it so on the way out to keep arithmetic with
@@ -132,6 +136,7 @@ public sealed class WondarrDbContext : DbContext
         modelBuilder.ApplyConfiguration(new IndexerConfiguration());
         modelBuilder.ApplyConfiguration(new DownloadClientConfiguration());
         modelBuilder.ApplyConfiguration(new CompactMoveConfiguration());
+        modelBuilder.ApplyConfiguration(new DiscoverDismissalConfiguration());
 
         modelBuilder.Entity<Setting>(entity =>
         {

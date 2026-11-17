@@ -26,7 +26,7 @@ public sealed class LastFmProvidersTests
     private const string User = "someone";
 
     /// <summary>The base address the named <c>lastfm</c> client is registered with.</summary>
-    private static readonly string BaseAddress = Wondarr.Core.Metadata.ServiceCollectionExtensions.LastFmBaseUrl;
+    private static readonly string BaseAddress = "https://ws.audioscrobbler.com/2.0/";
 
     [Fact]
     public async Task Loved_reads_one_page_and_maps_its_tracks()
