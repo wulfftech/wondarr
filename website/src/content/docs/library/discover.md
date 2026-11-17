@@ -28,7 +28,7 @@ A **radio** is seeded by one song. Start one from:
 
 Discover works with no keys at all. When a source is off or did not answer, a notice above the list says so. Suggestions from several sources are merged into one row, and each row shows which sources it came from.
 
-Suggestions you already have are dropped: anything in your libraries or reference libraries, the seed itself, and anything you turned down. A radio shows at most three songs per artist. Results are kept for six hours per seed. **Show more** raises the list from 50 up to 200 rows.
+Suggestions you already have are dropped: every song Wondarr knows (including reference-library files it has identified), the seed itself, and anything you turned down. A reference file still waiting in **Match** is not known yet. A radio shows at most three songs per artist. Results are kept for six hours per seed. **Show more** raises the list from 50 up to 200 rows.
 
 ## What you can do with a suggestion
 
