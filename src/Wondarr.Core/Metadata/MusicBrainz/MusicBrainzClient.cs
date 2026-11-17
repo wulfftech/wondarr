@@ -93,6 +93,49 @@ public sealed class MusicBrainzClient : IMusicBrainzClient
     }
 
     /// <inheritdoc />
+    public async Task<MbRecordingRelations?> GetRecordingRelationsAsync(
+        string recordingId,
+        CancellationToken cancellationToken = default)
+    {
+        var id = NormalizeMbid(recordingId, nameof(recordingId));
+
+        var body = await GetBodyAsync<MbRecordingRelationsDocument>(
+                $"recording/{id}?inc=recording-rels+url-rels&fmt=json",
+                LookupTtl,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (body is null)
+        {
+            return null;
+        }
+
+        var document = JsonSerializer.Deserialize<MbRecordingRelationsDocument>(body, SerializerOptions);
+
+        if (document is null)
+        {
+            return null;
+        }
+
+        var musicVideos = document.Relations
+            .Where(relation => relation.TargetType == "recording"
+                && string.Equals(relation.Type, "music video", StringComparison.OrdinalIgnoreCase)
+                && relation.Recording is { Id.Length: > 0 })
+            .Select(relation => new MbMusicVideoRelation(
+                relation.Recording!.Id,
+                relation.Recording.Video == true,
+                relation.Direction))
+            .ToList();
+
+        var urls = document.Relations
+            .Where(relation => relation.TargetType == "url" && relation.Url is { Resource.Length: > 0 })
+            .Select(relation => new MbUrlRelation(relation.Type, relation.Url!.Resource))
+            .ToList();
+
+        return new MbRecordingRelations(document.Id, document.Video == true, document.Length, musicVideos, urls);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<MbRecording>> GetRecordingsByIsrcAsync(
         string isrc,
         CancellationToken cancellationToken = default)
