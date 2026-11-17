@@ -177,7 +177,7 @@ describe('the music video icon', () => {
 
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky failed' }));
 
-    expect(await screen.findByText(/The video folder has no marker file/)).toBeInTheDocument();
+    expect(await screen.findByText(/The last download failed: The video folder has no marker file/)).toBeInTheDocument();
     expect(await screen.findByText('Get Lucky (Official Video)')).toBeInTheDocument();
   });
 });
