@@ -274,10 +274,23 @@ internal static partial class ImportRecovery
         // import's record step uses puts the video beside the landed file; it never fails the recovery.
         var video = await BesideTrackVideoMover.TryLoadAsync(database, song.Id).ConfigureAwait(false);
 
-        if (await BesideTrackVideoMover.TryAlignAsync(database, new DiskOperations(), videoOptions, video, landedPath).ConfigureAwait(false) is { } alignedVideo
-            && video is not null)
+        try
         {
-            video.Path = alignedVideo;
+            // Bounded like every other disk call of the video code: a hung share costs one timeout.
+            var alignedVideo = await MusicVideoDisk
+                .RunAsync(
+                    () => BesideTrackVideoMover.TryAlignAsync(database, new DiskOperations(), videoOptions, video, landedPath).GetAwaiter().GetResult(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (alignedVideo is not null && video is not null)
+            {
+                video.Path = alignedVideo;
+            }
+        }
+        catch (MusicVideoTimeoutException)
+        {
+            // The video stays where it was; the audio's record goes ahead.
         }
 
         database.History.Add(new HistoryItem

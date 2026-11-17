@@ -125,6 +125,17 @@ internal static class SongFileRules
         return PathRules.AreEqual(audioFolder, videoFolder) ? videoStem[audioStem.Length..] : null;
     }
 
+    /// <summary>
+    /// Whether the video already sits beside the <em>new</em> audio name of a rename that lengthens the name
+    /// (<c>Song</c> to <c>Song (Live)</c>): the video is named after the new name already, so a stopped earlier run
+    /// moved it, and moving it again would stack the suffix (<c>Song (Live) (Live)-video.mkv</c>). A rename that
+    /// shortens the name is never skipped: a video beside both names is the old file's and does move.
+    /// </summary>
+    internal static bool AlreadyBesideNewName(string oldAudio, string newAudio, string? videoPath) =>
+        BesideRemainder(newAudio, videoPath) is not null
+        && Path.GetFileNameWithoutExtension(newAudio).Length > Path.GetFileNameWithoutExtension(oldAudio).Length
+        && Path.GetFileNameWithoutExtension(newAudio).StartsWith(Path.GetFileNameWithoutExtension(oldAudio), PathRules.Comparison);
+
     /// <summary>One file of a video's group that moves with the audio file.</summary>
     /// <param name="From">Where the file is.</param>
     /// <param name="To">Where it goes.</param>

@@ -1146,7 +1146,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
                 }
             }
 
-            var adoptedVideo = StageVideo(from, staged, videoPath);
+            var adoptedVideo = StageVideo(row.SongId, from, staged, videoPath);
 
             await SetStateAsync(row.Id, CompactMoveState.Staged, staged, final: null, message: null, adoptedVideo)
                 .ConfigureAwait(false);
@@ -1207,7 +1207,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         // The song's music video, when it sits beside the audio file, travels with it, with its .nfo and
         // thumbnail. Like a lyrics sidecar, one that cannot be moved stays where it is and never stops the
         // audio file going back.
-        var stagedVideo = StageVideo(from, staged, videoPath);
+        var stagedVideo = StageVideo(row.SongId, from, staged, videoPath);
 
         // The row names the staged video in the same save that records the staged audio, so it never names a
         // file that is not there during the run; place and give-up move it on from here.
@@ -2115,7 +2115,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
     /// <summary>Takes the song's beside-track video, with its <c>.nfo</c> and thumbnail, into the staging folder.</summary>
     /// <returns>Where the video is now when it moved, or <see langword="null"/>.</returns>
-    private string? StageVideo(string from, string stagedAudio, string? videoPath) =>
+    private string? StageVideo(long songId, string from, string stagedAudio, string? videoPath) =>
         SongFileRules.TryMoveVideo(
             _disk,
             _musicVideoOptions?.CurrentValue,
@@ -2125,7 +2125,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
             null,
             (file, target) => LogSidecarLeftBehind(_logger, file, target),
             (file, reason) => LogSidecarNotStaged(_logger, file, reason),
-            exception => LogVideoStepFailed(_logger, 0, exception));
+            exception => LogVideoStepFailed(_logger, songId, exception));
 
     /// <summary>
     /// Takes the video from staging (or from beside the old audio file, when it was never staged) to its place

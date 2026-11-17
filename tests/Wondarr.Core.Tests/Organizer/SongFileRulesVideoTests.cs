@@ -153,6 +153,19 @@ public sealed class SongFileRulesVideoTests : IDisposable
     }
 
     [Fact]
+    public void A_video_already_named_after_a_longer_new_name_is_not_moved_again()
+    {
+        var oldAudio = _temp.Full("music/A/Song.flac");
+        var newAudio = _temp.Full("music/A/Song (Live).flac");
+
+        SongFileRules.AlreadyBesideNewName(oldAudio, newAudio, _temp.Full("music/A/Song (Live)-video.mkv")).Should().BeTrue();
+        SongFileRules.AlreadyBesideNewName(oldAudio, newAudio, _temp.Full("music/A/Song-video.mkv")).Should().BeFalse();
+
+        // A shortened name: the video beside both names is the old file's and does move.
+        SongFileRules.AlreadyBesideNewName(newAudio, oldAudio, _temp.Full("music/A/Song (Live)-video.mkv")).Should().BeFalse();
+    }
+
+    [Fact]
     public void A_new_name_with_the_same_stem_moves_nothing()
     {
         var audio = _temp.Full("music/A/01 - Song.flac");

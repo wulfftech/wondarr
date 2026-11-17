@@ -1111,7 +1111,9 @@ public sealed partial class ImportService : IImportService
                 options,
                 replaced.Path,
                 finalPath,
-                video?.Path,
+
+                // Already beside the new name (a stopped earlier run moved it): nothing to do.
+                SongFileRules.AlreadyBesideNewName(replaced.Path, finalPath, video?.Path) ? null : video?.Path,
                 null,
                 (sidecar, target) => LogVideoLeftBehind(_logger, sidecar, target),
                 (sidecar, reason) => LogVideoNotMoved(_logger, sidecar, reason),

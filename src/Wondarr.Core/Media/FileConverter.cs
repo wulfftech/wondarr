@@ -515,7 +515,9 @@ public sealed partial class FileConverter : IFileConverter
                 _musicVideoOptions?.CurrentValue,
                 currentPath,
                 finalPath,
-                video?.Path,
+
+                // Already beside the new name (a stopped earlier run moved it): nothing to do.
+                SongFileRules.AlreadyBesideNewName(currentPath, finalPath, video?.Path) ? null : video?.Path,
                 null,
                 (sidecar, target) => LogVideoLeftBehind(_logger, sidecar, target),
                 (sidecar, reason) => LogVideoNotMoved(_logger, sidecar, reason),
@@ -578,10 +580,7 @@ public sealed partial class FileConverter : IFileConverter
                 // The video moved with the file, so its row says where it is too.
                 if (videoNow is not null)
                 {
-                    await _database.MusicVideos
-                        .Where(candidate => candidate.SongId == songId)
-                        .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, videoNow), CancellationToken.None)
-                        .ConfigureAwait(false);
+                    await RepairVideoPathAsync(songId, videoNow).ConfigureAwait(false);
                 }
 
                 return new ConvertSongResult(
@@ -721,10 +720,9 @@ public sealed partial class FileConverter : IFileConverter
     };
 
     /// <summary>
-    /// Moves the sidecars of the old file beside the new one when the name changed: its lyrics and, when
-    /// <paramref name="videoPath"/> names a music video that sits beside the old file, the video with its
-    /// <c>.nfo</c> and thumbnail. A sidecar whose new name is taken stays where it was: nothing is ever
-    /// replaced. The rules are <see cref="SongFileRules"/>'s, the same ones the other movers use.
+    /// Moves the lyrics sidecars of the old file beside the new one when the name changed. A sidecar whose new
+    /// name is taken stays where it was: nothing is ever replaced. The rules are <see cref="SongFileRules"/>'s,
+    /// the same ones the other movers use; a music video travels by <see cref="SongFileRules.TryMoveVideo"/>.
     /// </summary>
     /// <param name="oldPath">The audio file that was replaced.</param>
     /// <param name="newPath">The audio file that replaces it.</param>
@@ -747,7 +745,22 @@ public sealed partial class FileConverter : IFileConverter
                 // than failing a conversion that already happened.
             }
         }
+    }
 
+    /// <summary>Writes where a moved video is on its own, after the conversion's save failed; never throws.</summary>
+    private async Task RepairVideoPathAsync(long songId, string path)
+    {
+        try
+        {
+            await _database.MusicVideos
+                .Where(candidate => candidate.SongId == songId)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, path), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogVideoStepFailed(_logger, songId, exception);
+        }
     }
 
     private static void DeleteQuietly(string path)

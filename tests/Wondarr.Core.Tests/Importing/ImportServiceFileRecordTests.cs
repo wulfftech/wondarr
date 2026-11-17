@@ -245,12 +245,13 @@ public class ImportServiceFileRecordTests
     }
 
     [Fact]
-    public async Task Leaves_a_video_that_sits_in_another_folder_than_the_songs_first_file_alone()
+    public async Task Moves_a_video_left_in_another_album_folder_of_the_library_beside_the_songs_first_file()
     {
         await using var host = await ImportTestHost.CreateAsync();
         host.MusicVideoOptions.BesideTrackSuffix = "-clip";
 
         var elsewhere = host.LibraryRoot + "/Daft Punk/Some Other Album";
+        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
         Directory.CreateDirectory(elsewhere);
 
         var seed = await host.SeedAsync(options => { });
@@ -258,9 +259,29 @@ public class ImportServiceFileRecordTests
 
         (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
 
-        File.Exists(elsewhere + "/07 - Old Name-video.mkv").Should().BeTrue();
+        File.Exists(elsewhere + "/07 - Old Name-video.mkv").Should().BeFalse();
+        File.Exists(folder + "/08 - Get Lucky-clip.mkv").Should().BeTrue();
         host.Context.ChangeTracker.Clear();
-        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(elsewhere + "/07 - Old Name-video.mkv");
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(folder + "/08 - Get Lucky-clip.mkv");
+    }
+
+    [Fact]
+    public async Task Leaves_a_video_outside_every_library_and_the_video_root_alone()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.MusicVideoOptions.RootPath = host.LibraryRoot + "-videos";
+
+        var stray = host.LibraryRoot + "-stray/Daft Punk";
+        Directory.CreateDirectory(stray);
+
+        var seed = await host.SeedAsync(options => { });
+        await SeedVideoAsync(host, seed.SongId, stray + "/Daft Punk - Get Lucky", string.Empty);
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+
+        File.Exists(stray + "/Daft Punk - Get Lucky.mkv").Should().BeTrue();
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(stray + "/Daft Punk - Get Lucky.mkv");
     }
 
     [Fact]

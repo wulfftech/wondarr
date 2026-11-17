@@ -327,8 +327,9 @@ public sealed partial class ReferenceAdopter(
                 adoptedRow.State = ReferenceFileState.Adopted;
                 adoptedRow.Message = null;
 
-                // One save per file: whatever happens next, this one is recorded whole or not at all.
-                await database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                // One save per file: whatever happens next, this one is recorded whole or not at all. Once the video
+                // has moved the save is never cancelled, so a shutdown cannot separate the file from its record.
+                await database.SaveChangesAsync(videoNow is null ? cancellationToken : CancellationToken.None).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -346,10 +347,17 @@ public sealed partial class ReferenceAdopter(
                 {
                     var failedSongId = song.Id;
 
-                    await database.MusicVideos
-                        .Where(candidate => candidate.SongId == failedSongId)
-                        .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, videoNow), CancellationToken.None)
-                        .ConfigureAwait(false);
+                    try
+                    {
+                        await database.MusicVideos
+                            .Where(candidate => candidate.SongId == failedSongId)
+                            .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, videoNow), CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception repair) when (repair is not OperationCanceledException)
+                    {
+                        LogVideoStepFailed(logger, failedSongId, repair);
+                    }
                 }
 
                 failed++;

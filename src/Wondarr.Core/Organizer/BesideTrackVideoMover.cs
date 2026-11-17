@@ -38,7 +38,8 @@ internal static class BesideTrackVideoMover
     /// <summary>
     /// Moves the song's video beside <paramref name="newAudioPath"/> when this rule applies: the layout is
     /// <c>beside_track</c>, the song holds that managed library file, the video's path is <em>not</em> beside it, and
-    /// the video sits in the video root or in the same folder as the file. The video goes to the file's folder and
+    /// the video sits in the video root, in the same folder as the file, or inside a managed library root (the video
+    /// root may not overlap a library, so there it can only be a beside-track video the song's own row names). The video goes to the file's folder and
     /// name plus the <em>current</em> suffix, with its <c>.nfo</c> and thumbnail. A video anywhere else is left
     /// alone, a video inside a reference library is never touched, and a taken name is reported, never replaced.
     /// Never throws (except for cancellation).
@@ -78,7 +79,20 @@ internal static class BesideTrackVideoMover
             var inVideoRoot = !string.IsNullOrWhiteSpace(options!.RootPath) && PathRules.IsStrictlyInside(options.RootPath, videoPath);
             var inFileFolder = PathRules.AreEqual(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetDirectoryName(newAudioPath) ?? string.Empty);
 
+            var inManagedLibrary = false;
+
             if (!inVideoRoot && !inFileFolder)
+            {
+                var libraryRoots = await database.Libraries
+                    .AsNoTracking()
+                    .Select(library => library.RootPath)
+                    .ToListAsync(CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                inManagedLibrary = libraryRoots.Any(root => !string.IsNullOrWhiteSpace(root) && PathRules.IsStrictlyInside(root, videoPath));
+            }
+
+            if (!inVideoRoot && !inFileFolder && !inManagedLibrary)
             {
                 return null;
             }
