@@ -708,6 +708,9 @@ public sealed partial class IndexerSourceProviderTests
         public Task<MbRecording?> GetRecordingAsync(string recordingId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<MbRecordingRelations?> GetRecordingRelationsAsync(string recordingId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<MbRecording>> GetRecordingsByIsrcAsync(string isrc, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

@@ -239,3 +239,79 @@ internal sealed record MbIsrcResult
     /// <summary>Gets the recordings carrying that ISRC.</summary>
     public IReadOnlyList<MbRecording> Recordings { get; init; } = [];
 }
+
+/// <summary>One <c>music video</c> relation of a recording: the recording it points to, and which way it points.</summary>
+/// <param name="TargetRecordingId">The MBID of the related recording.</param>
+/// <param name="TargetIsVideo">Whether the related recording is a video recording (<c>video: true</c>).</param>
+/// <param name="Direction">
+/// <c>forward</c> when the looked-up recording is the audio and the target its video; <c>backward</c> when the
+/// looked-up recording is the video and the target its audio.
+/// </param>
+public sealed record MbMusicVideoRelation(string TargetRecordingId, bool TargetIsVideo, string Direction)
+{
+    /// <summary>The direction MusicBrainz uses when the looked-up recording is the audio and the target its video.</summary>
+    public const string Forward = "forward";
+}
+
+/// <summary>One URL relation of a recording, for example <c>free streaming</c> to a YouTube watch page.</summary>
+/// <param name="Type">The relationship type, for example <c>free streaming</c>.</param>
+/// <param name="Resource">The URL.</param>
+public sealed record MbUrlRelation(string Type, string Resource);
+
+/// <summary>
+/// What a recording's relations say, from <c>recording/{mbid}?inc=recording-rels+url-rels</c>: whether it is a
+/// video recording, its <c>music video</c> links to other recordings, and its URL links.
+/// </summary>
+/// <param name="Id">The recording MBID.</param>
+/// <param name="Video">Whether the recording is a video recording.</param>
+/// <param name="LengthMs">The recording's length in milliseconds, or <see langword="null"/> when MusicBrainz has none.</param>
+/// <param name="MusicVideos">The <c>music video</c> relations, in the order MusicBrainz lists them.</param>
+/// <param name="Urls">The URL relations, in the order MusicBrainz lists them.</param>
+public sealed record MbRecordingRelations(
+    string Id,
+    bool Video,
+    int? LengthMs,
+    IReadOnlyList<MbMusicVideoRelation> MusicVideos,
+    IReadOnlyList<MbUrlRelation> Urls);
+
+/// <summary>The wire shape of a recording lookup with relations; <see cref="MbRecordingRelations"/> is what callers see.</summary>
+internal sealed record MbRecordingRelationsDocument
+{
+    /// <summary>Gets the recording MBID.</summary>
+    public string Id { get; init; } = string.Empty;
+
+    /// <summary>Gets a value indicating whether the recording is a video.</summary>
+    public bool? Video { get; init; }
+
+    /// <summary>Gets the length in milliseconds.</summary>
+    public int? Length { get; init; }
+
+    /// <summary>Gets the relations.</summary>
+    public IReadOnlyList<MbRelationDocument> Relations { get; init; } = [];
+}
+
+/// <summary>One relation on the wire: a recording link, a URL link or another kind this client ignores.</summary>
+internal sealed record MbRelationDocument
+{
+    /// <summary>Gets the relationship type, for example <c>music video</c> or <c>free streaming</c>.</summary>
+    public string Type { get; init; } = string.Empty;
+
+    /// <summary>Gets the target kind: <c>recording</c>, <c>url</c> and so on.</summary>
+    public string TargetType { get; init; } = string.Empty;
+
+    /// <summary>Gets the direction: <c>forward</c> or <c>backward</c>.</summary>
+    public string Direction { get; init; } = string.Empty;
+
+    /// <summary>Gets the related recording, on a recording link.</summary>
+    public MbRecording? Recording { get; init; }
+
+    /// <summary>Gets the URL, on a URL link.</summary>
+    public MbUrlDocument? Url { get; init; }
+}
+
+/// <summary>The URL of a URL relation, on the wire.</summary>
+internal sealed record MbUrlDocument
+{
+    /// <summary>Gets the URL text.</summary>
+    public string Resource { get; init; } = string.Empty;
+}

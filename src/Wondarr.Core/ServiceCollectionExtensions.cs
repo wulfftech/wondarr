@@ -284,6 +284,19 @@ public static class ServiceCollectionExtensions
         // Music videos (ADR-0014): reading, removing and the per-page video state of the song lists.
         services.AddScoped<IMusicVideoService, MusicVideoService>();
 
+        // Finding, downloading, checking and filing a video. The finder and the downloader belong to the YouTube
+        // source, which replaces these two stand-ins (TryAdd keeps whichever registered first, so it replaces them
+        // explicitly); without a YouTube source nothing is found and nothing is downloaded.
+        services.AddScoped<IMusicVideoPathResolver, MusicVideoPathResolver>();
+        services.AddScoped<IMusicVideoSearchService, MusicVideoSearchService>();
+        services.AddScoped<IMusicVideoImporter, MusicVideoImporter>();
+        services.TryAddScoped<IMusicVideoFinder, NoMusicVideoFinder>();
+        services.TryAddScoped<IMusicVideoDownloader, NoMusicVideoDownloader>();
+        services.AddScoped<ICommandHandler, MusicVideoSearchCommandHandler>();
+        services.AddScoped<ICommandHandler, MusicVideoDownloadCommandHandler>();
+        services.AddScoped<ICommandHandler, MusicVideoMissingSearchCommandHandler>();
+        services.AddSingleton<IScheduledTaskSource, MusicVideoScheduledTasks>();
+
         // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a service.
         services.AddScoped<IMusicVideoSettingsService>(provider => new MusicVideoSettingsService(
             provider.GetRequiredService<IOptionsMonitor<MusicVideoOptions>>(),

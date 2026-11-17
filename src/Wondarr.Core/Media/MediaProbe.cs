@@ -30,6 +30,32 @@ public sealed record MediaProbeResult(
 /// <param name="DurationSeconds">The duration ffprobe measured, in seconds.</param>
 public sealed record ToleratedDecodeErrors(int Errors, double DecodedSeconds, double DurationSeconds);
 
+/// <summary>What ffprobe measured about a video file.</summary>
+/// <param name="VideoStreams">How many video streams the file holds, not counting a cover picture attached as one.</param>
+/// <param name="AudioStreams">How many audio streams the file holds.</param>
+/// <param name="Width">The first video stream's width in pixels, or <c>null</c>.</param>
+/// <param name="Height">The first video stream's height in pixels, or <c>null</c>.</param>
+/// <param name="VideoCodec">The first video stream's codec, for example <c>h264</c>, or <c>null</c>.</param>
+/// <param name="AudioCodec">The first audio stream's codec, for example <c>opus</c>, or <c>null</c>.</param>
+/// <param name="DurationMs">The duration in milliseconds, or <c>0</c> when ffprobe reports none.</param>
+/// <param name="SizeBytes">The file size in bytes, or <c>0</c> when ffprobe reports none.</param>
+public sealed record VideoInfo(
+    int VideoStreams,
+    int AudioStreams,
+    int? Width,
+    int? Height,
+    string? VideoCodec,
+    string? AudioCodec,
+    int DurationMs,
+    long SizeBytes);
+
+/// <summary>The answer of <see cref="IMediaProbe.ProbeVideoAsync"/>.</summary>
+/// <param name="Readable">Whether ffprobe read the file. A readable file may still lack a video or an audio stream.</param>
+/// <param name="Info">What was measured, or <c>null</c> when the file was not readable.</param>
+/// <param name="Error">The line that explains a failure, or <c>null</c>.</param>
+/// <param name="TimedOut">Whether the tool ran out of time, which says nothing about the file.</param>
+public sealed record VideoProbeResult(bool Readable, VideoInfo? Info, string? Error, bool TimedOut = false);
+
 /// <summary>Measures a downloaded file.</summary>
 public interface IMediaProbe
 {
@@ -58,6 +84,17 @@ public interface IMediaProbe
     /// </returns>
     Task<MediaProbeResult> ProbeReferenceAsync(string path, CancellationToken cancellationToken) =>
         ProbeAsync(path, cancellationToken);
+
+    /// <summary>
+    /// Probes a video file: its streams, picture size, codecs and duration. The streams are only counted, not
+    /// judged, so the caller decides what a missing one means. The audio decode check is not run: a video is
+    /// not an import, and decoding every frame of an hour of video would hold a worker for minutes.
+    /// </summary>
+    /// <param name="path">The file to probe.</param>
+    /// <param name="cancellationToken">Cancels the probe.</param>
+    /// <returns>What was measured, or why the file cannot be read. This default says it cannot be read.</returns>
+    Task<VideoProbeResult> ProbeVideoAsync(string path, CancellationToken cancellationToken) =>
+        Task.FromResult(new VideoProbeResult(false, null, "This media probe cannot read video files."));
 }
 
 /// <summary>
@@ -120,6 +157,86 @@ public sealed partial class MediaProbe : IMediaProbe
     /// <inheritdoc />
     public Task<MediaProbeResult> ProbeReferenceAsync(string path, CancellationToken cancellationToken) =>
         ProbeCoreAsync(path, tolerateDecodeErrors: true, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<VideoProbeResult> ProbeVideoAsync(string path, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var options = _options.CurrentValue;
+        var probe = await _runner.RunAsync(
+                options.FfprobePath,
+                [.. ProbeArguments, path],
+                TimeSpan.FromSeconds(options.TimeoutSeconds),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (probe.TimedOut)
+        {
+            return new VideoProbeResult(false, null, FirstErrorLine(probe.StandardError) ?? "ffprobe timed out", TimedOut: true);
+        }
+
+        if (probe.ExitCode != 0)
+        {
+            return new VideoProbeResult(false, null, FirstErrorLine(probe.StandardError) ?? $"ffprobe exited {probe.ExitCode}");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(probe.StandardOutput);
+
+            return new VideoProbeResult(true, ParseVideo(document.RootElement), null);
+        }
+        catch (JsonException exception)
+        {
+            LogUnreadableOutput(_logger, exception);
+
+            return new VideoProbeResult(false, null, "ffprobe did not print JSON");
+        }
+    }
+
+    private static VideoInfo ParseVideo(JsonElement root)
+    {
+        var format = root.TryGetProperty("format", out var formatElement) && formatElement.ValueKind == JsonValueKind.Object
+            ? formatElement
+            : (JsonElement?)null;
+
+        var video = new List<JsonElement>();
+        var audio = new List<JsonElement>();
+
+        if (root.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var stream in streams.EnumerateArray().Where(stream => stream.ValueKind == JsonValueKind.Object))
+            {
+                var type = Text(stream, "codec_type");
+
+                if (string.Equals(type, "audio", StringComparison.OrdinalIgnoreCase))
+                {
+                    audio.Add(stream);
+                }
+                else if (string.Equals(type, "video", StringComparison.OrdinalIgnoreCase)
+                    && !(stream.TryGetProperty("disposition", out var disposition) && Integer(disposition, "attached_pic") == 1))
+                {
+                    // A cover picture attached as a video stream is not a video.
+                    video.Add(stream);
+                }
+            }
+        }
+
+        var firstVideo = video.Count > 0 ? video[0] : (JsonElement?)null;
+        var firstAudio = audio.Count > 0 ? audio[0] : (JsonElement?)null;
+        var seconds = Decimal(format, "duration") ?? Decimal(firstVideo, "duration") ?? Decimal(firstAudio, "duration");
+
+        return new VideoInfo(
+            video.Count,
+            audio.Count,
+            Integer(firstVideo, "width"),
+            Integer(firstVideo, "height"),
+            Text(firstVideo, "codec_name"),
+            Text(firstAudio, "codec_name"),
+            seconds is null ? 0 : (int)Math.Round(seconds.Value * 1000, MidpointRounding.AwayFromZero),
+            Long(format, "size") ?? 0);
+    }
 
     private async Task<MediaProbeResult> ProbeCoreAsync(
         string path,

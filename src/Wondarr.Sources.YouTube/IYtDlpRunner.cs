@@ -15,6 +15,24 @@ public interface IYtDlpRunner
     /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
     Task<YtDlpDownload> DownloadAsync(string videoId, string destinationDir, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Downloads a music video: the best video and audio up to <paramref name="maxHeight"/>, merged into one MKV
+    /// in <paramref name="destinationDir"/>, with its thumbnail converted to JPEG beside it. It takes the same
+    /// one-at-a-time gate and the same cookies and PO token as <see cref="DownloadAsync"/>.
+    /// </summary>
+    /// <param name="videoId">The YouTube video id.</param>
+    /// <param name="destinationDir">The folder the files are written to.</param>
+    /// <param name="maxHeight">The tallest picture to take, in pixels, or <see langword="null"/> for no cap.</param>
+    /// <param name="cancellationToken">Cancels the wait and the run.</param>
+    /// <returns>The MKV's path, where its thumbnail is, and the length yt-dlp reported.</returns>
+    /// <exception cref="YtDlpException">The run failed, or the file is not an MKV; the kind carries the classification.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    Task<YtDlpVideoDownload> DownloadVideoAsync(
+        string videoId,
+        string destinationDir,
+        int? maxHeight,
+        CancellationToken cancellationToken);
+
     /// <summary>Probes a video's formats (<c>yt-dlp -F</c>): the health probe's check.</summary>
     /// <param name="videoId">The YouTube Music video id.</param>
     /// <param name="cancellationToken">Cancels the run.</param>

@@ -18,6 +18,8 @@ namespace Wondarr.Core.MusicVideos;
 /// <param name="WriteNfo">Whether a <c>.nfo</c> file is written beside the video.</param>
 /// <param name="WriteThumbnail">Whether a thumbnail is written beside the video.</param>
 /// <param name="ScheduledSearchLimit">How many songs one run of the scheduled task may search for.</param>
+/// <param name="ScheduledSearchEnabled">Whether the scheduled task that finds missing videos runs.</param>
+/// <param name="ScheduledSearchIntervalHours">How often the scheduled task runs, in hours.</param>
 /// <param name="ReadOnlyFields">camelCase names of the fields the environment sets through <c>APP__MUSIC_VIDEOS__…</c>.</param>
 /// <param name="RootStatus">What the disk says about the root now, or <see langword="null"/> when no root is set.</param>
 public sealed record MusicVideoSettings(
@@ -30,6 +32,8 @@ public sealed record MusicVideoSettings(
     bool WriteNfo,
     bool WriteThumbnail,
     int ScheduledSearchLimit,
+    bool ScheduledSearchEnabled,
+    int ScheduledSearchIntervalHours,
     IReadOnlyList<string> ReadOnlyFields,
     LibraryRootStatus? RootStatus)
 {
@@ -52,6 +56,8 @@ public sealed record MusicVideoSettings(
 /// <param name="WriteNfo">New state of the <c>.nfo</c> switch.</param>
 /// <param name="WriteThumbnail">New state of the thumbnail switch.</param>
 /// <param name="ScheduledSearchLimit">New per-run limit of the scheduled task.</param>
+/// <param name="ScheduledSearchEnabled">New state of the switch for the scheduled task.</param>
+/// <param name="ScheduledSearchIntervalHours">New interval of the scheduled task, in hours.</param>
 public sealed record MusicVideoSettingsUpdate(
     bool? Enabled = null,
     string? RootPath = null,
@@ -61,7 +67,9 @@ public sealed record MusicVideoSettingsUpdate(
     int? MaxHeight = null,
     bool? WriteNfo = null,
     bool? WriteThumbnail = null,
-    int? ScheduledSearchLimit = null);
+    int? ScheduledSearchLimit = null,
+    bool? ScheduledSearchEnabled = null,
+    int? ScheduledSearchIntervalHours = null);
 
 /// <summary>One reason a change was refused.</summary>
 /// <param name="Field">The camelCase name of the field the reason is about, or <c>settings</c> when it is about no single field.</param>
@@ -123,6 +131,8 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         new("write_nfo", "WRITE_NFO"),
         new("write_thumbnail", "WRITE_THUMBNAIL"),
         new("scheduled_search_limit", "SCHEDULED_SEARCH_LIMIT"),
+        new("scheduled_search_enabled", "SCHEDULED_SEARCH_ENABLED"),
+        new("scheduled_search_interval_hours", "SCHEDULED_SEARCH_INTERVAL_HOURS"),
     ];
 
     private readonly IOptionsMonitor<MusicVideoOptions> _options;
@@ -201,6 +211,8 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             options.WriteNfo,
             options.WriteThumbnail,
             options.ScheduledSearchLimit,
+            options.ScheduledSearchEnabled,
+            options.ScheduledSearchIntervalHours,
             [.. Fields.Where(field => IsLocked(field.Key)).Select(field => CamelCase(field.Key))],
             status);
     }
@@ -224,6 +236,8 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             WriteNfo = current.WriteNfo,
             WriteThumbnail = current.WriteThumbnail,
             ScheduledSearchLimit = current.ScheduledSearchLimit,
+            ScheduledSearchEnabled = current.ScheduledSearchEnabled,
+            ScheduledSearchIntervalHours = current.ScheduledSearchIntervalHours,
         };
 
         var changes = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -237,6 +251,16 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         {
             candidate.ScheduledSearchLimit = limit;
             changes["scheduled_search_limit"] = limit;
+        }
+
+        ApplyFlag(update.ScheduledSearchEnabled, "scheduled_search_enabled", current.ScheduledSearchEnabled, changes, errors, value => candidate.ScheduledSearchEnabled = value);
+
+        if (update.ScheduledSearchIntervalHours is { } hours
+            && hours != current.ScheduledSearchIntervalHours
+            && !Refuse("scheduled_search_interval_hours", errors))
+        {
+            candidate.ScheduledSearchIntervalHours = hours;
+            changes["scheduled_search_interval_hours"] = hours;
         }
 
         ApplyMaxHeight(update.MaxHeight, current.MaxHeight, candidate, changes, errors);
@@ -504,6 +528,13 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         if (!IsFileNameText(supplied))
         {
             errors.Add(new MusicVideoSettingsError("besideTrackSuffix", "besideTrackSuffix must be text that can be part of a file name."));
+
+            return;
+        }
+
+        if (supplied.Contains("..", StringComparison.Ordinal) || supplied.IndexOfAny(['/', '\\']) >= 0)
+        {
+            errors.Add(new MusicVideoSettingsError("besideTrackSuffix", "besideTrackSuffix must not hold a path separator or '..'."));
 
             return;
         }

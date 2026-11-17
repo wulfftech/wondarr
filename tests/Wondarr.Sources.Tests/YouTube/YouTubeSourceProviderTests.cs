@@ -362,6 +362,13 @@ internal sealed class StubYtDlpRunner : IYtDlpRunner
         return Task.FromResult(new YtDlpDownload(videoId, path, "opus"));
     }
 
+    public Task<YtDlpVideoDownload> DownloadVideoAsync(
+        string videoId,
+        string destinationDir,
+        int? maxHeight,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("The provider never downloads a music video.");
+
     public Task<YtDlpFormats> ProbeFormatsAsync(string videoId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("The provider never probes formats.");
 

@@ -21,6 +21,15 @@ public interface IMusicBrainzClient
     /// <returns>The recording, or <see langword="null"/> when MusicBrainz does not know the id.</returns>
     Task<MbRecording?> GetRecordingAsync(string recordingId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Looks a recording up with its relations to other recordings and to URLs
+    /// (<c>inc=recording-rels+url-rels</c>): the music video links and the streaming links.
+    /// </summary>
+    /// <param name="recordingId">The recording MBID, in either case.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The recording's relations, or <see langword="null"/> when MusicBrainz does not know the id.</returns>
+    Task<MbRecordingRelations?> GetRecordingRelationsAsync(string recordingId, CancellationToken cancellationToken = default);
+
     /// <summary>Looks up every recording carrying an ISRC.</summary>
     /// <param name="isrc">The 12-character ISRC, in either case.</param>
     /// <param name="cancellationToken">Cancels the request.</param>

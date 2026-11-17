@@ -252,6 +252,17 @@ internal static class DomainModelConfiguration
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<MusicVideoLastSearch>(entity =>
+        {
+            entity.ToTable("music_video_last_search");
+            entity.HasIndex(x => x.SongId).IsUnique();
+
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<ImportList>(entity =>
         {
             entity.ToTable("import_list");

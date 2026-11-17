@@ -67,6 +67,8 @@ internal sealed class JobTestHost : IAsyncDisposable
         // Registered before AddWondarrCore, whose TryAddSingleton would otherwise win.
         services.AddSingleton<TimeProvider>(timeProvider);
         services.AddWondarrPersistence($"Data Source={databasePath}");
+        // The app registers its data directory; the song services reach the recycle bin through it.
+        services.AddSingleton(new Wondarr.Core.Configuration.WondarrPaths(directory));
         services.AddWondarrCore();
 
         // Command handlers (BulkAddSongs) depend on the metadata services, as they do in the app.
