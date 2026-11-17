@@ -200,6 +200,9 @@ internal sealed class MusicVideoHarness : IDisposable
 
     public ICommandQueue Commands { get; }
 
+    /// <summary>Gets or sets a disk for the importer to use instead of the real one, to make a step fail.</summary>
+    public IDiskOperations? Disk { get; set; }
+
     public int CommandCount { get; private set; }
 
     public string VideoRoot => Temp.Full("videos");
@@ -258,7 +261,8 @@ internal sealed class MusicVideoHarness : IDisposable
             Downloader,
             Probe,
             Videos(context),
-            new DiskOperations(),
+            Disk ?? new DiskOperations(),
+            new TestOptionsMonitor<ImportOptions>(Import),
             NullLogger<MusicVideoImporter>.Instance);
 
     public MusicVideoSearchService Search(WondarrDbContext context) => new(context, Finder, Commands, Time);

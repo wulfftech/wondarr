@@ -493,26 +493,9 @@ public sealed class FilePlacer : IFilePlacer
     /// <summary>Applies the configured modes to the placed file and to the folders it created.</summary>
     private void ApplyPermissions(string target, IReadOnlyList<string> createdDirectories, bool hardLinked)
     {
-        var options = _options.CurrentValue;
-
-        if (!options.SetPermissions)
-        {
-            return;
-        }
-
         // A hard link carries the download's own inode: a mode set here would be set on the download
         // too, so the file keeps whatever the download gave it. The folders are Wondarr's own.
-        if (!hardLinked)
-        {
-            _disk.SetUnixFileMode(target, ImportOptions.ParseMode(options.FileMode));
-        }
-
-        var folderMode = ImportOptions.ParseMode(options.FolderMode);
-
-        foreach (var directory in createdDirectories)
-        {
-            _disk.SetUnixFileMode(directory, folderMode);
-        }
+        PlacementPermissions.Apply(_disk, _options.CurrentValue, hardLinked ? [] : [target], createdDirectories);
     }
 
     private static PlacementResult Failed(string error, string? recycled = null, string? finalPath = null) =>

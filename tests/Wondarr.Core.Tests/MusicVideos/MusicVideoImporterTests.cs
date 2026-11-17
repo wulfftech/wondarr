@@ -6,6 +6,8 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Media;
 using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
+using Wondarr.Core.Tests.Organizer;
+using Wondarr.Testing;
 using Xunit;
 
 namespace Wondarr.Core.Tests.MusicVideos;
@@ -335,7 +337,7 @@ public sealed class MusicVideoImporterTests : IDisposable
     }
 
     [Fact]
-    public async Task A_missing_marker_defers_before_downloading_and_leaves_the_song_searchable()
+    public async Task A_missing_marker_defers_before_downloading_and_leaves_a_failed_row_that_a_new_pick_replaces()
     {
         await _harness.InitAsync();
         File.Delete(Path.Combine(_harness.VideoRoot, LibraryRoots.MarkerFileName));
@@ -353,7 +355,14 @@ public sealed class MusicVideoImporterTests : IDisposable
         Directory.GetFiles(_harness.VideoRoot, "*.mkv", SearchOption.AllDirectories).Should().BeEmpty();
 
         await using var fresh = _harness.NewContext();
-        (await fresh.MusicVideos.CountAsync()).Should().Be(0, "a deferred video is tried again later, not marked failed");
+        var row = await fresh.MusicVideos.SingleAsync();
+        row.Status.Should().Be(MusicVideoStatus.Failed, "the row stays visible");
+        row.FailureReason.Should().Contain(LibraryRoots.MarkerFileName);
+        (await fresh.MusicVideoBlocklist.CountAsync()).Should().Be(0, "the video is not at fault");
+
+        // The song stays searchable: a new pick replaces the failed row.
+        (await _harness.Search(fresh).QueueDownloadAsync(song.Id, VideoId, MusicVideoFoundBy.Manual, Wondarr.Core.Jobs.CommandTrigger.Manual, CancellationToken.None))
+            .Outcome.Should().Be(MusicVideoQueueOutcome.Queued);
     }
 
     [Fact]
@@ -378,6 +387,8 @@ public sealed class MusicVideoImporterTests : IDisposable
 
         Directory.GetFiles(_harness.VideoRoot, "*.mkv", SearchOption.AllDirectories).Should().BeEmpty();
         _harness.Downloader.Discarded.Should().ContainSingle();
+        await using var fresh = _harness.NewContext();
+        (await fresh.MusicVideos.SingleAsync()).Status.Should().Be(MusicVideoStatus.Failed);
     }
 
     [Fact]
@@ -455,6 +466,106 @@ public sealed class MusicVideoImporterTests : IDisposable
     }
 
     [Fact]
+    public async Task A_same_path_replacement_that_cannot_be_filed_puts_the_old_files_back()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        var oldVideo = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.mkv", "old video");
+        var oldNfo = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.nfo", "old nfo");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, "AAAAAAAAAAA", oldVideo, MusicVideoFoundBy.YouTubeSearch);
+        _harness.Disk = new FailingPlaceDisk();
+
+        await using (var context = _harness.NewContext())
+        {
+            var act = () => _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.Manual, CancellationToken.None);
+
+            (await act.Should().ThrowAsync<MusicVideoImportException>()).Which.Message.Should().Contain("could not be filed");
+        }
+
+        (await File.ReadAllTextAsync(oldVideo)).Should().Be("old video");
+        (await File.ReadAllTextAsync(oldNfo)).Should().Be("old nfo");
+        RecycledFiles().Should().BeEmpty("the old files are back where they were");
+        await using var fresh = _harness.NewContext();
+        var row = await fresh.MusicVideos.SingleAsync();
+        row.Status.Should().Be(MusicVideoStatus.Present);
+        row.YouTubeVideoId.Should().Be("AAAAAAAAAAA");
+        row.Path.Should().Be(oldVideo);
+    }
+
+    [Fact]
+    public async Task When_the_old_files_cannot_be_put_back_it_is_logged_at_error_with_both_paths()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        var oldVideo = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.mkv", "old video");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, "AAAAAAAAAAA", oldVideo, MusicVideoFoundBy.YouTubeSearch);
+        _harness.Disk = new FailingPlaceDisk { FailMoveBack = true };
+        var logger = new ErrorCapture();
+
+        await using (var context = _harness.NewContext())
+        {
+            var importer = new MusicVideoImporter(
+                context,
+                new TestOptionsMonitor<MusicVideoOptions>(_harness.Options),
+                _harness.Resolver(context),
+                _harness.Downloader,
+                _harness.Probe,
+                _harness.Videos(context),
+                _harness.Disk,
+                new TestOptionsMonitor<ImportOptions>(_harness.Import),
+                logger);
+
+            var act = () => importer.ImportAsync(song.Id, VideoId, MusicVideoFoundBy.Manual, CancellationToken.None);
+
+            await act.Should().ThrowAsync<MusicVideoImportException>();
+        }
+
+        logger.Errors.Should().ContainSingle().Which.Should().Contain(oldVideo).And.Contain(_harness.Temp.Full("bin"));
+    }
+
+    [UnixFact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task The_configured_modes_are_set_on_the_video_its_sidecars_and_the_folders_it_created()
+    {
+        await _harness.InitAsync();
+        _harness.Import.SetPermissions = true;
+        _harness.Import.FileMode = "0640";
+        _harness.Import.FolderMode = "0750";
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+        }
+
+        var folder = _harness.Temp.Full("videos/Massive Attack");
+        File.GetUnixFileMode(folder).Should().Be((UnixFileMode)Convert.ToInt32("0750", 8));
+        foreach (var name in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.GetUnixFileMode(Path.Combine(folder, "Massive Attack - Teardrop" + name)).Should().Be((UnixFileMode)Convert.ToInt32("0640", 8), name);
+        }
+    }
+
+    [UnixFact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task Modes_are_left_alone_while_the_setting_is_off()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+        var before = File.GetUnixFileMode(_harness.VideoRoot);
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+        }
+
+        File.GetUnixFileMode(Path.Combine(_harness.VideoRoot, "Massive Attack")).Should().NotBe((UnixFileMode)Convert.ToInt32("0750", 8));
+        File.GetUnixFileMode(_harness.VideoRoot).Should().Be(before);
+    }
+
+    [Fact]
     public async Task A_replacement_that_fails_leaves_the_present_video_alone()
     {
         await _harness.InitAsync();
@@ -505,6 +616,82 @@ public sealed class MusicVideoImporterTests : IDisposable
 
         message.Should().Contain("another video");
         _harness.Downloader.Calls.Should().BeEmpty();
+    }
+
+    /// <summary>A disk whose placing of the new video fails, and optionally whose move-back does too.</summary>
+    private sealed class FailingPlaceDisk : IDiskOperations
+    {
+        private readonly DiskOperations _real = new();
+
+        public bool FailMoveBack { get; init; }
+
+        public bool FileExists(string path) => _real.FileExists(path);
+
+        public bool DirectoryExists(string path) => _real.DirectoryExists(path);
+
+        public void CreateDirectory(string path) => _real.CreateDirectory(path);
+
+        public void CreateEmptyFile(string path) => _real.CreateEmptyFile(path);
+
+        public void WriteNewFile(string path, byte[] bytes) => _real.WriteNewFile(path, bytes);
+
+        public bool HasAnyEntry(string directory) => _real.HasAnyEntry(directory);
+
+        public long GetFileSize(string path) => _real.GetFileSize(path);
+
+        public void MoveFile(string source, string target)
+        {
+            if (FailMoveBack)
+            {
+                throw new IOException("cannot move back");
+            }
+
+            _real.MoveFile(source, target);
+        }
+
+        public void CopyFile(string source, string target) => throw new IOException("disk full");
+
+        public bool TryCreateHardLink(string source, string target) => false;
+
+        public void WriteAllBytes(string path, byte[] bytes) => _real.WriteAllBytes(path, bytes);
+
+        public void DeleteFile(string path) => _real.DeleteFile(path);
+
+        public void SetUnixFileMode(string path, UnixFileMode mode) => _real.SetUnixFileMode(path, mode);
+
+        public bool AreSameFile(string first, string second) => _real.AreSameFile(first, second);
+
+        public IEnumerable<string> EnumerateFiles(string directory) => _real.EnumerateFiles(directory);
+
+        public DateTime GetLastWriteTimeUtc(string path) => _real.GetLastWriteTimeUtc(path);
+
+        public void SetLastWriteTimeUtc(string path, DateTime utc) => _real.SetLastWriteTimeUtc(path, utc);
+
+        public void DeleteEmptyDirectory(string path) => _real.DeleteEmptyDirectory(path);
+    }
+
+    /// <summary>Keeps the errors the importer logs, rendered.</summary>
+    private sealed class ErrorCapture : Microsoft.Extensions.Logging.ILogger<MusicVideoImporter>
+    {
+        public List<string> Errors { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Error)
+            {
+                Errors.Add(formatter(state, exception));
+            }
+        }
     }
 
     /// <summary>What is in the recycle bin, without the marker file the bin writes into its root.</summary>

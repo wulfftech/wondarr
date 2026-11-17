@@ -125,6 +125,16 @@ public interface IMusicVideoService
     /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
     Task<IReadOnlyList<string>> RecycleFilesAsync(MusicVideo video, CancellationToken cancellationToken);
 
+    /// <summary>The same as <see cref="RecycleFilesAsync"/>, but says where each file was, so a caller can put them back.</summary>
+    /// <param name="video">The row whose files are recycled.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Each file's original path and where it is now; empty when the row has no file.</returns>
+    /// <exception cref="MusicVideoInReferenceLibraryException">The file is inside a reference library.</exception>
+    /// <exception cref="MusicVideoPathException">The row's path is not one Wondarr may act on.</exception>
+    /// <exception cref="MusicVideoFileException">A file could not be moved.</exception>
+    /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
+    Task<IReadOnlyList<(string Original, string Recycled)>> RecycleFilesDetailedAsync(MusicVideo video, CancellationToken cancellationToken);
+
     /// <summary>
     /// Recycles the video files of songs that are about to be deleted, before the cascade removes their rows.
     /// A video that may not or cannot be moved (inside a reference library, outside the folders Wondarr writes
@@ -290,7 +300,11 @@ public sealed partial class MusicVideoService : IMusicVideoService
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<string>> RecycleFilesAsync(MusicVideo video, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<string>> RecycleFilesAsync(MusicVideo video, CancellationToken cancellationToken) =>
+        [.. (await RecycleFilesDetailedAsync(video, cancellationToken).ConfigureAwait(false)).Select(entry => entry.Recycled)];
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(string Original, string Recycled)>> RecycleFilesDetailedAsync(MusicVideo video, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(video);
 
@@ -361,7 +375,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
     /// Moves every file into the recycle bin. When one fails, the ones already moved are put back, never over
     /// anything, and the failure names the file.
     /// </summary>
-    private async Task<List<string>> Recycle(List<string> files, string binRoot, CancellationToken cancellationToken)
+    private async Task<List<(string Original, string Recycled)>> Recycle(List<string> files, string binRoot, CancellationToken cancellationToken)
     {
         var moved = new List<(string Original, string Recycled)>(files.Count);
 
@@ -390,7 +404,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
             }
         }
 
-        return [.. moved.Select(entry => entry.Recycled)];
+        return moved;
     }
 
     private void PutBack(List<(string Original, string Recycled)> moved)

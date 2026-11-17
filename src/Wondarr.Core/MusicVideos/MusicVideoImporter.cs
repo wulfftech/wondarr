@@ -60,6 +60,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
     private readonly IMediaProbe _probe;
     private readonly IMusicVideoService _videos;
     private readonly IDiskOperations _disk;
+    private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly ILogger<MusicVideoImporter> _logger;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoImporter"/> class.</summary>
@@ -70,6 +71,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
     /// <param name="probe">Measures the downloaded file.</param>
     /// <param name="videos">Recycles the video a new one replaces.</param>
     /// <param name="disk">Places the files.</param>
+    /// <param name="importOptions">The import settings, for the file and folder modes.</param>
     /// <param name="logger">Logs each step.</param>
     public MusicVideoImporter(
         WondarrDbContext database,
@@ -79,6 +81,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         IMediaProbe probe,
         IMusicVideoService videos,
         IDiskOperations disk,
+        IOptionsMonitor<ImportOptions> importOptions,
         ILogger<MusicVideoImporter> logger)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -88,6 +91,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(videos);
         ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(importOptions);
         ArgumentNullException.ThrowIfNull(logger);
 
         _database = database;
@@ -97,6 +101,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         _probe = probe;
         _videos = videos;
         _disk = disk;
+        _importOptions = importOptions;
         _logger = logger;
     }
 
@@ -127,7 +132,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
         if (!early.CanWrite)
         {
-            await DropFreshRowAsync(songId, fresh).ConfigureAwait(false);
+            await FailAsync(songId, videoId, fresh, early.DeferredReason!, blocklist: false).ConfigureAwait(false);
 
             return prefix + "deferred, " + early.DeferredReason;
         }
@@ -205,7 +210,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
         if (!placement.CanWrite)
         {
-            await DropFreshRowAsync(songId, fresh).ConfigureAwait(false);
+            await FailAsync(songId, videoId, fresh, placement.DeferredReason!, blocklist: false).ConfigureAwait(false);
 
             return prefix + "deferred, " + placement.DeferredReason + " The downloaded files were dropped.";
         }
@@ -300,7 +305,10 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         return null;
     }
 
-    /// <summary>Moves the video and its sidecars into place, and recycles the video it replaces.</summary>
+    /// <summary>
+    /// Moves the video and its sidecars into place, and recycles the video it replaces. A video replaced where it
+    /// lies has its old files recycled first; if putting the new one in place then fails, they are moved back.
+    /// </summary>
     private async Task<MusicVideoFiled> FileAsync(
         long songId,
         string destination,
@@ -312,21 +320,34 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         var recycled = new List<string>();
         var old = wanted.Replacing ? wanted.Row : null;
         var samePlace = old?.Path is { Length: > 0 } oldPath && PathRules.AreEqual(oldPath, destination);
+        var createdDirectories = MissingDirectories(Path.GetDirectoryName(destination)!);
 
         _disk.CreateDirectory(Path.GetDirectoryName(destination)!);
 
         // A video that is replaced where it lies has to leave first: nothing is ever written over a file.
+        IReadOnlyList<(string Original, string Recycled)> leftFirst = [];
+
         if (old is not null && samePlace)
         {
-            recycled.AddRange(await _videos.RecycleFilesAsync(old, cancellationToken).ConfigureAwait(false));
+            leftFirst = await _videos.RecycleFilesDetailedAsync(old, cancellationToken).ConfigureAwait(false);
+            recycled.AddRange(leftFirst.Select(entry => entry.Recycled));
         }
 
-        if (_disk.FileExists(destination))
+        try
         {
-            throw new MusicVideoException($"A file is already at {destination}.");
-        }
+            if (_disk.FileExists(destination))
+            {
+                throw new MusicVideoException($"A file is already at {destination}.");
+            }
 
-        Place(download.VideoPath, destination);
+            Place(download.VideoPath, destination);
+        }
+        catch
+        {
+            PutBack(songId, leftFirst);
+
+            throw;
+        }
 
         if (old is not null && !samePlace && !string.IsNullOrWhiteSpace(old.Path))
         {
@@ -345,13 +366,53 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
 
         var stem = destination[..^MusicVideoPathResolver.VideoExtension.Length];
+        var sidecars = await WriteSidecarsAsync(songId, stem, download, options, cancellationToken).ConfigureAwait(false);
 
-        await WriteSidecarsAsync(songId, stem, download, options, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            PlacementPermissions.Apply(_disk, _importOptions.CurrentValue, [destination, .. sidecars], createdDirectories);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The video is in place; a mode that cannot be set is logged, as the audio placer does.
+            LogPermissionsFailed(_logger, songId, exception);
+        }
 
         return new MusicVideoFiled(recycled);
     }
 
-    private async Task WriteSidecarsAsync(
+    /// <summary>Moves recycled files back to where they were, never over anything; a failure is logged at Error with both paths.</summary>
+    private void PutBack(long songId, IReadOnlyList<(string Original, string Recycled)> files)
+    {
+        for (var index = files.Count - 1; index >= 0; index--)
+        {
+            var (original, recycled) = files[index];
+
+            try
+            {
+                _disk.MoveFile(recycled, original);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                LogPutBackFailed(_logger, songId, recycled, original, exception);
+            }
+        }
+    }
+
+    /// <summary>The folders from <paramref name="directory"/> upwards that do not exist yet, so only those get the folder mode.</summary>
+    private List<string> MissingDirectories(string directory)
+    {
+        var missing = new List<string>();
+
+        for (var current = directory; !string.IsNullOrEmpty(current) && !_disk.DirectoryExists(current); current = Path.GetDirectoryName(current))
+        {
+            missing.Add(current);
+        }
+
+        return missing;
+    }
+
+    private async Task<List<string>> WriteSidecarsAsync(
         long songId,
         string stem,
         MusicVideoDownload download,
@@ -359,6 +420,8 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         CancellationToken cancellationToken)
     {
         // Sidecars are a convenience: one that cannot be written never fails a video that is already in place.
+        var written = new List<string>();
+
         if (options.WriteNfo)
         {
             try
@@ -374,6 +437,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
                 if (song is not null)
                 {
                     _disk.WriteNewFile(stem + ".nfo", Nfo(song));
+                    written.Add(stem + ".nfo");
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -391,6 +455,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
                 if (!_disk.FileExists(target))
                 {
                     Place(thumbnail, target);
+                    written.Add(target);
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -398,6 +463,8 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
                 LogSidecarFailed(_logger, songId, "-thumb.jpg", exception);
             }
         }
+
+        return written;
     }
 
     /// <summary>
@@ -525,18 +592,6 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
     }
 
-    /// <summary>Removes the row a deferred download made, so the song is searchable again. A filed video's row stays.</summary>
-    private async Task DropFreshRowAsync(long songId, bool fresh)
-    {
-        if (fresh)
-        {
-            await _database.MusicVideos
-                .Where(video => video.SongId == songId && video.Status != MusicVideoStatus.Present)
-                .ExecuteDeleteAsync(CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-    }
-
     private sealed record WantedRow(MusicVideo? Row, bool Replacing, string? Message);
 
     private sealed record MusicVideoFiled(IReadOnlyList<string> RecycledPaths);
@@ -554,6 +609,12 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The new music video of song {SongId} is in place, but the old one at {Path} could not be recycled and stays where it is")]
     private static partial void LogOldVideoLeft(ILogger logger, long songId, string path, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The new music video of song {SongId} could not be filed and the old files could not be put back: {Recycled} should return to {Original}")]
+    private static partial void LogPutBackFailed(ILogger logger, long songId, string recycled, string original, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not set the file or folder mode of the music video of song {SongId}")]
+    private static partial void LogPermissionsFailed(ILogger logger, long songId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not write the {Sidecar} sidecar of the music video of song {SongId}")]
     private static partial void LogSidecarFailed(ILogger logger, long songId, string sidecar, Exception exception);
