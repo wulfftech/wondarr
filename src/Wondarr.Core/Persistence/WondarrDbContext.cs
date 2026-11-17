@@ -60,6 +60,12 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the song lifecycle log.</summary>
     public DbSet<HistoryItem> History => Set<HistoryItem>();
 
+    /// <summary>Gets the music videos, one per song at most.</summary>
+    public DbSet<MusicVideo> MusicVideos => Set<MusicVideo>();
+
+    /// <summary>Gets the YouTube videos rejected for a song.</summary>
+    public DbSet<MusicVideoBlocklistItem> MusicVideoBlocklist => Set<MusicVideoBlocklistItem>();
+
     /// <summary>Gets the blocklist.</summary>
     public DbSet<BlocklistItem> Blocklist => Set<BlocklistItem>();
 

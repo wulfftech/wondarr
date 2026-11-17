@@ -2,6 +2,7 @@ using System.Text.Json;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Domain;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Organizer;
 using Microsoft.EntityFrameworkCore;
@@ -68,6 +69,7 @@ public sealed partial class LibraryService : ILibraryService
     private readonly WondarrPaths? _paths;
     private readonly ILibraryRoots? _roots;
     private readonly ILogger<LibraryService>? _logger;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="LibraryService"/> class.</summary>
     /// <param name="context">The database context.</param>
@@ -75,12 +77,14 @@ public sealed partial class LibraryService : ILibraryService
     /// <param name="paths">The resolved paths, which decide the default recycle bin.</param>
     /// <param name="roots">Marks the root a user just chose; without it nothing is marked.</param>
     /// <param name="logger">Where a root that could not be marked is logged.</param>
+    /// <param name="musicVideoOptions">Where the music video root is, so a library root that overlaps it is refused.</param>
     public LibraryService(
         WondarrDbContext context,
         IOptionsMonitor<ImportOptions>? importOptions = null,
         WondarrPaths? paths = null,
         ILibraryRoots? roots = null,
-        ILogger<LibraryService>? logger = null)
+        ILogger<LibraryService>? logger = null,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -89,6 +93,7 @@ public sealed partial class LibraryService : ILibraryService
         _paths = paths;
         _roots = roots;
         _logger = logger;
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -357,6 +362,12 @@ public sealed partial class LibraryService : ILibraryService
         {
             // Not a usable path; the field's own rule (an absolute path) names it.
             return errors;
+        }
+
+        if (_musicVideoOptions?.CurrentValue.RootPath is { Length: > 0 } videoRoot
+            && MusicVideoRootRules.Overlaps(rootPath, videoRoot))
+        {
+            errors.Add(("rootPath", "rootPath overlaps the music video folder; videos need a folder of their own."));
         }
 
         var libraries = await _context.Libraries

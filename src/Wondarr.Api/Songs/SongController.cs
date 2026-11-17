@@ -1,8 +1,10 @@
 using Wondarr.Api.Middleware;
+using Wondarr.Api.MusicVideos;
 using Wondarr.Api.Paging;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Songs;
 using Wondarr.Core.Sources;
@@ -44,6 +46,7 @@ public sealed class SongController : ControllerBase
     private readonly WondarrDbContext _database;
     private readonly ISongDetailsService _details;
     private readonly ISongLyricsService _lyrics;
+    private readonly IMusicVideoService _musicVideos;
 
     /// <summary>Initialises a new instance of the <see cref="SongController"/> class.</summary>
     /// <param name="songs">The song service.</param>
@@ -51,24 +54,28 @@ public sealed class SongController : ControllerBase
     /// <param name="database">The database, for the lookup's already-in-the-library read.</param>
     /// <param name="details">The song page's data.</param>
     /// <param name="lyrics">The song's lyrics.</param>
+    /// <param name="musicVideos">Tells each listed song's music video state.</param>
     public SongController(
         ISongService songs,
         IIdentityResolver resolver,
         WondarrDbContext database,
         ISongDetailsService details,
-        ISongLyricsService lyrics)
+        ISongLyricsService lyrics,
+        IMusicVideoService musicVideos)
     {
         ArgumentNullException.ThrowIfNull(songs);
         ArgumentNullException.ThrowIfNull(resolver);
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(details);
         ArgumentNullException.ThrowIfNull(lyrics);
+        ArgumentNullException.ThrowIfNull(musicVideos);
 
         _songs = songs;
         _resolver = resolver;
         _database = database;
         _details = details;
         _lyrics = lyrics;
+        _musicVideos = musicVideos;
     }
 
     /// <summary>Lists songs, filtered and paged. Every filter is optional and they combine with AND.</summary>
@@ -110,8 +117,9 @@ public sealed class SongController : ControllerBase
             CutoffMet = cutoffMet,
         };
         var page = await _songs.GetPageAsync(paging, filter, cancellationToken).ConfigureAwait(false);
+        var resources = page.ToPagingResource(paging, DefaultSortKey, song => song.ToResource());
 
-        return Ok(page.ToPagingResource(paging, DefaultSortKey, song => song.ToResource()));
+        return Ok(await resources.WithMusicVideosAsync(_musicVideos, cancellationToken).ConfigureAwait(false));
     }
 
     /// <summary>Reads one song.</summary>
