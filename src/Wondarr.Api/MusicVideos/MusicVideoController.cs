@@ -110,7 +110,7 @@ public sealed partial class MusicVideoController : ControllerBase
 
         var queued = false;
 
-        if (result.Confident is { } confident)
+        if (result.AutoDownload is { } confident)
         {
             var outcome = await _search
                 .QueueDownloadAsync(songId, confident.VideoId, confident.FoundBy, CommandTrigger.Manual, cancellationToken)
@@ -161,7 +161,7 @@ public sealed partial class MusicVideoController : ControllerBase
         }
 
         var queued = await _search
-            .QueueDownloadAsync(songId, videoId, MusicVideoFoundBy.Manual, CommandTrigger.Manual, cancellationToken)
+            .QueueDownloadAsync(songId, videoId, MusicVideoFoundBy.Manual, CommandTrigger.Manual, cancellationToken, replace: true)
             .ConfigureAwait(false);
 
         return queued.Outcome switch

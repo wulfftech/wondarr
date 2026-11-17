@@ -59,12 +59,13 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<MusicVideoCandidate>> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken)
+    public async Task<MusicVideoFindResult> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
 
         var candidates = new Dictionary<string, MusicVideoCandidate>(StringComparer.Ordinal);
         Exception? failure = null;
+        var partial = false;
 
         try
         {
@@ -78,6 +79,7 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
             // One source being down does not stop the other from answering.
             LogSourceFailed(_logger, "MusicBrainz", exception);
             failure = exception;
+            partial = true;
         }
 
         try
@@ -99,7 +101,7 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
             ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
-        return [.. candidates.Values.OrderByDescending(candidate => candidate.Score)];
+        return new MusicVideoFindResult([.. candidates.Values.OrderByDescending(candidate => candidate.Score)], partial);
     }
 
     /// <summary>Keeps the better of two candidates for one video id: MusicBrainz outranks a search result.</summary>

@@ -34,6 +34,7 @@ public sealed class MusicVideoSongDeleteTests : IDisposable
         await _harness.InitAsync();
         var song = await _harness.AddSongAsync("Teardrop");
         await _harness.AddRowAsync(song.Id, status);
+        await _harness.AddActiveDownloadAsync(song.Id);
 
         await using (var context = _harness.NewContext())
         {
@@ -46,6 +47,40 @@ public sealed class MusicVideoSongDeleteTests : IDisposable
         (await fresh.MusicVideos.CountAsync()).Should().Be(1);
         (await fresh.MusicVideoBlocklist.CountAsync()).Should().Be(0);
         (await fresh.History.CountAsync()).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(MusicVideoStatus.Queued)]
+    [InlineData(MusicVideoStatus.Downloading)]
+    public async Task A_row_left_downloading_by_a_crash_with_no_command_behind_it_can_be_removed(MusicVideoStatus status)
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, status);
+
+        await using (var context = _harness.NewContext())
+        {
+            (await _harness.Videos(context).DeleteAsync(song.Id, blocklist: false, CancellationToken.None)).Should().NotBeNull();
+        }
+
+        await using var fresh = _harness.NewContext();
+        (await fresh.MusicVideos.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_filed_video_cannot_be_removed_while_its_replacement_downloads()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        var video = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.mkv", "video");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, path: video);
+        await _harness.AddActiveDownloadAsync(song.Id, "CCCCCCCCCCC");
+
+        await using var context = _harness.NewContext();
+        var act = () => _harness.Videos(context).DeleteAsync(song.Id, blocklist: true, CancellationToken.None);
+
+        await act.Should().ThrowAsync<MusicVideoDownloadInProgressException>();
+        File.Exists(video).Should().BeTrue();
     }
 
     [Fact]

@@ -139,6 +139,12 @@ public sealed class MusicVideoOptionsValidator : IValidateOptions<MusicVideoOpti
         {
             failures.Add("music_videos.beside_track_suffix: must not be empty");
         }
+        else if (options.BesideTrackSuffix.Contains("..", StringComparison.Ordinal)
+            || options.BesideTrackSuffix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || options.BesideTrackSuffix.IndexOfAny(['/', '\\']) >= 0)
+        {
+            failures.Add("music_videos.beside_track_suffix: must not hold a path separator, '..' or a character a file name cannot have");
+        }
 
         if (options.MaxHeight is <= 0)
         {

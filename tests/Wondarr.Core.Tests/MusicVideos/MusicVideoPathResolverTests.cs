@@ -228,6 +228,34 @@ public sealed class MusicVideoPathResolverTests : IDisposable
     }
 
     [Fact]
+    public async Task An_artist_called_dot_dot_and_a_title_with_a_slash_stay_inside_the_root()
+    {
+        await _harness.InitAsync();
+        _harness.Options.NamingTemplate = "{Artist}/{Title}";
+        var song = await _harness.AddSongAsync("AC/DC\\..\\x", artist: "../..");
+        await using var context = _harness.NewContext();
+
+        var placement = await _harness.Resolver(context).ResolveAsync(song.Id, CancellationToken.None);
+
+        placement.CanWrite.Should().BeTrue(placement.DeferredReason);
+        Path.GetFullPath(placement.VideoPath!).Should().StartWith(_harness.VideoRoot + Path.DirectorySeparatorChar);
+        Path.GetRelativePath(_harness.VideoRoot, placement.VideoPath!).Split(Path.DirectorySeparatorChar).Should().NotContain("..");
+    }
+
+    [Theory]
+    [InlineData("../x")]
+    [InlineData("-a/b")]
+    [InlineData("-..-")]
+    [InlineData("-a\\b")]
+    public void A_beside_track_suffix_with_a_separator_or_dot_dot_is_refused(string suffix)
+    {
+        var result = new MusicVideoOptionsValidator().Validate(null, new MusicVideoOptions { BesideTrackSuffix = suffix });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("beside_track_suffix");
+    }
+
+    [Fact]
     public async Task A_song_that_is_gone_defers()
     {
         await _harness.InitAsync();

@@ -130,7 +130,10 @@ internal sealed class FakeVideoFinder : IMusicVideoFinder
     /// <summary>Gets the queries made.</summary>
     public List<MusicVideoQuery> Queries { get; } = [];
 
-    public Task<IReadOnlyList<MusicVideoCandidate>> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken)
+    /// <summary>Gets or sets whether the result says MusicBrainz failed to answer.</summary>
+    public bool Partial { get; set; }
+
+    public Task<MusicVideoFindResult> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken)
     {
         Queries.Add(query);
 
@@ -139,7 +142,7 @@ internal sealed class FakeVideoFinder : IMusicVideoFinder
             throw Failure;
         }
 
-        return Task.FromResult<IReadOnlyList<MusicVideoCandidate>>(Answer is null ? Candidates : Answer(query));
+        return Task.FromResult(new MusicVideoFindResult(Answer is null ? Candidates : Answer(query), Partial));
     }
 
     public static MusicVideoCandidate Candidate(
@@ -290,6 +293,19 @@ internal sealed class MusicVideoHarness : IDisposable
         }
 
         return song;
+    }
+
+    /// <summary>Adds a command row the way the queue would, so a download counts as active for the song.</summary>
+    public async Task AddActiveDownloadAsync(long songId, string videoId = "u7K72X4eo_s", CommandStatus status = CommandStatus.Started)
+    {
+        await using var context = NewContext();
+        context.Commands.Add(new CommandRecord
+        {
+            Name = MusicVideoDownloadCommandHandler.CommandName,
+            Body = MusicVideoCommandBodies.Write(new MusicVideoCommandBodies.Download(songId, videoId, MusicVideoFoundBy.Manual)),
+            Status = status,
+        });
+        await context.SaveChangesAsync();
     }
 
     /// <summary>Back-dates (or forward-dates) the moment a song was added, which the scheduled task orders by.</summary>

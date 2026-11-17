@@ -63,6 +63,41 @@ public sealed record MusicVideoCandidate(
 }
 
 /// <summary>
+/// What a finder found: the candidates (this is the list), and whether MusicBrainz failed to answer, so the list may
+/// lack the video it links. A partial result is never taken for "this song has no video".
+/// </summary>
+public sealed class MusicVideoFindResult : IReadOnlyList<MusicVideoCandidate>
+{
+    private readonly IReadOnlyList<MusicVideoCandidate> _candidates;
+
+    /// <summary>Initialises a new instance of the <see cref="MusicVideoFindResult"/> class.</summary>
+    /// <param name="candidates">The candidates, best first.</param>
+    /// <param name="partial">Whether MusicBrainz failed to answer.</param>
+    public MusicVideoFindResult(IReadOnlyList<MusicVideoCandidate> candidates, bool partial = false)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+
+        _candidates = candidates;
+        Partial = partial;
+    }
+
+    /// <summary>Gets a value indicating whether MusicBrainz failed to answer.</summary>
+    public bool Partial { get; }
+
+    /// <inheritdoc />
+    public int Count => _candidates.Count;
+
+    /// <inheritdoc />
+    public MusicVideoCandidate this[int index] => _candidates[index];
+
+    /// <inheritdoc />
+    public IEnumerator<MusicVideoCandidate> GetEnumerator() => _candidates.GetEnumerator();
+
+    /// <inheritdoc />
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+}
+
+/// <summary>
 /// Finds the YouTube videos that may be a song's music video, ranked best first: a video MusicBrainz links
 /// comes before a confident search result, and that before the rest. A blocklisted id is never returned.
 /// </summary>
@@ -71,7 +106,7 @@ public interface IMusicVideoFinder
     /// <summary>Finds and ranks the candidates for a song.</summary>
     /// <param name="query">The song.</param>
     /// <param name="cancellationToken">Cancels the lookups.</param>
-    Task<IReadOnlyList<MusicVideoCandidate>> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken);
+    Task<MusicVideoFindResult> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken);
 }
 
 /// <summary>A video downloaded into a work folder, not yet checked or filed.</summary>
@@ -100,8 +135,8 @@ public interface IMusicVideoDownloader
 internal sealed class NoMusicVideoFinder : IMusicVideoFinder
 {
     /// <inheritdoc />
-    public Task<IReadOnlyList<MusicVideoCandidate>> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<MusicVideoCandidate>>([]);
+    public Task<MusicVideoFindResult> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult(new MusicVideoFindResult([]));
 }
 
 /// <summary>The downloader to use when no YouTube source is registered: it refuses.</summary>

@@ -11,7 +11,16 @@ namespace Wondarr.Core.MusicVideos;
 /// <summary>What searching for a song's music video found.</summary>
 /// <param name="Candidates">The candidates, best first; none is blocklisted.</param>
 /// <param name="Confident">The candidate to download without asking, or <see langword="null"/> when none is confident.</param>
-public sealed record MusicVideoSearchResult(IReadOnlyList<MusicVideoCandidate> Candidates, MusicVideoCandidate? Confident);
+/// <param name="Partial">Whether MusicBrainz failed to answer, so "no confident match" is not an answer.</param>
+public sealed record MusicVideoSearchResult(IReadOnlyList<MusicVideoCandidate> Candidates, MusicVideoCandidate? Confident, bool Partial = false)
+{
+    /// <summary>
+    /// The candidate an automatic path may download: the confident one, but from a partial result only when it is a
+    /// YouTube search result that is confident on its own.
+    /// </summary>
+    public MusicVideoCandidate? AutoDownload =>
+        Confident is { } confident && (!Partial || confident.FoundBy == MusicVideoFoundBy.YouTubeSearch) ? confident : null;
+}
 
 /// <summary>What queueing a download did.</summary>
 public enum MusicVideoQueueOutcome
@@ -28,7 +37,7 @@ public enum MusicVideoQueueOutcome
     /// <summary>A download for the song is already queued or running.</summary>
     InProgress,
 
-    /// <summary>The song already holds this video.</summary>
+    /// <summary>The song already holds a video and the caller may not replace it (or it is this very video).</summary>
     AlreadyFiled,
 }
 
@@ -59,12 +68,17 @@ public interface IMusicVideoSearchService
     /// <param name="foundBy">How the video was found.</param>
     /// <param name="trigger">What asked for it.</param>
     /// <param name="cancellationToken">Cancels the queueing.</param>
+    /// <param name="replace">
+    /// Whether a filed video may be replaced. Only a person's pick (a grab) says yes: a search, a bulk search and the
+    /// scheduled task never replace one.
+    /// </param>
     Task<MusicVideoQueueResult> QueueDownloadAsync(
         long songId,
         string videoId,
         MusicVideoFoundBy foundBy,
         CommandTrigger trigger,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool replace = false);
 
     /// <summary>
     /// Queues a confident-only search (<c>MusicVideoSearch</c> with <c>autoDownload</c>) for each of the songs that
@@ -220,7 +234,8 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         // The finder drops these already; a second filter keeps a wrong finder from handing one to a download.
         var candidates = found.Where(candidate => !blocklisted.Contains(candidate.VideoId)).ToList();
 
-        return new MusicVideoSearchResult(candidates, candidates.Find(candidate => candidate.Confident));
+        // A confident match that a failed MusicBrainz lookup leaves standing is the search's own: it is YouTube's.
+        return new MusicVideoSearchResult(candidates, candidates.Find(candidate => candidate.Confident), found.Partial);
     }
 
     /// <inheritdoc />
@@ -229,7 +244,8 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         string videoId,
         MusicVideoFoundBy foundBy,
         CommandTrigger trigger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool replace = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
 
@@ -246,10 +262,18 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
             return new MusicVideoQueueResult(MusicVideoQueueOutcome.Blocklisted);
         }
 
+        // One download at a time per song, a replacement included: a second pick while one is on its way is refused.
+        var active = await ActiveDownloads.ExistsAsync(_database, songId, cancellationToken).ConfigureAwait(false);
+
         var row = await _database.MusicVideos
             .FirstOrDefaultAsync(video => video.SongId == songId, cancellationToken)
             .ConfigureAwait(false);
         var created = false;
+
+        if (active && row is not null)
+        {
+            return new MusicVideoQueueResult(MusicVideoQueueOutcome.InProgress);
+        }
 
         if (row is null)
         {
@@ -264,8 +288,9 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         }
         else if (row.Status == MusicVideoStatus.Present)
         {
-            // A different video replaces the filed one only once it has been downloaded and checked.
-            if (string.Equals(row.YouTubeVideoId, videoId, StringComparison.Ordinal))
+            // A different video replaces the filed one only when a person picked it, and only once it has been
+            // downloaded and checked.
+            if (!replace || string.Equals(row.YouTubeVideoId, videoId, StringComparison.Ordinal))
             {
                 return new MusicVideoQueueResult(MusicVideoQueueOutcome.AlreadyFiled);
             }
@@ -273,12 +298,6 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         else
         {
             // A queued or downloading row with no command behind it was left by a crash: it is reclaimed.
-            if (row.Status is MusicVideoStatus.Queued or MusicVideoStatus.Downloading
-                && await HasActiveDownloadAsync(songId, cancellationToken).ConfigureAwait(false))
-            {
-                return new MusicVideoQueueResult(MusicVideoQueueOutcome.InProgress);
-            }
-
             row.Status = MusicVideoStatus.Queued;
             row.YouTubeVideoId = videoId;
             row.FoundBy = foundBy;
@@ -408,9 +427,21 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         }
     }
 
-    private async Task<bool> HasActiveDownloadAsync(long songId, CancellationToken cancellationToken)
+    private static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.InnerException is SqliteException { SqliteErrorCode: 19 } sqlite
+        && sqlite.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>Whether a <c>MusicVideoDownload</c> command for a song is queued or running.</summary>
+internal static class ActiveDownloads
+{
+    /// <summary>Asks the command table.</summary>
+    /// <param name="database">The database.</param>
+    /// <param name="songId">The song.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    public static async Task<bool> ExistsAsync(WondarrDbContext database, long songId, CancellationToken cancellationToken)
     {
-        var bodies = await _database.Commands
+        var bodies = await database.Commands
             .AsNoTracking()
             .Where(command => command.Name == MusicVideoDownloadCommandHandler.CommandName
                 && (command.Status == CommandStatus.Queued || command.Status == CommandStatus.Started))
@@ -422,7 +453,8 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         {
             try
             {
-                return body is not null && MusicVideoCommandBodies.Read<MusicVideoCommandBodies.Download>(body, MusicVideoDownloadCommandHandler.CommandName).SongId == songId;
+                return body is not null
+                    && MusicVideoCommandBodies.Read<MusicVideoCommandBodies.Download>(body, MusicVideoDownloadCommandHandler.CommandName).SongId == songId;
             }
             catch (ArgumentException)
             {
@@ -430,8 +462,4 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
             }
         });
     }
-
-    private static bool IsUniqueViolation(DbUpdateException exception) =>
-        exception.InnerException is SqliteException { SqliteErrorCode: 19 } sqlite
-        && sqlite.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase);
 }

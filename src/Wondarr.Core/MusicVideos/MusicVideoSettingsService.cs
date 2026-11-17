@@ -532,6 +532,13 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             return;
         }
 
+        if (supplied.Contains("..", StringComparison.Ordinal) || supplied.IndexOfAny(['/', '\\']) >= 0)
+        {
+            errors.Add(new MusicVideoSettingsError("besideTrackSuffix", "besideTrackSuffix must not hold a path separator or '..'."));
+
+            return;
+        }
+
         candidate.BesideTrackSuffix = supplied;
         changes["beside_track_suffix"] = supplied;
     }

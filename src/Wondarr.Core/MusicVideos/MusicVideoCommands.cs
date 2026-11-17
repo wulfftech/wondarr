@@ -60,7 +60,7 @@ public sealed partial class MusicVideoSearchCommandHandler : ICommandHandler
             return prefix + "no such song.";
         }
 
-        if (result.Confident is not { } confident)
+        if (result.AutoDownload is not { } confident)
         {
             return prefix + string.Create(CultureInfo.InvariantCulture, $"no confident match among {result.Candidates.Count} candidate(s).");
         }
@@ -189,6 +189,7 @@ public sealed partial class MusicVideoMissingSearchCommandHandler : ICommandHand
         var queued = 0;
         var fruitless = 0;
         var errors = 0;
+        var partialSearches = 0;
         var consecutiveErrors = 0;
 
         foreach (var songId in songIds)
@@ -214,12 +215,20 @@ public sealed partial class MusicVideoMissingSearchCommandHandler : ICommandHand
                 consecutiveErrors = 0;
 
                 // Only a confident match is downloaded by a schedule; the rest wait for a person to pick.
-                if (result.Confident is { } confident
+                if (result.AutoDownload is { } confident
                     && (await search
                         .QueueDownloadAsync(songId, confident.VideoId, confident.FoundBy, CommandTrigger.Scheduled, cancellationToken)
                         .ConfigureAwait(false)).Outcome == MusicVideoQueueOutcome.Queued)
                 {
                     queued++;
+
+                    continue;
+                }
+
+                // MusicBrainz did not answer: "no confident match" is not an answer, so the song is tried again.
+                if (result.Partial)
+                {
+                    partialSearches++;
 
                     continue;
                 }
@@ -235,10 +244,15 @@ public sealed partial class MusicVideoMissingSearchCommandHandler : ICommandHand
             }
         }
 
-        var searched = queued + fruitless;
+        var searched = queued + fruitless + partialSearches;
         var message = string.Create(
             CultureInfo.InvariantCulture,
             $"Searched {searched} of {songIds.Count} song(s): queued {queued} download(s), {fruitless} without a confident match.");
+
+        if (partialSearches > 0)
+        {
+            message = string.Create(CultureInfo.InvariantCulture, $"{message} {partialSearches} without a MusicBrainz answer, not remembered.");
+        }
 
         return errors > 0
             ? string.Create(CultureInfo.InvariantCulture, $"{message} {errors} search(es) failed.")

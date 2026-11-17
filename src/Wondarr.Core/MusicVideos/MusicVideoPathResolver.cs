@@ -154,7 +154,7 @@ public sealed class MusicVideoPathResolver : IMusicVideoPathResolver
 
             var directory = Path.GetDirectoryName(audio.Path) ?? library.RootPath;
             var name = Path.GetFileNameWithoutExtension(audio.Path) + options.BesideTrackSuffix + VideoExtension;
-            var path = Path.Combine(directory, name);
+            var path = Path.GetFullPath(Path.Combine(directory, name));
 
             return PathRules.IsStrictlyInside(library.RootPath, path)
                 ? new MusicVideoPlacement(path, library.RootPath, null)

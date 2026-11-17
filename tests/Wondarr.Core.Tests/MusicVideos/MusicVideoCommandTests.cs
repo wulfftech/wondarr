@@ -102,6 +102,41 @@ public sealed class MusicVideoCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task A_partial_result_is_not_remembered_as_fruitless()
+    {
+        await _harness.InitAsync();
+        await _harness.AddSongAsync("Nothing", "/music/c.flac");
+        _harness.Finder.Partial = true;
+
+        var message = await Handler().ExecuteAsync(ContextFor(null), CancellationToken.None);
+
+        message.Should().Contain("not remembered");
+        await using var fresh = _harness.NewContext();
+        (await fresh.MusicVideoLastSearches.CountAsync()).Should().Be(0);
+
+        _harness.Finder.Partial = false;
+        await Handler().ExecuteAsync(ContextFor(null), CancellationToken.None);
+        _harness.Finder.Queries.Should().HaveCount(2, "the song is tried again, and remembered once MusicBrainz answers");
+    }
+
+    [Fact]
+    public async Task The_scheduled_task_never_replaces_a_filed_video()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop", "/music/a.flac");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, VideoId, "/videos/x.mkv");
+        _harness.Finder.Candidates = [FakeVideoFinder.Candidate("CCCCCCCCCCC", confident: true, MusicVideoFoundBy.MusicBrainz)];
+
+        await using var context = _harness.NewContext();
+        var message = await SearchHandler(context).ExecuteAsync(
+            ContextFor(MusicVideoCommandBodies.Write(new MusicVideoCommandBodies.Search(song.Id, AutoDownload: true))),
+            CancellationToken.None);
+
+        message.Should().Contain("AlreadyFiled");
+        (await context.MusicVideos.SingleAsync()).YouTubeVideoId.Should().Be(VideoId);
+    }
+
+    [Fact]
     public async Task A_failing_source_is_not_remembered_as_fruitless_and_stops_the_run_after_three_in_a_row()
     {
         await _harness.InitAsync();

@@ -318,6 +318,12 @@ public sealed class MusicVideoFindApiTests : IDisposable
         {
             var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
             context.MusicVideos.Add(new MusicVideo { SongId = songId, Status = status, YouTubeVideoId = VideoId, FoundBy = MusicVideoFoundBy.Manual });
+            context.Commands.Add(new CommandRecord
+            {
+                Name = MusicVideoDownloadCommandHandler.CommandName,
+                Body = MusicVideoCommandBodies.Write(new MusicVideoCommandBodies.Download(songId, VideoId, MusicVideoFoundBy.Manual)),
+                Status = CommandStatus.Started,
+            });
             await context.SaveChangesAsync();
         }
 
@@ -330,6 +336,27 @@ public sealed class MusicVideoFindApiTests : IDisposable
         var checkContext = check.ServiceProvider.GetRequiredService<WondarrDbContext>();
         (await checkContext.MusicVideos.CountAsync()).Should().Be(1, "the row is left alone");
         (await checkContext.MusicVideoBlocklist.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_grab_replaces_a_filed_video_but_a_search_does_not()
+    {
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
+        await EnableAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            context.MusicVideos.Add(new MusicVideo { SongId = songId, Status = MusicVideoStatus.Present, YouTubeVideoId = "AAAAAAAAAAA", FoundBy = MusicVideoFoundBy.Manual, Path = "/x/y.mkv" });
+            await context.SaveChangesAsync();
+        }
+
+        _finder.Candidates = [Candidate(VideoId, confident: true, MusicVideoFoundBy.MusicBrainz, MusicVideoCandidateKind.Unknown, score: 10_000)];
+
+        var (_, searched) = await SendAsync(HttpMethod.Post, $"/api/v1/musicvideo/song/{songId}/search");
+        searched!["queued"]!.GetValue<bool>().Should().BeFalse("a search never replaces a filed video");
+
+        var (status, _) = await SendAsync(HttpMethod.Post, $"/api/v1/musicvideo/song/{songId}/grab", $$"""{"youTubeVideoId":"{{VideoId}}"}""");
+        status.Should().Be(HttpStatusCode.Accepted);
     }
 
     [Fact]
@@ -405,9 +432,9 @@ public sealed class MusicVideoFindApiTests : IDisposable
 
         public Exception? Failure { get; set; }
 
-        public Task<IReadOnlyList<MusicVideoCandidate>> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken) =>
+        public Task<MusicVideoFindResult> FindAsync(MusicVideoQuery query, CancellationToken cancellationToken) =>
             Failure is not null
-                ? Task.FromException<IReadOnlyList<MusicVideoCandidate>>(Failure)
-                : Task.FromResult<IReadOnlyList<MusicVideoCandidate>>(Candidates);
+                ? Task.FromException<MusicVideoFindResult>(Failure)
+                : Task.FromResult(new MusicVideoFindResult(Candidates));
     }
 }

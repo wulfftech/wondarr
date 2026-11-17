@@ -26,6 +26,15 @@ public static class MusicVideoTitleMatcher
     /// <summary>The decorations that make a video not a music video: a lyric video or a visualizer.</summary>
     private static readonly string[] NotAMusicVideo = ["lyric video", "visualizer"];
 
+    /// <summary>
+    /// Words that, anywhere in a video's title, say it is not a music video: lyrics, a visualizer, or the audio
+    /// over a picture. Matched as whole words, bracketed, after a dash, after a bar or bare.
+    /// </summary>
+    private static readonly Regex NotAVideoWords = new(
+        @"\b(?:lyrics?|visuali[sz]er|audio)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
     /// <summary>A bracketed group: round or square, with no bracket inside it.</summary>
     private static readonly Regex BracketRegex = new(
         @"\s*[\(\[]([^\(\)\[\]]*)[\)\]]",
@@ -88,15 +97,28 @@ public static class MusicVideoTitleMatcher
         }
 
         var hard = VersionFlagNames.HardFlags;
+        var parts = DashRegex.Split(stripped).Select(part => part.Trim()).Where(part => part.Length > 0).ToList();
 
-        if ((VersionFlagParser.Parse(songTitle).Flags & hard) != (VersionFlagParser.Parse(stripped).Flags & hard))
+        // The version is checked on the whole title and on each part after a dash ("Teardrop - Live at Glastonbury"):
+        // a part is read as a version hint on its own, the way a disambiguation is.
+        var videoFlags = VersionFlagParser.Parse(stripped).Flags & hard;
+
+        if (parts.Count > 1)
+        {
+            foreach (var part in parts)
+            {
+                videoFlags |= VersionFlagParser.Parse(part, disambiguation: part).Flags & hard;
+            }
+        }
+
+        if ((VersionFlagParser.Parse(songTitle).Flags & hard) != videoFlags)
         {
             return 0;
         }
 
         var songVariants = CandidateTitleMatcher.SongVariants(songTitle);
         var videoTexts = new List<string> { stripped };
-        videoTexts.AddRange(DashRegex.Split(stripped).Select(part => part.Trim()).Where(part => part.Length > 0));
+        videoTexts.AddRange(parts);
 
         var best = 0.0;
 
@@ -118,5 +140,26 @@ public static class MusicVideoTitleMatcher
     /// <param name="songTitle">The song's title.</param>
     /// <param name="videoTitle">The video's title, decorations and all.</param>
     public static bool IsTitledAsTheSong(string songTitle, string videoTitle) =>
-        !Strip(videoTitle).IsLyricOrVisualizer && Similarity(songTitle, videoTitle) >= DecisionEngine.TitleFloor;
+        !IsNotAMusicVideo(songTitle, videoTitle) && Similarity(songTitle, videoTitle) >= DecisionEngine.TitleFloor;
+
+    /// <summary>
+    /// Whether the title says the video is a lyric video, a visualizer or the audio over a picture: the words
+    /// "lyric", "lyrics", "visualizer", "visualiser" or "audio" anywhere in it, unless the song's own title has them.
+    /// </summary>
+    /// <param name="songTitle">The song's title.</param>
+    /// <param name="videoTitle">The video's title, decorations and all.</param>
+    public static bool IsNotAMusicVideo(string songTitle, string videoTitle)
+    {
+        ArgumentNullException.ThrowIfNull(songTitle);
+        ArgumentNullException.ThrowIfNull(videoTitle);
+
+        if (Strip(videoTitle).IsLyricOrVisualizer)
+        {
+            return true;
+        }
+
+        var inSong = NotAVideoWords.Matches(songTitle).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+
+        return NotAVideoWords.Matches(videoTitle).Any(match => !inSong.Contains(match.Value.ToLowerInvariant()));
+    }
 }

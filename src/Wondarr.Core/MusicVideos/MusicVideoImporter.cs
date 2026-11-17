@@ -110,6 +110,35 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
 
+        try
+        {
+            return await ImportCoreAsync(songId, videoId, foundBy, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not MusicVideoImportException)
+        {
+            // A cancelled or crashed import must not leave a row Queued or Downloading for ever. A row that has
+            // moved on (Present, Failed, removed) is not touched.
+            var reason = exception is OperationCanceledException
+                ? "The download was interrupted before it finished."
+                : $"The download stopped unexpectedly: {exception.Message}";
+
+            await _database.MusicVideos
+                .Where(video => video.SongId == songId
+                    && video.YouTubeVideoId == videoId
+                    && (video.Status == MusicVideoStatus.Queued || video.Status == MusicVideoStatus.Downloading))
+                .ExecuteUpdateAsync(
+                    set => set
+                        .SetProperty(video => video.Status, MusicVideoStatus.Failed)
+                        .SetProperty(video => video.FailureReason, reason),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+
+            throw;
+        }
+    }
+
+    private async Task<string> ImportCoreAsync(long songId, string videoId, MusicVideoFoundBy foundBy, CancellationToken cancellationToken)
+    {
         var options = _options.CurrentValue;
         var prefix = $"Song {songId.ToString(CultureInfo.InvariantCulture)}: ";
 
@@ -366,7 +395,8 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
 
         var stem = destination[..^MusicVideoPathResolver.VideoExtension.Length];
-        var sidecars = await WriteSidecarsAsync(songId, stem, download, options, cancellationToken).ConfigureAwait(false);
+        // From here the video is in place: nothing that follows is cancelled half way.
+        var sidecars = await WriteSidecarsAsync(songId, stem, download, options, CancellationToken.None).ConfigureAwait(false);
 
         try
         {
@@ -440,7 +470,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
                     written.Add(stem + ".nfo");
                 }
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.Xml.XmlException)
             {
                 LogSidecarFailed(_logger, songId, ".nfo", exception);
             }
@@ -481,6 +511,29 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         _disk.DeleteFile(source);
     }
 
+    /// <summary>The text without the characters XML cannot hold (control characters, lone surrogates).</summary>
+    private static string XmlText(string text)
+    {
+        var builder = new StringBuilder(text.Length);
+
+        for (var index = 0; index < text.Length; index++)
+        {
+            var character = text[index];
+
+            if (char.IsHighSurrogate(character) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]))
+            {
+                builder.Append(character).Append(text[index + 1]);
+                index++;
+            }
+            else if (System.Xml.XmlConvert.IsXmlChar(character))
+            {
+                builder.Append(character);
+            }
+        }
+
+        return builder.ToString();
+    }
+
     /// <summary>The Kodi/Jellyfin <c>.nfo</c> of a song's video, UTF-8 without a byte order mark.</summary>
     private static byte[] Nfo(Song song)
     {
@@ -497,16 +550,16 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         {
             writer.WriteStartDocument(standalone: true);
             writer.WriteStartElement("musicvideo");
-            writer.WriteElementString("title", song.Title);
+            writer.WriteElementString("title", XmlText(song.Title));
 
             foreach (var name in song.Artists.OrderBy(credit => credit.Position).Select(credit => credit.Artist.Name))
             {
-                writer.WriteElementString("artist", name);
+                writer.WriteElementString("artist", XmlText(name));
             }
 
             if (!string.IsNullOrWhiteSpace(song.AlbumContext?.AlbumTitle))
             {
-                writer.WriteElementString("album", song.AlbumContext.AlbumTitle);
+                writer.WriteElementString("album", XmlText(song.AlbumContext.AlbumTitle));
             }
 
             var date = song.AlbumContext?.Date;

@@ -590,6 +590,67 @@ public sealed class MusicVideoImporterTests : IDisposable
     }
 
     [Fact]
+    public async Task A_download_cancelled_half_way_marks_the_row_failed_instead_of_leaving_it_downloading()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+        _harness.Downloader.Failure = new OperationCanceledException();
+
+        await using (var context = _harness.NewContext())
+        {
+            var act = () => _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+
+            await act.Should().ThrowAsync<OperationCanceledException>();
+        }
+
+        await using var fresh = _harness.NewContext();
+        var row = await fresh.MusicVideos.SingleAsync();
+        row.Status.Should().Be(MusicVideoStatus.Failed);
+        row.FailureReason.Should().Contain("interrupted");
+    }
+
+    [Fact]
+    public async Task An_unexpected_exception_marks_the_row_failed_and_a_filed_video_is_not_touched()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        var filed = await _harness.AddSongAsync("Angel");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+        await _harness.AddRowAsync(filed.Id, MusicVideoStatus.Present, VideoId, "/videos/y.mkv");
+        _harness.Probe.Result = null!;
+
+        await using (var context = _harness.NewContext())
+        {
+            var act = () => _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+
+            await act.Should().ThrowAsync<Exception>();
+        }
+
+        await using var fresh = _harness.NewContext();
+        (await fresh.MusicVideos.SingleAsync(row => row.SongId == song.Id)).Status.Should().Be(MusicVideoStatus.Failed);
+        (await fresh.MusicVideos.SingleAsync(row => row.SongId == filed.Id)).Status.Should().Be(MusicVideoStatus.Present);
+    }
+
+    [Fact]
+    public async Task A_control_character_in_the_artist_name_does_not_stop_the_video_being_filed()
+    {
+        await _harness.InitAsync();
+        _harness.Options.NamingTemplate = "{Title}";
+        var song = await _harness.AddSongAsync("Teardrop", artist: "Massive\u0001 Attack\u0007");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+        }
+
+        File.Exists(_harness.Temp.Full("videos/Teardrop.mkv")).Should().BeTrue();
+        var nfo = await File.ReadAllTextAsync(_harness.Temp.Full("videos/Teardrop.nfo"));
+        XDocument.Parse(nfo).Root!.Element("artist")!.Value.Should().Be("Massive Attack");
+    }
+
+    [Fact]
     public async Task While_music_videos_are_off_nothing_is_downloaded()
     {
         await _harness.InitAsync();

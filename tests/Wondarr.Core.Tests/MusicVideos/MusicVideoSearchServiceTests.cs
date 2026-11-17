@@ -230,7 +230,7 @@ public sealed class MusicVideoSearchServiceTests : IDisposable
                 .Outcome.Should().Be(MusicVideoQueueOutcome.AlreadyFiled);
 
             (await _harness.Search(context)
-                .QueueDownloadAsync(song.Id, "CCCCCCCCCCC", MusicVideoFoundBy.Manual, CommandTrigger.Manual, CancellationToken.None))
+                .QueueDownloadAsync(song.Id, "CCCCCCCCCCC", MusicVideoFoundBy.Manual, CommandTrigger.Manual, CancellationToken.None, replace: true))
                 .Outcome.Should().Be(MusicVideoQueueOutcome.Queued);
         }
 
@@ -238,6 +238,55 @@ public sealed class MusicVideoSearchServiceTests : IDisposable
         var row = await fresh.MusicVideos.SingleAsync();
         row.Status.Should().Be(MusicVideoStatus.Present, "the filed video stays until its replacement is checked");
         row.YouTubeVideoId.Should().Be(VideoId);
+    }
+
+    [Fact]
+    public async Task An_automatic_queue_never_replaces_a_filed_video()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, VideoId, "/videos/x.mkv");
+
+        await using var context = _harness.NewContext();
+        var result = await _harness.Search(context)
+            .QueueDownloadAsync(song.Id, "CCCCCCCCCCC", MusicVideoFoundBy.YouTubeSearch, CommandTrigger.Scheduled, CancellationToken.None);
+
+        result.Outcome.Should().Be(MusicVideoQueueOutcome.AlreadyFiled);
+        await _harness.Commands.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task A_second_pick_while_a_replacement_is_on_its_way_is_refused()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, VideoId, "/videos/x.mkv");
+        await _harness.AddActiveDownloadAsync(song.Id, "CCCCCCCCCCC");
+
+        await using var context = _harness.NewContext();
+        var result = await _harness.Search(context)
+            .QueueDownloadAsync(song.Id, "DDDDDDDDDDD", MusicVideoFoundBy.Manual, CommandTrigger.Manual, CancellationToken.None, replace: true);
+
+        result.Outcome.Should().Be(MusicVideoQueueOutcome.InProgress);
+    }
+
+    [Fact]
+    public async Task A_partial_result_only_auto_downloads_a_youtube_match_that_is_confident_on_its_own()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        _harness.Finder.Partial = true;
+
+        _harness.Finder.Candidates = [FakeVideoFinder.Candidate(VideoId, confident: true, MusicVideoFoundBy.YouTubeSearch)];
+        await using var context = _harness.NewContext();
+        var withSearch = await _harness.Search(context).SearchAsync(song.Id, CancellationToken.None);
+        withSearch!.Partial.Should().BeTrue();
+        withSearch.AutoDownload.Should().NotBeNull("a YouTube result that is confident on its own stands");
+
+        _harness.Finder.Candidates = [FakeVideoFinder.Candidate(VideoId, confident: true, MusicVideoFoundBy.MusicBrainz)];
+        var withLink = await _harness.Search(context).SearchAsync(song.Id, CancellationToken.None);
+        withLink!.Confident.Should().NotBeNull();
+        withLink.AutoDownload.Should().BeNull("a partial result does not auto-download anything else");
     }
 
     [Fact]

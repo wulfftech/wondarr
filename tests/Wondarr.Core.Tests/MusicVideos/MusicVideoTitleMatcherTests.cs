@@ -34,6 +34,33 @@ public sealed class MusicVideoTitleMatcherTests
         MusicVideoTitleMatcher.IsTitledAsTheSong("Teardrop", videoTitle).Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("Teardrop (Official Lyric Video)")]
+    [InlineData("Teardrop - Lyric Video")]
+    [InlineData("Teardrop | Lyrics")]
+    [InlineData("Teardrop (Visualiser)")]
+    [InlineData("Teardrop - Official Audio")]
+    [InlineData("Teardrop (Official Audio)")]
+    [InlineData("Teardrop [Lyrics]")]
+    [InlineData("Teardrop - Live at Glastonbury")]
+    [InlineData("Teardrop - Remix")]
+    public void A_title_that_says_lyrics_visualizer_audio_or_another_version_is_not_confident(string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Teardrop", videoTitle).Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_official_video_is_still_confident()
+    {
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Teardrop", "Teardrop (Official Video)").Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_song_whose_own_title_has_the_word_is_not_held_against_the_video()
+    {
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Lyrics", "Lyrics (Official Video)").Should().BeTrue();
+    }
+
     [Fact]
     public void A_bracket_that_is_not_a_known_decoration_stays()
     {

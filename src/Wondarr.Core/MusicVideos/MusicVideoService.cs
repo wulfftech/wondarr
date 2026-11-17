@@ -46,7 +46,7 @@ public sealed class MusicVideoPathException : Exception
     }
 }
 
-/// <summary>The song's video is queued or downloading, so it cannot be removed yet; the download would put it back.</summary>
+/// <summary>A download for the song is queued or running, so its video cannot be removed yet; the download would put it back.</summary>
 public sealed class MusicVideoDownloadInProgressException : Exception
 {
     /// <summary>Initialises a new instance of the <see cref="MusicVideoDownloadInProgressException"/> class.</summary>
@@ -105,7 +105,7 @@ public interface IMusicVideoService
     /// <param name="blocklist">Whether the YouTube video is blocklisted for the song.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>What was done, or <see langword="null"/> when the song has no video.</returns>
-    /// <exception cref="MusicVideoDownloadInProgressException">The video is queued or downloading.</exception>
+    /// <exception cref="MusicVideoDownloadInProgressException">A download for the song is queued or running.</exception>
     /// <exception cref="MusicVideoInReferenceLibraryException">The file is inside a reference library.</exception>
     /// <exception cref="MusicVideoPathException">The row's path is not one Wondarr may act on.</exception>
     /// <exception cref="MusicVideoFileException">A file could not be moved.</exception>
@@ -236,8 +236,9 @@ public sealed partial class MusicVideoService : IMusicVideoService
             return null;
         }
 
-        // The download that is on its way would write the file and the row again; it has to finish or fail first.
-        if (video.Status is MusicVideoStatus.Queued or MusicVideoStatus.Downloading)
+        // A download that is on its way (a replacement included) would write the file and the row again; it has to
+        // finish or fail first. A row left Queued or Downloading by a crash has no command behind it and is removable.
+        if (await ActiveDownloads.ExistsAsync(_database, songId, cancellationToken).ConfigureAwait(false))
         {
             throw new MusicVideoDownloadInProgressException();
         }
