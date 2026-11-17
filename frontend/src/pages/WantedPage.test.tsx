@@ -28,8 +28,12 @@ afterEach(() => {
 });
 
 /** The route table the page needs: the shell, both wanted lists and the profile names. */
-function install(missing: unknown = paged(SONGS), cutoff: unknown = paged(SONGS)): FetchMock {
+function install(missing: unknown = paged(SONGS), cutoff: unknown = paged(SONGS), musicVideos = false): FetchMock {
   return installFetch((url) => {
+    if (url.endsWith('/api/v1/musicvideo/settings')) {
+      return jsonResponse({ enabled: musicVideos });
+    }
+
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
     }
@@ -264,5 +268,27 @@ describe('WantedPage', () => {
     renderApp();
 
     expect(await screen.findByText('The wanted list request failed.')).toBeInTheDocument();
+  });
+
+  it('has a music video column after Search only while the feature is on', async () => {
+    install(undefined, undefined, true);
+
+    renderApp();
+
+    await screen.findByLabelText(`Find music video for ${SONGS[0]?.title ?? ''}`);
+
+    const search = screen.getByRole('columnheader', { name: 'Search' });
+
+    expect(search.nextElementSibling).toBe(screen.getByRole('columnheader', { name: 'Music video' }));
+  });
+
+  it('has no music video column while the feature is off', async () => {
+    install();
+
+    renderApp();
+
+    await screen.findByText(SONGS[0]?.title ?? '');
+
+    expect(screen.queryByRole('columnheader', { name: 'Music video' })).not.toBeInTheDocument();
   });
 });

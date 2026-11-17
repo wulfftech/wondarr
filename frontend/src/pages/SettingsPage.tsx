@@ -5,6 +5,7 @@ import { GeneralSettingsPage } from './settings/GeneralSettingsPage';
 import { ImportListsSettingsPage } from './settings/ImportListsSettingsPage';
 import { IndexersSettingsPage } from './settings/IndexersSettingsPage';
 import { LibrarySettingsPage } from './settings/LibrarySettingsPage';
+import { MusicVideoSettingsPage } from './settings/MusicVideoSettingsPage';
 import { NotificationsSettingsPage } from './settings/NotificationsSettingsPage';
 import { PlexSettingsPage } from './settings/PlexSettingsPage';
 import { QualityProfilesPage } from './settings/QualityProfilesPage';
@@ -20,6 +21,7 @@ type SettingsSection =
   | 'references'
   | 'soulseek'
   | 'youtube'
+  | 'musicvideos'
   | 'indexers'
   | 'downloadclients'
   | 'plex'
@@ -33,6 +35,7 @@ const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: 'references', label: 'Reference libraries' },
   { value: 'soulseek', label: 'Soulseek' },
   { value: 'youtube', label: 'YouTube' },
+  { value: 'musicvideos', label: 'Music videos' },
   { value: 'indexers', label: 'Indexers' },
   { value: 'downloadclients', label: 'Download clients' },
   { value: 'plex', label: 'Plex' },
@@ -66,6 +69,7 @@ export function SettingsPage() {
       {active === 'references' && <ReferenceLibrariesPage />}
       {active === 'soulseek' && <SoulseekSettingsPage />}
       {active === 'youtube' && <YouTubeSettingsPage />}
+      {active === 'musicvideos' && <MusicVideoSettingsPage />}
       {active === 'indexers' && <IndexersSettingsPage />}
       {active === 'downloadclients' && <DownloadClientsSettingsPage />}
       {active === 'plex' && <PlexSettingsPage />}

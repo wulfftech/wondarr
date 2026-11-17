@@ -159,11 +159,23 @@ interface Options {
   albumOptions?: unknown[];
   /** Answers `DELETE /song/12`; a 200 when omitted. */
   deleteResponse?: () => Response;
+  /** Turns music videos on, with this video (or none) for song 12. Off when omitted. */
+  musicVideos?: { video: unknown };
 }
 
 function install(options: Options = {}) {
   return installFetch((url, init) => {
     const method = init?.method ?? 'GET';
+
+    if (url.endsWith('/api/v1/musicvideo/settings')) {
+      return jsonResponse({ enabled: options.musicVideos !== undefined });
+    }
+
+    if (url.endsWith('/api/v1/musicvideo/song/12') && method === 'GET') {
+      return options.musicVideos?.video == null
+        ? new Response('', { status: 404 })
+        : jsonResponse(options.musicVideos.video);
+    }
 
     if (url.includes('/api/v1/system/status')) {
       return jsonResponse(SYSTEM_STATUS);
@@ -780,5 +792,65 @@ describe('SongPage', () => {
 
       expect(put?.url).toContain('/api/v1/song/12');
     });
+  });
+
+  it('has no music video tab while the feature is off', async () => {
+    install();
+
+    renderApp();
+
+    await screen.findByRole('tab', { name: 'File' });
+
+    expect(screen.queryByRole('tab', { name: 'Music video' })).not.toBeInTheDocument();
+  });
+
+  it('has a music video tab while the feature is on, showing the video the song holds', async () => {
+    resetLocation('/song/12?tab=musicvideo');
+    install({
+      musicVideos: {
+        video: {
+          id: 3,
+          songId: 12,
+          status: 'present',
+          youTubeVideoId: 'h5EofwRzit0',
+          foundBy: 'manual',
+          path: '/videos/Daft Punk - Get Lucky.mkv',
+          width: 1280,
+          height: 720,
+          videoCodec: 'vp9',
+          audioCodec: 'opus',
+          sizeBytes: 10485760,
+          durationMs: 248000,
+          failureReason: null,
+          createdAt: '2026-11-17T00:00:00Z',
+          updatedAt: '2026-11-17T00:00:00Z',
+        },
+      },
+    });
+
+    renderApp();
+
+    expect(await screen.findByRole('tab', { name: 'Music video' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText('/videos/Daft Punk - Get Lucky.mkv')).toBeInTheDocument();
+    expect(screen.getByText('Picked by hand')).toBeInTheDocument();
+  });
+
+  it('offers a search from the music video tab when the song has no video', async () => {
+    resetLocation('/song/12?tab=musicvideo');
+    install({ musicVideos: { video: null } });
+
+    renderApp();
+
+    expect(await screen.findByText('No music video yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Find music video' })).toBeInTheDocument();
+  });
+
+  it('ignores a music video tab in the address while the feature is off', async () => {
+    resetLocation('/song/12?tab=musicvideo');
+    install();
+
+    renderApp();
+
+    expect(await screen.findByRole('tab', { name: 'File' })).toHaveAttribute('aria-selected', 'true');
   });
 });

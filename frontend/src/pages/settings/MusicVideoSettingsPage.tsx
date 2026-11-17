@@ -1,0 +1,398 @@
+import {
+  Alert,
+  Button,
+  Card,
+  Group,
+  NumberInput,
+  Select,
+  Stack,
+  Switch,
+  Text,
+  TextInput,
+  Title,
+  Tooltip,
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { CircleAlert, Lock, TriangleAlert } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import {
+  NAMING_TOKENS,
+  useConfirmMusicVideoRoot,
+  useMusicVideoSettings,
+  useUpdateMusicVideoSettings,
+  type MusicVideoFieldName,
+  type MusicVideoSettingsResource,
+  type MusicVideoSettingsUpdateResource,
+} from '../../api/musicVideos';
+import { ValidationError } from '../../api/profiles';
+import { ErrorState, LoadingState } from '../../components/DataState';
+
+/** The environment-variable suffix each field is locked by, so the tooltip can name it. */
+const ENV_SUFFIX: Record<MusicVideoFieldName, string> = {
+  enabled: 'ENABLED',
+  rootPath: 'ROOT_PATH',
+  layout: 'LAYOUT',
+  namingTemplate: 'NAMING_TEMPLATE',
+  besideTrackSuffix: 'BESIDE_TRACK_SUFFIX',
+  maxHeight: 'MAX_HEIGHT',
+  writeNfo: 'WRITE_NFO',
+  writeThumbnail: 'WRITE_THUMBNAIL',
+  scheduledSearchLimit: 'SCHEDULED_SEARCH_LIMIT',
+  scheduledSearchEnabled: 'SCHEDULED_SEARCH_ENABLED',
+  scheduledSearchIntervalHours: 'SCHEDULED_SEARCH_INTERVAL_HOURS',
+};
+
+const LAYOUTS = [
+  { value: 'folder', label: 'Separate folder (Jellyfin, Kodi, Plex Other Videos)' },
+  { value: 'beside_track', label: 'Beside each track (Plex)' },
+];
+
+/** The height caps on offer. 0 is the API's spelling of "no cap". */
+const HEIGHTS = [
+  { value: '0', label: 'Any' },
+  { value: '2160', label: '2160' },
+  { value: '1440', label: '1440' },
+  { value: '1080', label: '1080' },
+  { value: '720', label: '720' },
+];
+
+/** Wraps a locked field so the pointer still reaches a tooltip a disabled input would swallow. */
+function Lockable({ field, locked, children }: { field: MusicVideoFieldName; locked: boolean; children: ReactNode }) {
+  if (!locked) {
+    return children;
+  }
+
+  return (
+    <Tooltip
+      label={`Set by the environment variable APP__MUSIC_VIDEOS__${ENV_SUFFIX[field]}`}
+      withArrow
+      multiline
+      w={280}
+    >
+      <div>{children}</div>
+    </Tooltip>
+  );
+}
+
+/** A number the API sends as `number | string`; an empty box reads as 0. */
+function toNumber(value: number | string): number {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** What the root check found, said so a person can act on it. */
+function rootProblem(status: MusicVideoSettingsResource['rootStatus']): string {
+  if (status === 'missing') {
+    return 'That folder does not exist yet.';
+  }
+
+  if (status === 'unmarked') {
+    return 'That folder has files in it but no Wondarr marker, so Wondarr does not know it is the right place.';
+  }
+
+  return 'That folder is not ready.';
+}
+
+/** The music video settings form. Local state is seeded once; a save echoes back through the query cache. */
+function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) {
+  const save = useUpdateMusicVideoSettings();
+  const confirm = useConfirmMusicVideoRoot();
+  const locked = new Set(settings.readOnlyFields);
+  const isLocked = (field: MusicVideoFieldName) => locked.has(field);
+
+  const [enabled, setEnabled] = useState(settings.enabled);
+  const [rootPath, setRootPath] = useState(settings.rootPath ?? '');
+  const [layout, setLayout] = useState(settings.layout);
+  const [namingTemplate, setNamingTemplate] = useState(settings.namingTemplate);
+  const [besideTrackSuffix, setBesideTrackSuffix] = useState(settings.besideTrackSuffix);
+  const [maxHeight, setMaxHeight] = useState(String(settings.maxHeight ?? 0));
+  const [writeNfo, setWriteNfo] = useState(settings.writeNfo);
+  const [writeThumbnail, setWriteThumbnail] = useState(settings.writeThumbnail);
+  const [scheduledEnabled, setScheduledEnabled] = useState(settings.scheduledSearchEnabled);
+  const [interval, setInterval] = useState<number | string>(settings.scheduledSearchIntervalHours);
+  const [limit, setLimit] = useState<number | string>(settings.scheduledSearchLimit);
+
+  const fields = save.error instanceof ValidationError ? save.error.fields : {};
+  const fieldError = (field: MusicVideoFieldName) => fields[field];
+  const known = new Set<string>(Object.keys(ENV_SUFFIX));
+  // Whatever the server says about no single field, or a field this form does not show.
+  const general = Object.entries(fields)
+    .filter(([field]) => !known.has(field))
+    .map(([, message]) => message);
+
+  const lockIcon = (field: MusicVideoFieldName) => (isLocked(field) ? <Lock size={16} /> : undefined);
+
+  // A cap the page does not offer (set in config.yml) still shows, so saving never silently changes it.
+  const heights = HEIGHTS.some((height) => height.value === maxHeight)
+    ? HEIGHTS
+    : [...HEIGHTS, { value: maxHeight, label: maxHeight }];
+
+  const submit = () => {
+    // A field the environment sets is refused rather than written, so it stays out of the body.
+    const body: MusicVideoSettingsUpdateResource = {};
+
+    if (!isLocked('enabled')) {
+      body.enabled = enabled;
+    }
+
+    if (!isLocked('rootPath') && rootPath.trim() !== (settings.rootPath ?? '')) {
+      body.rootPath = rootPath.trim();
+    }
+
+    if (!isLocked('layout')) {
+      body.layout = layout;
+    }
+
+    if (!isLocked('namingTemplate')) {
+      body.namingTemplate = namingTemplate;
+    }
+
+    if (!isLocked('besideTrackSuffix') && layout === 'beside_track') {
+      body.besideTrackSuffix = besideTrackSuffix;
+    }
+
+    if (!isLocked('maxHeight')) {
+      body.maxHeight = Number(maxHeight);
+    }
+
+    if (!isLocked('writeNfo')) {
+      body.writeNfo = writeNfo;
+    }
+
+    if (!isLocked('writeThumbnail')) {
+      body.writeThumbnail = writeThumbnail;
+    }
+
+    if (!isLocked('scheduledSearchEnabled')) {
+      body.scheduledSearchEnabled = scheduledEnabled;
+    }
+
+    if (!isLocked('scheduledSearchIntervalHours')) {
+      body.scheduledSearchIntervalHours = toNumber(interval);
+    }
+
+    if (!isLocked('scheduledSearchLimit')) {
+      body.scheduledSearchLimit = toNumber(limit);
+    }
+
+    save.mutate(body, {
+      onSuccess: () => notifications.show({ message: 'Saved', color: 'green' }),
+    });
+  };
+
+  return (
+    <Card withBorder padding="md">
+      <Stack gap="md">
+        <Text fw={600}>Music videos</Text>
+
+        <Lockable field="enabled" locked={isLocked('enabled')}>
+          <Switch
+            label="Find and download music videos"
+            description="Off by default. Adds a video column to the Library and Wanted tables and a video tab to the song page."
+            checked={enabled}
+            disabled={isLocked('enabled')}
+            error={fieldError('enabled')}
+            onChange={(event) => setEnabled(event.currentTarget.checked)}
+          />
+        </Lockable>
+
+        <Lockable field="rootPath" locked={isLocked('rootPath')}>
+          <TextInput
+            label="Video folder"
+            description="Outside your libraries. Videos go here, and so do songs held only by a reference library."
+            placeholder="/music-videos"
+            value={rootPath}
+            disabled={isLocked('rootPath')}
+            rightSection={lockIcon('rootPath')}
+            error={fieldError('rootPath')}
+            onChange={(event) => setRootPath(event.currentTarget.value)}
+          />
+        </Lockable>
+
+        {settings.rootNeedsConfirmation && (
+          <Alert color="yellow" icon={<TriangleAlert size={16} />} title="Is this the right folder?">
+            <Stack gap="xs" align="flex-start">
+              <Text size="sm">
+                {rootProblem(settings.rootStatus)} Wondarr writes a marker file into the folder, creating it if it is
+                missing, before it puts any video there.
+              </Text>
+
+              {confirm.error !== null && (
+                <Text size="sm" c="red">
+                  {confirm.error.message}
+                </Text>
+              )}
+
+              <Button
+                size="xs"
+                color="yellow"
+                loading={confirm.isPending}
+                onClick={() =>
+                  confirm.mutate(undefined, {
+                    onSuccess: () => notifications.show({ message: 'Video folder confirmed', color: 'green' }),
+                  })
+                }
+              >
+                Yes, use this folder
+              </Button>
+            </Stack>
+          </Alert>
+        )}
+
+        <Lockable field="layout" locked={isLocked('layout')}>
+          <Select
+            label="Layout"
+            description={
+              layout === 'beside_track'
+                ? 'A video sits next to its audio file, named after it. Songs held only by a reference library use the separate folder.'
+                : 'Videos live in their own folder, which you point a Jellyfin, Kodi or Plex music video library at.'
+            }
+            data={LAYOUTS}
+            value={layout}
+            allowDeselect={false}
+            disabled={isLocked('layout')}
+            rightSection={lockIcon('layout')}
+            error={fieldError('layout')}
+            onChange={(value) => setLayout(value ?? 'folder')}
+          />
+        </Lockable>
+
+        <Lockable field="namingTemplate" locked={isLocked('namingTemplate')}>
+          <TextInput
+            label="Naming template"
+            description={`The path of a video under the folder, without its extension. Tokens: ${NAMING_TOKENS.join(', ')}.`}
+            value={namingTemplate}
+            disabled={isLocked('namingTemplate')}
+            rightSection={lockIcon('namingTemplate')}
+            error={fieldError('namingTemplate')}
+            onChange={(event) => setNamingTemplate(event.currentTarget.value)}
+          />
+        </Lockable>
+
+        {layout === 'beside_track' && (
+          <Lockable field="besideTrackSuffix" locked={isLocked('besideTrackSuffix')}>
+            <TextInput
+              label="Beside-track suffix"
+              description="Added to the audio file's name to name its video, e.g. “-video”."
+              value={besideTrackSuffix}
+              disabled={isLocked('besideTrackSuffix')}
+              rightSection={lockIcon('besideTrackSuffix')}
+              error={fieldError('besideTrackSuffix')}
+              onChange={(event) => setBesideTrackSuffix(event.currentTarget.value)}
+            />
+          </Lockable>
+        )}
+
+        <Lockable field="maxHeight" locked={isLocked('maxHeight')}>
+          <Select
+            label="Maximum height"
+            description="The tallest picture to download, in pixels. Above 1080 YouTube mostly serves VP9 or AV1."
+            data={heights}
+            value={maxHeight}
+            allowDeselect={false}
+            disabled={isLocked('maxHeight')}
+            rightSection={lockIcon('maxHeight')}
+            error={fieldError('maxHeight')}
+            onChange={(value) => setMaxHeight(value ?? '0')}
+          />
+        </Lockable>
+
+        <Lockable field="writeNfo" locked={isLocked('writeNfo')}>
+          <Switch
+            label="Write .nfo"
+            description="A Kodi and Jellyfin metadata file beside each video."
+            checked={writeNfo}
+            disabled={isLocked('writeNfo')}
+            error={fieldError('writeNfo')}
+            onChange={(event) => setWriteNfo(event.currentTarget.checked)}
+          />
+        </Lockable>
+
+        <Lockable field="writeThumbnail" locked={isLocked('writeThumbnail')}>
+          <Switch
+            label="Save thumbnail"
+            description="YouTube's thumbnail, saved beside each video."
+            checked={writeThumbnail}
+            disabled={isLocked('writeThumbnail')}
+            error={fieldError('writeThumbnail')}
+            onChange={(event) => setWriteThumbnail(event.currentTarget.checked)}
+          />
+        </Lockable>
+
+        <Text fw={600}>Scheduled search</Text>
+
+        <Lockable field="scheduledSearchEnabled" locked={isLocked('scheduledSearchEnabled')}>
+          <Switch
+            label="Find missing videos on a schedule"
+            description="Downloads only confident matches. Anything less waits for you to pick it."
+            checked={scheduledEnabled}
+            disabled={isLocked('scheduledSearchEnabled')}
+            error={fieldError('scheduledSearchEnabled')}
+            onChange={(event) => setScheduledEnabled(event.currentTarget.checked)}
+          />
+        </Lockable>
+
+        <Lockable field="scheduledSearchIntervalHours" locked={isLocked('scheduledSearchIntervalHours')}>
+          <NumberInput
+            label="Run every (hours)"
+            min={1}
+            value={interval}
+            disabled={isLocked('scheduledSearchIntervalHours')}
+            rightSection={lockIcon('scheduledSearchIntervalHours')}
+            error={fieldError('scheduledSearchIntervalHours')}
+            onChange={setInterval}
+          />
+        </Lockable>
+
+        <Lockable field="scheduledSearchLimit" locked={isLocked('scheduledSearchLimit')}>
+          <NumberInput
+            label="Songs per run"
+            description="MusicBrainz answers one request a second, so a run stays small on purpose."
+            min={1}
+            value={limit}
+            disabled={isLocked('scheduledSearchLimit')}
+            rightSection={lockIcon('scheduledSearchLimit')}
+            error={fieldError('scheduledSearchLimit')}
+            onChange={setLimit}
+          />
+        </Lockable>
+
+        {general.map((message) => (
+          <Alert key={message} color="red" icon={<CircleAlert size={16} />}>
+            {message}
+          </Alert>
+        ))}
+
+        {save.error !== null && !(save.error instanceof ValidationError && Object.keys(fields).length > 0) && (
+          <Alert color="red" icon={<CircleAlert size={16} />}>
+            {save.error.message}
+          </Alert>
+        )}
+
+        <Group justify="flex-end">
+          <Button loading={save.isPending} onClick={submit}>
+            Save
+          </Button>
+        </Group>
+      </Stack>
+    </Card>
+  );
+}
+
+/** Settings → Music videos: the feature's switch, its folder and layout, and the scheduled search. */
+export function MusicVideoSettingsPage() {
+  const settings = useMusicVideoSettings();
+
+  return (
+    <Stack gap="lg">
+      <Title order={3}>Music videos</Title>
+
+      {settings.isPending && <LoadingState />}
+
+      {settings.error !== null && <ErrorState message={settings.error.message} />}
+
+      {settings.data !== undefined && <MusicVideoForm settings={settings.data} />}
+    </Stack>
+  );
+}

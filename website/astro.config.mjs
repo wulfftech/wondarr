@@ -46,6 +46,7 @@ export default defineConfig({
             { slug: 'library/layouts-and-albums' },
             { slug: 'library/quality-and-upgrades' },
             { slug: 'library/conversion' },
+            { slug: 'music-videos' },
           ],
         },
         {

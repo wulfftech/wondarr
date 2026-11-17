@@ -2,10 +2,12 @@ import { Group, Stack, Switch, Tabs, Title } from '@mantine/core';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
+import { useMusicVideosEnabled } from '../api/musicVideos';
 import { firstPage, type Paging } from '../api/paging';
 import { useQualityProfiles } from '../api/profiles';
 import { useWantedCutoff, useWantedMissing, type SongPage, type SongResource } from '../api/wanted';
 import { SongSearchButtons } from '../components/InteractiveSearchModal';
+import { musicVideoColumn } from '../components/MusicVideoCell';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
 import { CoverThumb, formatDate, formatDuration } from '../components/SongCells';
 import { SongLink } from '../components/song/SongLink';
@@ -46,7 +48,11 @@ function useShowCovers(): [boolean, (show: boolean) => void] {
  * The columns both tabs share. `profileNames` turns a profile id into the name the user knows;
  * `showCovers` adds the cover column.
  */
-function wantedColumns(profileNames: Map<string, string>, showCovers: boolean): PagedColumn<SongResource>[] {
+function wantedColumns(
+  profileNames: Map<string, string>,
+  showCovers: boolean,
+  showMusicVideo: boolean,
+): PagedColumn<SongResource>[] {
   const cover: PagedColumn<SongResource> = {
     label: 'Cover',
     sortKey: null,
@@ -79,6 +85,7 @@ function wantedColumns(profileNames: Map<string, string>, showCovers: boolean): 
         />
       ),
     },
+    ...(showMusicVideo ? [musicVideoColumn()] : []),
   ];
 }
 
@@ -98,10 +105,11 @@ function WantedList({
 }) {
   const profiles = useQualityProfiles();
   const profileNames = new Map((profiles.data ?? []).map((profile) => [String(profile.id), profile.name]));
+  const musicVideos = useMusicVideosEnabled();
 
   return (
     <PagedTable
-      columns={wantedColumns(profileNames, showCovers)}
+      columns={wantedColumns(profileNames, showCovers, musicVideos)}
       rows={query.data?.records ?? []}
       totalRecords={Number(query.data?.totalRecords ?? 0)}
       paging={paging}
