@@ -56,6 +56,45 @@ public sealed class SongRefilerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_beside_track_video_with_its_nfo_and_thumbnail_goes_with_the_file_and_the_row_follows()
+    {
+        await using var context = await ContextAsync();
+        var (song, from) = await SeedAsync(context, SourceTypes.Soulseek);
+        var videoBase = Path.ChangeExtension(from, null) + "-clip";
+
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            await File.WriteAllTextAsync(videoBase + extension, "video group " + extension);
+        }
+
+        context.MusicVideos.Add(new MusicVideo
+        {
+            SongId = song,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "yt1",
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = videoBase + ".mkv",
+        });
+        await context.SaveChangesAsync();
+        await ChooseAlbumAsync(context, song, "r1", "Random Access Memories");
+
+        var result = await Refiler(context).RefileAsync(song, CancellationToken.None);
+
+        result.Outcome.Should().Be(SongRefileOutcome.Refiled);
+
+        var targetFolder = Path.Combine(_root, "Daft Punk", "Random Access Memories");
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(Path.Combine(targetFolder, "01 - Track 1-clip" + suffix)).Should().BeTrue(suffix);
+            File.Exists(videoBase + suffix).Should().BeFalse(suffix);
+        }
+
+        await using var fresh = _database.CreateContext(_time);
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(targetFolder, "01 - Track 1-clip.mkv"));
+    }
+
+    [Fact]
     public async Task The_file_moves_to_the_new_albums_folder_with_its_lyrics_and_is_retagged_and_both_folders_are_scanned()
     {
         await using var context = await ContextAsync();

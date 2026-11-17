@@ -79,6 +79,42 @@ public sealed class SongFileRemoverTests : IDisposable
     }
 
     [Fact]
+    public async Task Leaves_a_beside_track_video_its_sidecars_and_its_row_where_they_are()
+    {
+        await using var context = await ContextAsync();
+        var (song, file, _) = await SeedAsync(context);
+
+        var videoBase = Path.ChangeExtension(file, null) + "-video";
+
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.WriteAllText(videoBase + extension, "video group " + extension);
+        }
+
+        context.MusicVideos.Add(new MusicVideo
+        {
+            SongId = song.Id,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "yt1",
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = videoBase + ".mkv",
+        });
+        await context.SaveChangesAsync();
+
+        await Remover(context).RemoveAsync(song.Id, blocklist: true, CancellationToken.None);
+
+        File.Exists(file).Should().BeFalse();
+
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(videoBase + extension).Should().BeTrue(extension);
+        }
+
+        await using var fresh = _database.CreateContext(_time);
+        (await fresh.MusicVideos.SingleAsync()).Path.Should().Be(videoBase + ".mkv");
+    }
+
+    [Fact]
     public async Task Blocklisting_a_compilation_file_that_passed_on_its_title_alone_counts_a_miss()
     {
         await using var context = await ContextAsync();

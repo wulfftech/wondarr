@@ -133,7 +133,7 @@ public sealed partial class FileConverter : IFileConverter
     /// <summary>How far the converted file's length may be from the original's, in milliseconds.</summary>
     private const int DurationToleranceMs = 1_000;
 
-    private static readonly string[] SidecarExtensions = [".lrc", ".txt"];
+    private static readonly DiskOperations Disk = new();
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -495,7 +495,18 @@ public sealed partial class FileConverter : IFileConverter
 
             placed = true;
 
-            MoveSidecars(currentPath, finalPath);
+            // The song's music video, when it sits beside the old file, goes with it; the row follows it in
+            // the same save as the file's new path.
+            var video = await _database.MusicVideos
+                .FirstOrDefaultAsync(candidate => candidate.SongId == songId, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            var videoNow = MoveSidecars(currentPath, finalPath, video?.Path);
+
+            if (video is not null && videoNow is not null)
+            {
+                video.Path = videoNow;
+            }
 
             var from = new ConvertedFile(file.Codec, file.BitrateKbps, currentPath);
 
@@ -545,6 +556,15 @@ public sealed partial class FileConverter : IFileConverter
                             .SetProperty(candidate => candidate.Container, media.Container),
                         CancellationToken.None)
                     .ConfigureAwait(false);
+
+                // The video moved with the file, so its row says where it is too.
+                if (videoNow is not null)
+                {
+                    await _database.MusicVideos
+                        .Where(candidate => candidate.SongId == songId)
+                        .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, videoNow), CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
 
                 return new ConvertSongResult(
                     songId,
@@ -683,25 +703,20 @@ public sealed partial class FileConverter : IFileConverter
     };
 
     /// <summary>
-    /// Moves the sidecars of the old file beside the new one when the name changed. A sidecar whose
-    /// new name is taken stays where it was: nothing is ever replaced.
+    /// Moves the sidecars of the old file beside the new one when the name changed: its lyrics and, when
+    /// <paramref name="videoPath"/> names a music video that sits beside the old file, the video with its
+    /// <c>.nfo</c> and thumbnail. A sidecar whose new name is taken stays where it was: nothing is ever
+    /// replaced. The rules are <see cref="SongFileRules"/>'s, the same ones the other movers use.
     /// </summary>
-    internal static void MoveSidecars(string oldPath, string newPath)
+    /// <param name="oldPath">The audio file that was replaced.</param>
+    /// <param name="newPath">The audio file that replaces it.</param>
+    /// <param name="videoPath">The song's <c>music_video</c> row path, or <see langword="null"/> when it has none.</param>
+    /// <returns>Where the video is now when it moved, or <see langword="null"/> when it did not.</returns>
+    internal static string? MoveSidecars(string oldPath, string newPath, string? videoPath = null)
     {
-        var oldBase = Path.ChangeExtension(oldPath, null);
-        var newBase = Path.ChangeExtension(newPath, null);
-
-        if (oldBase is null || newBase is null || string.Equals(oldBase, newBase, StringComparison.Ordinal))
+        foreach (var (from, to, taken) in SongFileRules.SidecarMoves(Disk, oldPath, newPath))
         {
-            return;
-        }
-
-        foreach (var extension in SidecarExtensions)
-        {
-            var from = string.Concat(oldBase, extension);
-            var to = string.Concat(newBase, extension);
-
-            if (!File.Exists(from) || File.Exists(to))
+            if (taken)
             {
                 continue;
             }
@@ -716,6 +731,8 @@ public sealed partial class FileConverter : IFileConverter
                 // than failing a conversion that already happened.
             }
         }
+
+        return SongFileRules.ApplyVideoMoves(Disk, SongFileRules.VideoMoves(Disk, oldPath, newPath, videoPath));
     }
 
     private static void DeleteQuietly(string path)

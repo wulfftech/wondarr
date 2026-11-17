@@ -287,6 +287,77 @@ public class SongLibraryMoverTests : IDisposable
     }
 
     [Fact]
+    public async Task A_beside_track_video_with_its_nfo_and_thumbnail_moves_with_the_file_and_the_row_follows()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac", lyrics: "the words");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        await SeedVideoAsync(context, songId, from, "-clip");
+
+        var result = await _mover.MoveAsync(songId, 2, CancellationToken.None);
+
+        result.Should().Be(SongMoveResult.Moved);
+
+        var newFolder = Path.Combine(_root2, "Daft Punk", "Single 1");
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(Path.Combine(newFolder, "01 - Track 1-clip" + suffix)).Should().BeTrue(suffix);
+            File.Exists(Path.ChangeExtension(from, null) + "-clip" + suffix).Should().BeFalse(suffix);
+        }
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(newFolder, "01 - Track 1-clip.mkv"));
+    }
+
+    [Fact]
+    public async Task A_video_whose_new_name_is_taken_stays_and_its_row_keeps_naming_it()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        await SeedVideoAsync(context, songId, from, "-video");
+
+        var newFolder = Path.Combine(_root2, "Daft Punk", "Single 1");
+        Directory.CreateDirectory(newFolder);
+        await File.WriteAllTextAsync(Path.Combine(newFolder, "01 - Track 1-video.mkv"), "somebody else's video");
+
+        var result = await _mover.MoveAsync(songId, 2, CancellationToken.None);
+
+        result.Should().Be(SongMoveResult.Moved);
+        File.ReadAllText(Path.Combine(newFolder, "01 - Track 1-video.mkv")).Should().Be("somebody else's video");
+
+        var oldBase = Path.ChangeExtension(from, null) + "-video";
+        File.Exists(oldBase + ".mkv").Should().BeTrue();
+        File.Exists(oldBase + ".nfo").Should().BeTrue();
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(oldBase + ".mkv");
+    }
+
+    [Fact]
+    public async Task An_organizer_failure_leaves_the_video_and_its_row_as_they_were()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        await SeedVideoAsync(context, songId, from, "-video");
+        _organizer.FailFor = "Track 1";
+
+        var result = await _mover.MoveAsync(songId, 2, CancellationToken.None);
+
+        result.Outcome.Should().Be(SongMoveOutcome.Failed);
+
+        var oldBase = Path.ChangeExtension(from, null) + "-video";
+        File.Exists(oldBase + ".mkv").Should().BeTrue();
+        File.Exists(oldBase + ".nfo").Should().BeTrue();
+        File.Exists(oldBase + "-thumb.jpg").Should().BeTrue();
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(oldBase + ".mkv");
+    }
+
+    [Fact]
     public async Task An_organizer_failure_leaves_the_file_and_the_rows_as_they_were()
     {
         await using var context = await ContextAsync();
@@ -462,6 +533,29 @@ public class SongLibraryMoverTests : IDisposable
         await context.SaveChangesAsync();
 
         return song.Id;
+    }
+
+    /// <summary>A song's video next to its audio file: the <c>.mkv</c>, its <c>.nfo</c> and its thumbnail, and the row.</summary>
+    private static async Task SeedVideoAsync(WondarrDbContext context, long songId, string audioPath, string suffix)
+    {
+        var baseName = Path.ChangeExtension(audioPath, null) + suffix;
+
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            await File.WriteAllTextAsync(baseName + extension, "video group " + extension);
+        }
+
+        context.MusicVideos.Add(new MusicVideo
+        {
+            SongId = songId,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "yt" + songId,
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = baseName + ".mkv",
+        });
+
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
     }
 
     /// <summary>Puts an album folder's <c>cover.jpg</c> where a move-out would leave it behind.</summary>

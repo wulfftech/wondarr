@@ -12,6 +12,7 @@ using Wondarr.Core.Media;
 using Wondarr.Core.Messaging;
 using Wondarr.Core.Metadata;
 using Wondarr.Core.Metadata.AcoustId;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Profiles;
@@ -129,6 +130,7 @@ public sealed partial class ImportService : IImportService
     private readonly ILogger<ImportService> _logger;
     private readonly AcoustIdKeyState _keyState;
     private readonly ILibraryRoots _libraryRoots;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="ImportService"/> class.</summary>
     /// <param name="database">The Wondarr database; the item, the song and the file are written through it.</param>
@@ -147,6 +149,10 @@ public sealed partial class ImportService : IImportService
     /// <param name="logger">The logger.</param>
     /// <param name="libraryRoots">Tells whether the library root is mounted and marked before anything is written.</param>
     /// <param name="keyState">Counts how long imports have waited on a rejected AcoustID key.</param>
+    /// <param name="musicVideoOptions">
+    /// The <c>music_videos</c> settings, so a video that Remove file left behind is moved beside the song's next
+    /// file under the current suffix; none leaves such a video where it is.
+    /// </param>
     public ImportService(
         WondarrDbContext database,
         IDownloadVerifier verifier,
@@ -163,7 +169,8 @@ public sealed partial class ImportService : IImportService
         ISongFileLock songFileLock,
         ILogger<ImportService> logger,
         ILibraryRoots libraryRoots,
-        AcoustIdKeyState? keyState = null)
+        AcoustIdKeyState? keyState = null,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(verifier);
@@ -197,6 +204,7 @@ public sealed partial class ImportService : IImportService
         _logger = logger;
         _libraryRoots = libraryRoots;
         _keyState = keyState ?? new AcoustIdKeyState();
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -933,10 +941,11 @@ public sealed partial class ImportService : IImportService
         // converter does (R-050). A reference file is the user's own and keeps its neighbours. A
         // library file changes only under the song lock this import holds, so the one read at the
         // start is still the song's.
-        if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
-        {
-            FileConverter.MoveSidecars(replaced.Path, finalPath);
-        }
+        //
+        // The song's music video follows the same way (ADR-0014): when it sits beside the replaced file it is
+        // moved to the new name with its .nfo and thumbnail; when Remove file left it behind with no audio
+        // file beside it, the song's next file takes it. Its row is updated in the record step's save.
+        var (video, videoNow) = await MoveSidecarsAndVideoAsync(song, finalPath).ConfigureAwait(false);
 
         bool upgraded;
         SongFile file;
@@ -957,6 +966,11 @@ public sealed partial class ImportService : IImportService
 
             upgraded = heldNow is not null;
             file = heldNow ?? new SongFile { SongId = song.Id };
+
+            if (video is not null && videoNow is not null)
+            {
+                video.Path = videoNow;
+            }
 
             file.Path = finalPath;
             file.Size = media.SizeBytes;
@@ -1034,6 +1048,12 @@ public sealed partial class ImportService : IImportService
             // caller gets an outcome, never an exception.
             LogRecordFailed(_logger, item.Id, exception);
 
+            // The video moved with the file, so its row says where it is even though the rest was not recorded.
+            if (videoNow is not null)
+            {
+                await RepairVideoPathAsync(item.Id, song.Id, videoNow).ConfigureAwait(false);
+            }
+
             return await FailSafelyAsync(
                     item.Id,
                     $"Imported to {finalPath} but recording it failed: {exception.Message}",
@@ -1061,6 +1081,71 @@ public sealed partial class ImportService : IImportService
         LogImported(_logger, item.Id, song.Id, finalPath, measuredName);
 
         return upgraded ? ImportOutcome.Upgraded : ImportOutcome.Imported;
+    }
+
+    /// <summary>
+    /// Takes the replaced file's sidecars (lyrics, and the music video with its own sidecars) to the new file's
+    /// name. A song with no file at all takes a video Remove file left behind in a library, when the layout is
+    /// still <c>beside_track</c>: it goes to the new file's folder and name plus the current suffix. A video in
+    /// the video root, or under the <c>folder</c> layout, is never moved.
+    /// </summary>
+    /// <returns>The song's video row, and where its file is now when it moved (otherwise <see langword="null"/>).</returns>
+    private async Task<(MusicVideo? Video, string? NewPath)> MoveSidecarsAndVideoAsync(Song song, string finalPath)
+    {
+        var video = await _database.MusicVideos
+            .FirstOrDefaultAsync(candidate => candidate.SongId == song.Id, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
+        {
+            return (video, FileConverter.MoveSidecars(replaced.Path, finalPath, video?.Path));
+        }
+
+        if (song.File is not null
+            || video?.Path is not { } videoPath
+            || _musicVideoOptions?.CurrentValue is not { Layout: MusicVideoOptions.BesideTrackLayout } options)
+        {
+            return (video, null);
+        }
+
+        var libraryRoots = await _database.Libraries
+            .AsNoTracking()
+            .Select(library => library.RootPath)
+            .ToListAsync(CancellationToken.None)
+            .ConfigureAwait(false);
+
+        // Only a video in a library was ever beside a track; one in the video root is the folder layout's.
+        if (!Path.IsPathFullyQualified(videoPath)
+            || !libraryRoots.Any(root => !string.IsNullOrWhiteSpace(root) && PathRules.IsStrictlyInside(root, videoPath)))
+        {
+            return (video, null);
+        }
+
+        var disk = new DiskOperations();
+
+        var targetBase = Path.Combine(
+            Path.GetDirectoryName(finalPath) ?? string.Empty,
+            Path.GetFileNameWithoutExtension(finalPath) + options.BesideTrackSuffix);
+
+        var moved = SongFileRules.ApplyVideoMoves(disk, SongFileRules.VideoMovesTo(disk, videoPath, targetBase));
+
+        return (video, moved);
+    }
+
+    /// <summary>Writes where a moved video is on its own, after the import's record step failed.</summary>
+    private async Task RepairVideoPathAsync(long itemId, long songId, string path)
+    {
+        try
+        {
+            await _database.MusicVideos
+                .Where(candidate => candidate.SongId == songId)
+                .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, path), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogRecordFailed(_logger, itemId, exception);
+        }
     }
 
     /// <summary>

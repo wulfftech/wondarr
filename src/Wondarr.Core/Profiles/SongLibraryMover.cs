@@ -308,8 +308,25 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
             }
         }
 
+        // The song's music video, when it sits beside the audio file, goes with it, and its row follows in the
+        // same save as the file's new path.
+        var video = await _database.MusicVideos
+            .FirstOrDefaultAsync(candidate => candidate.SongId == song.Id, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        var videoNow = SongFileRules.ApplyVideoMoves(
+            _disk,
+            SongFileRules.VideoMoves(_disk, file.Path, finalPath, video?.Path),
+            (sidecar, beside) => LogSidecarLeftBehind(_logger, sidecar, beside),
+            (sidecar, reason) => LogSidecarNotMoved(_logger, sidecar, reason));
+
         try
         {
+            if (video is not null && videoNow is not null)
+            {
+                video.Path = videoNow;
+            }
+
             file.Path = finalPath;
             file.Size = _disk.GetFileSize(finalPath);
 
@@ -345,6 +362,15 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
                 .Where(candidate => candidate.Id == movedSongId)
                 .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.LibraryId, targetLibraryId), CancellationToken.None)
                 .ConfigureAwait(false);
+
+            // The video moved with the file, so its row says where it is too.
+            if (videoNow is not null)
+            {
+                await _database.MusicVideos
+                    .Where(candidate => candidate.SongId == movedSongId)
+                    .ExecuteUpdateAsync(update => update.SetProperty(candidate => candidate.Path, videoNow), CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
 
             return new SongMoveResult(
                 SongMoveOutcome.Failed,

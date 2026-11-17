@@ -4,6 +4,7 @@ using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.AcoustId;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Sources;
 using Wondarr.Core.Verification;
@@ -182,6 +183,137 @@ public class ImportServiceFileRecordTests
 
         File.Exists(folder + "/08 - Get Lucky.lrc").Should().BeTrue("the lyrics follow the upgraded file");
         File.Exists(folder + "/08 - Get Lucky (old).lrc").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Keeps_the_beside_track_video_under_the_new_name_when_an_upgrade_renames_the_file()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
+        Directory.CreateDirectory(folder);
+
+        var held = folder + "/08 - Get Lucky (old).mp3";
+        await File.WriteAllBytesAsync(held, new byte[8]);
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = held;
+            options.CurrentFileQualityId = 29;
+        });
+
+        await SeedVideoAsync(host, seed.SongId, folder + "/08 - Get Lucky (old)", "-clip");
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Upgraded);
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(folder + "/08 - Get Lucky-clip" + suffix).Should().BeTrue(suffix);
+            File.Exists(folder + "/08 - Get Lucky (old)-clip" + suffix).Should().BeFalse(suffix);
+        }
+
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(folder + "/08 - Get Lucky-clip.mkv");
+    }
+
+    [Fact]
+    public async Task Does_not_replace_a_file_that_holds_the_videos_new_name_when_an_upgrade_renames_the_file()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
+        Directory.CreateDirectory(folder);
+
+        var held = folder + "/08 - Get Lucky (old).mp3";
+        await File.WriteAllBytesAsync(held, new byte[8]);
+        await File.WriteAllTextAsync(folder + "/08 - Get Lucky-video.mkv", "somebody else's video");
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = held;
+            options.CurrentFileQualityId = 29;
+        });
+
+        await SeedVideoAsync(host, seed.SongId, folder + "/08 - Get Lucky (old)", "-video");
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Upgraded);
+
+        File.ReadAllText(folder + "/08 - Get Lucky-video.mkv").Should().Be("somebody else's video");
+        File.Exists(folder + "/08 - Get Lucky (old)-video.mkv").Should().BeTrue();
+
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(folder + "/08 - Get Lucky (old)-video.mkv");
+    }
+
+    [Fact]
+    public async Task Moves_a_video_that_remove_file_left_behind_beside_the_songs_next_file()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.MusicVideoOptions.Layout = MusicVideoOptions.BesideTrackLayout;
+        host.MusicVideoOptions.BesideTrackSuffix = "-clip";
+
+        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
+        Directory.CreateDirectory(folder);
+
+        // The song has no file: Remove file recycled it and left the video where it was.
+        var seed = await host.SeedAsync(options => { });
+        await SeedVideoAsync(host, seed.SongId, folder + "/08 - Get Lucky (old)", "-video");
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(folder + "/08 - Get Lucky-clip" + suffix).Should().BeTrue(suffix);
+            File.Exists(folder + "/08 - Get Lucky (old)-video" + suffix).Should().BeFalse(suffix);
+        }
+
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(folder + "/08 - Get Lucky-clip.mkv");
+    }
+
+    [Theory]
+    [InlineData(MusicVideoOptions.FolderLayout, true)]
+    [InlineData(MusicVideoOptions.BesideTrackLayout, false)]
+    public async Task Leaves_a_video_that_was_never_beside_a_track_where_it_is(string layout, bool insideLibrary)
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.MusicVideoOptions.Layout = layout;
+
+        var libraryFolder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
+        var videoRoot = host.LibraryRoot + "-videos/Daft Punk";
+        var folder = insideLibrary ? libraryFolder : videoRoot;
+        Directory.CreateDirectory(folder);
+
+        var seed = await host.SeedAsync(options => { });
+        await SeedVideoAsync(host, seed.SongId, folder + "/Daft Punk - Get Lucky", string.Empty);
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+
+        File.Exists(folder + "/Daft Punk - Get Lucky.mkv").Should().BeTrue();
+
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(folder + "/Daft Punk - Get Lucky.mkv");
+    }
+
+    /// <summary>A song's video group at <paramref name="stem"/> plus <paramref name="suffix"/>, with its row.</summary>
+    private static async Task SeedVideoAsync(ImportTestHost host, long songId, string stem, string suffix)
+    {
+        foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            await File.WriteAllTextAsync(stem + suffix + extension, "video group " + extension);
+        }
+
+        host.Context.MusicVideos.Add(new MusicVideo
+        {
+            SongId = songId,
+            Status = MusicVideoStatus.Present,
+            YouTubeVideoId = "yt" + songId,
+            FoundBy = MusicVideoFoundBy.Manual,
+            Path = stem + suffix + ".mkv",
+        });
+
+        await host.Context.SaveChangesAsync();
+        host.Context.ChangeTracker.Clear();
     }
 
     [Fact]

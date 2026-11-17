@@ -253,9 +253,23 @@ public sealed partial class SongRefiler : ISongRefiler
         }
 
         var moved = !PathRules.AreEqual(finalPath, fromPath);
+        string? videoNow = null;
+        MusicVideo? video = null;
 
         if (moved)
         {
+            // The song's music video, when it sits beside the audio file, goes with it, and its row follows in
+            // the same save as the file's new path.
+            video = await _database.MusicVideos
+                .FirstOrDefaultAsync(candidate => candidate.SongId == song.Id, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            videoNow = SongFileRules.ApplyVideoMoves(
+                _disk,
+                SongFileRules.VideoMoves(_disk, fromPath, finalPath, video?.Path),
+                (sidecar, beside) => LogSidecarLeftBehind(_logger, sidecar, beside),
+                (sidecar, reason) => LogSidecarNotMoved(_logger, sidecar, reason));
+
             // The sidecars travel with their file, under the placed file's own name.
             foreach (var (sidecar, beside, targetTaken) in SongFileRules.SidecarMoves(_disk, fromPath, finalPath))
             {
@@ -279,6 +293,11 @@ public sealed partial class SongRefiler : ISongRefiler
 
         try
         {
+            if (video is not null && videoNow is not null)
+            {
+                video.Path = videoNow;
+            }
+
             file.Path = finalPath;
             file.Size = _disk.GetFileSize(finalPath);
             file.TagsWritten = JsonSerializer.Serialize(placement.TagsWritten, Json);
@@ -318,6 +337,18 @@ public sealed partial class SongRefiler : ISongRefiler
                         update => update.SetProperty(candidate => candidate.Path, finalPath),
                         CancellationToken.None)
                     .ConfigureAwait(false);
+
+                if (videoNow is not null)
+                {
+                    var refiledSongId = song.Id;
+
+                    await _database.MusicVideos
+                        .Where(candidate => candidate.SongId == refiledSongId)
+                        .ExecuteUpdateAsync(
+                            update => update.SetProperty(candidate => candidate.Path, videoNow),
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
             }
             catch (Exception repair) when (repair is not OperationCanceledException)
             {
