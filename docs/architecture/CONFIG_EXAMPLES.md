@@ -95,8 +95,10 @@ music_videos:                              # opt-in music videos, one per song (
   beside_track_suffix: "-video"            # added to the audio file's name under beside_track
   max_height:                              # tallest picture to download, in pixels; unset means no cap
   write_nfo: true                          # a Kodi/Jellyfin .nfo beside the video
-  write_thumbnail: true                    # a thumbnail beside the video
-  scheduled_search_limit: 25               # songs one run of the scheduled task may search for
+  write_thumbnail: true                    # <name>-thumb.jpg beside the video
+  scheduled_search_enabled: false          # the "Find missing music videos" task; confident matches only, off by default
+  scheduled_search_interval_hours: 24      # how often that task runs
+  scheduled_search_limit: 25               # songs one run of the scheduled task may search for; a fruitless song is skipped for 30 days
 libraries:
   - name: Plexamp
     root: /data/music
