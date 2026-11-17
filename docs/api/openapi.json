@@ -4545,6 +4545,18 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
           }
         ],
         "responses": {
@@ -6591,6 +6603,8 @@
         "required": [
           "id",
           "mbRecordingId",
+          "artist",
+          "title",
           "artistKey",
           "titleKey",
           "created"
@@ -6611,6 +6625,12 @@
               "string"
             ]
           },
+          "artist": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
           "artistKey": {
             "type": "string"
           },
@@ -6627,6 +6647,8 @@
         "required": [
           "mode",
           "mixSeed",
+          "limit",
+          "totalBeforeLimit",
           "seeds",
           "sources",
           "suggestions"
@@ -6640,6 +6662,22 @@
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalBeforeLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
               "integer",
               "string"
             ],

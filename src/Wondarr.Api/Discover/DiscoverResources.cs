@@ -5,12 +5,16 @@ namespace Wondarr.Api.Discover;
 /// <summary>What Discover answers: ranked suggestions and which sources contributed.</summary>
 /// <param name="Mode"><c>radio</c> (seeded by one song) or <c>mix</c> (seeded by a random sample of the library).</param>
 /// <param name="MixSeed">For a mix, the sample seed; send it back as <c>mixSeed</c> to get the same sample. <see langword="null"/> for a radio.</param>
+/// <param name="Limit">The most suggestions this answer carries.</param>
+/// <param name="TotalBeforeLimit">How many suggestions there were after the filters and the artist cap, before the limit.</param>
 /// <param name="Seeds">The library songs the result was drawn from.</param>
 /// <param name="Sources">Each source and whether it answered.</param>
 /// <param name="Suggestions">The suggestions, best first.</param>
 public sealed record DiscoverResource(
     string Mode,
     int? MixSeed,
+    int Limit,
+    int TotalBeforeLimit,
     IReadOnlyList<DiscoverSeedResource> Seeds,
     IReadOnlyList<DiscoverSourceResource> Sources,
     IReadOnlyList<DiscoverSuggestionResource> Suggestions);
@@ -52,12 +56,16 @@ public sealed record DiscoverSuggestionResource(
 /// <summary>A suggestion the user turned down.</summary>
 /// <param name="Id">The dismissal id; delete it to undo.</param>
 /// <param name="MbRecordingId">The recording MBID, or <see langword="null"/> when the suggestion had none.</param>
+/// <param name="Artist">The artist as the suggestion spelled it.</param>
+/// <param name="Title">The title as the suggestion spelled it.</param>
 /// <param name="ArtistKey">The normalised artist name.</param>
 /// <param name="TitleKey">The normalised title.</param>
 /// <param name="Created">When it was dismissed (UTC).</param>
 public sealed record DiscoverDismissalResource(
     long Id,
     string? MbRecordingId,
+    string Artist,
+    string Title,
     string ArtistKey,
     string TitleKey,
     DateTime Created);
@@ -80,6 +88,8 @@ internal static class DiscoverResourceExtensions
         return new DiscoverResource(
             result.Mode,
             result.MixSeed,
+            result.Limit,
+            result.TotalBeforeLimit,
             [.. result.Seeds.Select(seed => new DiscoverSeedResource(seed.SongId, seed.Title, seed.Artist))],
             [.. result.Sources.Select(source => new DiscoverSourceResource(source.Name, source.Status))],
             [
@@ -103,6 +113,6 @@ internal static class DiscoverResourceExtensions
     {
         ArgumentNullException.ThrowIfNull(row);
 
-        return new DiscoverDismissalResource(row.Id, row.MbRecordingId, row.ArtistKey, row.TitleKey, row.CreatedAt);
+        return new DiscoverDismissalResource(row.Id, row.MbRecordingId, row.Artist, row.Title, row.ArtistKey, row.TitleKey, row.CreatedAt);
     }
 }

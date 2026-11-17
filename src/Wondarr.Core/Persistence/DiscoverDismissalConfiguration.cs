@@ -13,6 +13,8 @@ internal sealed class DiscoverDismissalConfiguration : IEntityTypeConfiguration<
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.ToTable("discover_dismissal");
+        builder.Property(x => x.Artist).IsRequired().HasMaxLength(512);
+        builder.Property(x => x.Title).IsRequired().HasMaxLength(512);
         builder.Property(x => x.ArtistKey).IsRequired();
         builder.Property(x => x.TitleKey).IsRequired();
         builder.HasIndex(x => x.MbRecordingId);

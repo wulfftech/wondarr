@@ -12,6 +12,12 @@ public sealed class DiscoverDismissal : EntityBase
     /// <summary>Gets or sets the lower-case recording MBID, or <see langword="null"/> when the suggestion had none.</summary>
     public string? MbRecordingId { get; set; }
 
+    /// <summary>Gets or sets the artist as the suggestion spelled it, for the undo list.</summary>
+    public string Artist { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the title as the suggestion spelled it, for the undo list.</summary>
+    public string Title { get; set; } = string.Empty;
+
     /// <summary>Gets or sets the normalised artist name (<c>TextMatching.NormalizeArtist</c>).</summary>
     public string ArtistKey { get; set; } = string.Empty;
 

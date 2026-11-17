@@ -18,6 +18,8 @@ namespace Wondarr.Core.Persistence.Migrations
                     id = table.Column<long>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
                     mb_recording_id = table.Column<string>(type: "TEXT", nullable: true),
+                    artist = table.Column<string>(type: "TEXT", maxLength: 512, nullable: false),
+                    title = table.Column<string>(type: "TEXT", maxLength: 512, nullable: false),
                     artist_key = table.Column<string>(type: "TEXT", nullable: false),
                     title_key = table.Column<string>(type: "TEXT", nullable: false),
                     created_at = table.Column<DateTime>(type: "TEXT", nullable: false),

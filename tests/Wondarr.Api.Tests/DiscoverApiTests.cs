@@ -45,6 +45,8 @@ public sealed class DiscoverApiTests
         first.GetProperty("sources")[0].GetString().Should().Be("listenbrainz");
         first.GetProperty("score").GetDouble().Should().BeGreaterThan(0);
         body.GetProperty("suggestions").GetArrayLength().Should().Be(2);
+        body.GetProperty("limit").GetInt32().Should().Be(50);
+        body.GetProperty("totalBeforeLimit").GetInt32().Should().Be(2);
     }
 
     [Fact]
@@ -103,6 +105,8 @@ public sealed class DiscoverApiTests
 
         var dismissal = await SongApiTests.ReadJsonAsync(created);
         var id = dismissal.GetProperty("id").GetInt64();
+        dismissal.GetProperty("artist").GetString().Should().Be("Massive Attack");
+        dismissal.GetProperty("title").GetString().Should().Be("Teardrop");
         dismissal.GetProperty("artistKey").GetString().Should().Be("massive attack");
         dismissal.GetProperty("titleKey").GetString().Should().Be("teardrop");
 
@@ -113,6 +117,7 @@ public sealed class DiscoverApiTests
         var listed = await SongApiTests.ReadJsonAsync(list);
         listed.GetArrayLength().Should().Be(1);
         listed[0].GetProperty("id").GetInt64().Should().Be(id);
+        listed[0].GetProperty("artist").GetString().Should().Be("Massive Attack");
 
         using var undone = await client.DeleteAsync(new Uri($"{Endpoint}/dismissals/{id}", UriKind.Relative));
         undone.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -124,6 +129,29 @@ public sealed class DiscoverApiTests
 
         using var empty = await client.GetAsync(new Uri($"{Endpoint}/dismissals", UriKind.Relative));
         (await SongApiTests.ReadJsonAsync(empty)).GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task The_limit_truncates_both_modes_and_must_be_in_range()
+    {
+        using var factory = Factory();
+        using var client = SongApiTests.Authenticated(factory);
+        var songId = await SongApiTests.SeedSongAsync(factory, "Get Lucky", SeedMbid, monitored: true);
+
+        using var radio = await client.GetAsync(new Uri($"{Endpoint}?songId={songId}&limit=1", UriKind.Relative));
+        var radioBody = await SongApiTests.ReadJsonAsync(radio);
+        radioBody.GetProperty("limit").GetInt32().Should().Be(1);
+        radioBody.GetProperty("totalBeforeLimit").GetInt32().Should().Be(2);
+        radioBody.GetProperty("suggestions").GetArrayLength().Should().Be(1);
+
+        using var mix = await client.GetAsync(new Uri($"{Endpoint}?limit=1", UriKind.Relative));
+        (await SongApiTests.ReadJsonAsync(mix)).GetProperty("suggestions").GetArrayLength().Should().Be(1);
+
+        foreach (var bad in new[] { 0, 201 })
+        {
+            using var response = await client.GetAsync(new Uri($"{Endpoint}?limit={bad}", UriKind.Relative));
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
     }
 
     [Fact]

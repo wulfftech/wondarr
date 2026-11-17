@@ -48,10 +48,14 @@ public sealed record DiscoverSuggestion(
 /// <param name="MixSeed">The sample seed of a mix, to send back for the same sample; <see langword="null"/> for a radio.</param>
 /// <param name="Seeds">The library songs the result was seeded from.</param>
 /// <param name="Sources">Each source and whether it answered.</param>
-/// <param name="Suggestions">The ranked suggestions, best first.</param>
+/// <param name="Suggestions">The ranked suggestions, best first, at most <paramref name="Limit"/>.</param>
+/// <param name="Limit">The most suggestions this answer carries.</param>
+/// <param name="TotalBeforeLimit">How many suggestions there were after the filters and the artist cap, before the limit.</param>
 public sealed record DiscoverResult(
     string Mode,
     int? MixSeed,
+    int Limit,
+    int TotalBeforeLimit,
     IReadOnlyList<DiscoverSeedInfo> Seeds,
     IReadOnlyList<DiscoverSourceInfo> Sources,
     IReadOnlyList<DiscoverSuggestion> Suggestions);
@@ -80,12 +84,12 @@ public interface IDiscoverService
     /// <param name="songId">The seed song.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <returns>The result, or <see langword="null"/> when the song does not exist.</returns>
-    Task<DiscoverResult?> GetRadioAsync(long songId, CancellationToken cancellationToken);
+    Task<DiscoverResult?> GetRadioAsync(long songId, int limit, CancellationToken cancellationToken);
 
     /// <summary>A mix seeded by a random sample of the library.</summary>
     /// <param name="sampleSeed">The sample seed to repeat, or <see langword="null"/> to draw a new sample.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
-    Task<DiscoverResult> GetMixAsync(int? sampleSeed, CancellationToken cancellationToken);
+    Task<DiscoverResult> GetMixAsync(int? sampleSeed, int limit, CancellationToken cancellationToken);
 
     /// <summary>Lists the dismissals, newest first.</summary>
     /// <param name="cancellationToken">Cancels the query.</param>
@@ -113,6 +117,12 @@ public interface IDiscoverService
 /// </summary>
 public sealed partial class DiscoverService : IDiscoverService
 {
+    /// <summary>The most suggestions one answer may carry.</summary>
+    public const int MaxLimit = 200;
+
+    /// <summary>How many suggestions an answer carries when the caller does not say.</summary>
+    public const int DefaultLimit = 50;
+
     private readonly WondarrDbContext _database;
     private readonly IReadOnlyList<IRecommendationSource> _sources;
     private readonly IMemoryCache _cache;
@@ -146,7 +156,7 @@ public sealed partial class DiscoverService : IDiscoverService
     }
 
     /// <inheritdoc />
-    public async Task<DiscoverResult?> GetRadioAsync(long songId, CancellationToken cancellationToken)
+    public async Task<DiscoverResult?> GetRadioAsync(long songId, int limit, CancellationToken cancellationToken)
     {
         var seeds = await LoadSeedsAsync([songId], cancellationToken).ConfigureAwait(false);
         if (seeds.Count == 0)
@@ -157,11 +167,11 @@ public sealed partial class DiscoverService : IDiscoverService
         var run = await RunAsync($"discover:radio:{songId.ToString(CultureInfo.InvariantCulture)}", seeds, cancellationToken)
             .ConfigureAwait(false);
 
-        return await FinishAsync("radio", null, run, cancellationToken).ConfigureAwait(false);
+        return await FinishAsync("radio", null, run, limit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<DiscoverResult> GetMixAsync(int? sampleSeed, CancellationToken cancellationToken)
+    public async Task<DiscoverResult> GetMixAsync(int? sampleSeed, int limit, CancellationToken cancellationToken)
     {
         var seed = sampleSeed ?? Random.Shared.Next(1, int.MaxValue);
         var count = _options.CurrentValue.MixSeedCount;
@@ -179,7 +189,7 @@ public sealed partial class DiscoverService : IDiscoverService
         var key = string.Create(CultureInfo.InvariantCulture, $"discover:mix:{seed}:{count}:{ids.Count}");
         var run = await RunAsync(key, seeds, cancellationToken).ConfigureAwait(false);
 
-        return await FinishAsync("mix", seed, run, cancellationToken).ConfigureAwait(false);
+        return await FinishAsync("mix", seed, run, limit, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -232,7 +242,14 @@ public sealed partial class DiscoverService : IDiscoverService
             return existing;
         }
 
-        var row = new DiscoverDismissal { MbRecordingId = mbid, ArtistKey = artistKey, TitleKey = titleKey };
+        var row = new DiscoverDismissal
+        {
+            MbRecordingId = mbid,
+            Artist = Truncate(input.Artist.Trim()),
+            Title = Truncate(input.Title.Trim()),
+            ArtistKey = artistKey,
+            TitleKey = titleKey,
+        };
         _database.DiscoverDismissals.Add(row);
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -272,6 +289,8 @@ public sealed partial class DiscoverService : IDiscoverService
 
         return [.. pool.Take(take)];
     }
+
+    private static string Truncate(string value) => value.Length <= 512 ? value : value[..512];
 
     private async Task<List<RecommendationSeed>> LoadSeedsAsync(
         List<long> ids,
@@ -394,6 +413,7 @@ public sealed partial class DiscoverService : IDiscoverService
         string mode,
         int? mixSeed,
         CachedRun run,
+        int limit,
         CancellationToken cancellationToken)
     {
         var library = await _database.Songs
@@ -420,12 +440,16 @@ public sealed partial class DiscoverService : IDiscoverService
             dismissals,
             _options.CurrentValue.MaxPerArtist);
 
+        var shown = Math.Clamp(limit, 1, MaxLimit);
+
         return new DiscoverResult(
             mode,
             mixSeed,
+            shown,
+            suggestions.Count,
             [.. run.Seeds.Select(seed => new DiscoverSeedInfo(seed.SongId, seed.Title, seed.Artist))],
             run.Sources,
-            suggestions);
+            [.. suggestions.Take(shown)]);
     }
 
     private static string StatusName(RecommendationSourceStatus status) => status switch

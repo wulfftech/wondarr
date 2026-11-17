@@ -24,6 +24,12 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("id");
 
+                    b.Property<string>("Artist")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("artist");
+
                     b.Property<string>("ArtistKey")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -36,6 +42,12 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<string>("MbRecordingId")
                         .HasColumnType("TEXT")
                         .HasColumnName("mb_recording_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title");
 
                     b.Property<string>("TitleKey")
                         .IsRequired()

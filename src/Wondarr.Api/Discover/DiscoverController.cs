@@ -29,14 +29,26 @@ public sealed class DiscoverController : ControllerBase
     /// </summary>
     /// <param name="songId">The library song to seed a radio with.</param>
     /// <param name="mixSeed">The sample seed of a mix, to repeat an earlier sample.</param>
+    /// <param name="limit">The most suggestions to return, 1 to 200; default 50. Applied after the filters and the artist cap.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     [HttpGet]
     [Produces("application/json")]
     public async Task<ActionResult<DiscoverResource>> GetSuggestions(
         long? songId,
         int? mixSeed,
+        int? limit,
         CancellationToken cancellationToken)
     {
+        if (limit is < 1 or > DiscoverService.MaxLimit)
+        {
+            return Problem(
+                title: "limit is out of range",
+                detail: $"limit must be between 1 and {DiscoverService.MaxLimit}.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var shown = limit ?? DiscoverService.DefaultLimit;
+
         if (songId is not null && mixSeed is not null)
         {
             return Problem(
@@ -47,12 +59,12 @@ public sealed class DiscoverController : ControllerBase
 
         if (songId is { } id)
         {
-            var radio = await _discover.GetRadioAsync(id, cancellationToken).ConfigureAwait(false);
+            var radio = await _discover.GetRadioAsync(id, shown, cancellationToken).ConfigureAwait(false);
 
             return radio is null ? NotFound() : Ok(radio.ToResource());
         }
 
-        var mix = await _discover.GetMixAsync(mixSeed, cancellationToken).ConfigureAwait(false);
+        var mix = await _discover.GetMixAsync(mixSeed, shown, cancellationToken).ConfigureAwait(false);
 
         return Ok(mix.ToResource());
     }

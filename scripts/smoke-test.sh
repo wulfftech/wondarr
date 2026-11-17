@@ -111,7 +111,8 @@ case "$METADATA" in
             -e "APP__METADATA__MUSICBRAINZ_BASE_URL=${PROXY}/mb/ws/2/"
             -e "APP__METADATA__COVER_ART_ARCHIVE_BASE_URL=${PROXY}/caa/"
             -e "APP__METADATA__DEEZER_BASE_URL=${PROXY}/deezer/"
-            -e "APP__METADATA__ITUNES_BASE_URL=${PROXY}/itunes/")
+            -e "APP__METADATA__ITUNES_BASE_URL=${PROXY}/itunes/"
+            -e "APP__METADATA__LISTENBRAINZ_LABS_BASE_URL=${PROXY}/lbl/")
         # A replay answers instantly and is not musicbrainz.org: no need to wait a second per request.
         # Recording talks to the real service through the proxy, so it keeps the 1 req/s spacing.
         if [ "$METADATA" = replay ]; then

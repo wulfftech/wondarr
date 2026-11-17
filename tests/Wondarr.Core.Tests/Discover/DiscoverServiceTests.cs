@@ -48,7 +48,7 @@ public sealed class DiscoverServiceTests : IDisposable
         var service = Service(context, listenBrainz, lastFm);
         await service.DismissAsync(new DiscoverDismissalInput(null, "Tricky", "Dismiss Me"), CancellationToken.None);
 
-        var result = await service.GetRadioAsync(seed.Id, CancellationToken.None);
+        var result = await service.GetRadioAsync(seed.Id, 50, CancellationToken.None);
 
         result.Should().NotBeNull();
         result!.Mode.Should().Be("radio");
@@ -67,12 +67,28 @@ public sealed class DiscoverServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task The_limit_truncates_after_the_filters_and_reports_the_total()
+    {
+        await using var context = await OpenAsync();
+        var seed = await AddSongAsync(context, "Seed", "Seed Artist");
+
+        var source = new ScriptedSource("listenbrainz", 1.0, _ => Answer(
+            [.. Enumerable.Range(0, 10).Select(index => new RecommendationCandidate($"Song {index}", $"Artist {index}"))]));
+
+        var result = await Service(context, source).GetRadioAsync(seed.Id, 4, CancellationToken.None);
+
+        result!.Limit.Should().Be(4);
+        result.TotalBeforeLimit.Should().Be(10);
+        result.Suggestions.Select(item => item.Title).Should().Equal("Song 0", "Song 1", "Song 2", "Song 3");
+    }
+
+    [Fact]
     public async Task A_radio_for_a_song_that_does_not_exist_is_null()
     {
         await using var context = await OpenAsync();
 
         var result = await Service(context, new ScriptedSource("listenbrainz", 1.0, _ => Answer()))
-            .GetRadioAsync(4242, CancellationToken.None);
+            .GetRadioAsync(4242, 50, CancellationToken.None);
 
         result.Should().BeNull();
     }
@@ -90,7 +106,7 @@ public sealed class DiscoverServiceTests : IDisposable
             new RecommendationCandidate("Four", "Crowd"),
             new RecommendationCandidate("Solo", "Loner")));
 
-        var result = await Service(context, source).GetRadioAsync(seed.Id, CancellationToken.None);
+        var result = await Service(context, source).GetRadioAsync(seed.Id, 50, CancellationToken.None);
 
         result!.Suggestions.Select(item => item.Title).Should().Equal("One", "Two", "Three", "Solo");
     }
@@ -107,8 +123,8 @@ public sealed class DiscoverServiceTests : IDisposable
         var source = new ScriptedSource("listenbrainz", 1.0, _ => Answer());
         var service = Service(context, source);
 
-        var first = await service.GetMixAsync(1234, CancellationToken.None);
-        var again = await service.GetMixAsync(1234, CancellationToken.None);
+        var first = await service.GetMixAsync(1234, 50, CancellationToken.None);
+        var again = await service.GetMixAsync(1234, 50, CancellationToken.None);
 
         first.Mode.Should().Be("mix");
         first.MixSeed.Should().Be(1234);
@@ -118,7 +134,7 @@ public sealed class DiscoverServiceTests : IDisposable
         var others = new List<IReadOnlyList<long>>();
         foreach (var other in new[] { 1, 2, 3, 4, 5, 6 })
         {
-            var result = await service.GetMixAsync(other, CancellationToken.None);
+            var result = await service.GetMixAsync(other, 50, CancellationToken.None);
             others.Add([.. result.Seeds.Select(seed => seed.SongId).Order()]);
         }
 
@@ -126,7 +142,7 @@ public sealed class DiscoverServiceTests : IDisposable
             sample => !sample.SequenceEqual(first.Seeds.Select(seed => seed.SongId).Order()),
             "a different seed draws a different sample");
 
-        var fresh = await service.GetMixAsync(null, CancellationToken.None);
+        var fresh = await service.GetMixAsync(null, 50, CancellationToken.None);
         fresh.MixSeed.Should().NotBeNull("an omitted seed draws a new sample and says which");
     }
 
@@ -140,7 +156,7 @@ public sealed class DiscoverServiceTests : IDisposable
         }
 
         var result = await Service(context, new ScriptedSource("listenbrainz", 1.0, _ => Answer()))
-            .GetMixAsync(7, CancellationToken.None);
+            .GetMixAsync(7, 50, CancellationToken.None);
 
         result.Seeds.Should().HaveCount(3, "a library smaller than the sample size is used whole");
         result.Seeds.Select(seed => seed.SongId).Should().OnlyHaveUniqueItems();
@@ -171,8 +187,8 @@ public sealed class DiscoverServiceTests : IDisposable
 
         var service = Service(context, listenBrainz, lastFm);
 
-        var one = await service.GetRadioAsync(first.Id, CancellationToken.None);
-        var two = await service.GetRadioAsync(second.Id, CancellationToken.None);
+        var one = await service.GetRadioAsync(first.Id, 50, CancellationToken.None);
+        var two = await service.GetRadioAsync(second.Id, 50, CancellationToken.None);
 
         one!.Suggestions.Select(item => item.Title).Should().Equal("Elsewhere");
         one.Sources.Select(source => (source.Name, source.Status)).Should().Equal(
@@ -197,7 +213,7 @@ public sealed class DiscoverServiceTests : IDisposable
         var broken = new ScriptedSource("lastfm", 1.0, _ => throw new InvalidOperationException("boom"));
         var working = new ScriptedSource("deezer", 0.6, _ => Answer(new RecommendationCandidate("Fine", "Somebody")));
 
-        var result = await Service(context, broken, working).GetRadioAsync(seed.Id, CancellationToken.None);
+        var result = await Service(context, broken, working).GetRadioAsync(seed.Id, 50, CancellationToken.None);
 
         result!.Suggestions.Should().ContainSingle();
         result.Sources.Select(source => (source.Name, source.Status)).Should().Equal(
@@ -217,16 +233,16 @@ public sealed class DiscoverServiceTests : IDisposable
 
         var service = Service(context, source);
 
-        var before = await service.GetRadioAsync(seed.Id, CancellationToken.None);
+        var before = await service.GetRadioAsync(seed.Id, 50, CancellationToken.None);
         var dismissal = await service.DismissAsync(new DiscoverDismissalInput(null, "Somebody Else", "Drop"), CancellationToken.None);
-        var after = await service.GetRadioAsync(seed.Id, CancellationToken.None);
+        var after = await service.GetRadioAsync(seed.Id, 50, CancellationToken.None);
 
         source.Calls.Should().Be(1, "the second request is served from the cache");
         before!.Suggestions.Should().HaveCount(2);
         after!.Suggestions.Select(item => item.Title).Should().Equal("Keep");
 
         (await service.UndoDismissalAsync(dismissal.Id, CancellationToken.None)).Should().BeTrue();
-        (await service.GetRadioAsync(seed.Id, CancellationToken.None))!.Suggestions.Should().HaveCount(2);
+        (await service.GetRadioAsync(seed.Id, 50, CancellationToken.None))!.Suggestions.Should().HaveCount(2);
         (await service.UndoDismissalAsync(dismissal.Id, CancellationToken.None)).Should().BeFalse();
     }
 
@@ -239,8 +255,8 @@ public sealed class DiscoverServiceTests : IDisposable
         var source = new ScriptedSource("listenbrainz", 1.0, _ => RecommendationSourceResult.Failed);
         var service = Service(context, source);
 
-        await service.GetRadioAsync(seed.Id, CancellationToken.None);
-        await service.GetRadioAsync(seed.Id, CancellationToken.None);
+        await service.GetRadioAsync(seed.Id, 50, CancellationToken.None);
+        await service.GetRadioAsync(seed.Id, 50, CancellationToken.None);
 
         source.Calls.Should().Be(2);
     }
@@ -259,6 +275,8 @@ public sealed class DiscoverServiceTests : IDisposable
             CancellationToken.None);
 
         one.MbRecordingId.Should().Be(TeardropMbid);
+        one.Artist.Should().Be("The Massive Attack");
+        one.Title.Should().Be("Teardrop!");
         one.ArtistKey.Should().Be("massive attack");
         one.TitleKey.Should().Be("teardrop");
         two.Id.Should().Be(one.Id, "the same song is not dismissed twice");
