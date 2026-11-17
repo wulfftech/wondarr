@@ -11,7 +11,7 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    [Migration("20261117143043_AddMusicVideos")]
+    [Migration("20261117152029_AddMusicVideos")]
     partial class AddMusicVideos
     {
         /// <inheritdoc />
@@ -19,6 +19,62 @@ namespace Wondarr.Core.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
+
+            modelBuilder.Entity("Wondarr.Core.Discover.DiscoverDismissal", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Artist")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("artist");
+
+                    b.Property<string>("ArtistKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("artist_key");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("MbRecordingId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mb_recording_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title");
+
+                    b.Property<string>("TitleKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title_key");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_discover_dismissal");
+
+                    b.HasIndex("MbRecordingId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_discover_dismissal_mb_recording_id")
+                        .HasFilter("mb_recording_id IS NOT NULL");
+
+                    b.HasIndex("ArtistKey", "TitleKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_discover_dismissal_artist_key_title_key");
+
+                    b.ToTable("discover_dismissal", (string)null);
+                });
 
             modelBuilder.Entity("Wondarr.Core.Domain.AlbumContext", b =>
                 {

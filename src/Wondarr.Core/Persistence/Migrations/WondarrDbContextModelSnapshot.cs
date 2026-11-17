@@ -1023,6 +1023,121 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.ToTable("match_candidate", (string)null);
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideo", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AudioCodec")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("audio_codec");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("DurationMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<string>("FoundBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("found_by");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("height");
+
+                    b.Property<string>("Path")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("path");
+
+                    b.Property<long?>("SizeBytes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<long>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("VideoCodec")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("video_codec");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("width");
+
+                    b.Property<string>("YouTubeVideoId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("you_tube_video_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_music_video");
+
+                    b.HasIndex("SongId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_music_video_song_id");
+
+                    b.ToTable("music_video", (string)null);
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideoBlocklistItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("YouTubeVideoId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("you_tube_video_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_music_video_blocklist");
+
+                    b.HasIndex("SongId", "YouTubeVideoId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_music_video_blocklist_song_id_you_tube_video_id");
+
+                    b.ToTable("music_video_blocklist", (string)null);
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.Notification", b =>
                 {
                     b.Property<long>("Id")
@@ -2806,6 +2921,30 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasConstraintName("fk_match_candidate_reference_file_reference_file_id");
 
                     b.Navigation("ReferenceFile");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideo", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.Song", "Song")
+                        .WithOne()
+                        .HasForeignKey("Wondarr.Core.Domain.MusicVideo", "SongId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_music_video_song_song_id");
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideoBlocklistItem", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.Song", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_music_video_blocklist_songs_song_id");
+
+                    b.Navigation("Song");
                 });
 
             modelBuilder.Entity("Wondarr.Core.Domain.NotificationDigestEntry", b =>
