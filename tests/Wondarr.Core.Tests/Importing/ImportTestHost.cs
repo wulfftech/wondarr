@@ -197,7 +197,7 @@ internal sealed class ImportTestHost : IAsyncDisposable
         services.AddSingleton<IOptionsMonitor<ImportOptions>>(new TestOptionsMonitor<ImportOptions>(importOptions));
         services.AddSingleton<IOptionsMonitor<LyricsOptions>>(new TestOptionsMonitor<LyricsOptions>(new LyricsOptions()));
 
-        var musicVideoOptions = new MusicVideoOptions();
+        var musicVideoOptions = new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout };
         services.AddSingleton<IOptionsMonitor<MusicVideoOptions>>(new TestOptionsMonitor<MusicVideoOptions>(musicVideoOptions));
         services.AddSingleton<ILrclibClient>(lrclib);
         services.AddSingleton<ICoverImageProcessor>(coverProcessor);

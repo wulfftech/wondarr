@@ -808,6 +808,12 @@ public sealed partial class ImportService : IImportService
             ? await _replayGain.MeasureAsync(importPath, cancellationToken).ConfigureAwait(false)
             : null;
 
+        // The song's video row is read before the audio moves, so a failed read costs nothing and never
+        // touches the lyrics or the audio's own record.
+        var video = await BesideTrackVideoMover
+            .TryLoadAsync(_database, song.Id, exception => LogVideoStepFailed(_logger, song.Id, exception))
+            .ConfigureAwait(false);
+
         // --- Tag, name, place ---------------------------------------------------------------------
         var placement = await _organizer
             .OrganizeAsync(
@@ -945,7 +951,12 @@ public sealed partial class ImportService : IImportService
         // The song's music video follows the same way (ADR-0014): when it sits beside the replaced file it is
         // moved to the new name with its .nfo and thumbnail; when Remove file left it behind with no audio
         // file beside it, the song's next file takes it. Its row is updated in the record step's save.
-        var (video, videoNow) = await MoveSidecarsAndVideoAsync(song, finalPath).ConfigureAwait(false);
+        if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
+        {
+            FileConverter.MoveSidecars(replaced.Path, finalPath);
+        }
+
+        var videoNow = await MoveVideoAsync(song, video, finalPath).ConfigureAwait(false);
 
         bool upgraded;
         SongFile file;
@@ -1084,25 +1095,39 @@ public sealed partial class ImportService : IImportService
     }
 
     /// <summary>
-    /// Takes the replaced file's sidecars (lyrics, and the music video with its own sidecars) to the new file's
-    /// name. A song with no managed file (Remove file recycled it, or only a reference file held it) takes its
-    /// video beside the new file under the current suffix when the layout is <c>beside_track</c>
-    /// (<see cref="BesideTrackVideoMover"/>).
+    /// Takes the song's music video to the new file's name: beside the new file, under its own suffix, when it sat
+    /// beside the replaced file; otherwise by the "align the video" rule (<see cref="BesideTrackVideoMover"/>) for a
+    /// song that had no managed file. Never throws: a video that cannot move leaves its row as it was.
     /// </summary>
-    /// <returns>The song's video row, and where its file is now when it moved (otherwise <see langword="null"/>).</returns>
-    private async Task<(MusicVideo? Video, string? NewPath)> MoveSidecarsAndVideoAsync(Song song, string finalPath)
+    /// <returns>Where the video's file is now when it moved, otherwise <see langword="null"/>.</returns>
+    private async Task<string?> MoveVideoAsync(Song song, MusicVideo? video, string finalPath)
     {
+        var options = _musicVideoOptions?.CurrentValue;
+
         if (song.File is { } replaced && replaced.SourceType != SourceTypes.Reference)
         {
-            var held = await _database.MusicVideos
-                .FirstOrDefaultAsync(candidate => candidate.SongId == song.Id, CancellationToken.None)
-                .ConfigureAwait(false);
-
-            return (held, FileConverter.MoveSidecars(replaced.Path, finalPath, held?.Path));
+            return SongFileRules.TryMoveVideo(
+                new DiskOperations(),
+                options,
+                replaced.Path,
+                finalPath,
+                video?.Path,
+                null,
+                (sidecar, target) => LogVideoLeftBehind(_logger, sidecar, target),
+                (sidecar, reason) => LogVideoNotMoved(_logger, sidecar, reason),
+                exception => LogVideoStepFailed(_logger, song.Id, exception));
         }
 
         return await BesideTrackVideoMover
-            .MoveAsync(_database, new DiskOperations(), _musicVideoOptions?.CurrentValue, song.Id, finalPath)
+            .TryAlignAsync(
+                _database,
+                new DiskOperations(),
+                options,
+                video,
+                finalPath,
+                (sidecar, target) => LogVideoLeftBehind(_logger, sidecar, target),
+                (sidecar, reason) => LogVideoNotMoved(_logger, sidecar, reason),
+                exception => LogVideoStepFailed(_logger, song.Id, exception))
             .ConfigureAwait(false);
     }
 
@@ -2118,6 +2143,15 @@ public sealed partial class ImportService : IImportService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Not removing the leftovers of {Path}: {Reason}")]
     private static partial void LogLeftoverRefused(ILogger logger, string path, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video file {Path} stays where it is: {Target} is taken")]
+    private static partial void LogVideoLeftBehind(ILogger logger, string path, string target);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video file {Path} could not be moved: {Reason}")]
+    private static partial void LogVideoNotMoved(ILogger logger, string path, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The import of queue item {QueueItemId} could not be recorded")]
     private static partial void LogRecordFailed(ILogger logger, long queueItemId, Exception exception);

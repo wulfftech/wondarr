@@ -3,6 +3,7 @@ using Wondarr.Core.Compaction;
 using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
@@ -72,7 +73,8 @@ public class SongLibraryMoverTests : IDisposable
             recycleBin,
             _updater,
             _songFileLock,
-            NullLogger<SongLibraryMover>.Instance);
+            NullLogger<SongLibraryMover>.Instance,
+            new TestOptionsMonitor<MusicVideoOptions>(new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout }));
     }
 
     [Fact]
@@ -333,6 +335,58 @@ public class SongLibraryMoverTests : IDisposable
 
         await using var fresh = _database.CreateContext(_timeProvider);
         (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(oldBase + ".mkv");
+    }
+
+    [Fact]
+    public async Task A_video_read_that_fails_never_stops_the_audios_new_path_being_recorded()
+    {
+        await using var context = await ContextAsync();
+        var songId = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac", lyrics: "the words");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        await SeedVideoAsync(context, songId, from, "-video");
+
+        // Reading the video row fails: the table is gone.
+        await context.Database.ExecuteSqlRawAsync("DROP TABLE music_video");
+
+        var result = await _mover.MoveAsync(songId, 2, CancellationToken.None);
+
+        result.Should().Be(SongMoveResult.Moved);
+
+        var newFolder = Path.Combine(_root2, "Daft Punk", "Single 1");
+        File.ReadAllText(Path.Combine(newFolder, "01 - Track 1.lrc")).Should().Be("the words");
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.SongFiles.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(newFolder, "01 - Track 1.flac"));
+        (await fresh.Songs.AsNoTracking().SingleAsync()).LibraryId.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_sibling_audio_files_video_is_left_untouched_and_so_is_the_other_way_round()
+    {
+        await using var context = await ContextAsync();
+        var first = await SeedSongAsync(context, "Track 1", "01 - Song.flac");
+        var second = await SeedSongAsync(context, "Track 2", "01 - Song (2).flac");
+
+        var firstFile = (await context.SongFiles.AsNoTracking().SingleAsync(file => file.SongId == first)).Path;
+        var secondFile = (await context.SongFiles.AsNoTracking().SingleAsync(file => file.SongId == second)).Path;
+        var shared = Path.GetDirectoryName(firstFile)!;
+        var moved = Path.Combine(shared, Path.GetFileName(secondFile));
+        File.Move(secondFile, moved);
+        await context.SongFiles.Where(file => file.SongId == second).ExecuteUpdateAsync(update => update.SetProperty(file => file.Path, moved));
+
+        // Song 2 has a video named after its own file; song 1 has one named after its file.
+        await SeedVideoAsync(context, second, moved, "-video");
+        await SeedVideoAsync(context, first, firstFile, "-clip");
+
+        (await _mover.MoveAsync(first, 2, CancellationToken.None)).Should().Be(SongMoveResult.Moved);
+
+        File.Exists(Path.Combine(shared, "01 - Song (2)-video.mkv")).Should().BeTrue("the other song's video stays");
+        File.Exists(Path.Combine(_root2, "Daft Punk", "Single 1", "01 - Song-clip.mkv")).Should().BeTrue();
+
+        (await _mover.MoveAsync(second, 2, CancellationToken.None)).Should().Be(SongMoveResult.Moved);
+
+        File.Exists(Path.Combine(_root2, "Daft Punk", "Single 1", "01 - Song (2)-video.mkv")).Should().BeTrue();
+        File.Exists(Path.Combine(_root2, "Daft Punk", "Single 1", "01 - Song-clip.mkv")).Should().BeTrue("the first song's video did not move again");
     }
 
     [Fact]

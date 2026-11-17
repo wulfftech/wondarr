@@ -217,6 +217,53 @@ public class ImportServiceFileRecordTests
     }
 
     [Fact]
+    public async Task A_video_read_that_fails_never_stops_the_lyrics_or_the_audios_record()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+
+        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
+        Directory.CreateDirectory(folder);
+
+        var held = folder + "/08 - Get Lucky (old).mp3";
+        await File.WriteAllBytesAsync(held, new byte[8]);
+        await File.WriteAllTextAsync(folder + "/08 - Get Lucky (old).lrc", "[00:01.00]hello");
+
+        var seed = await host.SeedAsync(options =>
+        {
+            options.CurrentFilePath = held;
+            options.CurrentFileQualityId = 29;
+        });
+
+        await SeedVideoAsync(host, seed.SongId, folder + "/08 - Get Lucky (old)", "-video");
+        await host.Context.Database.ExecuteSqlRawAsync("DROP TABLE music_video");
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Upgraded);
+
+        File.Exists(folder + "/08 - Get Lucky.lrc").Should().BeTrue("the lyrics move whatever the video read does");
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.SongFiles.AsNoTracking().SingleAsync()).Path.Should().NotContain("(old)");
+    }
+
+    [Fact]
+    public async Task Leaves_a_video_that_sits_in_another_folder_than_the_songs_first_file_alone()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.MusicVideoOptions.BesideTrackSuffix = "-clip";
+
+        var elsewhere = host.LibraryRoot + "/Daft Punk/Some Other Album";
+        Directory.CreateDirectory(elsewhere);
+
+        var seed = await host.SeedAsync(options => { });
+        await SeedVideoAsync(host, seed.SongId, elsewhere + "/07 - Old Name", "-video");
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+
+        File.Exists(elsewhere + "/07 - Old Name-video.mkv").Should().BeTrue();
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(elsewhere + "/07 - Old Name-video.mkv");
+    }
+
+    [Fact]
     public async Task Does_not_replace_a_file_that_holds_the_videos_new_name_when_an_upgrade_renames_the_file()
     {
         await using var host = await ImportTestHost.CreateAsync();

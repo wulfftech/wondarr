@@ -170,6 +170,7 @@ internal static class SongFileRules
     /// reported and the rest still go.
     /// </summary>
     /// <param name="disk">The file system.</param>
+    /// <param name="options">The <c>music_videos</c> settings; nothing moves unless the layout is <c>beside_track</c>.</param>
     /// <param name="audioPath">The audio file the video sits beside, as the video's row names it.</param>
     /// <param name="targetPath">The audio file it would sit beside.</param>
     /// <param name="videoPath">The <c>music_video</c> row's path.</param>
@@ -180,12 +181,17 @@ internal static class SongFileRules
     /// <returns>The moves, the video first. Empty when nothing moves.</returns>
     internal static IReadOnlyList<VideoMove> VideoMoves(
         IDiskOperations disk,
+        MusicVideoOptions? options,
         string audioPath,
         string targetPath,
         string? videoPath,
         Func<string, string?>? sourceOf = null)
     {
-        if (videoPath is null || BesideRemainder(audioPath, videoPath) is not { } remainder)
+        // The folder layout's videos never move with audio. A file already taken into a staging folder
+        // (sourceOf is set) is finished whatever the layout is now: staging is Wondarr's own.
+        if ((!IsBesideTrack(options) && sourceOf is null)
+            || videoPath is null
+            || BesideRemainder(audioPath, videoPath) is not { } remainder)
         {
             return [];
         }
@@ -271,6 +277,39 @@ internal static class SongFileRules
                 Path.GetFileNameWithoutExtension(targetPath) + remainder + MusicVideoPathResolver.VideoExtension)
             : null;
 
+    /// <summary>Whether the layout is <c>beside_track</c>: the only layout whose videos move with audio.</summary>
+    /// <param name="options">The <c>music_videos</c> settings, or <see langword="null"/> when a host has none.</param>
+    internal static bool IsBesideTrack(MusicVideoOptions? options) =>
+        options is { Layout: MusicVideoOptions.BesideTrackLayout };
+
+    /// <summary>
+    /// <see cref="VideoMoves"/> and <see cref="ApplyVideoMoves"/> in one step that never throws: whatever goes
+    /// wrong is reported to <paramref name="failed"/> and the song's audio carries on as though it had no video.
+    /// </summary>
+    /// <returns>Where the video is now when it moved, or <see langword="null"/>.</returns>
+    internal static string? TryMoveVideo(
+        IDiskOperations disk,
+        MusicVideoOptions? options,
+        string audioPath,
+        string targetPath,
+        string? videoPath,
+        Func<string, string?>? sourceOf,
+        Action<string, string>? leftBehind,
+        Action<string, string>? notMoved,
+        Action<Exception>? failed)
+    {
+        try
+        {
+            return ApplyVideoMoves(disk, VideoMoves(disk, options, audioPath, targetPath, videoPath, sourceOf), leftBehind, notMoved);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            failed?.Invoke(exception);
+
+            return null;
+        }
+    }
+
     /// <summary>
     /// Carries out <paramref name="moves"/>. A move whose target is taken is reported and skipped; a move that
     /// throws is reported and skipped, and a failed <c>.mkv</c> stops the rest (its sidecars stay with it).
@@ -313,7 +352,7 @@ internal static class SongFileRules
                     videoNow = move.To;
                 }
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 notMoved?.Invoke(move.From, exception.Message);
 

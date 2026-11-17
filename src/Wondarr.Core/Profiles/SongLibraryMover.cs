@@ -1,11 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using Wondarr.Core.Compaction;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
@@ -74,6 +76,7 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
     private readonly IPlexLibraryUpdater _updater;
     private readonly ISongFileLock _songFileLock;
     private readonly ILogger<SongLibraryMover> _logger;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="SongLibraryMover"/> class.</summary>
     /// <param name="database">The Wondarr database, which holds the songs and their files.</param>
@@ -83,6 +86,7 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
     /// <param name="updater">The debounced Plex scan, asked for both folders.</param>
     /// <param name="songFileLock">The per-song file lock, held for the whole move.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="musicVideoOptions">The <c>music_videos</c> settings; without them no video moves with the file.</param>
     public SongLibraryMover(
         WondarrDbContext database,
         ILibraryOrganizer organizer,
@@ -90,7 +94,8 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
         IRecycleBin recycleBin,
         IPlexLibraryUpdater updater,
         ISongFileLock songFileLock,
-        ILogger<SongLibraryMover> logger)
+        ILogger<SongLibraryMover> logger,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(organizer);
@@ -107,6 +112,7 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
         _updater = updater;
         _songFileLock = songFileLock;
         _logger = logger;
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -216,6 +222,11 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
         var credits = song.OrderedCredits();
 
+        // The song's video row is read before the audio moves, so a failed read costs nothing.
+        var video = await BesideTrackVideoMover
+            .TryLoadAsync(_database, song.Id, exception => LogVideoStepFailed(_logger, song.Id, exception))
+            .ConfigureAwait(false);
+
         OrganizeResult placement;
 
         try
@@ -310,15 +321,16 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
         // The song's music video, when it sits beside the audio file, goes with it, and its row follows in the
         // same save as the file's new path.
-        var video = await _database.MusicVideos
-            .FirstOrDefaultAsync(candidate => candidate.SongId == song.Id, CancellationToken.None)
-            .ConfigureAwait(false);
-
-        var videoNow = SongFileRules.ApplyVideoMoves(
+        var videoNow = SongFileRules.TryMoveVideo(
             _disk,
-            SongFileRules.VideoMoves(_disk, file.Path, finalPath, video?.Path),
+            _musicVideoOptions?.CurrentValue,
+            file.Path,
+            finalPath,
+            video?.Path,
+            null,
             (sidecar, beside) => LogSidecarLeftBehind(_logger, sidecar, beside),
-            (sidecar, reason) => LogSidecarNotMoved(_logger, sidecar, reason));
+            (sidecar, reason) => LogSidecarNotMoved(_logger, sidecar, reason),
+            exception => LogVideoStepFailed(_logger, song.Id, exception));
 
         try
         {
@@ -489,6 +501,9 @@ public sealed partial class SongLibraryMover : ISongLibraryMover
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The sidecar {Sidecar} stayed behind: {Target} already exists")]
     private static partial void LogSidecarLeftBehind(ILogger logger, string sidecar, string target);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The sidecar {Sidecar} could not be moved: {Message}")]
     private static partial void LogSidecarNotMoved(ILogger logger, string sidecar, string message);

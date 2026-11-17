@@ -6,6 +6,7 @@ using NSubstitute;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
 using Wondarr.Core.Profiles;
@@ -100,6 +101,26 @@ public sealed class FileConverterTests : IDisposable
         await using var fresh = _database.CreateContext(_timeProvider);
         (await fresh.SongFiles.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(folder, "01 - Renamed.mp3"));
         (await fresh.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(folder, "01 - Renamed-clip.mkv"));
+    }
+
+    [Fact]
+    public async Task A_video_read_that_fails_never_stops_the_converted_files_path_being_recorded()
+    {
+        await using var context = await ContextAsync("""{"version":2,"lossless":{"codec":"mp3","bitrateKbps":320}}""");
+        var (songId, path) = await SeedAsync(context, "flac", FlacQualityId, lyrics: true);
+        await SeedVideoAsync(context, songId, path, "-video");
+        _organizer.RenameStemTo = "01 - Renamed";
+        await context.Database.ExecuteSqlRawAsync("DROP TABLE music_video");
+
+        var result = await Converter(context).ConvertAsync(songId, null, CancellationToken.None);
+
+        result.Outcome.Should().Be(ConvertOutcome.Converted, result.Reason);
+
+        var folder = Path.GetDirectoryName(path)!;
+        File.Exists(Path.Combine(folder, "01 - Renamed.lrc")).Should().BeTrue("the lyrics follow whatever the video does");
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.SongFiles.AsNoTracking().SingleAsync()).Path.Should().Be(Path.Combine(folder, "01 - Renamed.mp3"));
     }
 
     [Fact]
@@ -360,7 +381,8 @@ public sealed class FileConverterTests : IDisposable
             _songFileLock,
             _updater,
             TestLibraryRoots.Real,
-            NullLogger<FileConverter>.Instance);
+            NullLogger<FileConverter>.Instance,
+            new TestOptionsMonitor<MusicVideoOptions>(new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout }));
 
     private async Task<WondarrDbContext> ContextAsync(string? outputPolicy)
     {

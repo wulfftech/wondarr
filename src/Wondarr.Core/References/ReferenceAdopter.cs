@@ -199,6 +199,11 @@ public sealed partial class ReferenceAdopter(
 
             var credits = song.OrderedCredits();
 
+            // The song's video row is read before anything moves, so a failed read costs nothing.
+            var video = await BesideTrackVideoMover
+                .TryLoadAsync(database, song.Id, exception => LogVideoStepFailed(logger, song.Id, exception))
+                .ConfigureAwait(false);
+
             var extension = Path.GetExtension(absolutePath).TrimStart('.').ToLowerInvariant();
 
             // KeepSource is the whole promise of adoption: the organizer stages a copy of the file and
@@ -272,22 +277,21 @@ public sealed partial class ReferenceAdopter(
             {
                 // The song now holds a managed file: its video, filed in the video root while only the reference
                 // file held the song, goes beside the copy, and its row follows in this save.
-                var moved = await BesideTrackVideoMover
-                    .MoveAsync(
+                videoNow = await BesideTrackVideoMover
+                    .TryAlignAsync(
                         database,
                         new DiskOperations(),
                         musicVideoOptions?.CurrentValue,
-                        song.Id,
+                        video,
                         finalPath,
-                        (video, target) => LogVideoLeftBehind(logger, video, target),
-                        (video, reason) => LogVideoNotMoved(logger, video, reason))
+                        (moved, target) => LogVideoLeftBehind(logger, moved, target),
+                        (moved, reason) => LogVideoNotMoved(logger, moved, reason),
+                        exception => LogVideoStepFailed(logger, song.Id, exception))
                     .ConfigureAwait(false);
 
-                videoNow = moved.NewPath;
-
-                if (moved.Video is not null && videoNow is not null)
+                if (video is not null && videoNow is not null)
                 {
-                    moved.Video.Path = videoNow;
+                    video.Path = videoNow;
                 }
 
                 // The copy is a library file now and the song's own file row points at it.
@@ -450,6 +454,9 @@ public sealed partial class ReferenceAdopter(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Adoption into library {LibraryId} stopped: {Reason}")]
     private static partial void LogTargetUnavailable(ILogger logger, long libraryId, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The music video {Path} stays where it is: {Target} is taken")]
     private static partial void LogVideoLeftBehind(ILogger logger, string path, string target);

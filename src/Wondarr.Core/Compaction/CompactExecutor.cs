@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Media;
@@ -138,6 +139,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     private readonly TimeProvider _time;
     private readonly ISongFileLock _songFileLock;
     private readonly ILogger<CompactExecutor> _logger;
+    private readonly IOptionsMonitor<MusicVideoOptions>? _musicVideoOptions;
 
     /// <summary>Initialises a new instance of the <see cref="CompactExecutor"/> class.</summary>
     /// <param name="database">The Wondarr database, which holds the moves.</param>
@@ -152,6 +154,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <param name="time">The clock every wait and poll is measured against.</param>
     /// <param name="songFileLock">The per-song lock the import's place-and-record step also takes.</param>
     /// <param name="logger">The log sink.</param>
+    /// <param name="musicVideoOptions">The <c>music_videos</c> settings; without them no video travels with its audio file.</param>
     public CompactExecutor(
         WondarrDbContext database,
         ICompactPlanner planner,
@@ -164,7 +167,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
         IPlexLibraryUpdater updater,
         TimeProvider time,
         ISongFileLock songFileLock,
-        ILogger<CompactExecutor> logger)
+        ILogger<CompactExecutor> logger,
+        IOptionsMonitor<MusicVideoOptions>? musicVideoOptions = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(planner);
@@ -191,6 +195,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         _time = time;
         _songFileLock = songFileLock;
         _logger = logger;
+        _musicVideoOptions = musicVideoOptions;
     }
 
     /// <inheritdoc />
@@ -776,7 +781,6 @@ public sealed partial class CompactExecutor : ICompactExecutor
                 restored = true;
 
                 MoveSidecarsBack(staged, from);
-                MoveVideoBack(staged, from, await VideoPathOfAsync(row.SongId).ConfigureAwait(false));
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -802,11 +806,11 @@ public sealed partial class CompactExecutor : ICompactExecutor
                     .ConfigureAwait(false);
             }
 
-            // A video that stayed in staging (the audio file could not go back, or the video could not) is where
-            // its row has to say it is; one that went back is where the row already says.
-            if (ours)
+            // The video goes back with the audio file, and its row says where the file is: back at its old name,
+            // or still in staging when it could not go (the audio file could not go back, or the name is taken).
+            if (ours && staged is not null && from is not null)
             {
-                await PointVideoAtStagedCopyAsync(row.SongId, staged).ConfigureAwait(false);
+                await ReturnVideoAsync(row.SongId, staged, from, restored).ConfigureAwait(false);
             }
 
             if (restored)
@@ -945,22 +949,28 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// </summary>
     private async Task RecordVideoOfPlacedFileAsync(Library library, Move row, string found, CancellationToken cancellationToken)
     {
-        var video = await _database.MusicVideos
-            .FirstOrDefaultAsync(candidate => candidate.SongId == row.SongId, cancellationToken)
+        var video = await BesideTrackVideoMover
+            .TryLoadAsync(_database, row.SongId, exception => LogVideoStepFailed(_logger, row.SongId, exception))
             .ConfigureAwait(false);
 
-        if (video?.Path is not { } videoPath || row.FromPath is not { } fromAudio)
+        if (video?.Path is not { } rowPath || row.FromPath is not { } fromAudio)
         {
             return;
         }
 
         var stagedAudio = row.StagedPath ?? StagingPathFor(library, row.Id, fromAudio);
+        var videoPath = OriginalVideoPath(stagedAudio, fromAudio, rowPath);
 
-        var moved = SongFileRules.ApplyVideoMoves(
+        var moved = SongFileRules.TryMoveVideo(
             _disk,
-            SongFileRules.VideoMoves(_disk, fromAudio, found, videoPath, StagedCopyOf(stagedAudio)),
+            _musicVideoOptions?.CurrentValue,
+            fromAudio,
+            found,
+            videoPath,
+            StagedSourceOf(stagedAudio, videoPath),
             (file, target) => LogSidecarLeftBehind(_logger, file, target),
-            (file, reason) => LogSidecarNotPlaced(_logger, file, reason));
+            (file, reason) => LogSidecarNotPlaced(_logger, file, reason),
+            exception => LogVideoStepFailed(_logger, row.SongId, exception));
 
         if (moved is not null)
         {
@@ -970,13 +980,14 @@ public sealed partial class CompactExecutor : ICompactExecutor
         }
 
         // Nothing left to move: either the stopped run moved the video already, or it never could.
-        if (!_disk.FileExists(videoPath)
+        if (!_disk.FileExists(rowPath)
+            && !_disk.FileExists(videoPath)
             && SongFileRules.VideoTargetOf(fromAudio, found, videoPath) is { } expected
             && _disk.FileExists(expected))
         {
             video.Path = expected;
         }
-        else if (VideoStillAt(stagedAudio, videoPath) is { } stillAt)
+        else if (VideoStillAt(stagedAudio, fromAudio, rowPath) is { } stillAt)
         {
             video.Path = stillAt;
         }
@@ -1116,6 +1127,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
             return null;
         }
 
+        // The song's video row is read before the audio moves, so a failed read costs nothing.
+        var videoPath = await VideoPathOfAsync(row.SongId).ConfigureAwait(false);
+
         if (!_disk.FileExists(from) && _disk.FileExists(staged))
         {
             // An earlier run moved the file and stopped before it could record that: the file is
@@ -1132,9 +1146,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
                 }
             }
 
-            StageVideo(from, staged, await VideoPathOfAsync(row.SongId).ConfigureAwait(false));
+            var adoptedVideo = StageVideo(from, staged, videoPath);
 
-            await SetStateAsync(row.Id, CompactMoveState.Staged, staged, final: null, message: null)
+            await SetStateAsync(row.Id, CompactMoveState.Staged, staged, final: null, message: null, adoptedVideo)
                 .ConfigureAwait(false);
 
             return staged;
@@ -1193,9 +1207,11 @@ public sealed partial class CompactExecutor : ICompactExecutor
         // The song's music video, when it sits beside the audio file, travels with it, with its .nfo and
         // thumbnail. Like a lyrics sidecar, one that cannot be moved stays where it is and never stops the
         // audio file going back.
-        StageVideo(from, staged, await VideoPathOfAsync(row.SongId).ConfigureAwait(false));
+        var stagedVideo = StageVideo(from, staged, videoPath);
 
-        await SetStateAsync(row.Id, CompactMoveState.Staged, staged, final: null, message: null)
+        // The row names the staged video in the same save that records the staged audio, so it never names a
+        // file that is not there during the run; place and give-up move it on from here.
+        await SetStateAsync(row.Id, CompactMoveState.Staged, staged, final: null, message: null, stagedVideo)
             .ConfigureAwait(false);
 
         return staged;
@@ -1714,8 +1730,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
         }
 
         // The song's music video, tracked, so its row can follow the audio file in the same save.
-        var video = await _database.MusicVideos
-            .FirstOrDefaultAsync(candidate => candidate.SongId == row.SongId, cancellationToken)
+        var video = await BesideTrackVideoMover
+            .TryLoadAsync(_database, row.SongId, exception => LogVideoStepFailed(_logger, row.SongId, exception))
             .ConfigureAwait(false);
 
         // The probe's own measurements, rebuilt from the row: they are what the naming tokens read.
@@ -1823,6 +1839,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         var fileId = file.Id;
 
         string? videoNow = null;
+        string? videoActual = null;
 
         try
         {
@@ -1834,7 +1851,8 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
             if (video is not null)
             {
-                video.Path = videoNow ?? VideoStillAt(staged, video.Path) ?? video.Path;
+                video.Path = videoNow ?? VideoStillAt(staged, row.FromPath, video.Path) ?? video.Path;
+                videoActual = video.Path;
             }
 
             file.Path = finalPath;
@@ -1895,17 +1913,11 @@ public sealed partial class CompactExecutor : ICompactExecutor
                         CancellationToken.None)
                     .ConfigureAwait(false);
 
-                // The video moved with the file, so its row says where it is too.
-                if (videoNow is not null)
+                // The video's row says where the video really is: beside the placed file when it moved, or where
+                // it stayed (in staging, say, for a taken name) when it did not.
+                if (videoActual is not null)
                 {
-                    var movedSongId = row.SongId;
-
-                    await _database.MusicVideos
-                        .Where(candidate => candidate.SongId == movedSongId)
-                        .ExecuteUpdateAsync(
-                            update => update.SetProperty(candidate => candidate.Path, videoNow),
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
+                    await SetVideoPathAsync(row.SongId, videoActual).ConfigureAwait(false);
                 }
             }
             catch (Exception repair) when (repair is not OperationCanceledException)
@@ -1953,11 +1965,22 @@ public sealed partial class CompactExecutor : ICompactExecutor
         CompactMoveState state,
         string? staged,
         string? final,
-        string? message)
+        string? message,
+        string? videoPath = null)
     {
         var row = await _database.CompactMoves
             .FirstAsync(candidate => candidate.Id == rowId, CancellationToken.None)
             .ConfigureAwait(false);
+
+        // The song's video row follows the audio in the same save. A read that fails costs the video its
+        // row update, never the audio its record.
+        if (videoPath is not null
+            && await BesideTrackVideoMover
+                .TryLoadAsync(_database, row.SongId, exception => LogVideoStepFailed(_logger, row.SongId, exception))
+                .ConfigureAwait(false) is { } video)
+        {
+            video.Path = videoPath;
+        }
 
         row.State = state;
         row.StagedPath = staged;
@@ -2031,14 +2054,28 @@ public sealed partial class CompactExecutor : ICompactExecutor
     /// <summary>The sidecars that sit beside a file, as it is now: the same name, <c>.lrc</c> or <c>.txt</c>.</summary>
     private IEnumerable<string> SidecarsOf(string audioPath) => SongFileRules.SidecarsOf(_disk, audioPath);
 
-    /// <summary>The path of the song's music video row, or <see langword="null"/> when it has none (or no file yet).</summary>
-    private async Task<string?> VideoPathOfAsync(long songId) =>
-        await _database.MusicVideos
-            .AsNoTracking()
-            .Where(video => video.SongId == songId)
-            .Select(video => video.Path)
-            .FirstOrDefaultAsync(CancellationToken.None)
-            .ConfigureAwait(false);
+    /// <summary>
+    /// The path of the song's music video row, or <see langword="null"/> when it has none, no file yet, or the read
+    /// failed (the audio carries on as though the song had no video).
+    /// </summary>
+    private async Task<string?> VideoPathOfAsync(long songId)
+    {
+        try
+        {
+            return await _database.MusicVideos
+                .AsNoTracking()
+                .Where(video => video.SongId == songId)
+                .Select(video => video.Path)
+                .FirstOrDefaultAsync(CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogVideoStepFailed(_logger, songId, exception);
+
+            return null;
+        }
+    }
 
     /// <summary>
     /// Where a file of a staged video is, when it is in the staging folder beside the staged audio file: the
@@ -2056,13 +2093,39 @@ public sealed partial class CompactExecutor : ICompactExecutor
         };
     }
 
+    /// <summary>
+    /// The staging mapping to move a video by, or <see langword="null"/> when its <c>.mkv</c> is not in staging
+    /// (it was never staged), in which case it moves by the layout rule like any other.
+    /// </summary>
+    private Func<string, string?>? StagedSourceOf(string stagedAudio, string originalVideo)
+    {
+        var map = StagedCopyOf(stagedAudio);
+
+        return map(originalVideo) is null ? null : map;
+    }
+
+    /// <summary>
+    /// The path the video's row had before staging: a row that names a file in the staging folder is mapped back to
+    /// the folder of the audio file's old path; any other row is returned as it is.
+    /// </summary>
+    private static string OriginalVideoPath(string stagedAudio, string fromAudio, string videoPath) =>
+        PathRules.AreEqual(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetDirectoryName(stagedAudio) ?? string.Empty)
+            ? Path.Combine(Path.GetDirectoryName(fromAudio) ?? string.Empty, Path.GetFileName(videoPath))
+            : videoPath;
+
     /// <summary>Takes the song's beside-track video, with its <c>.nfo</c> and thumbnail, into the staging folder.</summary>
-    private void StageVideo(string from, string stagedAudio, string? videoPath) =>
-        SongFileRules.ApplyVideoMoves(
+    /// <returns>Where the video is now when it moved, or <see langword="null"/>.</returns>
+    private string? StageVideo(string from, string stagedAudio, string? videoPath) =>
+        SongFileRules.TryMoveVideo(
             _disk,
-            SongFileRules.VideoMoves(_disk, from, stagedAudio, videoPath),
+            _musicVideoOptions?.CurrentValue,
+            from,
+            stagedAudio,
+            videoPath,
+            null,
             (file, target) => LogSidecarLeftBehind(_logger, file, target),
-            (file, reason) => LogSidecarNotStaged(_logger, file, reason));
+            (file, reason) => LogSidecarNotStaged(_logger, file, reason),
+            exception => LogVideoStepFailed(_logger, 0, exception));
 
     /// <summary>
     /// Takes the video from staging (or from beside the old audio file, when it was never staged) to its place
@@ -2074,72 +2137,100 @@ public sealed partial class CompactExecutor : ICompactExecutor
         // The row's own path names the audio file the video was beside: the staged file carries its name.
         var from = row.FromPath ?? stagedAudio;
 
-        return SongFileRules.ApplyVideoMoves(
+        if (videoPath is null)
+        {
+            return null;
+        }
+
+        var original = OriginalVideoPath(stagedAudio, from, videoPath);
+
+        return SongFileRules.TryMoveVideo(
             _disk,
-            SongFileRules.VideoMoves(_disk, from, finalAudio, videoPath, StagedCopyOf(stagedAudio)),
+            _musicVideoOptions?.CurrentValue,
+            from,
+            finalAudio,
+            original,
+            StagedSourceOf(stagedAudio, original),
             (file, target) => LogSidecarLeftBehind(_logger, file, target),
-            (file, reason) => LogSidecarNotPlaced(_logger, file, reason));
+            (file, reason) => LogSidecarNotPlaced(_logger, file, reason),
+            exception => LogVideoStepFailed(_logger, row.SongId, exception));
     }
 
     /// <summary>
     /// Where the video file still is when it did not move: in the staging folder, else where its row says,
     /// else <see langword="null"/> (it is not on disk).
     /// </summary>
-    private string? VideoStillAt(string stagedAudio, string? videoPath)
+    private string? VideoStillAt(string stagedAudio, string? fromAudio, string? videoPath)
     {
         if (videoPath is null)
         {
             return null;
         }
 
-        return StagedCopyOf(stagedAudio)(videoPath) ?? (_disk.FileExists(videoPath) ? videoPath : null);
-    }
+        var original = fromAudio is null ? videoPath : OriginalVideoPath(stagedAudio, fromAudio, videoPath);
 
-    /// <summary>Puts the staged video back beside the audio file's old path, where its row still says it is.</summary>
-    private void MoveVideoBack(string stagedAudio, string from, string? videoPath)
-    {
-        if (videoPath is null
-            || SongFileRules.BesideRemainder(from, videoPath) is null
-            || !videoPath.EndsWith(MusicVideoPathResolver.VideoExtension, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        var back = SongFileRules.VideoMovesTo(
-            _disk,
-            videoPath,
-            videoPath[..^MusicVideoPathResolver.VideoExtension.Length],
-            StagedCopyOf(stagedAudio));
-
-        SongFileRules.ApplyVideoMoves(
-            _disk,
-            back,
-            (file, target) => LogSidecarLeftBehind(_logger, file, target),
-            (file, reason) => LogSidecarNotPlaced(_logger, file, reason));
+        return StagedCopyOf(stagedAudio)(original)
+            ?? (_disk.FileExists(videoPath) ? videoPath : (_disk.FileExists(original) ? original : null));
     }
 
     /// <summary>
-    /// Makes the song's video row say where the video is when it is still in the staging folder: the row follows
-    /// the file, as the song's file row does.
+    /// Brings the song's staged video back beside the audio file's old path (when the audio went back), and makes
+    /// the row say where the video is: the old name when it went, the staging folder when it did not.
     /// </summary>
-    private async Task PointVideoAtStagedCopyAsync(long songId, string? stagedAudio)
+    private async Task ReturnVideoAsync(long songId, string stagedAudio, string from, bool audioRestored)
     {
-        if (stagedAudio is null)
+        var rowPath = await VideoPathOfAsync(songId).ConfigureAwait(false);
+
+        if (rowPath is null || !rowPath.EndsWith(MusicVideoPathResolver.VideoExtension, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        var video = await _database.MusicVideos
-            .FirstOrDefaultAsync(candidate => candidate.SongId == songId, CancellationToken.None)
-            .ConfigureAwait(false);
+        var original = OriginalVideoPath(stagedAudio, from, rowPath);
+        string? now = null;
 
-        if (video?.Path is { } path && StagedCopyOf(stagedAudio)(path) is { } stagedVideo && !PathRules.AreEqual(path, stagedVideo))
+        if (audioRestored && SongFileRules.BesideRemainder(from, original) is not null)
         {
-            video.Path = stagedVideo;
-            await _database.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                now = SongFileRules.ApplyVideoMoves(
+                    _disk,
+                    SongFileRules.VideoMovesTo(
+                        _disk,
+                        original,
+                        original[..^MusicVideoPathResolver.VideoExtension.Length],
+                        StagedCopyOf(stagedAudio)),
+                    (file, target) => LogSidecarLeftBehind(_logger, file, target),
+                    (file, reason) => LogSidecarNotPlaced(_logger, file, reason));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogVideoStepFailed(_logger, songId, exception);
+            }
         }
 
-        _database.ChangeTracker.Clear();
+        var path = now ?? StagedCopyOf(stagedAudio)(original);
+
+        if (path is not null && !PathRules.AreEqual(path, rowPath))
+        {
+            await SetVideoPathAsync(songId, path).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Writes the video row's path on its own, without touching the shared change tracker.</summary>
+    private async Task SetVideoPathAsync(long songId, string path)
+    {
+        try
+        {
+            await _database.MusicVideos
+                .Where(video => video.SongId == songId)
+                .ExecuteUpdateAsync(update => update.SetProperty(video => video.Path, path), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogVideoStepFailed(_logger, songId, exception);
+        }
     }
 
     /// <summary>
@@ -2263,6 +2354,9 @@ public sealed partial class CompactExecutor : ICompactExecutor
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not put the lyrics sidecar {Path} beside the placed file: {Reason}; it stays in staging")]
     private static partial void LogSidecarNotPlaced(ILogger logger, string path, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The music video step of song {SongId} failed; the audio carries on without it")]
+    private static partial void LogVideoStepFailed(ILogger logger, long songId, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "The lyrics sidecar {Path} was left in staging: {Target} is where the lyrics are now")]
     private static partial void LogSidecarLeftBehind(ILogger logger, string path, string target);

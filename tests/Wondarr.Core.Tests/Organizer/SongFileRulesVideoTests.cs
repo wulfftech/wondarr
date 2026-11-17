@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Xunit;
 
@@ -12,6 +13,8 @@ namespace Wondarr.Core.Tests.Organizer;
 public sealed class SongFileRulesVideoTests : IDisposable
 {
     private readonly TempRoot _temp = new();
+    private static readonly MusicVideoOptions Beside = new() { Layout = MusicVideoOptions.BesideTrackLayout };
+
     private readonly IDiskOperations _disk = new DiskOperations();
 
     public void Dispose()
@@ -50,7 +53,7 @@ public sealed class SongFileRulesVideoTests : IDisposable
         var video = SeedVideo("music/A/01 - Song", "-clip");
         var target = _temp.Full("music/B/09 - Renamed.flac");
 
-        var moves = SongFileRules.VideoMoves(_disk, audio, target, video);
+        var moves = SongFileRules.VideoMoves(_disk, Beside, audio, target, video);
 
         moves.Select(move => (move.From, move.To, move.TargetTaken, move.IsVideo)).Should().Equal(
             (video, _temp.Full("music/B/09 - Renamed-clip.mkv"), false, true),
@@ -65,7 +68,7 @@ public sealed class SongFileRulesVideoTests : IDisposable
         var video = SeedVideo("music/A/01 - Song", "-video");
         File.Delete(_temp.Full("music/A/01 - Song-video.nfo"));
 
-        var moves = SongFileRules.VideoMoves(_disk, audio, _temp.Full("music/B/01 - Song.flac"), video);
+        var moves = SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/B/01 - Song.flac"), video);
 
         moves.Select(move => move.From).Should().Equal(video, _temp.Full("music/A/01 - Song-video-thumb.jpg"));
     }
@@ -77,7 +80,7 @@ public sealed class SongFileRulesVideoTests : IDisposable
         var audio = _temp.Full("music/A/01 - Song.flac");
         var video = SeedVideo("music/A/01 - Song", "-old");
 
-        var moves = SongFileRules.VideoMoves(_disk, audio, _temp.Full("music/B/01 - Song.flac"), video);
+        var moves = SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/B/01 - Song.flac"), video);
 
         moves.Should().HaveCount(3);
         moves[0].To.Should().Be(_temp.Full("music/B/01 - Song-old.mkv"));
@@ -90,7 +93,7 @@ public sealed class SongFileRulesVideoTests : IDisposable
         var video = SeedVideo("music/A/01 - Song", "-video");
         _temp.CreateFile("music/B/01 - Song-video.mkv", "somebody else's");
 
-        var moves = SongFileRules.VideoMoves(_disk, audio, _temp.Full("music/B/01 - Song.flac"), video);
+        var moves = SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/B/01 - Song.flac"), video);
 
         moves.Should().ContainSingle().Which.TargetTaken.Should().BeTrue();
         SongFileRules.ApplyVideoMoves(_disk, moves).Should().BeNull();
@@ -106,7 +109,7 @@ public sealed class SongFileRulesVideoTests : IDisposable
         var video = SeedVideo("music/A/01 - Song", "-video");
         _temp.CreateFile("music/B/01 - Song-video.nfo", "somebody else's");
 
-        var moves = SongFileRules.VideoMoves(_disk, audio, _temp.Full("music/B/01 - Song.flac"), video);
+        var moves = SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/B/01 - Song.flac"), video);
         var now = SongFileRules.ApplyVideoMoves(_disk, moves);
 
         now.Should().Be(_temp.Full("music/B/01 - Song-video.mkv"));
@@ -116,12 +119,46 @@ public sealed class SongFileRulesVideoTests : IDisposable
     }
 
     [Fact]
+    public void The_folder_layout_never_moves_a_video_with_its_audio()
+    {
+        var audio = _temp.Full("music/A/01 - Song.flac");
+        var video = SeedVideo("music/A/01 - Song", "-video");
+        var target = _temp.Full("music/B/01 - Song.flac");
+
+        SongFileRules.VideoMoves(_disk, new MusicVideoOptions { Layout = MusicVideoOptions.FolderLayout }, audio, target, video).Should().BeEmpty();
+        SongFileRules.VideoMoves(_disk, null, audio, target, video).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_file_taken_into_staging_is_finished_whatever_the_layout_is_now()
+    {
+        var audio = _temp.Full("music/A/01 - Song.flac");
+        var video = SeedVideo("music/A/01 - Song", "-video");
+
+        SongFileRules.VideoMoves(_disk, null, audio, _temp.Full("music/B/01 - Song.flac"), video, named => named).Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void A_sibling_audio_files_video_is_never_touched()
+    {
+        // "01 - Song (2)" is another song's file; its video is not the row's, so it is not in the row's group.
+        var audio = _temp.Full("music/A/01 - Song.flac");
+        var video = SeedVideo("music/A/01 - Song", "-video");
+        var sibling = SeedVideo("music/A/01 - Song (2)", "-video");
+
+        var moves = SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/B/01 - Song.flac"), video);
+
+        moves.Select(move => move.From).Should().NotContain(sibling);
+        moves.Should().OnlyContain(move => !move.From.Contains("(2)", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void A_new_name_with_the_same_stem_moves_nothing()
     {
         var audio = _temp.Full("music/A/01 - Song.flac");
         var video = SeedVideo("music/A/01 - Song", "-video");
 
-        SongFileRules.VideoMoves(_disk, audio, _temp.Full("music/A/01 - Song.mp3"), video).Should().BeEmpty();
+        SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/A/01 - Song.mp3"), video).Should().BeEmpty();
     }
 
     [Fact]
@@ -130,7 +167,7 @@ public sealed class SongFileRulesVideoTests : IDisposable
         var audio = _temp.Full("music/A/01 - Song.flac");
         var video = SeedVideo("videos/Artist/Artist - Song", string.Empty);
 
-        SongFileRules.VideoMoves(_disk, audio, _temp.Full("music/B/01 - Song.flac"), video).Should().BeEmpty();
+        SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/B/01 - Song.flac"), video).Should().BeEmpty();
     }
 
     [Fact]
@@ -140,7 +177,7 @@ public sealed class SongFileRulesVideoTests : IDisposable
         var video = SeedVideo("music/A/01 - Song", "-video");
         File.Delete(video);
 
-        SongFileRules.VideoMoves(_disk, audio, _temp.Full("music/B/01 - Song.flac"), video).Should().BeEmpty();
+        SongFileRules.VideoMoves(_disk, Beside, audio, _temp.Full("music/B/01 - Song.flac"), video).Should().BeEmpty();
     }
 
     [Fact]

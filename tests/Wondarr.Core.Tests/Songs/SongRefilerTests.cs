@@ -3,6 +3,7 @@ using Wondarr.Core.Configuration;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Importing;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Wondarr.Core.Plex;
@@ -329,7 +330,8 @@ public sealed class SongRefilerTests : IDisposable
                 NullLogger<RecycleBin>.Instance),
             _updater,
             new SongFileLock(),
-            NullLogger<SongRefiler>.Instance);
+            NullLogger<SongRefiler>.Instance,
+            new TestOptionsMonitor<MusicVideoOptions>(new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout }));
 
     private async Task<WondarrDbContext> ContextAsync()
     {
