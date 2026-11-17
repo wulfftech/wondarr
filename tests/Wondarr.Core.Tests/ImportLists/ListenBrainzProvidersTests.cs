@@ -22,7 +22,7 @@ public sealed class ListenBrainzProvidersTests
     private const string PlaylistMbid = "34c1bb9f-ef5f-4b5a-9305-1be299e86bb0";
 
     /// <summary>The base address the named <c>listenbrainz</c> client is registered with.</summary>
-    private static readonly string BaseAddress = Wondarr.Core.Metadata.ServiceCollectionExtensions.ListenBrainzBaseUrl;
+    private static readonly string BaseAddress = new Wondarr.Core.Metadata.MetadataOptions().ListenBrainzBaseUrl + Wondarr.Core.Metadata.ServiceCollectionExtensions.ListenBrainzApiPath;
 
     [Theory]
     [InlineData("00000000-0000-0000-0000-000000000000")]

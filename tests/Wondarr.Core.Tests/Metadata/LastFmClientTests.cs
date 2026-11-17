@@ -26,7 +26,7 @@ public sealed class LastFmClientTests
 
     private const string Mbid = "833f00e1-781f-4edd-90e4-e52712618862";
 
-    private static readonly string BaseAddress = Wondarr.Core.Metadata.ServiceCollectionExtensions.LastFmBaseUrl;
+    private static readonly string BaseAddress = new Wondarr.Core.Metadata.MetadataOptions().LastFmBaseUrl;
 
     [Fact]
     public async Task A_track_is_mapped_with_five_tags_and_a_plain_text_wiki()

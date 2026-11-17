@@ -773,6 +773,20 @@
               ],
               "format": "int64"
             }
+          },
+          {
+            "name": "artist",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4502,6 +4516,129 @@
         }
       }
     },
+    "/api/v1/discover": {
+      "get": {
+        "tags": [
+          "Discover"
+        ],
+        "parameters": [
+          {
+            "name": "songId",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "mixSeed",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/discover/dismissals": {
+      "get": {
+        "tags": [
+          "Discover"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiscoverDismissalResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Discover"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverDismissalInputResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverDismissalInputResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverDismissalResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/discover/dismissals/{id}": {
+      "delete": {
+        "tags": [
+          "Discover"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/customfilter": {
       "get": {
         "tags": [
@@ -6425,6 +6562,224 @@
           },
           "filters": {
             "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
+      "DiscoverDismissalInputResource": {
+        "required": [
+          "mbRecordingId",
+          "artist",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "artist": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoverDismissalResource": {
+        "required": [
+          "id",
+          "mbRecordingId",
+          "artistKey",
+          "titleKey",
+          "created"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "artistKey": {
+            "type": "string"
+          },
+          "titleKey": {
+            "type": "string"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DiscoverResource": {
+        "required": [
+          "mode",
+          "mixSeed",
+          "seeds",
+          "sources",
+          "suggestions"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "mixSeed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "seeds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoverSeedResource"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoverSourceResource"
+            }
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoverSuggestionResource"
+            }
+          }
+        }
+      },
+      "DiscoverSeedResource": {
+        "required": [
+          "songId",
+          "title",
+          "artist"
+        ],
+        "type": "object",
+        "properties": {
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artist": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoverSourceResource": {
+        "required": [
+          "name",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoverSuggestionResource": {
+        "required": [
+          "title",
+          "artist",
+          "album",
+          "coverUrl",
+          "mbRecordingId",
+          "isrc",
+          "deezerId",
+          "durationMs",
+          "sources",
+          "score"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "artist": {
+            "type": "string"
+          },
+          "album": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "coverUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mbRecordingId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isrc": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deezerId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },
@@ -13256,6 +13611,9 @@
     },
     {
       "name": "DownloadClient"
+    },
+    {
+      "name": "Discover"
     },
     {
       "name": "CustomFilter"

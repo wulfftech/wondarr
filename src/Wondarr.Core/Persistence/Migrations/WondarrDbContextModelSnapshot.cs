@@ -15,7 +15,48 @@ namespace Wondarr.Core.Persistence.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
+
+            modelBuilder.Entity("Wondarr.Core.Discover.DiscoverDismissal", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ArtistKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("artist_key");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("MbRecordingId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mb_recording_id");
+
+                    b.Property<string>("TitleKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("title_key");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_discover_dismissal");
+
+                    b.HasIndex("MbRecordingId")
+                        .HasDatabaseName("ix_discover_dismissal_mb_recording_id");
+
+                    b.HasIndex("ArtistKey", "TitleKey")
+                        .HasDatabaseName("ix_discover_dismissal_artist_key_title_key");
+
+                    b.ToTable("discover_dismissal", (string)null);
+                });
 
             modelBuilder.Entity("Wondarr.Core.Domain.AlbumContext", b =>
                 {

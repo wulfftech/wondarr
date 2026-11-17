@@ -76,6 +76,15 @@ public interface IDeezerClient
     /// <returns>The page, or <see langword="null"/> when Deezer does not know the artist.</returns>
     Task<DeezerTrackPage?> GetArtistTopAsync(long artistId, int limit, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads an artist's radio: tracks of similar artists, in no promised order. Deezer redraws it on
+    /// every call, so the answer is cached for an hour only. These rows carry no ISRC.
+    /// </summary>
+    /// <param name="artistId">The Deezer artist id.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The page, or <see langword="null"/> when Deezer does not know the artist.</returns>
+    Task<DeezerTrackPage?> GetArtistRadioAsync(long artistId, CancellationToken cancellationToken = default);
+
     /// <summary>Searches for artists. The query is plain text, like <see cref="SearchTracksAsync"/>.</summary>
     /// <param name="name">The artist's name, as the user typed it.</param>
     /// <param name="limit">How many results to ask for; Deezer serves 1 to 100.</param>
@@ -128,6 +137,9 @@ public sealed class DeezerClient : IDeezerClient
 
     /// <summary>How long an artist's top tracks stay fresh.</summary>
     private static readonly TimeSpan ArtistTopTtl = TimeSpan.FromDays(1);
+
+    /// <summary>How long an artist radio stays fresh: it is redrawn on every call, so a day would freeze it.</summary>
+    private static readonly TimeSpan ArtistRadioTtl = TimeSpan.FromHours(1);
 
     /// <summary>How long a "no data" answer stays unanswered.</summary>
     private static readonly TimeSpan NoDataTtl = TimeSpan.FromDays(1);
@@ -261,6 +273,16 @@ public sealed class DeezerClient : IDeezerClient
         var uri = $"artist/{NormalizeId(artistId, nameof(artistId))}/top?limit={Limit(limit, nameof(limit))}";
 
         var body = await GetBodyAsync<DeezerTrackPage>(uri, ArtistTopTtl, cancellationToken).ConfigureAwait(false);
+
+        return body is null ? null : JsonSerializer.Deserialize<DeezerTrackPage>(body, SerializerOptions) ?? new DeezerTrackPage();
+    }
+
+    /// <inheritdoc />
+    public async Task<DeezerTrackPage?> GetArtistRadioAsync(long artistId, CancellationToken cancellationToken = default)
+    {
+        var uri = $"artist/{NormalizeId(artistId, nameof(artistId))}/radio";
+
+        var body = await GetBodyAsync<DeezerTrackPage>(uri, ArtistRadioTtl, cancellationToken).ConfigureAwait(false);
 
         return body is null ? null : JsonSerializer.Deserialize<DeezerTrackPage>(body, SerializerOptions) ?? new DeezerTrackPage();
     }
