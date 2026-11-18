@@ -56,7 +56,7 @@ With **Beside each track**, a song held only by a [reference library](/wondarr/l
 
 A beside-track video moves with its track. When Compact, a conversion, a library move, a refile or an upgrade renames or moves the audio file, the video, its `.nfo` and its thumbnail follow under the new name. When a song held only by a reference library gets a file of its own (an adoption, or a download), its video moves from the separate folder to beside that file. A video whose new name is already taken stays where it is, and the health check lists any video whose file has gone missing.
 
-Which suffix Plex itself picks up beside a track is not confirmed yet. `-video` is the default; check that Plex shows the video before relying on it.
+Plex shows a video named `<track>-video.mkv` as the track's music video, and `<track>-lyrics.mkv` as its lyric video, so `-lyrics` is a suffix to use for a library of lyric videos. Rescan the album folder in Plex if a new video doesn't show.
 
 The **Naming template** is the path of a video under the folder, without its extension. The default is `{Artist}/{Artist} - {Title}`. Tokens: `{Artist}`, `{AlbumArtist}`, `{Title}`, `{Album}` and `{Year}`.
 

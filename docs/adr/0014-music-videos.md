@@ -8,7 +8,7 @@ The owner wants an opt-in feature that finds and downloads a song's music video 
 Sources for a video, checked 2026-11-17:
 - **MusicBrainz:** links an audio recording to its video recording ("music video" relationship), and that recording to YouTube ("free streaming" URL). Teardrop, `f3bba4cd…`, leads to `72f0aa36…` (`video: true`) and then to `youtube.com/watch?v=u7K72X4eo_s`. Coverage is partial.
 - **YouTube Music:** its search already labels a result `OfficialVideo` (`MUSIC_VIDEO_TYPE_OMV`) and can filter to videos.
-- **Layouts:** Jellyfin and Kodi want a separate music-video library. Plex links a video to a track when the video sits in the track's folder and its name starts with the track's file name. The exact suffix Plex accepts is not confirmed by Plex's own article.
+- **Layouts:** Jellyfin and Kodi want a separate music-video library. Plex links a video to a track when the video sits in the track's folder and its name starts with the track's file name. Checked on Plex Media Server 1.43.4 on 2026-11-18 (MKV videos beside MP3 tracks in a temporary music library): `<track>-video.mkv` and `<track>.mkv` become the track's music video extra, `<track>-lyrics.mkv` its lyric music video.
 - **Formats:** YouTube serves 1440p and above mostly as VP9 or AV1, which MP4 cannot hold everywhere.
 
 ## Decision
@@ -30,7 +30,7 @@ Sources for a video, checked 2026-11-17:
 - Videos never affect audio searches, imports, quality or upgrades.
 - Every organizer move of a managed audio file needs a matching video step under `beside_track`. A missed path leaves an orphan video, which the library scan reports.
 - The MusicBrainz finder costs two lookups per song at 1 request/s. The scheduled task stays slow on purpose.
-- The Plex suffix is checked against a real Plex server before the `beside_track` default is fixed.
+- The `beside_track` default suffix `-video` is the one Plex reads as a music video (checked 2026-11-18, Plex 1.43.4).
 
 ## References
 `docs/adr/0006-verified-imports.md` · `docs/adr/0008-quality-model.md` · https://musicbrainz.org/relationships/recording-recording · https://jellyfin.org/docs/general/server/media/music-videos/ · https://support.plex.tv/articles/205568377-adding-local-artist-and-music-videos/
