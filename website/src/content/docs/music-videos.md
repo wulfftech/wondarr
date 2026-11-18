@@ -3,6 +3,10 @@ title: Music videos
 description: Find a song's music video on YouTube, download it as an MKV, and file it where your media server expects it.
 ---
 
+:::note[Not released yet]
+This is in the `:develop` image now and arrives in `:latest` with the next release.
+:::
+
 Wondarr can fetch a song's music video and file it next to your music, or in a library of its own. It is off by default. Nothing about it shows in the app until you turn it on under **Settings → Music videos**.
 
 Videos come from YouTube, so the [YouTube source](/wondarr/sources/youtube/) needs its yt-dlp setup (cookies, PO token, pacing). Music videos share it: YouTube sees one client.

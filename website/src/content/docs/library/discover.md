@@ -3,6 +3,10 @@ title: Discover
 description: Hear suggested songs one by one, add the ones you like, and start a radio from any song.
 ---
 
+:::note[Not released yet]
+This is in the `:develop` image now and arrives in `:latest` with the next release.
+:::
+
 **Discover** in the left-hand navigation suggests songs you do not have. Listen to a suggestion, add it, or turn it down.
 
 ## Mix and radio
