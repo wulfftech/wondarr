@@ -34,3 +34,11 @@ Sources for a video, checked 2026-11-17:
 
 ## References
 `docs/adr/0006-verified-imports.md` · `docs/adr/0008-quality-model.md` · https://musicbrainz.org/relationships/recording-recording · https://jellyfin.org/docs/general/server/media/music-videos/ · https://support.plex.tv/articles/205568377-adding-local-artist-and-music-videos/
+
+## Amendments
+- **2026-11-19 (owner): videos already in the folder are recognised.**
+  - A scan of the video root (on demand, after the root is set or confirmed, and daily while the feature is on) identifies each video file against the library's songs. It uses the file name (the naming template and the common `Artist - Title` form), the `.nfo` beside it, and the file's own title and artist tags, with length as a tiebreaker only.
+  - A confident match to exactly one song is **adopted where it is**: the file is never renamed or moved, it is linked to its song as `FoundBy = Existing`, and its row is `Present`.
+  - Anything less goes to a **Music videos** tab on the Match page, where the user picks a song, searches for one, or marks the file as not in the library.
+  - Existing files may be any video container Wondarr can probe (`.mkv`, `.mp4`, `.m4v`, `.avi`, `.mov`, `.webm`). The MKV rule and "never write `.webm`" govern what Wondarr downloads and writes, not what it finds.
+  - A download never replaces or collides with a file the scan knows. A song whose video is already in the folder shows as having one.
