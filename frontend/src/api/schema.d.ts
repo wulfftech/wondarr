@@ -3504,6 +3504,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/musicvideo/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MusicVideoScanAcceptedResource"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/musicvideo/song/{songId}": {
         parameters: {
             query?: never;
@@ -3763,6 +3807,335 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["MusicVideoBulkSearchAcceptedResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/musicvideo/match": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    state?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PagingResourceOfMusicVideoMatchRowResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/musicvideo/match/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MusicVideoMatchSummaryResource"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/musicvideo/match/songs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    term?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MusicVideoMatchSongResource"][];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/musicvideo/match/{id}/thumbnail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/musicvideo/match/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MusicVideoMatchResolveResource"];
+                    "application/*+json": components["schemas"]["MusicVideoMatchResolveResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MusicVideoMatchResolvedResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/musicvideo/match/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MusicVideoMatchBulkResource"];
+                    "application/*+json": components["schemas"]["MusicVideoMatchBulkResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MusicVideoMatchBulkResultResource"];
                     };
                 };
                 /** @description Bad Request */
@@ -7161,13 +7534,101 @@ export interface components {
             score: number | string;
         };
         /** @enum {string} */
-        MusicVideoFoundBy: "musicBrainz" | "youTubeSearch" | "manual";
+        MusicVideoFoundBy: "musicBrainz" | "youTubeSearch" | "manual" | "existing";
         MusicVideoGrabAcceptedResource: {
             /** Format: int64 */
             commandId: number | string;
         };
         MusicVideoGrabResource: {
             youTubeVideoId: null | string;
+        };
+        MusicVideoMatchBulkResource: {
+            ids: null | (number | string)[];
+            action: null | string;
+        };
+        MusicVideoMatchBulkResultResource: {
+            /** Format: int32 */
+            requested: number | string;
+            /** Format: int32 */
+            adopted: number | string;
+            /** Format: int32 */
+            ignored: number | string;
+            /** Format: int32 */
+            skipped: number | string;
+        };
+        MusicVideoMatchCandidateResource: {
+            /** Format: int64 */
+            songId: number | string;
+            title: null | string;
+            artistCredit: null | string;
+            album: null | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            /** Format: double */
+            score: number | string;
+            reason: string;
+            songHasVideo: boolean;
+        };
+        MusicVideoMatchResolveResource: {
+            /** Format: int64 */
+            songId: null | number | string;
+            replace: null | boolean;
+            ignore: null | boolean;
+            unignore: null | boolean;
+        };
+        MusicVideoMatchResolvedResource: {
+            state: string;
+            /** Format: int64 */
+            songId: null | number | string;
+        };
+        MusicVideoMatchRowResource: {
+            /** Format: int64 */
+            id: number | string;
+            state: string;
+            path: string;
+            /** Format: int64 */
+            size: number | string;
+            container: null | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            /** Format: int32 */
+            width: null | number | string;
+            /** Format: int32 */
+            height: null | number | string;
+            parsedArtist: null | string;
+            parsedTitle: null | string;
+            nfoArtist: null | string;
+            nfoTitle: null | string;
+            tagArtist: null | string;
+            tagTitle: null | string;
+            candidates: components["schemas"]["MusicVideoMatchCandidateResource"][];
+            thumbnailUrl: null | string;
+        };
+        MusicVideoMatchSongResource: {
+            /** Format: int64 */
+            id: number | string;
+            title: string;
+            artistCredit: string;
+            album: null | string;
+            /** Format: int32 */
+            durationMs: null | number | string;
+            hasVideo: boolean;
+        };
+        MusicVideoMatchSummaryResource: {
+            /** Format: int32 */
+            pending: number | string;
+            /** Format: int32 */
+            adopted: number | string;
+            /** Format: int32 */
+            ambiguous: number | string;
+            /** Format: int32 */
+            unmatched: number | string;
+            /** Format: int32 */
+            ignored: number | string;
+            /** Format: int32 */
+            missing: number | string;
+            /** Format: int32 */
+            needsAttention: number | string;
         };
         MusicVideoRemovedResource: {
             path: null | string;
@@ -7180,7 +7641,7 @@ export interface components {
             /** Format: int64 */
             songId: number | string;
             status: components["schemas"]["MusicVideoStatus"];
-            youTubeVideoId: string;
+            youTubeVideoId: null | string;
             foundBy: components["schemas"]["MusicVideoFoundBy"];
             path: null | string;
             /** Format: int32 */
@@ -7198,6 +7659,10 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        MusicVideoScanAcceptedResource: {
+            /** Format: int64 */
+            commandId: number | string;
         };
         MusicVideoSearchResultResource: {
             queued: boolean;
@@ -7332,6 +7797,17 @@ export interface components {
             /** Format: int32 */
             totalRecords: number | string;
             records: components["schemas"]["MatchQueueItemResource"][];
+        };
+        PagingResourceOfMusicVideoMatchRowResource: {
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            sortKey: string;
+            sortDirection: string;
+            /** Format: int32 */
+            totalRecords: number | string;
+            records: components["schemas"]["MusicVideoMatchRowResource"][];
         };
         PagingResourceOfQueueResource: {
             /** Format: int32 */

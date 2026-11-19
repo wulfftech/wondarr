@@ -29,6 +29,7 @@ const FOUND_BY_LABELS: Record<MusicVideoResource['foundBy'], string> = {
   musicBrainz: 'MusicBrainz',
   youTubeSearch: 'YouTube search',
   manual: 'Picked by hand',
+  existing: 'Found in your folder',
 };
 
 /** The address of a video on YouTube, for the "Open on YouTube" link. */
@@ -119,6 +120,8 @@ function ManageView({
     );
   }
 
+  // A video found in the folder has no YouTube id: nothing to blocklist, and no YouTube page to link to.
+  const found = video.foundBy === 'existing';
   const resolution = video.width !== null && video.height !== null ? `${video.width}×${video.height}` : '—';
   const codecs = [video.videoCodec, video.audioCodec].filter((codec) => codec !== null && codec !== '').join(' / ');
 
@@ -135,14 +138,21 @@ function ManageView({
       {confirming ? (
         <Stack gap="sm">
           <Text size="sm" fw={600}>
-            Remove and don&apos;t pick this video again?
+            {found ? 'Remove this video?' : "Remove and don't pick this video again?"}
           </Text>
 
-          <Checkbox
-            label="Don't pick this video again for this song"
-            checked={blocklist}
-            onChange={(event) => setBlocklist(event.currentTarget.checked)}
-          />
+          {found ? (
+            <Text size="sm">
+              The file goes to the recycle bin, with its .nfo and thumbnail. Wondarr won&apos;t pick it up again when it
+              scans the folder.
+            </Text>
+          ) : (
+            <Checkbox
+              label="Don't pick this video again for this song"
+              checked={blocklist}
+              onChange={(event) => setBlocklist(event.currentTarget.checked)}
+            />
+          )}
 
           {remove.error !== null && (
             <Alert color="red" icon={<CircleAlert size={16} />}>
@@ -160,7 +170,7 @@ function ManageView({
               loading={remove.isPending}
               onClick={() =>
                 remove.mutate(
-                  { songId: Number(video.songId), blocklist },
+                  { songId: Number(video.songId), blocklist: blocklist && !found },
                   {
                     onSuccess: () => {
                       notifications.show({ message: 'Removed the music video', color: 'green' });

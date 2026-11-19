@@ -8,6 +8,7 @@ import {
   Select,
   Stack,
   Switch,
+  Tabs,
   Text,
   TextInput,
   Title,
@@ -19,6 +20,8 @@ import { CircleAlert } from 'lucide-react';
 import type { MantineColor } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { useMusicVideosEnabled } from '../api/musicVideos';
+import { useMusicVideoMatchSummary } from '../api/musicVideoMatch';
 import { firstPage, type Paging } from '../api/paging';
 import { partialNotice, useSongSearch, type SongLookupResource } from '../api/songs';
 import {
@@ -45,6 +48,7 @@ import {
   type MusicBrainzReturn,
 } from '../components/musicBrainzSeed';
 import { PagedTable, type PagedColumn } from '../components/PagedTable';
+import { MusicVideoMatchTab } from './MusicVideoMatchTab';
 
 /**
  * The Match queue (LIBRARY_OUTPUT §7.6): the files identification could not settle, what each file
@@ -408,8 +412,8 @@ function ReviewDrawer({
   );
 }
 
-/** The Match queue: the files waiting for a decision, and the ways to make one. */
-export function MatchQueuePage() {
+/** The Music tab: the reference-library files waiting for a decision, and the ways to make one. */
+function MusicMatchTab() {
   const [params, setParams] = useSearchParams();
   const [paging, setPaging] = useState<Paging>(() => firstPage());
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
@@ -662,8 +666,6 @@ export function MatchQueuePage() {
 
   return (
     <Stack gap="md">
-      <Title order={2}>Match</Title>
-
       {returned !== null && (
         <MusicBrainzReturnNotice
           returned={returned}
@@ -739,6 +741,72 @@ export function MatchQueuePage() {
       >
         {reviewing !== null && <ReviewDrawer item={reviewing} resolve={resolve} onClose={() => setReviewingId(null)} />}
       </Drawer>
+    </Stack>
+  );
+}
+
+/**
+ * The Match page. Music is the reference-file queue; Music videos, which appears only while the feature is on,
+ * holds the videos already in the video folder that the scan could not settle (`?tab=videos`).
+ */
+export function MatchQueuePage() {
+  const [params, setParams] = useSearchParams();
+  const videosEnabled = useMusicVideosEnabled();
+  const summary = useMusicVideoMatchSummary(videosEnabled);
+  const active = videosEnabled && params.get('tab') === 'videos' ? 'videos' : 'music';
+  const waiting = Number(summary.data?.needsAttention ?? 0);
+
+  if (!videosEnabled) {
+    return (
+      <Stack gap="md">
+        <Title order={2}>Match</Title>
+        <MusicMatchTab />
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap="md">
+      <Title order={2}>Match</Title>
+
+      <Tabs
+        value={active}
+        onChange={(value) => {
+          const next = new URLSearchParams(params);
+
+          if (value === 'videos') {
+            next.set('tab', 'videos');
+          } else {
+            next.delete('tab');
+          }
+
+          setParams(next);
+        }}
+      >
+        <Tabs.List>
+          <Tabs.Tab value="music">Music</Tabs.Tab>
+          <Tabs.Tab
+            value="videos"
+            rightSection={
+              waiting > 0 ? (
+                <Badge size="sm" circle aria-label={`${waiting} music videos need a pick`}>
+                  {waiting}
+                </Badge>
+              ) : undefined
+            }
+          >
+            Music videos
+          </Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="music" pt="md">
+          <MusicMatchTab />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="videos" pt="md">
+          <MusicVideoMatchTab />
+        </Tabs.Panel>
+      </Tabs>
     </Stack>
   );
 }

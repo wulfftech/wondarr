@@ -24,6 +24,7 @@ Once it is on, you get:
 - A **Music video** column in the Library and Wanted tables, after Search.
 - A **Music video** tab on each song's page.
 - **Find music videos** in the Library's selection bar, for the songs you ticked.
+- A **Music videos** tab on the Match page, for videos already in your folder that Wondarr could not place.
 
 ## The column
 
@@ -46,6 +47,50 @@ A match is **confident** when either of these holds:
 A confident match downloads as soon as you search. Anything less shows the ranked candidates: thumbnail, title, artists, length, what kind of upload it is, and a **Confident** or **From MusicBrainz** badge where it earned one. **Download** picks one; **Open on YouTube** lets you watch it first, in a new tab. Wondarr embeds no player.
 
 A wrong video is worse than none, so Wondarr asks rather than guesses.
+
+## Videos already in the folder
+
+You probably have a few music videos already. Point the video folder at them and Wondarr finds them.
+
+A scan reads every video file in the folder and works out which song it is. It runs daily while the feature is on, after you set or confirm the folder, and when you press **Scan the folder now** under **Settings → Music videos**. The same button shows how many files were matched, need a pick, found no match, were ignored or have gone missing.
+
+For each file it tries:
+
+1. The file name, in the naming template's shape or plain `Artist - Title`.
+2. The `.nfo` beside it.
+3. The file's own title and artist tags.
+
+Length only breaks a tie. It never makes a match on its own.
+
+A file that matches exactly one song, clearly, is **adopted where it is**. It shows on the song as **Found in your folder**, and counts as the song's video. Anything less goes to the Match page.
+
+Wondarr never renames, moves or rewrites these files. Linking one to a song is a note in its own database, nothing more. Whatever you named them, however you filed them, they stay put. The one exception is **Remove**, which sends the file to the recycle bin because you asked it to. A removed file is not picked up again.
+
+Any common video file works: `.mkv`, `.mp4`, `.m4v`, `.avi`, `.mov` and `.webm`. The MKV rule is about what Wondarr downloads, not what you already own.
+
+A download never lands on top of a file the scan knows, and a song whose video is already in the folder shows as having one.
+
+### The Match page
+
+With music videos on, the Match page has two tabs: **Music**, the usual queue of reference files, and **Music videos**. The second carries a badge with the number of files that need you.
+
+Its chips filter the list:
+
+| Chip | Shows |
+|---|---|
+| **Needs a pick** | Files with more than one plausible song, or that look like a lyric video or visualiser. |
+| **No match** | Files that look like nothing in your library. |
+| **Ignored** | Files you marked as not belonging to the library. |
+
+Each file shows its thumbnail if there is one beside it, its path under the video folder, the names Wondarr read from the file name, the `.nfo` and the tags (only where they differ), and its length and container. Below that are up to five candidate songs. Each has its artist, album, length, a score bar and why it was suggested. The score is how close the titles are, from 0 to 100%.
+
+- **Use this** links the file to that song. A song that already has a video is marked **has a video**. Picking it asks "Replace that song's video with this file?" and, on yes, sends the old video to the recycle bin.
+- **Search…** looks through your library's songs, for when the right one is not listed.
+- **Ignore** puts the file in the Ignored list, so the scan leaves it alone. **Unignore** brings it back.
+
+Tick several files to **Accept top match** or **Ignore selected** in one go. Accept top match is deliberately fussy: it only takes a file whose best candidate scores 95% or more, leads the next by over 5 points and has no video yet. The rest are skipped, and the notice says how many.
+
+When nothing is left, the tab says "Every video in the folder is matched" and offers **Scan now**.
 
 ## Layouts
 
