@@ -239,6 +239,25 @@ internal static class DomainModelConfiguration
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<MusicVideoFile>(entity =>
+        {
+            entity.ToTable("music_video_file");
+            entity.Property(x => x.Path).IsRequired();
+            entity.Property(x => x.Candidates).IsRequired().HasDefaultValue("[]");
+            entity.Property(x => x.State).HasConversion<string>();
+
+            // One row per file: the path is what makes the walk incremental.
+            entity.HasIndex(x => x.Path).IsUnique();
+            entity.HasIndex(x => x.State);
+            entity.HasIndex(x => x.SongId);
+
+            // Deleting a song must not delete the file that is on disk: the row stays, and the next scan identifies it again.
+            entity.HasOne(x => x.Song)
+                .WithMany()
+                .HasForeignKey(x => x.SongId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         modelBuilder.Entity<MusicVideoBlocklistItem>(entity =>
         {
             entity.ToTable("music_video_blocklist");

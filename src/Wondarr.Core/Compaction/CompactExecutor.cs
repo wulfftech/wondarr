@@ -2064,7 +2064,7 @@ public sealed partial class CompactExecutor : ICompactExecutor
         {
             return await _database.MusicVideos
                 .AsNoTracking()
-                .Where(video => video.SongId == songId)
+                .Where(video => video.SongId == songId && video.FoundBy != MusicVideoFoundBy.Existing)
                 .Select(video => video.Path)
                 .FirstOrDefaultAsync(CancellationToken.None)
                 .ConfigureAwait(false);

@@ -264,8 +264,8 @@ public sealed partial class MusicVideoMissingSearchCommandHandler : ICommandHand
 }
 
 /// <summary>
-/// Puts <c>MusicVideoMissingSearch</c> on the scheduler, but only while music videos and the scheduled search are
-/// both on. The settings are read live, so a change adds or removes the task without a restart.
+/// Puts <c>MusicVideoScan</c> on the scheduler while music videos are on, and <c>MusicVideoMissingSearch</c> too while the
+/// scheduled search is on. The settings are read live, so a change adds or removes the tasks without a restart.
 /// </summary>
 public sealed class MusicVideoScheduledTasks : IScheduledTaskSource
 {
@@ -287,9 +287,21 @@ public sealed class MusicVideoScheduledTasks : IScheduledTaskSource
         {
             var options = _options.CurrentValue;
 
-            return options.Enabled && options.ScheduledSearchEnabled
-                ? [new(MusicVideoMissingSearchCommandHandler.CommandName, TimeSpan.FromHours(options.ScheduledSearchIntervalHours))]
-                : [];
+            if (!options.Enabled)
+            {
+                return [];
+            }
+
+            // The scan of the video folder runs daily while the feature is on; the search for missing videos only
+            // when its own switch is on too.
+            List<ScheduledTaskDefinition> tasks = [new(MusicVideoScanCommandHandler.CommandName, MusicVideoScanCommandHandler.Interval)];
+
+            if (options.ScheduledSearchEnabled)
+            {
+                tasks.Add(new(MusicVideoMissingSearchCommandHandler.CommandName, TimeSpan.FromHours(options.ScheduledSearchIntervalHours)));
+            }
+
+            return tasks;
         }
     }
 

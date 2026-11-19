@@ -23,8 +23,11 @@ internal static class BesideTrackVideoMover
     {
         try
         {
+            // A video found in the folder is never loaded for a mover: it is the user's file and stays where it lies.
             return await database.MusicVideos
-                .FirstOrDefaultAsync(candidate => candidate.SongId == songId, CancellationToken.None)
+                .FirstOrDefaultAsync(
+                    candidate => candidate.SongId == songId && candidate.FoundBy != MusicVideoFoundBy.Existing,
+                    CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -65,7 +68,9 @@ internal static class BesideTrackVideoMover
     {
         try
         {
+            // A video found in the folder is the user's: it never moves, whatever the layout.
             if (!SongFileRules.IsBesideTrack(options)
+                || video is { FoundBy: MusicVideoFoundBy.Existing }
                 || video?.Path is not { } videoPath
                 || !Path.IsPathFullyQualified(videoPath)
                 || !videoPath.EndsWith(MusicVideoPathResolver.VideoExtension, StringComparison.OrdinalIgnoreCase)

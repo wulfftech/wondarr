@@ -299,6 +299,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandHandler, MusicVideoMissingSearchCommandHandler>();
         services.AddSingleton<IScheduledTaskSource, MusicVideoScheduledTasks>();
 
+        // Videos already in the folder (ADR-0014, 2026-11-19): the scan, the identifier, the Match page's service.
+        services.AddScoped<IMusicVideoFileScanner, MusicVideoFileScanner>();
+        services.AddScoped<IMusicVideoIdentifier, MusicVideoIdentifier>();
+        services.AddScoped<IMusicVideoMatchService, MusicVideoMatchService>();
+        services.AddScoped<IMusicVideoScanTrigger, MusicVideoScanTrigger>();
+        services.AddScoped<ICommandHandler, MusicVideoScanCommandHandler>();
+
         // Scoped, resolved by a factory: the process environment is a plain IDictionary rather than a service.
         services.AddScoped<IMusicVideoSettingsService>(provider => new MusicVideoSettingsService(
             provider.GetRequiredService<IOptionsMonitor<MusicVideoOptions>>(),
@@ -311,7 +318,8 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<IOptionsMonitor<ImportOptions>>(),
             System.Environment.GetEnvironmentVariables(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MusicVideoSettingsService>>(),
-            provider.GetService<ContainerMounts>()));
+            provider.GetService<ContainerMounts>(),
+            provider.GetService<IMusicVideoScanTrigger>()));
 
         // Real mount table of this process; a test host replaces it. The folder picker offers only what it lists.
         services.TryAddSingleton(_ => ContainerMounts.ForThisProcess());

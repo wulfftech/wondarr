@@ -28,23 +28,52 @@ public sealed partial class MusicVideoController : ControllerBase
     private readonly IMusicVideoService _videos;
     private readonly IMusicVideoSearchService _search;
     private readonly IOptionsMonitor<MusicVideoOptions> _options;
+    private readonly ICommandQueue _commands;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoController"/> class.</summary>
     /// <param name="videos">Reads and removes the videos.</param>
     /// <param name="search">Finds videos and queues their downloads.</param>
     /// <param name="options">The <c>music_videos</c> settings, for the on/off switch.</param>
+    /// <param name="commands">Queues the scan of the video folder.</param>
     public MusicVideoController(
         IMusicVideoService videos,
         IMusicVideoSearchService search,
-        IOptionsMonitor<MusicVideoOptions> options)
+        IOptionsMonitor<MusicVideoOptions> options,
+        ICommandQueue commands)
     {
         ArgumentNullException.ThrowIfNull(videos);
         ArgumentNullException.ThrowIfNull(search);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(commands);
 
         _videos = videos;
         _search = search;
         _options = options;
+        _commands = commands;
+    }
+
+    /// <summary>
+    /// Queues a scan of the video folder: every video in it is identified against the library's songs, a confident match
+    /// is linked where it lies, and the rest wait on the Match page. A scan already queued or running is the answer.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the queueing.</param>
+    /// <returns>202 with the queued command; 409 while music videos are turned off.</returns>
+    [HttpPost("scan")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(MusicVideoScanAcceptedResource), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<MusicVideoScanAcceptedResource>> Scan(CancellationToken cancellationToken)
+    {
+        if (!_options.CurrentValue.Enabled)
+        {
+            return Disabled();
+        }
+
+        var command = await _commands
+            .EnqueueAsync(MusicVideoScanCommandHandler.CommandName, null, CommandTrigger.Manual, cancellationToken)
+            .ConfigureAwait(false);
+
+        return Accepted(new MusicVideoScanAcceptedResource(command.Id));
     }
 
     /// <summary>Reads a song's music video.</summary>

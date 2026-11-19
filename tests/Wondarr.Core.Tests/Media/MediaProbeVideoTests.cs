@@ -27,11 +27,36 @@ public sealed class MediaProbeVideoTests
 
         result.Readable.Should().BeTrue();
         result.Error.Should().BeNull();
-        result.Info.Should().Be(new VideoInfo(1, 1, 1920, 1080, "h264", "opus", 284_081, 52_428_800));
+        result.Info.Should().Be(new VideoInfo(1, 1, 1920, 1080, "h264", "opus", 284_081, 52_428_800, "matroska,webm"));
 
         var call = runner.Calls.Should().ContainSingle("no decode check is run on a video").Subject;
         call.FileName.Should().Be("ffprobe");
         call.Arguments.Should().Contain("-show_streams").And.Contain("/v/teardrop.mkv");
+    }
+
+    [Fact]
+    public async Task It_reads_the_containers_title_and_artist_tags_whatever_their_case()
+    {
+        const string json = """
+            {
+              "streams": [ { "index": 0, "codec_name": "h264", "codec_type": "video", "width": 640, "height": 360 } ],
+              "format": { "format_name": "matroska,webm", "duration": "10.0", "size": "100", "tags": { "TITLE": " Teardrop ", "Artist": "Massive Attack", "COMMENT": "x" } }
+            }
+            """;
+
+        var result = await Probe(new FakeProcessRunner().Enqueue(json)).ProbeVideoAsync("/v/a.mkv", CancellationToken.None);
+
+        result.Info!.TagTitle.Should().Be("Teardrop");
+        result.Info.TagArtist.Should().Be("Massive Attack");
+    }
+
+    [Fact]
+    public async Task A_container_without_tags_has_no_title_or_artist()
+    {
+        var result = await Probe(new FakeProcessRunner().Enqueue(Mkv)).ProbeVideoAsync("/v/a.mkv", CancellationToken.None);
+
+        result.Info!.TagTitle.Should().BeNull();
+        result.Info.TagArtist.Should().BeNull();
     }
 
     [Fact]

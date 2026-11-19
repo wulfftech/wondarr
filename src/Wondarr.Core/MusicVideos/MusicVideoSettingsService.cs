@@ -150,6 +150,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     private readonly ILogger<MusicVideoSettingsService> _logger;
     private readonly IReadOnlySet<string> _locked;
     private readonly ContainerMounts? _containers;
+    private readonly IMusicVideoScanTrigger? _scan;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoSettingsService"/> class.</summary>
     /// <param name="options">The live options, which already include the environment.</param>
@@ -163,6 +164,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     /// <param name="environment">The process environment, used to find the fields the environment owns.</param>
     /// <param name="logger">Receives a Debug line naming the keys that were written.</param>
     /// <param name="containers">The container rule; when omitted the rule is not applied.</param>
+    /// <param name="scan">Queues a scan of the video folder once the root is saved or confirmed; <see langword="null"/> queues none.</param>
     public MusicVideoSettingsService(
         IOptionsMonitor<MusicVideoOptions> options,
         IConfigFileWriter writer,
@@ -174,7 +176,8 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         IOptionsMonitor<ImportOptions> importOptions,
         IDictionary environment,
         ILogger<MusicVideoSettingsService> logger,
-        ContainerMounts? containers = null)
+        ContainerMounts? containers = null,
+        IMusicVideoScanTrigger? scan = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(writer);
@@ -197,6 +200,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         _importOptions = importOptions;
         _logger = logger;
         _containers = containers;
+        _scan = scan;
         _locked = EnvironmentOverrides.SectionKeys(environment, Section);
     }
 
@@ -370,6 +374,11 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             // Keys only: the root is a path on the user's own machine, and every config.yml write is logged this way.
             var keys = string.Join(", ", changes.Keys);
             LogUpdated(_logger, keys);
+
+            if (rootChanged && !withheld && _scan is not null)
+            {
+                await _scan.EnqueueAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         return withheld
@@ -418,6 +427,11 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return Failed("rootPath", $"the marker file could not be written into {root}: {exception.Message}");
+        }
+
+        if (_scan is not null)
+        {
+            await _scan.EnqueueAsync(cancellationToken).ConfigureAwait(false);
         }
 
         return new MusicVideoSettingsResult(true, []);

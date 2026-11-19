@@ -245,6 +245,28 @@ public sealed partial class MusicVideoService : IMusicVideoService
 
         var recycledPaths = await RecycleFilesAsync(video, cancellationToken).ConfigureAwait(false);
 
+        // A video found in the folder has no YouTube id to blocklist. What keeps the next scan from adopting the file again
+        // is its row, set to Ignored (the file is in the recycle bin by now, but a copy put back is left alone too).
+        var found = video.FoundBy == MusicVideoFoundBy.Existing;
+
+        if (found && video.Path is { } foundPath)
+        {
+            var foundFile = await _database.MusicVideoFiles
+                .FirstOrDefaultAsync(file => file.Path == foundPath, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (foundFile is not null)
+            {
+                foundFile.State = MusicVideoFileState.Ignored;
+                foundFile.SongId = null;
+
+                // The file is in the bin now, so the name is free for a download; the scan lets the row go later.
+                foundFile.MissingSince = DateTime.UtcNow;
+            }
+        }
+
+        blocklist = blocklist && !found;
+
         // Already blocklisted counts as blocklisted: the video will not come back either way.
         MusicVideoBlocklistItem? blocked = null;
 
@@ -267,7 +289,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
             SongId = songId,
             EventType = HistoryEventType.MusicVideoDeleted,
             Data = JsonSerializer.Serialize(
-                new RemovalHistoryData(Reason, video.YouTubeVideoId, video.Path, recycledPaths, blocklist),
+                new RemovalHistoryData(Reason, string.IsNullOrEmpty(video.YouTubeVideoId) ? null : video.YouTubeVideoId, video.Path, recycledPaths, blocklist),
                 Json),
         });
 
@@ -344,7 +366,9 @@ public sealed partial class MusicVideoService : IMusicVideoService
 
         var videos = await _database.MusicVideos
             .AsNoTracking()
-            .Where(video => songIds.Contains(video.SongId) && video.Path != null)
+            // A video found in the folder is the user's own file: deleting the song leaves it where it lies, and the
+            // next scan identifies it again.
+            .Where(video => songIds.Contains(video.SongId) && video.Path != null && video.FoundBy != MusicVideoFoundBy.Existing)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -535,7 +559,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
     /// <summary>The history payload of a removed video.</summary>
     private sealed record RemovalHistoryData(
         string Reason,
-        string YouTubeVideoId,
+        string? YouTubeVideoId,
         string? Path,
         IReadOnlyList<string> RecycledPaths,
         bool Blocklisted);

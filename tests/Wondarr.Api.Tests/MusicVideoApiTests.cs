@@ -35,6 +35,10 @@ public sealed class MusicVideoApiTests : IDisposable
             {
                 services.RemoveAll<ILibraryRoots>();
                 services.AddSingleton<ILibraryRoots, LibraryRoots>();
+
+                // A saved root queues a scan in the real app; its queries would be counted with the page's.
+                services.RemoveAll<IMusicVideoScanTrigger>();
+                services.AddSingleton<IMusicVideoScanTrigger, NoScanTrigger>();
                 services.ConfigureDbContext<WondarrDbContext>(options => options.AddInterceptors(_queries));
             });
         _client = _factory.CreateClient();
@@ -366,6 +370,11 @@ public sealed class MusicVideoApiTests : IDisposable
     }
 
     /// <summary>Counts the commands that read or write the music video tables.</summary>
+    private sealed class NoScanTrigger : IMusicVideoScanTrigger
+    {
+        public Task EnqueueAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
     private sealed class VideoQueryCounter : DbCommandInterceptor
     {
         private int _count;

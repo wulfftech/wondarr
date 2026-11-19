@@ -29,6 +29,12 @@ public enum MusicVideoFoundBy
 
     /// <summary>The user picked it.</summary>
     Manual,
+
+    /// <summary>
+    /// The file was already in the video folder: a scan matched it to the song and linked it where it lies. It has no
+    /// YouTube video id (<see cref="MusicVideo.YouTubeVideoId"/> is empty), and Wondarr never moves or rewrites it.
+    /// </summary>
+    Existing,
 }
 
 /// <summary>
@@ -43,7 +49,10 @@ public sealed class MusicVideo : EntityBase
     /// <summary>Gets or sets where the video stands.</summary>
     public MusicVideoStatus Status { get; set; }
 
-    /// <summary>Gets or sets the YouTube video id.</summary>
+    /// <summary>
+    /// Gets or sets the YouTube video id. Empty for a video found in the folder (<see cref="MusicVideoFoundBy.Existing"/>):
+    /// the column stays required and the empty text is the marker, so no migration has to rebuild the table.
+    /// </summary>
     public string YouTubeVideoId { get; set; } = string.Empty;
 
     /// <summary>Gets or sets how the video was found.</summary>

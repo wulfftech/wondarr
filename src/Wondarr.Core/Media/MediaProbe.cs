@@ -39,6 +39,9 @@ public sealed record ToleratedDecodeErrors(int Errors, double DecodedSeconds, do
 /// <param name="AudioCodec">The first audio stream's codec, for example <c>opus</c>, or <c>null</c>.</param>
 /// <param name="DurationMs">The duration in milliseconds, or <c>0</c> when ffprobe reports none.</param>
 /// <param name="SizeBytes">The file size in bytes, or <c>0</c> when ffprobe reports none.</param>
+/// <param name="Container">The container's format name as ffprobe reports it, for example <c>matroska,webm</c>, or <c>null</c>.</param>
+/// <param name="TagTitle">The container's <c>title</c> tag, or <c>null</c> when it has none.</param>
+/// <param name="TagArtist">The container's <c>artist</c> tag, or <c>null</c> when it has none.</param>
 public sealed record VideoInfo(
     int VideoStreams,
     int AudioStreams,
@@ -47,7 +50,10 @@ public sealed record VideoInfo(
     string? VideoCodec,
     string? AudioCodec,
     int DurationMs,
-    long SizeBytes);
+    long SizeBytes,
+    string? Container = null,
+    string? TagTitle = null,
+    string? TagArtist = null);
 
 /// <summary>The answer of <see cref="IMediaProbe.ProbeVideoAsync"/>.</summary>
 /// <param name="Readable">Whether ffprobe read the file. A readable file may still lack a video or an audio stream.</param>
@@ -235,7 +241,31 @@ public sealed partial class MediaProbe : IMediaProbe
             Text(firstVideo, "codec_name"),
             Text(firstAudio, "codec_name"),
             seconds is null ? 0 : (int)Math.Round(seconds.Value * 1000, MidpointRounding.AwayFromZero),
-            Long(format, "size") ?? 0);
+            Long(format, "size") ?? 0,
+            Text(format, "format_name"),
+            FormatTag(format, "title"),
+            FormatTag(format, "artist"));
+    }
+
+    /// <summary>A tag of the container, matched without regard to case (Matroska writes <c>TITLE</c>, MP4 writes <c>title</c>).</summary>
+    private static string? FormatTag(JsonElement? format, string name)
+    {
+        if (format is not { ValueKind: JsonValueKind.Object } value
+            || !value.TryGetProperty("tags", out var tags)
+            || tags.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var tag in tags.EnumerateObject())
+        {
+            if (string.Equals(tag.Name, name, StringComparison.OrdinalIgnoreCase) && tag.Value.ValueKind == JsonValueKind.String)
+            {
+                return string.IsNullOrWhiteSpace(tag.Value.GetString()) ? null : tag.Value.GetString()!.Trim();
+            }
+        }
+
+        return null;
     }
 
     private async Task<MediaProbeResult> ProbeCoreAsync(
