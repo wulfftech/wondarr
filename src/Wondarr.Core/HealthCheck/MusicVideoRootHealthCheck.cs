@@ -1,8 +1,12 @@
+using System.Globalization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Configuration;
+using Wondarr.Core.Domain;
 using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
+using Wondarr.Core.References;
 
 namespace Wondarr.Core.HealthCheck;
 
@@ -99,8 +103,30 @@ public sealed class MusicVideoRootHealthCheck : IHealthCheck
             _ => null,
         };
 
-        return message is null
-            ? new HealthCheck(Name, HealthCheckResult.Ok, "The music video folder is ready", null)
-            : new HealthCheck(Name, HealthCheckResult.Error, message, null);
+        if (message is not null)
+        {
+            return new HealthCheck(Name, HealthCheckResult.Error, message, null);
+        }
+
+        // The scan lets no video go while this many are missing at once (a share that is half unmounted looks like this),
+        // so it says so: the count is what tells a person whether the share or the folder is at fault.
+        var total = await _database.MusicVideoFiles.AsNoTracking().CountAsync(cancellationToken).ConfigureAwait(false);
+        var missing = await _database.MusicVideoFiles
+            .AsNoTracking()
+            .CountAsync(
+                file => file.State == MusicVideoFileState.Missing
+                    || (file.State == MusicVideoFileState.Ignored && file.MissingSince != null),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return ReferenceMissingRules.IsMountProblem(total, missing)
+            ? new HealthCheck(
+                Name,
+                HealthCheckResult.Warning,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{missing} of the {total} videos in the music video folder {options.RootPath} are missing at once, so the scan lets none of them go. If the share is not fully mounted, mount it; if you deleted them, they are let go once the folder is back under the limit."),
+                null)
+            : new HealthCheck(Name, HealthCheckResult.Ok, "The music video folder is ready", null);
     }
 }

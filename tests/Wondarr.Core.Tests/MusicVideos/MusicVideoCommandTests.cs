@@ -256,7 +256,7 @@ public sealed class MusicVideoCommandTests : IDisposable
     }
 
     [Fact]
-    public void The_scheduled_task_is_absent_while_the_feature_or_the_schedule_is_off()
+    public void The_scheduled_search_is_absent_while_the_feature_or_the_schedule_is_off()
     {
         var options = new MusicVideoOptions { Enabled = false, ScheduledSearchEnabled = false };
         var source = new MusicVideoScheduledTasks(new TestOptionsMonitor<MusicVideoOptions>(options));
@@ -268,7 +268,22 @@ public sealed class MusicVideoCommandTests : IDisposable
 
         options.Enabled = true;
         options.ScheduledSearchEnabled = false;
-        source.Tasks.Should().BeEmpty("the schedule is off");
+        source.Tasks.Should().NotContain(task => task.CommandName == MusicVideoMissingSearchCommandHandler.CommandName, "the schedule is off");
+    }
+
+    [Fact]
+    public void The_scan_of_the_video_folder_runs_daily_while_the_feature_is_on_whatever_the_search_schedule_says()
+    {
+        var options = new MusicVideoOptions { Enabled = true, ScheduledSearchEnabled = false };
+        var source = new MusicVideoScheduledTasks(new TestOptionsMonitor<MusicVideoOptions>(options));
+
+        var task = source.Tasks.Should().ContainSingle().Subject;
+
+        task.CommandName.Should().Be(MusicVideoScanCommandHandler.CommandName);
+        task.Interval.Should().Be(TimeSpan.FromHours(24));
+
+        options.Enabled = false;
+        source.Tasks.Should().BeEmpty("the feature is off");
     }
 
     [Fact]
@@ -277,9 +292,8 @@ public sealed class MusicVideoCommandTests : IDisposable
         var options = new MusicVideoOptions { Enabled = true, ScheduledSearchEnabled = true, ScheduledSearchIntervalHours = 6 };
         var source = new MusicVideoScheduledTasks(new TestOptionsMonitor<MusicVideoOptions>(options));
 
-        var task = source.Tasks.Should().ContainSingle().Subject;
+        var task = source.Tasks.Should().ContainSingle(candidate => candidate.CommandName == MusicVideoMissingSearchCommandHandler.CommandName).Subject;
 
-        task.CommandName.Should().Be(MusicVideoMissingSearchCommandHandler.CommandName);
         task.Interval.Should().Be(TimeSpan.FromHours(6));
     }
 
@@ -314,7 +328,7 @@ public sealed class MusicVideoCommandTests : IDisposable
         options.ScheduledSearchEnabled.Should().BeFalse();
         options.ScheduledSearchIntervalHours.Should().Be(24);
         new MusicVideoScheduledTasks(new TestOptionsMonitor<MusicVideoOptions>(new MusicVideoOptions { Enabled = true }))
-            .Tasks.Should().BeEmpty();
+            .Tasks.Should().NotContain(task => task.CommandName == MusicVideoMissingSearchCommandHandler.CommandName);
     }
 
     [Fact]

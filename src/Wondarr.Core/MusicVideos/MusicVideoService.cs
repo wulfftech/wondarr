@@ -245,6 +245,26 @@ public sealed partial class MusicVideoService : IMusicVideoService
 
         var recycledPaths = await RecycleFilesAsync(video, cancellationToken).ConfigureAwait(false);
 
+        // A video found in the folder has no YouTube id to blocklist. What keeps the next scan from adopting the file again
+        // is its row, set to Ignored (the file is in the recycle bin by now, but a copy put back is left alone too).
+        var found = video.FoundBy == MusicVideoFoundBy.Existing;
+
+        if (found && video.Path is { } foundPath)
+        {
+            var foundFile = await _database.MusicVideoFiles
+                .FirstOrDefaultAsync(file => file.Path == foundPath, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (foundFile is not null)
+            {
+                foundFile.State = MusicVideoFileState.Ignored;
+                foundFile.SongId = null;
+                foundFile.MissingSince = null;
+            }
+        }
+
+        blocklist = blocklist && !found;
+
         // Already blocklisted counts as blocklisted: the video will not come back either way.
         MusicVideoBlocklistItem? blocked = null;
 

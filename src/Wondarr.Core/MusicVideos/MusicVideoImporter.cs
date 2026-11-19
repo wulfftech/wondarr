@@ -166,6 +166,14 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
             return prefix + "deferred, " + early.DeferredReason;
         }
 
+        // The folder already holds a video by this name that a scan found: it is the user's, and is never filed over.
+        if (await HeldByFoundFileAsync(early.VideoPath!, cancellationToken).ConfigureAwait(false) is { } held)
+        {
+            await FailAsync(songId, videoId, fresh, held, blocklist: false).ConfigureAwait(false);
+
+            throw new MusicVideoImportException(held);
+        }
+
         if (fresh)
         {
             await _database.MusicVideos
@@ -246,6 +254,14 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
         var destination = placement.VideoPath!;
 
+        // The download took a while: a scan may have found a video of that name since.
+        if (await HeldByFoundFileAsync(destination, cancellationToken).ConfigureAwait(false) is { } held)
+        {
+            await FailAsync(songId, videoId, fresh, held, blocklist: false).ConfigureAwait(false);
+
+            throw new MusicVideoImportException(held);
+        }
+
         MusicVideoFiled filed;
 
         try
@@ -290,6 +306,28 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         row.SizeBytes = info.SizeBytes > 0 ? info.SizeBytes : null;
         row.DurationMs = info.DurationMs > 0 ? info.DurationMs : null;
         row.FailureReason = null;
+
+        // A found file that this download replaced is not the song's any more (it was left where it lay), and a row a
+        // scan may have made for the file just filed has no business being there.
+        if (wanted.Replacing && wanted.Row is { FoundBy: MusicVideoFoundBy.Existing, Path: { Length: > 0 } oldPath })
+        {
+            var oldFile = await _database.MusicVideoFiles
+                .FirstOrDefaultAsync(file => file.Path == oldPath, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            if (oldFile is not null)
+            {
+                oldFile.State = MusicVideoFileState.Ambiguous;
+                oldFile.SongId = null;
+                oldFile.Candidates = MusicVideoFileRules.Write([new MusicVideoFileCandidate(songId, 1, MusicVideoFileRules.SongHasVideo)]);
+            }
+        }
+
+        var racing = await _database.MusicVideoFiles
+            .Where(file => file.Path == destination)
+            .ToListAsync(CancellationToken.None)
+            .ConfigureAwait(false);
+        _database.MusicVideoFiles.RemoveRange(racing);
 
         _database.History.Add(new HistoryItem
         {
@@ -348,7 +386,16 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
     {
         var recycled = new List<string>();
         var old = wanted.Replacing ? wanted.Row : null;
+
+        // A video found in the folder is the user's: a download never recycles it, so it cannot be replaced in place.
+        var oldIsFound = old?.FoundBy == MusicVideoFoundBy.Existing;
         var samePlace = old?.Path is { Length: > 0 } oldPath && PathRules.AreEqual(oldPath, destination);
+
+        if (oldIsFound && samePlace)
+        {
+            throw new MusicVideoException($"A file is already at {destination}.");
+        }
+
         var createdDirectories = MissingDirectories(Path.GetDirectoryName(destination)!);
 
         _disk.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -378,7 +425,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
             throw;
         }
 
-        if (old is not null && !samePlace && !string.IsNullOrWhiteSpace(old.Path))
+        if (old is not null && !oldIsFound && !samePlace && !string.IsNullOrWhiteSpace(old.Path))
         {
             try
             {
@@ -574,6 +621,22 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
 
         return stream.ToArray();
+    }
+
+    /// <summary>
+    /// Why the video may not be filed at <paramref name="destination"/>: a video that a scan found already lies there
+    /// (a file whose row says it has gone does not count, because nothing is there). <see langword="null"/> when it may.
+    /// </summary>
+    private async Task<string?> HeldByFoundFileAsync(string destination, CancellationToken cancellationToken)
+    {
+        var held = await _database.MusicVideoFiles
+            .AsNoTracking()
+            .AnyAsync(file => file.Path == destination && file.State != MusicVideoFileState.Missing, cancellationToken)
+            .ConfigureAwait(false);
+
+        return held
+            ? $"A video already in the folder has this name: {Path.GetFileName(destination)}; match it on the Match page"
+            : null;
     }
 
     /// <summary>
