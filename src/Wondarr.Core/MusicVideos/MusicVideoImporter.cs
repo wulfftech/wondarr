@@ -324,7 +324,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
 
         var racing = await _database.MusicVideoFiles
-            .Where(file => file.Path == destination)
+            .Where(file => EF.Functions.Collate(file.Path, "NOCASE") == destination)
             .ToListAsync(CancellationToken.None)
             .ConfigureAwait(false);
         _database.MusicVideoFiles.RemoveRange(racing);
@@ -629,12 +629,37 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
     /// </summary>
     private async Task<string?> HeldByFoundFileAsync(string destination, CancellationToken cancellationToken)
     {
-        var held = await _database.MusicVideoFiles
+        // Compared without regard to case: the share may be CIFS, where "A.mkv" and "a.mkv" are one file.
+        var candidates = await _database.MusicVideoFiles
             .AsNoTracking()
-            .AnyAsync(file => file.Path == destination && file.State != MusicVideoFileState.Missing, cancellationToken)
+            .Where(file => EF.Functions.Collate(file.Path, "NOCASE") == destination
+                && file.State != MusicVideoFileState.Missing
+                && file.MissingSince == null)
+            .Select(file => file.Path)
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return held
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        // A row whose file is not on the disk (the user removed it) holds nothing. A disk that does not answer is
+        // not an answer: the name stays held.
+        bool onDisk;
+
+        try
+        {
+            onDisk = await MusicVideoDisk
+                .RunAsync(() => candidates.Exists(path => _disk.FileExists(path)), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (MusicVideoTimeoutException)
+        {
+            onDisk = true;
+        }
+
+        return onDisk
             ? $"A video already in the folder has this name: {Path.GetFileName(destination)}; match it on the Match page"
             : null;
     }

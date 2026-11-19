@@ -177,13 +177,13 @@ public sealed class MusicVideoFileScanTests : IDisposable
 
         var (_, identified) = await _harness.ScanAndIdentifyAsync(_probe);
 
-        identified.Adopted.Should().Be(0, "the fitting length ranks a song higher but 0.05 is not more than 0.05 ahead");
+        identified.Adopted.Should().Be(0, "length only orders songs that score alike; it never separates them enough to adopt");
         identified.Unmatched.Should().Be(1, "a fitting length cannot make a song a candidate");
 
         var teardrop = (await _harness.FilesAsync()).Single(file => file.Path.EndsWith("Teardrop.mkv", StringComparison.Ordinal));
         var candidates = MusicVideoFileRules.Read(teardrop.Candidates);
         candidates[0].SongId.Should().Be(fits.Id);
-        candidates[0].Score.Should().BeApproximately(1.05, 0.0001);
+        candidates[0].Score.Should().BeApproximately(1.0, 0.0001, "the score is the title alone");
         candidates[1].Score.Should().BeApproximately(1.0, 0.0001);
     }
 
@@ -373,7 +373,8 @@ public sealed class MusicVideoFileScanTests : IDisposable
 
         var (unchanged, stillUnmatched) = await _harness.ScanAndIdentifyAsync(_probe);
         unchanged.Unchanged.Should().Be(1);
-        stillUnmatched.Adopted.Should().Be(0, "an unchanged file is skipped, not identified again");
+        stillUnmatched.Adopted.Should().Be(1, "an unchanged file is not probed again, but it is judged again against the songs as they are now");
+        unchanged.Probed.Should().Be(0);
 
         await File.WriteAllTextAsync(path, "different, longer video bytes");
 
@@ -625,8 +626,173 @@ public sealed class MusicVideoFileScanTests : IDisposable
 
         var (_, identified) = await _harness.ScanAndIdentifyAsync(_probe);
 
-        identified.Unmatched.Should().Be(1, "the song is gone, so its file is matched again and finds nothing");
+        identified.Unmatched.Should().Be(2, "the song is gone, so its file is matched again and finds nothing (and the other unmatched file is judged again too)");
         (await _harness.FilesAsync()).Should().OnlyContain(file => file.SongId == null && file.State == MusicVideoFileState.Unmatched);
+    }
+
+    [Fact]
+    public async Task An_edited_nfo_is_read_again_and_identifies_the_file_without_a_new_probe()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        var path = _harness.Video("clip001.mkv", nfo: MusicVideoScanTestKit.Nfo("Nothing", "Nobody"));
+        var (_, first) = await _harness.ScanAndIdentifyAsync(_probe);
+        first.Unmatched.Should().Be(1);
+
+        var nfo = Path.ChangeExtension(path, ".nfo");
+        await File.WriteAllTextAsync(nfo, MusicVideoScanTestKit.Nfo("Teardrop", "Massive Attack"));
+        File.SetLastWriteTimeUtc(nfo, DateTime.UtcNow.AddMinutes(5));
+
+        var (_, second) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        _probe.Probed.Should().HaveCount(1, "the video itself was not probed again");
+        second.Adopted.Should().Be(1);
+        (await _harness.FilesAsync()).Single().SongId.Should().Be(song.Id);
+    }
+
+    [Fact]
+    public async Task The_length_never_lifts_a_title_over_the_adopt_line()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Heartbreaker Song", artist: "Massive Attack");
+        await using (var context = _harness.NewContext())
+        {
+            await context.Songs.Where(candidate => candidate.Id == song.Id).ExecuteUpdateAsync(set => set.SetProperty(candidate => candidate.DurationMs, 284_000));
+        }
+
+        _harness.Video("Massive Attack - Heartbreaker Songs.mkv");
+
+        var (_, identified) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        identified.Adopted.Should().Be(0, "0.94 of title is not 0.95, whatever the length");
+        identified.Ambiguous.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_lyric_video_or_visualiser_is_never_adopted()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        _harness.Video("Massive Attack - Teardrop (Lyric Video).mkv");
+
+        var (_, identified) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        identified.Adopted.Should().Be(0);
+        var candidate = MusicVideoFileRules.Read((await _harness.FilesAsync()).Single().Candidates).Single();
+        candidate.SongId.Should().Be(song.Id);
+        candidate.Reason.Should().Be("lyric video or visualiser");
+    }
+
+    [Fact]
+    public async Task A_symlinked_file_is_not_followed()
+    {
+        await _harness.InitAsync();
+        var target = _harness.Temp.CreateFile("elsewhere/Real.mkv");
+        _harness.Video("Massive Attack - Teardrop.mkv");
+
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(_harness.VideoRoot, "Linked - Video.mkv"), target);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var (scan, _) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        scan.Seen.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_changed_root_lets_the_old_roots_rows_go_whatever_the_mount_guard_says()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        var oldVideo = _harness.Video("Massive Attack - Teardrop.mkv");
+        _harness.Video("Other Artist - Other.mkv");
+        await _harness.ScanAndIdentifyAsync(_probe);
+
+        var newRoot = _harness.Temp.Full("videos2");
+        new LibraryRoots(new DiskOperations()).Mark(newRoot);
+        _harness.Temp.CreateFile("videos2/Third Artist - Third.mkv");
+        _harness.Options.RootPath = newRoot;
+
+        var (scan, _) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        scan.Released.Should().Be(2, "every row of the old root goes, which a mount guard would have refused");
+        scan.MountProblem.Should().BeFalse();
+        (await _harness.FilesAsync()).Should().ContainSingle().Which.Path.Should().Be(Path.Combine(newRoot, "Third Artist - Third.mkv"));
+
+        await using var context = _harness.NewContext();
+        (await context.MusicVideos.CountAsync(video => video.SongId == song.Id)).Should().Be(0);
+        File.Exists(oldVideo).Should().BeTrue("no file is ever touched");
+    }
+
+    [Fact]
+    public async Task A_new_empty_root_is_fine_and_the_old_rows_go()
+    {
+        await _harness.InitAsync();
+        await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        _harness.Video("Massive Attack - Teardrop.mkv");
+        await _harness.ScanAndIdentifyAsync(_probe);
+
+        var newRoot = _harness.Temp.Full("videos2");
+        new LibraryRoots(new DiskOperations()).Mark(newRoot);
+        _harness.Options.RootPath = newRoot;
+
+        var (scan, _) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        scan.Released.Should().Be(1);
+        (await _harness.FilesAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_root_changed_while_the_scan_runs_discards_what_it_read_and_the_command_scans_again()
+    {
+        await _harness.InitAsync();
+        await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        _harness.Video("Massive Attack - Teardrop.mkv");
+        var newRoot = _harness.Temp.Full("videos2");
+        new LibraryRoots(new DiskOperations()).Mark(newRoot);
+        _harness.Temp.CreateFile("videos2/Massive Attack - Teardrop.mkv");
+        var changed = false;
+        _probe.Answer = _ =>
+        {
+            if (!changed)
+            {
+                changed = true;
+                _harness.Options.RootPath = newRoot;
+            }
+
+            return ScanProbe.Video();
+        };
+
+        await using (var context = _harness.NewContext())
+        {
+            var scanning = () => _harness.Scanner(context, _probe).ScanAsync(null, CancellationToken.None);
+
+            await scanning.Should().ThrowAsync<MusicVideoScanRootChangedException>();
+        }
+
+        (await _harness.FilesAsync()).Should().BeEmpty("nothing the old root's scan read was saved");
+
+        // Run as the command does, with the root changing during the first of its scans.
+        changed = false;
+        _harness.Options.RootPath = _harness.VideoRoot;
+        await using var second = _harness.NewContext();
+        var handler = new MusicVideoScanCommandHandler(
+            _harness.Scanner(second, _probe),
+            _harness.Identifier(second),
+            new TestOptionsMonitor<MusicVideoOptions>(_harness.Options),
+            NullLogger<MusicVideoScanCommandHandler>.Instance);
+
+        var message = await handler.ExecuteAsync(
+            new Wondarr.Core.Jobs.CommandContext(1, null, Wondarr.Core.Jobs.CommandTrigger.Manual, _ => Task.CompletedTask),
+            CancellationToken.None);
+
+        message.Should().Contain("1 adopted");
+        (await _harness.FilesAsync()).Should().ContainSingle().Which.Path.Should().StartWith(newRoot);
     }
 
     [Fact]

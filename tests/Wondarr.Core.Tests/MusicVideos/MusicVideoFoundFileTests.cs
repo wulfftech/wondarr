@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.MusicVideos;
+using Wondarr.Core.Organizer;
 using Xunit;
 
 namespace Wondarr.Core.Tests.MusicVideos;
@@ -176,6 +177,99 @@ public sealed class MusicVideoFoundFileTests : IDisposable
         var removal = await _harness.Videos(context).DeleteAsync(song.Id, blocklist: true, CancellationToken.None);
 
         removal!.Blocklisted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task No_mover_loads_or_moves_a_found_video_even_beside_track()
+    {
+        await _harness.InitAsync();
+        _harness.Options.Layout = MusicVideoOptions.BesideTrackLayout;
+        var song = await _harness.AddSongAsync("Teardrop");
+        var path = _harness.Video("old/clip.mkv");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, videoId: string.Empty, path: path, foundBy: MusicVideoFoundBy.Existing);
+
+        await using var context = _harness.NewContext();
+
+        (await BesideTrackVideoMover.TryLoadAsync(context, song.Id)).Should().BeNull("the loader every mover uses skips a found video");
+
+        var row = await context.MusicVideos.AsNoTracking().SingleAsync();
+        var landed = _harness.Temp.CreateFile("music/Massive Attack/03 - Teardrop.flac");
+        var moved = await BesideTrackVideoMover.TryAlignAsync(context, new DiskOperations(), _harness.Options, row, landed);
+
+        moved.Should().BeNull();
+        File.Exists(path).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Deleting_a_song_leaves_its_found_video_where_it_lies_and_the_file_is_identified_again()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        var path = _harness.Video("Massive Attack - Teardrop.mkv");
+        var downloaded = _harness.Video("dl/Other - Song.mkv");
+        var other = await _harness.AddSongAsync("Song", artist: "Other");
+        await _harness.AddRowAsync(other.Id, MusicVideoStatus.Present, path: downloaded);
+        await _harness.ScanAndIdentifyAsync(_probe);
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Videos(context).RecycleForDeletedSongsAsync([song.Id, other.Id], CancellationToken.None);
+        }
+
+        File.Exists(path).Should().BeTrue("a found video is the user's, and deleting the song does not recycle it");
+        File.Exists(downloaded).Should().BeFalse("a downloaded video still goes with its song");
+
+        await using (var context = _harness.NewContext())
+        {
+            await context.Songs.Where(candidate => candidate.Id == song.Id).ExecuteDeleteAsync();
+        }
+
+        _harness.Video("Unrelated Artist - Unrelated.mkv");
+        var (_, identified) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        identified.Unmatched.Should().BeGreaterThan(0);
+        (await _harness.FilesAsync()).Single(file => file.Path == path).SongId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task After_a_found_video_is_removed_a_download_may_take_its_name_whatever_the_case()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        var path = _harness.Video("Massive Attack/Massive Attack - Teardrop.mkv");
+        _harness.Video("Other Artist - Other.mkv");
+        await _harness.ScanAndIdentifyAsync(_probe);
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Videos(context).DeleteAsync(song.Id, blocklist: false, CancellationToken.None);
+        }
+
+        File.Exists(path).Should().BeFalse();
+        (await _harness.FilesAsync()).Single(file => file.Path == path).MissingSince.Should().NotBeNull();
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+        }
+
+        File.Exists(path).Should().BeTrue("the removed video's name is free again");
+    }
+
+    [Fact]
+    public async Task A_name_that_differs_only_in_case_is_still_held()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+        var held = _harness.Video("Massive Attack/MASSIVE ATTACK - TEARDROP.mkv");
+        await AddFileRowAsync(held, MusicVideoFileState.Unmatched, songId: null);
+
+        await using var context = _harness.NewContext();
+        var importing = () => _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+
+        await importing.Should().ThrowAsync<MusicVideoImportException>().WithMessage("A video already in the folder has this name*");
     }
 
     private async Task AddFileRowAsync(string path, MusicVideoFileState state, long? songId)

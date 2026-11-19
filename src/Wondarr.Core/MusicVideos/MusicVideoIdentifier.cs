@@ -54,6 +54,9 @@ public static class MusicVideoFileRules
     /// <summary>The reason a song that already holds a video gives.</summary>
     public const string SongHasVideo = "the song already has a video";
 
+    /// <summary>The reason a file named as a lyric video or a visualiser gives.</summary>
+    public const string LyricVideo = "lyric video or visualiser";
+
     /// <summary>The reason a song whose video is being downloaded gives.</summary>
     public const string SongDownloading = "a download for the song is in progress";
 
@@ -145,7 +148,7 @@ public static class MusicVideoFileRules
             SongId = songId,
             EventType = HistoryEventType.MusicVideoImported,
             Data = JsonSerializer.Serialize(
-                new { youTubeVideoId = string.Empty, foundBy = nameof(MusicVideoFoundBy.Existing), path = file.Path, recycledPaths = Array.Empty<string>() },
+                new { youTubeVideoId = (string?)null, foundBy = nameof(MusicVideoFoundBy.Existing), path = file.Path, recycledPaths = Array.Empty<string>() },
                 Json),
         });
 
@@ -195,7 +198,11 @@ public sealed partial class MusicVideoIdentifier : IMusicVideoIdentifier
     public async Task<MusicVideoIdentifyResult> IdentifyPendingAsync(Func<string, Task>? progress, CancellationToken cancellationToken)
     {
         var files = await _database.MusicVideoFiles
-            .Where(file => file.State == MusicVideoFileState.Pending)
+            // Waiting files are judged again every time, against the songs as they are now: a song added since may be this
+            // file's. Adopted and Ignored files, and what the user settled, are never touched.
+            .Where(file => file.State == MusicVideoFileState.Pending
+                || file.State == MusicVideoFileState.Ambiguous
+                || file.State == MusicVideoFileState.Unmatched)
             .OrderBy(file => file.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -337,6 +344,7 @@ public sealed partial class MusicVideoIdentifier : IMusicVideoIdentifier
         }
 
         var best = new Dictionary<long, MusicVideoFileCandidate>();
+        var lengthFits = new Dictionary<long, bool>();
 
         foreach (var (reason, artist, title) in sources)
         {
@@ -366,22 +374,31 @@ public sealed partial class MusicVideoIdentifier : IMusicVideoIdentifier
                     continue;
                 }
 
-                // Length only breaks a tie: it is added after the title floor, so it can never make a song a candidate.
-                var score = Math.Round(
-                    similarity + (MusicVideoFileRules.LengthFits(file.DurationMs, song.DurationMs) ? MusicVideoFileRules.LengthBonus : 0),
-                    4);
+                // The score is the title similarity alone. Length only orders songs that score alike (below): it is not
+                // added to the score, so it can neither make a song a candidate nor lift one over the adopt line.
+                var score = Math.Round(similarity, 4);
+                var isLyric = MusicVideoTitleMatcher.IsNotAMusicVideo(song.Title, title);
 
                 if (!best.TryGetValue(song.Id, out var known) || score > known.Score)
                 {
                     best[song.Id] = new MusicVideoFileCandidate(
                         song.Id,
                         score,
-                        string.Create(CultureInfo.InvariantCulture, $"{reason}; title {similarity:0.00}"));
+                        isLyric
+                            ? MusicVideoFileRules.LyricVideo
+                            : string.Create(CultureInfo.InvariantCulture, $"{reason}; title {similarity:0.00}"));
+                    lengthFits[song.Id] = MusicVideoFileRules.LengthFits(file.DurationMs, song.DurationMs);
                 }
             }
         }
 
-        return [.. best.Values.OrderByDescending(candidate => candidate.Score).ThenBy(candidate => candidate.SongId)];
+        return
+        [
+            .. best.Values
+                .OrderByDescending(candidate => candidate.Score)
+                .ThenByDescending(candidate => lengthFits.GetValueOrDefault(candidate.SongId))
+                .ThenBy(candidate => candidate.SongId),
+        ];
     }
 
     /// <summary>What to do with a file, given its candidates.</summary>
@@ -399,12 +416,16 @@ public sealed partial class MusicVideoIdentifier : IMusicVideoIdentifier
         var top = marked[0];
         var next = marked.Count > 1 ? marked[1] : null;
 
-        // "Within 0.05" includes 0.05 itself, so the length bonus (0.05) alone never separates two otherwise equal songs.
+        // The title alone has to reach the adopt line (length never lifts it there), and "within 0.05" includes 0.05.
         var confident = top.Score >= MusicVideoFileRules.AdoptScore
             && (next is null || top.Score - next.Score > MusicVideoFileRules.AdoptMargin + 1e-9);
 
-        // A file that was never read (no container) is not trusted to be a video: it waits for a person.
-        var adoptable = confident && !blocked.ContainsKey(top.SongId) && file.Container is not null;
+        // A file that was never read (no container) is not trusted to be a video: it waits for a person. Neither is a
+        // lyric video or a visualiser, which is somebody's picture over the audio.
+        var adoptable = confident
+            && !blocked.ContainsKey(top.SongId)
+            && file.Container is not null
+            && top.Reason != MusicVideoFileRules.LyricVideo;
 
         return new Outcome(marked, Unmatched: false, adoptable ? top.SongId : null);
     }

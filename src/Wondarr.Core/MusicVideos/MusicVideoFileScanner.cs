@@ -42,6 +42,19 @@ public sealed class MusicVideoScanUnavailableException : Exception
     }
 }
 
+/// <summary>
+/// The video root was changed while a scan ran, so what the scan read describes the old root. Nothing was saved; the
+/// caller scans again.
+/// </summary>
+public sealed class MusicVideoScanRootChangedException : Exception
+{
+    /// <summary>Initialises a new instance of the <see cref="MusicVideoScanRootChangedException"/> class.</summary>
+    public MusicVideoScanRootChangedException()
+        : base("the video folder was changed while it was being scanned")
+    {
+    }
+}
+
 /// <summary>Walks the video root and keeps one <c>music_video_file</c> row per video file.</summary>
 public interface IMusicVideoFileScanner
 {
@@ -178,7 +191,11 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             throw new MusicVideoScanUnavailableException("the video folder did not answer in time");
         }
 
-        var rows = await _database.MusicVideoFiles.ToListAsync(cancellationToken).ConfigureAwait(false);
+        var allRows = await _database.MusicVideoFiles.ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        // Rows outside the current root are not part of this walk: the root was changed, and they are let go below.
+        var rows = allRows.Where(row => InRoot(root, row.Path)).ToList();
+        var outside = allRows.Where(row => !InRoot(root, row.Path)).ToList();
 
         // An empty walk over a folder that used to hold videos means the share is not mounted, not that every video was
         // deleted: refusing here is what keeps a dropped mount from emptying the table.
@@ -202,13 +219,18 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         var now = _time.GetUtcNow().UtcDateTime;
 
         // What has to be probed: new files, changed files, and files that never read successfully.
-        var work = new List<Found>();
+        // A file whose only change is its .nfo is not probed again, just read again.
+        var work = new List<Work>();
 
         foreach (var file in found)
         {
             if (!byPath.TryGetValue(file.Path, out var row) || !Same(row, file) || row.Container is null)
             {
-                work.Add(file);
+                work.Add(new Work(file, Probe: true));
+            }
+            else if (row.NfoModifiedAt != file.NfoModifiedAt)
+            {
+                work.Add(new Work(file, Probe: false));
             }
         }
 
@@ -218,7 +240,6 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         var changed = 0;
         var unchanged = 0;
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var applied = 0;
 
         foreach (var file in found)
         {
@@ -227,7 +248,7 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             seen.Add(file.Path);
             byPath.TryGetValue(file.Path, out var row);
 
-            if (row is not null && Same(row, file) && row.Container is not null)
+            if (row is not null && Same(row, file) && row.Container is not null && row.NfoModifiedAt == file.NfoModifiedAt)
             {
                 Restore(row);
                 unchanged++;
@@ -264,11 +285,7 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             }
 
             await ApplyAsync(row, file, result, root, options.NamingTemplate, cancellationToken).ConfigureAwait(false);
-
-            if (++applied % SaveBatchSize == 0)
-            {
-                await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            }
+            row.NfoModifiedAt = file.NfoModifiedAt;
         }
 
         var missing = 0;
@@ -331,6 +348,22 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
                 await ReleaseAsync(row, cancellationToken).ConfigureAwait(false);
                 released++;
             }
+        }
+
+        // A root changed on purpose is not a mount problem, so the rows of the old root go whatever the guard says.
+        foreach (var row in outside)
+        {
+            await ReleaseAsync(row, cancellationToken).ConfigureAwait(false);
+            released++;
+        }
+
+        // The root may have been changed while the walk and the probes ran: what was read describes the old root, so it is
+        // all thrown away (nothing was saved yet) and the caller scans again.
+        if (!string.Equals(_options.CurrentValue.RootPath, root, StringComparison.Ordinal))
+        {
+            _database.ChangeTracker.Clear();
+
+            throw new MusicVideoScanRootChangedException();
         }
 
         await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -522,7 +555,7 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
     /// entry without a probe.
     /// </summary>
     private async Task<Dictionary<string, ReadResult>> ReadAsync(
-        List<Found> work,
+        List<Work> work,
         Func<string, Task>? progress,
         CancellationToken cancellationToken)
     {
@@ -533,13 +566,14 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         await Parallel.ForEachAsync(
             work,
             new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrentProbes, CancellationToken = cancellationToken },
-            async (file, token) =>
+            async (item, token) =>
             {
+                var file = item.File;
                 ReadResult? result;
 
                 try
                 {
-                    result = await ReadOneAsync(file, token).ConfigureAwait(false);
+                    result = await ReadOneAsync(file, item.Probe, token).ConfigureAwait(false);
                 }
                 catch (MusicVideoTimeoutException)
                 {
@@ -567,12 +601,17 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         return results;
     }
 
-    private async Task<ReadResult> ReadOneAsync(Found file, CancellationToken cancellationToken)
+    private async Task<ReadResult> ReadOneAsync(Found file, bool probeFile, CancellationToken cancellationToken)
     {
         var nfoPath = Path.ChangeExtension(file.Path, ".nfo");
         var nfo = await MusicVideoDisk
             .RunAsync(() => MusicVideoNfo.ReadFile(nfoPath), cancellationToken)
             .ConfigureAwait(false);
+
+        if (!probeFile)
+        {
+            return new ReadResult(null, nfo);
+        }
 
         var probe = await _probe.ProbeVideoAsync(file.Path, cancellationToken).ConfigureAwait(false);
 
@@ -638,6 +677,12 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         var directories = new List<string>();
         var entries = info.EnumerateFileSystemInfos().ToList();
 
+        // The .nfo beside a video is part of what identifies it: its time is noted, so an edit is read again.
+        var nfoTimes = entries
+            .Where(entry => entry is FileInfo && string.Equals(entry.Extension, ".nfo", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(entry => Path.GetFileNameWithoutExtension(entry.Name), StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().LastWriteTimeUtc, StringComparer.Ordinal);
+
         // A recycle bin is Wondarr's own storage; its marker is what identifies one.
         if (entries.Exists(entry => string.Equals(entry.Name, RecycleBin.MarkerFileName, StringComparison.Ordinal)))
         {
@@ -664,11 +709,31 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             }
             else if (VideoExtensions.Contains(entry.Extension) && entry is FileInfo file)
             {
-                files.Add(new Found(file.FullName, file.Length, file.LastWriteTimeUtc));
+                // A symlinked file can point anywhere, off the share included: it is not the folder's own video.
+                if ((file.Attributes & FileAttributes.ReparsePoint) != 0 || file.LinkTarget is not null)
+                {
+                    continue;
+                }
+
+                DateTime? nfoTime = nfoTimes.TryGetValue(Path.GetFileNameWithoutExtension(file.Name), out var time) ? time : null;
+                files.Add(new Found(file.FullName, file.Length, file.LastWriteTimeUtc, nfoTime));
             }
         }
 
         return new Listing(files, directories);
+    }
+
+    /// <summary>Whether a row's file lies inside the root the scan is about.</summary>
+    private static bool InRoot(string root, string path)
+    {
+        try
+        {
+            return PathRules.IsStrictlyInside(root, path);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     private static bool IsSame(string first, string second)
@@ -702,7 +767,9 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         Message = "Scanned the video folder: {Seen} videos, {Added} added, {Changed} changed, {Missing} missing")]
     private static partial void LogScanned(ILogger logger, int seen, int added, int changed, int missing);
 
-    private sealed record Found(string Path, long Size, DateTime ModifiedAt);
+    private sealed record Found(string Path, long Size, DateTime ModifiedAt, DateTime? NfoModifiedAt);
+
+    private sealed record Work(Found File, bool Probe);
 
     private sealed record Listing(List<Found> Files, List<string> Directories);
 

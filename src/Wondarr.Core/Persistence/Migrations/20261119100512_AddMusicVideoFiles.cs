@@ -20,6 +20,7 @@ namespace Wondarr.Core.Persistence.Migrations
                     path = table.Column<string>(type: "TEXT", nullable: false),
                     size = table.Column<long>(type: "INTEGER", nullable: false),
                     modified_at = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    nfo_modified_at = table.Column<DateTime>(type: "TEXT", nullable: true),
                     container = table.Column<string>(type: "TEXT", nullable: true),
                     duration_ms = table.Column<int>(type: "INTEGER", nullable: true),
                     width = table.Column<int>(type: "INTEGER", nullable: true),

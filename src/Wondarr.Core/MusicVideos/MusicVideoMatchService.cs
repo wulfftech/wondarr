@@ -349,23 +349,15 @@ public sealed partial class MusicVideoMatchService : IMusicVideoMatchService
             return new MusicVideoMatchResult(MusicVideoMatchOutcome.SongHasVideo, "The song already has a video.");
         }
 
-        // Replacing: a downloaded old video goes to the recycle bin; one that was found in the folder stays where it is and
-        // goes back to the queue. Nothing is changed in the database until the files are dealt with.
+        // Replacing: an adopted old video stays where it lies and goes back to the queue; a downloaded one is recycled, but
+        // only after the database says the song has its new video, so a failed recycle can never leave the row half done.
+        MusicVideo? toRecycle = null;
+
         if (row is { Status: MusicVideoStatus.Present })
         {
             if (row.FoundBy != MusicVideoFoundBy.Existing)
             {
-                try
-                {
-                    await _videos.RecycleFilesAsync(row, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception exception) when (exception is MusicVideoInReferenceLibraryException
-                    or MusicVideoPathException
-                    or MusicVideoFileException
-                    or MusicVideoTimeoutException)
-                {
-                    return new MusicVideoMatchResult(MusicVideoMatchOutcome.RecycleFailed, exception.Message);
-                }
+                toRecycle = new MusicVideo { SongId = row.SongId, Path = row.Path, FoundBy = row.FoundBy };
             }
             else if (row.Path is { } oldPath)
             {
@@ -382,31 +374,62 @@ public sealed partial class MusicVideoMatchService : IMusicVideoMatchService
             }
         }
 
-        // The file leaves the song it was adopted for.
-        await UnlinkAsync(file, cancellationToken).ConfigureAwait(false);
-
-        // A row that is not Present (a failed or stranded download) gives way too; a Present one is replaced below.
-        if (row is not null)
-        {
-            _database.MusicVideos.Remove(row);
-        }
+        // One transaction: the unlink, the removal of the old row and the link are saved together or not at all.
+        await using var transaction = await _database.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
+            // The file leaves the song it was adopted for.
+            await UnlinkAsync(file, cancellationToken).ConfigureAwait(false);
+
+            // A row that is not Present (a failed or stranded download) gives way too.
+            if (row is not null)
+            {
+                _database.MusicVideos.Remove(row);
+            }
+
             await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (!await MusicVideoFileRules.LinkAsync(_database, file, songId, cancellationToken).ConfigureAwait(false))
             {
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                _database.ChangeTracker.Clear();
+
                 return new MusicVideoMatchResult(MusicVideoMatchOutcome.SongHasVideo, "The song already has a video.");
             }
 
             await _database.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException exception) when (MusicVideoFileRules.IsUniqueViolation(exception))
         {
+            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
             _database.ChangeTracker.Clear();
 
             return new MusicVideoMatchResult(MusicVideoMatchOutcome.SongHasVideo, "The song already has a video.");
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            _database.ChangeTracker.Clear();
+
+            throw;
+        }
+
+        if (toRecycle is not null)
+        {
+            try
+            {
+                await _videos.RecycleFilesAsync(toRecycle, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is MusicVideoInReferenceLibraryException
+                or MusicVideoPathException
+                or MusicVideoFileException
+                or MusicVideoTimeoutException)
+            {
+                // The song has its new video; the old files stay where they are, and the log says so.
+                LogOldVideoLeft(_logger, toRecycle.Path ?? string.Empty, exception);
+            }
         }
 
         LogResolved(_logger, file.Path, songId);
@@ -487,13 +510,27 @@ public sealed partial class MusicVideoMatchService : IMusicVideoMatchService
                 .ConfigureAwait(false);
 
             // Only what is waiting for a person is accepted: an adopted file already has its song.
-            if (file is not { State: MusicVideoFileState.Ambiguous or MusicVideoFileState.Unmatched }
-                || MusicVideoFileRules.Read(file.Candidates) is not [var top, ..])
+            if (file is not { State: MusicVideoFileState.Ambiguous or MusicVideoFileState.Unmatched })
             {
                 skipped++;
 
                 continue;
             }
+
+            // Only a top candidate the scan itself would have adopted: at the adopt line, clear of the second.
+            var stored = MusicVideoFileRules.Read(file.Candidates);
+
+            if (stored.Count == 0
+                || stored[0].Score < MusicVideoFileRules.AdoptScore
+                || (stored.Count > 1 && stored[0].Score - stored[1].Score <= MusicVideoFileRules.AdoptMargin + 1e-9)
+                || stored[0].Reason == MusicVideoFileRules.LyricVideo)
+            {
+                skipped++;
+
+                continue;
+            }
+
+            var top = stored[0];
 
             var accepted = await ResolveAsync(id, top.SongId, replace: false, cancellationToken).ConfigureAwait(false);
 
@@ -698,6 +735,9 @@ public sealed partial class MusicVideoMatchService : IMusicVideoMatchService
         text.Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("%", "\\%", StringComparison.Ordinal)
             .Replace("_", "\\_", StringComparison.Ordinal);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The old music video {Path} could not be recycled after its song was given another video; it stays where it is")]
+    private static partial void LogOldVideoLeft(ILogger logger, string path, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "The video {Path} was matched to song {SongId} on the Match page")]
     private static partial void LogResolved(ILogger logger, string path, long songId);

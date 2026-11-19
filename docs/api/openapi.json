@@ -10383,7 +10383,10 @@
             "$ref": "#/components/schemas/MusicVideoStatus"
           },
           "youTubeVideoId": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "foundBy": {
             "$ref": "#/components/schemas/MusicVideoFoundBy"

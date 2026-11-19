@@ -18,6 +18,8 @@ public sealed partial class MusicVideoScanCommandHandler : ICommandHandler
     /// <summary>How often the scheduled scan runs.</summary>
     public static readonly TimeSpan Interval = TimeSpan.FromHours(24);
 
+    private const int MaxRootChangeRetries = 3;
+
     private readonly IMusicVideoFileScanner _scanner;
     private readonly IMusicVideoIdentifier _identifier;
     private readonly IOptionsMonitor<MusicVideoOptions> _options;
@@ -58,17 +60,31 @@ public sealed partial class MusicVideoScanCommandHandler : ICommandHandler
             return "Music videos are turned off.";
         }
 
-        MusicVideoScanResult scan;
+        MusicVideoScanResult? scanned = null;
 
-        try
+        // A root changed while a scan ran makes that scan's results worthless, and a scan queued meanwhile would only be
+        // folded into this running one: so this one simply scans again, a few times at most.
+        for (var attempt = 0; attempt < MaxRootChangeRetries && scanned is null; attempt++)
         {
-            scan = await _scanner.ScanAsync(context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                scanned = await _scanner.ScanAsync(context.ReportProgressAsync, cancellationToken).ConfigureAwait(false);
+            }
+            catch (MusicVideoScanRootChangedException)
+            {
+                // Try again against the new root.
+            }
+            catch (MusicVideoScanUnavailableException exception)
+            {
+                LogUnavailable(_logger, exception.Message);
+
+                return $"The video folder was not scanned: {exception.Message}.";
+            }
         }
-        catch (MusicVideoScanUnavailableException exception)
-        {
-            LogUnavailable(_logger, exception.Message);
 
-            return $"The video folder was not scanned: {exception.Message}.";
+        if (scanned is not { } scan)
+        {
+            return "The video folder was changed again and again while it was being scanned; nothing was saved. Scan again.";
         }
 
         // Identification follows the scan: the rows it just wrote are the ones it identifies. The scan already counted;

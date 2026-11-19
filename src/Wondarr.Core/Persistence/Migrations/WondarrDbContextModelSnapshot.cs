@@ -1180,6 +1180,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("nfo_artist");
 
+                    b.Property<DateTime?>("NfoModifiedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nfo_modified_at");
+
                     b.Property<string>("NfoTitle")
                         .HasColumnType("TEXT")
                         .HasColumnName("nfo_title");

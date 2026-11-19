@@ -112,7 +112,7 @@ public sealed record MusicVideoSettingsUpdateResource(
 /// <param name="Id">The row.</param>
 /// <param name="SongId">The song.</param>
 /// <param name="Status">Where the video stands.</param>
-/// <param name="YouTubeVideoId">The YouTube video id.</param>
+/// <param name="YouTubeVideoId">The YouTube video id, or <see langword="null"/> for a video found in the folder.</param>
 /// <param name="FoundBy">How the video was found.</param>
 /// <param name="Path">The video file's path, or <see langword="null"/> until there is one.</param>
 /// <param name="Width">The picture width in pixels, or <see langword="null"/> when unknown.</param>
@@ -128,7 +128,7 @@ public sealed record MusicVideoResource(
     long Id,
     long SongId,
     MusicVideoStatus Status,
-    string YouTubeVideoId,
+    string? YouTubeVideoId,
     MusicVideoFoundBy FoundBy,
     string? Path,
     int? Width,
@@ -151,7 +151,7 @@ public sealed record MusicVideoResource(
             video.Id,
             video.SongId,
             video.Status,
-            video.YouTubeVideoId,
+            string.IsNullOrEmpty(video.YouTubeVideoId) ? null : video.YouTubeVideoId,
             video.FoundBy,
             video.Path,
             video.Width,

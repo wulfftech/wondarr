@@ -40,6 +40,9 @@ public sealed class MusicVideoFile : EntityBase
     /// <summary>Gets or sets the file's last write time, in UTC.</summary>
     public DateTime ModifiedAt { get; set; }
 
+    /// <summary>Gets or sets the last write time of the <c>.nfo</c> beside the file when it was read, or <see langword="null"/> when there was none.</summary>
+    public DateTime? NfoModifiedAt { get; set; }
+
     /// <summary>Gets or sets the container ffprobe reported, or <see langword="null"/> while the file has not been probed.</summary>
     public string? Container { get; set; }
 

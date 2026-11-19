@@ -11,7 +11,7 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    [Migration("20261119093420_AddMusicVideoFiles")]
+    [Migration("20261119100512_AddMusicVideoFiles")]
     partial class AddMusicVideoFiles
     {
         /// <inheritdoc />
@@ -1182,6 +1182,10 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<string>("NfoArtist")
                         .HasColumnType("TEXT")
                         .HasColumnName("nfo_artist");
+
+                    b.Property<DateTime?>("NfoModifiedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nfo_modified_at");
 
                     b.Property<string>("NfoTitle")
                         .HasColumnType("TEXT")

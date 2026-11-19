@@ -88,7 +88,9 @@ public static class MusicVideoNfo
             }
 
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var buffer = new byte[MaxBytes + 1];
+
+            // Sized to the file (plus one byte, to notice a file that grew), never past the cap.
+            var buffer = new byte[(int)Math.Min(info.Length, MaxBytes) + 1];
             var read = 0;
             int count;
 

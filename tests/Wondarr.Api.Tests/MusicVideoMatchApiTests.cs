@@ -272,7 +272,7 @@ public sealed class MusicVideoMatchApiTests : IDisposable
         video!["status"]!.GetValue<string>().Should().Be("present");
         video["foundBy"]!.GetValue<string>().Should().Be("existing");
         video["path"]!.GetValue<string>().Should().Be(Path.Combine(VideoRoot, "clip.mkv"));
-        video["youTubeVideoId"]!.GetValue<string>().Should().BeEmpty();
+        video["youTubeVideoId"].Should().BeNull("a found video has no YouTube id");
         File.Exists(Path.Combine(VideoRoot, "clip.mkv")).Should().BeTrue("the file stays where it is, as it is");
     }
 
@@ -302,6 +302,29 @@ public sealed class MusicVideoMatchApiTests : IDisposable
 
         var (_, video) = await SendAsync(HttpMethod.Get, $"/api/v1/musicvideo/song/{songId}");
         video!["foundBy"]!.GetValue<string>().Should().Be("existing");
+    }
+
+    [Fact]
+    public async Task A_replace_whose_old_video_cannot_be_recycled_still_succeeds_and_the_row_is_never_half_done()
+    {
+        await EnableAsync();
+        var songId = await SeedSongAsync("Teardrop");
+        var outside = Path.Combine(_factory.DataDir, "elsewhere", "Teardrop.mkv");
+        Directory.CreateDirectory(Path.GetDirectoryName(outside)!);
+        await File.WriteAllTextAsync(outside, "x");
+        await SeedVideoAsync(songId, outside, MusicVideoStatus.Present);
+        var fileId = await SeedFileAsync("clip.mkv", MusicVideoFileState.Ambiguous);
+
+        var (status, _) = await SendAsync(HttpMethod.Post, $"{Match}/{fileId}/resolve", $$"""{"songId":{{songId}},"replace":true}""");
+
+        status.Should().Be(HttpStatusCode.OK, "the song has its new video; the old file is left where it is");
+        File.Exists(outside).Should().BeTrue();
+
+        using var scope = _factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+        var video = await context.MusicVideos.SingleAsync();
+        video.FoundBy.Should().Be(MusicVideoFoundBy.Existing);
+        (await context.MusicVideoFiles.SingleAsync()).SongId.Should().Be(songId);
     }
 
     [Fact]
@@ -406,19 +429,21 @@ public sealed class MusicVideoMatchApiTests : IDisposable
         var free = await SeedSongAsync("Free Song");
         var taken = await SeedSongAsync("Taken Song");
         await SeedVideoAsync(taken, path: null, MusicVideoStatus.Present);
-        var withFreeTop = await SeedFileAsync("a.mkv", MusicVideoFileState.Ambiguous, candidates: [new MusicVideoFileCandidate(free, 0.9, "x")]);
-        var withTakenTop = await SeedFileAsync("b.mkv", MusicVideoFileState.Ambiguous, candidates: [new MusicVideoFileCandidate(taken, 0.9, "x")]);
+        var withFreeTop = await SeedFileAsync("a.mkv", MusicVideoFileState.Ambiguous, candidates: [new MusicVideoFileCandidate(free, 0.97, "x")]);
+        var withTakenTop = await SeedFileAsync("b.mkv", MusicVideoFileState.Ambiguous, candidates: [new MusicVideoFileCandidate(taken, 0.97, "x")]);
         var withNone = await SeedFileAsync("c.mkv", MusicVideoFileState.Unmatched);
+        var tooWeak = await SeedFileAsync("d.mkv", MusicVideoFileState.Ambiguous, candidates: [new MusicVideoFileCandidate(free, 0.9, "x")]);
+        var tooClose = await SeedFileAsync("e.mkv", MusicVideoFileState.Ambiguous, candidates: [new MusicVideoFileCandidate(free, 0.97, "x"), new MusicVideoFileCandidate(taken, 0.95, "x")]);
 
         var (status, body) = await SendAsync(
             HttpMethod.Post,
             $"{Match}/bulk",
-            $$"""{"ids":[{{withFreeTop}},{{withTakenTop}},{{withNone}}],"action":"acceptTop"}""");
+            $$"""{"ids":[{{withFreeTop}},{{withTakenTop}},{{withNone}},{{tooWeak}},{{tooClose}}],"action":"acceptTop"}""");
 
         status.Should().Be(HttpStatusCode.OK);
-        body!["requested"]!.GetValue<int>().Should().Be(3);
+        body!["requested"]!.GetValue<int>().Should().Be(5);
         body["adopted"]!.GetValue<int>().Should().Be(1);
-        body["skipped"]!.GetValue<int>().Should().Be(2);
+        body["skipped"]!.GetValue<int>().Should().Be(4, "no candidate, a taken song, a weak title and a close second are all left for a person");
 
         using var scope = _factory.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
