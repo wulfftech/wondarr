@@ -7814,7 +7814,7 @@
           "roots": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/RootResource"
             }
           }
         }
@@ -11972,6 +11972,21 @@
         "type": "object",
         "properties": {
           "restartRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RootResource": {
+        "required": [
+          "path",
+          "unavailable"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "unavailable": {
             "type": "boolean"
           }
         }

@@ -12,6 +12,16 @@ public sealed partial class ContainerMounts
 {
     private static readonly string[] KernelMounts = ["/proc", "/sys", "/dev"];
 
+    /// <summary>
+    /// File system types that hold nothing past the container's life, or are the kernel's own: a folder on one of them
+    /// is not a place for videos, and a mount of one is no root for the folder picker.
+    /// </summary>
+    private static readonly HashSet<string> NonPersistentTypes = new(StringComparer.Ordinal)
+    {
+        "tmpfs", "devtmpfs", "proc", "sysfs", "cgroup", "cgroup2", "devpts", "mqueue", "overlay",
+        "securityfs", "debugfs", "tracefs", "pstore", "bpf", "fusectl",
+    };
+
     private static readonly string[] MarkerFiles = ["/.dockerenv", "/run/.containerenv"];
 
     private readonly Func<string, bool> _fileExists;
@@ -67,26 +77,23 @@ public sealed partial class ContainerMounts
         }
 
         var target = Normalise(path);
-        string? best = null;
+        Mount? best = null;
 
         foreach (var line in lines)
         {
-            var mountPoint = ParseMountPoint(line);
-
-            if (mountPoint is null)
+            if (ParseMount(line) is not { } mount)
             {
                 continue;
             }
 
-            mountPoint = Normalise(mountPoint);
-
-            if (IsSameOrAncestor(mountPoint, target) && (best is null || mountPoint.Length > best.Length))
+            // The longest mount point wins; of two stacked on the same point the later line is what is visible.
+            if (IsSameOrAncestor(mount.Point, target) && (best is null || mount.Point.Length >= best.Point.Length))
             {
-                best = mountPoint;
+                best = mount;
             }
         }
 
-        return best == "/";
+        return best is not null && (best.Point == "/" || NonPersistentTypes.Contains(best.FsType));
     }
 
     /// <summary>
@@ -95,7 +102,17 @@ public sealed partial class ContainerMounts
     /// (<c>/etc/hosts</c>, <c>/etc/hostname</c>, <c>/etc/resolv.conf</c>). Empty outside a container.
     /// Asks the disk about each mount point, so a caller bounds the call.
     /// </summary>
-    public IReadOnlyList<string> DataMounts()
+    public IReadOnlyList<string> DataMounts() => [.. DataMountPoints().Where(IsDirectory)];
+
+    /// <summary>Whether a mount point is a directory (a bind-mounted file is not). Asks the disk, so a caller bounds the call.</summary>
+    /// <param name="mountPoint">The mount point.</param>
+    public bool IsDirectory(string mountPoint) => _directoryExists(mountPoint);
+
+    /// <summary>
+    /// The data mount points as the mount table lists them, without asking the disk whether each is a directory, so a
+    /// caller can probe them one by one with a time limit each.
+    /// </summary>
+    public IReadOnlyList<string> DataMountPoints()
     {
         if (!InContainer)
         {
@@ -106,25 +123,23 @@ public sealed partial class ContainerMounts
 
         foreach (var line in _readMountInfo() ?? [])
         {
-            var mountPoint = ParseMountPoint(line);
-
-            if (mountPoint is null)
+            if (ParseMount(line) is not { } mount)
             {
                 continue;
             }
 
-            mountPoint = Normalise(mountPoint);
-
-            if (mountPoint != "/" && !IsKernelOrDockerMount(mountPoint) && _directoryExists(mountPoint))
+            if (mount.Point != "/"
+                && !NonPersistentTypes.Contains(mount.FsType)
+                && !IsKernelOrDockerMount(mount.Point))
             {
-                mounts.Add(mountPoint);
+                mounts.Add(mount.Point);
             }
         }
 
         return [.. mounts];
     }
 
-    /// <summary>The refusal message for a folder on the container's root filesystem, or <see langword="null"/> when it is fine.</summary>
+    /// <summary>The refusal message for a folder that would not outlive the container (its root filesystem, a tmpfs and the like), or <see langword="null"/> when it is fine.</summary>
     /// <param name="path">The folder.</param>
     public string? Problem(string path) =>
         IsOnContainerRoot(path)
@@ -182,13 +197,26 @@ public sealed partial class ContainerMounts
         || string.Equals(mountPoint, target, StringComparison.Ordinal)
         || target.StartsWith(mountPoint + "/", StringComparison.Ordinal);
 
-    /// <summary>The mount point (fifth field) of a <c>mountinfo</c> line, with its octal escapes decoded.</summary>
-    private static string? ParseMountPoint(string line)
+    /// <summary>
+    /// The mount point (fifth field, octal escapes decoded) and the file system type (first field after the
+    /// <c> - </c> separator) of a <c>mountinfo</c> line.
+    /// </summary>
+    private static Mount? ParseMount(string line)
     {
         var fields = line.Split(' ', 6, StringSplitOptions.None);
+        var separator = line.IndexOf(" - ", StringComparison.Ordinal);
 
-        return fields.Length < 5 || fields[4].Length == 0 ? null : Unescape(fields[4]);
+        if (fields.Length < 5 || fields[4].Length == 0 || separator < 0)
+        {
+            return null;
+        }
+
+        var fsType = line[(separator + 3)..].Split(' ', 2)[0];
+
+        return new Mount(Normalise(Unescape(fields[4])), fsType);
     }
+
+    private sealed record Mount(string Point, string FsType);
 
     /// <summary>Decodes <c>\040</c>-style escapes (the kernel writes a space, tab, newline and backslash that way).</summary>
     private static string Unescape(string text) =>

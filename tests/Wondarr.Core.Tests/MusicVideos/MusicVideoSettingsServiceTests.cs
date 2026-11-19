@@ -555,6 +555,30 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task An_unrelated_save_never_marks_the_empty_mount_point_of_a_share_that_dropped()
+    {
+        var root = _temp.Full("share");
+        Directory.CreateDirectory(root);
+        _options.Enabled = true;
+        _options.RootPath = root;
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(MaxHeight: 720));
+
+        result.Success.Should().BeTrue();
+        File.Exists(Path.Combine(root, LibraryRoots.MarkerFileName)).Should().BeFalse("an empty unmarked folder may be an unmounted share (#40)");
+        (await GetAsync()).RootNeedsConfirmation.Should().BeTrue("the settings page still asks for the confirm");
+
+        var health = await new Wondarr.Core.HealthCheck.MusicVideoRootHealthCheck(
+            new TestOptionsMonitor<MusicVideoOptions>(_options),
+            new LibraryRoots(new DiskOperations()),
+            _context!,
+            new WondarrPaths("/config"),
+            new TestOptionsMonitor<ImportOptions>(new ImportOptions())).CheckAsync(CancellationToken.None);
+
+        health.Type.Should().Be(Wondarr.Core.HealthCheck.HealthCheckResult.Error);
+    }
+
+    [Fact]
     public void An_enabled_config_with_no_folder_is_a_valid_start_up_configuration()
     {
         new MusicVideoOptionsValidator()

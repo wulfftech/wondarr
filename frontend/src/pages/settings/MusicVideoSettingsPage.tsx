@@ -267,13 +267,13 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
         {picking && (
           <FolderPicker
             opened
-            initialPath={null}
+            initialPath={noFolder ? null : rootPath}
             onClose={() => setPicking(false)}
             onSelect={(path) => setRootPath(path)}
           />
         )}
 
-        {settings.rootNeedsConfirmation && (
+        {settings.rootNeedsConfirmation && (enabled || pendingEnable) && (
           <Alert color="yellow" icon={<TriangleAlert size={16} />} title="Is this the right folder?">
             <Stack gap="xs" align="flex-start">
               <Text size="sm">

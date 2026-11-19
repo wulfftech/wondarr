@@ -18,16 +18,21 @@ public sealed record FolderResource(string Name, string Path)
     }
 }
 
+/// <summary>A place the picker may enter.</summary>
+/// <param name="Path">The root's full path.</param>
+/// <param name="Unavailable">Whether the root did not answer in time, so its share may be hung.</param>
+public sealed record RootResource(string Path, bool Unavailable);
+
 /// <summary>A folder's sub-folders and the roots the picker may enter.</summary>
 /// <param name="Path">The folder listed, or <see langword="null"/> when only the roots are returned.</param>
 /// <param name="Parent">The folder above, or <see langword="null"/> at a root.</param>
-/// <param name="Folders">The sub-folders: never files, never hidden ones.</param>
-/// <param name="Roots">Mounted volumes in a container, else the file system roots.</param>
+/// <param name="Folders">The sub-folders: never files, hidden ones or links.</param>
+/// <param name="Roots">Mounted volumes in a container, else the file system roots; a root that does not answer is marked unavailable.</param>
 public sealed record FolderListingResource(
     string? Path,
     string? Parent,
     IReadOnlyList<FolderResource> Folders,
-    IReadOnlyList<string> Roots);
+    IReadOnlyList<RootResource> Roots);
 
 /// <summary>The folder to create.</summary>
 /// <param name="Parent">An existing absolute folder inside a root.</param>
@@ -72,7 +77,7 @@ public sealed class FileSystemController : ControllerBase
             return Refused(result.Outcome, result.Message, "path");
         }
 
-        return Ok(new FolderListingResource(listing.Path, listing.Parent, [.. listing.Folders.Select(FolderResource.From)], listing.Roots));
+        return Ok(new FolderListingResource(listing.Path, listing.Parent, [.. listing.Folders.Select(FolderResource.From)], [.. listing.Roots.Select(root => new RootResource(root.Path, root.Unavailable))]));
     }
 
     /// <summary>Creates a folder inside a folder that sits in a root.</summary>

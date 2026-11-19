@@ -105,7 +105,7 @@ public sealed class ReferenceAdopterTests : IDisposable
         await SeedVideoAsync(context, song.Id, videoBase);
         context.ChangeTracker.Clear();
 
-        var options = new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout, RootPath = Path.Combine(_temp, "videos"), BesideTrackSuffix = "-clip" };
+        var options = new MusicVideoOptions { Enabled = true, Layout = MusicVideoOptions.BesideTrackLayout, RootPath = Path.Combine(_temp, "videos"), BesideTrackSuffix = "-clip" };
 
         (await Adopter(context, options).AdoptAsync(reference.Id, null, CancellationToken.None))
             .Should().Be(new ReferenceAdoptResult(1, 0, 0));
@@ -138,7 +138,7 @@ public sealed class ReferenceAdopterTests : IDisposable
         Directory.CreateDirectory(LibraryRoot);
         await File.WriteAllTextAsync(Path.Combine(LibraryRoot, song.Title + "-clip.mkv"), "somebody else's video");
 
-        var options = new MusicVideoOptions { Layout = MusicVideoOptions.BesideTrackLayout, RootPath = Path.Combine(_temp, "videos"), BesideTrackSuffix = "-clip" };
+        var options = new MusicVideoOptions { Enabled = true, Layout = MusicVideoOptions.BesideTrackLayout, RootPath = Path.Combine(_temp, "videos"), BesideTrackSuffix = "-clip" };
 
         await Adopter(context, options).AdoptAsync(reference.Id, null, CancellationToken.None);
 

@@ -6776,7 +6776,7 @@ export interface components {
             path: null | string;
             parent: null | string;
             folders: components["schemas"]["FolderResource"][];
-            roots: string[];
+            roots: components["schemas"]["RootResource"][];
         };
         FolderResource: {
             name: string;
@@ -7694,6 +7694,10 @@ export interface components {
         };
         RestoreResource: {
             restartRequired: boolean;
+        };
+        RootResource: {
+            path: string;
+            unavailable: boolean;
         };
         ScoreAdjustment: {
             name: string;

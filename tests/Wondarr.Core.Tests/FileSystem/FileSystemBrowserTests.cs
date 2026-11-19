@@ -34,7 +34,7 @@ public sealed class FileSystemBrowserTests : IDisposable
         result.Outcome.Should().Be(FileSystemOutcome.Ok);
         result.Value!.Path.Should().BeNull();
         result.Value.Folders.Should().BeEmpty();
-        result.Value.Roots.Should().Equal("/data/downloads", "/data/music");
+        result.Value.Roots.Select(root => root.Path).Should().Equal("/data/downloads", "/data/music");
     }
 
     [LinuxFact]
@@ -42,7 +42,7 @@ public sealed class FileSystemBrowserTests : IDisposable
     {
         var result = await Browser(new ContainerMounts(_ => false, () => null)).BrowseAsync(null, CancellationToken.None);
 
-        result.Value!.Roots.Should().Equal("/");
+        result.Value!.Roots.Select(root => root.Path).Should().Equal("/");
     }
 
     [LinuxFact]
@@ -60,7 +60,7 @@ public sealed class FileSystemBrowserTests : IDisposable
         result.Value!.Folders.Select(folder => folder.Name).Should().Equal("alpha", "Beta");
         result.Value.Folders[0].Path.Should().Be(_temp.Full("alpha"));
         result.Value.Parent.Should().BeNull("the mount itself is the top");
-        result.Value.Roots.Should().Equal(_temp.Root);
+        result.Value.Roots.Select(root => root.Path).Should().Equal(_temp.Root);
     }
 
     [LinuxFact]
@@ -114,23 +114,92 @@ public sealed class FileSystemBrowserTests : IDisposable
     }
 
     [LinuxFact]
-    public async Task A_hung_share_times_out_instead_of_holding_the_request()
+    public async Task A_hung_share_is_listed_as_unavailable_and_costs_the_others_nothing_else()
     {
         using var release = new ManualResetEventSlim();
         var mounts = new ContainerMounts(
             _ => true,
-            () => ["1 0 0:50 / / rw - overlay overlay rw", $"2 1 0:60 / {_temp.Root} rw - cifs //nas/x rw"],
-            directoryExists: _ =>
+            () => ["1 0 0:50 / / rw - overlay overlay rw", $"2 1 0:60 / {_temp.Root} rw - cifs //nas/x rw", "3 1 0:61 / /data/hung rw - cifs //nas/y rw"],
+            directoryExists: path =>
             {
-                release.Wait(TimeSpan.FromSeconds(30));
+                if (path == "/data/hung")
+                {
+                    release.Wait(TimeSpan.FromSeconds(30));
+                }
 
                 return true;
             });
 
-        var result = await Browser(mounts).BrowseAsync(_temp.Root, CancellationToken.None);
+        var result = await Browser(mounts).BrowseAsync(null, CancellationToken.None);
         release.Set();
 
-        result.Outcome.Should().Be(FileSystemOutcome.TimedOut);
+        result.Outcome.Should().Be(FileSystemOutcome.Ok);
+        result.Value!.Roots.Should().BeEquivalentTo([new RootEntry("/data/hung", Unavailable: true), new RootEntry(_temp.Root)]);
+    }
+
+    [SymlinkFact]
+    public async Task A_link_is_not_listed_and_cannot_be_walked_through()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "wondarr-outside-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(outside, "secret"));
+
+        try
+        {
+            Directory.CreateDirectory(_temp.Full("real"));
+            Directory.CreateSymbolicLink(_temp.Full("link"), outside);
+
+            var listing = await Browser(Mounted()).BrowseAsync(_temp.Root, CancellationToken.None);
+            var through = await Browser(Mounted()).BrowseAsync(_temp.Full("link/secret"), CancellationToken.None);
+            var create = await Browser(Mounted()).CreateFolderAsync(_temp.Full("link"), "Videos", CancellationToken.None);
+
+            listing.Value!.Folders.Select(folder => folder.Name).Should().Equal("real");
+            through.Outcome.Should().Be(FileSystemOutcome.Invalid);
+            create.Outcome.Should().Be(FileSystemOutcome.Invalid);
+            Directory.Exists(Path.Combine(outside, "Videos")).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [LinuxFact]
+    public async Task The_recycle_bin_and_the_data_directory_cannot_be_entered_or_written_into()
+    {
+        Directory.CreateDirectory(_temp.Full("recycle/inner"));
+        var paths = new WondarrPaths(_temp.Full("config"));
+        Directory.CreateDirectory(paths.ConfigDir);
+        var browser = new FileSystemBrowser(
+            Mounted(),
+            paths,
+            new TestOptionsMonitor<ImportOptions>(new ImportOptions { RecycleBinPath = _temp.Full("recycle") }));
+
+        (await browser.BrowseAsync(_temp.Full("recycle/inner"), CancellationToken.None)).Outcome.Should().Be(FileSystemOutcome.Invalid);
+        (await browser.BrowseAsync(_temp.Full("config"), CancellationToken.None)).Outcome.Should().Be(FileSystemOutcome.Invalid);
+        (await browser.CreateFolderAsync(_temp.Full("recycle"), "x", CancellationToken.None)).Outcome.Should().Be(FileSystemOutcome.Invalid);
+        (await browser.CreateFolderAsync(_temp.Full("config"), "x", CancellationToken.None)).Outcome.Should().Be(FileSystemOutcome.Invalid);
+
+        var top = await browser.BrowseAsync(_temp.Root, CancellationToken.None);
+
+        top.Value!.Folders.Should().BeEmpty("neither the bin nor the data directory is offered");
+    }
+
+    [LinuxFact]
+    public async Task Outside_a_container_system_folders_are_refused_but_the_root_is_browsable()
+    {
+        var browser = Browser(new ContainerMounts(_ => false, () => null));
+
+        (await browser.BrowseAsync("/", CancellationToken.None)).Outcome.Should().Be(FileSystemOutcome.Ok);
+
+        foreach (var folder in new[] { "/etc", "/usr/share", "/var/lib/x", "/proc", "/run" })
+        {
+            (await browser.BrowseAsync(folder, CancellationToken.None)).Outcome.Should().Be(FileSystemOutcome.Invalid, folder);
+            (await browser.CreateFolderAsync(folder, "x", CancellationToken.None)).Outcome.Should().Be(FileSystemOutcome.Invalid, folder);
+        }
+
+        var top = await browser.BrowseAsync("/", CancellationToken.None);
+
+        top.Value!.Folders.Select(folder => folder.Name).Should().NotContain(["etc", "usr", "proc", "sys", "dev", "boot", "run"]);
     }
 
     [LinuxFact]
@@ -164,6 +233,11 @@ public sealed class FileSystemBrowserTests : IDisposable
     [InlineData("a/b")]
     [InlineData("a\\b")]
     [InlineData("../x")]
+    [InlineData("CON")]
+    [InlineData("nul.txt")]
+    [InlineData("com1")]
+    [InlineData("LPT9.log")]
+    [InlineData("videos.")]
     public async Task A_name_that_is_not_one_plain_segment_is_refused_and_nothing_is_made(string name)
     {
         var result = await Browser(Mounted()).CreateFolderAsync(_temp.Root, name, CancellationToken.None);

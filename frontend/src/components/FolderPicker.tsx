@@ -19,10 +19,22 @@ interface Crumb {
   path: string | null;
 }
 
+/** The separator a path uses: a Windows path (`C:\\Videos`) has backslashes and no slash. */
+function separatorOf(path: string): string {
+  return path.includes('\\') && !path.includes('/') ? '\\' : '/';
+}
+
 /** The root that holds `path`, the longest one when mounts are nested. */
 function rootOf(path: string, roots: string[]): string | undefined {
+  const separator = separatorOf(path);
+  const same = (a: string, b: string) => (separator === '\\' ? a.toLowerCase() === b.toLowerCase() : a === b);
+
   return roots
-    .filter((root) => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`))
+    .filter((root) => {
+      const prefix = root.endsWith(separator) ? root : `${root}${separator}`;
+
+      return same(path, root) || same(path.slice(0, prefix.length), prefix);
+    })
     .sort((a, b) => b.length - a.length)[0];
 }
 
@@ -34,16 +46,17 @@ function crumbsFor(path: string | null, roots: string[]): Crumb[] {
     return crumbs;
   }
 
+  const separator = separatorOf(path);
   const root = rootOf(path, roots) ?? path;
   crumbs.push({ label: root, path: root });
 
-  let walked = root.endsWith('/') ? root.slice(0, -1) : root;
+  let walked = root.endsWith(separator) ? root.slice(0, -1) : root;
 
   for (const segment of path
     .slice(root.length)
-    .split('/')
+    .split(separator)
     .filter((part) => part !== '')) {
-    walked = `${walked}/${segment}`;
+    walked = `${walked}${separator}${segment}`;
     crumbs.push({ label: segment, path: walked });
   }
 
@@ -62,7 +75,10 @@ export function FolderPicker({ opened, onClose, onSelect, initialPath = null }: 
   const create = useCreateFolder();
 
   const roots = listing.data?.roots ?? [];
-  const crumbs = crumbsFor(listing.data?.path ?? null, roots);
+  const crumbs = crumbsFor(
+    listing.data?.path ?? null,
+    roots.map((root) => root.path),
+  );
   const nameError =
     create.error instanceof ValidationError
       ? (create.error.fields.name ?? create.error.message)
@@ -132,13 +148,14 @@ export function FolderPicker({ opened, onClose, onSelect, initialPath = null }: 
         {listing.data?.path === null &&
           listing.data.roots.map((root) => (
             <Button
-              key={root}
+              key={root.path}
               variant="default"
               justify="flex-start"
+              disabled={root.unavailable}
               leftSection={<Folder size={16} />}
-              onClick={() => goTo(root)}
+              onClick={() => goTo(root.path)}
             >
-              {root}
+              {root.unavailable ? `${root.path} (not responding)` : root.path}
             </Button>
           ))}
 

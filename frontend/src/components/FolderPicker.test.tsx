@@ -7,7 +7,10 @@ import { ApiProvider } from '../api/ApiProvider';
 import { createTestConfig, installFetch, jsonResponse } from '../test/helpers';
 import { FolderPicker } from './FolderPicker';
 
-const ROOTS = ['/data/downloads', '/data/music'];
+const ROOTS = [
+  { path: '/data/downloads', unavailable: false },
+  { path: '/data/music', unavailable: false },
+];
 
 /** A tiny file system the mocked API serves. */
 function install() {
@@ -148,6 +151,46 @@ describe('FolderPicker', () => {
     await user.click(screen.getByRole('button', { name: 'Show mounted folders' }));
 
     expect(await screen.findByRole('button', { name: '/data/music' })).toBeInTheDocument();
+  });
+
+  it('greys out a root that is not responding and still offers the others', async () => {
+    installFetch(() =>
+      jsonResponse({
+        path: null,
+        parent: null,
+        folders: [],
+        roots: [
+          { path: '/data/hung', unavailable: true },
+          { path: '/data/music', unavailable: false },
+        ],
+      }),
+    );
+    renderPicker();
+
+    expect(await screen.findByRole('button', { name: '/data/hung (not responding)' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '/data/music' })).toBeEnabled();
+  });
+
+  it('opens at the current folder and shows a Windows drive as the first step', async () => {
+    installFetch((url) => {
+      const path = new URL(url, 'http://localhost').searchParams.get('path');
+
+      return jsonResponse({
+        path,
+        parent: 'C:\\Media',
+        folders: [],
+        roots: [{ path: 'C:\\', unavailable: false }],
+      });
+    });
+    const user = userEvent.setup();
+    const { onSelect } = renderPicker(vi.fn(), vi.fn(), 'C:\\Media\\Videos');
+
+    expect(await screen.findByRole('button', { name: 'C:\\' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Media' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Select this folder' }));
+
+    expect(onSelect).toHaveBeenCalledWith('C:\\Media\\Videos');
   });
 
   it('says so when nothing is mounted', async () => {

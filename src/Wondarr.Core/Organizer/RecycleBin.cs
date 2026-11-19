@@ -379,7 +379,7 @@ public sealed class RecycleBin : IRecycleBin
             var roots = new List<string>();
 
             // The music video root is somebody's collection too: cleanup never walks it.
-            var videoRoot = scope.ServiceProvider.GetService<IOptionsMonitor<MusicVideoOptions>>()?.CurrentValue.RootPath;
+            var videoRoot = scope.ServiceProvider.GetService<IOptionsMonitor<MusicVideoOptions>>()?.CurrentValue.ActiveRoot;
 
             foreach (var path in libraries.Concat(references).Concat(videoRoot is null ? [] : [videoRoot]))
             {

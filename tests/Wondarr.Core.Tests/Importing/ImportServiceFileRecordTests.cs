@@ -269,6 +269,7 @@ public class ImportServiceFileRecordTests
     public async Task Leaves_a_video_outside_every_library_and_the_video_root_alone()
     {
         await using var host = await ImportTestHost.CreateAsync();
+        host.MusicVideoOptions.Enabled = true;
         host.MusicVideoOptions.RootPath = host.LibraryRoot + "-videos";
 
         var stray = host.LibraryRoot + "-stray/Daft Punk";
@@ -368,6 +369,7 @@ public class ImportServiceFileRecordTests
     {
         await using var host = await ImportTestHost.CreateAsync();
         var videoRoot = host.LibraryRoot + "-videos";
+        host.MusicVideoOptions.Enabled = true;
         host.MusicVideoOptions.Layout = MusicVideoOptions.BesideTrackLayout;
         host.MusicVideoOptions.RootPath = videoRoot;
         host.MusicVideoOptions.BesideTrackSuffix = "-clip";

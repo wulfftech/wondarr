@@ -86,6 +86,35 @@ public sealed class MusicVideoRootOverlapTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task The_default_video_root_takes_no_folder_from_a_library_while_the_feature_is_off()
+    {
+        await _database.MigrateAsync(_time);
+        await using var context = _database.CreateContext(_time);
+        var options = new MusicVideoOptions { Enabled = false, RootPath = "/mnt/vid/music-videos" };
+
+        var off = new LibraryService(context, musicVideoOptions: new TestOptionsMonitor<MusicVideoOptions>(options));
+        (await off.CreateAsync(NewLibrary("/mnt/vid"), CancellationToken.None)).Id.Should().BeGreaterThan(0);
+
+        options.Enabled = true;
+        options.RootPath = "/mnt/vid2/music-videos";
+        var on = new LibraryService(context, musicVideoOptions: new TestOptionsMonitor<MusicVideoOptions>(options));
+        var act = () => on.CreateAsync(NewLibrary("/mnt/two"), CancellationToken.None);
+        await act.Should().NotThrowAsync("/mnt/two does not overlap the video root");
+
+        var overlapping = () => on.CreateAsync(NewLibrary("/mnt/vid2"), CancellationToken.None);
+        (await overlapping.Should().ThrowAsync<ProfileValidationException>()).Which
+            .Errors.Should().Contain(error => error.Message.Contains("music video folder"));
+    }
+
+    [Fact]
+    public void The_active_root_is_the_root_only_while_the_feature_is_on()
+    {
+        new MusicVideoOptions { Enabled = false, RootPath = "/x" }.ActiveRoot.Should().BeNull();
+        new MusicVideoOptions { Enabled = true, RootPath = "/x" }.ActiveRoot.Should().Be("/x");
+        new MusicVideoOptions { Enabled = true, RootPath = " " }.ActiveRoot.Should().BeNull();
+    }
+
+    [Fact]
     public async Task A_library_elsewhere_is_fine_and_so_is_any_root_while_no_video_root_is_set()
     {
         await _database.MigrateAsync(_time);

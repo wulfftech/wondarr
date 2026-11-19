@@ -66,14 +66,19 @@ function install(overrides: Partial<typeof SETTINGS> = {}) {
       const path = new URL(url, 'http://localhost').searchParams.get('path');
 
       if (path === null) {
-        return jsonResponse({ path: null, parent: null, folders: [], roots: ['/data/music'] });
+        return jsonResponse({
+          path: null,
+          parent: null,
+          folders: [],
+          roots: [{ path: '/data/music', unavailable: false }],
+        });
       }
 
       return jsonResponse({
         path,
         parent: null,
         folders: path === '/data/music' ? [{ name: 'Videos', path: '/data/music/Videos' }] : [],
-        roots: ['/data/music'],
+        roots: [{ path: '/data/music', unavailable: false }],
       });
     }
 
@@ -321,6 +326,16 @@ describe('MusicVideoSettingsPage', () => {
 
     expect(post?.url).toMatch(/\/musicvideo\/settings\/root\/confirm$/);
     await waitFor(() => expect(screen.queryByText('Is this the right folder?')).not.toBeInTheDocument());
+  });
+
+  it('does not ask about the folder while music videos are off', async () => {
+    install({ enabled: false, rootStatus: 'unmarked', rootNeedsConfirmation: true });
+
+    renderApp();
+
+    await screen.findByLabelText('Video folder');
+
+    expect(screen.queryByText('Is this the right folder?')).not.toBeInTheDocument();
   });
 
   it('shows nothing about the root when it is ready', async () => {

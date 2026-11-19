@@ -331,7 +331,11 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
 
         var needsConfirmation = false;
 
-        if ((rootChanged || candidate.Enabled) && !string.IsNullOrWhiteSpace(candidate.RootPath))
+        // Creating or marking is for a new folder or a feature being turned on. A save that changes neither never
+        // touches the disk: the share may have dropped, and its empty mount point must not be marked (#40).
+        var turningOn = !current.Enabled && candidate.Enabled;
+
+        if ((rootChanged || turningOn) && !string.IsNullOrWhiteSpace(candidate.RootPath))
         {
             try
             {

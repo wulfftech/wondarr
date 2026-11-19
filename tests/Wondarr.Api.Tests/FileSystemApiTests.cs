@@ -76,7 +76,8 @@ public sealed class FileSystemApiTests : IDisposable
         status.Should().Be(HttpStatusCode.OK);
         body!["path"].Should().BeNull();
         body["folders"]!.AsArray().Should().BeEmpty();
-        body["roots"]!.AsArray().Select(node => node!.GetValue<string>()).Should().Equal(_mount);
+        body["roots"]!.AsArray().Select(node => node!["path"]!.GetValue<string>()).Should().Equal(_mount);
+        body["roots"]!.AsArray()[0]!["unavailable"]!.GetValue<bool>().Should().BeFalse();
     }
 
     [Fact]
@@ -110,7 +111,7 @@ public sealed class FileSystemApiTests : IDisposable
     }
 
     [Fact]
-    public async Task A_hung_folder_answers_504_and_not_a_hang()
+    public async Task A_hung_share_is_an_unavailable_root_and_not_a_hang()
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -119,9 +120,10 @@ public sealed class FileSystemApiTests : IDisposable
 
         _hang = true;
 
-        var (status, _) = await SendAsync(HttpMethod.Get, $"{Browse}?path={Uri.EscapeDataString(_mount)}");
+        var (status, body) = await SendAsync(HttpMethod.Get, Browse);
 
-        status.Should().Be(HttpStatusCode.GatewayTimeout);
+        status.Should().Be(HttpStatusCode.OK);
+        body!["roots"]!.AsArray()[0]!["unavailable"]!.GetValue<bool>().Should().BeTrue();
     }
 
     [Fact]

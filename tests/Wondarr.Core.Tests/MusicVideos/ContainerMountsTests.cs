@@ -120,5 +120,40 @@ public sealed class ContainerMountsTests
         InContainer(Sample).IsOnContainerRoot("/data/music/../music-videos").Should().BeTrue();
     }
 
+    [Fact]
+    public void A_folder_on_a_tmpfs_is_refused_and_the_tmpfs_is_no_data_mount()
+    {
+        var mounts = InContainer(
+        [
+            "1 0 0:50 / / rw - overlay overlay rw",
+            "2 1 0:70 / /run/secrets ro - tmpfs tmpfs ro",
+            "3 1 0:71 / /dev/shm rw - tmpfs shm rw",
+            "4 1 0:60 / /data rw - cifs //nas/d rw",
+        ]);
+
+        mounts.IsOnContainerRoot("/run/secrets/v").Should().BeTrue();
+        mounts.IsOnContainerRoot("/dev/shm/v").Should().BeTrue();
+        mounts.Problem("/run/secrets/v").Should().Contain("is inside the container");
+        mounts.IsOnContainerRoot("/data/v").Should().BeFalse();
+        mounts.DataMounts().Should().Equal("/data");
+    }
+
+    [Fact]
+    public void A_nested_mount_decides_by_its_own_type()
+    {
+        var mounts = InContainer(
+        [
+            "1 0 0:50 / / rw - overlay overlay rw",
+            "2 1 0:60 / /data rw - cifs //nas/d rw",
+            "3 2 0:61 / /data/videos rw - nfs4 nas:/v rw",
+            "4 2 0:62 / /data/scratch rw - tmpfs tmpfs rw",
+        ]);
+
+        mounts.IsOnContainerRoot("/data/videos/x").Should().BeFalse("the longer NFS mount is the one it lives on");
+        mounts.IsOnContainerRoot("/data/scratch/x").Should().BeTrue("the longer tmpfs mount is not persistent");
+        mounts.IsOnContainerRoot("/data/other").Should().BeFalse();
+        mounts.DataMounts().Should().Equal("/data", "/data/videos");
+    }
+
     private static ContainerMounts InContainer(string[] lines) => new(path => path == "/.dockerenv", () => lines);
 }
