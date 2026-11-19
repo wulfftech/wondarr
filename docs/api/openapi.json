@@ -4562,6 +4562,138 @@
         }
       }
     },
+    "/api/v1/filesystem": {
+      "get": {
+        "tags": [
+          "FileSystem"
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderListingResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway Timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/filesystem/folder": {
+      "post": {
+        "tags": [
+          "FileSystem"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFolderResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFolderResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway Timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/feedback": {
       "get": {
         "tags": [
@@ -6847,6 +6979,21 @@
           }
         }
       },
+      "CreateFolderResource": {
+        "required": [
+          "parent",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "parent": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CsvPreviewInputResource": {
         "required": [
           "sourceText",
@@ -7634,6 +7781,56 @@
           },
           "enableRangeProcessing": {
             "type": "boolean"
+          }
+        }
+      },
+      "FolderListingResource": {
+        "required": [
+          "path",
+          "parent",
+          "folders",
+          "roots"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parent": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FolderResource"
+            }
+          },
+          "roots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RootResource"
+            }
+          }
+        }
+      },
+      "FolderResource": {
+        "required": [
+          "name",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
           }
         }
       },
@@ -9520,7 +9717,9 @@
           "scheduledSearchIntervalHours",
           "readOnlyFields",
           "rootStatus",
-          "rootNeedsConfirmation"
+          "rootNeedsConfirmation",
+          "rootPathIsDefault",
+          "defaultRootPath"
         ],
         "type": "object",
         "properties": {
@@ -9594,6 +9793,15 @@
           },
           "rootNeedsConfirmation": {
             "type": "boolean"
+          },
+          "rootPathIsDefault": {
+            "type": "boolean"
+          },
+          "defaultRootPath": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11764,6 +11972,21 @@
         "type": "object",
         "properties": {
           "restartRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RootResource": {
+        "required": [
+          "path",
+          "unavailable"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "unavailable": {
             "type": "boolean"
           }
         }
@@ -14575,6 +14798,9 @@
     },
     {
       "name": "Health"
+    },
+    {
+      "name": "FileSystem"
     },
     {
       "name": "Feedback"

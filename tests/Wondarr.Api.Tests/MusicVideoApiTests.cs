@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wondarr.Core.Domain;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 using Xunit;
@@ -65,7 +66,9 @@ public sealed class MusicVideoApiTests : IDisposable
 
         status.Should().Be(HttpStatusCode.OK);
         body!["enabled"]!.GetValue<bool>().Should().BeFalse();
-        body["rootPath"].Should().BeNull();
+        body["rootPath"]!.GetValue<string>().Should().Be("/data/music-videos", "the media root's default applies below config.yml");
+        body["rootPathIsDefault"]!.GetValue<bool>().Should().BeTrue();
+        body["defaultRootPath"]!.GetValue<string>().Should().Be("/data/music-videos");
         body["layout"]!.GetValue<string>().Should().Be("folder");
         body["namingTemplate"]!.GetValue<string>().Should().Be("{Artist}/{Artist} - {Title}");
         body["besideTrackSuffix"]!.GetValue<string>().Should().Be("-video");
@@ -74,8 +77,7 @@ public sealed class MusicVideoApiTests : IDisposable
         body["writeThumbnail"]!.GetValue<bool>().Should().BeTrue();
         body["scheduledSearchLimit"]!.GetValue<int>().Should().Be(25);
         body["readOnlyFields"]!.AsArray().Should().BeEmpty();
-        body["rootStatus"].Should().BeNull();
-        body["rootNeedsConfirmation"]!.GetValue<bool>().Should().BeFalse();
+        body["rootStatus"].Should().NotBeNull("the default root is checked live, whatever the machine holds there");
     }
 
     [Theory]
@@ -91,7 +93,7 @@ public sealed class MusicVideoApiTests : IDisposable
         problem!["errors"]![field]!.AsArray().Should().NotBeEmpty();
 
         var (_, stored) = await SendAsync(HttpMethod.Get, Settings);
-        stored!["rootPath"].Should().BeNull("a refused change writes nothing");
+        stored!["rootPath"]!.GetValue<string>().Should().Be("/data/music-videos", "a refused change writes nothing");
     }
 
     [Fact]
@@ -123,14 +125,20 @@ public sealed class MusicVideoApiTests : IDisposable
     }
 
     [Fact]
-    public async Task Saving_a_folder_with_files_leaves_it_to_be_confirmed_and_confirm_marks_it()
+    public async Task Turning_on_with_a_folder_that_needs_confirming_saves_the_folder_but_not_the_switch()
     {
         Directory.CreateDirectory(VideoRoot);
         await File.WriteAllTextAsync(Path.Combine(VideoRoot, "old.mkv"), "x");
 
-        var (_, saved) = await SendAsync(HttpMethod.Put, Settings, RootBody(VideoRoot, enabled: true));
+        var (refused, problem) = await SendAsync(HttpMethod.Put, Settings, RootBody(VideoRoot, enabled: true));
 
-        saved!["rootStatus"]!.GetValue<string>().Should().Be("unmarked");
+        refused.Should().Be(HttpStatusCode.BadRequest);
+        problem!["errors"]!["rootPath"]!.AsArray()[0]!.GetValue<string>().Should().Contain("Confirm the folder first");
+
+        var (_, saved) = await SendAsync(HttpMethod.Get, Settings);
+
+        saved!["enabled"]!.GetValue<bool>().Should().BeFalse();
+        saved["rootStatus"]!.GetValue<string>().Should().Be("unmarked");
         saved["rootNeedsConfirmation"]!.GetValue<bool>().Should().BeTrue();
         File.Exists(Path.Combine(VideoRoot, LibraryRoots.MarkerFileName)).Should().BeFalse();
 
@@ -140,6 +148,34 @@ public sealed class MusicVideoApiTests : IDisposable
         confirmed!["rootStatus"]!.GetValue<string>().Should().Be("ready");
         confirmed["rootNeedsConfirmation"]!.GetValue<bool>().Should().BeFalse();
         File.Exists(Path.Combine(VideoRoot, LibraryRoots.MarkerFileName)).Should().BeTrue();
+
+        var (turnedOn, on) = await SendAsync(HttpMethod.Put, Settings, """{"enabled":true}""");
+
+        turnedOn.Should().Be(HttpStatusCode.OK);
+        on!["enabled"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Turning_on_with_a_folder_inside_the_container_is_a_400_naming_the_mount()
+    {
+        using var containerFactory = new WondarrAppFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ContainerMounts>();
+                services.AddSingleton(new ContainerMounts(
+                    path => path == "/.dockerenv",
+                    () => ["1 0 0:1 / / rw - overlay overlay rw", "2 1 0:2 / /data/music rw - cifs //nas/music rw"]));
+            });
+        using var client = containerFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", containerFactory.ApiKey);
+
+        using var response = await client.PutAsync(
+            new Uri(Settings, UriKind.Relative),
+            new StringContent("""{"enabled":true,"rootPath":"/data/music-videos"}""", System.Text.Encoding.UTF8, "application/json"));
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        body.Should().Contain("is inside the container");
     }
 
     [Fact]
@@ -322,7 +358,9 @@ public sealed class MusicVideoApiTests : IDisposable
 
     private async Task EnableAsync()
     {
-        var (status, body) = await SendAsync(HttpMethod.Put, Settings, """{"enabled":true}""");
+        Directory.CreateDirectory(VideoRoot);
+
+        var (status, body) = await SendAsync(HttpMethod.Put, Settings, RootBody(VideoRoot, enabled: true));
 
         status.Should().Be(HttpStatusCode.OK, body?.ToJsonString());
     }

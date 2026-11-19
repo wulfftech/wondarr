@@ -7,7 +7,7 @@ import { installFetch, jsonResponse, renderApp, resetLocation } from '../../test
 /** The settings the server holds, as `GET /api/v1/musicvideo/settings` sends them. */
 const SETTINGS = {
   enabled: true,
-  rootPath: '/music-videos',
+  rootPath: '/music-videos' as string | null,
   layout: 'folder',
   namingTemplate: '{Artist}/{Artist} - {Title}',
   besideTrackSuffix: '-video',
@@ -20,6 +20,8 @@ const SETTINGS = {
   readOnlyFields: [] as string[],
   rootStatus: 'ready' as string | null,
   rootNeedsConfirmation: false,
+  rootPathIsDefault: false,
+  defaultRootPath: '/data/music-videos' as string | null,
 };
 
 beforeEach(() => {
@@ -60,6 +62,26 @@ function install(overrides: Partial<typeof SETTINGS> = {}) {
       return jsonResponse(HEALTH_ENTRIES);
     }
 
+    if (url.includes('/api/v1/filesystem')) {
+      const path = new URL(url, 'http://localhost').searchParams.get('path');
+
+      if (path === null) {
+        return jsonResponse({
+          path: null,
+          parent: null,
+          folders: [],
+          roots: [{ path: '/data/music', unavailable: false }],
+        });
+      }
+
+      return jsonResponse({
+        path,
+        parent: null,
+        folders: path === '/data/music' ? [{ name: 'Videos', path: '/data/music/Videos' }] : [],
+        roots: [{ path: '/data/music', unavailable: false }],
+      });
+    }
+
     if (url.endsWith('/api/v1/musicvideo/settings/root/confirm')) {
       // The marker is written, so the next read finds the root ready.
       stored.rootStatus = 'ready';
@@ -87,6 +109,159 @@ describe('MusicVideoSettingsPage', () => {
     expect(screen.getByRole('combobox', { name: 'Maximum height' })).toHaveValue('Any');
     expect(screen.getByLabelText('Songs per run')).toHaveValue('20');
     expect(screen.getByLabelText(/Find missing videos on a schedule/)).not.toBeChecked();
+  });
+
+  it('shows the effective folder with (default) beside it, and no Use default while it is the default', async () => {
+    install({ rootPath: '/data/music-videos', rootPathIsDefault: true });
+
+    renderApp();
+
+    expect(await screen.findByLabelText('Video folder')).toHaveValue('/data/music-videos');
+    expect(screen.getByText('(default)')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use default' })).not.toBeInTheDocument();
+  });
+
+  it('offers Use default when the folder differs, and saves it as an empty folder', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    expect(await screen.findByLabelText('Video folder')).toHaveValue('/music-videos');
+    expect(screen.queryByText('(default)')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Use default' }));
+
+    expect(screen.getByLabelText('Video folder')).toHaveValue('/data/music-videos');
+    expect(screen.getByText('(default)')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => expect(await sent('PUT')).toHaveLength(1));
+    expect((await sent('PUT'))[0]?.body).toMatchObject({ rootPath: '' });
+  });
+
+  it('has no typing in the folder field: the folder is chosen from the mounted ones', async () => {
+    install({ rootPath: null, enabled: false });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const field = await screen.findByLabelText('Video folder');
+
+    expect(field).toHaveAttribute('readonly');
+
+    await user.click(screen.getByRole('button', { name: 'Choose…' }));
+    await user.click(await screen.findByRole('button', { name: '/data/music' }));
+    await user.click(await screen.findByRole('button', { name: 'Videos' }));
+    await user.click(screen.getByRole('button', { name: 'Select this folder' }));
+
+    expect(screen.getByLabelText('Video folder')).toHaveValue('/data/music/Videos');
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => expect(await sent('PUT')).toHaveLength(1));
+    expect((await sent('PUT'))[0]?.body).toMatchObject({ rootPath: '/data/music/Videos' });
+  });
+
+  it('disables Save with an inline error while Enable is on and there is no folder', async () => {
+    install({ rootPath: null, enabled: true });
+
+    renderApp();
+
+    expect(await screen.findByText('Choose a video folder before turning music videos on.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('says there is no default here and keeps Enable off until a folder is chosen', async () => {
+    install({ rootPath: null, enabled: false, defaultRootPath: null });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    expect(await screen.findByText('No default here: choose a mounted folder')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use default' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Find and download music videos/)).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Choose…' }));
+    await user.click(await screen.findByRole('button', { name: '/data/music' }));
+    await user.click(screen.getByRole('button', { name: 'Select this folder' }));
+
+    expect(screen.getByLabelText(/Find and download music videos/)).toBeEnabled();
+  });
+
+  it('puts the confirm button under the folder when turning on waits for it, with the switch off', async () => {
+    const stored = {
+      ...SETTINGS,
+      enabled: false,
+      rootStatus: 'unmarked' as string | null,
+      rootNeedsConfirmation: false,
+    };
+
+    installFetch((url, init) => {
+      if (url.includes('/api/v1/system/status')) {
+        return jsonResponse(SYSTEM_STATUS);
+      }
+
+      if (url.includes('/api/v1/health')) {
+        return jsonResponse(HEALTH_ENTRIES);
+      }
+
+      if (url.endsWith('/musicvideo/settings/root/confirm')) {
+        stored.rootStatus = 'ready';
+        stored.rootNeedsConfirmation = false;
+
+        return jsonResponse(stored);
+      }
+
+      if (url.endsWith('/musicvideo/settings') && init?.method === 'PUT') {
+        // The first save stores the folder but not the switch; the one after the confirm turns it on.
+        if (stored.rootNeedsConfirmation === false && stored.rootStatus === 'unmarked') {
+          stored.rootNeedsConfirmation = true;
+
+          return jsonResponse(
+            {
+              title: 'Validation',
+              errors: { rootPath: ['Confirm the folder first: use the button under the folder.'] },
+            },
+            400,
+          );
+        }
+
+        stored.enabled = true;
+
+        return jsonResponse(stored);
+      }
+
+      return jsonResponse(stored);
+    });
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const toggle = await screen.findByLabelText(/Find and download music videos/);
+
+    await user.click(toggle);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText(/Confirm the folder first/)).toBeInTheDocument();
+    expect(await screen.findByText('Is this the right folder?')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Find and download music videos/)).not.toBeChecked();
+
+    // The field's error and the confirm button are neighbours: both come before the layout field.
+    const alert = screen.getByText('Is this the right folder?');
+    const field = screen.getByLabelText('Video folder');
+    const layout = screen.getByRole('combobox', { name: 'Layout' });
+
+    expect(field.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(alert.compareDocumentPosition(layout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Yes, use this folder' }));
+
+    // The person had asked for music videos on, so the confirm turns the switch on.
+    await waitFor(async () => expect((await sent('PUT')).length).toBeGreaterThanOrEqual(2));
+    expect((await sent('PUT')).at(-1)?.body).toEqual({ enabled: true });
+    await waitFor(() => expect(screen.getByLabelText(/Find and download music videos/)).toBeChecked());
   });
 
   it('shows the beside-track suffix only for that layout', async () => {
@@ -151,6 +326,16 @@ describe('MusicVideoSettingsPage', () => {
 
     expect(post?.url).toMatch(/\/musicvideo\/settings\/root\/confirm$/);
     await waitFor(() => expect(screen.queryByText('Is this the right folder?')).not.toBeInTheDocument());
+  });
+
+  it('does not ask about the folder while music videos are off', async () => {
+    install({ enabled: false, rootStatus: 'unmarked', rootNeedsConfirmation: true });
+
+    renderApp();
+
+    await screen.findByLabelText('Video folder');
+
+    expect(screen.queryByText('Is this the right folder?')).not.toBeInTheDocument();
   });
 
   it('shows nothing about the root when it is ready', async () => {

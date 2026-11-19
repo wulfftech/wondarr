@@ -55,6 +55,9 @@ public sealed class MediaRootDefaultsTests : IDisposable
         }
 
         expected.Should().NotBeEmpty();
+
+        // The video root holds no path of its own in the options: the default layer is its only source.
+        expected["MusicVideos:RootPath"] = "/storage/music-videos";
         Paths().MediaRootDefaults().Should().BeEquivalentTo(expected);
     }
 

@@ -786,7 +786,7 @@ public sealed class ReferenceLibraryService : IReferenceLibraryService
         }
 
         // Videos get a folder of their own: neither inside the music video root nor around it.
-        if (_musicVideoOptions?.CurrentValue.RootPath is { Length: > 0 } videoRoot
+        if (_musicVideoOptions?.CurrentValue.ActiveRoot is { Length: > 0 } videoRoot
             && MusicVideoRootRules.Overlaps(rootPath, videoRoot))
         {
             throw new ReferenceLibraryValidationException(

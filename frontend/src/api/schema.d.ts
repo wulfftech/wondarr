@@ -4968,6 +4968,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/filesystem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    path?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FolderListingResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/filesystem/folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateFolderResource"];
+                    "application/*+json": components["schemas"]["CreateFolderResource"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FolderResource"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ValidationProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Gateway Timeout */
+                504: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/feedback": {
         parameters: {
             query?: never;
@@ -6451,6 +6591,10 @@ export interface components {
             /** Format: int64 */
             estimatedSize: number | string;
         };
+        CreateFolderResource: {
+            parent: string;
+            name: string;
+        };
         CsvPreviewInputResource: {
             sourceText: null | string;
             settings: null | components["schemas"]["JsonNode"];
@@ -6627,6 +6771,16 @@ export interface components {
             lastModified?: null | string;
             entityTag?: null | components["schemas"]["EntityTagHeaderValue"];
             enableRangeProcessing?: boolean;
+        };
+        FolderListingResource: {
+            path: null | string;
+            parent: null | string;
+            folders: components["schemas"]["FolderResource"][];
+            roots: components["schemas"]["RootResource"][];
+        };
+        FolderResource: {
+            name: string;
+            path: string;
         };
         GrabRequestResource: {
             /** Format: int64 */
@@ -7068,6 +7222,8 @@ export interface components {
             readOnlyFields: string[];
             rootStatus: null | components["schemas"]["LibraryRootStatus"];
             rootNeedsConfirmation: boolean;
+            rootPathIsDefault: boolean;
+            defaultRootPath: null | string;
         };
         MusicVideoSettingsUpdateResource: {
             enabled?: null | boolean;
@@ -7538,6 +7694,10 @@ export interface components {
         };
         RestoreResource: {
             restartRequired: boolean;
+        };
+        RootResource: {
+            path: string;
+            unavailable: boolean;
         };
         ScoreAdjustment: {
             name: string;

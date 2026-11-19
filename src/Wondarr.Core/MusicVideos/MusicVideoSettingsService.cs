@@ -10,7 +10,7 @@ namespace Wondarr.Core.MusicVideos;
 
 /// <summary>What the music video settings page may read.</summary>
 /// <param name="Enabled">Whether music videos are on.</param>
-/// <param name="RootPath">The video root, or <see langword="null"/> until set.</param>
+/// <param name="RootPath">The video root, or <see langword="null"/> when none is usable (the default would sit inside the container).</param>
 /// <param name="Layout"><c>folder</c> or <c>beside_track</c>.</param>
 /// <param name="NamingTemplate">The path of a video under the root.</param>
 /// <param name="BesideTrackSuffix">What is added to the audio file's name under <c>beside_track</c>.</param>
@@ -22,6 +22,8 @@ namespace Wondarr.Core.MusicVideos;
 /// <param name="ScheduledSearchIntervalHours">How often the scheduled task runs, in hours.</param>
 /// <param name="ReadOnlyFields">camelCase names of the fields the environment sets through <c>APP__MUSIC_VIDEOS__…</c>.</param>
 /// <param name="RootStatus">What the disk says about the root now, or <see langword="null"/> when no root is set.</param>
+/// <param name="RootPathIsDefault">Whether the root is the default, <c>&lt;media root&gt;/music-videos</c>.</param>
+/// <param name="DefaultRootPath">The default root, or <see langword="null"/> when it would sit inside the container instead of on a mount.</param>
 public sealed record MusicVideoSettings(
     bool Enabled,
     string? RootPath,
@@ -35,7 +37,9 @@ public sealed record MusicVideoSettings(
     bool ScheduledSearchEnabled,
     int ScheduledSearchIntervalHours,
     IReadOnlyList<string> ReadOnlyFields,
-    LibraryRootStatus? RootStatus)
+    LibraryRootStatus? RootStatus,
+    bool RootPathIsDefault = false,
+    string? DefaultRootPath = null)
 {
     /// <summary>
     /// Whether the root is set but not usable yet: it does not exist or holds no marker, so the user has to
@@ -48,7 +52,7 @@ public sealed record MusicVideoSettings(
 /// A change to the music video settings. Every field is optional; an absent field is left alone.
 /// </summary>
 /// <param name="Enabled">New state of the switch.</param>
-/// <param name="RootPath">New video root; an empty string clears it.</param>
+/// <param name="RootPath">New video root; an empty string goes back to the default.</param>
 /// <param name="Layout">New layout, <c>folder</c> or <c>beside_track</c>.</param>
 /// <param name="NamingTemplate">New naming template.</param>
 /// <param name="BesideTrackSuffix">New suffix for <c>beside_track</c>.</param>
@@ -145,6 +149,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly ILogger<MusicVideoSettingsService> _logger;
     private readonly IReadOnlySet<string> _locked;
+    private readonly ContainerMounts? _containers;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoSettingsService"/> class.</summary>
     /// <param name="options">The live options, which already include the environment.</param>
@@ -157,6 +162,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     /// <param name="importOptions">Where the recycle bin is.</param>
     /// <param name="environment">The process environment, used to find the fields the environment owns.</param>
     /// <param name="logger">Receives a Debug line naming the keys that were written.</param>
+    /// <param name="containers">The container rule; when omitted the rule is not applied.</param>
     public MusicVideoSettingsService(
         IOptionsMonitor<MusicVideoOptions> options,
         IConfigFileWriter writer,
@@ -167,7 +173,8 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         WondarrPaths paths,
         IOptionsMonitor<ImportOptions> importOptions,
         IDictionary environment,
-        ILogger<MusicVideoSettingsService> logger)
+        ILogger<MusicVideoSettingsService> logger,
+        ContainerMounts? containers = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(writer);
@@ -189,6 +196,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         _paths = paths;
         _importOptions = importOptions;
         _logger = logger;
+        _containers = containers;
         _locked = EnvironmentOverrides.SectionKeys(environment, Section);
     }
 
@@ -196,14 +204,25 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     public async Task<MusicVideoSettings> GetAsync(CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
+        var defaultRoot = _paths.DefaultMusicVideoRoot;
+        var defaultUsable = _containers?.IsOnContainerRoot(defaultRoot) != true;
+        var root = string.IsNullOrWhiteSpace(options.RootPath) ? null : options.RootPath;
+        var isDefault = root is not null && IsDefaultRoot(root);
 
-        LibraryRootStatus? status = string.IsNullOrWhiteSpace(options.RootPath)
+        // A default inside the container is no folder at all as far as the page is concerned: it is not offered.
+        if (isDefault && !defaultUsable)
+        {
+            root = null;
+            isDefault = false;
+        }
+
+        LibraryRootStatus? status = root is null
             ? null
-            : await _roots.CheckAsync(options.RootPath, cancellationToken).ConfigureAwait(false);
+            : await _roots.CheckAsync(root, cancellationToken).ConfigureAwait(false);
 
         return new MusicVideoSettings(
             options.Enabled,
-            options.RootPath,
+            root,
             options.Layout,
             options.NamingTemplate,
             options.BesideTrackSuffix,
@@ -214,7 +233,9 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             options.ScheduledSearchEnabled,
             options.ScheduledSearchIntervalHours,
             [.. Fields.Where(field => IsLocked(field.Key)).Select(field => CamelCase(field.Key))],
-            status);
+            status,
+            isDefault,
+            defaultUsable ? defaultRoot : null);
     }
 
     /// <inheritdoc />
@@ -276,6 +297,25 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             return new MusicVideoSettingsResult(false, errors);
         }
 
+        // "On" needs a folder that passes every rule, whether or not this save changed the folder.
+        if (candidate.Enabled)
+        {
+            if (string.IsNullOrWhiteSpace(candidate.RootPath))
+            {
+                return Failed("rootPath", "Choose a video folder before turning music videos on.");
+            }
+
+            if (!rootChanged)
+            {
+                var problems = await RootProblemsAsync(candidate.RootPath, cancellationToken).ConfigureAwait(false);
+
+                if (problems.Count > 0)
+                {
+                    return new MusicVideoSettingsResult(false, [.. problems.Select(problem => new MusicVideoSettingsError("rootPath", problem))]);
+                }
+            }
+        }
+
         // The same rules as start-up: a change that the app would refuse to boot with is refused here.
         foreach (var validator in _validators)
         {
@@ -289,15 +329,37 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             }
         }
 
-        if (rootChanged && !string.IsNullOrWhiteSpace(candidate.RootPath))
+        var needsConfirmation = false;
+
+        // Creating or marking is for a new folder or a feature being turned on. A save that changes neither never
+        // touches the disk: the share may have dropped, and its empty mount point must not be marked (#40).
+        var turningOn = !current.Enabled && candidate.Enabled;
+
+        if ((rootChanged || turningOn) && !string.IsNullOrWhiteSpace(candidate.RootPath))
         {
             try
             {
-                await MarkNewRootAsync(candidate.RootPath, cancellationToken).ConfigureAwait(false);
+                needsConfirmation = await PrepareRootAsync(candidate.RootPath, candidate.Enabled, cancellationToken).ConfigureAwait(false);
             }
             catch (MusicVideoTimeoutException)
             {
                 return Failed("rootPath", $"{candidate.RootPath} did not answer in time, so its share may be hung; nothing was saved. Try again when it answers.");
+            }
+        }
+
+        // The feature is on only once its folder is: a new folder, or a switch turned on, that still needs the user's
+        // confirm is saved with the switch off. An unrelated change to a config that is already on goes through.
+        var withheld = candidate.Enabled && needsConfirmation && (rootChanged || !current.Enabled);
+
+        if (withheld)
+        {
+            if (current.Enabled)
+            {
+                changes["enabled"] = false;
+            }
+            else
+            {
+                changes.Remove("enabled");
             }
         }
 
@@ -310,7 +372,9 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             LogUpdated(_logger, keys);
         }
 
-        return new MusicVideoSettingsResult(true, []);
+        return withheld
+            ? Failed("rootPath", "Confirm the folder first: use the button under the folder, then save again. The folder is saved, but music videos stay off until it is confirmed.")
+            : new MusicVideoSettingsResult(true, []);
     }
 
     /// <inheritdoc />
@@ -324,9 +388,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
         }
 
         // A root set through config.yml or the environment never went through the save's checks.
-        var problems = await MusicVideoRootRules
-            .ProblemsAsync(root, _database, _paths, _importOptions, cancellationToken)
-            .ConfigureAwait(false);
+        var problems = await RootProblemsAsync(root, cancellationToken).ConfigureAwait(false);
 
         if (problems.Count > 0)
         {
@@ -387,13 +449,21 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
     private async Task<bool> IsEmptyAsync(string root, CancellationToken cancellationToken) =>
         !await MusicVideoDisk.RunAsync(() => _disk.HasAnyEntry(root), cancellationToken).ConfigureAwait(false);
 
+    private Task<List<string>> RootProblemsAsync(string root, CancellationToken cancellationToken) =>
+        MusicVideoRootRules.ProblemsAsync(root, _database, _paths, _importOptions, cancellationToken, _containers);
+
+    private bool IsDefaultRoot(string root) =>
+        string.Equals(Path.TrimEndingDirectorySeparator(root.Trim()), _paths.DefaultMusicVideoRoot, PathRules.Comparison);
+
     /// <summary>
-    /// Marks a root the user just saved when that is safe: an existing empty folder. A folder that already holds the
-    /// marker needs nothing; a missing or non-empty unmarked one is left for the user to confirm, because an empty
-    /// mount point and a share that is not mounted look the same.
+    /// Marks a root the user just saved when that is safe: an existing empty folder, or, while the feature is being
+    /// turned on, the default folder, which is Wondarr's own and is created when missing. A folder that already
+    /// holds the marker needs nothing; any other missing or non-empty unmarked one is left for the user to confirm,
+    /// because an empty mount point and a share that is not mounted look the same.
     /// </summary>
+    /// <returns><see langword="true"/> when the folder still needs the user's confirm.</returns>
     /// <exception cref="MusicVideoTimeoutException">The disk did not answer in time.</exception>
-    private async Task MarkNewRootAsync(string root, CancellationToken cancellationToken)
+    private async Task<bool> PrepareRootAsync(string root, bool enabling, CancellationToken cancellationToken)
     {
         try
         {
@@ -407,12 +477,32 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             if (status == LibraryRootStatus.Unmarked && await IsEmptyAsync(root, cancellationToken).ConfigureAwait(false))
             {
                 await MusicVideoDisk.RunAsync(() => _roots.MarkExisting(root), cancellationToken).ConfigureAwait(false);
+
+                return false;
             }
+
+            if (status == LibraryRootStatus.Missing && enabling && IsDefaultRoot(root))
+            {
+                await MusicVideoDisk.RunAsync(
+                    () =>
+                    {
+                        _roots.Mark(root);
+
+                        return true;
+                    },
+                    cancellationToken).ConfigureAwait(false);
+
+                return false;
+            }
+
+            return status is LibraryRootStatus.Missing or LibraryRootStatus.Unmarked;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             // Not a validation error: the root is saved, the health check reports it and the user can confirm it.
             LogMarkFailed(_logger, root, exception);
+
+            return true;
         }
     }
 
@@ -429,31 +519,32 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             return false;
         }
 
-        var replacement = supplied.Trim().Length == 0 ? null : supplied.Trim();
+        // Empty, or the default's own path, means "the default": the key is removed so the default keeps following
+        // the media root.
+        var trimmed = supplied.Trim();
+        var useDefault = trimmed.Length == 0 || IsDefaultRoot(trimmed);
+        var replacement = useDefault ? _paths.DefaultMusicVideoRoot : trimmed;
 
         if (string.Equals(replacement, current, StringComparison.Ordinal) || Refuse("root_path", errors))
         {
             return false;
         }
 
-        if (replacement is not null)
+        var problems = await RootProblemsAsync(replacement, cancellationToken).ConfigureAwait(false);
+
+        // The default is Wondarr's own choice, so a container problem with it only matters once it is to be used:
+        // turning the feature on is refused for it by the "on needs a usable folder" rule.
+        if (problems.Count > 0 && !(useDefault && !candidate.Enabled))
         {
-            var problems = await MusicVideoRootRules
-                .ProblemsAsync(replacement, _database, _paths, _importOptions, cancellationToken)
-                .ConfigureAwait(false);
+            errors.AddRange(problems.Select(problem => new MusicVideoSettingsError("rootPath", problem)));
 
-            if (problems.Count > 0)
-            {
-                errors.AddRange(problems.Select(problem => new MusicVideoSettingsError("rootPath", problem)));
-
-                return false;
-            }
+            return false;
         }
 
         candidate.RootPath = replacement;
-        changes["root_path"] = replacement;
+        changes["root_path"] = useDefault ? null : replacement;
 
-        return replacement is not null;
+        return true;
     }
 
     private void ApplyLayout(

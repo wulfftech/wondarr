@@ -76,7 +76,7 @@ internal static class BesideTrackVideoMover
                 return null;
             }
 
-            var inVideoRoot = !string.IsNullOrWhiteSpace(options!.RootPath) && PathRules.IsStrictlyInside(options.RootPath, videoPath);
+            var inVideoRoot = options!.ActiveRoot is { } activeRoot && PathRules.IsStrictlyInside(activeRoot, videoPath);
             var inFileFolder = PathRules.AreEqual(Path.GetDirectoryName(videoPath) ?? string.Empty, Path.GetDirectoryName(newAudioPath) ?? string.Empty);
 
             var inManagedLibrary = false;

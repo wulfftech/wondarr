@@ -364,7 +364,7 @@ public sealed partial class LibraryService : ILibraryService
             return errors;
         }
 
-        if (_musicVideoOptions?.CurrentValue.RootPath is { Length: > 0 } videoRoot
+        if (_musicVideoOptions?.CurrentValue.ActiveRoot is { Length: > 0 } videoRoot
             && MusicVideoRootRules.Overlaps(rootPath, videoRoot))
         {
             errors.Add(("rootPath", "rootPath overlaps the music video folder; videos need a folder of their own."));

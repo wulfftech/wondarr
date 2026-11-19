@@ -105,6 +105,8 @@ export function useUpdateMusicVideoSettings(): UseMutationResult<
       return data;
     },
     onSuccess: (result) => settingsWritten(queryClient, result),
+    // A refused save can still have stored the folder (it then waits for the confirm), so read it again.
+    onError: () => void queryClient.invalidateQueries({ queryKey: MUSIC_VIDEO_SETTINGS_QUERY_KEY }),
   });
 }
 

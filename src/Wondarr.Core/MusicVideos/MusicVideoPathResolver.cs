@@ -48,6 +48,7 @@ public sealed class MusicVideoPathResolver : IMusicVideoPathResolver
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
     private readonly ILibraryRoots _roots;
     private readonly WondarrPaths? _paths;
+    private readonly ContainerMounts? _containers;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoPathResolver"/> class.</summary>
     /// <param name="database">The database.</param>
@@ -58,12 +59,14 @@ public sealed class MusicVideoPathResolver : IMusicVideoPathResolver
     /// Where Wondarr's data directory is, for the root rules. The host always registers it; a host that does not (a
     /// test of something else) still builds the resolver, which then defers every filing into the video root.
     /// </param>
+    /// <param name="containers">The container rule for the video root; when omitted the rule is not applied.</param>
     public MusicVideoPathResolver(
         WondarrDbContext database,
         IOptionsMonitor<MusicVideoOptions> options,
         IOptionsMonitor<ImportOptions> importOptions,
         ILibraryRoots roots,
-        WondarrPaths? paths = null)
+        WondarrPaths? paths = null,
+        ContainerMounts? containers = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(options);
@@ -75,6 +78,7 @@ public sealed class MusicVideoPathResolver : IMusicVideoPathResolver
         _importOptions = importOptions;
         _roots = roots;
         _paths = paths;
+        _containers = containers;
     }
 
     /// <inheritdoc />
@@ -181,7 +185,7 @@ public sealed class MusicVideoPathResolver : IMusicVideoPathResolver
         }
 
         var problems = await MusicVideoRootRules
-            .ProblemsAsync(root, _database, _paths, _importOptions, cancellationToken)
+            .ProblemsAsync(root, _database, _paths, _importOptions, cancellationToken, _containers)
             .ConfigureAwait(false);
 
         if (problems.Count > 0)

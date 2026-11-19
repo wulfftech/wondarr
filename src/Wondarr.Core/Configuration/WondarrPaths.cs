@@ -25,20 +25,31 @@ public sealed record WondarrPaths(string ConfigDir)
     /// </summary>
     public string DefaultLibraryRoot => MediaPath("music");
 
+    /// <summary>The default music video root: <c>/data/music-videos</c> unless the media root is moved.</summary>
+    public string DefaultMusicVideoRoot => MediaPath("music-videos");
+
     /// <summary>
-    /// The defaults that follow the media root, as configuration keys, or none when it is
-    /// <see cref="DefaultMediaRoot"/> (the options' own defaults are those paths already).
+    /// The defaults that follow the media root, as configuration keys. The music video root is always
+    /// there (the options hold no path of their own); the others are listed only when the media root is
+    /// moved, because the options' own defaults are the <see cref="DefaultMediaRoot"/> paths already.
     /// </summary>
-    public IReadOnlyDictionary<string, string?> MediaRootDefaults() =>
-        MediaRoot == DefaultMediaRoot
-            ? new Dictionary<string, string?>()
-            : new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["Soulseek:DownloadsDir"] = MediaPath("downloads", "slskd"),
-                ["Soulseek:IncompleteDir"] = MediaPath("downloads", "slskd", "incomplete"),
-                ["YouTube:DownloadsDir"] = MediaPath("downloads", "youtube"),
-                ["Import:ContainerStagingPath"] = MediaPath("downloads", "containers"),
-            };
+    public IReadOnlyDictionary<string, string?> MediaRootDefaults()
+    {
+        var defaults = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["MusicVideos:RootPath"] = DefaultMusicVideoRoot,
+        };
+
+        if (MediaRoot != DefaultMediaRoot)
+        {
+            defaults["Soulseek:DownloadsDir"] = MediaPath("downloads", "slskd");
+            defaults["Soulseek:IncompleteDir"] = MediaPath("downloads", "slskd", "incomplete");
+            defaults["YouTube:DownloadsDir"] = MediaPath("downloads", "youtube");
+            defaults["Import:ContainerStagingPath"] = MediaPath("downloads", "containers");
+        }
+
+        return defaults;
+    }
 
     /// <summary>The user-editable YAML settings file.</summary>
     public string ConfigFile => Path.Combine(ConfigDir, "config.yml");
