@@ -3222,6 +3222,35 @@
         }
       }
     },
+    "/api/v1/musicvideo/scan": {
+      "post": {
+        "tags": [
+          "MusicVideo"
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicVideoScanAcceptedResource"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/musicvideo/song/{songId}": {
       "get": {
         "tags": [
@@ -3494,6 +3523,318 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MusicVideoBulkSearchAcceptedResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/match": {
+      "get": {
+        "tags": [
+          "MusicVideoMatch"
+        ],
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingResourceOfMusicVideoMatchRowResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/match/summary": {
+      "get": {
+        "tags": [
+          "MusicVideoMatch"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicVideoMatchSummaryResource"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/match/songs": {
+      "get": {
+        "tags": [
+          "MusicVideoMatch"
+        ],
+        "parameters": [
+          {
+            "name": "term",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MusicVideoMatchSongResource"
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/match/{id}/thumbnail": {
+      "get": {
+        "tags": [
+          "MusicVideoMatch"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/match/{id}/resolve": {
+      "post": {
+        "tags": [
+          "MusicVideoMatch"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoMatchResolveResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoMatchResolveResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicVideoMatchResolvedResource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/musicvideo/match/bulk": {
+      "post": {
+        "tags": [
+          "MusicVideoMatch"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoMatchBulkResource"
+              }
+            },
+            "application/*\u002Bjson": {
+              "schema": {
+                "$ref": "#/components/schemas/MusicVideoMatchBulkResource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MusicVideoMatchBulkResultResource"
                 }
               }
             }
@@ -9506,7 +9847,8 @@
         "enum": [
           "musicBrainz",
           "youTubeSearch",
-          "manual"
+          "manual",
+          "existing"
         ],
         "type": "string"
       },
@@ -9537,6 +9879,442 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "MusicVideoMatchBulkResource": {
+        "required": [
+          "ids",
+          "action"
+        ],
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          "action": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MusicVideoMatchBulkResultResource": {
+        "required": [
+          "requested",
+          "adopted",
+          "ignored",
+          "skipped"
+        ],
+        "type": "object",
+        "properties": {
+          "requested": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "adopted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ignored": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "skipped": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "MusicVideoMatchCandidateResource": {
+        "required": [
+          "songId",
+          "title",
+          "artistCredit",
+          "album",
+          "durationMs",
+          "score",
+          "reason",
+          "songHasVideo"
+        ],
+        "type": "object",
+        "properties": {
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "artistCredit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "album": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "songHasVideo": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MusicVideoMatchResolveResource": {
+        "required": [
+          "songId",
+          "replace",
+          "ignore",
+          "unignore"
+        ],
+        "type": "object",
+        "properties": {
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "replace": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "ignore": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "unignore": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "MusicVideoMatchResolvedResource": {
+        "required": [
+          "state",
+          "songId"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "songId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "MusicVideoMatchRowResource": {
+        "required": [
+          "id",
+          "state",
+          "path",
+          "size",
+          "container",
+          "durationMs",
+          "width",
+          "height",
+          "parsedArtist",
+          "parsedTitle",
+          "nfoArtist",
+          "nfoTitle",
+          "tagArtist",
+          "tagTitle",
+          "candidates",
+          "thumbnailUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "state": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "container": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "width": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "height": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "parsedArtist": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parsedTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nfoArtist": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nfoTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tagArtist": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tagTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MusicVideoMatchCandidateResource"
+            }
+          },
+          "thumbnailUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MusicVideoMatchSongResource": {
+        "required": [
+          "id",
+          "title",
+          "artistCredit",
+          "album",
+          "durationMs",
+          "hasVideo"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "artistCredit": {
+            "type": "string"
+          },
+          "album": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hasVideo": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MusicVideoMatchSummaryResource": {
+        "required": [
+          "pending",
+          "adopted",
+          "ambiguous",
+          "unmatched",
+          "ignored",
+          "missing",
+          "needsAttention"
+        ],
+        "type": "object",
+        "properties": {
+          "pending": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "adopted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ambiguous": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unmatched": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ignored": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "missing": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "needsAttention": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -9677,6 +10455,22 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "MusicVideoScanAcceptedResource": {
+        "required": [
+          "commandId"
+        ],
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -10324,6 +11118,55 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MatchQueueItemResource"
+            }
+          }
+        }
+      },
+      "PagingResourceOfMusicVideoMatchRowResource": {
+        "required": [
+          "page",
+          "pageSize",
+          "sortKey",
+          "sortDirection",
+          "totalRecords",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sortKey": {
+            "type": "string"
+          },
+          "sortDirection": {
+            "type": "string"
+          },
+          "totalRecords": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MusicVideoMatchRowResource"
             }
           }
         }
@@ -14768,6 +15611,9 @@
     },
     {
       "name": "MusicVideo"
+    },
+    {
+      "name": "MusicVideoMatch"
     },
     {
       "name": "MusicVideoSettings"
