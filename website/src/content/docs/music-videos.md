@@ -49,7 +49,24 @@ A wrong video is worse than none, so Wondarr asks rather than guesses.
 
 ## Layouts
 
-**Layout** decides where a video goes. Either way you set a **Video folder** outside your libraries. Like a library root, it needs the `.wondarr-library` marker file. If the folder is missing or unmarked, Settings asks you to confirm it before anything is written there.
+**Layout** decides where a video goes. Either way you set a **Video folder** outside your libraries. You pick it with **Choose…**, which shows only the folders you have mounted. Like a library root, it needs the `.wondarr-library` marker file. If the folder is missing or unmarked, Settings asks you to confirm it before anything is written there, and music videos stay off until you do.
+
+The folder defaults to `/data/music-videos` (under your media root, `WONDARR_MEDIA_ROOT`), and Settings marks it **(default)**. Music videos can be turned on only once the folder is usable. The default folder is Wondarr's own, so turning the feature on creates it for you.
+
+### In Docker
+
+A folder in the container's own file system is thrown away when the container is recreated, and so would your videos be. Wondarr therefore refuses a video folder that is not on a mounted volume, and offers only mounted folders when you choose one. If nothing is mounted at `/data/music-videos`, Settings says "No default here: choose a mounted folder". Mount a folder or a share there, or pick a folder under one you already mount, such as your music share.
+
+```yaml
+services:
+  wondarr:
+    volumes:
+      - /srv/wondarr/config:/config
+      - /mnt/nas/music:/data/music
+      - /mnt/nas/music-videos:/data/music-videos   # a host folder or a share
+```
+
+Keep the video folder outside your music library folder, and apart from it in your media server: a Jellyfin, Kodi or Plex music video library points at this folder.
 
 | Layout | Where videos go | Suits |
 |---|---|---|
@@ -69,7 +86,7 @@ The **Naming template** is the path of a video under the folder, without its ext
 | Setting | What it does |
 |---|---|
 | Enable | Turns the feature on. Off by default. |
-| Video folder | Where videos are written. Outside your libraries. |
+| Video folder | Where videos are written. Outside your libraries, and on a mounted volume in Docker. Pick it with **Choose…**; **Use default** goes back to `/data/music-videos`. |
 | Layout | Separate folder, or beside each track. |
 | Naming template | The path under the folder. |
 | Beside-track suffix | Added to the audio file's name. Shown only for the beside-track layout. |
