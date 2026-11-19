@@ -348,3 +348,40 @@ describe('removing a music video', () => {
     expect(await screen.findByText('A download is in progress')).toBeInTheDocument();
   });
 });
+
+describe('a video found in the folder', () => {
+  // The scan adopts it where it is, so there is no YouTube video behind it.
+  const ADOPTED_VIDEO = { ...PRESENT_VIDEO, youTubeVideoId: null, foundBy: 'existing' };
+
+  async function openAdopted() {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'present', height: 1080, failureReason: null }, { video: ADOPTED_VIDEO });
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    return user;
+  }
+
+  it('says it was found in the folder and builds no YouTube link', async () => {
+    await openAdopted();
+
+    expect(await screen.findByText('Found in your folder')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('explains that Remove recycles the file and the scan will not pick it up again', async () => {
+    const user = await openAdopted();
+
+    await user.click(await screen.findByRole('button', { name: 'Remove' }));
+
+    expect(screen.getByText(/goes to the recycle bin/)).toBeInTheDocument();
+    expect(screen.getByText(/won.t pick it up again/)).toBeInTheDocument();
+    // There is no YouTube id to blocklist, so there is no box for it.
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(bodyOf('DELETE', '/musicvideo/song/12?blocklist=false')).toBeDefined());
+  });
+});

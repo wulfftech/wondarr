@@ -62,6 +62,22 @@ function install(overrides: Partial<typeof SETTINGS> = {}) {
       return jsonResponse(HEALTH_ENTRIES);
     }
 
+    if (url.endsWith('/api/v1/musicvideo/match/summary')) {
+      return jsonResponse({
+        pending: 1,
+        adopted: 40,
+        ambiguous: 2,
+        unmatched: 1,
+        ignored: 0,
+        missing: 0,
+        needsAttention: 3,
+      });
+    }
+
+    if (url.endsWith('/api/v1/musicvideo/scan')) {
+      return jsonResponse({ commandId: 5 }, 202);
+    }
+
     if (url.includes('/api/v1/filesystem')) {
       const path = new URL(url, 'http://localhost').searchParams.get('path');
 
@@ -383,5 +399,42 @@ describe('MusicVideoSettingsPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText('namingTemplate must not hold {Genre}')).toBeInTheDocument();
+  });
+});
+
+describe('Scan the folder now', () => {
+  it('is enabled while the feature is on and the folder is ready, shows the counts, and starts a scan', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    const button = await screen.findByRole('button', { name: 'Scan the folder now' });
+
+    expect(button).toBeEnabled();
+    expect(await screen.findByText(/40 matched · 2 need a pick · 1 no match/)).toBeInTheDocument();
+
+    await user.click(button);
+
+    await waitFor(async () => expect(await sent('POST')).toHaveLength(1));
+    expect((await sent('POST'))[0]?.url).toMatch(/\/musicvideo\/scan$/);
+  });
+
+  it('is disabled while the feature is off', async () => {
+    install({ enabled: false });
+
+    renderApp();
+
+    expect(await screen.findByRole('button', { name: 'Scan the folder now' })).toBeDisabled();
+    expect(screen.getByText('Turn music videos on and save to scan the folder.')).toBeInTheDocument();
+  });
+
+  it('is disabled until the folder is ready', async () => {
+    install({ rootStatus: 'unmarked', rootNeedsConfirmation: true });
+
+    renderApp();
+
+    expect(await screen.findByRole('button', { name: 'Scan the folder now' })).toBeDisabled();
+    expect(screen.getByText('Confirm the video folder to scan it.')).toBeInTheDocument();
   });
 });

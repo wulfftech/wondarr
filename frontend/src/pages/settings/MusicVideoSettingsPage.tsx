@@ -24,6 +24,7 @@ import {
   type MusicVideoSettingsResource,
   type MusicVideoSettingsUpdateResource,
 } from '../../api/musicVideos';
+import { useMusicVideoMatchSummary, useScanMusicVideos } from '../../api/musicVideoMatch';
 import { ValidationError } from '../../api/profiles';
 import { ErrorState, LoadingState } from '../../components/DataState';
 import { FolderPicker } from '../../components/FolderPicker';
@@ -452,6 +453,73 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
   );
 }
 
+/** What the scan says it found, in the order a person reads it. */
+const SUMMARY_PARTS: {
+  key: 'adopted' | 'ambiguous' | 'unmatched' | 'ignored' | 'missing' | 'pending';
+  label: string;
+}[] = [
+  { key: 'adopted', label: 'matched' },
+  { key: 'ambiguous', label: 'need a pick' },
+  { key: 'unmatched', label: 'no match' },
+  { key: 'ignored', label: 'ignored' },
+  { key: 'missing', label: 'missing' },
+  { key: 'pending', label: 'waiting to be read' },
+];
+
+/** Reads the video folder for videos Wondarr did not download, and says what it found. */
+function ScanCard({ settings }: { settings: MusicVideoSettingsResource }) {
+  const scan = useScanMusicVideos();
+  const ready = settings.enabled && settings.rootStatus === 'ready' && !settings.rootNeedsConfirmation;
+  const summary = useMusicVideoMatchSummary(settings.enabled);
+  const counts = summary.data;
+
+  return (
+    <Card withBorder padding="md">
+      <Stack gap="sm" align="flex-start">
+        <Text fw={600}>Videos already in the folder</Text>
+
+        <Text size="sm">
+          Wondarr reads the video folder on its own once a day. Scan it now after you add files. A video it can match to
+          one song is kept where it is; the rest wait on the Match page.
+        </Text>
+
+        {counts !== undefined && (
+          <Text size="sm" c="dimmed">
+            {SUMMARY_PARTS.map((part) => `${String(counts[part.key])} ${part.label}`).join(' · ')}
+          </Text>
+        )}
+
+        {!ready && (
+          <Text size="sm" c="dimmed">
+            {settings.enabled
+              ? 'Confirm the video folder to scan it.'
+              : 'Turn music videos on and save to scan the folder.'}
+          </Text>
+        )}
+
+        {scan.error !== null && (
+          <Alert color="red" icon={<CircleAlert size={16} />}>
+            {scan.error.message}
+          </Alert>
+        )}
+
+        <Button
+          variant="default"
+          disabled={!ready}
+          loading={scan.isPending}
+          onClick={() =>
+            scan.mutate(undefined, {
+              onSuccess: () => notifications.show({ message: 'Scanning the video folder', color: 'blue' }),
+            })
+          }
+        >
+          Scan the folder now
+        </Button>
+      </Stack>
+    </Card>
+  );
+}
+
 /** Settings → Music videos: the feature's switch, its folder and layout, and the scheduled search. */
 export function MusicVideoSettingsPage() {
   const settings = useMusicVideoSettings();
@@ -465,6 +533,8 @@ export function MusicVideoSettingsPage() {
       {settings.error !== null && <ErrorState message={settings.error.message} />}
 
       {settings.data !== undefined && <MusicVideoForm settings={settings.data} />}
+
+      {settings.data !== undefined && <ScanCard settings={settings.data} />}
     </Stack>
   );
 }
