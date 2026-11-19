@@ -78,7 +78,9 @@ public class WondarrPathsTests
 
         paths.MediaRoot.Should().Be("/data");
         paths.DefaultLibraryRoot.Should().Be("/data/music");
-        paths.MediaRootDefaults().Should().BeEmpty("the options' own defaults are the /data paths already");
+        paths.MediaRootDefaults().Should().BeEquivalentTo(
+            new Dictionary<string, string?> { ["MusicVideos:RootPath"] = "/data/music-videos" },
+            "the options' own defaults are the /data paths already; only the video root has none of its own");
     }
 
     [Fact]
@@ -98,6 +100,7 @@ public class WondarrPathsTests
             ["Soulseek:IncompleteDir"] = $"{under}/downloads/slskd/incomplete",
             ["YouTube:DownloadsDir"] = $"{under}/downloads/youtube",
             ["Import:ContainerStagingPath"] = $"{under}/downloads/containers",
+            ["MusicVideos:RootPath"] = $"{under}/music-videos",
         });
     }
 

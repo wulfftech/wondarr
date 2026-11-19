@@ -24,6 +24,7 @@ using Wondarr.Core.Logging;
 using Wondarr.Core.Media;
 using Wondarr.Core.Metadata.AcoustId;
 using Wondarr.Core.Messaging;
+using Wondarr.Core.FileSystem;
 using Wondarr.Core.MusicVideos;
 using Wondarr.Core.CustomFilters;
 using Wondarr.Core.Notifications;
@@ -309,7 +310,12 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<WondarrPaths>(),
             provider.GetRequiredService<IOptionsMonitor<ImportOptions>>(),
             System.Environment.GetEnvironmentVariables(),
-            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MusicVideoSettingsService>>()));
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MusicVideoSettingsService>>(),
+            provider.GetService<ContainerMounts>()));
+
+        // Real mount table of this process; a test host replaces it. The folder picker offers only what it lists.
+        services.TryAddSingleton(_ => ContainerMounts.ForThisProcess());
+        services.AddSingleton<IFileSystemBrowser, FileSystemBrowser>();
 
         // The song page's data: the stored identity, Deezer and the reference-library row (read only),
         // and the lyrics. The in-memory cache holds the Deezer (1 h) and LRCLIB (1 day) answers.

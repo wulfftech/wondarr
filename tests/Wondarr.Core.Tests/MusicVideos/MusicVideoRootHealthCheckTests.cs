@@ -128,7 +128,21 @@ public sealed class MusicVideoRootHealthCheckTests : IDisposable
         result.Message.Should().Contain("data directory");
     }
 
-    private MusicVideoRootHealthCheck Check(MusicVideoOptions options, ILibraryRoots roots)
+    [Fact]
+    public async Task A_root_on_the_containers_own_filesystem_is_an_error_saying_to_mount_a_folder()
+    {
+        var containers = new ContainerMounts(
+            path => path == "/.dockerenv",
+            () => ["1 0 0:50 / / rw - overlay overlay rw", "2 1 0:51 / /data/music rw - cifs //nas/m rw"]);
+
+        var result = await Check(new MusicVideoOptions { Enabled = true, RootPath = "/data/music-videos" }, _roots, containers)
+            .CheckAsync(CancellationToken.None);
+
+        result.Type.Should().Be(HealthCheckResult.Error);
+        result.Message.Should().Contain("is inside the container").And.Contain("Mount a folder there");
+    }
+
+    private MusicVideoRootHealthCheck Check(MusicVideoOptions options, ILibraryRoots roots, ContainerMounts? containers = null)
     {
         _database.MigrateAsync(_time).GetAwaiter().GetResult();
 
@@ -137,7 +151,8 @@ public sealed class MusicVideoRootHealthCheckTests : IDisposable
             roots,
             _context ??= _database.CreateContext(_time),
             new WondarrPaths("/config"),
-            new TestOptionsMonitor<ImportOptions>(new ImportOptions()));
+            new TestOptionsMonitor<ImportOptions>(new ImportOptions()),
+            containers);
     }
 
     private Task<HealthReport> CheckAsync(MusicVideoOptions options) =>

@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
+using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Organizer;
 using YamlDotNet.RepresentationModel;
 
@@ -118,6 +119,11 @@ public sealed class WondarrAppFactory : WebApplicationFactory<Program>
             // through configureServices, as the tests about the marker do.
             services.RemoveAll<ILibraryRoots>();
             services.AddSingleton<ILibraryRoots, ReadyLibraryRoots>();
+
+            // The real mount table would read as a container on a Docker test host and refuse every temporary
+            // folder a test picks; the tests about the container rule register their own.
+            services.RemoveAll<ContainerMounts>();
+            services.AddSingleton(new ContainerMounts(_ => false, () => null));
 
             _configureServices?.Invoke(services);
         });

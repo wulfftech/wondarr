@@ -219,11 +219,11 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
         _options.ScheduledSearchLimit.Should().Be(25);
 
         var result = await UpdateAsync(
-            new MusicVideoSettingsUpdate(Enabled: true, Layout: "beside_track", MaxHeight: 1080, WriteNfo: true));
+            new MusicVideoSettingsUpdate(Layout: "beside_track", MaxHeight: 1080, WriteNfo: true));
 
         result.Success.Should().BeTrue();
         _writer.Writes.Should().ContainSingle();
-        _writer.Writes[0].Keys.Should().BeEquivalentTo(["enabled", "layout", "max_height"], "write_nfo did not change");
+        _writer.Writes[0].Keys.Should().BeEquivalentTo(["layout", "max_height"], "write_nfo did not change");
     }
 
     [Fact]
@@ -337,6 +337,242 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
         confirmed.Errors.Should().ContainSingle().Which.Field.Should().Be("rootPath");
     }
 
+    /// <summary>Paths whose media root is the temporary folder, so the default video folder is a real, writable place.</summary>
+    private WondarrPaths TempPaths() => new("/config") { MediaRoot = _temp.Root.Replace('\\', '/') };
+
+    private static ContainerMounts Container(params string[] mountPoints) => new(
+        path => path == "/.dockerenv",
+        () => ["1 0 0:50 / / rw - overlay overlay rw", .. mountPoints.Select((point, index) => $"{index + 2} 1 0:6{index} / {point} rw - cifs //nas/x rw")]);
+
+    [Fact]
+    public async Task The_settings_show_the_default_root_and_say_so()
+    {
+        _options.RootPath = "/data/music-videos";
+
+        var settings = await GetAsync();
+
+        settings.RootPath.Should().Be("/data/music-videos");
+        settings.RootPathIsDefault.Should().BeTrue();
+        settings.DefaultRootPath.Should().Be("/data/music-videos");
+    }
+
+    [Fact]
+    public async Task A_chosen_root_is_not_the_default()
+    {
+        _options.RootPath = _temp.Full("elsewhere");
+
+        var settings = await GetAsync();
+
+        settings.RootPathIsDefault.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_default_inside_the_container_is_not_offered_and_reads_as_no_folder()
+    {
+        _options.RootPath = "/data/music-videos";
+
+        var settings = await Service(containers: Container("/data/music")).GetAsync(CancellationToken.None);
+
+        settings.RootPath.Should().BeNull();
+        settings.RootPathIsDefault.Should().BeFalse();
+        settings.DefaultRootPath.Should().BeNull();
+        settings.RootStatus.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_default_on_a_mount_is_offered()
+    {
+        _options.RootPath = "/data/music-videos";
+
+        var settings = await Service(containers: Container("/data/music-videos")).GetAsync(CancellationToken.None);
+
+        settings.RootPath.Should().Be("/data/music-videos");
+        settings.RootPathIsDefault.Should().BeTrue();
+        settings.DefaultRootPath.Should().Be("/data/music-videos");
+    }
+
+    [Fact]
+    public async Task An_empty_root_goes_back_to_the_default_by_removing_the_key()
+    {
+        _options.RootPath = _temp.Full("elsewhere");
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: ""));
+
+        result.Success.Should().BeTrue();
+        _writer.Writes.Should().ContainSingle().Which.Should().ContainKey("root_path").WhoseValue.Should().BeNull();
+        _options.RootPath.Should().Be("/data/music-videos");
+    }
+
+    [Fact]
+    public async Task Choosing_the_default_path_removes_the_key_too_so_it_keeps_following_the_media_root()
+    {
+        _options.RootPath = _temp.Full("elsewhere");
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: "/data/music-videos/"));
+
+        result.Success.Should().BeTrue();
+        _writer.Writes.Should().ContainSingle().Which["root_path"].Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Turning_on_with_no_folder_is_refused_with_a_field_error()
+    {
+        _options.RootPath = null;
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true));
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Field.Should().Be("rootPath");
+        _writer.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Turning_on_with_a_root_the_rules_refuse_is_refused_and_writes_nothing()
+    {
+        _options.RootPath = "/data/music/videos";
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true));
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Message.Should().Contain("overlaps the library 'Music'");
+        _writer.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Turning_on_with_a_root_inside_the_container_is_refused_with_the_mount_advice()
+    {
+        var result = await Service(containers: Container("/data/music"))
+            .UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true, RootPath: "/data/music-videos"), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Field.Should().Be("rootPath");
+        result.Errors[0].Message.Should().Contain("is inside the container").And.Contain("Mount a folder there");
+        _writer.Writes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Turning_on_with_the_default_inside_the_container_and_no_other_folder_is_refused()
+    {
+        _options.RootPath = "/data/music-videos";
+
+        var result = await Service(containers: Container("/data/music"))
+            .UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Message.Should().Contain("is inside the container");
+    }
+
+    [Fact]
+    public async Task Turning_on_creates_and_marks_a_missing_default_folder()
+    {
+        var paths = TempPaths();
+        _options.RootPath = paths.DefaultMusicVideoRoot;
+
+        var result = await Service(paths: paths).UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true), CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        _options.Enabled.Should().BeTrue();
+        File.Exists(Path.Combine(paths.DefaultMusicVideoRoot, LibraryRoots.MarkerFileName)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Turning_off_does_not_create_the_default_folder()
+    {
+        var paths = TempPaths();
+        _options.RootPath = paths.DefaultMusicVideoRoot;
+
+        var result = await Service(paths: paths).UpdateAsync(new MusicVideoSettingsUpdate(Enabled: false, WriteNfo: false), CancellationToken.None);
+
+        result.Success.Should().BeTrue();
+        Directory.Exists(paths.DefaultMusicVideoRoot).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Turning_on_with_a_missing_folder_of_the_users_choosing_saves_the_folder_but_waits_for_the_confirm()
+    {
+        var root = _temp.Full("not-yet");
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true, RootPath: root));
+        var settings = await GetAsync();
+
+        result.Success.Should().BeFalse();
+        result.Errors.Should().ContainSingle().Which.Field.Should().Be("rootPath");
+        result.Errors[0].Message.Should().Contain("Confirm the folder first");
+        Directory.Exists(root).Should().BeFalse("only the default folder is created without the user's say-so");
+        _options.RootPath.Should().Be(root);
+        _options.Enabled.Should().BeFalse();
+        settings.RootNeedsConfirmation.Should().BeTrue();
+        _writer.Writes.Should().ContainSingle().Which.Keys.Should().BeEquivalentTo(["root_path"]);
+
+        (await Service().ConfirmRootAsync(CancellationToken.None)).Success.Should().BeTrue();
+        (await UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true))).Success.Should().BeTrue();
+        _options.Enabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Turning_on_with_a_folder_that_holds_files_and_no_marker_waits_for_the_confirm()
+    {
+        var root = _temp.Full("videos");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "something.mkv"), "x");
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(Enabled: true, RootPath: root));
+
+        result.Success.Should().BeFalse();
+        result.Errors[0].Message.Should().Contain("Confirm the folder first");
+        File.Exists(Path.Combine(root, LibraryRoots.MarkerFileName)).Should().BeFalse();
+        _options.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Moving_an_enabled_feature_to_a_folder_that_needs_confirming_switches_it_off()
+    {
+        var ready = _temp.Full("ready");
+        new LibraryRoots(new DiskOperations()).Mark(ready);
+        _options.Enabled = true;
+        _options.RootPath = ready;
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(RootPath: _temp.Full("elsewhere")));
+
+        result.Success.Should().BeFalse();
+        _options.Enabled.Should().BeFalse();
+        _writer.Writes.Should().ContainSingle().Which.Keys.Should().BeEquivalentTo(["root_path", "enabled"]);
+    }
+
+    [Fact]
+    public async Task An_unrelated_change_to_a_feature_that_is_already_on_still_saves()
+    {
+        var root = _temp.Full("videos");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "something.mkv"), "x");
+        _options.Enabled = true;
+        _options.RootPath = root;
+
+        var result = await UpdateAsync(new MusicVideoSettingsUpdate(MaxHeight: 720));
+
+        result.Success.Should().BeTrue("the existing config is not made worse by it, and the page shows the confirm button");
+        _options.MaxHeight.Should().Be(720);
+    }
+
+    [Fact]
+    public void An_enabled_config_with_no_folder_is_a_valid_start_up_configuration()
+    {
+        new MusicVideoOptionsValidator()
+            .Validate(null, new MusicVideoOptions { Enabled = true, RootPath = null })
+            .Succeeded.Should().BeTrue("start-up must not fail on it; the health check and the 409s report it");
+    }
+
+    [Fact]
+    public async Task Confirming_a_root_inside_the_container_is_refused()
+    {
+        _options.RootPath = "/data/music-videos";
+
+        var confirmed = await Service(containers: Container("/data/music")).ConfirmRootAsync(CancellationToken.None);
+
+        confirmed.Success.Should().BeFalse();
+        confirmed.Errors.Should().ContainSingle().Which.Message.Should().Contain("is inside the container");
+    }
+
     private async Task<WondarrDbContext> ContextAsync()
     {
         await _database.MigrateAsync(_time);
@@ -344,7 +580,11 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
         return _database.CreateContext(_time);
     }
 
-    private MusicVideoSettingsService Service(IDictionary? environment = null, ILibraryRoots? roots = null)
+    private MusicVideoSettingsService Service(
+        IDictionary? environment = null,
+        ILibraryRoots? roots = null,
+        WondarrPaths? paths = null,
+        ContainerMounts? containers = null)
     {
         _database.MigrateAsync(_time).GetAwaiter().GetResult();
         var disk = new DiskOperations();
@@ -356,10 +596,11 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
             _context ??= _database.CreateContext(_time),
             roots ?? new LibraryRoots(disk),
             disk,
-            new WondarrPaths("/config"),
+            paths ?? new WondarrPaths("/config"),
             new TestOptionsMonitor<ImportOptions>(new ImportOptions()),
             environment ?? new Hashtable(),
-            NullLogger<MusicVideoSettingsService>.Instance);
+            NullLogger<MusicVideoSettingsService>.Instance,
+            containers);
     }
 
     private Task<MusicVideoSettingsResult> UpdateAsync(MusicVideoSettingsUpdate update) =>
@@ -430,7 +671,7 @@ public sealed class MusicVideoSettingsServiceTests : IDisposable
                 switch (key)
                 {
                     case "enabled": options.Enabled = (bool)value!; break;
-                    case "root_path": options.RootPath = (string?)value; break;
+                    case "root_path": options.RootPath = (string?)value ?? "/data/music-videos"; break;
                     case "layout": options.Layout = (string)value!; break;
                     case "naming_template": options.NamingTemplate = (string)value!; break;
                     case "beside_track_suffix": options.BesideTrackSuffix = (string)value!; break;

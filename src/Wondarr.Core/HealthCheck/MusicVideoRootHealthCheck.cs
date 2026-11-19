@@ -19,6 +19,7 @@ public sealed class MusicVideoRootHealthCheck : IHealthCheck
     private readonly WondarrDbContext _database;
     private readonly WondarrPaths _paths;
     private readonly IOptionsMonitor<ImportOptions> _importOptions;
+    private readonly ContainerMounts? _containers;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoRootHealthCheck"/> class.</summary>
     /// <param name="options">The <c>music_videos</c> settings.</param>
@@ -26,12 +27,14 @@ public sealed class MusicVideoRootHealthCheck : IHealthCheck
     /// <param name="database">Where the library roots are, for the overlap rules.</param>
     /// <param name="paths">Where Wondarr's data directory is.</param>
     /// <param name="importOptions">Where the recycle bin is.</param>
+    /// <param name="containers">The container rule; when omitted the rule is not applied.</param>
     public MusicVideoRootHealthCheck(
         IOptionsMonitor<MusicVideoOptions> options,
         ILibraryRoots roots,
         WondarrDbContext database,
         WondarrPaths paths,
-        IOptionsMonitor<ImportOptions> importOptions)
+        IOptionsMonitor<ImportOptions> importOptions,
+        ContainerMounts? containers = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(roots);
@@ -44,6 +47,7 @@ public sealed class MusicVideoRootHealthCheck : IHealthCheck
         _database = database;
         _paths = paths;
         _importOptions = importOptions;
+        _containers = containers;
     }
 
     /// <inheritdoc />
@@ -70,7 +74,7 @@ public sealed class MusicVideoRootHealthCheck : IHealthCheck
 
         // A root set through config.yml or the environment never went through the settings save's rules.
         var problems = await MusicVideoRootRules
-            .ProblemsAsync(options.RootPath, _database, _paths, _importOptions, cancellationToken)
+            .ProblemsAsync(options.RootPath, _database, _paths, _importOptions, cancellationToken, _containers)
             .ConfigureAwait(false);
 
         if (problems.Count > 0)

@@ -6,7 +6,7 @@ namespace Wondarr.Api.MusicVideos;
 
 /// <summary>The music video settings, as the settings page reads them.</summary>
 /// <param name="Enabled">Whether music videos are on.</param>
-/// <param name="RootPath">The video root, or <see langword="null"/> until set.</param>
+/// <param name="RootPath">The video root, or <see langword="null"/> when none is usable (the default would sit inside the container).</param>
 /// <param name="Layout"><c>folder</c> or <c>beside_track</c>.</param>
 /// <param name="NamingTemplate">The path of a video under the root; it may use {Artist}, {AlbumArtist}, {Title}, {Album} and {Year}.</param>
 /// <param name="BesideTrackSuffix">What is added to the audio file's name under <c>beside_track</c>.</param>
@@ -22,6 +22,8 @@ namespace Wondarr.Api.MusicVideos;
 /// Whether the root is set but does not exist or holds no marker, so the user has to confirm it
 /// (<c>POST /api/v1/musicvideo/settings/root/confirm</c>) before videos are written there.
 /// </param>
+/// <param name="RootPathIsDefault">Whether the root is the default, <c>&lt;media root&gt;/music-videos</c>.</param>
+/// <param name="DefaultRootPath">The default root, or <see langword="null"/> when it would sit inside the container rather than on a mount, so it is not on offer.</param>
 public sealed record MusicVideoSettingsResource(
     bool Enabled,
     string? RootPath,
@@ -36,7 +38,9 @@ public sealed record MusicVideoSettingsResource(
     int ScheduledSearchIntervalHours,
     IReadOnlyList<string> ReadOnlyFields,
     LibraryRootStatus? RootStatus,
-    bool RootNeedsConfirmation)
+    bool RootNeedsConfirmation,
+    bool RootPathIsDefault,
+    string? DefaultRootPath)
 {
     /// <summary>Maps the service's settings.</summary>
     /// <param name="settings">The settings to map.</param>
@@ -58,13 +62,15 @@ public sealed record MusicVideoSettingsResource(
             settings.ScheduledSearchIntervalHours,
             settings.ReadOnlyFields,
             settings.RootStatus,
-            settings.RootNeedsConfirmation);
+            settings.RootNeedsConfirmation,
+            settings.RootPathIsDefault,
+            settings.DefaultRootPath);
     }
 }
 
 /// <summary>A change to the music video settings. Every field is optional; an absent field is left alone.</summary>
 /// <param name="Enabled">New state of the switch.</param>
-/// <param name="RootPath">New video root: an absolute path outside the libraries; an empty string clears it.</param>
+/// <param name="RootPath">New video root: an absolute path outside the libraries; an empty string goes back to the default.</param>
 /// <param name="Layout">New layout, <c>folder</c> or <c>beside_track</c>.</param>
 /// <param name="NamingTemplate">New naming template, using only {Artist}, {AlbumArtist}, {Title}, {Album} and {Year}.</param>
 /// <param name="BesideTrackSuffix">New suffix for <c>beside_track</c>.</param>

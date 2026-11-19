@@ -63,12 +63,14 @@ public static class MusicVideoRootRules
     /// <param name="paths">Where Wondarr's data directory is.</param>
     /// <param name="importOptions">Where the recycle bin is.</param>
     /// <param name="cancellationToken">Cancels the queries.</param>
+    /// <param name="containers">The container rule; when omitted the rule is not applied.</param>
     public static async Task<List<string>> ProblemsAsync(
         string root,
         WondarrDbContext database,
         WondarrPaths paths,
         IOptionsMonitor<ImportOptions> importOptions,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ContainerMounts? containers = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(paths);
@@ -80,6 +82,11 @@ public static class MusicVideoRootRules
         }
 
         var problems = new List<string>();
+
+        if (containers?.Problem(root) is { } containerProblem)
+        {
+            problems.Add(containerProblem);
+        }
 
         try
         {

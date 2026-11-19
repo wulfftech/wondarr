@@ -24,7 +24,9 @@ public sealed class MusicVideoOptions
     /// <summary>
     /// The video root: where <see cref="FolderLayout"/> files videos, and where a song held only by a
     /// reference library falls back to under <see cref="BesideTrackLayout"/>. It carries the
-    /// <c>.wondarr-library</c> marker like a library root. <see langword="null"/> until set.
+    /// <c>.wondarr-library</c> marker like a library root. Holds no path of its own: the configuration layer below
+    /// <c>config.yml</c> supplies <c>&lt;media root&gt;/music-videos</c> (<c>WondarrPaths.MediaRootDefaults</c>), so
+    /// it is <see langword="null"/> only where that layer is absent (a bare options instance).
     /// </summary>
     public string? RootPath { get; set; }
 
