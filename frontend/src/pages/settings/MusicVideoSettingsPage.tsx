@@ -26,6 +26,10 @@ import {
 } from '../../api/musicVideos';
 import { ValidationError } from '../../api/profiles';
 import { ErrorState, LoadingState } from '../../components/DataState';
+import { FolderPicker } from '../../components/FolderPicker';
+
+/** What the server says when the folder is saved but music videos wait for it to be confirmed. */
+const CONFIRM_FIRST = /confirm the folder first/i;
 
 /** The environment-variable suffix each field is locked by, so the tooltip can name it. */
 const ENV_SUFFIX: Record<MusicVideoFieldName, string> = {
@@ -103,6 +107,9 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
 
   const [enabled, setEnabled] = useState(settings.enabled);
   const [rootPath, setRootPath] = useState(settings.rootPath ?? '');
+  const [picking, setPicking] = useState(false);
+  // Turning on was asked for, and waits for the folder to be confirmed.
+  const [pendingEnable, setPendingEnable] = useState(false);
   const [layout, setLayout] = useState(settings.layout);
   const [namingTemplate, setNamingTemplate] = useState(settings.namingTemplate);
   const [besideTrackSuffix, setBesideTrackSuffix] = useState(settings.besideTrackSuffix);
@@ -121,6 +128,14 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
     .filter(([field]) => !known.has(field))
     .map(([, message]) => message);
 
+  const noFolder = rootPath.trim() === '';
+  const defaultRoot = settings.defaultRootPath;
+  const isDefault = defaultRoot !== null && defaultRoot !== undefined && rootPath === defaultRoot;
+  // "On" needs a folder; the server says the same, this just says it before the save.
+  const folderError =
+    fieldError('rootPath') ??
+    (enabled && noFolder ? 'Choose a video folder before turning music videos on.' : undefined);
+
   const lockIcon = (field: MusicVideoFieldName) => (isLocked(field) ? <Lock size={16} /> : undefined);
 
   // A cap the page does not offer (set in config.yml) still shows, so saving never silently changes it.
@@ -137,7 +152,8 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
     }
 
     if (!isLocked('rootPath') && rootPath.trim() !== (settings.rootPath ?? '')) {
-      body.rootPath = rootPath.trim();
+      // An empty folder is the API's spelling of "back to the default".
+      body.rootPath = rootPath === defaultRoot ? '' : rootPath.trim();
     }
 
     if (!isLocked('layout')) {
@@ -178,6 +194,13 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
 
     save.mutate(body, {
       onSuccess: () => notifications.show({ message: 'Saved', color: 'green' }),
+      onError: (error) => {
+        if (error instanceof ValidationError && CONFIRM_FIRST.test(error.fields.rootPath ?? '')) {
+          // The folder is saved, the switch is not: it reads as off until the folder is confirmed.
+          setEnabled(false);
+          setPendingEnable(true);
+        }
+      },
     });
   };
 
@@ -191,24 +214,64 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
             label="Find and download music videos"
             description="Off by default. Adds a video column to the Library and Wanted tables and a video tab to the song page."
             checked={enabled}
-            disabled={isLocked('enabled')}
+            disabled={isLocked('enabled') || (noFolder && !enabled)}
             error={fieldError('enabled')}
             onChange={(event) => setEnabled(event.currentTarget.checked)}
           />
         </Lockable>
 
         <Lockable field="rootPath" locked={isLocked('rootPath')}>
-          <TextInput
-            label="Video folder"
-            description="Outside your libraries. Videos go here, and so do songs held only by a reference library."
-            placeholder="/music-videos"
-            value={rootPath}
-            disabled={isLocked('rootPath')}
-            rightSection={lockIcon('rootPath')}
-            error={fieldError('rootPath')}
-            onChange={(event) => setRootPath(event.currentTarget.value)}
-          />
+          <Stack gap="xs">
+            <TextInput
+              label="Video folder"
+              description="A mounted folder outside your libraries. Videos go here, and so do songs held only by a reference library."
+              placeholder="No folder chosen"
+              value={rootPath}
+              readOnly
+              disabled={isLocked('rootPath')}
+              rightSection={
+                isLocked('rootPath') ? (
+                  <Lock size={16} />
+                ) : isDefault ? (
+                  <Text size="xs" c="dimmed">
+                    (default)
+                  </Text>
+                ) : undefined
+              }
+              rightSectionWidth={isDefault && !isLocked('rootPath') ? 64 : undefined}
+              error={folderError}
+            />
+
+            {!isLocked('rootPath') && (
+              <Group gap="xs">
+                <Button size="xs" variant="default" onClick={() => setPicking(true)}>
+                  Choose…
+                </Button>
+
+                {defaultRoot !== null && defaultRoot !== undefined && !isDefault && (
+                  <Button size="xs" variant="subtle" onClick={() => setRootPath(defaultRoot)}>
+                    Use default
+                  </Button>
+                )}
+
+                {(defaultRoot === null || defaultRoot === undefined) && noFolder && (
+                  <Text size="xs" c="dimmed">
+                    No default here: choose a mounted folder
+                  </Text>
+                )}
+              </Group>
+            )}
+          </Stack>
         </Lockable>
+
+        {picking && (
+          <FolderPicker
+            opened
+            initialPath={null}
+            onClose={() => setPicking(false)}
+            onSelect={(path) => setRootPath(path)}
+          />
+        )}
 
         {settings.rootNeedsConfirmation && (
           <Alert color="yellow" icon={<TriangleAlert size={16} />} title="Is this the right folder?">
@@ -230,7 +293,16 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
                 loading={confirm.isPending}
                 onClick={() =>
                   confirm.mutate(undefined, {
-                    onSuccess: () => notifications.show({ message: 'Video folder confirmed', color: 'green' }),
+                    onSuccess: () => {
+                      notifications.show({ message: 'Video folder confirmed', color: 'green' });
+
+                      // The person asked for music videos on; the folder was the only thing in the way.
+                      if (pendingEnable) {
+                        setPendingEnable(false);
+                        setEnabled(true);
+                        save.mutate({ enabled: true });
+                      }
+                    },
                   })
                 }
               >
@@ -371,7 +443,7 @@ function MusicVideoForm({ settings }: { settings: MusicVideoSettingsResource }) 
         )}
 
         <Group justify="flex-end">
-          <Button loading={save.isPending} onClick={submit}>
+          <Button loading={save.isPending} disabled={enabled && noFolder} onClick={submit}>
             Save
           </Button>
         </Group>
