@@ -54,6 +54,32 @@ public partial class CompactExecutorTests
     }
 
     [Fact]
+    public async Task A_video_found_in_the_folder_stays_where_it_is_when_the_song_moves()
+    {
+        await using var context = await ContextAsync(section: Section);
+        var song = await SeedSongAsync(context, "Track 1", "01 - Track 1.flac");
+        var from = (await context.SongFiles.AsNoTracking().SingleAsync()).Path;
+        await SeedVideoAsync(context, song, from, "-clip", MusicVideoFoundBy.Existing);
+        await SeedCoverAsync("Daft Punk/Single 1");
+
+        _refreshing.Enqueue(true);
+        _refreshing.Enqueue(false);
+        Plan(context, [song]);
+
+        var result = await RunPumpedAsync(SeedData.DefaultLibraryId);
+
+        result.Should().Be(new CompactResult(1, 0, 0, 0));
+
+        foreach (var suffix in VideoSuffixes)
+        {
+            File.Exists(Path.ChangeExtension(from, null) + "-clip" + suffix).Should().BeTrue("the user's file is never moved: " + suffix);
+        }
+
+        await using var fresh = _database.CreateContext(_timeProvider);
+        (await fresh.MusicVideos.SingleAsync()).Path.Should().Be(Path.ChangeExtension(from, null) + "-clip.mkv");
+    }
+
+    [Fact]
     public async Task A_song_with_no_video_moves_as_before()
     {
         await using var context = await ContextAsync(section: Section);
@@ -397,7 +423,7 @@ public partial class CompactExecutorTests
     }
 
     /// <summary>A song's video next to its audio file: the <c>.mkv</c>, its <c>.nfo</c> and its thumbnail, and the row.</summary>
-    private static async Task SeedVideoAsync(WondarrDbContext context, long songId, string audioPath, string suffix)
+    private static async Task SeedVideoAsync(WondarrDbContext context, long songId, string audioPath, string suffix, MusicVideoFoundBy foundBy = MusicVideoFoundBy.Manual)
     {
         var baseName = Path.ChangeExtension(audioPath, null) + suffix;
 
@@ -410,8 +436,8 @@ public partial class CompactExecutorTests
         {
             SongId = songId,
             Status = MusicVideoStatus.Present,
-            YouTubeVideoId = "yt" + songId,
-            FoundBy = MusicVideoFoundBy.Manual,
+            YouTubeVideoId = foundBy == MusicVideoFoundBy.Existing ? string.Empty : "yt" + songId,
+            FoundBy = foundBy,
             Path = baseName + ".mkv",
         });
 

@@ -259,7 +259,9 @@ public sealed partial class MusicVideoService : IMusicVideoService
             {
                 foundFile.State = MusicVideoFileState.Ignored;
                 foundFile.SongId = null;
-                foundFile.MissingSince = null;
+
+                // The file is in the bin now, so the name is free for a download; the scan lets the row go later.
+                foundFile.MissingSince = DateTime.UtcNow;
             }
         }
 
@@ -287,7 +289,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
             SongId = songId,
             EventType = HistoryEventType.MusicVideoDeleted,
             Data = JsonSerializer.Serialize(
-                new RemovalHistoryData(Reason, video.YouTubeVideoId, video.Path, recycledPaths, blocklist),
+                new RemovalHistoryData(Reason, string.IsNullOrEmpty(video.YouTubeVideoId) ? null : video.YouTubeVideoId, video.Path, recycledPaths, blocklist),
                 Json),
         });
 
@@ -364,7 +366,9 @@ public sealed partial class MusicVideoService : IMusicVideoService
 
         var videos = await _database.MusicVideos
             .AsNoTracking()
-            .Where(video => songIds.Contains(video.SongId) && video.Path != null)
+            // A video found in the folder is the user's own file: deleting the song leaves it where it lies, and the
+            // next scan identifies it again.
+            .Where(video => songIds.Contains(video.SongId) && video.Path != null && video.FoundBy != MusicVideoFoundBy.Existing)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -555,7 +559,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
     /// <summary>The history payload of a removed video.</summary>
     private sealed record RemovalHistoryData(
         string Reason,
-        string YouTubeVideoId,
+        string? YouTubeVideoId,
         string? Path,
         IReadOnlyList<string> RecycledPaths,
         bool Blocklisted);

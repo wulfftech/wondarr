@@ -315,6 +315,30 @@ public class ImportServiceFileRecordTests
     }
 
     [Fact]
+    public async Task Leaves_a_video_found_in_the_folder_where_it_is_when_the_song_gets_a_file_beside_track()
+    {
+        await using var host = await ImportTestHost.CreateAsync();
+        host.MusicVideoOptions.Layout = MusicVideoOptions.BesideTrackLayout;
+        host.MusicVideoOptions.BesideTrackSuffix = "-clip";
+
+        var folder = host.LibraryRoot + "/Daft Punk/Random Access Memories (2013)";
+        Directory.CreateDirectory(folder);
+        var seed = await host.SeedAsync(options => { });
+        await SeedVideoAsync(host, seed.SongId, folder + "/07 - Old Name", "-video", MusicVideoFoundBy.Existing);
+
+        (await host.Import.ImportAsync(seed.QueueItemId, CancellationToken.None)).Should().Be(ImportOutcome.Imported);
+
+        foreach (var suffix in new[] { ".mkv", ".nfo", "-thumb.jpg" })
+        {
+            File.Exists(folder + "/07 - Old Name-video" + suffix).Should().BeTrue(suffix);
+            File.Exists(folder + "/08 - Get Lucky-clip" + suffix).Should().BeFalse(suffix);
+        }
+
+        host.Context.ChangeTracker.Clear();
+        (await host.Context.MusicVideos.AsNoTracking().SingleAsync()).Path.Should().Be(folder + "/07 - Old Name-video.mkv");
+    }
+
+    [Fact]
     public async Task Moves_a_video_that_remove_file_left_behind_beside_the_songs_next_file()
     {
         await using var host = await ImportTestHost.CreateAsync();
@@ -416,7 +440,7 @@ public class ImportServiceFileRecordTests
     }
 
     /// <summary>A song's video group at <paramref name="stem"/> plus <paramref name="suffix"/>, with its row.</summary>
-    private static async Task SeedVideoAsync(ImportTestHost host, long songId, string stem, string suffix)
+    private static async Task SeedVideoAsync(ImportTestHost host, long songId, string stem, string suffix, MusicVideoFoundBy foundBy = MusicVideoFoundBy.Manual)
     {
         foreach (var extension in new[] { ".mkv", ".nfo", "-thumb.jpg" })
         {
@@ -427,8 +451,8 @@ public class ImportServiceFileRecordTests
         {
             SongId = songId,
             Status = MusicVideoStatus.Present,
-            YouTubeVideoId = "yt" + songId,
-            FoundBy = MusicVideoFoundBy.Manual,
+            YouTubeVideoId = foundBy == MusicVideoFoundBy.Existing ? string.Empty : "yt" + songId,
+            FoundBy = foundBy,
             Path = stem + suffix + ".mkv",
         });
 
