@@ -338,7 +338,7 @@ public sealed partial class MusicVideoIdentifier : IMusicVideoIdentifier
             ("the file's tags", file.TagArtist, file.TagTitle),
         };
 
-        foreach (var name in MusicVideoNameParser.Parse(RelativePath(file.Path, options.RootPath), options.NamingTemplate))
+        foreach (var name in MusicVideoNameParser.Parse(RelativePath(file.Path, options.ActiveRoot), options.NamingTemplate))
         {
             sources.Add((name.FromTemplate ? "the file name (naming template)" : "the file name", name.Artist, name.Title));
         }

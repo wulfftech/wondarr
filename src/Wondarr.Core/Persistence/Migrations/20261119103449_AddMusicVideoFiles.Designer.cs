@@ -11,7 +11,7 @@ using Wondarr.Core.Persistence;
 namespace Wondarr.Core.Persistence.Migrations
 {
     [DbContext(typeof(WondarrDbContext))]
-    [Migration("20261119100512_AddMusicVideoFiles")]
+    [Migration("20261119103449_AddMusicVideoFiles")]
     partial class AddMusicVideoFiles
     {
         /// <inheritdoc />

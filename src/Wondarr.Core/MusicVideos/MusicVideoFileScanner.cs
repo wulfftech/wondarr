@@ -150,7 +150,7 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             throw new MusicVideoScanUnavailableException("music videos are turned off");
         }
 
-        var root = options.RootPath;
+        var root = options.ActiveRoot;
 
         if (string.IsNullOrWhiteSpace(root))
         {
@@ -359,7 +359,7 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
 
         // The root may have been changed while the walk and the probes ran: what was read describes the old root, so it is
         // all thrown away (nothing was saved yet) and the caller scans again.
-        if (!string.Equals(_options.CurrentValue.RootPath, root, StringComparison.Ordinal))
+        if (!string.Equals(_options.CurrentValue.ActiveRoot, root, StringComparison.Ordinal))
         {
             _database.ChangeTracker.Clear();
 

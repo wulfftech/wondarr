@@ -375,7 +375,7 @@ public sealed partial class MusicVideoSettingsService : IMusicVideoSettingsServi
             var keys = string.Join(", ", changes.Keys);
             LogUpdated(_logger, keys);
 
-            if (rootChanged && _scan is not null)
+            if (rootChanged && !withheld && _scan is not null)
             {
                 await _scan.EnqueueAsync(cancellationToken).ConfigureAwait(false);
             }

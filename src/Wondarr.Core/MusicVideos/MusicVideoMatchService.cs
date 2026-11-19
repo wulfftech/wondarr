@@ -249,7 +249,7 @@ public sealed partial class MusicVideoMatchService : IMusicVideoMatchService
         var songIds = candidates.Values.SelectMany(list => list).Select(candidate => candidate.SongId).Distinct().ToList();
         var songs = await LoadSongsAsync(songIds, cancellationToken).ConfigureAwait(false);
         var thumbnails = await HaveThumbnailsAsync(files, cancellationToken).ConfigureAwait(false);
-        var root = _options.CurrentValue.RootPath;
+        var root = _options.CurrentValue.ActiveRoot;
 
         var rows = files
             .Select(file => new MusicVideoMatchRow(
@@ -286,7 +286,7 @@ public sealed partial class MusicVideoMatchService : IMusicVideoMatchService
             .FirstOrDefaultAsync(row => row.Id == id, cancellationToken)
             .ConfigureAwait(false);
 
-        var root = _options.CurrentValue.RootPath;
+        var root = _options.CurrentValue.ActiveRoot;
 
         if (file is null || string.IsNullOrWhiteSpace(root))
         {
@@ -644,7 +644,7 @@ public sealed partial class MusicVideoMatchService : IMusicVideoMatchService
     /// <summary>The ids of the files that have an image beside them, asked of the disk once for the whole page.</summary>
     private async Task<HashSet<long>> HaveThumbnailsAsync(List<MusicVideoFile> files, CancellationToken cancellationToken)
     {
-        var root = _options.CurrentValue.RootPath;
+        var root = _options.CurrentValue.ActiveRoot;
 
         if (files.Count == 0 || string.IsNullOrWhiteSpace(root))
         {
