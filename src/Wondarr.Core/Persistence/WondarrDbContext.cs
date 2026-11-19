@@ -63,6 +63,9 @@ public sealed class WondarrDbContext : DbContext
     /// <summary>Gets the music videos, one per song at most.</summary>
     public DbSet<MusicVideo> MusicVideos => Set<MusicVideo>();
 
+    /// <summary>Gets the video files found under the video root.</summary>
+    public DbSet<MusicVideoFile> MusicVideoFiles => Set<MusicVideoFile>();
+
     /// <summary>Gets the YouTube videos rejected for a song.</summary>
     public DbSet<MusicVideoBlocklistItem> MusicVideoBlocklist => Set<MusicVideoBlocklistItem>();
 

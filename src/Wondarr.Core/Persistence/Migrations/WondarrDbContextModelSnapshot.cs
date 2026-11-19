@@ -1138,6 +1138,110 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.ToTable("music_video_blocklist", (string)null);
                 });
 
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideoFile", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Candidates")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("candidates");
+
+                    b.Property<string>("Container")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("container");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("DurationMs")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("height");
+
+                    b.Property<DateTime?>("MissingSince")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("missing_since");
+
+                    b.Property<DateTime>("ModifiedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("modified_at");
+
+                    b.Property<string>("NfoArtist")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nfo_artist");
+
+                    b.Property<string>("NfoTitle")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nfo_title");
+
+                    b.Property<string>("ParsedArtist")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("parsed_artist");
+
+                    b.Property<string>("ParsedTitle")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("parsed_title");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("path");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("size");
+
+                    b.Property<long?>("SongId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("song_id");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<string>("TagArtist")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tag_artist");
+
+                    b.Property<string>("TagTitle")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tag_title");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("width");
+
+                    b.HasKey("Id")
+                        .HasName("pk_music_video_file");
+
+                    b.HasIndex("Path")
+                        .IsUnique()
+                        .HasDatabaseName("ix_music_video_file_path");
+
+                    b.HasIndex("SongId")
+                        .HasDatabaseName("ix_music_video_file_song_id");
+
+                    b.HasIndex("State")
+                        .HasDatabaseName("ix_music_video_file_state");
+
+                    b.ToTable("music_video_file", (string)null);
+                });
+
             modelBuilder.Entity("Wondarr.Core.Domain.MusicVideoLastSearch", b =>
                 {
                     b.Property<long>("Id")
@@ -2976,6 +3080,17 @@ namespace Wondarr.Core.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_music_video_blocklist_songs_song_id");
+
+                    b.Navigation("Song");
+                });
+
+            modelBuilder.Entity("Wondarr.Core.Domain.MusicVideoFile", b =>
+                {
+                    b.HasOne("Wondarr.Core.Domain.Song", "Song")
+                        .WithMany()
+                        .HasForeignKey("SongId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_music_video_file_song_song_id");
 
                     b.Navigation("Song");
                 });
