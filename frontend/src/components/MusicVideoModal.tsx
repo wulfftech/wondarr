@@ -17,10 +17,11 @@ import { notifications } from '@mantine/notifications';
 import { CircleAlert, ExternalLink, Video } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  downloadingMessage,
+  downloadMessage,
   isVideoBusy,
   LOW_QUALITY_HEIGHT,
   useDeleteMusicVideo,
+  useDismissReplaceFailure,
   useGrabMusicVideo,
   useSearchMusicVideo,
   useSongMusicVideo,
@@ -40,6 +41,7 @@ const KIND_LABELS: Record<MusicVideoCandidateResource['kind'], string> = {
   officialVideo: 'Official video',
   artTrack: 'Art track',
   userUpload: 'Upload',
+  audioOnly: 'Audio only',
   unknown: 'Video',
 };
 
@@ -82,12 +84,13 @@ function CandidateCard({
     candidate.durationMs === null ? null : Number(candidate.durationMs),
     songDurationMs,
   );
-  // The top of the list is a good guess when it names the artist or is the official video; Confident says more.
+  // The top of the list is a good guess when it is titled as the song (a strict reading of its title); Confident says
+  // more. A top result that is another song of the artist earns no badge.
   const badge = !best
     ? null
     : candidate.confident
       ? 'Confident match'
-      : candidate.artistNamed || candidate.kind === 'officialVideo'
+      : candidate.titledAsSong === true
         ? 'Best match'
         : null;
 
@@ -113,7 +116,7 @@ function CandidateCard({
                 {badge}
               </Badge>
             )}
-            <Badge size="sm" variant="light">
+            <Badge size="sm" variant="light" color={candidate.kind === 'audioOnly' ? 'yellow' : undefined}>
               {KIND_LABELS[candidate.kind]}
             </Badge>
             {candidate.confident && badge === null && (
@@ -267,6 +270,8 @@ function ManageView({
   onRemoved: () => void;
 }) {
   const remove = useDeleteMusicVideo();
+  const grab = useGrabMusicVideo();
+  const dismiss = useDismissReplaceFailure();
   const [confirming, setConfirming] = useState(false);
   const [blocklist, setBlocklist] = useState(true);
 
@@ -279,9 +284,48 @@ function ManageView({
   const resolution = video.width !== null && video.height !== null ? `${video.width}×${video.height}` : '—';
   const codecs = [video.videoCodec, video.audioCodec].filter((codec) => codec !== null && codec !== '').join(' / ');
   const lowQuality = video.height !== null && Number(video.height) < LOW_QUALITY_HEIGHT;
+  const replaceFailure = typeof video.replaceFailureReason === 'string' ? video.replaceFailureReason : null;
+  const videoId = video.youTubeVideoId;
+
+  const downloadAgain = () => {
+    if (videoId === null) {
+      return;
+    }
+
+    grab.mutate(
+      {
+        songId: Number(video.songId),
+        videoId,
+        ...(video.videoTitle === null ? {} : { videoTitle: video.videoTitle }),
+      },
+      {
+        onSuccess: (status) =>
+          notifications.show({ message: downloadMessage(video.videoTitle, status), color: 'blue' }),
+        onError: (error: Error) => notifications.show({ message: error.message, color: 'red' }),
+      },
+    );
+  };
 
   return (
     <Stack gap="md">
+      {replaceFailure !== null && (
+        <Alert color="red" title={`Replacing failed: ${replaceFailure}`} icon={<CircleAlert size={16} />}>
+          <Group gap="xs">
+            <Button size="compact-sm" onClick={onReplace}>
+              Try again
+            </Button>
+            <Button
+              size="compact-sm"
+              variant="default"
+              loading={dismiss.isPending}
+              onClick={() => dismiss.mutate(Number(video.songId))}
+            >
+              Dismiss
+            </Button>
+          </Group>
+        </Alert>
+      )}
+
       <ChosenVideo video={video}>
         <Group gap={6}>
           {video.durationMs !== null && (
@@ -360,10 +404,27 @@ function ManageView({
           <Button variant={lowQuality ? 'filled' : 'default'} size="xs" onClick={onReplace}>
             {lowQuality ? 'Find a better one' : 'Replace…'}
           </Button>
+          {lowQuality && videoId !== null && (
+            <Button variant="default" size="xs" loading={grab.isPending} onClick={downloadAgain}>
+              Download again
+            </Button>
+          )}
           <Button color="red" variant="light" size="xs" onClick={() => setConfirming(true)}>
             Remove
           </Button>
         </Group>
+      )}
+
+      {!confirming && found && (
+        <Text size="xs" c="dimmed">
+          Your current file goes to the recycle bin once the new one is in place.
+        </Text>
+      )}
+
+      {!confirming && lowQuality && videoId !== null && (
+        <Text size="xs" c="dimmed">
+          YouTube may have a better copy of this video now.
+        </Text>
       )}
     </Stack>
   );
@@ -419,7 +480,10 @@ export function MusicVideoPanel({
         onSuccess: (result) => {
           if (result.queued) {
             notifications.show({
-              message: downloadingMessage(result.candidates.find((candidate) => candidate.confident)?.title),
+              message: downloadMessage(
+                result.candidates.find((candidate) => candidate.confident)?.title,
+                result.status,
+              ),
               color: 'blue',
             });
             setPicking(false);
@@ -448,8 +512,8 @@ export function MusicVideoPanel({
     grab.mutate(
       { songId, videoId: candidate.videoId, videoTitle: candidate.title },
       {
-        onSuccess: () => {
-          notifications.show({ message: downloadingMessage(candidate.title), color: 'blue' });
+        onSuccess: (status) => {
+          notifications.show({ message: downloadMessage(candidate.title, status), color: 'blue' });
           setPicking(false);
           setCandidates(null);
         },
@@ -523,6 +587,14 @@ export function MusicVideoPanel({
       {candidates !== null && candidates.length === 0 && (
         <EmptyState message="No music video candidate came back for this song." />
       )}
+
+      {candidates !== null &&
+        candidates.length > 0 &&
+        !candidates.some((candidate) => candidate.titledAsSong === true) && (
+          <Alert color="yellow" icon={<CircleAlert size={16} />}>
+            None of these is titled as this song. Check before you download.
+          </Alert>
+        )}
 
       {visible.map((candidate, index) => (
         <CandidateCard

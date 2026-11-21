@@ -402,6 +402,10 @@ public static class ServiceCollectionExtensions
         // for a compaction that a restart interrupted must not be orphaned in turn.
         services.AddHostedService<CompactResumeHostedService>();
 
+        // Also after the executor: a music video row still waiting for a download the last process never finished is failed,
+        // so no list shows it as on its way for ever.
+        services.AddHostedService<MusicVideoStartupReclaim>();
+
         return services;
     }
 

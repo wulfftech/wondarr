@@ -23,6 +23,13 @@ public interface IRecycleBin
     Task<string> RecycleAsync(string path, string libraryRoot, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Why this bin cannot take files from <paramref name="libraryRoot"/>: a bin inside the folder (or holding it) is no
+    /// bin, because what goes in would be walked, and cleaned out, with the folder. <see langword="null"/> when it can.
+    /// </summary>
+    /// <param name="libraryRoot">The folder the file belongs to, as for <see cref="RecycleAsync"/>.</param>
+    string? Refusal(string libraryRoot);
+
+    /// <summary>
     /// Deletes recycled files older than the configured age, then the directories they leave empty.
     /// Returns how many files went.
     /// </summary>
@@ -83,6 +90,18 @@ public sealed class RecycleBin : IRecycleBin
 
     /// <summary>The recycle bin directory in use, re-read so a settings change is picked up.</summary>
     public string Root => _options.CurrentValue.ResolveRecycleBinPath(_paths);
+
+    /// <inheritdoc />
+    public string? Refusal(string libraryRoot)
+    {
+        ArgumentNullException.ThrowIfNull(libraryRoot);
+
+        var root = Root;
+
+        return !string.IsNullOrWhiteSpace(libraryRoot) && (PathRules.IsInside(root, libraryRoot) || PathRules.IsInside(libraryRoot, root))
+            ? "The recycle bin must be outside the library"
+            : null;
+    }
 
     /// <inheritdoc />
     public Task<string> RecycleAsync(string path, string libraryRoot, CancellationToken cancellationToken)

@@ -38,6 +38,7 @@ const EVENT_COLOURS: Record<HistoryResource['eventType'], MantineColor> = {
   converted: 'grape',
   musicVideoImported: 'green',
   musicVideoDeleted: 'gray',
+  musicVideoFailed: 'red',
 };
 
 /** Turns an event type the API serialised as a camelCase string into a badge. */

@@ -382,6 +382,8 @@ public sealed class MusicVideoServiceSafetyTests : IDisposable
     {
         private int _calls;
 
+        public string? Refusal(string libraryRoot) => inner.Refusal(libraryRoot);
+
         public Task<string> RecycleAsync(string path, string libraryRoot, CancellationToken cancellationToken)
         {
             if (++_calls == failOnCall)

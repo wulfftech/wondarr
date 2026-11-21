@@ -75,6 +75,7 @@ interface Options {
   bulk?: { requested: number; adopted: number; ignored: number; skipped: number };
   songs?: unknown[];
   resolveStatus?: number;
+  summary?: Partial<typeof SUMMARY>;
 }
 
 /** The route table the page needs, with every call to the Match API recorded by the fetch mock. */
@@ -97,7 +98,7 @@ function install(options: Options = {}) {
     }
 
     if (url.includes('/api/v1/musicvideo/match/summary')) {
-      return jsonResponse(SUMMARY);
+      return jsonResponse({ ...SUMMARY, ...options.summary });
     }
 
     if (url.includes('/api/v1/musicvideo/match/songs')) {
@@ -173,13 +174,37 @@ describe('the Music videos tab', () => {
     expect(await sent('GET', '/musicvideo/match')).toHaveLength(0);
   });
 
-  it('shows the count of files that need attention on the tab', async () => {
+  it('shows the ambiguous count on the tab, as the sidebar does, and not the unmatched ones', async () => {
     install();
 
     renderApp();
 
     expect(await screen.findByRole('tab', { name: /Music videos/ })).toBeInTheDocument();
-    expect(await screen.findByLabelText('3 music videos need a pick')).toBeInTheDocument();
+    expect(await screen.findByLabelText('2 music videos need a pick')).toBeInTheDocument();
+    expect(screen.queryByLabelText('3 music videos need a pick')).not.toBeInTheDocument();
+  });
+
+  it('sizes the badge to its number: no fixed-width circle, no ellipsis', async () => {
+    install({ summary: { ambiguous: 36, unmatched: 316, needsAttention: 352 } });
+
+    renderApp();
+
+    const badge = await screen.findByLabelText('36 music videos need a pick');
+
+    expect(badge).toHaveTextContent('36');
+    expect(badge.textContent).not.toContain('…');
+    // Mantine marks a circle badge with data-circle, which fixes its width to its height.
+    expect(badge).not.toHaveAttribute('data-circle');
+    expect(screen.queryByLabelText(/352 music videos/)).not.toBeInTheDocument();
+  });
+
+  it('leaves the badge out when nothing is ambiguous', async () => {
+    install({ summary: { ambiguous: 0, unmatched: 5, needsAttention: 5 } });
+
+    renderApp();
+
+    expect(await screen.findByRole('tab', { name: /Music videos/ })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/music videos need a pick/)).not.toBeInTheDocument();
   });
 
   it('keeps the tab in the address', async () => {

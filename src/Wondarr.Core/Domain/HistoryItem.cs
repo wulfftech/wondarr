@@ -40,6 +40,9 @@ public enum HistoryEventType
 
     /// <summary>A song's music video was downloaded, checked and filed.</summary>
     MusicVideoImported,
+
+    /// <summary>A song's music video could not be downloaded, checked or filed, or its replacement failed.</summary>
+    MusicVideoFailed,
 }
 
 /// <summary>

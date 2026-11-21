@@ -13,7 +13,7 @@ import { pagingValues, type Paging } from './paging';
 import { ValidationError, validationFields } from './profiles';
 import type { components } from './schema';
 import { TAGS_QUERY_KEY } from './tags';
-import { WANTED_QUERY_KEY } from './wanted';
+import { pollWhileVideosBusy, WANTED_QUERY_KEY } from './wanted';
 
 /** The library, the add dialog and the pasted-list review screen. */
 
@@ -129,6 +129,7 @@ export function useSongs(paging: Paging, filters: SongFilters = {}): UseQueryRes
 
   return useQuery({
     queryKey: [...SONGS_QUERY_KEY, paging, filters],
+    refetchInterval: pollWhileVideosBusy,
     queryFn: async (): Promise<SongPage> => {
       const query: Record<string, string | number> = pagingValues(paging);
 

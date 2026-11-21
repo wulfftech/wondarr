@@ -100,7 +100,7 @@ public sealed class MusicVideoFoundFileTests : IDisposable
     }
 
     [Fact]
-    public async Task A_chosen_download_replaces_an_adopted_video_without_touching_the_users_file()
+    public async Task A_chosen_download_replaces_an_adopted_video_and_recycles_the_users_file()
     {
         await _harness.InitAsync();
         var song = await _harness.AddSongAsync("Teardrop");
@@ -112,7 +112,8 @@ public sealed class MusicVideoFoundFileTests : IDisposable
             await _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.Manual, CancellationToken.None);
         }
 
-        File.Exists(found).Should().BeTrue("a download never recycles a found file");
+        File.Exists(found).Should().BeFalse("a person's pick recycles the found file it replaces");
+        Directory.EnumerateFiles(_harness.Temp.Full("bin"), "*", SearchOption.AllDirectories).Should().Contain(path => path.EndsWith("clip.mkv", StringComparison.Ordinal));
         File.Exists(_harness.Temp.Full("videos/Massive Attack/Massive Attack - Teardrop.mkv")).Should().BeTrue();
 
         await using var fresh = _harness.NewContext();
@@ -120,10 +121,7 @@ public sealed class MusicVideoFoundFileTests : IDisposable
         video.FoundBy.Should().Be(MusicVideoFoundBy.Manual);
         video.YouTubeVideoId.Should().Be(VideoId);
 
-        var file = await fresh.MusicVideoFiles.SingleAsync(row => row.Path == found);
-        file.State.Should().Be(MusicVideoFileState.Ambiguous, "the file is back in the queue");
-        file.SongId.Should().BeNull();
-        MusicVideoFileRules.Read(file.Candidates).Single().Reason.Should().Be("the song already has a video");
+        (await fresh.MusicVideoFiles.AnyAsync(row => row.Path == found)).Should().BeFalse("the file is in the bin; a copy put back is seen fresh by the next scan");
     }
 
     [Fact]

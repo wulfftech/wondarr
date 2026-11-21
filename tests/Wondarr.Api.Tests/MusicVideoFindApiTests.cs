@@ -253,6 +253,75 @@ public sealed class MusicVideoFindApiTests : IDisposable
         await _commands.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default, default, default);
     }
 
+    [Theory]
+    [InlineData(360, HttpStatusCode.Accepted)]
+    [InlineData(1080, HttpStatusCode.Conflict)]
+    public async Task A_grab_of_the_video_the_song_already_has_is_accepted_only_under_720p(int height, HttpStatusCode expected)
+    {
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
+        await EnableAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            context.MusicVideos.Add(new MusicVideo
+            {
+                SongId = songId,
+                Status = MusicVideoStatus.Present,
+                YouTubeVideoId = VideoId,
+                FoundBy = MusicVideoFoundBy.Manual,
+                Path = "/data/music-videos/Teardrop.mkv",
+                Height = height,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var (status, body) = await SendAsync(HttpMethod.Post, $"/api/v1/musicvideo/song/{songId}/grab", $$"""{"youTubeVideoId":"{{VideoId}}"}""");
+
+        status.Should().Be(expected);
+
+        if (expected == HttpStatusCode.Accepted)
+        {
+            body!["status"]!.GetValue<string>().Should().Be("queued", "the filed video stays present while the replacement waits");
+        }
+        else
+        {
+            body!["title"]!.GetValue<string>().Should().Be("Already filed");
+            await _commands.DidNotReceiveWithAnyArgs().EnqueueAsync(default!, default, default, default);
+        }
+    }
+
+    [Fact]
+    public async Task Dismissing_a_replacement_failure_clears_it_and_a_second_dismissal_is_a_404()
+    {
+        var songId = await QueueApiTests.SeedSongAsync(_factory, "Teardrop");
+        await EnableAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<WondarrDbContext>();
+            context.MusicVideos.Add(new MusicVideo
+            {
+                SongId = songId,
+                Status = MusicVideoStatus.Present,
+                YouTubeVideoId = VideoId,
+                FoundBy = MusicVideoFoundBy.Manual,
+                Path = "/data/music-videos/Teardrop.mkv",
+                ReplaceFailureReason = "The video could not be filed: disk full",
+                ReplaceFailedAt = DateTime.UtcNow,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var (read, video) = await SendAsync(HttpMethod.Get, $"/api/v1/musicvideo/song/{songId}");
+        read.Should().Be(HttpStatusCode.OK);
+        video!["replaceFailureReason"]!.GetValue<string>().Should().Contain("disk full");
+
+        (await SendAsync(HttpMethod.Delete, $"/api/v1/musicvideo/song/{songId}/replace-failure")).Status.Should().Be(HttpStatusCode.NoContent);
+        (await SendAsync(HttpMethod.Delete, $"/api/v1/musicvideo/song/{songId}/replace-failure")).Status.Should().Be(HttpStatusCode.NotFound);
+
+        var (_, after) = await SendAsync(HttpMethod.Get, $"/api/v1/musicvideo/song/{songId}");
+        after!["replaceFailureReason"].Should().BeNull();
+    }
+
     [Fact]
     public async Task A_grab_for_a_song_that_is_not_there_is_a_404()
     {

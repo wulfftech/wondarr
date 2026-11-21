@@ -5,11 +5,11 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useApiClient } from './context';
 import { ApiError } from './errors';
 import type { components } from './schema';
-import { invalidateLibrary, problemError } from './songs';
+import { invalidateLibrary, problemError, SONGS_QUERY_KEY } from './songs';
 
 /** Music videos (ADR-0014): the settings, a song's one video, finding it, picking one, and removing it. */
 
@@ -38,9 +38,14 @@ export function videoThumbnailUrl(videoId: string): string {
   return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
 }
 
-/** The toast that says what is on its way: «title» when the video is known by name. */
-export function downloadingMessage(title: string | null | undefined): string {
-  return title === null || title === undefined || title === '' ? 'Downloading music video' : `Downloading «${title}»`;
+/**
+ * The toast that says what is on its way: «title» when the video is known by name. "Queued" while the download
+ * waits for the shared yt-dlp gate, "Downloading" only once it has started.
+ */
+export function downloadMessage(title: string | null | undefined, status: MusicVideoStatus | null | undefined): string {
+  const verb = status === 'downloading' ? 'Downloading' : 'Queued';
+
+  return title === null || title === undefined || title === '' ? `${verb} music video` : `${verb} «${title}»`;
 }
 
 /** The address of a video on YouTube. */
@@ -176,19 +181,60 @@ export function useSongMusicVideo(
 
       return data;
     },
-    refetchInterval: (state) => (isVideoBusy(state.state.data?.status) ? MUSIC_VIDEO_POLL_INTERVAL_MS : false),
+    refetchInterval: (state) =>
+      isVideoBusy(state.state.data?.status) || isReplacementPending(songId, state.state.data)
+        ? MUSIC_VIDEO_POLL_INTERVAL_MS
+        : false,
   });
 
   const status = query.data?.status;
+  const busy = isVideoBusy(status);
+  const wasBusy = useRef(false);
 
-  // The song tables carry the same state in their video column.
+  // The song tables carry the same state in their video column: when the video goes from busy to settled, they are
+  // read again.
   useEffect(() => {
-    if (status === 'present' || status === 'failed') {
+    if (wasBusy.current && !busy) {
+      void queryClient.invalidateQueries({ queryKey: SONGS_QUERY_KEY });
+      invalidateLibrary(queryClient);
+    } else if (!busy && (status === 'present' || status === 'failed')) {
       invalidateLibrary(queryClient);
     }
-  }, [status, queryClient]);
+
+    wasBusy.current = busy;
+  }, [busy, status, queryClient]);
 
   return query;
+}
+
+/**
+ * Replacements that were queued from this page: the filed video stays `present` while its replacement downloads, so
+ * the per-song query would never poll. It does until the row changes (the replacement landed or failed).
+ */
+const PENDING_REPLACEMENTS = new Map<number, { updatedAt: string; since: number }>();
+
+/** How long after a pick a replacement is still waited for, in milliseconds. */
+const REPLACEMENT_PATIENCE_MS = 15 * 60 * 1000;
+
+function isReplacementPending(songId: number | null, video: MusicVideoResource | null | undefined): boolean {
+  const pending = songId === null ? undefined : PENDING_REPLACEMENTS.get(songId);
+
+  if (songId === null || pending === undefined) {
+    return false;
+  }
+
+  if (
+    video === null ||
+    video === undefined ||
+    video.updatedAt !== pending.updatedAt ||
+    Date.now() - pending.since > REPLACEMENT_PATIENCE_MS
+  ) {
+    PENDING_REPLACEMENTS.delete(songId);
+
+    return false;
+  }
+
+  return true;
 }
 
 /** A search for a song, by its id; or with `autoDownload: false`, which only lists the candidates. */
@@ -226,9 +272,12 @@ export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultR
   });
 }
 
-/** Queues the download of the video the person picked. A different video already filed is replaced once it lands. */
+/**
+ * Queues the download of the video the person picked. A different video already filed is replaced once it lands, and
+ * so is the same one when the filed copy is under 720p. Resolves to where the download stands: queued, or downloading.
+ */
 export function useGrabMusicVideo(): UseMutationResult<
-  void,
+  MusicVideoStatus,
   Error,
   { songId: number; videoId: string; videoTitle?: string }
 > {
@@ -236,8 +285,8 @@ export function useGrabMusicVideo(): UseMutationResult<
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ songId, videoId, videoTitle }): Promise<void> => {
-      const { error, response } = await client.POST('/api/v1/musicvideo/song/{songId}/grab', {
+    mutationFn: async ({ songId, videoId, videoTitle }): Promise<MusicVideoStatus> => {
+      const { data, error, response } = await client.POST('/api/v1/musicvideo/song/{songId}/grab', {
         params: { path: { songId } },
         body: { youTubeVideoId: videoId, ...(videoTitle === undefined ? {} : { videoTitle }) },
       });
@@ -245,10 +294,40 @@ export function useGrabMusicVideo(): UseMutationResult<
       if (!response.ok) {
         throw problemError(response.status, error, 'The download could not be queued.');
       }
+
+      return data?.status ?? 'queued';
     },
     onSuccess: (_result, { songId }) => {
+      const held = queryClient.getQueryData<MusicVideoResource | null>([...MUSIC_VIDEO_KEY, 'song', songId]);
+
+      if (held?.status === 'present') {
+        PENDING_REPLACEMENTS.set(songId, { updatedAt: held.updatedAt, since: Date.now() });
+      }
+
       void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
       invalidateLibrary(queryClient);
+    },
+  });
+}
+
+/** Clears the note that the last replacement of a song's video failed; the video stays as it is. */
+export function useDismissReplaceFailure(): UseMutationResult<void, Error, number> {
+  const client = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (songId: number): Promise<void> => {
+      const { error, response } = await client.DELETE('/api/v1/musicvideo/song/{songId}/replace-failure', {
+        params: { path: { songId } },
+      });
+
+      if (!response.ok) {
+        throw problemError(response.status, error, 'The note could not be dismissed.');
+      }
+    },
+    onSuccess: (_result, songId) => {
+      PENDING_REPLACEMENTS.delete(songId);
+      void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
     },
   });
 }

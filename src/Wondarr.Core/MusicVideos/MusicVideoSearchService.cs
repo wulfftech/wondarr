@@ -22,6 +22,16 @@ public sealed record MusicVideoSearchResult(IReadOnlyList<MusicVideoCandidate> C
         Confident is { } confident && (!Partial || confident.FoundBy == MusicVideoFoundBy.YouTubeSearch) ? confident : null;
 }
 
+/// <summary>What counts as a low-quality music video.</summary>
+public static class MusicVideoQuality
+{
+    /// <summary>
+    /// A filed video under this height, in pixels, may be downloaded again or replaced with a hint of "find a better one".
+    /// The same number as <c>LOW_QUALITY_HEIGHT</c> in the frontend's <c>musicVideos.ts</c>.
+    /// </summary>
+    public const int LowHeight = 720;
+}
+
 /// <summary>What queueing a download did.</summary>
 public enum MusicVideoQueueOutcome
 {
@@ -295,7 +305,11 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         {
             // A different video replaces the filed one only when a person picked it, and only once it has been
             // downloaded and checked.
-            if (!replace || string.Equals(row.YouTubeVideoId, videoId, StringComparison.Ordinal))
+            // The very same video is downloaded again only when the filed copy is under 720p: YouTube may offer a
+            // better copy of it now (M-68 item 11).
+            var same = string.Equals(row.YouTubeVideoId, videoId, StringComparison.Ordinal);
+
+            if (!replace || (same && !(row.Height is { } height && height < MusicVideoQuality.LowHeight)))
             {
                 return new MusicVideoQueueResult(MusicVideoQueueOutcome.AlreadyFiled);
             }

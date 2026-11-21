@@ -35,13 +35,31 @@ public sealed class YouTubeMusicVideoFinderTests
         int? durationMs = 331_000) =>
         new(videoId, title, artists, null, durationMs, type, false);
 
-    private static InnertubeSearchResult Search(params InnertubeResult[] results) =>
-        new("Massive Attack Teardrop", InnertubeSearchFilter.Videos, null, results);
+    /// <summary>Every search result a test scripted, by video id: what the echoing oEmbed stub answers from.</summary>
+    private readonly Dictionary<string, InnertubeResult> _scripted = new(StringComparer.Ordinal);
 
-    private static YouTubeMusicVideoFinder Finder(
+    private InnertubeSearchResult Search(params InnertubeResult[] results)
+    {
+        foreach (var result in results)
+        {
+            _scripted[result.VideoId] = result;
+        }
+
+        return new("Massive Attack Teardrop", InnertubeSearchFilter.Videos, null, results);
+    }
+
+    /// <summary>
+    /// The finder over a scripted search. Unless a test scripts the real titles itself, oEmbed echoes what the search
+    /// showed: the same title, uploaded by the first credited artist.
+    /// </summary>
+    private YouTubeMusicVideoFinder Finder(
         IMusicBrainzClient musicBrainz,
-        StubInnertubeClient innertube) =>
-        new(musicBrainz, innertube, NullLogger<YouTubeMusicVideoFinder>.Instance);
+        StubInnertubeClient innertube,
+        IYouTubeOEmbedClient? oEmbed = null) =>
+        new(musicBrainz, innertube, oEmbed ?? new StubOEmbedClient(videoId =>
+            _scripted.TryGetValue(videoId, out var result)
+                ? new YouTubeOEmbed(result.Title, result.Artists.Count > 0 ? result.Artists[0] : "Some Uploader", null)
+                : null), NullLogger<YouTubeMusicVideoFinder>.Instance);
 
     [Fact]
     public async Task The_music_brainz_video_link_is_a_confident_candidate()
@@ -184,7 +202,9 @@ public sealed class YouTubeMusicVideoFinderTests
                 Result("BBBBBBBBBBB", "Teardrop (Official Video)", ["Massive Attack & Friends"]),
                 Result("CCCCCCCCCCC", "Teardrop (Official Video)", ["Massive Attack feat. Elizabeth Fraser"])));
 
-        var candidates = await Finder(musicBrainz, innertube).FindAsync(Teardrop(mbid: null), CancellationToken.None);
+        // All three are uploaded by the artist's own channel; the credit is what differs.
+        var ownChannel = new StubOEmbedClient(videoId => new YouTubeOEmbed("Teardrop (Official Video)", "Massive Attack", null));
+        var candidates = await Finder(musicBrainz, innertube, ownChannel).FindAsync(Teardrop(mbid: null), CancellationToken.None);
 
         candidates.Where(candidate => candidate.Confident).Select(candidate => candidate.VideoId)
             .Should().BeEquivalentTo(["BBBBBBBBBBB", "CCCCCCCCCCC"], "a credit is split into its names, and 'Massive' is not 'Massive Attack'");
@@ -197,18 +217,19 @@ public sealed class YouTubeMusicVideoFinderTests
         var innertube = new StubInnertubeClient().Respond(
             InnertubeSearchFilter.Videos,
             Search(
-                Result("EEEEEEEEEEE", "Teardrop", ["Some Uploader"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
+                Result("EEEEEEEEEEE", "Teardrop (Lyric Video)", ["Some Uploader"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
                 Result("DDDDDDDDDDD", "Teardrop live", ["Massive Attack"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
                 Result("CCCCCCCCCCC", "Teardrop (Lyric Video)", ["Massive Attack"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
                 Result("BBBBBBBBBBB", "Teardrop (Lyric Video)", ["Massive Attack"], InnertubeVideoTypes.OfficialVideo, durationMs: 330_000),
                 Result("AAAAAAAAAAA", "Teardrop (Lyric Video)", ["Massive Attack"], InnertubeVideoTypes.OfficialVideo, durationMs: 400_000)));
 
-        var candidates = await Finder(musicBrainz, innertube).FindAsync(Teardrop(mbid: null), CancellationToken.None);
+        // No real title is known: a lyric video would otherwise be read as audio only, which is its own kind.
+        var candidates = await Finder(musicBrainz, innertube, new StubOEmbedClient(_ => null)).FindAsync(Teardrop(mbid: null), CancellationToken.None);
 
         candidates.Should().OnlyContain(candidate => !candidate.Confident);
-        candidates.Select(candidate => candidate.VideoId).Take(2).Should().Equal("BBBBBBBBBBB", "AAAAAAAAAAA");
+        candidates[0].VideoId.Should().Be("BBBBBBBBBBB", "official, the artist and the right length");
         candidates[0].Kind.Should().Be(MusicVideoCandidateKind.OfficialVideo);
-        candidates[0].Score.Should().BeGreaterThan(candidates[1].Score, "the closer length ranks first");
+        candidates.Single(candidate => candidate.VideoId == "BBBBBBBBBBB").Score.Should().BeGreaterThan(candidates.Single(candidate => candidate.VideoId == "AAAAAAAAAAA").Score, "the closer length ranks first");
         candidates.Select(candidate => candidate.Score).Should().BeInDescendingOrder();
         candidates[^1].VideoId.Should().Be("EEEEEEEEEEE", "not the artist's, not official: the last");
     }

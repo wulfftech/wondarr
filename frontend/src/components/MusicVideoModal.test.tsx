@@ -16,8 +16,11 @@ afterEach(() => {
   notifications.clean();
 });
 
+/** What a song list sends of a video; the tests leave out `updatedAt` unless it matters. */
+type RowVideo = (Omit<NonNullable<SongResource['musicVideo']>, 'updatedAt'> & { updatedAt?: string }) | null;
+
 /** The Get Lucky row with the given video state, as the song list sends it. */
-function song(musicVideo: SongResource['musicVideo']): SongResource {
+function song(musicVideo: RowVideo): SongResource {
   return { ...LIBRARY_SONGS[0], musicVideo } as unknown as SongResource;
 }
 
@@ -33,6 +36,7 @@ const CANDIDATES = [
     foundBy: 'musicBrainz',
     score: 90,
     artistNamed: true,
+    titledAsSong: true,
   },
   {
     videoId: 'ABCDEFGHIJK',
@@ -45,6 +49,7 @@ const CANDIDATES = [
     foundBy: 'youTubeSearch',
     score: 40,
     artistNamed: false,
+    titledAsSong: false,
   },
 ];
 
@@ -79,10 +84,11 @@ interface Routes {
   /** The answer to `GET musicvideo/song/12`; `null` is the 404 of a song with no video. */
   video?: unknown;
   search?: unknown;
+  grabStatus?: string;
 }
 
 /** Renders the cell with the providers `App` builds, over a route table for the music video API. */
-function renderCell(musicVideo: SongResource['musicVideo'], routes: Routes = {}) {
+function renderCell(musicVideo: RowVideo, routes: Routes = {}) {
   installFetch((url, init) => {
     const method = init?.method ?? 'GET';
 
@@ -97,7 +103,11 @@ function renderCell(musicVideo: SongResource['musicVideo'], routes: Routes = {})
     }
 
     if (url.endsWith('/musicvideo/song/12/grab')) {
-      return jsonResponse({ commandId: 77 }, 202);
+      return jsonResponse({ commandId: 77, status: routes.grabStatus ?? 'queued' }, 202);
+    }
+
+    if (url.endsWith('/musicvideo/song/12/replace-failure') && method === 'DELETE') {
+      return new Response(null, { status: 204 });
     }
 
     if (/\/musicvideo\/song\/12(\?.*)?$/.test(url) && method === 'DELETE') {
@@ -144,7 +154,7 @@ describe('the music video icon', () => {
       { video: { ...PRESENT_VIDEO, status: 'queued' } },
     );
 
-    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is queued' }));
 
     expect(await screen.findByText('Waiting for another download to finish')).toBeInTheDocument();
   });
@@ -157,7 +167,7 @@ describe('the music video icon', () => {
       { video: { ...PRESENT_VIDEO, status: 'queued', videoTitle: 'Daft Punk - Get Lucky (Official Video)' } },
     );
 
-    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is queued' }));
 
     expect(await screen.findByText('Daft Punk - Get Lucky (Official Video)')).toBeInTheDocument();
     expect(screen.getByText('Waiting for another download to finish')).toBeInTheDocument();
@@ -193,7 +203,7 @@ describe('the music video icon', () => {
       { video: { ...PRESENT_VIDEO, status: 'queued' } },
     );
 
-    await user.hover(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
+    await user.hover(screen.getByRole('button', { name: 'Music video for Get Lucky is queued' }));
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Waiting to download');
   });
@@ -359,7 +369,7 @@ describe('finding a music video', () => {
 
     await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
 
-    expect(await screen.findByText('Downloading music video')).toBeInTheDocument();
+    expect(await screen.findByText('Queued music video')).toBeInTheDocument();
     expect(screen.queryByText('Music video for Get Lucky')).not.toBeInTheDocument();
   });
 
@@ -370,7 +380,7 @@ describe('finding a music video', () => {
 
     await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
 
-    expect(await screen.findByText('Downloading «Get Lucky (Official Video)»')).toBeInTheDocument();
+    expect(await screen.findByText('Queued «Get Lucky (Official Video)»')).toBeInTheDocument();
     expect(screen.queryByText('Music video for Get Lucky')).not.toBeInTheDocument();
   });
 
@@ -497,7 +507,7 @@ describe('finding a music video', () => {
       youTubeVideoId: 'h5EofwRzit0',
       videoTitle: 'Get Lucky (Official Video)',
     });
-    expect(await screen.findByText('Downloading «Get Lucky (Official Video)»')).toBeInTheDocument();
+    expect(await screen.findByText('Queued «Get Lucky (Official Video)»')).toBeInTheDocument();
   });
 
   it('says so when no candidate came back', async () => {
@@ -657,5 +667,258 @@ describe('a video found in the folder', () => {
     await user.click(screen.getByRole('button', { name: 'Remove' }));
 
     await waitFor(() => expect(bodyOf('DELETE', '/musicvideo/song/12?blocklist=false')).toBeDefined());
+  });
+});
+
+describe('the queued and downloading states', () => {
+  it('says Downloading in the toast only when the download has started', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: true, status: 'downloading', partial: false, candidates: CANDIDATES } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Downloading «Get Lucky (Official Video)»')).toBeInTheDocument();
+  });
+
+  it('says Queued in the toast of a pick that waits for the gate', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: false, candidates: CANDIDATES }, grabStatus: 'queued' });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Download Get Lucky (Official Video)' }));
+
+    expect(await screen.findByText('Queued «Get Lucky (Official Video)»')).toBeInTheDocument();
+    expect(screen.queryByText(/^Downloading/)).not.toBeInTheDocument();
+  });
+
+  it('says Downloading for a pick that started at once', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: false, candidates: CANDIDATES }, grabStatus: 'downloading' });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Download Get Lucky (Official Video)' }));
+
+    expect(await screen.findByText('Downloading «Get Lucky (Official Video)»')).toBeInTheDocument();
+  });
+
+  it('shows a still clock for a queued row and a spinner for a downloading one', () => {
+    renderCell({ status: 'queued', height: null, failureReason: null });
+
+    const queued = screen.getByRole('button', { name: 'Music video for Get Lucky is queued' });
+
+    expect(queued.querySelector('svg.lucide-clock')).not.toBeNull();
+    expect(queued.querySelector('.mantine-Loader-root')).toBeNull();
+  });
+
+  it('keeps the spinner for a downloading row', () => {
+    renderCell({ status: 'downloading', height: null, failureReason: null });
+
+    const downloading = screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' });
+
+    expect(downloading.querySelector('.mantine-Loader-root')).not.toBeNull();
+    expect(downloading.querySelector('svg.lucide-clock')).toBeNull();
+  });
+});
+
+describe('what the candidates say about themselves', () => {
+  it('labels an upload that is only the audio as Audio only', async () => {
+    const user = userEvent.setup();
+    const audio = {
+      ...CANDIDATES[0],
+      kind: 'audioOnly',
+      confident: false,
+      titledAsSong: false,
+      title: 'Paramore - Fences (Official Audio)',
+    };
+
+    renderCell(null, { search: { queued: false, candidates: [audio, CANDIDATES[1]] } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Audio only')).toBeInTheDocument();
+  });
+
+  it('gives Best match only to a top candidate that is titled as the song', async () => {
+    const user = userEvent.setup();
+    const titled = { ...CANDIDATES[0], confident: false };
+
+    renderCell(null, { search: { queued: false, candidates: [titled, CANDIDATES[1]] } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Best match')).toBeInTheDocument();
+    expect(screen.queryByText(/None of these is titled/)).not.toBeInTheDocument();
+  });
+
+  it('gives Best match to a top upload that is titled as the song even when it names no artist', async () => {
+    const user = userEvent.setup();
+    const upload = { ...CANDIDATES[1], titledAsSong: true, artistNamed: false, title: 'Friends to be' };
+
+    renderCell(null, { search: { queued: false, candidates: [upload] } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Best match')).toBeInTheDocument();
+  });
+
+  it('gives no badge to an official top candidate of another song, and warns that none is titled as the song', async () => {
+    const user = userEvent.setup();
+    const another = {
+      ...CANDIDATES[0],
+      confident: false,
+      titledAsSong: false,
+      title: 'Many Rivers to Cross (Official Video)',
+    };
+
+    renderCell(null, { search: { queued: false, candidates: [another, CANDIDATES[1]] } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(
+      await screen.findByText('None of these is titled as this song. Check before you download.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Best match')).not.toBeInTheDocument();
+    expect(screen.queryByText('Confident match')).not.toBeInTheDocument();
+  });
+});
+
+describe('replacing a video that was found in the folder', () => {
+  it('tells the person the current file goes to the recycle bin, under Find a better one', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...PRESENT_VIDEO, youTubeVideoId: null, foundBy: 'existing', width: 640, height: 360 } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByRole('button', { name: 'Find a better one' })).toBeInTheDocument();
+    expect(
+      screen.getByText('Your current file goes to the recycle bin once the new one is in place.'),
+    ).toBeInTheDocument();
+  });
+
+  it('does not say it for a video that was downloaded', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...PRESENT_VIDEO, width: 640, height: 360 } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByRole('button', { name: 'Find a better one' })).toBeInTheDocument();
+    expect(screen.queryByText(/goes to the recycle bin/)).not.toBeInTheDocument();
+  });
+});
+
+describe('a replacement that failed', () => {
+  const FAILED_REPLACEMENT = {
+    ...PRESENT_VIDEO,
+    replaceFailureReason: 'The video could not be filed: disk full',
+    replaceFailedAt: '2026-11-21T01:00:00Z',
+  };
+
+  it('shows the reason in an alert, with the old video still there', async () => {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'present', height: 1080, failureReason: null }, { video: FAILED_REPLACEMENT });
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('Replacing failed: The video could not be filed: disk full')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument();
+    expect(screen.getByText('1920×1080')).toBeInTheDocument();
+  });
+
+  it('Try again opens the candidates without downloading', async () => {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'present', height: 1080, failureReason: null }, { video: FAILED_REPLACEMENT });
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByText('Get Lucky (Official Video)')).toBeInTheDocument();
+    expect(bodyOf('POST', '/musicvideo/song/12/search?autoDownload=false')).toBeDefined();
+  });
+
+  it('Dismiss clears the note on the server', async () => {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'present', height: 1080, failureReason: null }, { video: FAILED_REPLACEMENT });
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Dismiss' }));
+
+    await waitFor(() => expect(bodyOf('DELETE', '/musicvideo/song/12/replace-failure')).toBeDefined());
+  });
+
+  it('shows no alert when nothing failed', async () => {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'present', height: 1080, failureReason: null }, { video: PRESENT_VIDEO });
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('1920×1080')).toBeInTheDocument();
+    expect(screen.queryByText(/Replacing failed/)).not.toBeInTheDocument();
+  });
+});
+
+describe('Download again', () => {
+  it('is offered under 720p for a video with a YouTube id, with a note, and grabs the same video', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...PRESENT_VIDEO, width: 640, height: 360, videoTitle: 'Daft Punk - Get Lucky (Official Video)' } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Download again' }));
+
+    expect(screen.getByText('YouTube may have a better copy of this video now.')).toBeInTheDocument();
+    await waitFor(() => expect(bodyOf('POST', '/musicvideo/song/12/grab')).toBeDefined());
+    expect(await bodyOf('POST', '/musicvideo/song/12/grab')?.clone().json()).toEqual({
+      youTubeVideoId: 'h5EofwRzit0',
+      videoTitle: 'Daft Punk - Get Lucky (Official Video)',
+    });
+    expect(await screen.findByText('Queued «Daft Punk - Get Lucky (Official Video)»')).toBeInTheDocument();
+  });
+
+  it('is not offered at 720p or above', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 720, failureReason: null },
+      { video: { ...PRESENT_VIDEO, width: 1280, height: 720 } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('1280×720')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download again' })).not.toBeInTheDocument();
+  });
+
+  it('is not offered for a video with no YouTube id', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 360, failureReason: null },
+      { video: { ...PRESENT_VIDEO, youTubeVideoId: null, foundBy: 'existing', width: 640, height: 360 } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByRole('button', { name: 'Find a better one' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download again' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/better copy of this video/)).not.toBeInTheDocument();
   });
 });

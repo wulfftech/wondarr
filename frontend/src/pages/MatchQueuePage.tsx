@@ -754,7 +754,8 @@ export function MatchQueuePage() {
   const videosEnabled = useMusicVideosEnabled();
   const summary = useMusicVideoMatchSummary(videosEnabled);
   const active = videosEnabled && params.get('tab') === 'videos' ? 'videos' : 'music';
-  const waiting = Number(summary.data?.needsAttention ?? 0);
+  // The ambiguous ones, as the sidebar counts them: unmatched videos are not in the library, so nothing is waiting on them.
+  const waiting = Number(summary.data?.ambiguous ?? 0);
 
   if (!videosEnabled) {
     return (
@@ -789,7 +790,13 @@ export function MatchQueuePage() {
             value="videos"
             rightSection={
               waiting > 0 ? (
-                <Badge size="sm" circle aria-label={`${waiting} music videos need a pick`}>
+                <Badge
+                  size="sm"
+                  variant="filled"
+                  px={6}
+                  style={{ flexShrink: 0 }}
+                  aria-label={`${waiting} music videos need a pick`}
+                >
                   {waiting}
                 </Badge>
               ) : undefined

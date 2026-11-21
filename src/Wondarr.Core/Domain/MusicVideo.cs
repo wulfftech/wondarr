@@ -88,6 +88,15 @@ public sealed class MusicVideo : EntityBase
     /// <summary>Gets or sets why the video failed, or <see langword="null"/>.</summary>
     public string? FailureReason { get; set; }
 
+    /// <summary>
+    /// Gets or sets why the last replacement of a filed video failed, or <see langword="null"/>. The row stays
+    /// <see cref="MusicVideoStatus.Present"/> with its old file; a successful replacement or a dismissal clears this.
+    /// </summary>
+    public string? ReplaceFailureReason { get; set; }
+
+    /// <summary>Gets or sets the UTC instant the last replacement failed, or <see langword="null"/>.</summary>
+    public DateTime? ReplaceFailedAt { get; set; }
+
     /// <summary>Gets or sets the song the video belongs to.</summary>
     public Song Song { get; set; } = null!;
 }

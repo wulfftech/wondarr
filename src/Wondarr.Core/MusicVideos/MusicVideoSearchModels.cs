@@ -16,6 +16,12 @@ public enum MusicVideoCandidateKind
 
     /// <summary>A user upload, and everything unlisted.</summary>
     UserUpload,
+
+    /// <summary>
+    /// An upload whose real YouTube title says it is the audio or a lyric video ("(Official Audio)", "// Lyrics"), even
+    /// when YouTube Music labels it an official video. Not a music video.
+    /// </summary>
+    AudioOnly,
 }
 
 /// <summary>What the finder needs to know about a song.</summary>
@@ -42,13 +48,18 @@ public sealed record MusicVideoQuery(
 /// <param name="ThumbnailUrl">YouTube's thumbnail for the video.</param>
 /// <param name="Confident">
 /// Whether Wondarr may download it without asking: MusicBrainz links it to the song's recording, or it is an
-/// official video of one of the song's artists titled as the song. Anything less is left to the user.
+/// official video of one of the song's artists titled as the song, uploaded by the artist's own channel and not audio
+/// only. Anything less is left to the user.
 /// </param>
 /// <param name="FoundBy">Where the candidate came from.</param>
 /// <param name="Score">The ranking score: higher is better. Only the order is meant to matter.</param>
 /// <param name="ArtistNamed">
 /// Whether one of the song's artists is credited on the video or named in its title ("Artist - Title"). A user upload
 /// can be artist-named and still never confident.
+/// </param>
+/// <param name="TitledAsSong">
+/// Whether its title is the song's: at or above the decision engine's title floor, in the studio version, and not a
+/// lyric video. A video MusicBrainz links is curated, so it is. Without it a candidate may be another song of the artist.
 /// </param>
 public sealed record MusicVideoCandidate(
     string VideoId,
@@ -60,7 +71,8 @@ public sealed record MusicVideoCandidate(
     bool Confident,
     MusicVideoFoundBy FoundBy,
     int Score,
-    bool ArtistNamed = false)
+    bool ArtistNamed = false,
+    bool TitledAsSong = false)
 {
     /// <summary>The thumbnail URL YouTube serves for a video id.</summary>
     /// <param name="videoId">The video id.</param>

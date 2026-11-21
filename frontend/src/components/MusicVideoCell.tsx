@@ -1,9 +1,9 @@
 import { ActionIcon, Group, Loader, Tooltip } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { Clapperboard, Search, Video, VideoOff } from 'lucide-react';
+import { Clapperboard, Clock, Search, Video, VideoOff } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import {
-  downloadingMessage,
+  downloadMessage,
   isVideoBusy,
   useSearchMusicVideo,
   type MusicVideoCandidateResource,
@@ -44,7 +44,7 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
       onSuccess: (result) => {
         if (result.queued) {
           notifications.show({
-            message: downloadingMessage(result.candidates.find((candidate) => candidate.confident)?.title),
+            message: downloadMessage(result.candidates.find((candidate) => candidate.confident)?.title, result.status),
             color: 'blue',
           });
 
@@ -69,8 +69,9 @@ export function MusicVideoCell({ song }: { song: SongResource }) {
     onClick = find;
   } else if (isVideoBusy(state.status)) {
     tooltip = state.status === 'queued' ? 'Waiting to download' : 'Downloading';
-    label = `Music video for ${song.title} is downloading`;
-    icon = <Loader size={14} />;
+    label = `Music video for ${song.title} is ${state.status === 'queued' ? 'queued' : 'downloading'}`;
+    // A queued video waits for the shared download slot and shows a still clock; only a running download spins.
+    icon = state.status === 'queued' ? <Clock size={16} aria-hidden /> : <Loader size={14} />;
     onClick = () => setDialog({});
   } else if (state.status === 'present') {
     tooltip = state.height === null ? 'Music video' : `${String(state.height)}p`;

@@ -201,6 +201,34 @@ describe('applyEventMessage', () => {
     expect(isInvalidated(queryClient, ['match-queue', 'list', { page: 1 }])).toBe(true);
   });
 
+  it('reads the music video queries again for finished video commands at most once every 3 seconds, and once more at the end', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+
+    try {
+      const queryClient = cacheWithEntries();
+      const spy = vi.spyOn(queryClient, 'invalidateQueries');
+      const videoReads = () => spy.mock.calls.filter(([filters]) => filters?.queryKey?.[0] === 'musicvideo').length;
+
+      applyEventMessage(queryClient, commandPush(1, 'MusicVideoDownload', 'completed'));
+      expect(videoReads()).toBe(1);
+
+      applyEventMessage(queryClient, commandPush(2, 'MusicVideoSearch', 'completed'));
+      applyEventMessage(queryClient, commandPush(3, 'MusicVideoDownload', 'completed'));
+      expect(videoReads()).toBe(1);
+
+      vi.advanceTimersByTime(3000);
+      expect(videoReads()).toBe(2);
+
+      // Progress ticks read nothing.
+      applyEventMessage(queryClient, commandPush(4, 'MusicVideoDownload', 'started'));
+      vi.advanceTimersByTime(10_000);
+      expect(videoReads()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('refreshes the song lists when a song-changing command ends, not while it runs', () => {
     const queryClient = cacheWithEntries();
 
