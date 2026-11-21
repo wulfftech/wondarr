@@ -41,16 +41,24 @@ public static class MusicVideoTitleMatcher
     /// a fan added ("1080p Remaster by aTunes"). Matched on the whole content of a bracket.
     /// </summary>
     private static readonly Regex NoiseBracket = new(
-        @"^(?:music\s+video|full\s+hd|hd|hq|4k|uhd|(?:\d{3,4}p|4k|hd)\b.*|.*\bremaster(?:ed)?\b.*)$",
+        @"^(?:music\s+video|full\s+hd|hd|hq|4k|uhd|\d{3,4}p|(?:(?:19|20)\d{2}\s+)?remaster(?:ed)?(?:\s+(?:19|20)\d{2})?(?:\s+by\s+[^\[\]()]+)?)"
+        + @"(?:[\s,&/\-]+(?:music\s+video|full\s+hd|hd|hq|4k|uhd|\d{3,4}p|(?:(?:19|20)\d{2}\s+)?remaster(?:ed)?(?:\s+(?:19|20)\d{2})?(?:\s+by\s+[^\[\]()]+)?))*$",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
     /// <summary>
     /// Words that say a video is another version of the song than the studio one, beyond the version flags the
-    /// parser reads: live, a remix or mix, a cover, a reaction, vocals only and the like.
+    /// parser reads: live, a remix, a cover, a reaction, vocals only and the like. A bare "mix" is left to the parser,
+    /// which reads a named mix ("Rah Mix") as a remix and "Radio Mix" or "Original Mix" as neutral.
     /// </summary>
     private static readonly Regex OtherVersionWords = new(
-        @"\b(?:live|remix|mix|cover|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted)\b",
+        @"\b(?:live|remix|cover|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>A trailing "(feat. …)", "[ft. …]" or "featuring …" clause.</summary>
+    private static readonly Regex FeaturingTail = new(
+        @"\s*[\(\[]?\s*\b(?:feat|ft|featuring)\b\.?.*$",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -77,6 +85,11 @@ public static class MusicVideoTitleMatcher
     /// <param name="IsLyricOrVisualizer">Whether a decoration said the video is a lyric video or a visualizer.</param>
     public sealed record Stripped(string Title, bool IsLyricOrVisualizer);
 
+    private static bool IsNoise(string content) =>
+        NoiseBracket.IsMatch(content)
+        && !OtherVersionWords.IsMatch(content)
+        && (VersionFlagParser.Parse(content, disambiguation: content).Flags & VersionFlagNames.HardFlags) == VersionFlags.None;
+
     /// <summary>Strips the known decorations from a video title.</summary>
     /// <param name="videoTitle">The title as YouTube shows it.</param>
     public static Stripped Strip(string videoTitle)
@@ -89,7 +102,8 @@ public static class MusicVideoTitleMatcher
         {
             var content = match.Groups[1].Value.Trim();
 
-            if (!Decorations.Contains(content, StringComparer.OrdinalIgnoreCase) && !NoiseBracket.IsMatch(content))
+            // A bracket goes only when all of it is noise, and never one that names a version.
+            if (!Decorations.Contains(content, StringComparer.OrdinalIgnoreCase) && !IsNoise(content))
             {
                 return match.Value;
             }
@@ -198,7 +212,7 @@ public static class MusicVideoTitleMatcher
             similarity = Math.Max(similarity, Similarity(songTitle, remaining));
         }
 
-        var otherVersion = IsOtherVersion(songTitle, videoTitle);
+        var otherVersion = IsOtherVersion(songTitle, videoTitle, songArtists);
 
         return new Evaluation(
             remaining is not null,
@@ -228,7 +242,10 @@ public static class MusicVideoTitleMatcher
                 return string.Join(" - ", parts.Skip(1));
             }
 
-            if (ArtistEvidence.NamesAnyOf(parts[^1], songArtists))
+            // "Title (feat. Artist)" credits a guest, it does not name the song's artist as the video's own.
+            var last = FeaturingTail.Replace(parts[^1], string.Empty).Trim();
+
+            if (last.Length > 0 && ArtistEvidence.NamesAnyOf(last, songArtists))
             {
                 return string.Join(" - ", parts.Take(parts.Count - 1));
             }
@@ -243,16 +260,21 @@ public static class MusicVideoTitleMatcher
 
     /// <summary>
     /// Whether a video's title says it is another version than the song's: a hard version flag the song lacks, or a
-    /// word such as live, mix, cover, reaction or vocals only that the song's own title does not carry.
+    /// word such as live, remix, cover, reaction or vocals only that the song's own title does not carry. When the
+    /// song's artists are given and the title names one, only the part after the artist is read, and a word that is in an
+    /// artist's name ("Live", "Little Mix") is not a version.
     /// </summary>
     /// <param name="songTitle">The song's title.</param>
     /// <param name="videoTitle">The video's title, decorations and all.</param>
-    public static bool IsOtherVersion(string songTitle, string videoTitle)
+    /// <param name="songArtists">The song's artists, or <see langword="null"/> to read the whole title.</param>
+    public static bool IsOtherVersion(string songTitle, string videoTitle, IReadOnlyList<string>? songArtists = null)
     {
         ArgumentNullException.ThrowIfNull(songTitle);
         ArgumentNullException.ThrowIfNull(videoTitle);
 
-        var stripped = Strip(videoTitle).Title;
+        var stripped = songArtists is null
+            ? Strip(videoTitle).Title
+            : Strip(TitleAfterArtist(videoTitle, songArtists) ?? videoTitle).Title;
         var flags = VideoFlags(stripped, TitleParts(stripped));
 
         // The song's own title may carry the word ("Live and Let Die"), which a part after a dash reads as a hint.
@@ -265,6 +287,11 @@ public static class MusicVideoTitleMatcher
         }
 
         var inSong = OtherVersionWords.Matches(songTitle).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var artist in songArtists ?? [])
+        {
+            inSong.UnionWith(OtherVersionWords.Matches(artist).Select(match => match.Value.ToLowerInvariant()));
+        }
 
         return OtherVersionWords.Matches(stripped).Any(match => !inSong.Contains(match.Value.ToLowerInvariant()));
     }

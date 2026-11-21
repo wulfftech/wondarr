@@ -119,14 +119,12 @@ function useAfterGrace(active: boolean, delayMs: number): boolean {
 
 /** What the Match badge counts, split: the reference files to review and the music videos that fit more than one song. */
 function matchBadgeLabel(files: number, videos: number): string {
-  const total = files + videos;
-  const base = total === 1 ? '1 file to review' : `${String(total)} files to review`;
+  const parts = [
+    files > 0 ? `${String(files)} music ${files === 1 ? 'file' : 'files'}` : null,
+    videos > 0 ? `${String(videos)} music ${videos === 1 ? 'video' : 'videos'}` : null,
+  ].filter((part) => part !== null);
 
-  if (videos === 0) {
-    return base;
-  }
-
-  return `${base}: ${String(files)} music, ${String(videos)} music ${videos === 1 ? 'video' : 'videos'}`;
+  return `${String(files + videos)} to review: ${parts.join(', ')}`;
 }
 
 /** The *arr shell: a fixed navbar, a header with the instance name, health, feedback and the theme toggle. */

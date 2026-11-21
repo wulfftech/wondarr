@@ -326,6 +326,42 @@ public sealed class MusicVideoFileScanTests : IDisposable
         identified.Unmatched.Should().Be(1);
     }
 
+    [Theory]
+    [InlineData("Massive Attack - Teardrop (HD Live).mkv")]
+    [InlineData("Massive Attack - Teardrop (4K Remix).mkv")]
+    [InlineData("Massive Attack - Teardrop (Live at Wembley 1986 - Remastered).mkv")]
+    public async Task A_noise_word_beside_a_version_word_does_not_hide_the_version(string fileName)
+    {
+        await _harness.InitAsync();
+        await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        _harness.Video(fileName);
+
+        var (_, identified) = await _harness.ScanAndIdentifyAsync(_probe);
+
+        identified.Adopted.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_file_with_no_codecs_in_its_probe_is_not_probed_again()
+    {
+        await _harness.InitAsync();
+        await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        _harness.Video("Massive Attack - Teardrop.mkv", nfo: MusicVideoScanTestKit.Nfo("Teardrop", "Massive Attack"));
+        _probe.Answer = _ => new VideoProbeResult(true, new VideoInfo(1, 1, null, null, null, null, 284_000, 14, "matroska,webm"), null);
+
+        await _harness.ScanAndIdentifyAsync(_probe);
+        _probe.Probed.Clear();
+        var second = await _harness.ScanAndIdentifyAsync(_probe);
+
+        second.Scan.Probed.Should().Be(0);
+        _probe.Probed.Should().BeEmpty("a probe that found no codec was still a probe");
+
+        await using var context = _harness.NewContext();
+        var video = await context.MusicVideos.AsNoTracking().SingleOrDefaultAsync();
+        video?.VideoCodec.Should().BeNull("an empty marker never reaches the song's row");
+        video?.AudioCodec.Should().BeNull();
+    }
+
     [Fact]
     public async Task A_file_that_could_not_be_read_is_never_adopted_and_is_probed_again_next_time()
     {

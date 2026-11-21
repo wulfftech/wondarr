@@ -387,8 +387,8 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         || (row.State == MusicVideoFileState.Ignored && row.MissingSince is not null);
 
     /// <summary>
-    /// A row that was probed before codecs were kept: it is read and has neither codec. It is probed once more, and the
-    /// probe fills them in (a readable video always reports at least one).
+    /// A row that was probed before codecs were kept: it is read and has neither codec (null). It is probed once more,
+    /// and a probe that finds no codec stores an empty text, so it is never probed for them again.
     /// </summary>
     private static bool NeedsCodecBackfill(MusicVideoFile row) =>
         row.Container is not null && row.VideoCodec is null && row.AudioCodec is null;
@@ -436,8 +436,9 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             row.DurationMs = info.DurationMs > 0 ? info.DurationMs : null;
             row.Width = info.Width;
             row.Height = info.Height;
-            row.VideoCodec = info.VideoCodec;
-            row.AudioCodec = info.AudioCodec;
+            // An empty text says "probed, and no codec found": it keeps the backfill to one probe per file.
+            row.VideoCodec = info.VideoCodec ?? string.Empty;
+            row.AudioCodec = info.AudioCodec ?? string.Empty;
             row.TagTitle = info.TagTitle;
             row.TagArtist = info.TagArtist;
         }
@@ -535,8 +536,8 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
 
         video.Width = row.Width;
         video.Height = row.Height;
-        video.VideoCodec = row.VideoCodec;
-        video.AudioCodec = row.AudioCodec;
+        video.VideoCodec = string.IsNullOrEmpty(row.VideoCodec) ? null : row.VideoCodec;
+        video.AudioCodec = string.IsNullOrEmpty(row.AudioCodec) ? null : row.AudioCodec;
         video.DurationMs = row.DurationMs;
         video.SizeBytes = row.Size > 0 ? row.Size : null;
     }

@@ -152,4 +152,41 @@ public sealed class MusicVideoTitleMatcherTests
     {
         MusicVideoTitleMatcher.IsOtherVersion("Live and Let Die", "Paul McCartney - Live and Let Die").Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("Teardrop (HD Live)")]
+    [InlineData("Teardrop (4K Remix)")]
+    [InlineData("Teardrop (1080p Live at Glastonbury)")]
+    [InlineData("Teardrop (Live at Wembley 1986 - Remastered)")]
+    [InlineData("Teardrop (Acoustic, Remastered 2011)")]
+    public void A_bracket_that_holds_a_version_word_is_never_stripped_as_noise(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Strip(videoTitle).Title.Should().Be(videoTitle);
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Teardrop", videoTitle).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Teardrop (HD)")]
+    [InlineData("Teardrop (1080p, Remastered 2011)")]
+    [InlineData("Teardrop (Music Video) (1080p Remaster by aTunes)")]
+    [InlineData("Teardrop [4K]")]
+    public void A_bracket_that_is_only_noise_is_stripped(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Strip(videoTitle).Title.Should().Be("Teardrop");
+    }
+
+    [Fact]
+    public void A_version_word_in_the_artists_name_is_not_a_version()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Lightning Crashes", "Live - Lightning Crashes", ["Live"]).Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Shout Out to My Ex", "Little Mix - Shout Out to My Ex (Official Video)", ["Little Mix"]).Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Lightning Crashes", "Live - Lightning Crashes (Live)", ["Live"]).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_featured_artist_after_the_dash_is_not_the_artist_of_the_video()
+    {
+        MusicVideoTitleMatcher.TitleAfterArtist("Band B - Song X (feat. Band A)", ["Band A"]).Should().BeNull();
+        MusicVideoTitleMatcher.TitleAfterArtist("Song X - Band A (feat. Someone)", ["Band A"]).Should().Be("Song X");
+    }
 }

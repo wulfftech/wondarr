@@ -193,6 +193,78 @@ public sealed class YtDlpVideoDownloadTests
     }
 
     [Fact]
+    public async Task The_started_callback_runs_only_once_the_gate_is_held()
+    {
+        var release = new TaskCompletionSource<ProcessResult>();
+        var runner = new FakeProcessRunner()
+            .Enqueue(_ => release.Task)
+            .Enqueue("/grabs/video-2/def.mkv\n10\n");
+        using var yt = Build(runner);
+        var started = 0;
+
+        var first = yt.DownloadVideoAsync("abc", "/grabs/video-1", null, CancellationToken.None);
+        var second = yt.DownloadVideoAsync("def", "/grabs/video-2", null, CancellationToken.None, () =>
+        {
+            started++;
+
+            return Task.CompletedTask;
+        });
+
+        await Task.Delay(100);
+        started.Should().Be(0, "the second download is still waiting for the gate");
+
+        release.SetResult(new ProcessResult(0, "/grabs/video-1/abc.mkv\n10\n", string.Empty, TimedOut: false));
+        await first;
+        await second;
+
+        started.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task The_started_callback_is_not_called_when_the_wait_for_the_gate_is_cancelled()
+    {
+        var release = new TaskCompletionSource<ProcessResult>();
+        var runner = new FakeProcessRunner().Enqueue(_ => release.Task);
+        using var yt = Build(runner);
+        using var cancel = new CancellationTokenSource();
+        var started = false;
+
+        var first = yt.DownloadVideoAsync("abc", "/grabs/video-1", null, CancellationToken.None);
+        var second = yt.DownloadVideoAsync("def", "/grabs/video-2", null, cancel.Token, () =>
+        {
+            started = true;
+
+            return Task.CompletedTask;
+        });
+
+        await Task.Delay(100);
+        await cancel.CancelAsync();
+
+        var wait = async () => await second;
+        await wait.Should().ThrowAsync<OperationCanceledException>();
+        started.Should().BeFalse();
+
+        release.SetResult(new ProcessResult(0, "/grabs/video-1/abc.mkv\n10\n", string.Empty, TimedOut: false));
+        await first;
+    }
+
+    [Fact]
+    public async Task The_gate_is_released_when_the_started_callback_throws()
+    {
+        var runner = new FakeProcessRunner().Enqueue("/grabs/video-2/def.mkv\n10\n");
+        using var yt = Build(runner);
+
+        var act = () => yt.DownloadVideoAsync("abc", "/grabs/video-1", null, CancellationToken.None, () => throw new InvalidOperationException("db down"));
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        runner.Calls.Should().BeEmpty("yt-dlp never started");
+
+        var next = await yt.DownloadVideoAsync("def", "/grabs/video-2", null, CancellationToken.None);
+
+        next.VideoId.Should().Be("def");
+    }
+
+    [Fact]
     public async Task The_audio_download_still_builds_exactly_its_own_arguments()
     {
         var runner = new FakeProcessRunner().Enqueue("/grabs/queue-1/abc123.opus\n");

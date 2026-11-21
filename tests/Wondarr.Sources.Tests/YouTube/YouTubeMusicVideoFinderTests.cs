@@ -256,6 +256,84 @@ public sealed class YouTubeMusicVideoFinderTests
     }
 
     [Fact]
+    public async Task An_official_video_of_a_live_remastered_version_is_not_confident()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("AAAAAAAAAAA", "Queen - Under Pressure (Live at Wembley 1986 - Remastered)", ["Queen"], InnertubeVideoTypes.OfficialVideo, durationMs: 248_000),
+                Result("BBBBBBBBBBB", "Queen - Under Pressure (HD Live)", ["Queen"], InnertubeVideoTypes.OfficialVideo, durationMs: 248_000)));
+        var query = new MusicVideoQuery("Under Pressure", ["Queen"], null, 248_000, NoBlocklist);
+
+        var candidates = await Finder(musicBrainz, innertube).FindAsync(query, CancellationToken.None);
+
+        candidates.Should().OnlyContain(candidate => !candidate.Confident, "the version word survives the decorations");
+    }
+
+    [Fact]
+    public async Task The_artist_in_the_title_earns_ranking_points_but_never_confidence()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("AAAAAAAAAAA", "Unrelated Song", ["Someone"], InnertubeVideoTypes.UserUpload, durationMs: 248_000),
+                Result("BBBBBBBBBBB", "Queen - Under Pressure (Official Video)", ["VEVO Channel"], InnertubeVideoTypes.OfficialVideo, durationMs: 248_000),
+                Result("CCCCCCCCCCC", "Under Pressure (feat. Queen)", ["Other Act"], InnertubeVideoTypes.OfficialVideo, durationMs: 248_000)));
+        var query = new MusicVideoQuery("Under Pressure", ["Queen"], null, 248_000, NoBlocklist);
+
+        var candidates = await Finder(musicBrainz, innertube).FindAsync(query, CancellationToken.None);
+
+        candidates.Should().OnlyContain(candidate => !candidate.Confident);
+        candidates[0].VideoId.Should().Be("BBBBBBBBBBB");
+        candidates.Select(candidate => candidate.VideoId).Should().EndWith("AAAAAAAAAAA");
+    }
+
+    [Fact]
+    public async Task A_featured_artist_in_the_title_is_not_the_videos_artist()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(Result("AAAAAAAAAAA", "Band B - Song X (feat. Band A)", ["Band B"], InnertubeVideoTypes.OfficialVideo, durationMs: 200_000)));
+        var query = new MusicVideoQuery("Song X", ["Band A"], null, 200_000, NoBlocklist);
+
+        var candidates = await Finder(musicBrainz, innertube).FindAsync(query, CancellationToken.None);
+
+        var candidate = candidates.Should().ContainSingle().Subject;
+        candidate.Confident.Should().BeFalse();
+        candidate.ArtistNamed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task An_artist_whose_name_holds_a_version_word_is_not_marked_another_version()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var littleMixStub = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("AAAAAAAAAAA", "Little Mix - Shout Out to My Ex (Official Video)", ["Little Mix"], InnertubeVideoTypes.OfficialVideo, durationMs: 250_000),
+                Result("CCCCCCCCCCC", "Little Mix - Shout Out to My Ex", ["Fan"], InnertubeVideoTypes.UserUpload, durationMs: 250_000)));
+        var liveStub = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(Result("BBBBBBBBBBB", "Live - Lightning Crashes", ["Fan"], InnertubeVideoTypes.UserUpload, durationMs: 250_000)));
+
+        var little = await Finder(musicBrainz, littleMixStub).FindAsync(
+            new MusicVideoQuery("Shout Out to My Ex", ["Little Mix"], null, 250_000, NoBlocklist),
+            CancellationToken.None);
+        little.Single(candidate => candidate.VideoId == "AAAAAAAAAAA").Confident.Should().BeTrue();
+        little.Single(candidate => candidate.VideoId == "CCCCCCCCCCC").Score.Should().BeGreaterThan(500 + 250, "no version penalty for a band called Mix");
+
+        var live = await Finder(musicBrainz, liveStub).FindAsync(
+            new MusicVideoQuery("Lightning Crashes", ["Live"], null, 250_000, NoBlocklist),
+            CancellationToken.None);
+        var upload = live.Single();
+        upload.ArtistNamed.Should().BeTrue();
+        upload.Score.Should().BeGreaterThan(500 + 250, "no version penalty for the band called Live");
+    }
+
+    [Fact]
     public async Task A_live_or_cover_upload_ranks_below_a_studio_upload_that_names_the_artist()
     {
         var musicBrainz = Substitute.For<IMusicBrainzClient>();

@@ -134,8 +134,8 @@ public static class MusicVideoFileRules
         row.Width = file.Width;
         row.Height = file.Height;
         row.VideoTitle = null;
-        row.VideoCodec = file.VideoCodec;
-        row.AudioCodec = file.AudioCodec;
+        row.VideoCodec = string.IsNullOrEmpty(file.VideoCodec) ? null : file.VideoCodec;
+        row.AudioCodec = string.IsNullOrEmpty(file.AudioCodec) ? null : file.AudioCodec;
         row.SizeBytes = file.Size > 0 ? file.Size : null;
         row.DurationMs = file.DurationMs;
         row.FailureReason = null;

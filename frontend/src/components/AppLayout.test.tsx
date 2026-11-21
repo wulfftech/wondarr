@@ -183,17 +183,38 @@ describe('AppLayout', () => {
       installMatchRoutes(true);
       renderShell();
 
-      const badge = await screen.findByLabelText('5 files to review: 3 music, 2 music videos');
+      const badge = await screen.findByLabelText('5 to review: 3 music files, 2 music videos');
 
       // 3 reference files + 2 ambiguous videos; the 9 unmatched are not in the library, so nothing is to be done.
       expect(badge).toHaveTextContent('5');
+    });
+
+    it('leaves a zero part out of the label', async () => {
+      installFetch((url) => {
+        if (/\/api\/v1\/matchqueue\?/.test(url)) {
+          return jsonResponse({ page: 1, pageSize: 1, totalRecords: 0, records: [] });
+        }
+
+        if (url.endsWith('/musicvideo/settings')) {
+          return jsonResponse({ enabled: true });
+        }
+
+        if (url.endsWith('/musicvideo/match/summary')) {
+          return jsonResponse({ ...SUMMARY, ambiguous: 1 });
+        }
+
+        return jsonResponse([]);
+      });
+      renderShell();
+
+      expect(await screen.findByLabelText('1 to review: 1 music video')).toHaveTextContent('1');
     });
 
     it('counts only the reference files while music videos are off', async () => {
       installMatchRoutes(false);
       renderShell();
 
-      const badge = await screen.findByLabelText('3 files to review');
+      const badge = await screen.findByLabelText('3 to review: 3 music files');
 
       expect(badge).toHaveTextContent('3');
     });
