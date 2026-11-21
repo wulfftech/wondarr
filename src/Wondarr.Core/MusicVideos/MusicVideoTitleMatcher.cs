@@ -64,7 +64,7 @@ public static class MusicVideoTitleMatcher
     /// which reads a named mix ("Rah Mix") as a remix and "Radio Mix" or "Original Mix" as neutral.
     /// </summary>
     private static readonly Regex OtherVersionWords = new(
-        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted)\b",
+        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted|chipmunk|pitch(?:ed|\s+shifted)|\d+\s?hz|\d+\s+hours?|loop|festival|festivel|fest|concert|live\s+(?:at|from)|in\s+concert|unplugged|sessions?|bbc|mtv)\b",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -95,6 +95,21 @@ public static class MusicVideoTitleMatcher
     /// <summary>An official-video decoration with remaster or resolution words after it: <c>Official Video Remastered 4K</c>.</summary>
     private static readonly Regex OfficialVideoBracket = new(
         @"^official\s+(?:music\s+)?(?:hd\s+)?video(?:[\s,&/\-]+(?:remaster(?:ed)?|hd|hq|4k|uhd|\d{3,4}p|(?:19|20)\d{2}))*$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// A bracket that only says where the song comes from: <c>from "Frozen"</c>, <c>From the Netflix Series …</c> or
+    /// soundtrack wording (<c>Original Motion Picture Soundtrack</c>, <c>OST</c>).
+    /// </summary>
+    private static readonly Regex SoundtrackBracket = new(
+        @"^(?:from\s+\S.*|(?:the\s+)?(?:original\s+)?(?:motion\s+picture\s+)?(?:soundtrack|ost)(?:\s+version)?|original\s+(?:motion\s+picture|film|series)\s+(?:soundtrack|score))$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>A trailing dash part that names a work the song comes from: <c>- From "Moana"</c>, <c>- from the movie …</c>.</summary>
+    private static readonly Regex SoundtrackDashSuffix = new(
+        @"\s[-–—]\s+from\s+(?:[""“'‘].+?[""”'’]|the\s+(?:movie|film|motion\s+picture|netflix\s+series|series).*)\s*$",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -155,6 +170,20 @@ public static class MusicVideoTitleMatcher
         && !OtherVersionWords.IsMatch(content)
         && (VersionFlagParser.Parse(content, disambiguation: content).Flags & VersionFlagNames.HardFlags) == VersionFlags.None;
 
+    /// <summary>
+    /// Whether a bracket's content only says where the song comes from. The song's own title keeping the same words
+    /// ("From the Start") is not a note.
+    /// </summary>
+    private static bool IsSoundtrackNote(string content, string? songTitle) =>
+        SoundtrackBracket.IsMatch(content)
+        && !OtherVersionWords.IsMatch(content)
+        && (VersionFlagParser.Parse(content, disambiguation: content).Flags & VersionFlagNames.HardFlags) == VersionFlags.None
+        && (songTitle is null || !songTitle.Contains(content, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsDashNoteInSong(string note, string? songTitle) =>
+        OtherVersionWords.IsMatch(note)
+        || (songTitle is not null && songTitle.Contains(note.Trim(' ', '-', '–', '—'), StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Whether a bracket's content is only an edit or single-version marker, which a music video ignores.</summary>
     private static bool IsSoftVersion(string content) => SoftVersion.IsMatch(content);
 
@@ -176,7 +205,8 @@ public static class MusicVideoTitleMatcher
 
     /// <summary>Strips the known decorations from a video title.</summary>
     /// <param name="videoTitle">The title as YouTube shows it.</param>
-    public static Stripped Strip(string videoTitle)
+    /// <param name="songTitle">The song's title, when known: a soundtrack note the song's own title carries stays.</param>
+    public static Stripped Strip(string videoTitle, string? songTitle = null)
     {
         ArgumentNullException.ThrowIfNull(videoTitle);
 
@@ -192,7 +222,8 @@ public static class MusicVideoTitleMatcher
                 && !IsNoise(content)
                 && !OfficialVideoBracket.IsMatch(content)
                 && !IsSoftVersion(content)
-                && !YearBracket.IsMatch(content))
+                && !YearBracket.IsMatch(content)
+                && !IsSoundtrackNote(content, songTitle))
             {
                 return match.Value;
             }
@@ -202,7 +233,17 @@ public static class MusicVideoTitleMatcher
             return string.Empty;
         });
 
-        return new Stripped(stripped.Trim(), lyricOrVisualizer);
+        stripped = stripped.Trim();
+
+        // "Title - From "Moana"": only a trailing part, and only when something stays before it.
+        var dash = SoundtrackDashSuffix.Match(stripped);
+
+        if (dash.Success && dash.Index > 0 && !IsDashNoteInSong(dash.Value, songTitle))
+        {
+            stripped = stripped[..dash.Index].Trim();
+        }
+
+        return new Stripped(stripped, lyricOrVisualizer);
     }
 
     /// <summary>
@@ -217,7 +258,7 @@ public static class MusicVideoTitleMatcher
         ArgumentNullException.ThrowIfNull(songTitle);
         ArgumentNullException.ThrowIfNull(videoTitle);
 
-        var stripped = Strip(videoTitle).Title;
+        var stripped = Strip(videoTitle, songTitle).Title;
 
         if (stripped.Length == 0)
         {
@@ -294,7 +335,7 @@ public static class MusicVideoTitleMatcher
         ArgumentNullException.ThrowIfNull(songArtists);
         ArgumentNullException.ThrowIfNull(videoTitle);
 
-        var remaining = TitleAfterArtist(videoTitle, songArtists);
+        var remaining = TitleAfterArtist(videoTitle, songArtists, songTitle);
         var similarity = Similarity(songTitle, videoTitle);
 
         if (remaining is not null)
@@ -320,12 +361,13 @@ public static class MusicVideoTitleMatcher
     /// </summary>
     /// <param name="videoTitle">The video's title.</param>
     /// <param name="songArtists">The song's artists.</param>
-    public static string? TitleAfterArtist(string videoTitle, IReadOnlyList<string> songArtists)
+    /// <param name="songTitle">The song's title, when known, so a soundtrack note it carries is kept.</param>
+    public static string? TitleAfterArtist(string videoTitle, IReadOnlyList<string> songArtists, string? songTitle = null)
     {
         ArgumentNullException.ThrowIfNull(videoTitle);
         ArgumentNullException.ThrowIfNull(songArtists);
 
-        var stripped = Whitespace.Replace(Strip(videoTitle).Title, " ").Trim();
+        var stripped = Whitespace.Replace(Strip(videoTitle, songTitle).Title, " ").Trim();
         var separators = ArtistSeparator.Matches(stripped);
 
         // The artist is whatever stands before one of the separators, so an artist whose own name holds a separator
@@ -376,8 +418,8 @@ public static class MusicVideoTitleMatcher
         ArgumentNullException.ThrowIfNull(videoTitle);
 
         var stripped = songArtists is null
-            ? Strip(videoTitle).Title
-            : Strip(TitleAfterArtist(videoTitle, songArtists) ?? videoTitle).Title;
+            ? Strip(videoTitle, songTitle).Title
+            : Strip(TitleAfterArtist(videoTitle, songArtists, songTitle) ?? videoTitle, songTitle).Title;
         var flags = VideoFlags(stripped, TitleParts(stripped));
 
         // The song's own title may carry the word ("Live and Let Die"), which a part after a dash reads as a hint.
@@ -429,7 +471,7 @@ public static class MusicVideoTitleMatcher
                 continue;
             }
 
-            var stripped = Strip(title).Title;
+            var stripped = Strip(title, songTitle).Title;
             texts.Add(stripped);
             texts.AddRange(TitleParts(stripped));
         }
@@ -511,7 +553,7 @@ public static class MusicVideoTitleMatcher
         ArgumentNullException.ThrowIfNull(songTitle);
         ArgumentNullException.ThrowIfNull(videoTitle);
 
-        if (Strip(videoTitle).IsLyricOrVisualizer)
+        if (Strip(videoTitle, songTitle).IsLyricOrVisualizer)
         {
             return true;
         }

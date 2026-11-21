@@ -402,4 +402,100 @@ public sealed class MusicVideoTitleMatcherTests
         MusicVideoTitleMatcher.SearchTitle(title).Should().Be("Joyride");
         MusicVideoTitleMatcher.Strip(title).Title.Should().Be("Joyride");
     }
+
+    private const string TimberlakeTitle = "Justin Timberlake - CAN'T STOP THE FEELING! (from DreamWorks Animation's \"TROLLS\") (Official Video)";
+
+    [Theory]
+    [InlineData("Song (from DreamWorks Animation's \"TROLLS\")")]
+    [InlineData("Song (From \"Frozen\")")]
+    [InlineData("Song [From The Motion Picture Frozen]")]
+    [InlineData("Song (Original Motion Picture Soundtrack)")]
+    [InlineData("Song (From the Netflix Series Arcane)")]
+    [InlineData("Song (from the movie Trolls)")]
+    [InlineData("Song - From \"Moana\"")]
+    [InlineData("Song (OST)")]
+    public void A_note_on_where_the_song_comes_from_is_stripped(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Strip(videoTitle).Title.Should().Be("Song");
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Song", videoTitle).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_soundtrack_note_the_songs_own_title_carries_stays()
+    {
+        MusicVideoTitleMatcher.Strip("Laufey - From The Start").Title.Should().Be("Laufey - From The Start");
+        MusicVideoTitleMatcher.Strip("Song (From \"Frozen\")", "Song (From \"Frozen\")").Title.Should().Be("Song (From \"Frozen\")");
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Song (From \"Frozen\")", "Song (From \"Frozen\") (Official Video)").Should().BeTrue();
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Song", "Song (from Live at Wembley)").Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_real_timberlake_title_is_the_song()
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate("CAN'T STOP THE FEELING!", ["Justin Timberlake"], TimberlakeTitle);
+
+        evaluation.IsTitledAsTheSong.Should().BeTrue();
+        evaluation.IsOtherVersion.Should().BeFalse();
+        MusicVideoTitleMatcher.IsAudioOnly("CAN'T STOP THE FEELING!", TimberlakeTitle).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (852 hz)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake 432Hz")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (Pitched)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (pitch shifted)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (Slowed + Reverb)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (Sped Up)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake Nightcore")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (8D Audio)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (Bass Boosted)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake Chipmunk")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake (10 Hours)")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake 1 Hour")]
+    [InlineData("Can't Stop the Feeling! - Justin Timberlake Loop")]
+    public void An_altered_upload_is_another_version_and_not_titled_as_the_song(string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("CAN'T STOP THE FEELING!", videoTitle, ["Justin Timberlake"]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("CAN'T STOP THE FEELING!", ["Justin Timberlake"], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_saddle_club_chipmunk_upload_is_another_version()
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate("Hello World", ["The Saddle Club"], "The Saddle Club - Hello World - Chipmunk");
+
+        evaluation.IsOtherVersion.Should().BeTrue();
+        evaluation.IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_altered_word_the_songs_own_title_has_is_not_a_version()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Loop", "Artist - Loop (Official Video)", ["Artist"]).Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Concert", "Artist - Concert (Official Video)", ["Artist"]).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Paramore - When It Rains - (iTunes Festivel 2013)- [HD]")]
+    [InlineData("Paramore - When It Rains (iTunes Festival 2013)")]
+    [InlineData("Paramore - When It Rains (Fest)")]
+    [InlineData("Paramore - When It Rains (Concert)")]
+    [InlineData("Paramore - When It Rains (In Concert)")]
+    [InlineData("Paramore - When It Rains (Live at Reading)")]
+    [InlineData("Paramore - When It Rains (Live from the O2)")]
+    [InlineData("Paramore - When It Rains (Unplugged)")]
+    [InlineData("Paramore - When It Rains (BBC Session)")]
+    [InlineData("Paramore - When It Rains (Live Sessions)")]
+    [InlineData("Paramore - When It Rains (MTV)")]
+    public void A_live_festival_or_session_upload_is_another_version_and_not_titled_as_the_song(string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("When It Rains", videoTitle, ["Paramore"]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("When It Rains", ["Paramore"], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_plain_paramore_title_is_still_the_song()
+    {
+        MusicVideoTitleMatcher.Evaluate("When It Rains", ["Paramore"], "Paramore - When it Rains").IsTitledAsTheSong.Should().BeTrue();
+    }
 }
