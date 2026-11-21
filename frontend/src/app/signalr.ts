@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { AppConfig } from '../api/bootstrap';
 import { HEALTH_QUERY_KEY, TASKS_QUERY_KEY } from '../api/hooks';
+import { MUSIC_VIDEO_KEY } from '../api/musicVideos';
 import { INTERACTIVE_SEARCH_QUERY_KEY, QUEUE_QUERY_KEY } from '../api/queue';
 import { MATCH_QUEUE_QUERY_KEY } from '../api/references';
 import { COMMANDS_QUERY_KEY, invalidateLibrary, isFinished, SONGS_QUERY_KEY } from '../api/songs';
@@ -69,6 +70,8 @@ const SONG_CHANGING_COMMANDS: ReadonlySet<string> = new Set([
   'BulkAddSongs',
   'ImportListSync',
   'ReferenceAdopt',
+  'MusicVideoDownload',
+  'MusicVideoSearch',
 ]);
 
 /** The commands that put files on (or take them off) the Match queue. */
@@ -96,6 +99,11 @@ function applyCommandOutcome(queryClient: QueryClient, resource: unknown): void 
 
   if (SONG_CHANGING_COMMANDS.has(name)) {
     invalidateLibrary(queryClient);
+  }
+
+  // A music video download that has ended has moved its row, and the dialog's view of it, on.
+  if (name === 'MusicVideoDownload' || name === 'MusicVideoSearch') {
+    void queryClient.invalidateQueries({ queryKey: MUSIC_VIDEO_KEY });
   }
 
   // The header badge only needs the total; the open Match page is refetched only by a command that fills it.

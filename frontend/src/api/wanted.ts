@@ -19,6 +19,24 @@ export type HistoryPage = components['schemas']['PagingResourceOfHistoryResource
 export type BlocklistResource = components['schemas']['BlocklistResource'];
 export type BlocklistPage = components['schemas']['PagingResourceOfBlocklistResource'];
 
+/** How often a song list is asked again while one of its rows is queued or downloading, in milliseconds. */
+export const SONG_VIDEO_POLL_INTERVAL_MS = 5000;
+
+/**
+ * The interval a song list asks again at: every few seconds while a visible row's music video is queued or
+ * downloading, so the row moves on by itself (queued, downloading, present or failed) with no dialog open.
+ */
+export function pollWhileVideosBusy(query: { state: { data: SongPage | undefined } }): number | false {
+  const records: unknown = query.state.data?.records;
+  const busy =
+    Array.isArray(records) &&
+    (records as SongResource[]).some(
+      (song) => song.musicVideo?.status === 'queued' || song.musicVideo?.status === 'downloading',
+    );
+
+  return busy ? SONG_VIDEO_POLL_INTERVAL_MS : false;
+}
+
 /** The query keys the Activity pages invalidate. */
 export const WANTED_QUERY_KEY = ['wanted'] as const;
 export const HISTORY_QUERY_KEY = ['history'] as const;
@@ -47,6 +65,7 @@ export function useWantedMissing(paging: Paging): UseQueryResult<SongPage, Error
 
   return useQuery({
     queryKey: [...WANTED_QUERY_KEY, 'missing', paging],
+    refetchInterval: pollWhileVideosBusy,
     queryFn: async (): Promise<SongPage> => {
       const { data, response } = await client.GET('/api/v1/wanted/missing', {
         params: { query: pagingQuery(pagingValues(paging)) },
@@ -67,6 +86,7 @@ export function useWantedCutoff(paging: Paging): UseQueryResult<SongPage, Error>
 
   return useQuery({
     queryKey: [...WANTED_QUERY_KEY, 'cutoff', paging],
+    refetchInterval: pollWhileVideosBusy,
     queryFn: async (): Promise<SongPage> => {
       const { data, response } = await client.GET('/api/v1/wanted/cutoff', {
         params: { query: pagingQuery(pagingValues(paging)) },

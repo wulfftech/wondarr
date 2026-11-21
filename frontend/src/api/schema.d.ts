@@ -3779,6 +3779,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/musicvideo/song/{songId}/replace-failure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    songId: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/musicvideo/search": {
         parameters: {
             query?: never;
@@ -7162,7 +7219,7 @@ export interface components {
             candidateId: number | string;
         };
         /** @enum {string} */
-        HistoryEventType: "grabbed" | "imported" | "upgraded" | "failed" | "verified" | "rejected" | "deleted" | "renamed" | "converted" | "musicVideoDeleted" | "musicVideoImported";
+        HistoryEventType: "grabbed" | "imported" | "upgraded" | "failed" | "verified" | "rejected" | "deleted" | "renamed" | "converted" | "musicVideoDeleted" | "musicVideoImported" | "musicVideoFailed";
         HistoryResource: {
             /** Format: int64 */
             id: number | string;
@@ -7521,7 +7578,7 @@ export interface components {
             songIds: null | (number | string)[];
         };
         /** @enum {string} */
-        MusicVideoCandidateKind: "unknown" | "officialVideo" | "artTrack" | "userUpload";
+        MusicVideoCandidateKind: "unknown" | "officialVideo" | "artTrack" | "userUpload" | "audioOnly";
         MusicVideoCandidateResource: {
             videoId: string;
             title: string;
@@ -7535,12 +7592,14 @@ export interface components {
             /** Format: int32 */
             score: number | string;
             artistNamed: boolean;
+            titledAsSong: boolean;
         };
         /** @enum {string} */
         MusicVideoFoundBy: "musicBrainz" | "youTubeSearch" | "manual" | "existing";
         MusicVideoGrabAcceptedResource: {
             /** Format: int64 */
             commandId: number | string;
+            status: components["schemas"]["MusicVideoStatus"];
         };
         MusicVideoGrabResource: {
             youTubeVideoId: null | string;
@@ -7660,6 +7719,9 @@ export interface components {
             /** Format: int32 */
             durationMs: null | number | string;
             failureReason: null | string;
+            replaceFailureReason: null | string;
+            /** Format: date-time */
+            replaceFailedAt: null | string;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -7673,6 +7735,7 @@ export interface components {
             queued: boolean;
             candidates: components["schemas"]["MusicVideoCandidateResource"][];
             partial: boolean;
+            status?: null | components["schemas"]["MusicVideoStatus"];
         };
         MusicVideoSettingsResource: {
             enabled: boolean;

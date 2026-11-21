@@ -1,0 +1,100 @@
+import { MantineProvider } from '@mantine/core';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MusicVideoCell } from '../components/MusicVideoCell';
+import { LIBRARY_SONGS } from '../test/fixtures';
+import { createTestConfig, installFetch, jsonResponse } from '../test/helpers';
+import { ApiProvider } from './ApiProvider';
+import { useSongs, type SongPage, type SongResource } from './songs';
+import { pollWhileVideosBusy, SONG_VIDEO_POLL_INTERVAL_MS } from './wanted';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function page(video: unknown): SongPage {
+  const record = { ...LIBRARY_SONGS[0], musicVideo: video } as unknown as SongResource;
+
+  return {
+    page: 1,
+    pageSize: 25,
+    sortKey: 'title',
+    sortDirection: 'ascending',
+    totalRecords: 1,
+    records: [record],
+  };
+}
+
+describe('polling a song list while a video is on its way', () => {
+  it('asks again every 5 seconds while a row is queued or downloading', () => {
+    expect(SONG_VIDEO_POLL_INTERVAL_MS).toBe(5000);
+    expect(
+      pollWhileVideosBusy({ state: { data: page({ status: 'queued', height: null, failureReason: null }) } }),
+    ).toBe(5000);
+    expect(
+      pollWhileVideosBusy({ state: { data: page({ status: 'downloading', height: null, failureReason: null }) } }),
+    ).toBe(5000);
+  });
+
+  it('stops once every row has settled, and when no row has a video', () => {
+    expect(
+      pollWhileVideosBusy({ state: { data: page({ status: 'present', height: 1080, failureReason: null }) } }),
+    ).toBe(false);
+    expect(pollWhileVideosBusy({ state: { data: page({ status: 'failed', height: null, failureReason: 'x' }) } })).toBe(
+      false,
+    );
+    expect(pollWhileVideosBusy({ state: { data: page(null) } })).toBe(false);
+    expect(pollWhileVideosBusy({ state: { data: undefined } })).toBe(false);
+  });
+
+  it('moves a row from queued to present by itself, with no dialog open', async () => {
+    let calls = 0;
+
+    installFetch((url) => {
+      if (url.includes('/api/v1/song')) {
+        calls += 1;
+
+        return jsonResponse(
+          calls === 1
+            ? page({ status: 'queued', height: null, failureReason: null })
+            : page({ status: 'present', height: 1080, failureReason: null }),
+        );
+      }
+
+      return new Response('not found', { status: 404 });
+    });
+
+    function Rows() {
+      const songs = useSongs({ page: 1, pageSize: 25, sortKey: 'title', sortDirection: 'ascending' });
+
+      return (
+        <>
+          {songs.data?.records.map((song) => (
+            <MusicVideoCell key={String(song.id)} song={song} />
+          ))}
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <MantineProvider env="test">
+        <ApiProvider config={createTestConfig()}>
+          <QueryClientProvider client={queryClient}>
+            <Rows />
+          </QueryClientProvider>
+        </ApiProvider>
+      </MantineProvider>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Music video for Get Lucky is queued' })).toBeInTheDocument();
+
+    // The next read is five seconds away.
+    expect(
+      await screen.findByRole('button', { name: 'Music video for Get Lucky' }, { timeout: 9000 }),
+    ).toBeInTheDocument();
+    expect(calls).toBeGreaterThanOrEqual(2);
+  }, 15000);
+});

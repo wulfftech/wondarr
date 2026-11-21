@@ -726,7 +726,7 @@ public sealed class MusicVideoImporterTests : IDisposable
     }
 
     /// <summary>A disk whose placing of the new video fails, and optionally whose move-back does too.</summary>
-    private sealed class FailingPlaceDisk : IDiskOperations
+    internal sealed class FailingPlaceDisk : IDiskOperations
     {
         private readonly DiskOperations _real = new();
 

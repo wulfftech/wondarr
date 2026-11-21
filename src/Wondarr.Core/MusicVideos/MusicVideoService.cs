@@ -136,6 +136,21 @@ public interface IMusicVideoService
     Task<IReadOnlyList<(string Original, string Recycled)>> RecycleFilesDetailedAsync(MusicVideo video, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Why a found video (<see cref="MusicVideoFoundBy.Existing"/>) may not be replaced: it goes to the recycle bin when
+    /// its replacement is filed, so without a usable bin nothing is downloaded. <see langword="null"/> for a video that
+    /// may be replaced, a downloaded one included.
+    /// </summary>
+    /// <param name="video">The row that would be replaced.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    Task<string?> ReplaceRefusalAsync(MusicVideo video, CancellationToken cancellationToken);
+
+    /// <summary>Clears the note that a replacement failed, which the person has read.</summary>
+    /// <param name="songId">The song.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>Whether there was a note to clear.</returns>
+    Task<bool> DismissReplaceFailureAsync(long songId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Recycles the video files of songs that are about to be deleted, before the cascade removes their rows.
     /// A video that may not or cannot be moved (inside a reference library, outside the folders Wondarr writes
     /// to, busy, on a silent disk) is left where it is and logged, and never stops the song's deletion.
@@ -164,6 +179,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
     private readonly IRecycleBin _recycleBin;
     private readonly IDiskOperations _disk;
     private readonly ILogger<MusicVideoService> _logger;
+    private readonly TimeProvider _time;
 
     /// <summary>Initialises a new instance of the <see cref="MusicVideoService"/> class.</summary>
     /// <param name="database">The database.</param>
@@ -171,12 +187,14 @@ public sealed partial class MusicVideoService : IMusicVideoService
     /// <param name="recycleBin">Where the files go, the same bin Remove file uses.</param>
     /// <param name="disk">Tells which files exist, and puts a file back when a later one fails.</param>
     /// <param name="logger">Logs each removal.</param>
+    /// <param name="time">The clock a changed row's <c>updated_at</c> is read from; the system clock when absent.</param>
     public MusicVideoService(
         WondarrDbContext database,
         IOptionsMonitor<MusicVideoOptions> options,
         IRecycleBin recycleBin,
         IDiskOperations disk,
-        ILogger<MusicVideoService> logger)
+        ILogger<MusicVideoService> logger,
+        TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(options);
@@ -189,6 +207,7 @@ public sealed partial class MusicVideoService : IMusicVideoService
         _recycleBin = recycleBin;
         _disk = disk;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     /// <inheritdoc />
@@ -352,6 +371,55 @@ public sealed partial class MusicVideoService : IMusicVideoService
         await GuardReferenceLibrariesAsync(files, cancellationToken).ConfigureAwait(false);
 
         return await Recycle(files, binRoot, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>What a found video's replacement is refused with when there is no usable recycle bin.</summary>
+    internal const string NoRecycleBin = "Set up a recycle bin to replace a video that was in your folder";
+
+    /// <inheritdoc />
+    public async Task<string?> ReplaceRefusalAsync(MusicVideo video, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(video);
+
+        if (video.FoundBy != MusicVideoFoundBy.Existing || string.IsNullOrWhiteSpace(video.Path))
+        {
+            return null;
+        }
+
+        var audioPath = await _database.SongFiles
+            .AsNoTracking()
+            .Where(file => file.SongId == video.SongId)
+            .Select(file => file.Path)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // A path outside the folders Wondarr writes to is reported by the recycling itself.
+        var root = await AllowedRootAsync(video.Path, audioPath, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            return root is not null && _recycleBin.Refusal(root) is not null ? NoRecycleBin : null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return NoRecycleBin;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> DismissReplaceFailureAsync(long songId, CancellationToken cancellationToken)
+    {
+        var cleared = await _database.MusicVideos
+            .Where(video => video.SongId == songId && video.ReplaceFailureReason != null)
+            .ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(video => video.ReplaceFailureReason, (string?)null)
+                    .SetProperty(video => video.ReplaceFailedAt, (DateTime?)null)
+                    .SetProperty(video => video.UpdatedAt, _time.GetUtcNow().UtcDateTime),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return cleared > 0;
     }
 
     /// <inheritdoc />

@@ -1059,6 +1059,14 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("path");
 
+                    b.Property<DateTime?>("ReplaceFailedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("replace_failed_at");
+
+                    b.Property<string>("ReplaceFailureReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("replace_failure_reason");
+
                     b.Property<long?>("SizeBytes")
                         .HasColumnType("INTEGER")
                         .HasColumnName("size_bytes");

@@ -13,6 +13,15 @@ namespace Wondarr.Core.MusicVideos;
 /// </summary>
 public static class MusicVideoTitleMatcher
 {
+    /// <summary>The version flags that tell a studio video from another version of the song: edits are not one.</summary>
+    /// <summary>The shortest name that may be found inside another when a channel is matched to an artist.</summary>
+    private const int MinimumNameLength = 3;
+
+    private const VersionFlags VideoHardFlags = VersionFlagNames.HardFlags & ~(VersionFlags.Edit | VersionFlags.RadioEdit);
+
+    /// <summary>The words a channel name ends with that say nothing about who it is.</summary>
+    private static readonly string[] ChannelSuffixes = ["officialchannel", "official", "vevo", "music", "tv", "channel"];
+
     /// <summary>The decorations a video title may carry, between round or square brackets, in any case.</summary>
     private static readonly string[] Decorations =
     [
@@ -52,7 +61,60 @@ public static class MusicVideoTitleMatcher
     /// which reads a named mix ("Rah Mix") as a remix and "Radio Mix" or "Original Mix" as neutral.
     /// </summary>
     private static readonly Regex OtherVersionWords = new(
-        @"\b(?:live|remix|cover|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted)\b",
+        @"\b(?:live|remix|cover(?:ed)?|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// The words that make an upload audio over a picture, not a music video: official audio, audio, lyrics, a lyric
+    /// video, a visualizer or a static video. They count in a bracket or after a separator ("Title // Lyrics").
+    /// </summary>
+    private static readonly Regex AudioOnlyWords = new(
+        @"(?:[\(\[][^\)\]]*|(?:\s[-–—|*•·~]|\s//|:)\s*(?:official\s+)?)\b(?<word>official\s+audio|audio|lyrics?(?:\s+video)?|visuali[sz]er|static\s+video)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// The edit and single-version markers a song's title may carry, which a video does not repeat ("single edit",
+    /// "radio edit", "7\" version"): soft for music videos, whatever the audio decision engine says.
+    /// </summary>
+    private static readonly Regex SoftVersion = new(
+        @"^(?:(?:single|album|radio|7\s*(?:[""”″]|''|[- ]?inch)?|12\s*(?:[""”″]|''|[- ]?inch))\s+(?:edit|version|mix)|edit)$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>A dash and a soft version marker at the end of a title: <c>Joyride - Single Edit</c>.</summary>
+    private static readonly Regex SoftVersionDashSuffix = new(
+        @"\s[-–—]\s(?:(?:single|album|radio|7\s*(?:[""”″]|''|[- ]?inch)?|12\s*(?:[""”″]|''|[- ]?inch))\s+(?:edit|version|mix)|edit)\s*$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>An official-video decoration with remaster or resolution words after it: <c>Official Video Remastered 4K</c>.</summary>
+    private static readonly Regex OfficialVideoBracket = new(
+        @"^official\s+(?:music\s+)?(?:hd\s+)?video(?:[\s,&/\-]+(?:remaster(?:ed)?|hd|hq|4k|uhd|\d{3,4}p|(?:19|20)\d{2}))*$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>A bare year in a bracket: <c>(1991)</c>.</summary>
+    private static readonly Regex YearBracket = new(
+        @"^(?:19|20)\d{2}$",
+        RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// What separates an artist from a title: a dash, <c>*</c>, a bar, a bullet, <c>//</c> or <c>~</c> with
+    /// whitespace round it, or a colon and whitespace after it.
+    /// </summary>
+    private static readonly Regex ArtistSeparator = new(
+        @"\s+(?:[-–—*|•·~]|//)\s+|\s*:\s+",
+        RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
+    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+
+    /// <summary>Noise a fan leaves at the end of a title after the song's name: <c>1991 HQ</c>.</summary>
+    private static readonly Regex TrailingNoise = new(
+        @"(?:\s+(?:hq|hd|4k|uhd|\d{3,4}p|(?:19|20)\d{2}))+$",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -90,6 +152,35 @@ public static class MusicVideoTitleMatcher
         && !OtherVersionWords.IsMatch(content)
         && (VersionFlagParser.Parse(content, disambiguation: content).Flags & VersionFlagNames.HardFlags) == VersionFlags.None;
 
+    /// <summary>Whether a bracket's content is only an edit or single-version marker, which a music video ignores.</summary>
+    private static bool IsSoftVersion(string content)
+    {
+        if (SoftVersion.IsMatch(content))
+        {
+            return true;
+        }
+
+        var flags = VersionFlagParser.Parse(content, disambiguation: content).Flags;
+
+        return flags != VersionFlags.None && (flags & ~(VersionFlags.Edit | VersionFlags.RadioEdit)) == VersionFlags.None;
+    }
+
+    /// <summary>
+    /// A song's title as a music video is searched for and compared: without its edit and single-version markers
+    /// ("Joyride (single edit)" is "Joyride"), which a video's own title rarely repeats. A title that is only such a
+    /// marker is left as it is.
+    /// </summary>
+    /// <param name="songTitle">The song's title.</param>
+    public static string SearchTitle(string songTitle)
+    {
+        ArgumentNullException.ThrowIfNull(songTitle);
+
+        var bare = BracketRegex.Replace(songTitle, match => IsSoftVersion(match.Groups[1].Value.Trim()) ? string.Empty : match.Value);
+        bare = SoftVersionDashSuffix.Replace(bare, string.Empty).Trim();
+
+        return bare.Length > 0 ? bare : songTitle;
+    }
+
     /// <summary>Strips the known decorations from a video title.</summary>
     /// <param name="videoTitle">The title as YouTube shows it.</param>
     public static Stripped Strip(string videoTitle)
@@ -102,8 +193,13 @@ public static class MusicVideoTitleMatcher
         {
             var content = match.Groups[1].Value.Trim();
 
-            // A bracket goes only when all of it is noise, and never one that names a version.
-            if (!Decorations.Contains(content, StringComparer.OrdinalIgnoreCase) && !IsNoise(content))
+            // A bracket goes only when all of it is noise, and never one that names a version. An edit or a
+            // single version is not a version for a music video (Roxette "Joyride (single edit)").
+            if (!Decorations.Contains(content, StringComparer.OrdinalIgnoreCase)
+                && !IsNoise(content)
+                && !OfficialVideoBracket.IsMatch(content)
+                && !IsSoftVersion(content)
+                && !YearBracket.IsMatch(content))
             {
                 return match.Value;
             }
@@ -135,7 +231,8 @@ public static class MusicVideoTitleMatcher
             return 0;
         }
 
-        var hard = VersionFlagNames.HardFlags;
+        var hard = VideoHardFlags;
+        songTitle = SearchTitle(songTitle);
         var parts = TitleParts(stripped);
         var videoFlags = VideoFlags(stripped, parts);
 
@@ -170,13 +267,13 @@ public static class MusicVideoTitleMatcher
     /// </summary>
     private static VersionFlags VideoFlags(string stripped, List<string> parts)
     {
-        var flags = VersionFlagParser.Parse(stripped).Flags & VersionFlagNames.HardFlags;
+        var flags = VersionFlagParser.Parse(stripped).Flags & VideoHardFlags;
 
         if (parts.Count > 1)
         {
             foreach (var part in parts)
             {
-                flags |= VersionFlagParser.Parse(part, disambiguation: part).Flags & VersionFlagNames.HardFlags;
+                flags |= VersionFlagParser.Parse(part, disambiguation: part).Flags & VideoHardFlags;
             }
         }
 
@@ -232,22 +329,29 @@ public static class MusicVideoTitleMatcher
         ArgumentNullException.ThrowIfNull(videoTitle);
         ArgumentNullException.ThrowIfNull(songArtists);
 
-        var stripped = Strip(videoTitle).Title;
-        var parts = TitleParts(stripped);
+        var stripped = Whitespace.Replace(Strip(videoTitle).Title, " ").Trim();
+        var separators = ArtistSeparator.Matches(stripped);
 
-        if (parts.Count >= 2)
+        // The artist is whatever stands before one of the separators, so an artist whose own name holds a separator
+        // ("A * B") still parses: the later separator is tried next.
+        foreach (Match separator in separators)
         {
-            if (ArtistEvidence.NamesAnyOf(parts[0], songArtists))
+            if (ArtistEvidence.NamesAnyOf(stripped[..separator.Index], songArtists))
             {
-                return string.Join(" - ", parts.Skip(1));
+                return Bare(stripped[(separator.Index + separator.Length)..]);
             }
+        }
 
-            // "Title (feat. Artist)" credits a guest, it does not name the song's artist as the video's own.
-            var last = FeaturingTail.Replace(parts[^1], string.Empty).Trim();
+        // "Title - Artist": the artist after the last separator. "Title (feat. Artist)" credits a guest, it does not
+        // name the song's artist as the video's own.
+        for (var index = separators.Count - 1; index >= 0; index--)
+        {
+            var separator = separators[index];
+            var last = FeaturingTail.Replace(stripped[(separator.Index + separator.Length)..], string.Empty).Trim();
 
             if (last.Length > 0 && ArtistEvidence.NamesAnyOf(last, songArtists))
             {
-                return string.Join(" - ", parts.Take(parts.Count - 1));
+                return Bare(stripped[..separator.Index]);
             }
         }
 
@@ -257,6 +361,9 @@ public static class MusicVideoTitleMatcher
             ? quoted.Groups["title"].Value.Trim()
             : null;
     }
+
+    /// <summary>A title without the noise a fan leaves after it ("Joyride 1991 HQ").</summary>
+    private static string Bare(string title) => TrailingNoise.Replace(title, string.Empty).Trim();
 
     /// <summary>
     /// Whether a video's title says it is another version than the song's: a hard version flag the song lacks, or a
@@ -279,7 +386,7 @@ public static class MusicVideoTitleMatcher
 
         // The song's own title may carry the word ("Live and Let Die"), which a part after a dash reads as a hint.
         var songFlags = (VersionFlagParser.Parse(songTitle).Flags | VersionFlagParser.Parse(songTitle, disambiguation: songTitle).Flags)
-            & VersionFlagNames.HardFlags;
+            & VideoHardFlags;
 
         if ((flags & ~songFlags) != VersionFlags.None)
         {
@@ -325,4 +432,90 @@ public static class MusicVideoTitleMatcher
 
         return NotAVideoWords.Matches(videoTitle).Any(match => !inSong.Contains(match.Value.ToLowerInvariant()));
     }
+
+    /// <summary>
+    /// Whether an upload's real title says it is the audio over a picture: "official audio", "audio", "lyrics", a
+    /// lyric video, a visualizer or a static video, as a whole word in a bracket or after a separator
+    /// ("Title // Lyrics"). A word the song's own title has ("Audio Girl") does not count.
+    /// </summary>
+    /// <param name="songTitle">The song's title.</param>
+    /// <param name="videoTitle">The video's real title, decorations and all.</param>
+    public static bool IsAudioOnly(string songTitle, string videoTitle)
+    {
+        ArgumentNullException.ThrowIfNull(songTitle);
+        ArgumentNullException.ThrowIfNull(videoTitle);
+
+        var inSong = NotAVideoWords.Matches(songTitle).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+
+        return AudioOnlyWords.Matches(videoTitle)
+            .Select(match => match.Groups["word"].Value)
+            .Any(word => !AudioWordsOf(word).Any(inSong.Contains));
+    }
+
+    /// <summary>The single words of a matched audio-only phrase ("official audio" is "audio"), lower case.</summary>
+    private static IEnumerable<string> AudioWordsOf(string phrase) =>
+        NotAVideoWords.Matches(phrase).Select(match => match.Value.ToLowerInvariant());
+
+    /// <summary>
+    /// Whether a YouTube channel's name is one of the song's artists: lowercase letters and digits only, without a
+    /// trailing "vevo", "official", "officialchannel", "music", "tv" or "channel", and either name holding the other
+    /// ("ogafroman" holds "afroman"; "HueyLewisTheNewsVEVO" holds "hueylewisthenews").
+    /// </summary>
+    /// <param name="channelName">The channel's name, as oEmbed gives it.</param>
+    /// <param name="songArtists">The song's artists.</param>
+    public static bool ChannelNamesArtist(string channelName, IReadOnlyList<string> songArtists)
+    {
+        ArgumentNullException.ThrowIfNull(channelName);
+        ArgumentNullException.ThrowIfNull(songArtists);
+
+        if (ArtistEvidence.NamesAnyOf(channelName, songArtists))
+        {
+            return true;
+        }
+
+        var channel = ChannelKey(channelName);
+
+        if (channel.Length < MinimumNameLength)
+        {
+            return false;
+        }
+
+        foreach (var artist in songArtists)
+        {
+            var key = LettersAndDigits(artist);
+
+            if (key.Length >= MinimumNameLength
+                && (channel.Contains(key, StringComparison.Ordinal) || key.Contains(channel, StringComparison.Ordinal)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ChannelKey(string name)
+    {
+        var key = LettersAndDigits(name);
+
+        // Repeated: "Queen Official" and "QueenOfficialVEVO" lose every one of the trailing words.
+        for (var changed = true; changed;)
+        {
+            changed = false;
+
+            foreach (var suffix in ChannelSuffixes)
+            {
+                if (key.Length > suffix.Length && key.EndsWith(suffix, StringComparison.Ordinal))
+                {
+                    key = key[..^suffix.Length];
+                    changed = true;
+                }
+            }
+        }
+
+        return key;
+    }
+
+    private static string LettersAndDigits(string name) =>
+        new([.. name.ToLowerInvariant().Where(char.IsLetterOrDigit)]);
 }

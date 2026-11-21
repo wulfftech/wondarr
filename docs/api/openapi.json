@@ -3504,6 +3504,70 @@
         }
       }
     },
+    "/api/v1/musicvideo/song/{songId}/replace-failure": {
+      "delete": {
+        "tags": [
+          "MusicVideo"
+        ],
+        "parameters": [
+          {
+            "name": "songId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/musicvideo/search": {
       "post": {
         "tags": [
@@ -8211,7 +8275,8 @@
           "renamed",
           "converted",
           "musicVideoDeleted",
-          "musicVideoImported"
+          "musicVideoImported",
+          "musicVideoFailed"
         ],
         "type": "string"
       },
@@ -9790,7 +9855,8 @@
           "unknown",
           "officialVideo",
           "artTrack",
-          "userUpload"
+          "userUpload",
+          "audioOnly"
         ],
         "type": "string"
       },
@@ -9805,7 +9871,8 @@
           "confident",
           "foundBy",
           "score",
-          "artistNamed"
+          "artistNamed",
+          "titledAsSong"
         ],
         "type": "object",
         "properties": {
@@ -9852,6 +9919,9 @@
           },
           "artistNamed": {
             "type": "boolean"
+          },
+          "titledAsSong": {
+            "type": "boolean"
           }
         }
       },
@@ -9866,7 +9936,8 @@
       },
       "MusicVideoGrabAcceptedResource": {
         "required": [
-          "commandId"
+          "commandId",
+          "status"
         ],
         "type": "object",
         "properties": {
@@ -9877,6 +9948,9 @@
               "string"
             ],
             "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MusicVideoStatus"
           }
         }
       },
@@ -10377,6 +10451,8 @@
           "sizeBytes",
           "durationMs",
           "failureReason",
+          "replaceFailureReason",
+          "replaceFailedAt",
           "createdAt",
           "updatedAt"
         ],
@@ -10476,6 +10552,19 @@
               "string"
             ]
           },
+          "replaceFailureReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replaceFailedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -10521,6 +10610,16 @@
           },
           "partial": {
             "type": "boolean"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MusicVideoStatus"
+              }
+            ]
           }
         }
       },

@@ -145,6 +145,7 @@ public sealed partial class MusicVideoController : ControllerBase
         }
 
         var queued = false;
+        MusicVideoStatus? status = null;
 
         if (autoDownload && result.AutoDownload is { } confident)
         {
@@ -153,9 +154,10 @@ public sealed partial class MusicVideoController : ControllerBase
                 .ConfigureAwait(false);
 
             queued = outcome.Outcome == MusicVideoQueueOutcome.Queued;
+            status = queued ? await QueuedStatusAsync(songId, cancellationToken).ConfigureAwait(false) : null;
         }
 
-        return Ok(new MusicVideoSearchResultResource(queued, [.. result.Candidates.Select(MusicVideoCandidateResource.From)], result.Partial));
+        return Ok(new MusicVideoSearchResultResource(queued, [.. result.Candidates.Select(MusicVideoCandidateResource.From)], result.Partial, status));
     }
 
     /// <summary>
@@ -168,7 +170,8 @@ public sealed partial class MusicVideoController : ControllerBase
     /// <returns>
     /// 202 with the queued command; 400 when the id is not a YouTube video id; 404 when there is no such song; 409 while
     /// music videos are turned off, when the video is blocklisted for the song, when a download for the song is already
-    /// in progress, or when the song already holds that video.
+    /// in progress, when the song already holds that video, or when the song's video was found in the folder and there is
+    /// no usable recycle bin to move it to.
     /// </returns>
     [HttpPost("song/{songId:long}/grab")]
     [Consumes("application/json")]
@@ -196,18 +199,52 @@ public sealed partial class MusicVideoController : ControllerBase
             return ValidationProblem(ModelState);
         }
 
+        // A video found in the folder is replaced by moving it to the recycle bin: without a usable bin, nothing is downloaded.
+        var current = await _videos.GetAsync(songId, cancellationToken).ConfigureAwait(false);
+
+        if (current is { Status: MusicVideoStatus.Present }
+            && !string.Equals(current.YouTubeVideoId, videoId, StringComparison.Ordinal)
+            && await _videos.ReplaceRefusalAsync(current, cancellationToken).ConfigureAwait(false) is { } refusal)
+        {
+            return ConflictProblem("No recycle bin", refusal);
+        }
+
         var queued = await _search
             .QueueDownloadAsync(songId, videoId, MusicVideoFoundBy.Manual, CommandTrigger.Manual, cancellationToken, replace: true, videoTitle: resource.VideoTitle)
             .ConfigureAwait(false);
 
         return queued.Outcome switch
         {
-            MusicVideoQueueOutcome.Queued => Accepted(new MusicVideoGrabAcceptedResource(queued.CommandId ?? 0)),
+            MusicVideoQueueOutcome.Queued => Accepted(new MusicVideoGrabAcceptedResource(
+                queued.CommandId ?? 0,
+                await QueuedStatusAsync(songId, cancellationToken).ConfigureAwait(false))),
             MusicVideoQueueOutcome.SongNotFound => NotFound(),
             MusicVideoQueueOutcome.Blocklisted => ConflictProblem("Blocklisted", "That video was removed as the wrong video for this song, so it is not downloaded again."),
             MusicVideoQueueOutcome.InProgress => ConflictProblem("Download in progress", "A download is in progress"),
             _ => ConflictProblem("Already filed", "The song already has this video."),
         };
+    }
+
+    /// <summary>
+    /// Dismisses the note that the last replacement of a song's video failed. The video stays as it is.
+    /// </summary>
+    /// <param name="songId">The song id.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>204 when the note is cleared; 404 when the song has no note to clear; 409 while music videos are turned off.</returns>
+    [HttpDelete("song/{songId:long}/replace-failure")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DismissReplaceFailure(long songId, CancellationToken cancellationToken)
+    {
+        if (!_options.CurrentValue.Enabled)
+        {
+            return Disabled();
+        }
+
+        return await _videos.DismissReplaceFailureAsync(songId, cancellationToken).ConfigureAwait(false)
+            ? NoContent()
+            : NotFound();
     }
 
     /// <summary>
@@ -332,6 +369,15 @@ public sealed partial class MusicVideoController : ControllerBase
 
         return YouTubeVideoLinks.TryParse(trimmed, out videoId);
     }
+
+    /// <summary>
+    /// Where a download that was just queued stands: downloading once it holds the shared gate, queued otherwise. A
+    /// replacement leaves the filed video present meanwhile, which is not the download's status.
+    /// </summary>
+    private async Task<MusicVideoStatus> QueuedStatusAsync(long songId, CancellationToken cancellationToken) =>
+        (await _videos.GetAsync(songId, cancellationToken).ConfigureAwait(false))?.Status == MusicVideoStatus.Downloading
+            ? MusicVideoStatus.Downloading
+            : MusicVideoStatus.Queued;
 
     private ObjectResult ConflictProblem(string title, string detail) =>
         Problem(title: title, detail: detail, statusCode: StatusCodes.Status409Conflict);

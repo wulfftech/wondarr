@@ -58,6 +58,20 @@ public static class ServiceCollectionExtensions
                 UseCookies = false,
             });
 
+        // The real title and channel of an upload (YouTube's keyless oEmbed): a music video candidate is checked against
+        // them before it may be confident. The answers are kept for a day in a singleton, because the typed client is
+        // transient; one lookup may take 5 seconds.
+        services.TryAddSingleton<YouTubeOEmbedCache>();
+        services.AddHttpClient<IYouTubeOEmbedClient, YouTubeOEmbedClient>(YouTubeOEmbedClient.HttpClientName, client =>
+            {
+                client.Timeout = YouTubeOEmbedClient.Timeout;
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AutomaticDecompression = DecompressionMethods.All,
+                UseCookies = false,
+            });
+
         // IProcessRunner is registered by Wondarr.Core.
         // Every yt-dlp call asks IYtDlpBinary which binary to run: Wondarr's own updated copy, the bundled one or
         // the user's. The daily UpdateYtDlp task keeps the copy current.

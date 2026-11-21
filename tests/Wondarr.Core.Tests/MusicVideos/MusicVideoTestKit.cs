@@ -258,7 +258,8 @@ internal sealed class MusicVideoHarness : IDisposable
             new TestOptionsMonitor<MusicVideoOptions>(Options),
             bin,
             disk,
-            NullLogger<MusicVideoService>.Instance);
+            NullLogger<MusicVideoService>.Instance,
+            Time);
     }
 
     public MusicVideoPathResolver Resolver(WondarrDbContext context) =>
@@ -279,7 +280,8 @@ internal sealed class MusicVideoHarness : IDisposable
             Videos(context),
             Disk ?? new DiskOperations(),
             new TestOptionsMonitor<ImportOptions>(Import),
-            NullLogger<MusicVideoImporter>.Instance);
+            NullLogger<MusicVideoImporter>.Instance,
+            Time);
 
     public MusicVideoSearchService Search(WondarrDbContext context) => new(context, Finder, Commands, Time);
 

@@ -123,6 +123,8 @@ public sealed record MusicVideoSettingsUpdateResource(
 /// <param name="SizeBytes">The file size in bytes, or <see langword="null"/> when unknown.</param>
 /// <param name="DurationMs">The measured duration in milliseconds, or <see langword="null"/> when unknown.</param>
 /// <param name="FailureReason">Why the video failed, or <see langword="null"/>.</param>
+/// <param name="ReplaceFailureReason">Why the last replacement of the filed video failed, or <see langword="null"/>; the video itself is unchanged.</param>
+/// <param name="ReplaceFailedAt">The UTC instant the last replacement failed, or <see langword="null"/>.</param>
 /// <param name="CreatedAt">The UTC instant the row was created.</param>
 /// <param name="UpdatedAt">The UTC instant the row last changed.</param>
 public sealed record MusicVideoResource(
@@ -140,6 +142,8 @@ public sealed record MusicVideoResource(
     long? SizeBytes,
     int? DurationMs,
     string? FailureReason,
+    string? ReplaceFailureReason,
+    DateTime? ReplaceFailedAt,
     DateTime CreatedAt,
     DateTime UpdatedAt)
 {
@@ -164,6 +168,8 @@ public sealed record MusicVideoResource(
             video.SizeBytes,
             video.DurationMs,
             video.FailureReason,
+            video.ReplaceFailureReason,
+            video.ReplaceFailedAt,
             video.CreatedAt,
             video.UpdatedAt);
     }
@@ -186,6 +192,7 @@ public sealed record MusicVideoRemovedResource(string? Path, IReadOnlyList<strin
 /// <param name="FoundBy">Where the candidate came from.</param>
 /// <param name="Score">The ranking score: higher is better.</param>
 /// <param name="ArtistNamed">Whether one of the song's artists is credited on the video or named in its title.</param>
+/// <param name="TitledAsSong">Whether its title is the song's (at the title floor, studio version, not a lyric video); without it the video may be another song.</param>
 public sealed record MusicVideoCandidateResource(
     string VideoId,
     string Title,
@@ -196,7 +203,8 @@ public sealed record MusicVideoCandidateResource(
     bool Confident,
     MusicVideoFoundBy FoundBy,
     int Score,
-    bool ArtistNamed)
+    bool ArtistNamed,
+    bool TitledAsSong)
 {
     /// <summary>Maps a candidate.</summary>
     /// <param name="candidate">The candidate to map.</param>
@@ -214,7 +222,8 @@ public sealed record MusicVideoCandidateResource(
             candidate.Confident,
             candidate.FoundBy,
             candidate.Score,
-            candidate.ArtistNamed);
+            candidate.ArtistNamed,
+            candidate.TitledAsSong);
     }
 }
 
@@ -222,7 +231,12 @@ public sealed record MusicVideoCandidateResource(
 /// <param name="Queued">Whether a confident candidate was found and its download queued.</param>
 /// <param name="Candidates">The candidates, best first.</param>
 /// <param name="Partial">Whether MusicBrainz did not answer, so the candidates are YouTube search results only.</param>
-public sealed record MusicVideoSearchResultResource(bool Queued, IReadOnlyList<MusicVideoCandidateResource> Candidates, bool Partial);
+/// <param name="Status">Where the queued download stands (queued, or downloading once it has started); <see langword="null"/> when none was queued.</param>
+public sealed record MusicVideoSearchResultResource(
+    bool Queued,
+    IReadOnlyList<MusicVideoCandidateResource> Candidates,
+    bool Partial,
+    MusicVideoStatus? Status = null);
 
 /// <summary>A manual pick: the video to download for a song.</summary>
 /// <param name="YouTubeVideoId">The YouTube video id, or a link to the video.</param>
@@ -231,7 +245,8 @@ public sealed record MusicVideoGrabResource(string? YouTubeVideoId, string? Vide
 
 /// <summary>A queued download.</summary>
 /// <param name="CommandId">The queued <c>MusicVideoDownload</c> command.</param>
-public sealed record MusicVideoGrabAcceptedResource(long CommandId);
+/// <param name="Status">Where the download stands: queued while it waits for the shared yt-dlp gate, downloading once it has started.</param>
+public sealed record MusicVideoGrabAcceptedResource(long CommandId, MusicVideoStatus Status);
 
 /// <summary>Songs to search music videos for, confident matches only.</summary>
 /// <param name="SongIds">The songs; at most 200.</param>

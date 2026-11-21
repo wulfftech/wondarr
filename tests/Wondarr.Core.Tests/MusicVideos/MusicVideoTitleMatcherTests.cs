@@ -189,4 +189,150 @@ public sealed class MusicVideoTitleMatcherTests
         MusicVideoTitleMatcher.TitleAfterArtist("Band B - Song X (feat. Band A)", ["Band A"]).Should().BeNull();
         MusicVideoTitleMatcher.TitleAfterArtist("Song X - Band A (feat. Someone)", ["Band A"]).Should().Be("Song X");
     }
+
+    [Theory]
+    [InlineData("Paramore - Fences (Official Audio)")]
+    [InlineData("Paramore - Born For This (Official Audio)")]
+    [InlineData("Paramore - We Are Broken (Official Audio)")]
+    [InlineData("Paramore -  When It Rains (Official Audio)")]
+    [InlineData("Matchbox Twenty - 3AM // Lyrics")]
+    [InlineData("Teardrop (Lyric Video)")]
+    [InlineData("Teardrop [Lyrics]")]
+    [InlineData("Teardrop | Visualiser")]
+    [InlineData("Teardrop - Audio")]
+    [InlineData("Teardrop (Static Video)")]
+    [InlineData("Teardrop (Official Visualizer)")]
+    public void A_title_that_says_audio_or_lyrics_in_a_bracket_or_after_a_separator_is_audio_only(string realTitle)
+    {
+        MusicVideoTitleMatcher.IsAudioOnly("Teardrop", realTitle).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Teardrop (Official Video)")]
+    [InlineData("Massive Attack - Teardrop")]
+    [InlineData("Audio Bullys - Teardrop")]
+    [InlineData("Queen - Don't Stop Me Now (Official Video Remastered 4K)")]
+    public void A_video_title_is_not_audio_only(string realTitle)
+    {
+        MusicVideoTitleMatcher.IsAudioOnly("Teardrop", realTitle).Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_song_whose_own_title_has_the_audio_word_is_judged_without_it()
+    {
+        MusicVideoTitleMatcher.IsAudioOnly("Audio Girl", "Artist - Audio Girl (Official Video)").Should().BeFalse();
+        MusicVideoTitleMatcher.IsAudioOnly("Lyric", "Artist - Lyric (Official Video)").Should().BeFalse();
+        MusicVideoTitleMatcher.IsAudioOnly("Audio Girl", "Artist - Audio Girl (Lyrics)").Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("HueyLewisTheNewsVEVO", "Huey Lewis & The News", true)]
+    [InlineData("Queen Official", "Queen", true)]
+    [InlineData("ogafroman", "Afroman", true)]
+    [InlineData("Paramore", "Paramore", true)]
+    [InlineData("UB40Official", "UB40", true)]
+    [InlineData("Millennial Pause", "Matchbox Twenty", false)]
+    [InlineData("Some Random Channel", "Massive Attack", false)]
+    [InlineData("Peppa's Kisses", "UB40", false)]
+    public void A_channel_is_the_artists_when_the_normalised_names_hold_each_other(string channel, string artist, bool expected)
+    {
+        MusicVideoTitleMatcher.ChannelNamesArtist(channel, [artist]).Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_very_short_name_is_not_found_inside_another_channel()
+    {
+        MusicVideoTitleMatcher.ChannelNamesArtist("Aloha Channel", ["Al"]).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Joyride (single edit)", "Joyride (Official Video)")]
+    [InlineData("Joyride (single edit)", "Roxette - Joyride (Single Version)")]
+    [InlineData("Joyride (single edit)", "Roxette - Joyride (7\" Version) (1991)")]
+    [InlineData("Joyride (single edit)", "Roxette - Joyride (Radio Edit)")]
+    [InlineData("Joyride (single edit)", "Joyride")]
+    [InlineData("Joyride", "Roxette - Joyride (Single Edit)")]
+    [InlineData("Joyride (Radio Edit)", "Roxette - Joyride (Official Video)")]
+    public void An_edit_or_single_version_marker_is_soft_for_a_music_video(string songTitle, string videoTitle)
+    {
+        MusicVideoTitleMatcher.Similarity(songTitle, videoTitle).Should().BeGreaterThanOrEqualTo(DecisionEngine.TitleFloor);
+        MusicVideoTitleMatcher.Evaluate(songTitle, ["Roxette"], videoTitle).IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_live_or_remix_video_is_still_another_version_of_a_song_with_an_edit_marker()
+    {
+        MusicVideoTitleMatcher.Evaluate("Joyride (single edit)", ["Roxette"], "Roxette - Joyride (Live)").IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.Evaluate("Joyride (single edit)", ["Roxette"], "Roxette - Joyride (Remix)").IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Joyride (single edit)", "Joyride")]
+    [InlineData("Joyride (Radio Edit)", "Joyride")]
+    [InlineData("Joyride - Single Edit", "Joyride")]
+    [InlineData("Joyride (7\" Version)", "Joyride")]
+    [InlineData("Joyride (Live)", "Joyride (Live)")]
+    [InlineData("Joyride (Remix)", "Joyride (Remix)")]
+    [InlineData("Joyride", "Joyride")]
+    public void The_search_title_drops_the_edit_markers_only(string songTitle, string expected)
+    {
+        MusicVideoTitleMatcher.SearchTitle(songTitle).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("UB40 - Kingston Town - Cover By Peppa's Kisses")]
+    [InlineData("Kingston Town (Covered by Someone)")]
+    [InlineData("Kingston Town (cover)")]
+    [InlineData("Kingston Town cover by Someone")]
+    public void A_cover_is_another_version(string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Kingston Town", videoTitle, ["UB40"]).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_song_whose_own_title_has_cover_is_not_held_against_the_video()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("Cover Me", "Bruce Springsteen - Cover Me", ["Bruce Springsteen"]).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("ROXETTE *  Joyride    1991          HQ")]
+    [InlineData("Roxette * Joyride")]
+    [InlineData("Roxette | Joyride")]
+    [InlineData("Roxette • Joyride")]
+    [InlineData("Roxette · Joyride")]
+    [InlineData("Roxette // Joyride")]
+    [InlineData("Roxette ~ Joyride")]
+    [InlineData("Roxette: Joyride")]
+    [InlineData("Roxette - Joyride")]
+    [InlineData("Roxette – Joyride")]
+    [InlineData("Roxette — Joyride")]
+    public void Every_separator_between_artist_and_title_names_the_artist(string videoTitle)
+    {
+        MusicVideoTitleMatcher.TitleAfterArtist(videoTitle, ["Roxette"]).Should().Be("Joyride");
+        MusicVideoTitleMatcher.Evaluate("Joyride", ["Roxette"], videoTitle).ArtistInTitle.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Mr. Mister * Broken Wings", "Mr. Mister")]
+    [InlineData("AC * DC - Thunderstruck", "AC * DC")]
+    [InlineData("Therapy? | Screamager", "Therapy?")]
+    [InlineData("Sunn O))) // Alice", "Sunn O)))")]
+    [InlineData("Godspeed | You | Black Emperor : Storm", "Godspeed | You | Black Emperor")]
+    public void An_artist_whose_own_name_holds_a_separator_still_parses(string videoTitle, string artist)
+    {
+        MusicVideoTitleMatcher.TitleAfterArtist(videoTitle, [artist]).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void A_title_that_does_not_name_the_artist_is_not_read_as_naming_one()
+    {
+        MusicVideoTitleMatcher.TitleAfterArtist("Someone Else * Joyride", ["Roxette"]).Should().BeNull();
+    }
+
+    [Fact]
+    public void An_official_video_with_remaster_and_resolution_after_the_decoration_is_the_song()
+    {
+        MusicVideoTitleMatcher.Evaluate("Don't Stop Me Now", ["Queen"], "Queen - Don't Stop Me Now (Official Video Remastered 4K)").IsTitledAsTheSong.Should().BeTrue();
+    }
 }
