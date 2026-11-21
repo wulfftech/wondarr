@@ -193,6 +193,95 @@ public sealed class YtDlpBinaryTests : IDisposable
     }
 
     [Fact]
+    public async Task An_updater_that_fails_after_the_swap_but_leaves_a_working_binary_counts_as_updated()
+    {
+        // update.py exits 100 with "Unable to remove the old version" after the new binary is in place.
+        _runner
+            .Enqueue(_ =>
+            {
+                File.WriteAllText(_binary.ManagedPath, "new-bytes");
+
+                return Task.FromResult(new ProcessResult(100, string.Empty, "ERROR: Unable to remove the old version\n", TimedOut: false));
+            })
+            .Enqueue("2026.10.26\n");
+        EnqueueResolution();
+
+        var run = await _binary.UpdateAsync(CancellationToken.None);
+        var status = await _binary.GetStatusAsync(CancellationToken.None);
+
+        run.Kind.Should().Be(YtDlpUpdateRunKind.Updated);
+        run.Message.Should().Contain("Unable to remove the old version");
+        File.ReadAllText(_binary.ManagedPath).Should().Be("new-bytes");
+        File.ReadAllText(_binary.PreviousPath).Should().Be("bundled-bytes");
+        status.LastCheckSucceeded.Should().BeTrue();
+        status.LatestVersion.Should().Be("2026.10.26");
+    }
+
+    [Fact]
+    public async Task An_updater_that_fails_after_the_swap_and_leaves_a_binary_that_does_not_run_is_rolled_back()
+    {
+        // update.py exits 100 with "Unable to set permissions" and leaves a file that cannot be run.
+        _runner
+            .Enqueue(_ =>
+            {
+                File.WriteAllText(_binary.ManagedPath, "not-executable");
+
+                return Task.FromResult(new ProcessResult(100, string.Empty, "ERROR: Unable to set permissions\n", TimedOut: false));
+            })
+            .Enqueue(new ProcessResult(126, string.Empty, "Permission denied", TimedOut: false));
+
+        var run = await _binary.UpdateAsync(CancellationToken.None);
+
+        run.Kind.Should().Be(YtDlpUpdateRunKind.Failed);
+        run.Message.Should().Contain("previous copy was put back");
+        File.ReadAllText(_binary.ManagedPath).Should().Be("bundled-bytes");
+        File.Exists(_binary.PreviousPath).Should().BeFalse();
+        Directory.GetFiles(Path.GetDirectoryName(_binary.ManagedPath)!).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task An_invalidate_during_a_slow_resolution_leaves_no_stale_decision()
+    {
+        WriteManagedCopy();
+        _runner
+            .Enqueue(_ =>
+            {
+                // The settings page's Test (or an update) invalidates while the probes are still running.
+                _binary.Invalidate();
+
+                return Task.FromResult(new ProcessResult(0, "2026.10.26\n", string.Empty, TimedOut: false));
+            })
+            .Enqueue("2026.08.19\n");
+
+        var stale = await _binary.ResolveAsync(CancellationToken.None);
+
+        EnqueueResolution();
+
+        var fresh = await _binary.ResolveAsync(CancellationToken.None);
+
+        _runner.Calls.Should().HaveCount(4, "the first answer was not kept, so the second call probed again");
+        fresh.Generation.Should().BeGreaterThan(stale.Generation);
+
+        await _binary.ResolveAsync(CancellationToken.None);
+
+        _runner.Calls.Should().HaveCount(4, "the fresh answer was kept");
+    }
+
+    [Fact]
+    public async Task A_copy_that_cannot_be_started_names_the_real_cause_and_the_config_directory()
+    {
+        WriteManagedCopy();
+        _runner.Enqueue(_ => throw new MediaToolMissingException(
+            _binary.ManagedPath,
+            new System.ComponentModel.Win32Exception("Permission denied")));
+
+        var resolution = await _binary.ResolveAsync(CancellationToken.None);
+
+        resolution.FallbackReason.Should().Contain("Permission denied").And.Contain("may not allow running programs");
+        resolution.FallbackReason.Should().NotContain("not installed");
+    }
+
+    [Fact]
     public async Task The_nightly_channel_is_passed_to_the_updater()
     {
         _options.Ytdlp.UpdateChannel = YtDlpOptions.NightlyChannel;

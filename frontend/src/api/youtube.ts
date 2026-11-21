@@ -215,6 +215,8 @@ export function useUpdateYouTubeSettings(): UseMutationResult<
       // The settings the server echoed back are what the form should show; the status card's
       // cached probe is untouched by a settings write, but a cheap refetch keeps them in step.
       queryClient.setQueryData(YOUTUBE_SETTINGS_QUERY_KEY, result);
+      // The status says whether the update is active and whether the path is custom; both follow the settings.
+      void queryClient.invalidateQueries({ queryKey: YOUTUBE_STATUS_QUERY_KEY });
     },
   });
 }

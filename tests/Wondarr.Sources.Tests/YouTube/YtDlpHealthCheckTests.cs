@@ -25,8 +25,14 @@ public class YtDlpHealthCheckTests
         YtDlpAvailability availability,
         TestOptionsMonitor<YouTubeOptions> options,
         IYtDlpBinary? binary = null,
-        TimeProvider? time = null) =>
-        new(availability, binary ?? new FixedYtDlpBinary(), options, time ?? TimeProvider.System);
+        TimeProvider? time = null,
+        Wondarr.Core.MusicVideos.MusicVideoOptions? musicVideos = null) =>
+        new(
+            availability,
+            binary ?? new FixedYtDlpBinary(),
+            options,
+            new TestOptionsMonitor<Wondarr.Core.MusicVideos.MusicVideoOptions>(musicVideos ?? new Wondarr.Core.MusicVideos.MusicVideoOptions()),
+            time ?? TimeProvider.System);
 
     private static readonly TestOptionsMonitor<YouTubeOptions> Enabled = new(new YouTubeOptions { Enabled = true });
 
@@ -175,6 +181,31 @@ public class YtDlpHealthCheckTests
         var report = await RunStaleCheckAsync("2026.08.19", UpdateStatus(Now.AddDays(-30), "2026.10.26", active: false));
 
         report.Type.Should().Be(HealthCheckResult.Ok);
+    }
+
+    [Fact]
+    public async Task Warns_about_a_missing_check_at_exactly_seven_days()
+    {
+        var report = await RunStaleCheckAsync("2026.10.26", UpdateStatus(Now.AddDays(-7), "2026.10.26"));
+
+        report.Type.Should().Be(HealthCheckResult.Warning);
+        report.Message.Should().Contain("7 days");
+    }
+
+    [Fact]
+    public async Task Music_videos_alone_make_a_missing_yt_dlp_a_warning()
+    {
+        var (availability, runner) = Build();
+        runner.EnqueueMissing("yt-dlp").Enqueue("deno 2.9.7\n");
+
+        var report = await Check(
+                availability,
+                new TestOptionsMonitor<YouTubeOptions>(new YouTubeOptions()),
+                musicVideos: new Wondarr.Core.MusicVideos.MusicVideoOptions { Enabled = true })
+            .CheckAsync(CancellationToken.None);
+
+        report.Type.Should().Be(HealthCheckResult.Warning);
+        report.Message.Should().Contain("could not be run");
     }
 
     [Fact]

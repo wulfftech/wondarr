@@ -78,12 +78,16 @@ public class YtDlpUpdateOutputTests
     }
 
     [Fact]
-    public void A_nonzero_exit_without_an_error_line_is_a_failure()
+    public void A_nonzero_exit_without_an_error_line_is_a_failure_that_reports_the_last_stderr_line()
     {
-        var outcome = YtDlpUpdateOutput.Parse(new ProcessResult(1, string.Empty, "Traceback (most recent call last):\n", TimedOut: false));
+        var outcome = YtDlpUpdateOutput.Parse(new ProcessResult(
+            1,
+            string.Empty,
+            "Traceback (most recent call last):\n  File \"update.py\", line 1, in <module>\nValueError: boom\n",
+            TimedOut: false));
 
         outcome.Kind.Should().Be(YtDlpUpdateKind.Failed);
-        outcome.Message.Should().Contain("Traceback");
+        outcome.Message.Should().Be("ValueError: boom");
     }
 
     [Fact]
@@ -94,9 +98,10 @@ public class YtDlpUpdateOutputTests
     }
 
     [Fact]
-    public void Output_it_does_not_recognise_leaves_the_binary_alone()
+    public void Exit_zero_with_nothing_recognised_is_up_to_date()
     {
-        YtDlpUpdateOutput.Parse(Ok("hello\n")).Kind.Should().Be(YtDlpUpdateKind.Failed);
+        // The _update_spec lock rules (update.py query_update) return without printing anything.
+        YtDlpUpdateOutput.Parse(Ok(string.Empty)).Kind.Should().Be(YtDlpUpdateKind.UpToDate);
     }
 
     [Theory]

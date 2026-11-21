@@ -337,6 +337,23 @@ describe('YouTubeSettingsPage', () => {
     });
   });
 
+  it('reads the status again after a save, because the settings decide what it reports', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+
+    const statusReads = () =>
+      sent().filter((request) => request.method === 'GET' && request.url.endsWith('/api/v1/youtube/status')).length;
+    const before = statusReads();
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(statusReads()).toBeGreaterThan(before));
+  });
+
   it('saves the update channel and the auto-update switch', async () => {
     install();
     const user = userEvent.setup();

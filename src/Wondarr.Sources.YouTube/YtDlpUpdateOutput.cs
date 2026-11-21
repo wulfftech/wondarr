@@ -90,11 +90,10 @@ public static partial class YtDlpUpdateOutput
                 $"yt-dlp {version} is up to date");
         }
 
-        return new YtDlpUpdateOutcome(
-            YtDlpUpdateKind.Failed,
-            null,
-            latest,
-            "yt-dlp's updater said nothing Wondarr recognises, so the binary was left as it is");
+        // Exit 0 and nothing recognised: query_update returned None without printing, which is what the
+        // _update_spec lock rules do (update.py, `if not result_tag or result_tag == self.current_version`).
+        // The updater found nothing it is allowed to install, so the binary is as new as it may be.
+        return new YtDlpUpdateOutcome(YtDlpUpdateKind.UpToDate, null, latest, "yt-dlp has no newer release it may install");
     }
 
     /// <summary>
@@ -127,7 +126,8 @@ public static partial class YtDlpUpdateOutput
     {
         var reason = error.Success
             ? error.Groups["reason"].Value.Trim()
-            : result.StandardError.Split('\n').Select(line => line.Trim()).FirstOrDefault(line => line.Length > 0)
+            // The last line: a traceback ends with the exception that explains it.
+            : result.StandardError.Split('\n').Select(line => line.Trim()).LastOrDefault(line => line.Length > 0)
                 ?? $"yt-dlp exited with code {result.ExitCode}";
 
         return reason.Length > MaxMessageLength ? reason[..MaxMessageLength] : reason;

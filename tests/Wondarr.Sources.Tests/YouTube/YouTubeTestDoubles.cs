@@ -82,14 +82,17 @@ internal sealed class FakeProcessRunner : IProcessRunner
 internal sealed class FixedYtDlpBinary : IYtDlpBinary
 {
     private readonly string _path;
+    private readonly YtDlpBinarySource _source;
     private readonly YtDlpUpdateStatus _status;
 
     /// <summary>Initialises a new instance of the <see cref="FixedYtDlpBinary"/> class.</summary>
     /// <param name="path">The binary to name.</param>
     /// <param name="status">What the update status says; the default is "bundled, nothing to update".</param>
-    public FixedYtDlpBinary(string path = "yt-dlp", YtDlpUpdateStatus? status = null)
+    /// <param name="source">Which kind of binary the path is.</param>
+    public FixedYtDlpBinary(string path = "yt-dlp", YtDlpUpdateStatus? status = null, YtDlpBinarySource source = YtDlpBinarySource.Bundled)
     {
         _path = path;
+        _source = source;
         _status = status ?? new YtDlpUpdateStatus(
             YtDlpBinarySource.Bundled,
             null,
@@ -111,7 +114,7 @@ internal sealed class FixedYtDlpBinary : IYtDlpBinary
 
     /// <inheritdoc />
     public Task<YtDlpResolution> ResolveAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(new YtDlpResolution(_path, YtDlpBinarySource.Bundled, null, null, 0));
+        Task.FromResult(new YtDlpResolution(_path, _source, null, null, 0));
 
     /// <inheritdoc />
     public Task<YtDlpUpdateStatus> GetStatusAsync(CancellationToken cancellationToken) => Task.FromResult(_status);

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.Media;
+using Wondarr.Core.MusicVideos;
 using HealthReport = Wondarr.Core.HealthCheck.HealthCheck;
 
 namespace Wondarr.Sources.YouTube;
@@ -27,8 +28,7 @@ public sealed partial class YtDlpAvailability : IDisposable
     private readonly IOptionsMonitor<YouTubeOptions> _options;
     private readonly ILogger<YtDlpAvailability> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private YtDlpHealthStatus? _status;
-    private int _statusGeneration;
+    private CachedStatus? _cached;
 
     /// <summary>Initialises a new instance of the <see cref="YtDlpAvailability"/> class.</summary>
     /// <param name="runner">Runs the binaries without a shell.</param>
@@ -64,22 +64,26 @@ public sealed partial class YtDlpAvailability : IDisposable
     {
         var resolution = await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false);
 
-        if (_status is { } cached && Volatile.Read(ref _statusGeneration) == resolution.Generation)
+        if (Volatile.Read(ref _cached) is { } cached && cached.Generation == resolution.Generation)
         {
-            return cached;
+            return cached.Status;
         }
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
-            if (_status is null || _statusGeneration != resolution.Generation)
+            if (_cached is { } again && again.Generation == resolution.Generation)
             {
-                _status = await RunAsync(resolution.Path, cancellationToken).ConfigureAwait(false);
-                _statusGeneration = resolution.Generation;
+                return again.Status;
             }
 
-            return _status;
+            var status = await RunAsync(resolution.Path, cancellationToken).ConfigureAwait(false);
+
+            // One write, so a reader never pairs a status with another generation.
+            Volatile.Write(ref _cached, new CachedStatus(status, resolution.Generation));
+
+            return status;
         }
         finally
         {
@@ -116,6 +120,9 @@ public sealed partial class YtDlpAvailability : IDisposable
 
         return new YtDlpHealthStatus(version, denoVersion is not null);
     }
+
+    /// <summary>A probe's answer and the binary generation it was made for.</summary>
+    private sealed record CachedStatus(YtDlpHealthStatus Status, int Generation);
 
     /// <summary>The first line a <c>--version</c> probe prints, or <c>null</c> when it did not answer.</summary>
     private async Task<string?> ProbeAsync(
@@ -164,19 +171,23 @@ public sealed class YtDlpHealthCheck : IHealthCheck
     private readonly YtDlpAvailability _availability;
     private readonly IYtDlpBinary _binary;
     private readonly IOptionsMonitor<YouTubeOptions> _options;
+    private readonly IOptionsMonitor<MusicVideoOptions> _musicVideos;
     private readonly TimeProvider _time;
 
     /// <summary>Initialises a new instance of the <see cref="YtDlpHealthCheck"/> class.</summary>
     /// <param name="availability">The cache of the version checks.</param>
     /// <param name="binary">Knows what the update task last found.</param>
     /// <param name="options">The YouTube settings: a source that is off has nothing to warn about.</param>
+    /// <param name="musicVideos">The music video settings: music videos download with yt-dlp too.</param>
     /// <param name="time">The clock.</param>
     public YtDlpHealthCheck(
         YtDlpAvailability availability,
         IYtDlpBinary binary,
         IOptionsMonitor<YouTubeOptions> options,
+        IOptionsMonitor<MusicVideoOptions> musicVideos,
         TimeProvider time)
     {
+        _musicVideos = musicVideos ?? throw new ArgumentNullException(nameof(musicVideos));
         _availability = availability ?? throw new ArgumentNullException(nameof(availability));
         _binary = binary ?? throw new ArgumentNullException(nameof(binary));
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -189,11 +200,10 @@ public sealed class YtDlpHealthCheck : IHealthCheck
     /// <inheritdoc />
     public async Task<HealthReport> CheckAsync(CancellationToken cancellationToken)
     {
-        if (!_options.CurrentValue.Enabled)
+        if (!_options.CurrentValue.Enabled && !_musicVideos.CurrentValue.Enabled)
         {
-            // The source is off by default; a missing yt-dlp only matters
-            // once the user turns it on.
-            return new HealthReport(Name, HealthCheckResult.Ok, "The YouTube source is off", null);
+            // Both are off by default; a missing yt-dlp only matters once the user turns one on.
+            return new HealthReport(Name, HealthCheckResult.Ok, "The YouTube source and music videos are off", null);
         }
 
         var status = await _availability.GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -244,7 +254,7 @@ public sealed class YtDlpHealthCheck : IHealthCheck
         var since = update.LastSuccessAt ?? update.StartedAt;
         var quiet = (now - since).Days;
 
-        if (quiet > MaxDaysWithoutCheck)
+        if (quiet >= MaxDaysWithoutCheck)
         {
             return $"yt-dlp has not been checked for updates in {quiet} days — YouTube downloads may fail until it is";
         }

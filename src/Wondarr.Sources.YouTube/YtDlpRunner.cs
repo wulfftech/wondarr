@@ -141,14 +141,11 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
             var options = _options.CurrentValue;
             var arguments = BuildDownloadArguments(videoId, destinationDir, options);
 
-            var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
             ProcessResult result;
 
             try
             {
-                result = await _runner.RunAsync(
-                    binaryPath,
-                    arguments,
+                result = await RunYtDlpAsync(arguments,
                     TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
             }
@@ -194,14 +191,11 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
             var options = _options.CurrentValue;
             var arguments = BuildVideoDownloadArguments(videoId, destinationDir, maxHeight, options);
 
-            var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
             ProcessResult result;
 
             try
             {
-                result = await _runner.RunAsync(
-                    binaryPath,
-                    arguments,
+                result = await RunYtDlpAsync(arguments,
                     TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
             }
@@ -264,14 +258,11 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         try
         {
             var timeoutSeconds = Math.Min(options.Ytdlp.TimeoutSeconds, VideoReadTimeoutSeconds);
-            var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
             ProcessResult result;
 
             try
             {
-                result = await _runner.RunAsync(
-                    binaryPath,
-                    BuildVideoReadArguments(videoId, options),
+                result = await RunYtDlpAsync(BuildVideoReadArguments(videoId, options),
                     TimeSpan.FromSeconds(timeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
             }
@@ -347,19 +338,46 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs the binary <see cref="IYtDlpBinary"/> names. A managed copy that cannot be started for a moment (yt-dlp's
+    /// updater swaps the file with a rename and a chmod) is retried once with the bundled binary, so a download that
+    /// starts inside that window does not fail.
+    /// </summary>
+    private async Task<ProcessResult> RunYtDlpAsync(
+        IReadOnlyList<string> arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            return await _runner.RunAsync(resolution.Path, arguments, timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (MediaToolMissingException) when (resolution.Source == YtDlpBinarySource.Managed)
+        {
+            LogManagedUnavailable(_logger);
+            _binary.Invalidate();
+
+            return await _runner
+                .RunAsync(_options.CurrentValue.Ytdlp.BinaryPath, arguments, timeout, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The managed yt-dlp could not be started; retrying with the bundled one")]
+    private static partial void LogManagedUnavailable(ILogger logger);
+
     private async Task<YtDlpFormats> ProbeFormatsUngatedAsync(
         string videoId,
         YouTubeOptions options,
         CancellationToken cancellationToken)
     {
-        var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
         ProcessResult result;
 
         try
         {
-            result = await _runner.RunAsync(
-                binaryPath,
-                ["-F", "--no-progress", "--", WatchUrl(videoId)],
+            result = await RunYtDlpAsync(["-F", "--no-progress", "--", WatchUrl(videoId)],
                 TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                 cancellationToken).ConfigureAwait(false);
         }

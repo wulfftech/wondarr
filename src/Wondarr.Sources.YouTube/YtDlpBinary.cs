@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Configuration;
@@ -183,6 +184,7 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
     private readonly TimeProvider _time;
     private readonly ILogger<YtDlpBinary> _logger;
     private readonly string _directory;
+    private readonly object _stateLock = new();
     private readonly SemaphoreSlim _resolveGate = new(1, 1);
     private readonly SemaphoreSlim _updateGate = new(1, 1);
     private readonly DateTimeOffset _startedAt;
@@ -251,8 +253,11 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
     /// <inheritdoc />
     public void Invalidate()
     {
-        Volatile.Write(ref _decision, null);
-        Interlocked.Increment(ref _generation);
+        lock (_stateLock)
+        {
+            _decision = null;
+            Interlocked.Increment(ref _generation);
+        }
     }
 
     /// <inheritdoc />
@@ -275,9 +280,18 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
                 return again.Resolution;
             }
 
-            var resolution = await DecideAsync(ytdlp, cancellationToken).ConfigureAwait(false);
+            var generation = Interlocked.Increment(ref _generation);
+            var resolution = await DecideAsync(ytdlp, generation, cancellationToken).ConfigureAwait(false);
 
-            Volatile.Write(ref _decision, new Decision(key, resolution));
+            // An Invalidate (or an update) while the probes ran made this answer stale: hand it back, but do not
+            // keep it, so the next call decides again.
+            lock (_stateLock)
+            {
+                if (_generation == generation)
+                {
+                    _decision = new Decision(key, resolution);
+                }
+            }
 
             return resolution;
         }
@@ -362,10 +376,8 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
         return null;
     }
 
-    private async Task<YtDlpResolution> DecideAsync(YtDlpOptions ytdlp, CancellationToken cancellationToken)
+    private async Task<YtDlpResolution> DecideAsync(YtDlpOptions ytdlp, int generation, CancellationToken cancellationToken)
     {
-        var generation = Interlocked.Increment(ref _generation);
-
         if (ytdlp.HasCustomBinaryPath)
         {
             return new YtDlpResolution(ytdlp.BinaryPath, YtDlpBinarySource.Custom, null, null, generation);
@@ -436,7 +448,7 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
             }
             catch (Exception exception) when (exception is MediaToolMissingException or Win32Exception or IOException or UnauthorizedAccessException)
             {
-                return Failed($"yt-dlp could not be started: {exception.Message}", null);
+                return Failed($"yt-dlp could not be started: {StartFailure(exception, managed: true)}", null);
             }
 
             var outcome = YtDlpUpdateOutput.Parse(result);
@@ -444,7 +456,19 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
 
             if (outcome.Kind == YtDlpUpdateKind.Failed)
             {
-                return Failed(outcome.Message, YtDlpUpdateOutput.FindJsRuntimeProblem(output));
+                // The updater can exit 100 after the swap (update.py: "Unable to remove the old version", "Unable to set
+                // permissions"), leaving a new binary, or a file that cannot run, in place. A file that still equals the
+                // snapshot is a plain failure; one that changed is judged by whether it answers --version.
+                if (SameContent(ManagedPath, preUpdate))
+                {
+                    return Failed(outcome.Message, YtDlpUpdateOutput.FindJsRuntimeProblem(output));
+                }
+
+                outcome = outcome with
+                {
+                    Kind = YtDlpUpdateKind.Updated,
+                    Message = $"Updated yt-dlp, but its updater then reported: {outcome.Message}",
+                };
             }
 
             var jsProblem = YtDlpUpdateOutput.FindJsRuntimeProblem(output);
@@ -574,6 +598,34 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
         }
     }
 
+    /// <summary>Whether two files hold the same bytes.</summary>
+    private static bool SameContent(string first, string second)
+    {
+        var left = new FileInfo(first);
+        var right = new FileInfo(second);
+
+        if (!left.Exists || !right.Exists || left.Length != right.Length)
+        {
+            return false;
+        }
+
+        using var leftStream = left.OpenRead();
+        using var rightStream = right.OpenRead();
+
+        return SHA256.HashData(leftStream).AsSpan().SequenceEqual(SHA256.HashData(rightStream));
+    }
+
+    /// <summary>
+    /// Why a program could not be started. The runner's own message says "not installed or not on PATH", which is
+    /// wrong for a copy Wondarr just wrote: the usual cause is a config directory mounted <c>noexec</c>.
+    /// </summary>
+    private static string StartFailure(Exception exception, bool managed)
+    {
+        var detail = exception.InnerException?.Message ?? exception.Message;
+
+        return managed ? $"{detail} (the config directory may not allow running programs)" : detail;
+    }
+
     private YtDlpUpdateRun Failed(string message, string? jsProblem)
     {
         RecordCheck(succeeded: false, message, latestVersion: null, jsProblem);
@@ -627,7 +679,7 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
         }
         catch (Exception exception) when (exception is MediaToolMissingException or Win32Exception or IOException or UnauthorizedAccessException)
         {
-            return (null, exception.Message, string.Empty);
+            return (null, StartFailure(exception, string.Equals(executable, ManagedPath, StringComparison.Ordinal)), string.Empty);
         }
     }
 

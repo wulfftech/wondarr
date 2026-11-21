@@ -373,6 +373,37 @@ public class YtDlpRunnerTests
     }
 
     [Fact]
+    public async Task Retries_once_with_the_bundled_binary_when_the_managed_copy_cannot_be_started()
+    {
+        var runner = new FakeProcessRunner()
+            .EnqueueMissing("/config/tools/yt-dlp/yt-dlp")
+            .Enqueue(YtDlpFixtures.Read("download-success.stdout"));
+
+        var subject = new YtDlpRunner(
+            runner,
+            new FixedYtDlpBinary("/config/tools/yt-dlp/yt-dlp", source: YtDlpBinarySource.Managed),
+            new TestOptionsMonitor<YouTubeOptions>(new YouTubeOptions()),
+            NullLogger<YtDlpRunner>.Instance);
+
+        var result = await subject.DownloadAsync("abc123", "/grabs/queue-1", CancellationToken.None);
+
+        result.VideoId.Should().Be("abc123");
+        runner.Calls.Select(call => call.FileName).Should().Equal("/config/tools/yt-dlp/yt-dlp", "yt-dlp");
+    }
+
+    [Fact]
+    public async Task Does_not_retry_a_bundled_binary_that_cannot_be_started()
+    {
+        var runner = new FakeProcessRunner().EnqueueMissing("yt-dlp");
+        var subject = Build(runner);
+
+        var act = () => subject.DownloadAsync("abc123", "/grabs/queue-1", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<YtDlpException>()).Which.Kind.Should().Be(YtDlpErrorKind.ToolMissing);
+        runner.Calls.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Runs_the_binary_the_resolver_names_not_the_configured_path()
     {
         var runner = new FakeProcessRunner()
