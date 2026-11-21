@@ -94,7 +94,14 @@ public sealed partial class MusicVideoController : ControllerBase
 
         var video = await _videos.GetAsync(songId, cancellationToken).ConfigureAwait(false);
 
-        return video is null ? NotFound() : Ok(MusicVideoResource.From(video));
+        if (video is null)
+        {
+            return NotFound();
+        }
+
+        var pending = await _videos.GetPendingReplacementAsync(songId, cancellationToken).ConfigureAwait(false);
+
+        return Ok(MusicVideoResource.From(video, pending));
     }
 
     /// <summary>
@@ -145,6 +152,7 @@ public sealed partial class MusicVideoController : ControllerBase
         }
 
         var queued = false;
+        var ahead = 0;
         MusicVideoStatus? status = null;
 
         if (autoDownload && result.AutoDownload is { } confident)
@@ -154,10 +162,11 @@ public sealed partial class MusicVideoController : ControllerBase
                 .ConfigureAwait(false);
 
             queued = outcome.Outcome == MusicVideoQueueOutcome.Queued;
+            ahead = queued ? outcome.AheadInQueue : 0;
             status = queued ? await QueuedStatusAsync(songId, cancellationToken).ConfigureAwait(false) : null;
         }
 
-        return Ok(new MusicVideoSearchResultResource(queued, [.. result.Candidates.Select(MusicVideoCandidateResource.From)], result.Partial, status));
+        return Ok(new MusicVideoSearchResultResource(queued, [.. result.Candidates.Select(MusicVideoCandidateResource.From)], result.Partial, status, ahead));
     }
 
     /// <summary>
@@ -217,7 +226,8 @@ public sealed partial class MusicVideoController : ControllerBase
         {
             MusicVideoQueueOutcome.Queued => Accepted(new MusicVideoGrabAcceptedResource(
                 queued.CommandId ?? 0,
-                await QueuedStatusAsync(songId, cancellationToken).ConfigureAwait(false))),
+                await QueuedStatusAsync(songId, cancellationToken).ConfigureAwait(false),
+                queued.AheadInQueue)),
             MusicVideoQueueOutcome.SongNotFound => NotFound(),
             MusicVideoQueueOutcome.Blocklisted => ConflictProblem("Blocklisted", "That video was removed as the wrong video for this song, so it is not downloaded again."),
             MusicVideoQueueOutcome.InProgress => ConflictProblem("Download in progress", "A download is in progress"),

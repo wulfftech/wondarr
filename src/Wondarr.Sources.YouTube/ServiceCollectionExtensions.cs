@@ -76,7 +76,10 @@ public static class ServiceCollectionExtensions
         // Every yt-dlp call asks IYtDlpBinary which binary to run: Wondarr's own updated copy, the bundled one or
         // the user's. The daily UpdateYtDlp task keeps the copy current.
         services.TryAddSingleton<IExecutableLocator, PathExecutableLocator>();
+        // What the last update check found is kept in the setting table, so a restart does not forget it.
+        services.AddSingleton<IYtDlpUpdateStore, SettingsYtDlpUpdateStore>();
         services.AddSingleton<IYtDlpBinary, YtDlpBinary>();
+        services.AddHostedService<YtDlpOverdueUpdateCheck>();
         services.AddScoped<ICommandHandler, UpdateYtDlpCommandHandler>();
         services.AddSingleton<IScheduledTaskSource, YtDlpScheduledTasks>();
 

@@ -46,6 +46,22 @@ internal sealed class FakeVideoDownloader : IMusicVideoDownloader
     /// <summary>Gets or sets what runs while the "download" waits for its turn, before the gate is held.</summary>
     public Func<Task>? WaitingForGate { get; set; }
 
+    /// <summary>Gets or sets the best height the "is there a better copy?" check reports; <see langword="null"/> means it cannot tell.</summary>
+    public int? BestHeight { get; set; }
+
+    /// <summary>Gets or sets the exception the best-height check throws, or <see langword="null"/> for none.</summary>
+    public Exception? BestHeightFailure { get; set; }
+
+    /// <summary>Gets the best-height checks made: video id and height cap.</summary>
+    public List<(string VideoId, int? MaxHeight)> BestHeightCalls { get; } = [];
+
+    public Task<int?> BestHeightAsync(string videoId, int? maxHeight, CancellationToken cancellationToken)
+    {
+        BestHeightCalls.Add((videoId, maxHeight));
+
+        return BestHeightFailure is not null ? Task.FromException<int?>(BestHeightFailure) : Task.FromResult(BestHeight);
+    }
+
     public async Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken, Func<Task>? started = null)
     {
         Calls.Add((videoId, maxHeight));

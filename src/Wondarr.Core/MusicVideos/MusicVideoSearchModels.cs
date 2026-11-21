@@ -150,6 +150,17 @@ public interface IMusicVideoDownloader
     /// <summary>Deletes the work folder of a download and everything left in it. Never throws.</summary>
     /// <param name="download">What <see cref="DownloadAsync"/> returned.</param>
     void Discard(MusicVideoDownload download);
+
+    /// <summary>
+    /// Asks for the tallest picture the downloader can get for a video under the same rule as <see cref="DownloadAsync"/>,
+    /// without downloading it. It takes the same turn at the shared yt-dlp gate.
+    /// </summary>
+    /// <param name="videoId">The YouTube video id.</param>
+    /// <param name="maxHeight">The tallest picture to take, or <see langword="null"/> for no cap.</param>
+    /// <param name="cancellationToken">Cancels the wait and the check.</param>
+    /// <returns>The height in pixels, or <see langword="null"/> when it could not be told.</returns>
+    /// <exception cref="Exception">The check failed; the message says why and holds no secret.</exception>
+    Task<int?> BestHeightAsync(string videoId, int? maxHeight, CancellationToken cancellationToken);
 }
 
 /// <summary>The finder to use when no YouTube source is registered: it finds nothing.</summary>
@@ -171,4 +182,8 @@ internal sealed class NoMusicVideoDownloader : IMusicVideoDownloader
     public void Discard(MusicVideoDownload download)
     {
     }
+
+    /// <inheritdoc />
+    public Task<int?> BestHeightAsync(string videoId, int? maxHeight, CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("No YouTube source is registered, so a music video cannot be checked.");
 }

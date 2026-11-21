@@ -1034,6 +1034,14 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("audio_codec");
 
+                    b.Property<DateTime?>("BestAvailableCheckedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("best_available_checked_at");
+
+                    b.Property<int?>("BestAvailableHeight")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("best_available_height");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");

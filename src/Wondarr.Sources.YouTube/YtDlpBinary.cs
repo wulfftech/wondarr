@@ -187,7 +187,10 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
     private readonly object _stateLock = new();
     private readonly SemaphoreSlim _resolveGate = new(1, 1);
     private readonly SemaphoreSlim _updateGate = new(1, 1);
+    private readonly SemaphoreSlim _loadGate = new(1, 1);
+    private readonly IYtDlpUpdateStore? _store;
     private readonly DateTimeOffset _startedAt;
+    private bool _loaded;
 
     private Decision? _decision;
     private int _generation;
@@ -206,6 +209,7 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
     /// <param name="locator">Finds the bundled binary on <c>PATH</c>.</param>
     /// <param name="time">The clock.</param>
     /// <param name="logger">Logs a fallback or a failed update at Warning.</param>
+    /// <param name="store">Keeps what the last check found across restarts; none keeps it in memory only.</param>
     public YtDlpBinary(
         IProcessRunner runner,
         IOptionsMonitor<YouTubeOptions> options,
@@ -213,7 +217,8 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
         WondarrPaths paths,
         IExecutableLocator locator,
         TimeProvider time,
-        ILogger<YtDlpBinary> logger)
+        ILogger<YtDlpBinary> logger,
+        IYtDlpUpdateStore? store = null)
     {
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(options);
@@ -229,6 +234,7 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
         _locator = locator;
         _time = time;
         _logger = logger;
+        _store = store;
         _directory = Path.Combine(paths.ConfigDir, "tools", "yt-dlp");
         _startedAt = time.GetUtcNow();
     }
@@ -247,6 +253,7 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
     {
         _resolveGate.Dispose();
         _updateGate.Dispose();
+        _loadGate.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -304,6 +311,8 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
     /// <inheritdoc />
     public async Task<YtDlpUpdateStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
+        await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+
         var resolution = await ResolveAsync(cancellationToken).ConfigureAwait(false);
         var options = _options.CurrentValue;
 
@@ -342,16 +351,101 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
                 return new YtDlpUpdateRun(YtDlpUpdateRunKind.Skipped, skippedNow);
             }
 
+            // What an earlier run kept is read first, so this run adds to it instead of replacing it.
+            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+
             var run = await UpdateCoreAsync(_options.CurrentValue.Ytdlp, cancellationToken).ConfigureAwait(false);
 
             // Whatever happened, the next call decides afresh: the file, its version or the fallback may differ.
             Invalidate();
+
+            await PersistAsync().ConfigureAwait(false);
 
             return run;
         }
         finally
         {
             _updateGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reads what the last process kept, once: the status of the update check is not lost by a restart. A store that
+    /// cannot be read leaves the status empty and is asked again next time.
+    /// </summary>
+    private async Task EnsureLoadedAsync(CancellationToken cancellationToken)
+    {
+        if (_store is null || Volatile.Read(ref _loaded))
+        {
+            return;
+        }
+
+        await _loadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            if (_loaded)
+            {
+                return;
+            }
+
+            StoredYtDlpUpdate? saved;
+
+            try
+            {
+                saved = await _store.LoadAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                LogStatusLoadFailed(_logger, exception);
+
+                return;
+            }
+
+            if (saved is not null)
+            {
+                lock (_stateLock)
+                {
+                    // A check that already ran in this process is newer than anything kept.
+                    _lastCheckedAt ??= saved.LastCheckedAt;
+                    _lastCheckSucceeded ??= saved.LastCheckSucceeded;
+                    _lastCheckMessage ??= saved.LastCheckMessage;
+                    _lastSuccessAt ??= saved.LastSuccessAt;
+                    _latestVersion ??= saved.LatestVersion;
+                    _jsRuntimeWarning ??= saved.JsRuntimeWarning;
+                }
+            }
+
+            Volatile.Write(ref _loaded, true);
+        }
+        finally
+        {
+            _loadGate.Release();
+        }
+    }
+
+    /// <summary>Keeps the status after a run, so a restart finds it. A store that cannot be written is logged and ignored.</summary>
+    private async Task PersistAsync()
+    {
+        if (_store is null)
+        {
+            return;
+        }
+
+        StoredYtDlpUpdate status;
+
+        lock (_stateLock)
+        {
+            status = new StoredYtDlpUpdate(_lastCheckedAt, _lastCheckSucceeded, _lastCheckMessage, _lastSuccessAt, _latestVersion, _jsRuntimeWarning);
+        }
+
+        try
+        {
+            await _store.SaveAsync(status, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            LogStatusSaveFailed(_logger, exception);
         }
     }
 
@@ -702,6 +796,12 @@ public sealed partial class YtDlpBinary : IYtDlpBinary, IDisposable
 
     /// <summary>A resolution and the settings it was made for.</summary>
     private sealed record Decision((string BinaryPath, bool AutoUpdate) Key, YtDlpResolution Resolution);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The last yt-dlp update status could not be read; the card starts empty until the next check")]
+    private static partial void LogStatusLoadFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The yt-dlp update status could not be kept; it is lost at the next restart")]
+    private static partial void LogStatusSaveFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The managed yt-dlp at {Path} does not run ({Reason}); using the bundled one")]
     private static partial void LogManagedBroken(ILogger logger, string path, string reason);

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Wondarr.Core.Domain;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.Organizer;
 using Wondarr.Core.Persistence;
 
@@ -15,6 +16,22 @@ namespace Wondarr.Core.MusicVideos;
 /// <param name="FailureReason">Why the video failed, or <see langword="null"/>.</param>
 /// <param name="UpdatedAt">The UTC instant the row last changed, so a list can tell a download that is on its way from one that was left behind.</param>
 public sealed record MusicVideoState(MusicVideoStatus Status, int? Height, string? FailureReason, DateTime UpdatedAt);
+
+/// <summary>Where a replacement of a filed video stands.</summary>
+public enum MusicVideoPendingStatus
+{
+    /// <summary>The download command is queued and has not started.</summary>
+    Queued,
+
+    /// <summary>The download command is running.</summary>
+    Downloading,
+}
+
+/// <summary>A download that will replace (or re-download) a song's filed video.</summary>
+/// <param name="YouTubeVideoId">The video being downloaded.</param>
+/// <param name="VideoTitle">Its title, or <see langword="null"/> when the command was queued without one.</param>
+/// <param name="Status">Whether the command is queued or running.</param>
+public sealed record MusicVideoPendingReplacement(string YouTubeVideoId, string? VideoTitle, MusicVideoPendingStatus Status);
 
 /// <summary>What removing a song's music video did.</summary>
 /// <param name="Path">Where the video file was, or <see langword="null"/> when the row had no file yet.</param>
@@ -87,6 +104,15 @@ public interface IMusicVideoService
     /// <param name="cancellationToken">Cancels the query.</param>
     /// <returns>The row, or <see langword="null"/> when the song has none.</returns>
     Task<MusicVideo?> GetAsync(long songId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The download that is on its way to replace the song's filed video: a queued or running <c>MusicVideoDownload</c>
+    /// command for the song while its row is <see cref="MusicVideoStatus.Present"/>.
+    /// </summary>
+    /// <param name="songId">The song.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    /// <returns>The pending replacement, or <see langword="null"/> when there is none.</returns>
+    Task<MusicVideoPendingReplacement?> GetPendingReplacementAsync(long songId, CancellationToken cancellationToken);
 
     /// <summary>
     /// The video state of every song of a page, in one query. <see langword="null"/> while music videos are
@@ -217,6 +243,33 @@ public sealed partial class MusicVideoService : IMusicVideoService
         _database.MusicVideos
             .AsNoTracking()
             .FirstOrDefaultAsync(video => video.SongId == songId, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<MusicVideoPendingReplacement?> GetPendingReplacementAsync(long songId, CancellationToken cancellationToken)
+    {
+        var present = await _database.MusicVideos
+            .AsNoTracking()
+            .AnyAsync(video => video.SongId == songId && video.Status == MusicVideoStatus.Present, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!present)
+        {
+            return null;
+        }
+
+        var active = (await ActiveDownloads.ListAsync(_database, cancellationToken).ConfigureAwait(false))
+            .Where(download => download.Body.SongId == songId)
+            .OrderBy(download => download.Status == CommandStatus.Started ? 0 : 1)
+            .ThenBy(download => download.CommandId)
+            .FirstOrDefault();
+
+        return active is null
+            ? null
+            : new MusicVideoPendingReplacement(
+                active.Body.YouTubeVideoId,
+                active.Body.VideoTitle,
+                active.Status == CommandStatus.Started ? MusicVideoPendingStatus.Downloading : MusicVideoPendingStatus.Queued);
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyDictionary<long, MusicVideoState>?> GetStatesAsync(
