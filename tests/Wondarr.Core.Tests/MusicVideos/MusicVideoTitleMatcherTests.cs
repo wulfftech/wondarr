@@ -498,4 +498,159 @@ public sealed class MusicVideoTitleMatcherTests
     {
         MusicVideoTitleMatcher.Evaluate("When It Rains", ["Paramore"], "Paramore - When it Rains").IsTitledAsTheSong.Should().BeTrue();
     }
+
+    // M-70 item 4: other versions that still counted as the song. Every title is a real one from production.
+
+    [Theory]
+    [InlineData("Some Things Never Change", "Kristen Bell", "Some Things Never Change (From \"Frozen 2\"/Sing-Along)")]
+    [InlineData("When Will My Life Begin?", "Mandy Moore", "Mandy Moore - When Will My Life Begin? (From \"Tangled\"/Sing-Along)")]
+    [InlineData("When Will My Life Begin?", "Mandy Moore", "Mandy Moore - When Will My Life Begin? (From \"Tangled\") (Singalong)")]
+    [InlineData("When Will My Life Begin?", "Mandy Moore", "Mandy Moore - When Will My Life Begin? (Sing Along)")]
+    public void A_sing_along_is_audio_only_and_not_titled_as_the_song(string song, string artist, string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsAudioOnly(song, videoTitle).Should().BeTrue();
+        MusicVideoTitleMatcher.IsNotAMusicVideo(song, videoTitle).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate(song, [artist], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_soundtrack_bracket_with_slash_parts_is_judged_part_by_part()
+    {
+        MusicVideoTitleMatcher.Strip("Song (From \"Frozen 2\"/Sing-Along)").Title.Should().Be("Song (Sing-Along)");
+        MusicVideoTitleMatcher.Strip("Song (From \"AC/DC\")").Title.Should().Be("Song");
+        MusicVideoTitleMatcher.Strip("Song (From \"Frozen\"/HD)").Title.Should().Be("Song");
+        MusicVideoTitleMatcher.Strip("Song (From \"Frozen\"/Live)").Title.Should().Be("Song (Live)");
+    }
+
+    [Fact]
+    public void A_sing_along_word_the_songs_own_title_has_is_not_a_lyric_word()
+    {
+        MusicVideoTitleMatcher.IsAudioOnly("Sing-Along", "Artist - Sing-Along (Official Video)").Should().BeFalse();
+        MusicVideoTitleMatcher.IsNotAMusicVideo("Sing-Along", "Artist - Sing-Along (Official Video)").Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_american_sign_language_version_is_another_version()
+    {
+        const string title = "Kristen Bell - Do You Want to Build a Snowman? (American Sign Language Version)";
+
+        MusicVideoTitleMatcher.IsOtherVersion("Do You Want to Build a Snowman?", title, ["Kristen Bell"]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Do You Want to Build a Snowman?", ["Kristen Bell"], title).IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Do You Want to Build a Snowman?", "Kristen Bell - Do You Want to Build a Snowman? (ASL)", ["Kristen Bell"]).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_reprise_is_a_different_track_from_the_full_song()
+    {
+        // Song "When Will My Life Begin (reprise 1)" is 63 s; the full song's video is 152 s.
+        const string song = "When Will My Life Begin (reprise 1)";
+        const string full = "Mandy Moore - When Will My Life Begin? (From \"Tangled\")";
+
+        MusicVideoTitleMatcher.Similarity(song, full).Should().Be(0);
+        MusicVideoTitleMatcher.Evaluate(song, ["Mandy Moore"], full).IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.Evaluate(song, ["Mandy Moore"], "Mandy Moore - When Will My Life Begin (Reprise 1)").IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_reprise_video_is_not_the_full_song()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("How Far I'll Go", "Auli'i Cravalho - How Far I'll Go (Reprise)", ["Auli'i Cravalho"]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("How Far I'll Go", ["Auli'i Cravalho"], "Auli'i Cravalho - How Far I'll Go (Reprise)").IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Reprise", "Artist - Reprise (Official Video)", ["Artist"]).Should().BeFalse("the song's own title has the word");
+    }
+
+    [Fact]
+    public void A_part_or_interlude_bracket_of_the_songs_title_is_kept_by_the_variants()
+    {
+        MusicVideoTitleMatcher.Evaluate("Rhapsody (Part 2)", ["Artist"], "Artist - Rhapsody (Part 2)").IsTitledAsTheSong.Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate("Rhapsody (Part 2)", ["Artist"], "Artist - Rhapsody").IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.Evaluate("Rhapsody (Interlude)", ["Artist"], "Artist - Rhapsody").IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.Evaluate("Rhapsody", ["Artist"], "Artist - Rhapsody (Interlude)").IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("How Far I'll Go", "Auli'i Cravalho", "How far I'll go (Reprise) - Persian")]
+    [InlineData("Wanna Have Good Times", "Justin Timberlake", "Trolls Wanna Have Good Times - Pop Trolls (Sub. Español)")]
+    [InlineData("Into the Unknown", "Panic! at the Disco", "Frozen II - Into the unknown - Brazilian Portuguese - Panic! at the disco version")]
+    [InlineData("Let It Go", "Idina Menzel", "Idina Menzel - Let It Go (Français)")]
+    [InlineData("Let It Go", "Idina Menzel", "Idina Menzel - Let It Go (Subtitulado)")]
+    [InlineData("Let It Go", "Idina Menzel", "Idina Menzel - Let It Go (Legendado)")]
+    [InlineData("Let It Go", "Idina Menzel", "Idina Menzel - Let It Go (in Japanese)")]
+    [InlineData("Let It Go", "Idina Menzel", "Idina Menzel - Let It Go - Deutsch")]
+    [InlineData("Let It Go", "Idina Menzel", "Idina Menzel - Let It Go (Subtitles)")]
+    public void A_bracket_or_dash_part_that_names_a_language_is_another_version(string song, string artist, string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion(song, videoTitle, [artist]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate(song, [artist], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_language_word_in_the_songs_title_or_the_artists_name_is_not_a_version()
+    {
+        MusicVideoTitleMatcher.IsOtherVersion("English Rose", "The Jam - English Rose (Official Video)", ["The Jam"]).Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Latin Lover", "Artist - Latin Lover (Official Video)", ["Artist"]).Should().BeFalse();
+        MusicVideoTitleMatcher.IsOtherVersion("Song", "Thai - Song (Official Video)", ["Thai"]).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Into the Unknown", "Panic! at the Disco", "Into the Unknown - Panic at the Disco (lower key)")]
+    [InlineData("Into the Unknown", "Panic! at the Disco", "Panic! at the Disco - Into the Unknown (higher key)")]
+    [InlineData("Into the Unknown", "Panic! at the Disco", "Panic! at the Disco - Into the Unknown (key change)")]
+    [InlineData("Into the Unknown", "Panic! at the Disco", "Panic! at the Disco - Into the Unknown (transposed)")]
+    [InlineData("Into the Unknown", "Idina Menzel", "Idina Menzel - Into the Unknown (male version)")]
+    [InlineData("Into the Unknown", "Idina Menzel", "Idina Menzel - Into the Unknown (female version)")]
+    [InlineData("London Bridge", "Fergie", "Fergie - London Bridge - So You Think You Can Dance")]
+    [InlineData("London Bridge", "Fergie", "London Bridge - Fergie | Akiva Brooks Choreography")]
+    [InlineData("London Bridge", "Fergie", "Fergie - London Bridge (Dance Cover)")]
+    [InlineData("London Bridge", "Fergie", "Fergie - London Bridge (Dance Tutorial)")]
+    [InlineData("London Bridge", "Fergie", "Fergie - London Bridge (Tutorial)")]
+    [InlineData("London Bridge", "Fergie", "Fergie - London Bridge (Lesson)")]
+    public void A_key_change_cover_or_dance_upload_is_another_version(string song, string artist, string videoTitle)
+    {
+        MusicVideoTitleMatcher.IsOtherVersion(song, videoTitle, [artist]).Should().BeTrue();
+        MusicVideoTitleMatcher.Evaluate(song, [artist], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+    }
+
+    // M-70 item 5.
+
+    [Fact]
+    public void A_title_with_one_harmless_extra_bracket_is_titled_with_an_alternate_bracket_but_not_as_the_song()
+    {
+        var evaluation = MusicVideoTitleMatcher.Evaluate("London Bridge", ["Fergie"], "Fergie - London Bridge (Oh Snap) (Official Music Video)");
+
+        evaluation.IsTitledAsTheSong.Should().BeFalse("the strict reading stays as it was, so it is never confident");
+        evaluation.IsTitledWithAlternateBracket.Should().BeTrue();
+        evaluation.IsOtherVersion.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Fergie - London Bridge (Oh Snap) (Live)")]
+    [InlineData("Fergie - London Bridge (Oh Snap) (Remix)")]
+    [InlineData("Fergie - London Bridge (Español)")]
+    [InlineData("Fergie - London Bridge (Lyrics)")]
+    [InlineData("Fergie - London Bridge (Reprise)")]
+    [InlineData("Fergie - London Bridge (Dance Cover)")]
+    [InlineData("Fergie - London Bridge (Oh Snap) (Extra)")]
+    [InlineData("Fergie - Another Bridge (Oh Snap)")]
+    public void An_alternate_bracket_with_a_version_word_or_a_second_bracket_is_not_accepted(string videoTitle)
+    {
+        MusicVideoTitleMatcher.Evaluate("London Bridge", ["Fergie"], videoTitle).IsTitledWithAlternateBracket.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_plain_title_is_not_flagged_as_an_alternate_bracket()
+    {
+        MusicVideoTitleMatcher.Evaluate("London Bridge", ["Fergie"], "Fergie - London Bridge (Official Music Video)").IsTitledWithAlternateBracket.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Yusuf / Cat Stevens", "Cat Stevens", true)]
+    [InlineData("Yusuf / Cat Stevens", "Yusuf", true)]
+    [InlineData("Lisa & Fans", "Lisa", false)]
+    [InlineData("Lisa, Fans", "Lisa", false)]
+    [InlineData("Some Fan / Other Fan", "Cat Stevens", false)]
+    public void A_channel_naming_two_artists_with_a_slash_passes_when_either_part_does(string channel, string artist, bool expected)
+    {
+        MusicVideoTitleMatcher.ChannelNamesArtist(channel, [artist]).Should().Be(expected);
+    }
 }

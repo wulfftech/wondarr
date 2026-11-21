@@ -277,7 +277,12 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
             var artistNamed = draft.Evaluation.ArtistInTitle || draft.Credited || draft.ArtistChannel;
             // The loose similarity earns the artist weight; only a strict title earns the titled and official weights.
             var similar = draft.Evaluation.TitleSimilarity >= DecisionEngine.TitleFloor;
-            var titled = draft.Evaluation.IsTitledAsTheSong;
+            // An official video on the artist's own channel that is the song's title plus one harmless bracket
+            // ("London Bridge (Oh Snap)") is titled for ranking and Best match, but never confident.
+            var titled = draft.Evaluation.IsTitledAsTheSong
+                || (draft.Kind == MusicVideoCandidateKind.OfficialVideo
+                    && draft.Lookup == Lookup.Passed
+                    && draft.Evaluation.IsTitledWithAlternateBracket);
             var artistWeight = !artistNamed ? 0 : similar ? ArtistWeight : ArtistOnlyWeight;
 
             var score = (confident ? ConfidentSearchTier : 0)
@@ -300,7 +305,7 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
                 MusicVideoFoundBy.YouTubeSearch,
                 score,
                 artistNamed,
-                draft.Evaluation.IsTitledAsTheSong));
+                titled));
         }
 
         return found;
