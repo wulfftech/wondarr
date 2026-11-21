@@ -165,7 +165,8 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         string videoId,
         string destinationDir,
         int? maxHeight,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Task>? started = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationDir);
@@ -180,6 +181,11 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
         try
         {
+            if (started is not null)
+            {
+                await started().ConfigureAwait(false);
+            }
+
             var options = _options.CurrentValue;
             var arguments = BuildVideoDownloadArguments(videoId, destinationDir, maxHeight, options);
 

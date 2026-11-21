@@ -3374,6 +3374,14 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "autoDownload",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
           }
         ],
         "responses": {
@@ -9796,7 +9804,8 @@
           "thumbnailUrl",
           "confident",
           "foundBy",
-          "score"
+          "score",
+          "artistNamed"
         ],
         "type": "object",
         "properties": {
@@ -9840,6 +9849,9 @@
               "string"
             ],
             "format": "int32"
+          },
+          "artistNamed": {
+            "type": "boolean"
           }
         }
       },
@@ -9875,6 +9887,12 @@
         "type": "object",
         "properties": {
           "youTubeVideoId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "videoTitle": {
             "type": [
               "null",
               "string"
@@ -10349,6 +10367,7 @@
           "songId",
           "status",
           "youTubeVideoId",
+          "videoTitle",
           "foundBy",
           "path",
           "width",
@@ -10383,6 +10402,12 @@
             "$ref": "#/components/schemas/MusicVideoStatus"
           },
           "youTubeVideoId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "videoTitle": {
             "type": [
               "null",
               "string"

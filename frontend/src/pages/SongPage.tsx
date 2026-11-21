@@ -224,7 +224,9 @@ export function SongPage() {
 
         {musicVideos && (
           <Tabs.Panel value="musicvideo" pt="md">
-            {active === 'musicvideo' && <MusicVideoTab songId={songId} />}
+            {active === 'musicvideo' && (
+              <MusicVideoTab songId={songId} durationMs={data.durationMs === null ? null : Number(data.durationMs)} />
+            )}
           </Tabs.Panel>
         )}
 

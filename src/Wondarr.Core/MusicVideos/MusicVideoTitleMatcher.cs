@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Wondarr.Core.Decisions;
 using Wondarr.Core.Identity;
 using Wondarr.Core.Metadata;
+using Wondarr.Core.Verification;
 
 namespace Wondarr.Core.MusicVideos;
 
@@ -35,6 +36,30 @@ public static class MusicVideoTitleMatcher
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
+    /// <summary>
+    /// Bracketed noise that says nothing about the song: "Music Video", "HD", a resolution, or a remaster credit
+    /// a fan added ("1080p Remaster by aTunes"). Matched on the whole content of a bracket.
+    /// </summary>
+    private static readonly Regex NoiseBracket = new(
+        @"^(?:music\s+video|full\s+hd|hd|hq|4k|uhd|(?:\d{3,4}p|4k|hd)\b.*|.*\bremaster(?:ed)?\b.*)$",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// Words that say a video is another version of the song than the studio one, beyond the version flags the
+    /// parser reads: live, a remix or mix, a cover, a reaction, vocals only and the like.
+    /// </summary>
+    private static readonly Regex OtherVersionWords = new(
+        @"\b(?:live|remix|mix|cover|reaction|reacts?|instrumental|karaoke|acoustic|acapella|a\s+cappella|vocals?\s+only|isolated\s+vocals?|demo|slowed|reverb|sped\s+up|nightcore|8d|bass\s+boosted)\b",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>An artist, then a quoted title: <c>Artist "Title"</c>.</summary>
+    private static readonly Regex QuotedTitleRegex = new(
+        @"^(?<artist>[^""“”«»]+?)\s+[""“«](?<title>[^""“”«»]+)[""”»]",
+        RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
     /// <summary>A bracketed group: round or square, with no bracket inside it.</summary>
     private static readonly Regex BracketRegex = new(
         @"\s*[\(\[]([^\(\)\[\]]*)[\)\]]",
@@ -64,7 +89,7 @@ public static class MusicVideoTitleMatcher
         {
             var content = match.Groups[1].Value.Trim();
 
-            if (!Decorations.Contains(content, StringComparer.OrdinalIgnoreCase))
+            if (!Decorations.Contains(content, StringComparer.OrdinalIgnoreCase) && !NoiseBracket.IsMatch(content))
             {
                 return match.Value;
             }
@@ -97,19 +122,8 @@ public static class MusicVideoTitleMatcher
         }
 
         var hard = VersionFlagNames.HardFlags;
-        var parts = DashRegex.Split(stripped).Select(part => part.Trim()).Where(part => part.Length > 0).ToList();
-
-        // The version is checked on the whole title and on each part after a dash ("Teardrop - Live at Glastonbury"):
-        // a part is read as a version hint on its own, the way a disambiguation is.
-        var videoFlags = VersionFlagParser.Parse(stripped).Flags & hard;
-
-        if (parts.Count > 1)
-        {
-            foreach (var part in parts)
-            {
-                videoFlags |= VersionFlagParser.Parse(part, disambiguation: part).Flags & hard;
-            }
-        }
+        var parts = TitleParts(stripped);
+        var videoFlags = VideoFlags(stripped, parts);
 
         if ((VersionFlagParser.Parse(songTitle).Flags & hard) != videoFlags)
         {
@@ -131,6 +145,128 @@ public static class MusicVideoTitleMatcher
         }
 
         return best;
+    }
+
+    private static List<string> TitleParts(string stripped) =>
+        DashRegex.Split(stripped).Select(part => part.Trim()).Where(part => part.Length > 0).ToList();
+
+    /// <summary>
+    /// The hard version flags of a title. The version is checked on the whole title and on each part after a dash
+    /// ("Teardrop - Live at Glastonbury"): a part is read as a version hint on its own, the way a disambiguation is.
+    /// </summary>
+    private static VersionFlags VideoFlags(string stripped, List<string> parts)
+    {
+        var flags = VersionFlagParser.Parse(stripped).Flags & VersionFlagNames.HardFlags;
+
+        if (parts.Count > 1)
+        {
+            foreach (var part in parts)
+            {
+                flags |= VersionFlagParser.Parse(part, disambiguation: part).Flags & VersionFlagNames.HardFlags;
+            }
+        }
+
+        return flags;
+    }
+
+    /// <summary>
+    /// What a search result's title says about the song's artist and version. The artist may be named in the title
+    /// (<c>Artist - Title</c>, <c>Title - Artist</c>, <c>Artist "Title"</c>, <c>Artist &amp; Other - Title</c>), as it
+    /// is on a user upload whose channel is the uploader.
+    /// </summary>
+    /// <param name="ArtistInTitle">Whether the title names one of the song's artists in one of those forms.</param>
+    /// <param name="TitleSimilarity">How close the title (the part after the artist, when named) is to the song's, 0 to 1.</param>
+    /// <param name="IsTitledAsTheSong">Whether it is the song's title at or above the title floor, in the studio version, and not a lyric video.</param>
+    /// <param name="IsOtherVersion">Whether the title says it is a live, remix, cover, vocals-only or similar version.</param>
+    public sealed record Evaluation(bool ArtistInTitle, double TitleSimilarity, bool IsTitledAsTheSong, bool IsOtherVersion);
+
+    /// <summary>Judges a search result's title against the song.</summary>
+    /// <param name="songTitle">The song's title.</param>
+    /// <param name="songArtists">The song's artists.</param>
+    /// <param name="videoTitle">The video's title, decorations and all.</param>
+    public static Evaluation Evaluate(string songTitle, IReadOnlyList<string> songArtists, string videoTitle)
+    {
+        ArgumentNullException.ThrowIfNull(songTitle);
+        ArgumentNullException.ThrowIfNull(songArtists);
+        ArgumentNullException.ThrowIfNull(videoTitle);
+
+        var remaining = TitleAfterArtist(videoTitle, songArtists);
+        var similarity = Similarity(songTitle, videoTitle);
+
+        if (remaining is not null)
+        {
+            similarity = Math.Max(similarity, Similarity(songTitle, remaining));
+        }
+
+        var otherVersion = IsOtherVersion(songTitle, videoTitle);
+
+        return new Evaluation(
+            remaining is not null,
+            similarity,
+            !IsNotAMusicVideo(songTitle, videoTitle) && !otherVersion && similarity >= DecisionEngine.TitleFloor,
+            otherVersion);
+    }
+
+    /// <summary>
+    /// The part of a video's title left once the song's artist is taken off it, or <see langword="null"/> when the
+    /// title does not name the artist in one of the known forms.
+    /// </summary>
+    /// <param name="videoTitle">The video's title.</param>
+    /// <param name="songArtists">The song's artists.</param>
+    public static string? TitleAfterArtist(string videoTitle, IReadOnlyList<string> songArtists)
+    {
+        ArgumentNullException.ThrowIfNull(videoTitle);
+        ArgumentNullException.ThrowIfNull(songArtists);
+
+        var stripped = Strip(videoTitle).Title;
+        var parts = TitleParts(stripped);
+
+        if (parts.Count >= 2)
+        {
+            if (ArtistEvidence.NamesAnyOf(parts[0], songArtists))
+            {
+                return string.Join(" - ", parts.Skip(1));
+            }
+
+            if (ArtistEvidence.NamesAnyOf(parts[^1], songArtists))
+            {
+                return string.Join(" - ", parts.Take(parts.Count - 1));
+            }
+        }
+
+        var quoted = QuotedTitleRegex.Match(stripped);
+
+        return quoted.Success && ArtistEvidence.NamesAnyOf(quoted.Groups["artist"].Value.Trim(), songArtists)
+            ? quoted.Groups["title"].Value.Trim()
+            : null;
+    }
+
+    /// <summary>
+    /// Whether a video's title says it is another version than the song's: a hard version flag the song lacks, or a
+    /// word such as live, mix, cover, reaction or vocals only that the song's own title does not carry.
+    /// </summary>
+    /// <param name="songTitle">The song's title.</param>
+    /// <param name="videoTitle">The video's title, decorations and all.</param>
+    public static bool IsOtherVersion(string songTitle, string videoTitle)
+    {
+        ArgumentNullException.ThrowIfNull(songTitle);
+        ArgumentNullException.ThrowIfNull(videoTitle);
+
+        var stripped = Strip(videoTitle).Title;
+        var flags = VideoFlags(stripped, TitleParts(stripped));
+
+        // The song's own title may carry the word ("Live and Let Die"), which a part after a dash reads as a hint.
+        var songFlags = (VersionFlagParser.Parse(songTitle).Flags | VersionFlagParser.Parse(songTitle, disambiguation: songTitle).Flags)
+            & VersionFlagNames.HardFlags;
+
+        if ((flags & ~songFlags) != VersionFlags.None)
+        {
+            return true;
+        }
+
+        var inSong = OtherVersionWords.Matches(songTitle).Select(match => match.Value.ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+
+        return OtherVersionWords.Matches(stripped).Any(match => !inSong.Contains(match.Value.ToLowerInvariant()));
     }
 
     /// <summary>

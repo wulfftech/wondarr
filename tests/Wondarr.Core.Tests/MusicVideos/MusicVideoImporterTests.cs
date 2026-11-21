@@ -65,6 +65,52 @@ public sealed class MusicVideoImporterTests : IDisposable
     }
 
     [Fact]
+    public async Task A_row_is_queued_while_the_download_waits_for_the_gate_and_downloading_once_it_starts()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+
+        MusicVideoStatus? whileWaiting = null;
+        MusicVideoStatus? whileRunning = null;
+
+        _harness.Downloader.WaitingForGate = async () =>
+        {
+            await using var peek = _harness.NewContext();
+            whileWaiting = (await peek.MusicVideos.SingleAsync()).Status;
+        };
+        _harness.Downloader.DuringDownload = async () =>
+        {
+            await using var peek = _harness.NewContext();
+            whileRunning = (await peek.MusicVideos.SingleAsync()).Status;
+        };
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.MusicBrainz, CancellationToken.None);
+        }
+
+        whileWaiting.Should().Be(MusicVideoStatus.Queued, "a download that waits for the yt-dlp gate has not started");
+        whileRunning.Should().Be(MusicVideoStatus.Downloading);
+    }
+
+    [Fact]
+    public async Task The_title_of_the_chosen_video_is_stored_on_the_row()
+    {
+        await _harness.InitAsync();
+        var song = await _harness.AddSongAsync("Teardrop");
+        await _harness.AddRowAsync(song.Id, MusicVideoStatus.Queued);
+
+        await using (var context = _harness.NewContext())
+        {
+            await _harness.Importer(context).ImportAsync(song.Id, VideoId, MusicVideoFoundBy.Manual, CancellationToken.None, "Massive Attack - Teardrop (Official Video)");
+        }
+
+        await using var fresh = _harness.NewContext();
+        (await fresh.MusicVideos.SingleAsync()).VideoTitle.Should().Be("Massive Attack - Teardrop (Official Video)");
+    }
+
+    [Fact]
     public async Task Nothing_but_an_mkv_is_ever_filed()
     {
         await _harness.InitAsync();

@@ -58,6 +58,67 @@ public sealed class MusicVideoFileScanTests : IDisposable
     }
 
     [Fact]
+    public async Task The_scan_stores_the_codecs_and_an_adopted_video_shows_them()
+    {
+        await _harness.InitAsync();
+        await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        _harness.Video("Massive Attack - Teardrop.mkv", nfo: MusicVideoScanTestKit.Nfo("Teardrop", "Massive Attack"));
+
+        await _harness.ScanAndIdentifyAsync(_probe);
+
+        await using var context = _harness.NewContext();
+        var file = await context.MusicVideoFiles.SingleAsync();
+        file.VideoCodec.Should().Be("h264");
+        file.AudioCodec.Should().Be("aac");
+
+        var video = await context.MusicVideos.SingleAsync();
+        video.VideoCodec.Should().Be("h264", "copied on adoption");
+        video.AudioCodec.Should().Be("aac");
+    }
+
+    [Fact]
+    public async Task A_file_probed_before_codecs_were_kept_is_probed_once_more_and_its_adopted_video_gets_them()
+    {
+        await _harness.InitAsync();
+        await _harness.AddSongAsync("Teardrop", artist: "Massive Attack");
+        _harness.Video("Massive Attack - Teardrop.mkv", nfo: MusicVideoScanTestKit.Nfo("Teardrop", "Massive Attack"));
+        await _harness.ScanAndIdentifyAsync(_probe);
+
+        // The state before this change: probed and adopted, no codecs on either row.
+        await using (var seed = _harness.NewContext())
+        {
+            var file = await seed.MusicVideoFiles.SingleAsync();
+            file.VideoCodec = null;
+            file.AudioCodec = null;
+            var video = await seed.MusicVideos.SingleAsync();
+            video.VideoCodec = null;
+            video.AudioCodec = null;
+            await seed.SaveChangesAsync();
+        }
+
+        _probe.Probed.Clear();
+        var second = await _harness.ScanAndIdentifyAsync(_probe);
+
+        second.Scan.Probed.Should().Be(1, "one probe backfills the codecs");
+        _probe.Probed.Should().HaveCount(1);
+
+        await using (var context = _harness.NewContext())
+        {
+            (await context.MusicVideoFiles.SingleAsync()).VideoCodec.Should().Be("h264");
+            var video = await context.MusicVideos.SingleAsync();
+            video.VideoCodec.Should().Be("h264");
+            video.AudioCodec.Should().Be("aac");
+            video.Status.Should().Be(MusicVideoStatus.Present);
+        }
+
+        _probe.Probed.Clear();
+        var third = await _harness.ScanAndIdentifyAsync(_probe);
+
+        third.Scan.Probed.Should().Be(0, "the backfill happens once");
+        _probe.Probed.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task The_nfo_alone_identifies_a_file_whose_name_says_nothing()
     {
         await _harness.InitAsync();

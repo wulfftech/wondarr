@@ -158,6 +158,47 @@ describe('AppLayout', () => {
     expect(await screen.findByLabelText('1 health issue')).toBeInTheDocument();
   });
 
+  describe('the Match badge', () => {
+    const SUMMARY = { pending: 0, adopted: 4, ambiguous: 2, unmatched: 9, ignored: 0, missing: 0, needsAttention: 11 };
+
+    function installMatchRoutes(videosEnabled: boolean) {
+      installFetch((url) => {
+        if (/\/api\/v1\/matchqueue\?/.test(url)) {
+          return jsonResponse({ page: 1, pageSize: 1, totalRecords: 3, records: [] });
+        }
+
+        if (url.endsWith('/musicvideo/settings')) {
+          return jsonResponse({ enabled: videosEnabled });
+        }
+
+        if (url.endsWith('/musicvideo/match/summary')) {
+          return jsonResponse(SUMMARY);
+        }
+
+        return jsonResponse([]);
+      });
+    }
+
+    it('adds the music videos that fit more than one song to the reference files, and leaves out the unmatched', async () => {
+      installMatchRoutes(true);
+      renderShell();
+
+      const badge = await screen.findByLabelText('5 files to review: 3 music, 2 music videos');
+
+      // 3 reference files + 2 ambiguous videos; the 9 unmatched are not in the library, so nothing is to be done.
+      expect(badge).toHaveTextContent('5');
+    });
+
+    it('counts only the reference files while music videos are off', async () => {
+      installMatchRoutes(false);
+      renderShell();
+
+      const badge = await screen.findByLabelText('3 files to review');
+
+      expect(badge).toHaveTextContent('3');
+    });
+  });
+
   it('shows no feedback button without a token', async () => {
     installFetch((url) =>
       url.endsWith('/api/v1/feedback')

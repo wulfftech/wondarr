@@ -72,13 +72,15 @@ public interface IMusicVideoSearchService
     /// Whether a filed video may be replaced. Only a person's pick (a grab) says yes: a search, a bulk search and the
     /// scheduled task never replace one.
     /// </param>
+    /// <param name="videoTitle">The chosen video's title, kept on the row so the page can say what is on its way.</param>
     Task<MusicVideoQueueResult> QueueDownloadAsync(
         long songId,
         string videoId,
         MusicVideoFoundBy foundBy,
         CommandTrigger trigger,
         CancellationToken cancellationToken,
-        bool replace = false);
+        bool replace = false,
+        string? videoTitle = null);
 
     /// <summary>
     /// Queues a confident-only search (<c>MusicVideoSearch</c> with <c>autoDownload</c>) for each of the songs that
@@ -124,7 +126,8 @@ public static class MusicVideoCommandBodies
     /// <param name="SongId">The song.</param>
     /// <param name="YouTubeVideoId">The YouTube video id.</param>
     /// <param name="FoundBy">How the video was found.</param>
-    public sealed record Download(long SongId, string YouTubeVideoId, MusicVideoFoundBy FoundBy);
+    /// <param name="VideoTitle">The chosen video's title; absent on a command queued before the title was kept.</param>
+    public sealed record Download(long SongId, string YouTubeVideoId, MusicVideoFoundBy FoundBy, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? VideoTitle = null);
 
     /// <summary>Writes a command body.</summary>
     /// <typeparam name="T">The body type.</typeparam>
@@ -245,7 +248,8 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
         MusicVideoFoundBy foundBy,
         CommandTrigger trigger,
         CancellationToken cancellationToken,
-        bool replace = false)
+        bool replace = false,
+        string? videoTitle = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(videoId);
 
@@ -282,6 +286,7 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
                 SongId = songId,
                 Status = MusicVideoStatus.Queued,
                 YouTubeVideoId = videoId,
+                VideoTitle = Clip(videoTitle),
                 FoundBy = foundBy,
             });
             created = true;
@@ -300,6 +305,7 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
             // A queued or downloading row with no command behind it was left by a crash: it is reclaimed.
             row.Status = MusicVideoStatus.Queued;
             row.YouTubeVideoId = videoId;
+            row.VideoTitle = Clip(videoTitle);
             row.FoundBy = foundBy;
             row.FailureReason = null;
         }
@@ -319,7 +325,7 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
             var command = await _commands
                 .EnqueueAsync(
                     MusicVideoDownloadCommandHandler.CommandName,
-                    MusicVideoCommandBodies.Write(new MusicVideoCommandBodies.Download(songId, videoId, foundBy)),
+                    MusicVideoCommandBodies.Write(new MusicVideoCommandBodies.Download(songId, videoId, foundBy, Clip(videoTitle))),
                     trigger,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -339,6 +345,14 @@ public sealed class MusicVideoSearchService : IMusicVideoSearchService
 
             throw;
         }
+    }
+
+    /// <summary>A video title as it is kept: trimmed, at most 300 characters, and <see langword="null"/> when blank.</summary>
+    private static string? Clip(string? title)
+    {
+        var trimmed = title?.Trim();
+
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed.Length > 300 ? trimmed[..300] : trimmed;
     }
 
     /// <inheritdoc />

@@ -1080,6 +1080,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("video_codec");
 
+                    b.Property<string>("VideoTitle")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("video_title");
+
                     b.Property<int?>("Width")
                         .HasColumnType("INTEGER")
                         .HasColumnName("width");
@@ -1144,6 +1148,10 @@ namespace Wondarr.Core.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
                         .HasColumnName("id");
+
+                    b.Property<string>("AudioCodec")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("audio_codec");
 
                     b.Property<string>("Candidates")
                         .IsRequired()
@@ -1225,6 +1233,10 @@ namespace Wondarr.Core.Persistence.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at");
+
+                    b.Property<string>("VideoCodec")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("video_codec");
 
                     b.Property<int?>("Width")
                         .HasColumnType("INTEGER")

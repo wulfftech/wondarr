@@ -30,6 +30,24 @@ const MAX_BULK_SONGS = 200;
 /** How often a video that is queued or downloading is asked for again, in milliseconds. */
 export const MUSIC_VIDEO_POLL_INTERVAL_MS = 3000;
 
+/** A present video shorter than this many pixels high is called low quality, and offers a better one. */
+export const LOW_QUALITY_HEIGHT = 720;
+
+/** YouTube's thumbnail for a video id. */
+export function videoThumbnailUrl(videoId: string): string {
+  return `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
+}
+
+/** The toast that says what is on its way: «title» when the video is known by name. */
+export function downloadingMessage(title: string | null | undefined): string {
+  return title === null || title === undefined || title === '' ? 'Downloading music video' : `Downloading «${title}»`;
+}
+
+/** The address of a video on YouTube. */
+export function youTubeUrl(videoId: string): string {
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+}
+
 /** The fields the settings page edits, in the camelCase spelling the API and `readOnlyFields` use. */
 export type MusicVideoFieldName =
   | 'enabled'
@@ -173,18 +191,23 @@ export function useSongMusicVideo(
   return query;
 }
 
+/** A search for a song, by its id; or with `autoDownload: false`, which only lists the candidates. */
+export type SearchInput = number | { songId: number; autoDownload: boolean };
+
 /**
  * Searches MusicBrainz and YouTube Music for a song's video. A confident match has its download queued
  * (`queued`); otherwise the ranked candidates come back for the person to pick from.
  */
-export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultResource, Error, number> {
+export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultResource, Error, SearchInput> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (songId: number): Promise<MusicVideoSearchResultResource> => {
+    mutationFn: async (input: SearchInput): Promise<MusicVideoSearchResultResource> => {
+      const { songId, autoDownload } = typeof input === 'number' ? { songId: input, autoDownload: true } : input;
       const { data, error, response } = await client.POST('/api/v1/musicvideo/song/{songId}/search', {
-        params: { path: { songId } },
+        // The default is to download a confident match, so only a person who wants to pick says no.
+        params: { path: { songId }, query: autoDownload ? {} : { autoDownload: false } },
       });
 
       if (!response.ok || data === undefined) {
@@ -193,8 +216,9 @@ export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultR
 
       return data;
     },
-    onSuccess: (result, songId) => {
+    onSuccess: (result, input) => {
       if (result.queued) {
+        const songId = typeof input === 'number' ? input : input.songId;
         void queryClient.invalidateQueries({ queryKey: [...MUSIC_VIDEO_KEY, 'song', songId] });
         invalidateLibrary(queryClient);
       }
@@ -203,15 +227,19 @@ export function useSearchMusicVideo(): UseMutationResult<MusicVideoSearchResultR
 }
 
 /** Queues the download of the video the person picked. A different video already filed is replaced once it lands. */
-export function useGrabMusicVideo(): UseMutationResult<void, Error, { songId: number; videoId: string }> {
+export function useGrabMusicVideo(): UseMutationResult<
+  void,
+  Error,
+  { songId: number; videoId: string; videoTitle?: string }
+> {
   const client = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ songId, videoId }): Promise<void> => {
+    mutationFn: async ({ songId, videoId, videoTitle }): Promise<void> => {
       const { error, response } = await client.POST('/api/v1/musicvideo/song/{songId}/grab', {
         params: { path: { songId } },
-        body: { youTubeVideoId: videoId },
+        body: { youTubeVideoId: videoId, ...(videoTitle === undefined ? {} : { videoTitle }) },
       });
 
       if (!response.ok) {

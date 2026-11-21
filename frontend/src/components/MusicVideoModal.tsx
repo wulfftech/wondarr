@@ -1,13 +1,31 @@
-import { Alert, Anchor, Badge, Button, Card, Checkbox, Group, Image, Loader, Modal, Stack, Text } from '@mantine/core';
+import {
+  Alert,
+  Anchor,
+  Badge,
+  Box,
+  Button,
+  Card,
+  Checkbox,
+  Group,
+  Image,
+  Loader,
+  Modal,
+  Stack,
+  Text,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { CircleAlert, ExternalLink, Video } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  downloadingMessage,
   isVideoBusy,
+  LOW_QUALITY_HEIGHT,
   useDeleteMusicVideo,
   useGrabMusicVideo,
   useSearchMusicVideo,
   useSongMusicVideo,
+  videoThumbnailUrl,
+  youTubeUrl,
   type MusicVideoCandidateResource,
   type MusicVideoResource,
 } from '../api/musicVideos';
@@ -32,20 +50,47 @@ const FOUND_BY_LABELS: Record<MusicVideoResource['foundBy'], string> = {
   existing: 'Found in your folder',
 };
 
-/** The address of a video on YouTube, for the "Open on YouTube" link. */
-function youTubeUrl(videoId: string): string {
-  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+/** How many candidates show before "Show more". */
+const FIRST_CANDIDATES = 8;
+
+/** The difference between a video's length and the song's, signed: `+0:12`, `-1:05`. Empty when either is unknown. */
+function lengthDifference(candidateMs: number | null, songMs: number | null | undefined): string {
+  if (candidateMs === null || songMs === null || songMs === undefined) {
+    return '';
+  }
+
+  const difference = Number(candidateMs) - Number(songMs);
+
+  return `${difference < 0 ? '-' : '+'}${formatDuration(Math.abs(difference))}`;
 }
 
 function CandidateCard({
   candidate,
+  best,
+  songDurationMs,
   busy,
   onDownload,
 }: {
   candidate: MusicVideoCandidateResource;
+  /** Whether this is the top of the list, which earns a badge when it is a good guess. */
+  best: boolean;
+  songDurationMs?: number | null;
   busy: boolean;
   onDownload: () => void;
 }) {
+  const difference = lengthDifference(
+    candidate.durationMs === null ? null : Number(candidate.durationMs),
+    songDurationMs,
+  );
+  // The top of the list is a good guess when it names the artist or is the official video; Confident says more.
+  const badge = !best
+    ? null
+    : candidate.confident
+      ? 'Confident match'
+      : candidate.artistNamed || candidate.kind === 'officialVideo'
+        ? 'Best match'
+        : null;
+
   return (
     <Card withBorder padding="sm">
       <Group wrap="nowrap" align="flex-start">
@@ -59,13 +104,19 @@ function CandidateCard({
           <Text size="xs" c="dimmed">
             {candidate.artists.length === 0 ? 'No artist credited' : candidate.artists.join(', ')} ·{' '}
             {formatDuration(candidate.durationMs)}
+            {difference === '' ? '' : ` (${difference})`}
           </Text>
 
           <Group gap={4}>
+            {badge !== null && (
+              <Badge size="sm" color="green" variant="filled">
+                {badge}
+              </Badge>
+            )}
             <Badge size="sm" variant="light">
               {KIND_LABELS[candidate.kind]}
             </Badge>
-            {candidate.confident && (
+            {candidate.confident && badge === null && (
               <Badge size="sm" color="green" variant="light">
                 Confident
               </Badge>
@@ -97,7 +148,115 @@ function CandidateCard({
   );
 }
 
-/** What the video file is: where it sits, its picture and codecs, its size, and who found it. */
+/** The video a row chose: its thumbnail, its title when known, and a link to it on YouTube. */
+function ChosenVideo({ video, children }: { video: MusicVideoResource; children?: ReactNode }) {
+  const videoId = video.youTubeVideoId;
+
+  return (
+    <Group wrap="nowrap" align="flex-start">
+      {videoId !== null && <Image src={videoThumbnailUrl(videoId)} alt="" w={160} h={90} radius="sm" fit="cover" />}
+
+      <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+        {video.videoTitle !== null && (
+          <Text fw={600} size="sm" style={{ overflowWrap: 'anywhere' }}>
+            {video.videoTitle}
+          </Text>
+        )}
+
+        {children}
+
+        {videoId !== null && (
+          <Anchor href={youTubeUrl(videoId)} target="_blank" rel="noreferrer noopener" size="sm">
+            Open on YouTube <ExternalLink size={12} aria-hidden style={{ verticalAlign: 'baseline' }} />
+          </Anchor>
+        )}
+      </Stack>
+    </Group>
+  );
+}
+
+/** A video waiting for the shared download slot, or being downloaded. */
+function BusyView({ video }: { video: MusicVideoResource }) {
+  return (
+    <Stack gap="sm">
+      <ChosenVideo video={video}>
+        <Group gap="xs">
+          <Loader size="xs" />
+          <Text size="sm">{video.status === 'queued' ? 'Waiting for another download to finish' : 'Downloading…'}</Text>
+        </Group>
+      </ChosenVideo>
+    </Stack>
+  );
+}
+
+/** A download that failed: why, which video it tried, and what to do next. Nothing starts until a button is clicked. */
+function FailedView({
+  video,
+  onSearchAgain,
+  onPickAnother,
+  onRemoved,
+}: {
+  video: MusicVideoResource;
+  onSearchAgain: () => void;
+  onPickAnother: () => void;
+  onRemoved: () => void;
+}) {
+  const remove = useDeleteMusicVideo();
+
+  return (
+    <Stack gap="md">
+      <Alert color="red" title="The download failed" icon={<CircleAlert size={16} />}>
+        {video.failureReason ?? 'No reason was given.'}
+      </Alert>
+
+      {video.youTubeVideoId !== null && (
+        <Stack gap={4}>
+          <Text size="xs" c="dimmed">
+            The video it tried
+          </Text>
+          <ChosenVideo video={video} />
+        </Stack>
+      )}
+
+      {remove.error !== null && (
+        <Alert color="red" icon={<CircleAlert size={16} />}>
+          {remove.error.message}
+        </Alert>
+      )}
+
+      <Group gap="xs">
+        <Button size="xs" leftSection={<Video size={14} />} onClick={onSearchAgain}>
+          Search again
+        </Button>
+        <Button variant="default" size="xs" onClick={onPickAnother}>
+          Pick another…
+        </Button>
+        <Button
+          color="red"
+          variant="light"
+          size="xs"
+          loading={remove.isPending}
+          // The file never landed, so there is nothing to lose and nothing to blocklist.
+          onClick={() =>
+            remove.mutate(
+              { songId: Number(video.songId), blocklist: false },
+              {
+                onSuccess: () => {
+                  notifications.show({ message: 'Removed the music video', color: 'green' });
+                  onRemoved();
+                },
+              },
+            )
+          }
+        >
+          Remove
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
+
+/** What the video file is: its picture, where it sits, its codecs, its size, and who found it. */
 function ManageView({
   video,
   onReplace,
@@ -112,25 +271,36 @@ function ManageView({
   const [blocklist, setBlocklist] = useState(true);
 
   if (isVideoBusy(video.status)) {
-    return (
-      <Group gap="sm">
-        <Loader size="sm" />
-        <Text size="sm">{video.status === 'queued' ? 'Waiting to download…' : 'Downloading the music video…'}</Text>
-      </Group>
-    );
+    return <BusyView video={video} />;
   }
 
   // A video found in the folder has no YouTube id: nothing to blocklist, and no YouTube page to link to.
   const found = video.foundBy === 'existing';
   const resolution = video.width !== null && video.height !== null ? `${video.width}×${video.height}` : '—';
   const codecs = [video.videoCodec, video.audioCodec].filter((codec) => codec !== null && codec !== '').join(' / ');
+  const lowQuality = video.height !== null && Number(video.height) < LOW_QUALITY_HEIGHT;
 
   return (
     <Stack gap="md">
+      <ChosenVideo video={video}>
+        <Group gap={6}>
+          {video.durationMs !== null && (
+            <Text size="xs" c="dimmed">
+              {formatDuration(video.durationMs)}
+            </Text>
+          )}
+          {lowQuality && (
+            <Badge size="sm" color="yellow" variant="light">
+              {`Low quality (${String(video.height)}p)`}
+            </Badge>
+          )}
+        </Group>
+      </ChosenVideo>
+
       <FactGrid>
         <Fact label="Path">{video.path ?? '—'}</Fact>
         <Fact label="Resolution">{resolution}</Fact>
-        <Fact label="Codecs">{codecs === '' ? '—' : codecs}</Fact>
+        {codecs !== '' && <Fact label="Codecs">{codecs}</Fact>}
         <Fact label="Size">{formatBytes(video.sizeBytes)}</Fact>
         <Fact label="Found by">{FOUND_BY_LABELS[video.foundBy]}</Fact>
       </FactGrid>
@@ -186,8 +356,9 @@ function ManageView({
         </Stack>
       ) : (
         <Group gap="xs">
-          <Button variant="default" size="xs" onClick={onReplace}>
-            Replace…
+          {/* Replace…, said for a video that is worth replacing. */}
+          <Button variant={lowQuality ? 'filled' : 'default'} size="xs" onClick={onReplace}>
+            {lowQuality ? 'Find a better one' : 'Replace…'}
           </Button>
           <Button color="red" variant="light" size="xs" onClick={() => setConfirming(true)}>
             Remove
@@ -201,6 +372,8 @@ function ManageView({
 export interface MusicVideoPanelProps {
   /** The song whose video this is. */
   songId: number;
+  /** The song's length in milliseconds, so the candidates can say how far off they are. */
+  songDurationMs?: number | null;
   /** Candidates a search already found, shown at once. */
   initialCandidates?: MusicVideoCandidateResource[];
   /** Whether the search that found `initialCandidates` had no MusicBrainz answer. */
@@ -213,11 +386,12 @@ export interface MusicVideoPanelProps {
 
 /**
  * The video's view, without a frame: the dialog wraps it for the song tables, and the song page shows it
- * inline. It shows the manage view while the song holds a video, and the ranked candidates while it holds
- * none, its download failed, or the person chose Replace…
+ * inline. It shows the manage view while the song holds a video, a failed view when its download failed,
+ * and the ranked candidates while it holds none or the person chose Replace…, Search again or Pick another…
  */
 export function MusicVideoPanel({
   songId,
+  songDurationMs = null,
   initialCandidates,
   initialPartial = false,
   searchOnOpen = false,
@@ -229,26 +403,35 @@ export function MusicVideoPanel({
   const [picking, setPicking] = useState(initialCandidates !== undefined || searchOnOpen);
   const [partial, setPartial] = useState(initialPartial);
   const [candidates, setCandidates] = useState<MusicVideoCandidateResource[] | null>(initialCandidates ?? null);
+  const [shown, setShown] = useState(FIRST_CANDIDATES);
   const [grabbing, setGrabbing] = useState<string | null>(null);
   const started = useRef(false);
 
-  const runSearch = () => {
+  /** Searches; with `autoDownload` false it only lists, so the person picks (a failed video's "Pick another…"). */
+  const runSearch = (autoDownload = true) => {
     setPicking(true);
     setCandidates(null);
     setPartial(false);
-    search.mutate(songId, {
-      onSuccess: (result) => {
-        if (result.queued) {
-          notifications.show({ message: 'Downloading music video', color: 'blue' });
-          setPicking(false);
+    setShown(FIRST_CANDIDATES);
+    search.mutate(
+      { songId, autoDownload },
+      {
+        onSuccess: (result) => {
+          if (result.queued) {
+            notifications.show({
+              message: downloadingMessage(result.candidates.find((candidate) => candidate.confident)?.title),
+              color: 'blue',
+            });
+            setPicking(false);
 
-          return;
-        }
+            return;
+          }
 
-        setPartial(result.partial);
-        setCandidates(result.candidates);
+          setPartial(result.partial);
+          setCandidates(result.candidates);
+        },
       },
-    });
+    );
   };
 
   useEffect(() => {
@@ -263,10 +446,10 @@ export function MusicVideoPanel({
   const download = (candidate: MusicVideoCandidateResource) => {
     setGrabbing(candidate.videoId);
     grab.mutate(
-      { songId, videoId: candidate.videoId },
+      { songId, videoId: candidate.videoId, videoTitle: candidate.title },
       {
         onSuccess: () => {
-          notifications.show({ message: 'Downloading music video', color: 'blue' });
+          notifications.show({ message: downloadingMessage(candidate.title), color: 'blue' });
           setPicking(false);
           setCandidates(null);
         },
@@ -284,34 +467,43 @@ export function MusicVideoPanel({
     return <ErrorState message={video.error.message} />;
   }
 
-  const held = video.data;
+  const held = video.data ?? null;
 
-  if (!picking && held !== null && held !== undefined && held.status !== 'failed') {
-    return <ManageView video={held} onReplace={runSearch} onRemoved={() => onRemoved?.()} />;
+  if (!picking && held !== null && held.status === 'failed') {
+    return (
+      <FailedView
+        video={held}
+        onSearchAgain={() => runSearch()}
+        onPickAnother={() => runSearch(false)}
+        onRemoved={() => onRemoved?.()}
+      />
+    );
+  }
+
+  if (!picking && held !== null) {
+    return <ManageView video={held} onReplace={() => runSearch(false)} onRemoved={() => onRemoved?.()} />;
   }
 
   if (!picking) {
     return (
       <Stack gap="sm" align="flex-start">
-        {held?.status === 'failed' && (
-          <Alert color="red" icon={<CircleAlert size={16} />}>
-            The last download failed: {held.failureReason ?? 'no reason was given'}
-          </Alert>
-        )}
-        {held == null && <Text size="sm">No music video yet.</Text>}
-        <Button size="xs" leftSection={<Video size={14} />} onClick={runSearch}>
-          {held == null ? 'Find music video' : 'Find another video'}
+        <Text size="sm">No music video yet.</Text>
+        <Button size="xs" leftSection={<Video size={14} />} onClick={() => runSearch()}>
+          Find music video
         </Button>
       </Stack>
     );
   }
 
+  const visible = candidates?.slice(0, shown) ?? [];
+  const hidden = (candidates?.length ?? 0) - visible.length;
+
   return (
     <Stack gap="sm">
-      {held?.status === 'failed' && (
-        <Alert color="red" icon={<CircleAlert size={16} />}>
-          The last download failed: {held.failureReason ?? 'no reason was given'}
-        </Alert>
+      {songDurationMs !== null && (
+        <Text size="sm" c="dimmed">
+          Song length {formatDuration(songDurationMs)}
+        </Text>
       )}
 
       {search.isPending && <LoadingState label="Searching MusicBrainz and YouTube Music…" />}
@@ -332,21 +524,38 @@ export function MusicVideoPanel({
         <EmptyState message="No music video candidate came back for this song." />
       )}
 
-      {candidates?.map((candidate) => (
+      {visible.map((candidate, index) => (
         <CandidateCard
           key={candidate.videoId}
           candidate={candidate}
+          best={index === 0}
+          songDurationMs={songDurationMs}
           busy={grabbing === candidate.videoId}
           onDownload={() => download(candidate)}
         />
       ))}
 
-      {held !== null && held !== undefined && held.status !== 'failed' && (
-        <Group>
+      {hidden > 0 && (
+        <Button variant="light" size="xs" onClick={() => setShown((count) => count + FIRST_CANDIDATES)}>
+          {`Show more (${String(hidden)})`}
+        </Button>
+      )}
+
+      {/* Sticky, so it stays in reach however far down the list the person has scrolled. */}
+      {held !== null && (
+        <Box
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            zIndex: 1,
+            padding: 'var(--mantine-spacing-xs) 0',
+            background: 'var(--mantine-color-body)',
+          }}
+        >
           <Button variant="subtle" size="xs" onClick={() => setPicking(false)}>
             Back to the current video
           </Button>
-        </Group>
+        </Box>
       )}
     </Stack>
   );

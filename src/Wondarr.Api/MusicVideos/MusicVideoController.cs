@@ -103,6 +103,10 @@ public sealed partial class MusicVideoController : ControllerBase
     /// once, and <c>queued</c> is true. Otherwise only the ranked candidates come back, for the person to pick from.
     /// </summary>
     /// <param name="songId">The song id.</param>
+    /// <param name="autoDownload">
+    /// Whether a confident candidate is downloaded at once (default true). False only lists the candidates, for a person
+    /// who wants to pick one.
+    /// </param>
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <returns>
     /// 200 with whether a download was queued and the candidates; 404 when there is no such song; 409 while music
@@ -114,7 +118,10 @@ public sealed partial class MusicVideoController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status502BadGateway)]
-    public async Task<ActionResult<MusicVideoSearchResultResource>> SearchSong(long songId, CancellationToken cancellationToken)
+    public async Task<ActionResult<MusicVideoSearchResultResource>> SearchSong(
+        long songId,
+        [FromQuery] bool autoDownload = true,
+        CancellationToken cancellationToken = default)
     {
         if (!_options.CurrentValue.Enabled)
         {
@@ -139,10 +146,10 @@ public sealed partial class MusicVideoController : ControllerBase
 
         var queued = false;
 
-        if (result.AutoDownload is { } confident)
+        if (autoDownload && result.AutoDownload is { } confident)
         {
             var outcome = await _search
-                .QueueDownloadAsync(songId, confident.VideoId, confident.FoundBy, CommandTrigger.Manual, cancellationToken)
+                .QueueDownloadAsync(songId, confident.VideoId, confident.FoundBy, CommandTrigger.Manual, cancellationToken, videoTitle: confident.Title)
                 .ConfigureAwait(false);
 
             queued = outcome.Outcome == MusicVideoQueueOutcome.Queued;
@@ -190,7 +197,7 @@ public sealed partial class MusicVideoController : ControllerBase
         }
 
         var queued = await _search
-            .QueueDownloadAsync(songId, videoId, MusicVideoFoundBy.Manual, CommandTrigger.Manual, cancellationToken, replace: true)
+            .QueueDownloadAsync(songId, videoId, MusicVideoFoundBy.Manual, CommandTrigger.Manual, cancellationToken, replace: true, videoTitle: resource.VideoTitle)
             .ConfigureAwait(false);
 
         return queued.Outcome switch

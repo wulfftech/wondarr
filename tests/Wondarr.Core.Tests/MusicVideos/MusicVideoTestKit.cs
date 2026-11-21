@@ -43,9 +43,22 @@ internal sealed class FakeVideoDownloader : IMusicVideoDownloader
     /// <summary>Gets the work folders made.</summary>
     public List<string> WorkFolders { get; } = [];
 
-    public async Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken)
+    /// <summary>Gets or sets what runs while the "download" waits for its turn, before the gate is held.</summary>
+    public Func<Task>? WaitingForGate { get; set; }
+
+    public async Task<MusicVideoDownload> DownloadAsync(string videoId, int? maxHeight, CancellationToken cancellationToken, Func<Task>? started = null)
     {
         Calls.Add((videoId, maxHeight));
+
+        if (WaitingForGate is not null)
+        {
+            await WaitingForGate().ConfigureAwait(false);
+        }
+
+        if (started is not null)
+        {
+            await started().ConfigureAwait(false);
+        }
 
         var work = Path.Combine(_workRoot, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);

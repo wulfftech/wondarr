@@ -1,14 +1,14 @@
 import { MantineProvider } from '@mantine/core';
 import { Notifications, notifications } from '@mantine/notifications';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiProvider } from '../api/ApiProvider';
 import type { SongResource } from '../api/songs';
 import { LIBRARY_SONGS } from '../test/fixtures';
 import { createTestConfig, installFetch, jsonResponse } from '../test/helpers';
-import { MusicVideoCell } from './MusicVideoCell';
+import { MusicVideoCell, musicVideoColumn } from './MusicVideoCell';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -32,6 +32,7 @@ const CANDIDATES = [
     confident: true,
     foundBy: 'musicBrainz',
     score: 90,
+    artistNamed: true,
   },
   {
     videoId: 'ABCDEFGHIJK',
@@ -43,6 +44,7 @@ const CANDIDATES = [
     confident: false,
     foundBy: 'youTubeSearch',
     score: 40,
+    artistNamed: false,
   },
 ];
 
@@ -90,7 +92,7 @@ function renderCell(musicVideo: SongResource['musicVideo'], routes: Routes = {})
         : jsonResponse(routes.video);
     }
 
-    if (url.endsWith('/musicvideo/song/12/search')) {
+    if (/\/musicvideo\/song\/12\/search(\?.*)?$/.test(url)) {
       return jsonResponse(routes.search ?? { queued: false, partial: false, candidates: CANDIDATES });
     }
 
@@ -144,7 +146,56 @@ describe('the music video icon', () => {
 
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
 
-    expect(await screen.findByText('Waiting to download…')).toBeInTheDocument();
+    expect(await screen.findByText('Waiting for another download to finish')).toBeInTheDocument();
+  });
+
+  it('names the video that is queued, with its thumbnail and a link, and says what it waits for', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'queued', height: null, failureReason: null },
+      { video: { ...PRESENT_VIDEO, status: 'queued', videoTitle: 'Daft Punk - Get Lucky (Official Video)' } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
+
+    expect(await screen.findByText('Daft Punk - Get Lucky (Official Video)')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for another download to finish')).toBeInTheDocument();
+    expect(document.querySelector('img[src="https://i.ytimg.com/vi/h5EofwRzit0/hqdefault.jpg"]')).not.toBeNull();
+    expect(screen.getByRole('link', { name: /Open on YouTube/ })).toHaveAttribute(
+      'href',
+      'https://www.youtube.com/watch?v=h5EofwRzit0',
+    );
+  });
+
+  it('names the video that is downloading and says it is downloading', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'downloading', height: null, failureReason: null },
+      { video: { ...PRESENT_VIDEO, status: 'downloading', videoTitle: 'Daft Punk - Get Lucky (Official Video)' } },
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Downloading');
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
+
+    expect(await screen.findByText('Daft Punk - Get Lucky (Official Video)')).toBeInTheDocument();
+    expect(screen.getByText('Downloading…')).toBeInTheDocument();
+  });
+
+  it('says in the tooltip that a queued video is waiting to download', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'queued', height: null, failureReason: null },
+      { video: { ...PRESENT_VIDEO, status: 'queued' } },
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'Music video for Get Lucky is downloading' }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Waiting to download');
   });
 
   it('shows a filled video icon with the height for a present video', async () => {
@@ -165,22 +216,138 @@ describe('the music video icon', () => {
     expect(screen.getByText('h264 / opus')).toBeInTheDocument();
     expect(screen.getByText('50 MB')).toBeInTheDocument();
     expect(screen.getByText('MusicBrainz')).toBeInTheDocument();
+    expect(screen.queryByText(/Low quality/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Replace…' })).toBeInTheDocument();
   });
 
-  it('shows a red crossed-out icon for a failed video and opens the candidates with the reason', async () => {
+  it('shows the thumbnail, the title, the length and a YouTube link for a present video', async () => {
     const user = userEvent.setup();
 
     renderCell(
-      { status: 'failed', height: null, failureReason: 'The video folder has no marker file' },
-      { video: FAILED_VIDEO },
+      { status: 'present', height: 1080, failureReason: null },
+      { video: { ...PRESENT_VIDEO, videoTitle: 'Daft Punk - Get Lucky (Official Video)' } },
     );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('Daft Punk - Get Lucky (Official Video)')).toBeInTheDocument();
+    expect(screen.getByText('4:08')).toBeInTheDocument();
+    expect(document.querySelector('img[src="https://i.ytimg.com/vi/h5EofwRzit0/hqdefault.jpg"]')).not.toBeNull();
+    expect(screen.getByRole('link', { name: /Open on YouTube/ })).toHaveAttribute(
+      'href',
+      'https://www.youtube.com/watch?v=h5EofwRzit0',
+    );
+  });
+
+  it('leaves the codecs out when they are not known', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 1080, failureReason: null },
+      { video: { ...PRESENT_VIDEO, videoCodec: null, audioCodec: null } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('1920×1080')).toBeInTheDocument();
+    expect(screen.queryByText('Codecs')).not.toBeInTheDocument();
+  });
+
+  it('marks a video under 720p as low quality and offers a better one, which searches without downloading', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 480, failureReason: null },
+      { video: { ...PRESENT_VIDEO, width: 854, height: 480 } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+
+    expect(await screen.findByText('Low quality (480p)')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Find a better one' }));
+
+    expect(await screen.findByText('Get Lucky (Official Video)')).toBeInTheDocument();
+    expect(bodyOf('POST', '/musicvideo/song/12/search?autoDownload=false')).toBeDefined();
+  });
+});
+
+describe('a failed music video', () => {
+  async function openFailed(video: unknown = { ...FAILED_VIDEO, videoTitle: 'Get Lucky (fan upload)' }) {
+    const user = userEvent.setup();
+
+    renderCell({ status: 'failed', height: null, failureReason: 'The video folder has no marker file' }, { video });
 
     await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky failed' }));
 
+    return user;
+  }
+
+  it('opens on the reason and the video it tried, and starts nothing', async () => {
+    await openFailed();
+
+    // The icon's tooltip may still be up and says the same, so the reason is looked for in the dialog's alert.
     expect(
-      await screen.findByText(/The last download failed: The video folder has no marker file/),
+      await within(await screen.findByRole('alert')).findByText('The video folder has no marker file'),
     ).toBeInTheDocument();
+    expect(screen.getByText('Get Lucky (fan upload)')).toBeInTheDocument();
+    expect(document.querySelector('img[src="https://i.ytimg.com/vi/h5EofwRzit0/hqdefault.jpg"]')).not.toBeNull();
+    expect(screen.getByRole('link', { name: /Open on YouTube/ })).toHaveAttribute(
+      'href',
+      'https://www.youtube.com/watch?v=h5EofwRzit0',
+    );
+    expect(screen.getByRole('button', { name: 'Search again' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pick another…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+
+    // Nothing was searched, queued or grabbed by opening it.
+    expect(bodyOf('POST', '/musicvideo/song/12/search')).toBeUndefined();
+    expect(bodyOf('POST', '/musicvideo/song/12/search?autoDownload=false')).toBeUndefined();
+    expect(bodyOf('POST', '/musicvideo/song/12/grab')).toBeUndefined();
+  });
+
+  it('searches again as a search does, so a confident match is downloaded', async () => {
+    const user = await openFailed();
+
+    await user.click(await screen.findByRole('button', { name: 'Search again' }));
+
+    await waitFor(() => expect(bodyOf('POST', '/musicvideo/song/12/search')).toBeDefined());
+    expect(bodyOf('POST', '/musicvideo/song/12/search?autoDownload=false')).toBeUndefined();
+  });
+
+  it('lists the candidates without downloading when asked to pick another', async () => {
+    const user = await openFailed();
+
+    await user.click(await screen.findByRole('button', { name: 'Pick another…' }));
+
     expect(await screen.findByText('Get Lucky (Official Video)')).toBeInTheDocument();
+    expect(bodyOf('POST', '/musicvideo/song/12/search?autoDownload=false')).toBeDefined();
+    expect(bodyOf('POST', '/musicvideo/song/12/grab')).toBeUndefined();
+  });
+
+  it('removes the failed row without blocklisting the video', async () => {
+    const user = await openFailed();
+
+    await user.click(await screen.findByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(bodyOf('DELETE', '/musicvideo/song/12?blocklist=false')).toBeDefined());
+  });
+
+  it('says so when no reason was recorded', async () => {
+    await openFailed({ ...FAILED_VIDEO, failureReason: null });
+
+    expect(await screen.findByText('No reason was given.')).toBeInTheDocument();
+  });
+});
+
+describe('the Video column header', () => {
+  it('has a visible text label beside the icon', () => {
+    const column = musicVideoColumn();
+
+    render(<MantineProvider env="test">{column.header}</MantineProvider>);
+
+    expect(screen.getByText('Video')).toBeVisible();
+    expect(screen.getByLabelText('Music video')).toBeInTheDocument();
   });
 });
 
@@ -196,6 +363,110 @@ describe('finding a music video', () => {
     expect(screen.queryByText('Music video for Get Lucky')).not.toBeInTheDocument();
   });
 
+  it('names the video in the toast when the match was confident', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: true, partial: false, candidates: CANDIDATES } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Downloading «Get Lucky (Official Video)»')).toBeInTheDocument();
+    expect(screen.queryByText('Music video for Get Lucky')).not.toBeInTheDocument();
+  });
+
+  it('says how long the song is and how far each candidate is from it', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: false, candidates: CANDIDATES } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    // Get Lucky is 6:09 in the fixture; the first candidate is 4:08, which is 2:01 short.
+    expect(await screen.findByText('Song length 6:09')).toBeInTheDocument();
+    expect(screen.getByText(/Daft Punk · 4:08 \(-2:01\)/)).toBeInTheDocument();
+    // A candidate with no length has no difference to show.
+    expect(screen.getByText(/No artist credited · —$/)).toBeInTheDocument();
+  });
+
+  it('marks the top candidate: Confident match when confident, Best match when official or artist-named', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: false, candidates: CANDIDATES } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Confident match')).toBeInTheDocument();
+    expect(screen.queryByText('Best match')).not.toBeInTheDocument();
+  });
+
+  it('calls an unconfident top candidate a best match when it is the official video or names the artist', async () => {
+    const user = userEvent.setup();
+    const [first] = CANDIDATES;
+
+    renderCell(null, {
+      search: { queued: false, candidates: [{ ...first, confident: false }, CANDIDATES[1]] },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Best match')).toBeInTheDocument();
+    expect(screen.queryByText('Confident match')).not.toBeInTheDocument();
+  });
+
+  it('gives no badge to a top candidate that is neither official nor artist-named', async () => {
+    const user = userEvent.setup();
+
+    renderCell(null, { search: { queued: false, candidates: [CANDIDATES[1]] } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Get Lucky (fan upload)')).toBeInTheDocument();
+    expect(screen.queryByText('Best match')).not.toBeInTheDocument();
+    expect(screen.queryByText('Confident match')).not.toBeInTheDocument();
+  });
+
+  it('shows the first 8 candidates and the rest after Show more', async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 11 }, (_, index) => ({
+      ...CANDIDATES[1],
+      videoId: `VIDEOID${String(index).padStart(4, '0')}`,
+      title: `Fan upload ${String(index + 1)}`,
+      confident: false,
+    }));
+
+    renderCell(null, { search: { queued: false, candidates: many } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Fan upload 8')).toBeInTheDocument();
+    expect(screen.queryByText('Fan upload 9')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show more (3)' }));
+
+    expect(screen.getByText('Fan upload 11')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show more/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps Back to the current video in a sticky footer above the list', async () => {
+    const user = userEvent.setup();
+
+    renderCell(
+      { status: 'present', height: 1080, failureReason: null },
+      { video: PRESENT_VIDEO, search: { queued: false, candidates: CANDIDATES } },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Music video for Get Lucky' }));
+    await user.click(await screen.findByRole('button', { name: 'Replace…' }));
+
+    const back = await screen.findByRole('button', { name: 'Back to the current video' });
+
+    expect(back.parentElement).toHaveStyle({ position: 'sticky' });
+
+    await user.click(back);
+
+    expect(await screen.findByText('1920×1080')).toBeInTheDocument();
+  });
+
   it('opens the candidates when nothing was confident, and downloads the one picked', async () => {
     const user = userEvent.setup();
 
@@ -206,7 +477,7 @@ describe('finding a music video', () => {
     expect(await screen.findByText('Music video for Get Lucky')).toBeInTheDocument();
     expect(screen.getByText('Get Lucky (Official Video)')).toBeInTheDocument();
     expect(screen.getByText('Official video')).toBeInTheDocument();
-    expect(screen.getByText('Confident')).toBeInTheDocument();
+    expect(screen.getByText('Confident match')).toBeInTheDocument();
     expect(screen.getByText('From MusicBrainz')).toBeInTheDocument();
     expect(screen.getByText('Upload')).toBeInTheDocument();
     expect(screen.getByText(/Daft Punk · 4:08/)).toBeInTheDocument();
@@ -222,8 +493,11 @@ describe('finding a music video', () => {
 
     const request = bodyOf('POST', '/musicvideo/song/12/grab');
 
-    expect(await request?.clone().json()).toEqual({ youTubeVideoId: 'h5EofwRzit0' });
-    expect(await screen.findByText('Downloading music video')).toBeInTheDocument();
+    expect(await request?.clone().json()).toEqual({
+      youTubeVideoId: 'h5EofwRzit0',
+      videoTitle: 'Get Lucky (Official Video)',
+    });
+    expect(await screen.findByText('Downloading «Get Lucky (Official Video)»')).toBeInTheDocument();
   });
 
   it('says so when no candidate came back', async () => {

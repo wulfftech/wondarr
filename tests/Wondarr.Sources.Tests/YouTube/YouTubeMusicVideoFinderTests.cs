@@ -214,6 +214,64 @@ public sealed class YouTubeMusicVideoFinderTests
     }
 
     [Fact]
+    public async Task A_fan_upload_that_names_the_artist_in_its_title_outranks_an_unrelated_upload_of_the_right_length()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("AAAAAAAAAAA", "Hello World", ["Unrelated Uploader"], InnertubeVideoTypes.UserUpload, durationMs: 186_000),
+                Result("BBBBBBBBBBB", "hello world - the saddle club", ["Some Fan"], InnertubeVideoTypes.UserUpload, durationMs: 187_000),
+                Result("CCCCCCCCCCC", "The Saddle Club - Hello World (Music Video) (1080p Remaster by aTunes)", ["aTunes"], InnertubeVideoTypes.UserUpload, durationMs: 190_000),
+                Result("DDDDDDDDDDD", "The Saddle Club \"Hello World\"", ["Another Fan"], InnertubeVideoTypes.UserUpload, durationMs: 200_000),
+                Result("EEEEEEEEEEE", "The Saddle Club & Friends – Hello World", ["Third Fan"], InnertubeVideoTypes.UserUpload, durationMs: 230_000)));
+        var query = new MusicVideoQuery("Hello World", ["The Saddle Club"], null, 187_000, NoBlocklist);
+
+        var candidates = await Finder(musicBrainz, innertube).FindAsync(query, CancellationToken.None);
+
+        candidates.Select(candidate => candidate.VideoId).Should().EndWith("AAAAAAAAAAA");
+        candidates.Select(candidate => candidate.VideoId).Take(2).Should().BeEquivalentTo(["BBBBBBBBBBB", "CCCCCCCCCCC"]);
+        candidates.Should().OnlyContain(candidate => !candidate.Confident, "a user upload is never confident, whatever its title says");
+        candidates.Where(candidate => candidate.ArtistNamed).Select(candidate => candidate.VideoId)
+            .Should().BeEquivalentTo(["BBBBBBBBBBB", "CCCCCCCCCCC", "DDDDDDDDDDD", "EEEEEEEEEEE"], "the artist is read from the title, in every form");
+    }
+
+    [Fact]
+    public async Task A_remix_titled_official_video_stays_first_and_not_confident_among_live_vocals_only_and_mix_uploads()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("BBBBBBBBBBB", "Queen - Under Pressure 1981 Live Video Full HD", ["Fan One"], InnertubeVideoTypes.UserUpload, durationMs: 248_000),
+                Result("CCCCCCCCCCC", "Queen - Under Pressure (Vocals Only)", ["Fan Two"], InnertubeVideoTypes.UserUpload, durationMs: 248_000),
+                Result("DDDDDDDDDDD", "Queen & David Bowie - Under Pressure (Juno Ray Club Mix) [Audio]", ["Fan Three"], InnertubeVideoTypes.UserUpload, durationMs: 248_000),
+                Result("AAAAAAAAAAA", "Under Pressure (Rah Mix) (feat. David Bowie)", ["Queen"], InnertubeVideoTypes.OfficialVideo, durationMs: 254_000)));
+        var query = new MusicVideoQuery("Under Pressure", ["Queen"], null, 248_000, NoBlocklist);
+
+        var candidates = await Finder(musicBrainz, innertube).FindAsync(query, CancellationToken.None);
+
+        candidates[0].VideoId.Should().Be("AAAAAAAAAAA");
+        candidates.Should().OnlyContain(candidate => !candidate.Confident, "a mix in the title is a different version");
+    }
+
+    [Fact]
+    public async Task A_live_or_cover_upload_ranks_below_a_studio_upload_that_names_the_artist()
+    {
+        var musicBrainz = Substitute.For<IMusicBrainzClient>();
+        var innertube = new StubInnertubeClient().Respond(
+            InnertubeSearchFilter.Videos,
+            Search(
+                Result("AAAAAAAAAAA", "Queen - Under Pressure (Cover)", ["Fan One"], InnertubeVideoTypes.UserUpload, durationMs: 248_000),
+                Result("BBBBBBBBBBB", "Queen - Under Pressure", ["Fan Two"], InnertubeVideoTypes.UserUpload, durationMs: 240_000)));
+        var query = new MusicVideoQuery("Under Pressure", ["Queen"], null, 248_000, NoBlocklist);
+
+        var candidates = await Finder(musicBrainz, innertube).FindAsync(query, CancellationToken.None);
+
+        candidates.Select(candidate => candidate.VideoId).Should().Equal("BBBBBBBBBBB", "AAAAAAAAAAA");
+    }
+
+    [Fact]
     public async Task Music_brainz_outranks_a_confident_search_result_which_outranks_the_rest()
     {
         var (musicBrainz, _) = MusicBrainzRelationsTests.CreateClient();

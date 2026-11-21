@@ -224,7 +224,7 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
 
         foreach (var file in found)
         {
-            if (!byPath.TryGetValue(file.Path, out var row) || !Same(row, file) || row.Container is null)
+            if (!byPath.TryGetValue(file.Path, out var row) || !Same(row, file) || row.Container is null || NeedsCodecBackfill(row))
             {
                 work.Add(new Work(file, Probe: true));
             }
@@ -248,7 +248,7 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             seen.Add(file.Path);
             byPath.TryGetValue(file.Path, out var row);
 
-            if (row is not null && Same(row, file) && row.Container is not null && row.NfoModifiedAt == file.NfoModifiedAt)
+            if (row is not null && Same(row, file) && row.Container is not null && row.NfoModifiedAt == file.NfoModifiedAt && !NeedsCodecBackfill(row))
             {
                 Restore(row);
                 unchanged++;
@@ -386,6 +386,13 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
         row.State == MusicVideoFileState.Missing
         || (row.State == MusicVideoFileState.Ignored && row.MissingSince is not null);
 
+    /// <summary>
+    /// A row that was probed before codecs were kept: it is read and has neither codec. It is probed once more, and the
+    /// probe fills them in (a readable video always reports at least one).
+    /// </summary>
+    private static bool NeedsCodecBackfill(MusicVideoFile row) =>
+        row.Container is not null && row.VideoCodec is null && row.AudioCodec is null;
+
     private static bool Same(MusicVideoFile row, Found file) =>
         row.Size == file.Size && row.ModifiedAt == file.ModifiedAt;
 
@@ -429,6 +436,8 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             row.DurationMs = info.DurationMs > 0 ? info.DurationMs : null;
             row.Width = info.Width;
             row.Height = info.Height;
+            row.VideoCodec = info.VideoCodec;
+            row.AudioCodec = info.AudioCodec;
             row.TagTitle = info.TagTitle;
             row.TagArtist = info.TagArtist;
         }
@@ -439,6 +448,8 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
             row.DurationMs = null;
             row.Width = null;
             row.Height = null;
+            row.VideoCodec = null;
+            row.AudioCodec = null;
             row.TagTitle = null;
             row.TagArtist = null;
         }
@@ -524,6 +535,8 @@ public sealed partial class MusicVideoFileScanner : IMusicVideoFileScanner
 
         video.Width = row.Width;
         video.Height = row.Height;
+        video.VideoCodec = row.VideoCodec;
+        video.AudioCodec = row.AudioCodec;
         video.DurationMs = row.DurationMs;
         video.SizeBytes = row.Size > 0 ? row.Size : null;
     }
