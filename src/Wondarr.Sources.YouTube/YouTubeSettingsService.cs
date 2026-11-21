@@ -33,16 +33,20 @@ public sealed record YouTubeSettings(
     YtDlpPacingSettings Ytdlp,
     IReadOnlyList<string> ReadOnlyFields);
 
-/// <summary>The yt-dlp pacing flags, as the settings page reads them.</summary>
+/// <summary>The yt-dlp pacing flags and update settings, as the settings page reads them.</summary>
 /// <param name="SleepRequestsSeconds">Seconds between HTTP requests during extraction.</param>
 /// <param name="SleepIntervalSeconds">Seconds before each download.</param>
 /// <param name="MaxSleepIntervalSeconds">The upper bound of the pre-download sleep.</param>
 /// <param name="Retries">How many times yt-dlp itself retries a failed download.</param>
+/// <param name="AutoUpdate">Whether Wondarr keeps its own copy of yt-dlp current.</param>
+/// <param name="UpdateChannel">The release channel the update follows: <c>stable</c> or <c>nightly</c>.</param>
 public sealed record YtDlpPacingSettings(
     double SleepRequestsSeconds,
     int SleepIntervalSeconds,
     int MaxSleepIntervalSeconds,
-    int Retries);
+    int Retries,
+    bool AutoUpdate,
+    string UpdateChannel);
 
 /// <summary>
 /// A change to the YouTube settings. Every field is optional; an absent field is left alone. A
@@ -66,16 +70,20 @@ public sealed record YouTubeSettingsUpdate(
     string? OutputPolicyJson = null,
     YtDlpPacingUpdate? Ytdlp = null);
 
-/// <summary>The yt-dlp pacing flags to change; an absent flag is left alone.</summary>
+/// <summary>The yt-dlp pacing flags and update settings to change; an absent one is left alone.</summary>
 /// <param name="SleepRequestsSeconds">New seconds between HTTP requests during extraction.</param>
 /// <param name="SleepIntervalSeconds">New seconds before each download.</param>
 /// <param name="MaxSleepIntervalSeconds">New upper bound of the pre-download sleep.</param>
 /// <param name="Retries">New retry count.</param>
+/// <param name="AutoUpdate">New state of the automatic-update switch.</param>
+/// <param name="UpdateChannel">New update channel: <c>stable</c> or <c>nightly</c>.</param>
 public sealed record YtDlpPacingUpdate(
     double? SleepRequestsSeconds = null,
     int? SleepIntervalSeconds = null,
     int? MaxSleepIntervalSeconds = null,
-    int? Retries = null);
+    int? Retries = null,
+    bool? AutoUpdate = null,
+    string? UpdateChannel = null);
 
 /// <summary>The outcome of a settings change.</summary>
 /// <param name="Success">Whether the change was written. On failure nothing was written.</param>
@@ -108,6 +116,10 @@ public interface IYouTubeSettingsService
     /// <summary>Runs the health probe now, whatever it answered before.</summary>
     /// <param name="cancellationToken">Cancels the probe.</param>
     Task<YtDlpHealthStatus> ProbeAsync(CancellationToken cancellationToken);
+
+    /// <summary>Which yt-dlp runs (the updated copy, the bundled one or a custom path), and what the update last found.</summary>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    Task<YtDlpUpdateStatus> GetUpdateStatusAsync(CancellationToken cancellationToken);
 }
 
 /// <inheritdoc />
@@ -149,6 +161,8 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
         new("ytdlp:sleep_interval_seconds", "YTDLP__SLEEP_INTERVAL_SECONDS"),
         new("ytdlp:max_sleep_interval_seconds", "YTDLP__MAX_SLEEP_INTERVAL_SECONDS"),
         new("ytdlp:retries", "YTDLP__RETRIES"),
+        new("ytdlp:auto_update", "YTDLP__AUTO_UPDATE"),
+        new("ytdlp:update_channel", "YTDLP__UPDATE_CHANNEL"),
     ];
 
     private readonly IOptionsMonitor<YouTubeOptions> _options;
@@ -156,6 +170,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
     private readonly IReadOnlyCollection<IValidateOptions<YouTubeOptions>> _validators;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IProcessRunner _runner;
+    private readonly IYtDlpBinary _binary;
     private readonly YtDlpAvailability _availability;
     private readonly ILogger<YouTubeSettingsService> _logger;
     private readonly ILogger<YtDlpAvailability> _availabilityLogger;
@@ -169,6 +184,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
     /// <param name="validators">The options validators, so a change is judged by the same rules as start-up.</param>
     /// <param name="settingsRepository">Reads and writes the default output policy.</param>
     /// <param name="runner">Runs the binaries without a shell, for the probe.</param>
+    /// <param name="binary">Says which yt-dlp runs and what the update last found.</param>
     /// <param name="availability">The process-lifetime probe the health checks share.</param>
     /// <param name="environment">The process environment, used to find the fields the environment owns.</param>
     /// <param name="logger">Receives a Debug line naming the keys that were written.</param>
@@ -179,6 +195,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
         IEnumerable<IValidateOptions<YouTubeOptions>> validators,
         ISettingsRepository settingsRepository,
         IProcessRunner runner,
+        IYtDlpBinary binary,
         YtDlpAvailability availability,
         IDictionary environment,
         ILogger<YouTubeSettingsService> logger,
@@ -189,6 +206,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
         ArgumentNullException.ThrowIfNull(validators);
         ArgumentNullException.ThrowIfNull(settingsRepository);
         ArgumentNullException.ThrowIfNull(runner);
+        ArgumentNullException.ThrowIfNull(binary);
         ArgumentNullException.ThrowIfNull(availability);
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(logger);
@@ -199,6 +217,7 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
         _validators = [.. validators];
         _settingsRepository = settingsRepository;
         _runner = runner;
+        _binary = binary;
         _availability = availability;
         _logger = logger;
         _availabilityLogger = availabilityLogger;
@@ -221,7 +240,9 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
                 options.Ytdlp.SleepRequestsSeconds,
                 options.Ytdlp.SleepIntervalSeconds,
                 options.Ytdlp.MaxSleepIntervalSeconds,
-                options.Ytdlp.Retries),
+                options.Ytdlp.Retries,
+                options.Ytdlp.AutoUpdate,
+                options.Ytdlp.UpdateChannel),
             [.. Fields.Where(field => IsLocked(field.Key)).Select(field => CamelCase(field.Key))]);
     }
 
@@ -250,6 +271,8 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
                 SleepIntervalSeconds = current.Ytdlp.SleepIntervalSeconds,
                 MaxSleepIntervalSeconds = current.Ytdlp.MaxSleepIntervalSeconds,
                 Retries = current.Ytdlp.Retries,
+                AutoUpdate = current.Ytdlp.AutoUpdate,
+                UpdateChannel = current.Ytdlp.UpdateChannel,
                 Concurrency = current.Ytdlp.Concurrency,
             },
         };
@@ -314,10 +337,17 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
     {
         // A probe of one's own: the shared availability caches its answer for the process lifetime,
         // and a Test is asked precisely because the user wants to know how it answers now.
-        using var probe = YtDlpAvailability.CreateProbe(_runner, _options, _availabilityLogger);
+        // The binary is decided afresh too: a managed copy that broke since is passed over now.
+        _binary.Invalidate();
+
+        using var probe = YtDlpAvailability.CreateProbe(_runner, _binary, _options, _availabilityLogger);
 
         return await probe.GetStatusAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public Task<YtDlpUpdateStatus> GetUpdateStatusAsync(CancellationToken cancellationToken) =>
+        _binary.GetStatusAsync(cancellationToken);
 
     /// <summary>The default output policy, or the built-in one when no row is stored.</summary>
     /// <param name="cancellationToken">Cancels the read.</param>
@@ -402,6 +432,20 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
                 changes,
                 errors,
                 value => candidate.Ytdlp.Retries = value);
+            ApplyFlag(
+                pacing.AutoUpdate,
+                "ytdlp:auto_update",
+                current.Ytdlp.AutoUpdate,
+                changes,
+                errors,
+                value => candidate.Ytdlp.AutoUpdate = value);
+            ApplyText(
+                pacing.UpdateChannel,
+                "ytdlp:update_channel",
+                current.Ytdlp.UpdateChannel,
+                changes,
+                errors,
+                value => candidate.Ytdlp.UpdateChannel = value ?? string.Empty);
         }
 
         if (update.OutputPolicyJson is not { } json)
@@ -517,7 +561,8 @@ public sealed partial class YouTubeSettingsService : IYouTubeSettingsService
     /// <summary>Turns a <c>config.yml</c> key into the camelCase name the API and the UI use.</summary>
     private static string CamelCase(string key)
     {
-        var parts = key.Split('_', '.');
+        // A nested key (ytdlp:retries) names its section too: ytdlpRetries, as the UI spells it.
+        var parts = key.Split('_', '.', ':');
 
         if (parts.Length == 1)
         {

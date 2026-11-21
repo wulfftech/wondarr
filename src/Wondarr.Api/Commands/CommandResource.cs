@@ -72,7 +72,15 @@ public static partial class CommandResourceMapper
 
     /// <summary>Turns <c>CheckHealth</c> into <c>Check Health</c> for the UI.</summary>
     internal static string SplitCamelCase(string name) =>
-        string.IsNullOrEmpty(name) ? name : CamelBoundary().Replace(name, " $1");
+        string.IsNullOrEmpty(name)
+            ? name
+            : DisplayNames.TryGetValue(name, out var display) ? display : CamelBoundary().Replace(name, " $1");
+
+    /// <summary>Names the camel-case split gets wrong: the yt-dlp update would read "Update Yt Dlp".</summary>
+    private static readonly Dictionary<string, string> DisplayNames = new(StringComparer.Ordinal)
+    {
+        ["UpdateYtDlp"] = "Update yt-dlp",
+    };
 
     /// <summary>
     /// Renders the run time the way the *arrs do, or <see langword="null"/> when the command has not

@@ -12,12 +12,34 @@ const SETTINGS = {
   allowVideos: false,
   searchLimit: 20,
   outputPolicy: { codec: 'aac', mode: 'cbr', bitrateKbps: 256, vbrQuality: 0, sampleRate: 'keep' },
-  ytdlp: { sleepRequestsSeconds: 0.75, sleepIntervalSeconds: 10, maxSleepIntervalSeconds: 20, retries: 5 },
+  ytdlp: {
+    sleepRequestsSeconds: 0.75,
+    sleepIntervalSeconds: 10,
+    maxSleepIntervalSeconds: 20,
+    retries: 5,
+    autoUpdate: true,
+    updateChannel: 'stable',
+  },
   readOnlyFields: [] as string[],
 };
 
 /** What the health probe last found, as `GET /api/v1/youtube/status` sends it. */
-const STATUS = { version: '2026.08.19', hasJsRuntime: true, binaryAvailable: true };
+const STATUS = {
+  version: '2026.08.19',
+  hasJsRuntime: true,
+  binaryAvailable: true,
+  source: 'bundled',
+  bundledVersion: '2026.08.19',
+  autoUpdate: true,
+  updateChannel: 'stable',
+  updateActive: true,
+  lastCheckedAt: null as string | null,
+  lastCheckSucceeded: null as boolean | null,
+  lastCheckMessage: null as string | null,
+  latestVersion: null as string | null,
+  jsRuntimeWarning: null as string | null,
+  fallbackReason: null as string | null,
+};
 
 beforeEach(() => {
   resetLocation('/settings/youtube');
@@ -40,6 +62,7 @@ function sent(): { url: string; method: string; body: Promise<string> }[] {
 function install(
   overrides: Partial<typeof SETTINGS> = {},
   put: () => Response = () => jsonResponse({ ...SETTINGS, ...overrides }),
+  status: Partial<typeof STATUS> = {},
 ): FetchMock {
   return installFetch((url, init) => {
     if (url.includes('/api/v1/system/status')) {
@@ -55,11 +78,15 @@ function install(
     }
 
     if (url.includes('/api/v1/youtube/status')) {
-      return jsonResponse(STATUS);
+      return jsonResponse({ ...STATUS, ...status });
     }
 
     if (url.includes('/api/v1/youtube/test')) {
-      return jsonResponse({ ...STATUS, version: '2026.09.01' });
+      return jsonResponse({ ...STATUS, ...status, version: '2026.09.01' });
+    }
+
+    if (url.includes('/api/v1/command') && init?.method === 'POST') {
+      return jsonResponse({ id: 1, name: 'UpdateYtDlp', status: 'queued' });
     }
 
     return new Response('not found', { status: 404 });
@@ -253,5 +280,116 @@ describe('YouTubeSettingsPage', () => {
     expect(budget).toBeDisabled();
     expect(budget).toHaveValue('7');
     expect(screen.getByLabelText('Cookies file')).toBeEnabled();
+  });
+
+  it('says the copy is updated automatically when the managed copy runs', async () => {
+    install({}, undefined, {
+      source: 'managed',
+      version: '2026.10.26',
+      lastCheckedAt: '2026-11-21T03:00:00Z',
+      lastCheckSucceeded: true,
+      lastCheckMessage: 'Updated yt-dlp to 2026.10.26',
+    });
+
+    renderApp();
+
+    expect(await screen.findByText('yt-dlp 2026.10.26')).toBeInTheDocument();
+    expect(screen.getByText('Updated automatically.')).toBeInTheDocument();
+    expect(screen.getByText('Bundled version: 2026.08.19')).toBeInTheDocument();
+    expect(screen.getByText(/Updated yt-dlp to 2026.10.26/)).toBeInTheDocument();
+  });
+
+  it('says the bundled copy runs when nothing has been updated', async () => {
+    install();
+
+    renderApp();
+
+    expect(await screen.findByText('yt-dlp 2026.08.19')).toBeInTheDocument();
+    expect(screen.getByText('Bundled with the image.')).toBeInTheDocument();
+    expect(screen.getByText('No update check since Wondarr started.')).toBeInTheDocument();
+  });
+
+  it('says a custom path is never updated and turns the update controls off', async () => {
+    install({}, undefined, { source: 'custom', updateActive: false });
+
+    renderApp();
+
+    expect(await screen.findByText('Custom path. Wondarr never updates it.')).toBeInTheDocument();
+    expect(screen.queryByText(/Bundled version/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Check now' })).toBeDisabled();
+    expect(screen.getByLabelText('Update channel')).toBeDisabled();
+  });
+
+  it('queues the UpdateYtDlp command when Check now is pressed', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+
+    await waitFor(async () => {
+      const post = sent().find((request) => request.method === 'POST' && request.url.endsWith('/api/v1/command'));
+
+      expect(post).toBeDefined();
+      expect(JSON.parse(await (post?.body ?? Promise.resolve('{}')))).toMatchObject({ name: 'UpdateYtDlp' });
+    });
+  });
+
+  it('reads the status again after a save, because the settings decide what it reports', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+
+    const statusReads = () =>
+      sent().filter((request) => request.method === 'GET' && request.url.endsWith('/api/v1/youtube/status')).length;
+    const before = statusReads();
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(statusReads()).toBeGreaterThan(before));
+  });
+
+  it('saves the update channel and the auto-update switch', async () => {
+    install();
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+    await user.selectOptions(screen.getByLabelText('Update channel'), 'nightly');
+    await user.click(screen.getByLabelText(/Keep yt-dlp up to date/));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(async () => {
+      const put = sent().find((request) => request.method === 'PUT');
+      const body: unknown = put === undefined ? null : JSON.parse(await put.body);
+
+      expect(body).toMatchObject({ ytdlp: { updateChannel: 'nightly', autoUpdate: false } });
+    });
+  });
+
+  it('shows the server message for an unknown channel against the channel field', async () => {
+    install({}, () =>
+      jsonResponse(
+        {
+          title: 'One or more validation errors occurred.',
+          errors: { settings: ["youtube.ytdlp.update_channel: must be 'stable' or 'nightly' (was 'beta')"] },
+        },
+        400,
+      ),
+    );
+    const user = userEvent.setup();
+
+    renderApp();
+
+    await screen.findByText('yt-dlp 2026.08.19');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText("must be 'stable' or 'nightly' (was 'beta')")).toBeInTheDocument();
   });
 });

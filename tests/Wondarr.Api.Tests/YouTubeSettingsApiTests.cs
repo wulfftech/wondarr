@@ -200,6 +200,91 @@ public sealed class YouTubeSettingsApiTests
     }
 
     [Fact]
+    public async Task The_update_settings_default_to_on_and_stable_and_can_be_changed()
+    {
+        using var factory = Factory();
+        using var api = new Session(factory);
+
+        var (_, read) = await api.GetAsync($"{Endpoint}/settings");
+        var defaults = (JsonObject)((JsonObject)read!)["ytdlp"]!;
+
+        defaults["autoUpdate"]!.GetValue<bool>().Should().BeTrue();
+        defaults["updateChannel"]!.GetValue<string>().Should().Be("stable");
+
+        var (status, body) = await api.PutAsync(
+            $"{Endpoint}/settings",
+            new { ytdlp = new { autoUpdate = false, updateChannel = "nightly" } });
+
+        status.Should().Be(HttpStatusCode.OK);
+
+        var changed = (JsonObject)((JsonObject)body!)["ytdlp"]!;
+
+        changed["autoUpdate"]!.GetValue<bool>().Should().BeFalse();
+        changed["updateChannel"]!.GetValue<string>().Should().Be("nightly");
+
+        var yaml = await File.ReadAllTextAsync(Path.Combine(factory.ConfigDir, "config.yml"));
+
+        yaml.Should().Contain("auto_update: false").And.Contain("update_channel:").And.Contain("nightly");
+    }
+
+    [Fact]
+    public async Task An_unknown_update_channel_is_refused_with_the_yaml_key_named()
+    {
+        using var factory = Factory();
+        using var api = new Session(factory);
+
+        var (status, body) = await api.PutAsync($"{Endpoint}/settings", new { ytdlp = new { updateChannel = "beta" } });
+
+        status.Should().Be(HttpStatusCode.BadRequest);
+        Problem(body)["errors"]!["settings"]!.AsArray().Should().Contain(
+            message => message!.GetValue<string>().Contains("youtube.ytdlp.update_channel:"));
+    }
+
+    [Fact]
+    public async Task The_status_says_the_bundled_copy_runs_when_nothing_has_been_updated()
+    {
+        var runner = Runner(("yt-dlp", "2026.08.19"), ("deno", "2.1.1"));
+        using var factory = Factory(runner);
+        using var api = new Session(factory);
+
+        var (_, body) = await api.GetAsync($"{Endpoint}/status");
+        var probe = (JsonObject)body!;
+
+        probe["source"]!.GetValue<string>().Should().Be("bundled");
+        probe["bundledVersion"]!.GetValue<string>().Should().Be("2026.08.19");
+        probe["autoUpdate"]!.GetValue<bool>().Should().BeTrue();
+        probe["updateChannel"]!.GetValue<string>().Should().Be("stable");
+        probe["lastCheckedAt"].Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_field_the_environment_sets_names_the_update_variable()
+    {
+        Environment.SetEnvironmentVariable("APP__YOUTUBE__YTDLP__AUTO_UPDATE", "false");
+
+        try
+        {
+            using var factory = Factory();
+            using var api = new Session(factory);
+
+            var (status, body) = await api.PutAsync($"{Endpoint}/settings", new { ytdlp = new { autoUpdate = true } });
+
+            status.Should().Be(HttpStatusCode.BadRequest);
+            Problem(body)["errors"]!["settings"]!.AsArray().Should().Contain(
+                message => message!.GetValue<string>().Contains("APP__YOUTUBE__YTDLP__AUTO_UPDATE"));
+
+            var (_, read) = await api.GetAsync($"{Endpoint}/settings");
+
+            ((JsonObject)read!)["readOnlyFields"]!.AsArray().Should().Contain(
+                field => field!.GetValue<string>() == "ytdlpAutoUpdate");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("APP__YOUTUBE__YTDLP__AUTO_UPDATE", null);
+        }
+    }
+
+    [Fact]
     public async Task A_field_the_environment_sets_is_refused_with_the_variable_named()
     {
         // The service reads the process environment, the way WondarrPaths.Resolve does, so the

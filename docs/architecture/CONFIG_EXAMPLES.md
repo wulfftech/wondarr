@@ -72,6 +72,11 @@ sources:
     # e.g. { codec: mp3, mode: vbr, quality: 0 } or { codec: opus, keep: true }; ranked as OPUS-160 regardless
     cookies_file: null
     po_token_provider: null
+    # yt-dlp itself (config.yml: youtube.ytdlp.*)
+    ytdlp:
+      auto_update: true        # Wondarr copies the bundled yt-dlp to <config>/tools/yt-dlp and keeps the copy current; env APP__YOUTUBE__YTDLP__AUTO_UPDATE
+      update_channel: stable   # stable | nightly; env APP__YOUTUBE__YTDLP__UPDATE_CHANNEL
+      # binary_path: yt-dlp    # any other value is your own binary: never copied, never updated
   - type: torznab
     name: Prowlarr
     url: http://prowlarr:9696

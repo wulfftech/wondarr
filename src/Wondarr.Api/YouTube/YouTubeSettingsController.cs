@@ -79,8 +79,9 @@ public sealed class YouTubeSettingsController : ControllerBase
     public async Task<ActionResult<YouTubeStatusResource>> GetStatus(CancellationToken cancellationToken)
     {
         var status = await _settings.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        var update = await _settings.GetUpdateStatusAsync(cancellationToken).ConfigureAwait(false);
 
-        return Ok(YouTubeStatusResource.From(status));
+        return Ok(YouTubeStatusResource.From(status, update));
     }
 
     /// <summary>
@@ -93,7 +94,8 @@ public sealed class YouTubeSettingsController : ControllerBase
     public async Task<ActionResult<YouTubeStatusResource>> Test(CancellationToken cancellationToken)
     {
         var status = await _settings.ProbeAsync(cancellationToken).ConfigureAwait(false);
+        var update = await _settings.GetUpdateStatusAsync(cancellationToken).ConfigureAwait(false);
 
-        return Ok(YouTubeStatusResource.From(status));
+        return Ok(YouTubeStatusResource.From(status, update));
     }
 }

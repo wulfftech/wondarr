@@ -152,6 +152,7 @@ public sealed class YtDlpMusicVideoDownloaderTests : IDisposable
 
         services.AddScoped(_ => Substitute.For<Wondarr.Core.Metadata.MusicBrainz.IMusicBrainzClient>());
         services.AddSingleton(Substitute.For<Wondarr.Core.Media.IProcessRunner>());
+        services.AddSingleton(new Wondarr.Core.Configuration.WondarrPaths(Path.GetTempPath()));
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
 

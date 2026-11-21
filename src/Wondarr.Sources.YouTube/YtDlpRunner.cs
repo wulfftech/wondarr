@@ -85,20 +85,24 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
     private static readonly TimeSpan VideoReadGateWait = TimeSpan.FromSeconds(20);
 
     private readonly IProcessRunner _runner;
+    private readonly IYtDlpBinary _binary;
     private readonly IOptionsMonitor<YouTubeOptions> _options;
     private readonly ILogger<YtDlpRunner> _logger;
     private readonly SemaphoreSlim _gate;
 
     /// <summary>Initialises a new instance of the <see cref="YtDlpRunner"/> class.</summary>
     /// <param name="runner">Runs yt-dlp without a shell.</param>
+    /// <param name="binary">Says which yt-dlp binary to run: Wondarr's updated copy, the bundled one or the user's own.</param>
     /// <param name="options">The <c>youtube</c> section of <c>config.yml</c>.</param>
     /// <param name="logger">Logs the video id and the classified kind; never the command line.</param>
     public YtDlpRunner(
         IProcessRunner runner,
+        IYtDlpBinary binary,
         IOptionsMonitor<YouTubeOptions> options,
         ILogger<YtDlpRunner> logger)
     {
         _runner = runner ?? throw new ArgumentNullException(nameof(runner));
+        _binary = binary ?? throw new ArgumentNullException(nameof(binary));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -141,9 +145,7 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
             try
             {
-                result = await _runner.RunAsync(
-                    options.Ytdlp.BinaryPath,
-                    arguments,
+                result = await RunYtDlpAsync(arguments,
                     TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
             }
@@ -193,9 +195,7 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
             try
             {
-                result = await _runner.RunAsync(
-                    options.Ytdlp.BinaryPath,
-                    arguments,
+                result = await RunYtDlpAsync(arguments,
                     TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
             }
@@ -262,9 +262,7 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
             try
             {
-                result = await _runner.RunAsync(
-                    options.Ytdlp.BinaryPath,
-                    BuildVideoReadArguments(videoId, options),
+                result = await RunYtDlpAsync(BuildVideoReadArguments(videoId, options),
                     TimeSpan.FromSeconds(timeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
             }
@@ -340,6 +338,36 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs the binary <see cref="IYtDlpBinary"/> names. A managed copy that cannot be started for a moment (yt-dlp's
+    /// updater swaps the file with a rename and a chmod) is retried once with the bundled binary, so a download that
+    /// starts inside that window does not fail.
+    /// </summary>
+    private async Task<ProcessResult> RunYtDlpAsync(
+        IReadOnlyList<string> arguments,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            return await _runner.RunAsync(resolution.Path, arguments, timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (MediaToolMissingException) when (resolution.Source == YtDlpBinarySource.Managed)
+        {
+            LogManagedUnavailable(_logger);
+            _binary.Invalidate();
+
+            return await _runner
+                .RunAsync(_options.CurrentValue.Ytdlp.BinaryPath, arguments, timeout, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The managed yt-dlp could not be started; retrying with the bundled one")]
+    private static partial void LogManagedUnavailable(ILogger logger);
+
     private async Task<YtDlpFormats> ProbeFormatsUngatedAsync(
         string videoId,
         YouTubeOptions options,
@@ -349,9 +377,7 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
 
         try
         {
-            result = await _runner.RunAsync(
-                options.Ytdlp.BinaryPath,
-                ["-F", "--no-progress", "--", WatchUrl(videoId)],
+            result = await RunYtDlpAsync(["-F", "--no-progress", "--", WatchUrl(videoId)],
                 TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                 cancellationToken).ConfigureAwait(false);
         }

@@ -17,6 +17,7 @@ public sealed class YtDlpVideoDownloadTests
     private static YtDlpRunner Build(FakeProcessRunner runner, YouTubeOptions? options = null) =>
         new(
             runner,
+            new FixedYtDlpBinary(),
             new TestOptionsMonitor<YouTubeOptions>(options ?? new YouTubeOptions()),
             NullLogger<YtDlpRunner>.Instance);
 
