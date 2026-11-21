@@ -52,6 +52,9 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>What the new video is called beside its destination while the old one is recycled; no scan reads it.</summary>
+    internal const string StagingSuffix = ".wondarr-tmp";
+
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     private readonly WondarrDbContext _database;
@@ -353,7 +356,7 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         row.ReplaceFailedAt = null;
 
         // A found file that this download replaced is not the song's any more. It is in the recycle bin, so its row is
-        // ignored and left to the scan to let go; one that could not be recycled stays where it lay, for the person to
+        // deleted; one that could not be recycled stays where it lay, for the person to
         // match again. A row a scan may have made for the file just filed has no business being there.
         if (FoundPathOf(wanted) is { } oldPath && !PathRules.AreEqual(oldPath, destination))
         {
@@ -361,20 +364,16 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
                 .FirstOrDefaultAsync(file => file.Path == oldPath, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            if (oldFile is not null)
+            if (oldFile is not null && filed.OldRecycled)
+            {
+                // The file is in the recycle bin: its row goes, so a copy the person restores is seen fresh by the next scan.
+                _database.MusicVideoFiles.Remove(oldFile);
+            }
+            else if (oldFile is not null)
             {
                 oldFile.SongId = null;
-
-                if (filed.OldRecycled)
-                {
-                    oldFile.State = MusicVideoFileState.Ignored;
-                    oldFile.MissingSince = _time.GetUtcNow().UtcDateTime;
-                }
-                else
-                {
-                    oldFile.State = MusicVideoFileState.Ambiguous;
-                    oldFile.Candidates = MusicVideoFileRules.Write([new MusicVideoFileCandidate(songId, 1, MusicVideoFileRules.SongHasVideo)]);
-                }
+                oldFile.State = MusicVideoFileState.Ambiguous;
+                oldFile.Candidates = MusicVideoFileRules.Write([new MusicVideoFileCandidate(songId, 1, MusicVideoFileRules.SongHasVideo)]);
             }
         }
 
@@ -451,27 +450,50 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
         _disk.CreateDirectory(Path.GetDirectoryName(destination)!);
 
-        // A video that is replaced where it lies has to leave first: nothing is ever written over a file.
+        // A video that is replaced where it lies has to leave first: nothing is ever written over a file. The new video
+        // is staged beside its destination first (the slow copy may cross devices), then the old files are recycled and the
+        // log says where they went, then the staged file is renamed into place: a kill during the copy loses nothing.
         IReadOnlyList<(string Original, string Recycled)> leftFirst = [];
-
-        if (old is not null && samePlace)
-        {
-            leftFirst = await _videos.RecycleFilesDetailedAsync(old, cancellationToken).ConfigureAwait(false);
-            recycled.AddRange(leftFirst.Select(entry => entry.Recycled));
-        }
+        var staged = destination + StagingSuffix;
 
         try
         {
-            if (_disk.FileExists(destination))
+            // A leftover of a run that was killed after staging: it was never the video.
+            if (_disk.FileExists(staged))
             {
-                throw new MusicVideoException($"A file is already at {destination}.");
+                _disk.DeleteFile(staged);
             }
 
-            Place(download.VideoPath, destination);
+            if (old is not null && samePlace)
+            {
+                Place(download.VideoPath, staged);
+
+                leftFirst = await _videos.RecycleFilesDetailedAsync(old, cancellationToken).ConfigureAwait(false);
+                recycled.AddRange(leftFirst.Select(entry => entry.Recycled));
+                var recycledText = string.Join("; ", recycled);
+                LogRecycledBeforeSwap(_logger, songId, old.Path ?? destination, recycledText);
+
+                if (_disk.FileExists(destination))
+                {
+                    throw new MusicVideoException($"A file is already at {destination}.");
+                }
+
+                _disk.MoveFile(staged, destination);
+            }
+            else
+            {
+                if (_disk.FileExists(destination))
+                {
+                    throw new MusicVideoException($"A file is already at {destination}.");
+                }
+
+                Place(download.VideoPath, destination);
+            }
         }
         catch
         {
             PutBack(songId, leftFirst);
+            DeleteQuietly(staged);
 
             throw;
         }
@@ -508,6 +530,23 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
         }
 
         return new MusicVideoFiled(recycled, oldRecycled);
+    }
+
+    /// <summary>Removes a leftover staging file; a file that cannot be removed is left, and the next import tries again.</summary>
+    private void DeleteQuietly(string path)
+    {
+        try
+        {
+            if (_disk.FileExists(path))
+            {
+                _disk.DeleteFile(path);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Not the video: a stale file under a name no scan reads.
+            LogStagingLeft(_logger, path, exception);
+        }
     }
 
     /// <summary>Moves recycled files back to where they were, never over anything; a failure is logged at Error with both paths.</summary>
@@ -847,6 +886,12 @@ public sealed partial class MusicVideoImporter : IMusicVideoImporter
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The music video of song {SongId} was removed while its file was being put in place; the file is at {Path}")]
     private static partial void LogRowGone(ILogger logger, long songId, string path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "The old music video of song {SongId} ({Path}) is in the recycle bin ({Recycled}); the new one is renamed into its place next")]
+    private static partial void LogRecycledBeforeSwap(ILogger logger, long songId, string path, string recycled);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not remove the leftover staging file {Path}")]
+    private static partial void LogStagingLeft(ILogger logger, string path, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The new music video of song {SongId} is in place, but the old one at {Path} could not be recycled and stays where it is")]
     private static partial void LogOldVideoLeft(ILogger logger, long songId, string path, Exception exception);

@@ -8486,6 +8486,8 @@ export interface components {
             /** Format: int32 */
             height: null | number | string;
             failureReason: null | string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         SongReferenceFileResource: {
             /** Format: int64 */

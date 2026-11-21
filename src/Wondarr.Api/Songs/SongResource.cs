@@ -69,7 +69,8 @@ public sealed record SongResource(
 /// <param name="Status">Where the video stands.</param>
 /// <param name="Height">The picture height in pixels, or <see langword="null"/> when unknown.</param>
 /// <param name="FailureReason">Why the last download failed or was deferred, for a <c>Failed</c> row; otherwise <see langword="null"/>.</param>
-public sealed record SongMusicVideoResource(MusicVideoStatus Status, int? Height, string? FailureReason);
+/// <param name="UpdatedAt">The UTC instant the row last changed.</param>
+public sealed record SongMusicVideoResource(MusicVideoStatus Status, int? Height, string? FailureReason, DateTime UpdatedAt);
 
 /// <summary>The file a song holds: where it is, what is on disk and where it came from.</summary>
 /// <param name="Path">The file's path in the library.</param>

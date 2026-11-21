@@ -16,8 +16,11 @@ afterEach(() => {
   notifications.clean();
 });
 
+/** What a song list sends of a video; the tests leave out `updatedAt` unless it matters. */
+type RowVideo = (Omit<NonNullable<SongResource['musicVideo']>, 'updatedAt'> & { updatedAt?: string }) | null;
+
 /** The Get Lucky row with the given video state, as the song list sends it. */
-function song(musicVideo: SongResource['musicVideo']): SongResource {
+function song(musicVideo: RowVideo): SongResource {
   return { ...LIBRARY_SONGS[0], musicVideo } as unknown as SongResource;
 }
 
@@ -85,7 +88,7 @@ interface Routes {
 }
 
 /** Renders the cell with the providers `App` builds, over a route table for the music video API. */
-function renderCell(musicVideo: SongResource['musicVideo'], routes: Routes = {}) {
+function renderCell(musicVideo: RowVideo, routes: Routes = {}) {
   installFetch((url, init) => {
     const method = init?.method ?? 'GET';
 
@@ -748,6 +751,17 @@ describe('what the candidates say about themselves', () => {
 
     expect(await screen.findByText('Best match')).toBeInTheDocument();
     expect(screen.queryByText(/None of these is titled/)).not.toBeInTheDocument();
+  });
+
+  it('gives Best match to a top upload that is titled as the song even when it names no artist', async () => {
+    const user = userEvent.setup();
+    const upload = { ...CANDIDATES[1], titledAsSong: true, artistNamed: false, title: 'Friends to be' };
+
+    renderCell(null, { search: { queued: false, candidates: [upload] } });
+
+    await user.click(screen.getByRole('button', { name: 'Find music video for Get Lucky' }));
+
+    expect(await screen.findByText('Best match')).toBeInTheDocument();
   });
 
   it('gives no badge to an official top candidate of another song, and warns that none is titled as the song', async () => {

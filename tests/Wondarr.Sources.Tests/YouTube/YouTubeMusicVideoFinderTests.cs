@@ -202,7 +202,9 @@ public sealed class YouTubeMusicVideoFinderTests
                 Result("BBBBBBBBBBB", "Teardrop (Official Video)", ["Massive Attack & Friends"]),
                 Result("CCCCCCCCCCC", "Teardrop (Official Video)", ["Massive Attack feat. Elizabeth Fraser"])));
 
-        var candidates = await Finder(musicBrainz, innertube).FindAsync(Teardrop(mbid: null), CancellationToken.None);
+        // All three are uploaded by the artist's own channel; the credit is what differs.
+        var ownChannel = new StubOEmbedClient(videoId => new YouTubeOEmbed("Teardrop (Official Video)", "Massive Attack", null));
+        var candidates = await Finder(musicBrainz, innertube, ownChannel).FindAsync(Teardrop(mbid: null), CancellationToken.None);
 
         candidates.Where(candidate => candidate.Confident).Select(candidate => candidate.VideoId)
             .Should().BeEquivalentTo(["BBBBBBBBBBB", "CCCCCCCCCCC"], "a credit is split into its names, and 'Massive' is not 'Massive Attack'");
@@ -215,7 +217,7 @@ public sealed class YouTubeMusicVideoFinderTests
         var innertube = new StubInnertubeClient().Respond(
             InnertubeSearchFilter.Videos,
             Search(
-                Result("EEEEEEEEEEE", "Teardrop", ["Some Uploader"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
+                Result("EEEEEEEEEEE", "Teardrop (Lyric Video)", ["Some Uploader"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
                 Result("DDDDDDDDDDD", "Teardrop live", ["Massive Attack"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
                 Result("CCCCCCCCCCC", "Teardrop (Lyric Video)", ["Massive Attack"], InnertubeVideoTypes.UserUpload, durationMs: 330_000),
                 Result("BBBBBBBBBBB", "Teardrop (Lyric Video)", ["Massive Attack"], InnertubeVideoTypes.OfficialVideo, durationMs: 330_000),
@@ -225,9 +227,9 @@ public sealed class YouTubeMusicVideoFinderTests
         var candidates = await Finder(musicBrainz, innertube, new StubOEmbedClient(_ => null)).FindAsync(Teardrop(mbid: null), CancellationToken.None);
 
         candidates.Should().OnlyContain(candidate => !candidate.Confident);
-        candidates.Select(candidate => candidate.VideoId).Take(2).Should().Equal("BBBBBBBBBBB", "AAAAAAAAAAA");
+        candidates[0].VideoId.Should().Be("BBBBBBBBBBB", "official, the artist and the right length");
         candidates[0].Kind.Should().Be(MusicVideoCandidateKind.OfficialVideo);
-        candidates[0].Score.Should().BeGreaterThan(candidates[1].Score, "the closer length ranks first");
+        candidates.Single(candidate => candidate.VideoId == "BBBBBBBBBBB").Score.Should().BeGreaterThan(candidates.Single(candidate => candidate.VideoId == "AAAAAAAAAAA").Score, "the closer length ranks first");
         candidates.Select(candidate => candidate.Score).Should().BeInDescendingOrder();
         candidates[^1].VideoId.Should().Be("EEEEEEEEEEE", "not the artist's, not official: the last");
     }

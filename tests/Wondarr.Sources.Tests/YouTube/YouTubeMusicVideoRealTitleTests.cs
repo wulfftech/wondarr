@@ -84,6 +84,9 @@ public sealed class YouTubeMusicVideoRealTitleTests
     [InlineData("Don't Stop Me Now", "Queen", "HgzGwKwLmgM", "Queen - Don't Stop Me Now (Official Video Remastered 4K)", "Queen Official")]
     [InlineData("Fat Bottomed Girls", "Queen", "VMnjF1O4eH0", "Queen - Fat Bottomed Girls (Official Video)", "Queen Official")]
     [InlineData("Lemon Pound Cake", "Afroman", "9xxK5yyecRo", "Afroman - Lemon Pound Cake (OFFICIAL MUSIC VIDEO)", "ogafroman")]
+    [InlineData("CAN'T STOP THE FEELING!", "Justin Timberlake", "ru0K8uYEZWw", "Justin Timberlake - CAN'T STOP THE FEELING! [Official Video]", "JustinTimberlakeVEVO")]
+    [InlineData("Higher Ground", "Red Hot Chili Peppers", "HIGHERGRND1", "Red Hot Chili Peppers - Higher Ground (Official Music Video)", "RedHotChiliPeppersVEVO")]
+    [InlineData("(I Can't Help) Falling In Love With You", "UB40", "FALLINGLOVE", "UB40 - (I Can't Help) Falling In Love With You (Remastered 2002)", "UB40Official")]
     public async Task The_real_official_videos_stay_confident(string song, string artist, string videoId, string realTitle, string channel)
     {
         var innertube = Searching(Official(videoId, song, artist));
@@ -285,5 +288,62 @@ public sealed class YouTubeMusicVideoRealTitleTests
         var credited = candidates.Single(candidate => candidate.VideoId == "BBBBBBBBBBB");
         credited.Score.Should().BeGreaterThan(other.Score);
         (credited.Score - other.Score).Should().BeGreaterThan(150, "the credited one has the artist weight and the other the version penalty");
+    }
+
+    [Fact]
+    public async Task An_official_video_of_another_song_by_the_same_artist_is_not_titled_or_confident_even_when_the_words_are_close()
+    {
+        var innertube = Searching(Official("AAAAAAAAAAA", "Halo", "Beyoncé"));
+
+        var candidates = await FindAsync(Song("Hello", "Beyoncé"), innertube, Real(("AAAAAAAAAAA", "Beyoncé - Halo", "BeyoncéVEVO")));
+
+        var candidate = candidates.Should().ContainSingle().Subject;
+        candidate.Confident.Should().BeFalse();
+        candidate.TitledAsSong.Should().BeFalse("\"Halo\" is 0.6 like \"Hello\" but is another song");
+    }
+
+    [Fact]
+    public async Task An_official_Be_My_Friend_on_the_artists_channel_is_not_Friends_to_Be()
+    {
+        var innertube = Searching(Official("AAAAAAAAAAA", "Be My Friend", "The Saddle Club"));
+
+        var candidates = await FindAsync(
+            Song("Friends to Be", "The Saddle Club"),
+            innertube,
+            Real(("AAAAAAAAAAA", "The Saddle Club - Be My Friend", "The Saddle Club")));
+
+        var candidate = candidates.Should().ContainSingle().Subject;
+        candidate.Confident.Should().BeFalse();
+        candidate.TitledAsSong.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task The_production_case_ranks_the_correct_unnamed_upload_first_and_it_is_titled_as_the_song()
+    {
+        var innertube = Searching(
+            Upload("AAAAAAAAAAA", "The Saddle club - Be my friend", "saddleclub14"),
+            Upload("BBBBBBBBBBB", "Friends to be", "An Unnamed Uploader"));
+
+        var candidates = await FindAsync(Song("Friends to Be", "The Saddle Club"), innertube, Real());
+
+        candidates[0].VideoId.Should().Be("BBBBBBBBBBB");
+        candidates[0].TitledAsSong.Should().BeTrue();
+        candidates[1].TitledAsSong.Should().BeFalse("it is another song of the artist");
+        candidates.Should().OnlyContain(candidate => !candidate.Confident);
+    }
+
+    [Theory]
+    [InlineData("Queen", "QueenFanTV")]
+    [InlineData("Lisa", "lisa_covers")]
+    [InlineData("UB40", "UB40 Fan Club")]
+    [InlineData("Stevie Wonder", "Stevie")]
+    [InlineData("Paramore", "Paramore - Topic")]
+    public async Task A_fan_or_topic_channel_is_never_the_artists_own(string artist, string channel)
+    {
+        var innertube = Searching(Official("AAAAAAAAAAA", "Teardrop", artist));
+
+        var candidates = await FindAsync(Song("Teardrop", artist), innertube, Real(("AAAAAAAAAAA", $"{artist} - Teardrop (Official Video)", channel)));
+
+        candidates.Should().ContainSingle().Which.Confident.Should().BeFalse();
     }
 }

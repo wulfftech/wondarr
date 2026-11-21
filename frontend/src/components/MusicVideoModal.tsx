@@ -84,13 +84,13 @@ function CandidateCard({
     candidate.durationMs === null ? null : Number(candidate.durationMs),
     songDurationMs,
   );
-  // The top of the list is a good guess when it is titled as the song and names the artist or is the official
-  // video; Confident says more. A top result that is another song of the artist earns no badge.
+  // The top of the list is a good guess when it is titled as the song (a strict reading of its title); Confident says
+  // more. A top result that is another song of the artist earns no badge.
   const badge = !best
     ? null
     : candidate.confident
       ? 'Confident match'
-      : candidate.titledAsSong === true && (candidate.artistNamed || candidate.kind === 'officialVideo')
+      : candidate.titledAsSong === true
         ? 'Best match'
         : null;
 

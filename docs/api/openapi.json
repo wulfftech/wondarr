@@ -14174,7 +14174,8 @@
         "required": [
           "status",
           "height",
-          "failureReason"
+          "failureReason",
+          "updatedAt"
         ],
         "type": "object",
         "properties": {
@@ -14195,6 +14196,10 @@
               "null",
               "string"
             ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

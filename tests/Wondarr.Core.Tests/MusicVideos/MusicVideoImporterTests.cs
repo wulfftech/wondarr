@@ -519,7 +519,7 @@ public sealed class MusicVideoImporterTests : IDisposable
         var oldVideo = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.mkv", "old video");
         var oldNfo = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.nfo", "old nfo");
         await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, "AAAAAAAAAAA", oldVideo, MusicVideoFoundBy.YouTubeSearch);
-        _harness.Disk = new FailingPlaceDisk();
+        _harness.Disk = new FailingPlaceDisk { FailSwap = true };
 
         await using (var context = _harness.NewContext())
         {
@@ -528,6 +528,7 @@ public sealed class MusicVideoImporterTests : IDisposable
             (await act.Should().ThrowAsync<MusicVideoImportException>()).Which.Message.Should().Contain("could not be filed");
         }
 
+        File.Exists(oldVideo + MusicVideoImporter.StagingSuffix).Should().BeFalse("the staged copy is removed");
         (await File.ReadAllTextAsync(oldVideo)).Should().Be("old video");
         (await File.ReadAllTextAsync(oldNfo)).Should().Be("old nfo");
         RecycledFiles().Should().BeEmpty("the old files are back where they were");
@@ -545,7 +546,7 @@ public sealed class MusicVideoImporterTests : IDisposable
         var song = await _harness.AddSongAsync("Teardrop");
         var oldVideo = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.mkv", "old video");
         await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, "AAAAAAAAAAA", oldVideo, MusicVideoFoundBy.YouTubeSearch);
-        _harness.Disk = new FailingPlaceDisk { FailMoveBack = true };
+        _harness.Disk = new FailingPlaceDisk { FailMoveBack = true, FailSwap = true };
         var logger = new ErrorCapture();
 
         await using (var context = _harness.NewContext())
@@ -732,6 +733,9 @@ public sealed class MusicVideoImporterTests : IDisposable
 
         public bool FailMoveBack { get; init; }
 
+        /// <summary>Gets a value indicating whether staging works but the rename of the staged video into place fails.</summary>
+        public bool FailSwap { get; init; }
+
         public bool FileExists(string path) => _real.FileExists(path);
 
         public bool DirectoryExists(string path) => _real.DirectoryExists(path);
@@ -748,7 +752,7 @@ public sealed class MusicVideoImporterTests : IDisposable
 
         public void MoveFile(string source, string target)
         {
-            if (FailMoveBack)
+            if (FailMoveBack || (FailSwap && source.EndsWith(MusicVideoImporter.StagingSuffix, StringComparison.Ordinal)))
             {
                 throw new IOException("cannot move back");
             }
@@ -756,7 +760,15 @@ public sealed class MusicVideoImporterTests : IDisposable
             _real.MoveFile(source, target);
         }
 
-        public void CopyFile(string source, string target) => throw new IOException("disk full");
+        public void CopyFile(string source, string target)
+        {
+            if (!FailSwap)
+            {
+                throw new IOException("disk full");
+            }
+
+            _real.CopyFile(source, target);
+        }
 
         public bool TryCreateHardLink(string source, string target) => false;
 

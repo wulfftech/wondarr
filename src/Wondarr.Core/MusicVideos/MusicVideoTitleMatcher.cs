@@ -13,10 +13,13 @@ namespace Wondarr.Core.MusicVideos;
 /// </summary>
 public static class MusicVideoTitleMatcher
 {
-    /// <summary>The version flags that tell a studio video from another version of the song: edits are not one.</summary>
-    /// <summary>The shortest name that may be found inside another when a channel is matched to an artist.</summary>
-    private const int MinimumNameLength = 3;
+    /// <summary>The shortest artist name a channel may carry a few extra characters around ("ogafroman").</summary>
+    private const int MinimumFuzzyNameLength = 4;
 
+    /// <summary>How many extra characters a channel name may have at either end of the artist's name.</summary>
+    private const int ChannelExtraCharacters = 2;
+
+    /// <summary>The version flags that tell a studio video from another version of the song: edits are not one.</summary>
     private const VersionFlags VideoHardFlags = VersionFlagNames.HardFlags & ~(VersionFlags.Edit | VersionFlags.RadioEdit);
 
     /// <summary>The words a channel name ends with that say nothing about who it is.</summary>
@@ -79,13 +82,13 @@ public static class MusicVideoTitleMatcher
     /// "radio edit", "7\" version"): soft for music videos, whatever the audio decision engine says.
     /// </summary>
     private static readonly Regex SoftVersion = new(
-        @"^(?:(?:single|album|radio|7\s*(?:[""”″]|''|[- ]?inch)?|12\s*(?:[""”″]|''|[- ]?inch))\s+(?:edit|version|mix)|edit)$",
+        @"^(?:(?:single|album|radio|7\s*(?:[""”″]|''|[- ]?inch)?)\s+(?:edit|version|mix)|edit)$",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
     /// <summary>A dash and a soft version marker at the end of a title: <c>Joyride - Single Edit</c>.</summary>
     private static readonly Regex SoftVersionDashSuffix = new(
-        @"\s[-–—]\s(?:(?:single|album|radio|7\s*(?:[""”″]|''|[- ]?inch)?|12\s*(?:[""”″]|''|[- ]?inch))\s+(?:edit|version|mix)|edit)\s*$",
+        @"\s[-–—]\s(?:(?:single|album|radio|7\s*(?:[""”″]|''|[- ]?inch)?)\s+(?:edit|version|mix)|edit)\s*$",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromSeconds(1));
 
@@ -153,17 +156,7 @@ public static class MusicVideoTitleMatcher
         && (VersionFlagParser.Parse(content, disambiguation: content).Flags & VersionFlagNames.HardFlags) == VersionFlags.None;
 
     /// <summary>Whether a bracket's content is only an edit or single-version marker, which a music video ignores.</summary>
-    private static bool IsSoftVersion(string content)
-    {
-        if (SoftVersion.IsMatch(content))
-        {
-            return true;
-        }
-
-        var flags = VersionFlagParser.Parse(content, disambiguation: content).Flags;
-
-        return flags != VersionFlags.None && (flags & ~(VersionFlags.Edit | VersionFlags.RadioEdit)) == VersionFlags.None;
-    }
+    private static bool IsSoftVersion(string content) => SoftVersion.IsMatch(content);
 
     /// <summary>
     /// A song's title as a music video is searched for and compared: without its edit and single-version markers
@@ -314,7 +307,10 @@ public static class MusicVideoTitleMatcher
         return new Evaluation(
             remaining is not null,
             similarity,
-            !IsNotAMusicVideo(songTitle, videoTitle) && !otherVersion && similarity >= DecisionEngine.TitleFloor,
+            !IsNotAMusicVideo(songTitle, videoTitle)
+                && !otherVersion
+                && similarity >= DecisionEngine.TitleFloor
+                && IsStrictTitle(songTitle, videoTitle, remaining),
             otherVersion);
     }
 
@@ -410,7 +406,99 @@ public static class MusicVideoTitleMatcher
     /// <param name="songTitle">The song's title.</param>
     /// <param name="videoTitle">The video's title, decorations and all.</param>
     public static bool IsTitledAsTheSong(string songTitle, string videoTitle) =>
-        !IsNotAMusicVideo(songTitle, videoTitle) && Similarity(songTitle, videoTitle) >= DecisionEngine.TitleFloor;
+        !IsNotAMusicVideo(songTitle, videoTitle)
+        && Similarity(songTitle, videoTitle) >= DecisionEngine.TitleFloor
+        && IsStrictTitle(songTitle, videoTitle, null);
+
+    /// <summary>
+    /// Whether a video's title is the song's by a strict reading, which confidence and "titled as the song" need: the
+    /// loose similarity ranks, but it lets "Halo" pass for "Hello" and "Be my friend" for "Friends to Be". After the
+    /// decorations, soft markers, the artist part and a featuring tail are taken off, one of the title's parts must hold
+    /// the same words as the song's title (in any order), the same letters with the spaces removed ("3am" for "3 Am"),
+    /// or read at least 0.9 alike in order with every word of the song's title present.
+    /// </summary>
+    private static bool IsStrictTitle(string songTitle, string videoTitle, string? remaining)
+    {
+        var variants = CandidateTitleMatcher.SongVariants(SearchTitle(songTitle));
+        var texts = new List<string>();
+
+        foreach (var title in new[] { videoTitle, remaining })
+        {
+            if (title is null)
+            {
+                continue;
+            }
+
+            var stripped = Strip(title).Title;
+            texts.Add(stripped);
+            texts.AddRange(TitleParts(stripped));
+        }
+
+        foreach (var text in texts)
+        {
+            var bare = FeaturingTail.Replace(text, string.Empty).Trim();
+
+            foreach (var variant in variants)
+            {
+                if (StrictlyEqual(variant, text) || StrictlyEqual(variant, bare))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool StrictlyEqual(string song, string video)
+    {
+        var left = TextMatching.Normalize(song);
+        var right = TextMatching.Normalize(video);
+
+        if (left.Length == 0 || right.Length == 0)
+        {
+            return false;
+        }
+
+        var leftWords = left.Split(' ');
+        var rightWords = right.Split(' ');
+
+        if (leftWords.Order(StringComparer.Ordinal).SequenceEqual(rightWords.Order(StringComparer.Ordinal))
+            || string.Equals(left.Replace(" ", string.Empty, StringComparison.Ordinal), right.Replace(" ", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var ratio = 1.0 - ((double)EditDistance(left, right) / Math.Max(left.Length, right.Length));
+
+        return ratio >= 0.9 && leftWords.All(rightWords.Contains);
+    }
+
+    private static int EditDistance(string left, string right)
+    {
+        var previous = new int[right.Length + 1];
+        var current = new int[right.Length + 1];
+
+        for (var j = 0; j <= right.Length; j++)
+        {
+            previous[j] = j;
+        }
+
+        for (var i = 1; i <= left.Length; i++)
+        {
+            current[0] = i;
+
+            for (var j = 1; j <= right.Length; j++)
+            {
+                var cost = left[i - 1] == right[j - 1] ? 0 : 1;
+                current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[right.Length];
+    }
 
     /// <summary>
     /// Whether the title says the video is a lyric video, a visualizer or the audio over a picture: the words
@@ -457,9 +545,11 @@ public static class MusicVideoTitleMatcher
         NotAVideoWords.Matches(phrase).Select(match => match.Value.ToLowerInvariant());
 
     /// <summary>
-    /// Whether a YouTube channel's name is one of the song's artists: lowercase letters and digits only, without a
-    /// trailing "vevo", "official", "officialchannel", "music", "tv" or "channel", and either name holding the other
-    /// ("ogafroman" holds "afroman"; "HueyLewisTheNewsVEVO" holds "hueylewisthenews").
+    /// Whether a YouTube channel is the artist's own: the channel's name, lowercase letters and digits only and without a
+    /// trailing "vevo", "official", "officialchannel", "music", "tv" or "channel", equals the artist's name (with or without
+    /// a leading "the", and with "&amp;" read as "and" or dropped), or is it with at most two extra characters at either end
+    /// ("ogafroman"). A name that merely contains the artist's ("QueenFanTV"), or is part of it ("Stevie"), is a fan, and a
+    /// "- Topic" channel is YouTube's auto-generated art track channel, never the artist's own.
     /// </summary>
     /// <param name="channelName">The channel's name, as oEmbed gives it.</param>
     /// <param name="songArtists">The song's artists.</param>
@@ -468,30 +558,58 @@ public static class MusicVideoTitleMatcher
         ArgumentNullException.ThrowIfNull(channelName);
         ArgumentNullException.ThrowIfNull(songArtists);
 
-        if (ArtistEvidence.NamesAnyOf(channelName, songArtists))
+        if (channelName.TrimEnd().EndsWith("topic", StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return false;
         }
 
         var channel = ChannelKey(channelName);
 
-        if (channel.Length < MinimumNameLength)
+        if (channel.Length == 0)
         {
             return false;
         }
 
         foreach (var artist in songArtists)
         {
-            var key = LettersAndDigits(artist);
-
-            if (key.Length >= MinimumNameLength
-                && (channel.Contains(key, StringComparison.Ordinal) || key.Contains(channel, StringComparison.Ordinal)))
+            foreach (var key in ArtistKeys(artist))
             {
-                return true;
+                if (channel == key)
+                {
+                    return true;
+                }
+
+                if (key.Length >= MinimumFuzzyNameLength
+                    && channel.Length - key.Length is > 0 and <= ChannelExtraCharacters
+                    && (channel.StartsWith(key, StringComparison.Ordinal) || channel.EndsWith(key, StringComparison.Ordinal)))
+                {
+                    return true;
+                }
             }
         }
 
         return false;
+    }
+
+    /// <summary>An artist's name as channel keys: letters and digits only, with and without "the", "&amp;" as "and" and dropped.</summary>
+    private static IEnumerable<string> ArtistKeys(string artist)
+    {
+        var spellings = new[]
+        {
+            TextMatching.Normalize(artist),
+            TextMatching.Normalize(artist.Replace('&', ' ')),
+            TextMatching.Normalize(artist).Replace(" and ", " ", StringComparison.Ordinal),
+        };
+
+        foreach (var spelling in spellings.Where(spelling => spelling.Length > 0).Distinct(StringComparer.Ordinal))
+        {
+            yield return spelling.Replace(" ", string.Empty, StringComparison.Ordinal);
+
+            if (spelling.StartsWith("the ", StringComparison.Ordinal))
+            {
+                yield return spelling[4..].Replace(" ", string.Empty, StringComparison.Ordinal);
+            }
+        }
     }
 
     private static string ChannelKey(string name)
@@ -517,5 +635,5 @@ public static class MusicVideoTitleMatcher
     }
 
     private static string LettersAndDigits(string name) =>
-        new([.. name.ToLowerInvariant().Where(char.IsLetterOrDigit)]);
+        TextMatching.Normalize(name).Replace(" ", string.Empty, StringComparison.Ordinal);
 }

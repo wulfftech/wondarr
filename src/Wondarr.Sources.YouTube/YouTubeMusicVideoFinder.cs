@@ -275,8 +275,10 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
                 && draft.Lookup == Lookup.Passed;
 
             var artistNamed = draft.Evaluation.ArtistInTitle || draft.Credited || draft.ArtistChannel;
-            var titled = draft.Evaluation.TitleSimilarity >= DecisionEngine.TitleFloor;
-            var artistWeight = !artistNamed ? 0 : titled ? ArtistWeight : ArtistOnlyWeight;
+            // The loose similarity earns the artist weight; only a strict title earns the titled and official weights.
+            var similar = draft.Evaluation.TitleSimilarity >= DecisionEngine.TitleFloor;
+            var titled = draft.Evaluation.IsTitledAsTheSong;
+            var artistWeight = !artistNamed ? 0 : similar ? ArtistWeight : ArtistOnlyWeight;
 
             var score = (confident ? ConfidentSearchTier : 0)
                 + (draft.Kind == MusicVideoCandidateKind.OfficialVideo ? (titled ? OfficialVideoWeight : UntitledOfficialWeight) : 0)
@@ -325,12 +327,13 @@ public sealed partial class YouTubeMusicVideoFinder : IMusicVideoFinder
     /// <summary>The order the lookups are chosen in: the score before any lookup, as a confident result would have it.</summary>
     private static int PreliminaryScore(MusicVideoQuery query, Draft draft)
     {
-        var titled = draft.Evaluation.TitleSimilarity >= DecisionEngine.TitleFloor;
+        var titled = draft.Evaluation.IsTitledAsTheSong;
+        var similar = draft.Evaluation.TitleSimilarity >= DecisionEngine.TitleFloor;
         var named = draft.Evaluation.ArtistInTitle || draft.Credited;
 
-        return (draft.Credited && draft.Evaluation.IsTitledAsTheSong ? ConfidentSearchTier : 0)
+        return (draft.Credited && titled ? ConfidentSearchTier : 0)
             + (titled ? TitledWeight : 0)
-            + (named ? (titled ? ArtistWeight : ArtistOnlyWeight) : 0)
+            + (named ? (similar ? ArtistWeight : ArtistOnlyWeight) : 0)
             + LengthPoints(query.DurationMs, draft.Result.DurationMs);
     }
 

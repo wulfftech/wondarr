@@ -12,7 +12,9 @@ namespace Wondarr.Core.MusicVideos;
 /// <summary>What a song list shows of a song's music video.</summary>
 /// <param name="Status">Where the video stands.</param>
 /// <param name="Height">The picture height in pixels, or <see langword="null"/> when unknown.</param>
-public sealed record MusicVideoState(MusicVideoStatus Status, int? Height, string? FailureReason);
+/// <param name="FailureReason">Why the video failed, or <see langword="null"/>.</param>
+/// <param name="UpdatedAt">The UTC instant the row last changed, so a list can tell a download that is on its way from one that was left behind.</param>
+public sealed record MusicVideoState(MusicVideoStatus Status, int? Height, string? FailureReason, DateTime UpdatedAt);
 
 /// <summary>What removing a song's music video did.</summary>
 /// <param name="Path">Where the video file was, or <see langword="null"/> when the row had no file yet.</param>
@@ -236,11 +238,11 @@ public sealed partial class MusicVideoService : IMusicVideoService
         var rows = await _database.MusicVideos
             .AsNoTracking()
             .Where(video => songIds.Contains(video.SongId))
-            .Select(video => new { video.SongId, video.Status, video.Height, video.FailureReason })
+            .Select(video => new { video.SongId, video.Status, video.Height, video.FailureReason, video.UpdatedAt })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return rows.ToDictionary(row => row.SongId, row => new MusicVideoState(row.Status, row.Height, row.FailureReason));
+        return rows.ToDictionary(row => row.SongId, row => new MusicVideoState(row.Status, row.Height, row.FailureReason, row.UpdatedAt));
     }
 
     /// <inheritdoc />

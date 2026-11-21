@@ -70,12 +70,38 @@ const SONG_CHANGING_COMMANDS: ReadonlySet<string> = new Set([
   'BulkAddSongs',
   'ImportListSync',
   'ReferenceAdopt',
-  'MusicVideoDownload',
-  'MusicVideoSearch',
 ]);
 
 /** The commands that put files on (or take them off) the Match queue. */
 const MATCH_COMMANDS: ReadonlySet<string> = new Set(['ReferenceLibraryScan', 'ReferenceAdopt']);
+
+/** The most often the song lists and the music video queries are read again for finished video commands, in milliseconds. */
+export const VIDEO_REFETCH_THROTTLE_MS = 3000;
+
+let lastVideoRefetch = 0;
+let videoRefetchTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Reads the song lists and the music video queries again for a finished music video command, at most once every
+ * three seconds: a bulk search ends one command after another, and each should not refetch every visible list. A
+ * push that arrives inside the window is folded into one read at its end, so the last state is never missed.
+ */
+function refetchVideosThrottled(queryClient: QueryClient): void {
+  const read = () => {
+    lastVideoRefetch = Date.now();
+    videoRefetchTimer = undefined;
+    invalidateLibrary(queryClient);
+    void queryClient.invalidateQueries({ queryKey: MUSIC_VIDEO_KEY });
+  };
+  const wait = lastVideoRefetch + VIDEO_REFETCH_THROTTLE_MS - Date.now();
+
+  if (wait <= 0) {
+    clearTimeout(videoRefetchTimer);
+    read();
+  } else if (videoRefetchTimer === undefined) {
+    videoRefetchTimer = setTimeout(read, wait);
+  }
+}
 
 /**
  * What a command push changes beyond the command lists. Progress ticks change nothing else; the
@@ -101,9 +127,9 @@ function applyCommandOutcome(queryClient: QueryClient, resource: unknown): void 
     invalidateLibrary(queryClient);
   }
 
-  // A music video download that has ended has moved its row, and the dialog's view of it, on.
+  // A music video search or download that has ended has moved its row, and the dialog's view of it, on.
   if (name === 'MusicVideoDownload' || name === 'MusicVideoSearch') {
-    void queryClient.invalidateQueries({ queryKey: MUSIC_VIDEO_KEY });
+    refetchVideosThrottled(queryClient);
   }
 
   // The header badge only needs the total; the open Match page is refetched only by a command that fills it.

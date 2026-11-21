@@ -1,5 +1,8 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Wondarr.Core.Domain;
 using Wondarr.Core.Jobs;
 using Wondarr.Core.MusicVideos;
@@ -101,14 +104,14 @@ public sealed class MusicVideoReplacementTests : IDisposable
         Recycled().Should().ContainSingle(path => path.EndsWith("Queen - Radio Ga Ga.mkv", StringComparison.Ordinal));
 
         await using var fresh = _harness.NewContext();
-        (await fresh.MusicVideoFiles.SingleAsync()).State.Should().Be(MusicVideoFileState.Ignored, "the scan must not adopt a recycled file again");
+        (await fresh.MusicVideoFiles.CountAsync()).Should().Be(0, "the recycled file's row is gone, so a restored copy is scanned fresh");
     }
 
     [Fact]
     public async Task A_found_file_is_put_back_when_filing_the_new_video_fails_and_the_failure_is_stored_and_in_the_history()
     {
         var song = await SeedFoundRadioGaGaAsync();
-        _harness.Disk = new MusicVideoImporterTests.FailingPlaceDisk();
+        _harness.Disk = new MusicVideoImporterTests.FailingPlaceDisk { FailSwap = true };
 
         await using (var context = _harness.NewContext())
         {
@@ -338,7 +341,7 @@ public sealed class MusicVideoReplacementTests : IDisposable
         var song = await _harness.AddSongAsync("Teardrop");
         var path = _harness.Temp.CreateFile("videos/Massive Attack/Massive Attack - Teardrop.mkv", "360p copy");
         await _harness.AddRowAsync(song.Id, MusicVideoStatus.Present, "u7K72X4eo_s", path, MusicVideoFoundBy.Manual);
-        _harness.Disk = new MusicVideoImporterTests.FailingPlaceDisk();
+        _harness.Disk = new MusicVideoImporterTests.FailingPlaceDisk { FailSwap = true };
 
         var act = () => ImportAsync(song.Id, "u7K72X4eo_s");
         await act.Should().ThrowAsync<MusicVideoImportException>();
@@ -347,5 +350,51 @@ public sealed class MusicVideoReplacementTests : IDisposable
         Recycled().Should().BeEmpty();
         await using var fresh = _harness.NewContext();
         (await fresh.MusicVideos.SingleAsync()).ReplaceFailureReason.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task A_replacement_leaves_no_staging_file_beside_the_new_video_and_removes_a_stale_one()
+    {
+        var song = await SeedFoundRadioGaGaAsync();
+        var stale = _harness.Temp.CreateFile("videos/Queen/Queen - Radio Ga Ga.mkv" + MusicVideoImporter.StagingSuffix, "left by a run that was killed");
+
+        await ImportAsync(song.Id);
+
+        File.Exists(stale).Should().BeFalse();
+        File.ReadAllText(FoundPath).Should().Be("matroska bytes");
+        Directory.GetFiles(_harness.Temp.Full("videos/Queen"), "*" + MusicVideoImporter.StagingSuffix).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task At_startup_a_row_with_no_download_command_behind_it_is_failed_and_one_with_a_command_is_left()
+    {
+        await _harness.InitAsync();
+        var orphan = await _harness.AddSongAsync("Teardrop");
+        var downloading = await _harness.AddSongAsync("Angel");
+        var live = await _harness.AddSongAsync("Inertia Creeps");
+        var done = await _harness.AddSongAsync("Safe From Harm");
+        await _harness.AddRowAsync(orphan.Id, MusicVideoStatus.Queued);
+        await _harness.AddRowAsync(downloading.Id, MusicVideoStatus.Downloading);
+        await _harness.AddRowAsync(live.Id, MusicVideoStatus.Queued);
+        await _harness.AddRowAsync(done.Id, MusicVideoStatus.Present, "AAAAAAAAAAA", _harness.Temp.Full("videos/x.mkv"));
+        await _harness.AddActiveDownloadAsync(live.Id, "u7K72X4eo_s", CommandStatus.Queued);
+        _harness.Time.Advance(TimeSpan.FromHours(1));
+        var now = _harness.Time.GetUtcNow().UtcDateTime;
+
+        await using (var context = _harness.NewContext())
+        {
+            var reclaim = new MusicVideoStartupReclaim(Substitute.For<IServiceScopeFactory>(), _harness.Time, NullLogger<MusicVideoStartupReclaim>.Instance);
+
+            (await reclaim.ReclaimAsync(context, now, CancellationToken.None)).Should().Be(2);
+        }
+
+        await using var fresh = _harness.NewContext();
+        var rows = await fresh.MusicVideos.AsNoTracking().ToDictionaryAsync(row => row.SongId);
+        rows[orphan.Id].Status.Should().Be(MusicVideoStatus.Failed);
+        rows[orphan.Id].FailureReason.Should().Be("Wondarr restarted before the download finished");
+        rows[orphan.Id].UpdatedAt.Should().Be(now);
+        rows[downloading.Id].Status.Should().Be(MusicVideoStatus.Failed);
+        rows[live.Id].Status.Should().Be(MusicVideoStatus.Queued, "its command is still queued");
+        rows[done.Id].Status.Should().Be(MusicVideoStatus.Present);
     }
 }

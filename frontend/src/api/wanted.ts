@@ -22,17 +22,32 @@ export type BlocklistPage = components['schemas']['PagingResourceOfBlocklistReso
 /** How often a song list is asked again while one of its rows is queued or downloading, in milliseconds. */
 export const SONG_VIDEO_POLL_INTERVAL_MS = 5000;
 
+/** A queued or downloading row that has not changed for this long was left behind, and is not waited for, in milliseconds. */
+export const SONG_VIDEO_STALE_AFTER_MS = 30 * 60 * 1000;
+
 /**
  * The interval a song list asks again at: every few seconds while a visible row's music video is queued or
- * downloading, so the row moves on by itself (queued, downloading, present or failed) with no dialog open.
+ * downloading, so the row moves on by itself (queued, downloading, present or failed) with no dialog open. A row
+ * whose `updatedAt` is over 30 minutes old is an orphan and does not keep the list polling.
  */
-export function pollWhileVideosBusy(query: { state: { data: SongPage | undefined } }): number | false {
+export function pollWhileVideosBusy(
+  query: { state: { data: SongPage | undefined } },
+  now: number = Date.now(),
+): number | false {
   const records: unknown = query.state.data?.records;
   const busy =
     Array.isArray(records) &&
-    (records as SongResource[]).some(
-      (song) => song.musicVideo?.status === 'queued' || song.musicVideo?.status === 'downloading',
-    );
+    (records as SongResource[]).some((song) => {
+      const video = song.musicVideo;
+
+      if (video?.status !== 'queued' && video?.status !== 'downloading') {
+        return false;
+      }
+
+      const changed = typeof video.updatedAt === 'string' ? Date.parse(video.updatedAt) : Number.NaN;
+
+      return Number.isNaN(changed) || now - changed <= SONG_VIDEO_STALE_AFTER_MS;
+    });
 
   return busy ? SONG_VIDEO_POLL_INTERVAL_MS : false;
 }

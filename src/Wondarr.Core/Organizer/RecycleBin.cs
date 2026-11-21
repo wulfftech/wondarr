@@ -27,7 +27,7 @@ public interface IRecycleBin
     /// bin, because what goes in would be walked, and cleaned out, with the folder. <see langword="null"/> when it can.
     /// </summary>
     /// <param name="libraryRoot">The folder the file belongs to, as for <see cref="RecycleAsync"/>.</param>
-    string? Refusal(string libraryRoot) => null;
+    string? Refusal(string libraryRoot);
 
     /// <summary>
     /// Deletes recycled files older than the configured age, then the directories they leave empty.

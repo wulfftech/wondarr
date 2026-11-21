@@ -121,9 +121,7 @@ public sealed class MusicVideoFoundFileTests : IDisposable
         video.FoundBy.Should().Be(MusicVideoFoundBy.Manual);
         video.YouTubeVideoId.Should().Be(VideoId);
 
-        var file = await fresh.MusicVideoFiles.SingleAsync(row => row.Path == found);
-        file.State.Should().Be(MusicVideoFileState.Ignored, "the file is in the bin and the scan must not adopt it again");
-        file.SongId.Should().BeNull();
+        (await fresh.MusicVideoFiles.AnyAsync(row => row.Path == found)).Should().BeFalse("the file is in the bin; a copy put back is seen fresh by the next scan");
     }
 
     [Fact]

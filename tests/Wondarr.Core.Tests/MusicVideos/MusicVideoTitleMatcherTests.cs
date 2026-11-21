@@ -232,6 +232,18 @@ public sealed class MusicVideoTitleMatcherTests
     [InlineData("Paramore", "Paramore", true)]
     [InlineData("UB40Official", "UB40", true)]
     [InlineData("Millennial Pause", "Matchbox Twenty", false)]
+    [InlineData("QueenFanTV", "Queen", false)]
+    [InlineData("lisa_covers", "Lisa", false)]
+    [InlineData("UB40 Fan Club", "UB40", false)]
+    [InlineData("Stevie", "Stevie Wonder", false)]
+    [InlineData("won", "Stevie Wonder", false)]
+    [InlineData("Paramore - Topic", "Paramore", false)]
+    [InlineData("BeyoncéVEVO", "Beyoncé", true)]
+    [InlineData("BeyonceVEVO", "Beyoncé", true)]
+    [InlineData("TheSaddleClubVEVO", "The Saddle Club", true)]
+    [InlineData("SaddleClub", "The Saddle Club", true)]
+    [InlineData("SimonAndGarfunkelVEVO", "Simon & Garfunkel", true)]
+    [InlineData("SimonGarfunkel", "Simon & Garfunkel", true)]
     [InlineData("Some Random Channel", "Massive Attack", false)]
     [InlineData("Peppa's Kisses", "UB40", false)]
     public void A_channel_is_the_artists_when_the_normalised_names_hold_each_other(string channel, string artist, bool expected)
@@ -243,6 +255,7 @@ public sealed class MusicVideoTitleMatcherTests
     public void A_very_short_name_is_not_found_inside_another_channel()
     {
         MusicVideoTitleMatcher.ChannelNamesArtist("Aloha Channel", ["Al"]).Should().BeFalse();
+        MusicVideoTitleMatcher.ChannelNamesArtist("Alma", ["Al"]).Should().BeFalse("two extra characters are only allowed round a name of four or more letters");
     }
 
     [Theory]
@@ -334,5 +347,59 @@ public sealed class MusicVideoTitleMatcherTests
     public void An_official_video_with_remaster_and_resolution_after_the_decoration_is_the_song()
     {
         MusicVideoTitleMatcher.Evaluate("Don't Stop Me Now", ["Queen"], "Queen - Don't Stop Me Now (Official Video Remastered 4K)").IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Hello", "Beyoncé - Halo")]
+    [InlineData("Friends to Be", "The Saddle Club - Be My Friend")]
+    [InlineData("Friends to Be", "Be my friend")]
+    public void A_title_that_is_only_alike_is_not_titled_as_the_song(string songTitle, string videoTitle)
+    {
+        MusicVideoTitleMatcher.Evaluate(songTitle, ["Beyoncé", "The Saddle Club"], videoTitle).IsTitledAsTheSong.Should().BeFalse();
+        MusicVideoTitleMatcher.IsTitledAsTheSong(songTitle, videoTitle).Should().BeFalse();
+        MusicVideoTitleMatcher.Similarity(songTitle, videoTitle).Should().BeGreaterThanOrEqualTo(DecisionEngine.TitleFloor, "the loose similarity still ranks it");
+    }
+
+    [Theory]
+    [InlineData("The Power of Love", "Huey Lewis & The News - The Power Of Love (Official Music Video)", "Huey Lewis & The News")]
+    [InlineData("Hip to Be Square", "Huey Lewis & The News - Hip To Be Square", "Huey Lewis & The News")]
+    [InlineData("CAN'T STOP THE FEELING!", "Justin Timberlake - CAN'T STOP THE FEELING! [Official Video]", "Justin Timberlake")]
+    [InlineData("Higher Ground", "Higher Ground (Official Music Video)", "Red Hot Chili Peppers")]
+    [InlineData("(I Can't Help) Falling In Love With You", "UB40 - (I Can't Help) Falling In Love With You (Remastered 2002)", "UB40")]
+    [InlineData("Joyride (single edit)", "Roxette - Joyride (Official Video)", "Roxette")]
+    [InlineData("3 Am", "Matchbox Twenty - 3AM", "Matchbox Twenty")]
+    [InlineData("Don't Stop Me Now", "Queen - Don't Stop Me Now (Official Video Remastered 4K)", "Queen")]
+    [InlineData("Shout Out to My Ex", "Little Mix - Shout Out to My Ex (Official Video)", "Little Mix")]
+    public void The_strict_reading_still_accepts_the_real_titles(string songTitle, string videoTitle, string artist)
+    {
+        MusicVideoTitleMatcher.Evaluate(songTitle, [artist], videoTitle).IsTitledAsTheSong.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Joyride (Club Edit)")]
+    [InlineData("Joyride (DJ Edit)")]
+    [InlineData("Joyride (Fan Edit)")]
+    [InlineData("Joyride (Re-Edit)")]
+    [InlineData("Joyride (12\" Mix)")]
+    [InlineData("Joyride (Intro)")]
+    [InlineData("Joyride (Outro)")]
+    public void Only_the_explicit_single_album_radio_and_7_inch_forms_are_soft(string title)
+    {
+        MusicVideoTitleMatcher.SearchTitle(title).Should().Be(title);
+        MusicVideoTitleMatcher.Strip(title).Title.Should().Be(title);
+        MusicVideoTitleMatcher.IsTitledAsTheSong("Joyride", title).Should().BeFalse("a different cut is not the song's own title");
+    }
+
+    [Theory]
+    [InlineData("Joyride (Single Edit)")]
+    [InlineData("Joyride (Album Version)")]
+    [InlineData("Joyride (Radio Edit)")]
+    [InlineData("Joyride (7\" Version)")]
+    [InlineData("Joyride (7-inch Mix)")]
+    [InlineData("Joyride (Edit)")]
+    public void The_explicit_forms_are_soft(string title)
+    {
+        MusicVideoTitleMatcher.SearchTitle(title).Should().Be("Joyride");
+        MusicVideoTitleMatcher.Strip(title).Title.Should().Be("Joyride");
     }
 }

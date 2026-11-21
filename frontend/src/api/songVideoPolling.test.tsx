@@ -7,7 +7,7 @@ import { LIBRARY_SONGS } from '../test/fixtures';
 import { createTestConfig, installFetch, jsonResponse } from '../test/helpers';
 import { ApiProvider } from './ApiProvider';
 import { useSongs, type SongPage, type SongResource } from './songs';
-import { pollWhileVideosBusy, SONG_VIDEO_POLL_INTERVAL_MS } from './wanted';
+import { pollWhileVideosBusy, SONG_VIDEO_POLL_INTERVAL_MS, SONG_VIDEO_STALE_AFTER_MS } from './wanted';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -46,6 +46,17 @@ describe('polling a song list while a video is on its way', () => {
     );
     expect(pollWhileVideosBusy({ state: { data: page(null) } })).toBe(false);
     expect(pollWhileVideosBusy({ state: { data: undefined } })).toBe(false);
+  });
+
+  it('does not keep polling for a row that has not changed in over 30 minutes', () => {
+    const now = Date.parse('2026-11-21T12:00:00Z');
+    const stale = { status: 'queued', height: null, failureReason: null, updatedAt: '2026-11-21T11:20:00Z' };
+    const fresh = { status: 'queued', height: null, failureReason: null, updatedAt: '2026-11-21T11:45:00Z' };
+
+    expect(SONG_VIDEO_STALE_AFTER_MS).toBe(30 * 60 * 1000);
+    expect(pollWhileVideosBusy({ state: { data: page(stale) } }, now)).toBe(false);
+    expect(pollWhileVideosBusy({ state: { data: page({ ...stale, status: 'downloading' }) } }, now)).toBe(false);
+    expect(pollWhileVideosBusy({ state: { data: page(fresh) } }, now)).toBe(5000);
   });
 
   it('moves a row from queued to present by itself, with no dialog open', async () => {
