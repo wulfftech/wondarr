@@ -92,6 +92,11 @@ public static class ServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Scoped<IMusicVideoFinder, YouTubeMusicVideoFinder>());
         services.Replace(ServiceDescriptor.Scoped<IMusicVideoDownloader, YtDlpMusicVideoDownloader>());
 
+        // The scan fills the titles of videos downloaded before the title was kept from oEmbed; without a YouTube source
+        // nothing registers the backfill and the scan leaves them empty.
+        services.AddScoped<IMusicVideoTitleSource, OEmbedMusicVideoTitleSource>();
+        services.AddScoped<IMusicVideoTitleBackfill, MusicVideoTitleBackfill>();
+
         // The provider is a singleton, so the ISRC reader opens its own scope per call.
         services.AddSingleton<ISongIsrcSource, SongIsrcSource>();
         services.AddSingleton<ISourceProvider, YouTubeSourceProvider>();

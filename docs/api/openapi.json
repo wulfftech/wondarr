@@ -9951,6 +9951,15 @@
           },
           "status": {
             "$ref": "#/components/schemas/MusicVideoStatus"
+          },
+          "aheadInQueue": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -10410,6 +10419,35 @@
           }
         }
       },
+      "MusicVideoPendingReplacementResource": {
+        "required": [
+          "youTubeVideoId",
+          "videoTitle",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "youTubeVideoId": {
+            "type": "string"
+          },
+          "videoTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/MusicVideoPendingStatus"
+          }
+        }
+      },
+      "MusicVideoPendingStatus": {
+        "enum": [
+          "queued",
+          "downloading"
+        ],
+        "type": "string"
+      },
       "MusicVideoRemovedResource": {
         "required": [
           "path",
@@ -10572,6 +10610,32 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "bestAvailableHeight": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "bestAvailableCheckedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "pendingReplacement": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MusicVideoPendingReplacementResource"
+              }
+            ]
           }
         }
       },
@@ -10620,6 +10684,15 @@
                 "$ref": "#/components/schemas/MusicVideoStatus"
               }
             ]
+          },
+          "aheadInQueue": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },

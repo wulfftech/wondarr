@@ -235,7 +235,7 @@ internal sealed class MusicVideoHarness : IDisposable
     /// <summary>Gets or sets a disk for the importer to use instead of the real one, to make a step fail.</summary>
     public IDiskOperations? Disk { get; set; }
 
-    public int CommandCount { get; private set; }
+    public int CommandCount { get; set; }
 
     public string VideoRoot => Temp.Full("videos");
 
