@@ -47,7 +47,9 @@ public sealed record YouTubeSettingsResource(
                 settings.Ytdlp.SleepRequestsSeconds,
                 settings.Ytdlp.SleepIntervalSeconds,
                 settings.Ytdlp.MaxSleepIntervalSeconds,
-                settings.Ytdlp.Retries),
+                settings.Ytdlp.Retries,
+                settings.Ytdlp.AutoUpdate,
+                settings.Ytdlp.UpdateChannel),
             [.. settings.ReadOnlyFields]);
     }
 
@@ -60,16 +62,20 @@ public sealed record YouTubeSettingsResource(
     }
 }
 
-/// <summary>The yt-dlp pacing flags, as the settings page reads them.</summary>
+/// <summary>The yt-dlp pacing flags and update settings, as the settings page reads them.</summary>
 /// <param name="SleepRequestsSeconds">Seconds between HTTP requests during extraction.</param>
 /// <param name="SleepIntervalSeconds">Seconds before each download.</param>
 /// <param name="MaxSleepIntervalSeconds">The upper bound of the pre-download sleep.</param>
 /// <param name="Retries">How many times yt-dlp itself retries a failed download.</param>
+/// <param name="AutoUpdate">Whether Wondarr keeps its own copy of yt-dlp current.</param>
+/// <param name="UpdateChannel">The release channel the update follows: <c>stable</c> or <c>nightly</c>.</param>
 public sealed record YouTubeYtdlpPacingResource(
     double SleepRequestsSeconds,
     int SleepIntervalSeconds,
     int MaxSleepIntervalSeconds,
-    int Retries);
+    int Retries,
+    bool AutoUpdate,
+    string UpdateChannel);
 
 /// <summary>
 /// A change to the YouTube settings. Every field is optional and an absent field is left alone; a
@@ -107,31 +113,87 @@ public sealed record YouTubeSettingsUpdateResource(
                 Ytdlp.SleepRequestsSeconds,
                 Ytdlp.SleepIntervalSeconds,
                 Ytdlp.MaxSleepIntervalSeconds,
-                Ytdlp.Retries));
+                Ytdlp.Retries,
+                Ytdlp.AutoUpdate,
+                Ytdlp.UpdateChannel));
 }
 
-/// <summary>The yt-dlp pacing flags to change; an absent flag is left alone.</summary>
+/// <summary>The yt-dlp pacing flags and update settings to change; an absent one is left alone.</summary>
 /// <param name="SleepRequestsSeconds">New seconds between HTTP requests during extraction.</param>
 /// <param name="SleepIntervalSeconds">New seconds before each download.</param>
 /// <param name="MaxSleepIntervalSeconds">New upper bound of the pre-download sleep.</param>
 /// <param name="Retries">New retry count.</param>
+/// <param name="AutoUpdate">New state of the automatic-update switch.</param>
+/// <param name="UpdateChannel">New update channel: <c>stable</c> or <c>nightly</c>.</param>
 public sealed record YouTubeYtdlpPacingUpdateResource(
     double? SleepRequestsSeconds = null,
     int? SleepIntervalSeconds = null,
     int? MaxSleepIntervalSeconds = null,
-    int? Retries = null);
+    int? Retries = null,
+    bool? AutoUpdate = null,
+    string? UpdateChannel = null);
 
-/// <summary>What the yt-dlp health probe found, as the settings page shows it.</summary>
+/// <summary>What the yt-dlp health probe found, and how the copy in use is kept current, as the settings page shows it.</summary>
 /// <param name="Version">The version <c>yt-dlp --version</c> printed, or <c>null</c> when it did not answer.</param>
 /// <param name="HasJsRuntime">Whether the Deno runtime (the EJS interpreter yt-dlp needs) is runnable.</param>
 /// <param name="BinaryAvailable">Whether the yt-dlp binary answered at all.</param>
-public sealed record YouTubeStatusResource(string? Version, bool HasJsRuntime, bool BinaryAvailable)
+/// <param name="Source">Which yt-dlp runs: <c>managed</c> (Wondarr's own copy, kept current), <c>bundled</c> (the image's) or <c>custom</c> (a path the user set).</param>
+/// <param name="BundledVersion">The version of the yt-dlp the image bundles, when known.</param>
+/// <param name="AutoUpdate">Whether automatic updates are on.</param>
+/// <param name="UpdateChannel">The channel the update follows: <c>stable</c> or <c>nightly</c>.</param>
+/// <param name="UpdateActive">Whether the update would do anything now: it is on, the path is not custom, and the YouTube source or music videos is on.</param>
+/// <param name="LastCheckedAt">When the update last checked, or <c>null</c> since Wondarr started.</param>
+/// <param name="LastCheckSucceeded">Whether that check finished, or <c>null</c> when there was none.</param>
+/// <param name="LastCheckMessage">What that check found, in a sentence.</param>
+/// <param name="LatestVersion">The newest yt-dlp release the last successful check saw.</param>
+/// <param name="JsRuntimeWarning">yt-dlp's complaint that the JS runtime (Deno) is unsupported or too old, when it made one.</param>
+/// <param name="FallbackReason">Why the updated copy is not in use, when it is broken and the bundled one runs instead.</param>
+public sealed record YouTubeStatusResource(
+    string? Version,
+    bool HasJsRuntime,
+    bool BinaryAvailable,
+    string Source,
+    string? BundledVersion,
+    bool AutoUpdate,
+    string UpdateChannel,
+    bool UpdateActive,
+    DateTimeOffset? LastCheckedAt,
+    bool? LastCheckSucceeded,
+    string? LastCheckMessage,
+    string? LatestVersion,
+    string? JsRuntimeWarning,
+    string? FallbackReason)
 {
-    /// <summary>Maps the probe's answer onto the resource.</summary>
-    public static YouTubeStatusResource From(YtDlpHealthStatus status)
+    /// <summary>Maps the probe's answer and the update's state onto the resource.</summary>
+    public static YouTubeStatusResource From(YtDlpHealthStatus status, YtDlpUpdateStatus update)
     {
         ArgumentNullException.ThrowIfNull(status);
+        ArgumentNullException.ThrowIfNull(update);
 
-        return new YouTubeStatusResource(status.Version, status.HasJsRuntime, status.BinaryAvailable);
+        var source = update.Source switch
+        {
+            YtDlpBinarySource.Managed => "managed",
+            YtDlpBinarySource.Custom => "custom",
+            _ => "bundled",
+        };
+
+        // When the bundled binary is the one that runs, its version is the probe's.
+        var bundledVersion = update.BundledVersion ?? (update.Source == YtDlpBinarySource.Bundled ? status.Version : null);
+
+        return new YouTubeStatusResource(
+            status.Version,
+            status.HasJsRuntime,
+            status.BinaryAvailable,
+            source,
+            bundledVersion,
+            update.AutoUpdate,
+            update.UpdateChannel,
+            update.UpdateActive,
+            update.LastCheckedAt,
+            update.LastCheckSucceeded,
+            update.LastCheckMessage,
+            update.LatestVersion,
+            update.JsRuntimeWarning,
+            update.FallbackReason);
     }
 }

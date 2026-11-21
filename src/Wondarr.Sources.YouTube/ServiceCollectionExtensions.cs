@@ -1,6 +1,7 @@
 using System.Net;
 using Wondarr.Core.HealthCheck;
 using Wondarr.Core.ImportLists;
+using Wondarr.Core.Jobs;
 using Wondarr.Core.MusicVideos;
 using Wondarr.Core.Sources;
 using Microsoft.Extensions.DependencyInjection;
@@ -58,6 +59,13 @@ public static class ServiceCollectionExtensions
             });
 
         // IProcessRunner is registered by Wondarr.Core.
+        // Every yt-dlp call asks IYtDlpBinary which binary to run: Wondarr's own updated copy, the bundled one or
+        // the user's. The daily UpdateYtDlp task keeps the copy current.
+        services.TryAddSingleton<IExecutableLocator, PathExecutableLocator>();
+        services.AddSingleton<IYtDlpBinary, YtDlpBinary>();
+        services.AddScoped<ICommandHandler, UpdateYtDlpCommandHandler>();
+        services.AddSingleton<IScheduledTaskSource, YtDlpScheduledTasks>();
+
         services.AddSingleton<IYtDlpRunner, YtDlpRunner>();
         services.AddSingleton<YtDlpAvailability>();
         services.AddSingleton<IHealthCheck, YtDlpHealthCheck>();

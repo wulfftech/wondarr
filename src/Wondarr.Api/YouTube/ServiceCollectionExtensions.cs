@@ -44,6 +44,7 @@ public static class ServiceCollectionExtensions
             provider.GetServices<IValidateOptions<YouTubeOptions>>(),
             provider.GetRequiredService<ISettingsRepository>(),
             provider.GetRequiredService<IProcessRunner>(),
+            provider.GetRequiredService<IYtDlpBinary>(),
             provider.GetRequiredService<YtDlpAvailability>(),
             Environment.GetEnvironmentVariables(),
             provider.GetRequiredService<ILogger<YouTubeSettingsService>>(),

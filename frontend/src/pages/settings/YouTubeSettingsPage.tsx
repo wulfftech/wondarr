@@ -4,6 +4,7 @@ import {
   Card,
   Group,
   Modal,
+  NativeSelect,
   NumberInput,
   SegmentedControl,
   Stack,
@@ -15,10 +16,12 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { CircleAlert, Lock, TriangleAlert } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { EmptyState, ErrorState, LoadingState } from '../../components/DataState';
+import { formatDateTime } from '../../components/song/format';
 import {
   readYouTubeProblems,
+  useCheckYtDlpNow,
   useTestYouTube,
   useUpdateYouTubeSettings,
   useYouTubeSettings,
@@ -43,7 +46,20 @@ const ENV_SUFFIX: Record<YouTubeFieldName, string> = {
   ytdlpSleepIntervalSeconds: 'YTDLP__SLEEP_INTERVAL_SECONDS',
   ytdlpMaxSleepIntervalSeconds: 'YTDLP__MAX_SLEEP_INTERVAL_SECONDS',
   ytdlpRetries: 'YTDLP__RETRIES',
+  ytdlpAutoUpdate: 'YTDLP__AUTO_UPDATE',
+  ytdlpUpdateChannel: 'YTDLP__UPDATE_CHANNEL',
 };
+
+/** How the status card says which yt-dlp runs. */
+const SOURCE_LABELS: Record<string, string> = {
+  managed: 'Updated automatically.',
+  bundled: 'Bundled with the image.',
+  custom: 'Custom path. Wondarr never updates it.',
+};
+
+/** How often the status is re-read while a Check now is still running, and for how long. */
+const CHECK_POLL_MS = 2000;
+const CHECK_POLL_LIMIT_MS = 60000;
 
 /** The one-time acknowledgement, remembered in localStorage. */
 function tosAcknowledged(): boolean {
@@ -121,21 +137,68 @@ function policyState(policy: YouTubeSettingsResource['outputPolicy']): PolicySta
   };
 }
 
-/** The status card: the cached probe's answer, and the Test button that runs a fresh one. */
+/** The status card: which yt-dlp runs, how it is kept current, and the Test and Check now buttons. */
 function StatusCard() {
-  const status = useYouTubeStatus();
+  // A check that was just queued runs in the background; the status is polled until it reports a newer time.
+  const [waitingFor, setWaitingFor] = useState<{ lastCheckedAt: string | null } | null>(null);
+  const isWaiting = (data: { lastCheckedAt?: string | null } | undefined) =>
+    waitingFor !== null && (data?.lastCheckedAt ?? null) === waitingFor.lastCheckedAt;
+  const status = useYouTubeStatus((data) => (isWaiting(data) ? CHECK_POLL_MS : false));
   const test = useTestYouTube();
+  const check = useCheckYtDlpNow();
 
-  const answer = test.data ?? status.data;
+  // A Test writes its answer into the status query, so the cache holds the newest of the two.
+  const answer = status.data;
+  const polling = isWaiting(answer);
+
+  // The backstop for a run that records nothing (it skipped, or the task is still queued behind another).
+  useEffect(() => {
+    if (waitingFor === null) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setWaitingFor(null), CHECK_POLL_LIMIT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [waitingFor]);
+
+  const checkNow = () =>
+    check.mutate(undefined, {
+      onSuccess: () => {
+        setWaitingFor({ lastCheckedAt: answer?.lastCheckedAt ?? null });
+        notifications.show({ message: 'Checking for a newer yt-dlp. The result shows here.', color: 'blue' });
+      },
+    });
 
   return (
     <Card withBorder padding="md">
       <Stack gap="xs">
         <Group justify="space-between">
           <Text fw={600}>yt-dlp</Text>
-          <Button variant="light" size="xs" loading={test.isPending} onClick={() => test.mutate()}>
-            Test
-          </Button>
+          <Group gap="xs">
+            <Tooltip
+              label="Nothing to check: updates are off, the path is custom, or nothing uses yt-dlp yet."
+              withArrow
+              multiline
+              w={280}
+              disabled={answer === undefined || answer.updateActive}
+            >
+              <div>
+                <Button
+                  variant="light"
+                  size="xs"
+                  loading={check.isPending || polling}
+                  disabled={answer === undefined || !answer.updateActive}
+                  onClick={checkNow}
+                >
+                  Check now
+                </Button>
+              </div>
+            </Tooltip>
+            <Button variant="light" size="xs" loading={test.isPending} onClick={() => test.mutate()}>
+              Test
+            </Button>
+          </Group>
         </Group>
 
         {answer === undefined ? (
@@ -154,6 +217,36 @@ function StatusCard() {
                 : 'yt-dlp could not be run: it is not installed or not on PATH.'}
             </Text>
 
+            <Text size="sm" c="dimmed">
+              {SOURCE_LABELS[answer.source] ?? answer.source}
+            </Text>
+
+            {answer.bundledVersion !== null && answer.bundledVersion !== undefined && answer.source !== 'custom' && (
+              <Text size="sm" c="dimmed">
+                {`Bundled version: ${answer.bundledVersion}`}
+              </Text>
+            )}
+
+            {answer.source !== 'custom' && (
+              <Text size="sm" c={answer.lastCheckSucceeded === false ? 'orange' : 'dimmed'}>
+                {answer.lastCheckedAt === null || answer.lastCheckedAt === undefined
+                  ? 'No update check since Wondarr started.'
+                  : `Last check ${formatDateTime(answer.lastCheckedAt)}: ${answer.lastCheckMessage ?? 'no message'}`}
+              </Text>
+            )}
+
+            {answer.fallbackReason !== null && answer.fallbackReason !== undefined && (
+              <Text size="sm" c="orange">
+                {answer.fallbackReason}
+              </Text>
+            )}
+
+            {answer.jsRuntimeWarning !== null && answer.jsRuntimeWarning !== undefined && (
+              <Text size="sm" c="orange">
+                {`yt-dlp says the JS runtime (Deno) is out of date: ${answer.jsRuntimeWarning}. Wondarr does not update Deno.`}
+              </Text>
+            )}
+
             <Text size="sm" c={answer.hasJsRuntime ? undefined : 'orange'}>
               {answer.hasJsRuntime
                 ? 'The JS runtime (Deno) answered.'
@@ -165,6 +258,12 @@ function StatusCard() {
         {test.error !== null && (
           <Alert color="red" icon={<CircleAlert size={16} />}>
             {test.error.message}
+          </Alert>
+        )}
+
+        {check.error !== null && (
+          <Alert color="red" icon={<CircleAlert size={16} />}>
+            {check.error.message}
           </Alert>
         )}
       </Stack>
@@ -188,6 +287,9 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
   const [sleepInterval, setSleepInterval] = useState<number | string>(settings.ytdlp.sleepIntervalSeconds);
   const [maxSleepInterval, setMaxSleepInterval] = useState<number | string>(settings.ytdlp.maxSleepIntervalSeconds);
   const [retries, setRetries] = useState<number | string>(settings.ytdlp.retries);
+  const [autoUpdate, setAutoUpdate] = useState(settings.ytdlp.autoUpdate);
+  const [updateChannel, setUpdateChannel] = useState(settings.ytdlp.updateChannel);
+  const customPath = useYouTubeStatus().data?.source === 'custom';
 
   // The one-time ToS disclaimer: shown the first time the user enables the source, remembered after.
   const [tosOpen, setTosOpen] = useState(false);
@@ -227,13 +329,17 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
       !isLocked('ytdlpSleepRequestsSeconds') ||
       !isLocked('ytdlpSleepIntervalSeconds') ||
       !isLocked('ytdlpMaxSleepIntervalSeconds') ||
-      !isLocked('ytdlpRetries')
+      !isLocked('ytdlpRetries') ||
+      !isLocked('ytdlpAutoUpdate') ||
+      !isLocked('ytdlpUpdateChannel')
     ) {
       body.ytdlp = {
         sleepRequestsSeconds: isLocked('ytdlpSleepRequestsSeconds') ? undefined : toNumber(sleepRequests),
         sleepIntervalSeconds: isLocked('ytdlpSleepIntervalSeconds') ? undefined : toNumber(sleepInterval),
         maxSleepIntervalSeconds: isLocked('ytdlpMaxSleepIntervalSeconds') ? undefined : toNumber(maxSleepInterval),
         retries: isLocked('ytdlpRetries') ? undefined : toNumber(retries),
+        autoUpdate: isLocked('ytdlpAutoUpdate') ? undefined : autoUpdate,
+        updateChannel: isLocked('ytdlpUpdateChannel') ? undefined : updateChannel,
       };
     }
 
@@ -395,6 +501,39 @@ function YouTubeForm({ settings }: { settings: YouTubeSettingsResource }) {
             </>
           )}
         </Stack>
+
+        <Text fw={600}>yt-dlp updates</Text>
+
+        <Lockable field="ytdlpAutoUpdate" locked={isLocked('ytdlpAutoUpdate')}>
+          <Switch
+            label="Keep yt-dlp up to date"
+            description={
+              customPath
+                ? 'Off while binary_path points at your own yt-dlp. Wondarr never touches that one.'
+                : "YouTube breaks yt-dlp every few weeks. Wondarr checks daily and updates its own copy with yt-dlp's updater."
+            }
+            checked={autoUpdate}
+            disabled={isLocked('ytdlpAutoUpdate') || customPath}
+            error={fieldError('ytdlpAutoUpdate')}
+            onChange={(event) => setAutoUpdate(event.currentTarget.checked)}
+          />
+        </Lockable>
+
+        <Lockable field="ytdlpUpdateChannel" locked={isLocked('ytdlpUpdateChannel')}>
+          <NativeSelect
+            label="Update channel"
+            description="Stable is yt-dlp's release. Nightly gets fixes days earlier and breaks more often."
+            data={[
+              { value: 'stable', label: 'Stable' },
+              { value: 'nightly', label: 'Nightly' },
+            ]}
+            value={updateChannel}
+            disabled={isLocked('ytdlpUpdateChannel') || customPath}
+            rightSection={lockIcon('ytdlpUpdateChannel')}
+            error={fieldError('ytdlpUpdateChannel')}
+            onChange={(event) => setUpdateChannel(event.currentTarget.value)}
+          />
+        </Lockable>
 
         <Text fw={600}>yt-dlp pacing</Text>
 

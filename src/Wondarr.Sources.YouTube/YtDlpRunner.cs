@@ -85,20 +85,24 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
     private static readonly TimeSpan VideoReadGateWait = TimeSpan.FromSeconds(20);
 
     private readonly IProcessRunner _runner;
+    private readonly IYtDlpBinary _binary;
     private readonly IOptionsMonitor<YouTubeOptions> _options;
     private readonly ILogger<YtDlpRunner> _logger;
     private readonly SemaphoreSlim _gate;
 
     /// <summary>Initialises a new instance of the <see cref="YtDlpRunner"/> class.</summary>
     /// <param name="runner">Runs yt-dlp without a shell.</param>
+    /// <param name="binary">Says which yt-dlp binary to run: Wondarr's updated copy, the bundled one or the user's own.</param>
     /// <param name="options">The <c>youtube</c> section of <c>config.yml</c>.</param>
     /// <param name="logger">Logs the video id and the classified kind; never the command line.</param>
     public YtDlpRunner(
         IProcessRunner runner,
+        IYtDlpBinary binary,
         IOptionsMonitor<YouTubeOptions> options,
         ILogger<YtDlpRunner> logger)
     {
         _runner = runner ?? throw new ArgumentNullException(nameof(runner));
+        _binary = binary ?? throw new ArgumentNullException(nameof(binary));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -137,12 +141,13 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
             var options = _options.CurrentValue;
             var arguments = BuildDownloadArguments(videoId, destinationDir, options);
 
+            var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
             ProcessResult result;
 
             try
             {
                 result = await _runner.RunAsync(
-                    options.Ytdlp.BinaryPath,
+                    binaryPath,
                     arguments,
                     TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
@@ -189,12 +194,13 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
             var options = _options.CurrentValue;
             var arguments = BuildVideoDownloadArguments(videoId, destinationDir, maxHeight, options);
 
+            var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
             ProcessResult result;
 
             try
             {
                 result = await _runner.RunAsync(
-                    options.Ytdlp.BinaryPath,
+                    binaryPath,
                     arguments,
                     TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
@@ -258,12 +264,13 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         try
         {
             var timeoutSeconds = Math.Min(options.Ytdlp.TimeoutSeconds, VideoReadTimeoutSeconds);
+            var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
             ProcessResult result;
 
             try
             {
                 result = await _runner.RunAsync(
-                    options.Ytdlp.BinaryPath,
+                    binaryPath,
                     BuildVideoReadArguments(videoId, options),
                     TimeSpan.FromSeconds(timeoutSeconds),
                     cancellationToken).ConfigureAwait(false);
@@ -345,12 +352,13 @@ public sealed partial class YtDlpRunner : IYtDlpRunner, IDisposable
         YouTubeOptions options,
         CancellationToken cancellationToken)
     {
+        var binaryPath = (await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false)).Path;
         ProcessResult result;
 
         try
         {
             result = await _runner.RunAsync(
-                options.Ytdlp.BinaryPath,
+                binaryPath,
                 ["-F", "--no-progress", "--", WatchUrl(videoId)],
                 TimeSpan.FromSeconds(options.Ytdlp.TimeoutSeconds),
                 cancellationToken).ConfigureAwait(false);

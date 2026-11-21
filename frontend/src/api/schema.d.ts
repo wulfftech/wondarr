@@ -8708,6 +8708,18 @@ export interface components {
             version: null | string;
             hasJsRuntime: boolean;
             binaryAvailable: boolean;
+            source: string;
+            bundledVersion: null | string;
+            autoUpdate: boolean;
+            updateChannel: string;
+            updateActive: boolean;
+            /** Format: date-time */
+            lastCheckedAt: null | string;
+            lastCheckSucceeded: null | boolean;
+            lastCheckMessage: null | string;
+            latestVersion: null | string;
+            jsRuntimeWarning: null | string;
+            fallbackReason: null | string;
         };
         YouTubeVideoResource: {
             videoId: string;
@@ -8727,6 +8739,8 @@ export interface components {
             maxSleepIntervalSeconds: number | string;
             /** Format: int32 */
             retries: number | string;
+            autoUpdate: boolean;
+            updateChannel: string;
         };
         YouTubeYtdlpPacingUpdateResource: {
             /** Format: double */
@@ -8737,6 +8751,8 @@ export interface components {
             maxSleepIntervalSeconds?: null | number | string;
             /** Format: int32 */
             retries?: null | number | string;
+            autoUpdate?: null | boolean;
+            updateChannel?: null | string;
         };
     };
     responses: never;

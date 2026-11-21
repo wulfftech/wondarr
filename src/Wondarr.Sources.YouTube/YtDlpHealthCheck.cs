@@ -23,21 +23,26 @@ public sealed record YtDlpHealthStatus(string? Version, bool HasJsRuntime)
 public sealed partial class YtDlpAvailability : IDisposable
 {
     private readonly IProcessRunner _runner;
+    private readonly IYtDlpBinary _binary;
     private readonly IOptionsMonitor<YouTubeOptions> _options;
     private readonly ILogger<YtDlpAvailability> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private YtDlpHealthStatus? _status;
+    private int _statusGeneration;
 
     /// <summary>Initialises a new instance of the <see cref="YtDlpAvailability"/> class.</summary>
     /// <param name="runner">Runs the binaries without a shell.</param>
+    /// <param name="binary">Says which yt-dlp binary to probe.</param>
     /// <param name="options">The <c>youtube</c> section of <c>config.yml</c>.</param>
     /// <param name="logger">Logs a probe that fails at Debug.</param>
     public YtDlpAvailability(
         IProcessRunner runner,
+        IYtDlpBinary binary,
         IOptionsMonitor<YouTubeOptions> options,
         ILogger<YtDlpAvailability> logger)
     {
         _runner = runner ?? throw new ArgumentNullException(nameof(runner));
+        _binary = binary ?? throw new ArgumentNullException(nameof(binary));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -49,12 +54,17 @@ public sealed partial class YtDlpAvailability : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>Checks the binaries, running them only the first time.</summary>
-    /// <param name="cancellationToken">Cancels the first check.</param>
+    /// <summary>
+    /// Checks the binaries, running them only the first time, and again whenever the binary in use changed
+    /// (an update, a fallback, a settings change): the cache belongs to one <see cref="YtDlpResolution.Generation"/>.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the check.</param>
     /// <returns>The cached status.</returns>
     public async Task<YtDlpHealthStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        if (_status is { } cached)
+        var resolution = await _binary.ResolveAsync(cancellationToken).ConfigureAwait(false);
+
+        if (_status is { } cached && Volatile.Read(ref _statusGeneration) == resolution.Generation)
         {
             return cached;
         }
@@ -63,7 +73,11 @@ public sealed partial class YtDlpAvailability : IDisposable
 
         try
         {
-            _status ??= await RunAsync(cancellationToken).ConfigureAwait(false);
+            if (_status is null || _statusGeneration != resolution.Generation)
+            {
+                _status = await RunAsync(resolution.Path, cancellationToken).ConfigureAwait(false);
+                _statusGeneration = resolution.Generation;
+            }
 
             return _status;
         }
@@ -79,15 +93,17 @@ public sealed partial class YtDlpAvailability : IDisposable
     /// contract — a new dependency lands here, not at the call site.
     /// </summary>
     /// <param name="runner">Runs the binaries without a shell.</param>
+    /// <param name="binary">Says which yt-dlp binary to probe.</param>
     /// <param name="options">The <c>youtube</c> section of <c>config.yml</c>.</param>
     /// <param name="logger">The probe's own logger.</param>
     /// <returns>A fresh availability whose first check runs the binaries again.</returns>
     public static YtDlpAvailability CreateProbe(
         IProcessRunner runner,
+        IYtDlpBinary binary,
         IOptionsMonitor<YouTubeOptions> options,
-        ILogger<YtDlpAvailability> logger) => new(runner, options, logger);
+        ILogger<YtDlpAvailability> logger) => new(runner, binary, options, logger);
 
-    private async Task<YtDlpHealthStatus> RunAsync(CancellationToken cancellationToken)
+    private async Task<YtDlpHealthStatus> RunAsync(string ytdlpPath, CancellationToken cancellationToken)
     {
         var options = _options.CurrentValue;
 
@@ -95,7 +111,7 @@ public sealed partial class YtDlpAvailability : IDisposable
         // download timeout cannot make a health check hang, without adding a second setting.
         var timeout = TimeSpan.FromSeconds(Math.Min(options.Ytdlp.TimeoutSeconds, 30));
 
-        var version = await ProbeAsync(options.Ytdlp.BinaryPath, timeout, cancellationToken).ConfigureAwait(false);
+        var version = await ProbeAsync(ytdlpPath, timeout, cancellationToken).ConfigureAwait(false);
         var denoVersion = await ProbeAsync("deno", timeout, cancellationToken).ConfigureAwait(false);
 
         return new YtDlpHealthStatus(version, denoVersion is not null);
@@ -139,16 +155,32 @@ public sealed partial class YtDlpAvailability : IDisposable
 /// </summary>
 public sealed class YtDlpHealthCheck : IHealthCheck
 {
+    /// <summary>How many days older than the newest release the yt-dlp in use may be before the check warns.</summary>
+    public const int MaxDaysBehind = 60;
+
+    /// <summary>How many days the update may go without a successful check before the check warns about that.</summary>
+    public const int MaxDaysWithoutCheck = 7;
+
     private readonly YtDlpAvailability _availability;
+    private readonly IYtDlpBinary _binary;
     private readonly IOptionsMonitor<YouTubeOptions> _options;
+    private readonly TimeProvider _time;
 
     /// <summary>Initialises a new instance of the <see cref="YtDlpHealthCheck"/> class.</summary>
-    /// <param name="availability">The process-lifetime cache of the version checks.</param>
+    /// <param name="availability">The cache of the version checks.</param>
+    /// <param name="binary">Knows what the update task last found.</param>
     /// <param name="options">The YouTube settings: a source that is off has nothing to warn about.</param>
-    public YtDlpHealthCheck(YtDlpAvailability availability, IOptionsMonitor<YouTubeOptions> options)
+    /// <param name="time">The clock.</param>
+    public YtDlpHealthCheck(
+        YtDlpAvailability availability,
+        IYtDlpBinary binary,
+        IOptionsMonitor<YouTubeOptions> options,
+        TimeProvider time)
     {
         _availability = availability ?? throw new ArgumentNullException(nameof(availability));
+        _binary = binary ?? throw new ArgumentNullException(nameof(binary));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _time = time ?? throw new ArgumentNullException(nameof(time));
     }
 
     /// <inheritdoc />
@@ -175,6 +207,22 @@ public sealed class YtDlpHealthCheck : IHealthCheck
                 null);
         }
 
+        var update = await _binary.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+
+        if (update.JsRuntimeWarning is { } runtimeProblem)
+        {
+            return new HealthReport(
+                Name,
+                HealthCheckResult.Warning,
+                $"yt-dlp {status.Version} reports a problem with the JS runtime (Deno), which Wondarr does not update: {runtimeProblem}",
+                null);
+        }
+
+        if (update.UpdateActive && StaleWarning(update, status.Version) is { } stale)
+        {
+            return new HealthReport(Name, HealthCheckResult.Warning, stale, null);
+        }
+
         var jsRuntime = status.HasJsRuntime
             ? string.Empty
             : " — the JS runtime (Deno) is missing: YouTube extraction will fail";
@@ -184,5 +232,33 @@ public sealed class YtDlpHealthCheck : IHealthCheck
             HealthCheckResult.Ok,
             $"yt-dlp {status.Version} available{jsRuntime}",
             null);
+    }
+
+    /// <summary>
+    /// A sentence when the update has stopped working, or <see langword="null"/>. No successful check for a week
+    /// comes first, because the newest release the last check saw is then out of date itself.
+    /// </summary>
+    private string? StaleWarning(YtDlpUpdateStatus update, string? inUse)
+    {
+        var now = _time.GetUtcNow();
+        var since = update.LastSuccessAt ?? update.StartedAt;
+        var quiet = (now - since).Days;
+
+        if (quiet > MaxDaysWithoutCheck)
+        {
+            return $"yt-dlp has not been checked for updates in {quiet} days — YouTube downloads may fail until it is";
+        }
+
+        if (YtDlpVersion.DateOf(update.LatestVersion) is { } newest && YtDlpVersion.DateOf(inUse) is { } current)
+        {
+            var behind = newest.DayNumber - current.DayNumber;
+
+            if (behind > MaxDaysBehind)
+            {
+                return $"yt-dlp {inUse} is {behind} days older than the newest release ({update.LatestVersion}) — YouTube downloads may fail until it is updated";
+            }
+        }
+
+        return null;
     }
 }

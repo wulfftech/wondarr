@@ -22,6 +22,7 @@ public class YtDlpRunnerTests
     private static YtDlpRunner Build(FakeProcessRunner runner, YouTubeOptions? options = null) =>
         new(
             runner,
+            new FixedYtDlpBinary(),
             new TestOptionsMonitor<YouTubeOptions>(options ?? new YouTubeOptions()),
             NullLogger<YtDlpRunner>.Instance);
 
@@ -369,5 +370,23 @@ public class YtDlpRunnerTests
         await download;
         (await read).Channel.Should().Be("Hype Duo");
         runner.Calls.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Runs_the_binary_the_resolver_names_not_the_configured_path()
+    {
+        var runner = new FakeProcessRunner()
+            .Enqueue(YtDlpFixtures.Read("download-success.stdout"))
+            .Enqueue(YtDlpFixtures.Read("download-success.stdout"));
+
+        var subject = new YtDlpRunner(
+            runner,
+            new FixedYtDlpBinary("/config/tools/yt-dlp/yt-dlp"),
+            new TestOptionsMonitor<YouTubeOptions>(new YouTubeOptions()),
+            NullLogger<YtDlpRunner>.Instance);
+
+        await subject.DownloadAsync("abc123", "/grabs/queue-1", CancellationToken.None);
+
+        runner.Calls[0].FileName.Should().Be("/config/tools/yt-dlp/yt-dlp");
     }
 }

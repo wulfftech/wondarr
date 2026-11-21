@@ -15396,7 +15396,18 @@
         "required": [
           "version",
           "hasJsRuntime",
-          "binaryAvailable"
+          "binaryAvailable",
+          "source",
+          "bundledVersion",
+          "autoUpdate",
+          "updateChannel",
+          "updateActive",
+          "lastCheckedAt",
+          "lastCheckSucceeded",
+          "lastCheckMessage",
+          "latestVersion",
+          "jsRuntimeWarning",
+          "fallbackReason"
         ],
         "type": "object",
         "properties": {
@@ -15411,6 +15422,61 @@
           },
           "binaryAvailable": {
             "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "bundledVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "autoUpdate": {
+            "type": "boolean"
+          },
+          "updateChannel": {
+            "type": "string"
+          },
+          "updateActive": {
+            "type": "boolean"
+          },
+          "lastCheckedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lastCheckSucceeded": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "lastCheckMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "latestVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "jsRuntimeWarning": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fallbackReason": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -15465,7 +15531,9 @@
           "sleepRequestsSeconds",
           "sleepIntervalSeconds",
           "maxSleepIntervalSeconds",
-          "retries"
+          "retries",
+          "autoUpdate",
+          "updateChannel"
         ],
         "type": "object",
         "properties": {
@@ -15500,6 +15568,12 @@
               "string"
             ],
             "format": "int32"
+          },
+          "autoUpdate": {
+            "type": "boolean"
+          },
+          "updateChannel": {
+            "type": "string"
           }
         }
       },
@@ -15541,6 +15615,18 @@
               "string"
             ],
             "format": "int32"
+          },
+          "autoUpdate": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "updateChannel": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       }

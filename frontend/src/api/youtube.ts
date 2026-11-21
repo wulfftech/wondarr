@@ -31,6 +31,8 @@ export const YOUTUBE_FIELDS = [
   'ytdlpSleepIntervalSeconds',
   'ytdlpMaxSleepIntervalSeconds',
   'ytdlpRetries',
+  'ytdlpAutoUpdate',
+  'ytdlpUpdateChannel',
 ] as const;
 
 export type YouTubeFieldName = (typeof YOUTUBE_FIELDS)[number];
@@ -102,6 +104,15 @@ const MESSAGE_KEYS: Record<string, YouTubeFieldName> = {
   'ytdlp:sleep_interval_seconds': 'ytdlpSleepIntervalSeconds',
   'ytdlp:max_sleep_interval_seconds': 'ytdlpMaxSleepIntervalSeconds',
   'ytdlp:retries': 'ytdlpRetries',
+  'ytdlp:auto_update': 'ytdlpAutoUpdate',
+  'ytdlp:update_channel': 'ytdlpUpdateChannel',
+  // The validator names a nested key with a dot: `youtube.ytdlp.update_channel: must be …`.
+  'ytdlp.sleep_requests_seconds': 'ytdlpSleepRequestsSeconds',
+  'ytdlp.sleep_interval_seconds': 'ytdlpSleepIntervalSeconds',
+  'ytdlp.max_sleep_interval_seconds': 'ytdlpMaxSleepIntervalSeconds',
+  'ytdlp.retries': 'ytdlpRetries',
+  'ytdlp.auto_update': 'ytdlpAutoUpdate',
+  'ytdlp.update_channel': 'ytdlpUpdateChannel',
 };
 
 /** One server message, placed against the field it names when it names one. */
@@ -119,7 +130,7 @@ export interface YouTubeProblem {
  */
 export function readYouTubeProblems(messages: string[]): YouTubeProblem[] {
   return messages.map((message) => {
-    const match = /^youtube\.([a-z_:]+):\s*(.*)$/.exec(message);
+    const match = /^youtube\.([a-z_:.]+):\s*(.*)$/.exec(message);
 
     if (match === null) {
       return { field: null, message };
@@ -151,12 +162,18 @@ export function useYouTubeSettings(): UseQueryResult<YouTubeSettingsResource, Er
   });
 }
 
-/** What the health probe last found: the yt-dlp version and the JS-runtime flag. */
-export function useYouTubeStatus(): UseQueryResult<YouTubeStatusResource, Error> {
+/**
+ * What the health probe last found (the yt-dlp version and the JS-runtime flag) and how the copy in use is kept
+ * current. `refetchMs` polls (a number, or a function of the latest answer) while a queued check is still running.
+ */
+export function useYouTubeStatus(
+  refetchMs: number | false | ((data: YouTubeStatusResource | undefined) => number | false) = false,
+): UseQueryResult<YouTubeStatusResource, Error> {
   const client = useApiClient();
 
   return useQuery({
     queryKey: YOUTUBE_STATUS_QUERY_KEY,
+    refetchInterval: typeof refetchMs === 'function' ? (query) => refetchMs(query.state.data) : refetchMs,
     queryFn: async (): Promise<YouTubeStatusResource> => {
       const { data, response } = await client.GET('/api/v1/youtube/status');
 
@@ -219,6 +236,24 @@ export function useTestYouTube(): UseMutationResult<YouTubeStatusResource, Error
     },
     onSuccess: (result) => {
       queryClient.setQueryData(YOUTUBE_STATUS_QUERY_KEY, result);
+    },
+  });
+}
+
+/** The scheduled task that keeps yt-dlp current, by the name `POST /api/v1/command` knows it. */
+export const UPDATE_YTDLP_COMMAND = 'UpdateYtDlp';
+
+/** Queues the yt-dlp update now. The task runs in the background; the status shows what it found. */
+export function useCheckYtDlpNow(): UseMutationResult<void, Error, void> {
+  const client = useApiClient();
+
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      const { response } = await client.POST('/api/v1/command', { body: { name: UPDATE_YTDLP_COMMAND } });
+
+      if (!response.ok) {
+        throw new ApiError(response.status, 'The yt-dlp update check could not be queued.');
+      }
     },
   });
 }

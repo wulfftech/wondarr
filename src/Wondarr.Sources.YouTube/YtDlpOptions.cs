@@ -8,8 +8,33 @@ namespace Wondarr.Sources.YouTube;
 /// </summary>
 public sealed class YtDlpOptions
 {
+    /// <summary>The <see cref="BinaryPath"/> a fresh install carries: the copy the image bundles, found on <c>PATH</c>.</summary>
+    public const string DefaultBinaryPath = "yt-dlp";
+
+    /// <summary>The release channel that follows yt-dlp's stable releases.</summary>
+    public const string StableChannel = "stable";
+
+    /// <summary>The release channel that follows yt-dlp's nightly builds.</summary>
+    public const string NightlyChannel = "nightly";
+
     /// <summary>Path or name of the yt-dlp binary.</summary>
-    public string BinaryPath { get; set; } = "yt-dlp";
+    public string BinaryPath { get; set; } = DefaultBinaryPath;
+
+    /// <summary>
+    /// Whether Wondarr keeps its own copy of yt-dlp current, with yt-dlp's own updater. A
+    /// <see cref="BinaryPath"/> the user set is never touched, whatever this says.
+    /// </summary>
+    public bool AutoUpdate { get; set; } = true;
+
+    /// <summary>Which yt-dlp release channel the update follows: <c>stable</c> or <c>nightly</c>.</summary>
+    public string UpdateChannel { get; set; } = StableChannel;
+
+    /// <summary>
+    /// Gets a value indicating whether the user pointed <see cref="BinaryPath"/> at a binary of their own,
+    /// which Wondarr then neither copies nor updates.
+    /// </summary>
+    public bool HasCustomBinaryPath =>
+        !string.Equals(BinaryPath?.Trim(), DefaultBinaryPath, StringComparison.Ordinal);
 
     /// <summary>How long one download may run, in seconds.</summary>
     public int TimeoutSeconds { get; set; } = 600;
@@ -63,6 +88,13 @@ public sealed class YtDlpOptionsValidator : IValidateOptions<YouTubeOptions>
         if (string.IsNullOrWhiteSpace(options.BinaryPath))
         {
             failures.Add($"youtube.ytdlp.binary_path: must name the executable (was '{options.BinaryPath}')");
+        }
+
+        if (!string.Equals(options.UpdateChannel, YtDlpOptions.StableChannel, StringComparison.Ordinal)
+            && !string.Equals(options.UpdateChannel, YtDlpOptions.NightlyChannel, StringComparison.Ordinal))
+        {
+            failures.Add(
+                $"youtube.ytdlp.update_channel: must be 'stable' or 'nightly' (was '{options.UpdateChannel}')");
         }
 
         if (options.TimeoutSeconds is < 30 or > 3600)

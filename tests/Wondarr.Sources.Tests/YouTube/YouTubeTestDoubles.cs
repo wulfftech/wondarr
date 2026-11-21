@@ -75,6 +75,57 @@ internal sealed class FakeProcessRunner : IProcessRunner
     }
 }
 
+/// <summary>
+/// An <see cref="IYtDlpBinary"/> that always names one binary, for tests of the code that runs yt-dlp rather than of
+/// the choice of binary.
+/// </summary>
+internal sealed class FixedYtDlpBinary : IYtDlpBinary
+{
+    private readonly string _path;
+    private readonly YtDlpUpdateStatus _status;
+
+    /// <summary>Initialises a new instance of the <see cref="FixedYtDlpBinary"/> class.</summary>
+    /// <param name="path">The binary to name.</param>
+    /// <param name="status">What the update status says; the default is "bundled, nothing to update".</param>
+    public FixedYtDlpBinary(string path = "yt-dlp", YtDlpUpdateStatus? status = null)
+    {
+        _path = path;
+        _status = status ?? new YtDlpUpdateStatus(
+            YtDlpBinarySource.Bundled,
+            null,
+            AutoUpdate: true,
+            YtDlpOptions.StableChannel,
+            UpdateActive: false,
+            LastCheckedAt: null,
+            LastCheckSucceeded: null,
+            LastCheckMessage: null,
+            LastSuccessAt: null,
+            LatestVersion: null,
+            DateTimeOffset.UnixEpoch,
+            JsRuntimeWarning: null,
+            FallbackReason: null);
+    }
+
+    /// <inheritdoc />
+    public int Generation => 0;
+
+    /// <inheritdoc />
+    public Task<YtDlpResolution> ResolveAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new YtDlpResolution(_path, YtDlpBinarySource.Bundled, null, null, 0));
+
+    /// <inheritdoc />
+    public Task<YtDlpUpdateStatus> GetStatusAsync(CancellationToken cancellationToken) => Task.FromResult(_status);
+
+    /// <inheritdoc />
+    public void Invalidate()
+    {
+    }
+
+    /// <inheritdoc />
+    public Task<YtDlpUpdateRun> UpdateAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new YtDlpUpdateRun(YtDlpUpdateRunKind.Skipped, "fixed"));
+}
+
 /// <summary>A read-only <see cref="IOptionsMonitor{T}"/> over one instance, for tests that build a service by hand.</summary>
 internal sealed class TestOptionsMonitor<T> : IOptionsMonitor<T>
 {
